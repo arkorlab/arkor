@@ -4,6 +4,16 @@ Arkor is an open-source Postgres-compatible database that can’t leak by design
 Most security incidents start as small permission slips—an open table, an unchecked wildcard role, an AI agent holding a broad token.  
 Arkor makes that structurally impossible.
 
+## Why Arkor is Safe
+
+Developers — and even AI agents — can’t read user rows.  
+That means accidental or malicious access simply can’t happen.
+
+- **No privileged view.** Every table starts private—for every role.  
+- **Environment isolation without slowdown.** Dev sandboxes are fully privileged, but their credentials cannot reach staging or prod.  
+
+The result: leaks are structurally impossible, yet day-to-day coding still feels free.
+
 ## Our Philosophy
 
 **Protect the developer to protect the user.**
