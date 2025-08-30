@@ -86,6 +86,6 @@ You don’t need to configure these — they are built-in.
 
 ## Next Steps
 
-* Explore [Introduction → Why Arkor is Safe (Coming soon)](../introduction/why-safe-by-design.md)
+* Explore [Introduction → Why Arkor is Safe (Coming soon)](../introduction/index.md)
 * Try the [Vercel Integration](./vercel-integration.md) for production deploys
 * Read about reporting issues in [Security](../security/vulnerability-reporting.md)
