@@ -158,8 +158,12 @@ export interface InitOptions {
   name?: string;
   template?: TemplateId;
   skipInstall?: boolean;
-  packageManager: PackageManager;
+  /** Undefined when neither `--use-*` nor UA detection yielded a pm. */
+  packageManager: PackageManager | undefined;
 }
+
+const MANUAL_INSTALL_HINT =
+  "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 export async function runInit(options: InitOptions): Promise<void> {
   const cwd = process.cwd();
@@ -202,7 +206,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   const pm = options.packageManager;
 
   let installed = false;
-  if (!options.skipInstall) {
+  if (!options.skipInstall && pm) {
     ui.log.step(`Installing dependencies with ${pm}`);
     try {
       await install(pm, cwd);
@@ -213,9 +217,13 @@ export async function runInit(options: InitOptions): Promise<void> {
     }
   }
 
+  const trainCmd =
+    pm && pm !== "npm" ? `${pm} arkor train` : "npx arkor train";
   ui.outro(
     installed
-      ? "Next: `arkor train`"
-      : `Next: ${pm} install, then \`arkor train\``,
+      ? `Next: \`${trainCmd}\``
+      : pm
+        ? `Next: \`${pm} install\`, then \`${trainCmd}\``
+        : `Next: ${MANUAL_INSTALL_HINT}, then \`${trainCmd}\``,
   );
 }

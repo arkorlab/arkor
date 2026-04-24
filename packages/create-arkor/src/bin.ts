@@ -18,8 +18,12 @@ interface RunOptions {
   template?: TemplateId;
   yes?: boolean;
   skipInstall?: boolean;
-  packageManager: PackageManager;
+  /** Undefined when neither `--use-*` nor UA detection yielded a pm. */
+  packageManager: PackageManager | undefined;
 }
+
+const MANUAL_INSTALL_HINT =
+  "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 function isInteractive(): boolean {
   return Boolean(process.stdout.isTTY) && !process.env.CI;
@@ -86,7 +90,7 @@ async function run(options: RunOptions): Promise<void> {
   const pm = options.packageManager;
 
   let installed = false;
-  if (!options.skipInstall) {
+  if (!options.skipInstall && pm) {
     clack.log.step(`Installing dependencies with ${pm}`);
     try {
       await install(pm, cwd);
@@ -99,12 +103,20 @@ async function run(options: RunOptions): Promise<void> {
     }
   }
 
+  const installLine = installed
+    ? null
+    : pm
+      ? `  ${pm} install`
+      : `  ${MANUAL_INSTALL_HINT}`;
+  const trainLine =
+    pm && pm !== "npm" ? `  ${pm} arkor train` : `  npx arkor train`;
+
   clack.outro(
     [
       `Next steps:`,
       `  cd ${options.dir ?? "."}`,
-      ...(installed ? [] : [`  ${pm} install`]),
-      `  ${pm === "npm" ? "npx arkor" : `${pm} arkor`} train`,
+      ...(installLine ? [installLine] : []),
+      trainLine,
     ].join("\n"),
   );
 }
