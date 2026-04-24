@@ -4,6 +4,7 @@ import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import { detectPackageManager, scaffold, templateChoices } from "./scaffold";
+import { install } from "./install";
 import type { TemplateId } from "./templates";
 
 interface RunOptions {
@@ -11,6 +12,7 @@ interface RunOptions {
   name?: string;
   template?: TemplateId;
   yes?: boolean;
+  skipInstall?: boolean;
 }
 
 function isInteractive(): boolean {
@@ -76,11 +78,26 @@ async function run(options: RunOptions): Promise<void> {
   );
 
   const pm = detectPackageManager();
+
+  let installed = false;
+  if (!options.skipInstall) {
+    clack.log.step(`Installing dependencies with ${pm}`);
+    try {
+      await install(pm, cwd);
+      installed = true;
+    } catch (err) {
+      clack.log.warn(err instanceof Error ? err.message : String(err));
+      clack.log.info(
+        `Retry manually: cd ${options.dir ?? "."} && ${pm} install`,
+      );
+    }
+  }
+
   clack.outro(
     [
       `Next steps:`,
       `  cd ${options.dir ?? "."}`,
-      `  ${pm} install`,
+      ...(installed ? [] : [`  ${pm} install`]),
       `  ${pm === "npm" ? "npx arkor" : `${pm} arkor`} train`,
     ].join("\n"),
   );
@@ -98,8 +115,17 @@ program
     "starter template: minimal | alpaca | chatml",
   )
   .option("-y, --yes", "skip interactive prompts and accept the defaults")
+  .option("--skip-install", "skip installing dependencies after scaffolding")
   .action(
-    async (dir: string | undefined, opts: { name?: string; template?: string; yes?: boolean }) => {
+    async (
+      dir: string | undefined,
+      opts: {
+        name?: string;
+        template?: string;
+        yes?: boolean;
+        skipInstall?: boolean;
+      },
+    ) => {
       const template =
         opts.template === "minimal" ||
         opts.template === "alpaca" ||
@@ -111,6 +137,7 @@ program
         name: opts.name,
         template,
         yes: opts.yes,
+        skipInstall: opts.skipInstall,
       });
     },
   );

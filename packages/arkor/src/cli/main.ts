@@ -18,13 +18,22 @@ export async function main(argv: string[]): Promise<void> {
     .option("-y, --yes", "Accept defaults instead of prompting")
     .option("--name <name>", "Project name (default: directory name)")
     .option("--template <template>", "Starter template: minimal | alpaca | chatml")
-    .action(async (opts: { yes?: boolean; name?: string; template?: string }) => {
-      await runInit({
-        yes: opts.yes,
-        name: opts.name,
-        template: opts.template as "minimal" | "alpaca" | "chatml" | undefined,
-      });
-    });
+    .option("--skip-install", "Skip installing dependencies after scaffolding")
+    .action(
+      async (opts: {
+        yes?: boolean;
+        name?: string;
+        template?: string;
+        skipInstall?: boolean;
+      }) => {
+        await runInit({
+          yes: opts.yes,
+          name: opts.name,
+          template: opts.template as "minimal" | "alpaca" | "chatml" | undefined,
+          skipInstall: opts.skipInstall,
+        });
+      },
+    );
 
   program
     .command("login")

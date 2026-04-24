@@ -148,11 +148,9 @@ export async function scaffold(options: ScaffoldOptions): Promise<ScaffoldResult
   return { files, cwd };
 }
 
-export function detectPackageManager():
-  | "pnpm"
-  | "yarn"
-  | "bun"
-  | "npm" {
+export type PackageManager = "pnpm" | "yarn" | "bun" | "npm";
+
+export function detectPackageManager(): PackageManager {
   const ua = process.env.npm_config_user_agent ?? "";
   if (ua.startsWith("pnpm")) return "pnpm";
   if (ua.startsWith("yarn")) return "yarn";

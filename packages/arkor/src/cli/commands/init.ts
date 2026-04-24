@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promptSelect, promptText, ui } from "../prompts";
+import { detectPackageManager, install } from "../install";
 
 const ENTRY_PATH = "src/arkor/index.ts";
 const CONFIG_PATH = "arkor.config.ts";
@@ -156,6 +157,7 @@ export interface InitOptions {
   yes?: boolean;
   name?: string;
   template?: TemplateId;
+  skipInstall?: boolean;
 }
 
 export async function runInit(options: InitOptions = {}): Promise<void> {
@@ -195,5 +197,24 @@ export async function runInit(options: InitOptions = {}): Promise<void> {
     results.map(([name, action]) => `${action.padEnd(8)} ${name}`).join("\n"),
     "Files",
   );
-  ui.outro("Next: install deps (pnpm install / npm i) then `arkor train`.");
+
+  const pm = detectPackageManager();
+
+  let installed = false;
+  if (!options.skipInstall) {
+    ui.log.step(`Installing dependencies with ${pm}`);
+    try {
+      await install(pm, cwd);
+      installed = true;
+    } catch (err) {
+      ui.log.warn(err instanceof Error ? err.message : String(err));
+      ui.log.info(`Retry manually: ${pm} install`);
+    }
+  }
+
+  ui.outro(
+    installed
+      ? "Next: `arkor train`"
+      : `Next: ${pm} install, then \`arkor train\``,
+  );
 }
