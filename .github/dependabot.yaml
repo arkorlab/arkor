@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /packages/arkor
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /packages/studio-app
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /packages/create-arkor
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
