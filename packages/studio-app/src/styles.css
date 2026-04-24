@@ -1,0 +1,184 @@
+:root {
+  color-scheme: dark;
+  --bg: #0e1116;
+  --panel: #161b22;
+  --border: #1f2937;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --accent: #60a5fa;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --err: #f87171;
+}
+
+html, body, #root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-size: 14px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.app-header {
+  padding: 20px 32px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.app-header h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+}
+.app-header nav a {
+  color: var(--text);
+  text-decoration: none;
+  margin-right: 16px;
+  font-weight: 500;
+}
+.app-header nav a:hover { color: var(--accent); }
+.app-header .identity {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+}
+
+main {
+  padding: 24px 32px;
+  flex: 1;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+@media (max-width: 960px) {
+  .columns { grid-template-columns: 1fr; }
+}
+
+section h2, .jobs-list h2, .job-detail h2, .playground h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+button {
+  background: #2563eb;
+  color: white;
+  border: 0;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:hover:not(:disabled) { background: #1d4ed8; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th, td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  color: var(--muted);
+  font-weight: 500;
+}
+td code {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.status-queued { background: #1f2937; color: var(--muted); }
+.status-running { background: #1e3a8a; color: var(--accent); }
+.status-completed { background: #064e3b; color: var(--ok); }
+.status-failed { background: #7f1d1d; color: var(--err); }
+.status-cancelled { background: #1f2937; color: var(--muted); }
+
+.muted { color: var(--muted); }
+.error { color: var(--err); }
+
+.log {
+  background: #0a0d12;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.run-training button { margin-bottom: 12px; }
+
+.jobs-head { display: flex; gap: 12px; align-items: center; }
+
+.job-detail .back {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.job-detail .back:hover { color: var(--accent); }
+
+.chart {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.playground label { display: block; margin: 8px 0; }
+.playground select { margin-left: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 6px 8px; }
+.playground .chat {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 12px 0;
+}
+.msg { display: block; margin: 8px 0; }
+.msg-role {
+  display: inline-block;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--muted);
+  margin-right: 8px;
+}
+.playground form { display: flex; gap: 8px; }
+.playground input {
+  flex: 1;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+}

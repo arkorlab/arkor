@@ -1,0 +1,48 @@
+{
+  "name": "create-arkor",
+  "version": "0.0.1-alpha.0",
+  "description": "Scaffolder for arkor training projects.",
+  "private": false,
+  "type": "module",
+  "homepage": "https://github.com/arkorlab/arkor#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arkorlab/arkor.git",
+    "directory": "packages/create-arkor"
+  },
+  "bugs": {
+    "url": "https://github.com/arkorlab/arkor/issues"
+  },
+  "license": "UNLICENSED",
+  "keywords": ["arkor", "create", "scaffold", "template"],
+  "bin": {
+    "create-arkor": "./dist/bin.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json --noEmit && tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.8.0",
+    "commander": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "tsdown": "^0.21.9",
+    "typescript": "^5",
+    "vitest": "^4.1.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

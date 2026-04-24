@@ -1,0 +1,11 @@
+packages:
+  - "packages/*"
+minimumReleaseAge: 1440
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  # Pulled in by @vitejs/plugin-react -> @babel/core for Studio UI builds.
+  - 'semver@6.3.1'
+allowBuilds:
+  rolldown: true
+  unrs-resolver: true
+  esbuild: true
