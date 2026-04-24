@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   detectPackageManager,
+  resolvePackageManager,
   scaffold,
   templateChoices,
 } from "./scaffold";
@@ -139,9 +140,39 @@ describe("detectPackageManager", () => {
     process.env.npm_config_user_agent = "yarn/1.22.19 node/v20";
     expect(detectPackageManager()).toBe("yarn");
   });
-  it("falls back to npm when the user-agent is unknown", () => {
-    delete process.env.npm_config_user_agent;
+  it("recognises npm via user-agent", () => {
+    process.env.npm_config_user_agent = "npm/10.2.4 node/v20.10.0 linux x64";
     expect(detectPackageManager()).toBe("npm");
+  });
+  it("returns undefined when the user-agent is absent or unknown", () => {
+    delete process.env.npm_config_user_agent;
+    expect(detectPackageManager()).toBeUndefined();
+    process.env.npm_config_user_agent = "something-else/1.0";
+    expect(detectPackageManager()).toBeUndefined();
+  });
+});
+
+describe("resolvePackageManager", () => {
+  it("returns the explicit flag when exactly one is set", () => {
+    delete process.env.npm_config_user_agent;
+    expect(resolvePackageManager({ useBun: true })).toBe("bun");
+    expect(resolvePackageManager({ useYarn: true })).toBe("yarn");
+  });
+
+  it("falls back to auto-detection when no flag is set", () => {
+    process.env.npm_config_user_agent = "pnpm/10 node/v22";
+    expect(resolvePackageManager()).toBe("pnpm");
+  });
+
+  it("returns undefined when no flag is set and UA is unknown", () => {
+    delete process.env.npm_config_user_agent;
+    expect(resolvePackageManager()).toBeUndefined();
+  });
+
+  it("rejects more than one --use-* flag", () => {
+    expect(() =>
+      resolvePackageManager({ useNpm: true, usePnpm: true }),
+    ).toThrow(/Pick one of/);
   });
 });
 

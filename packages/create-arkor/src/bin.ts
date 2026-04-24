@@ -3,7 +3,13 @@ import { resolve } from "node:path";
 import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { detectPackageManager, scaffold, templateChoices } from "./scaffold";
+import {
+  resolvePackageManager,
+  scaffold,
+  templateChoices,
+  type PackageManager,
+} from "./scaffold";
+import { install } from "./install";
 import type { TemplateId } from "./templates";
 
 interface RunOptions {
@@ -11,7 +17,13 @@ interface RunOptions {
   name?: string;
   template?: TemplateId;
   yes?: boolean;
+  skipInstall?: boolean;
+  /** Undefined when neither `--use-*` nor UA detection yielded a pm. */
+  packageManager: PackageManager | undefined;
 }
+
+const MANUAL_INSTALL_HINT =
+  "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 function isInteractive(): boolean {
   return Boolean(process.stdout.isTTY) && !process.env.CI;
@@ -75,13 +87,36 @@ async function run(options: RunOptions): Promise<void> {
     "Files",
   );
 
-  const pm = detectPackageManager();
+  const pm = options.packageManager;
+
+  let installed = false;
+  if (!options.skipInstall && pm) {
+    clack.log.step(`Installing dependencies with ${pm}`);
+    try {
+      await install(pm, cwd);
+      installed = true;
+    } catch (err) {
+      clack.log.warn(err instanceof Error ? err.message : String(err));
+      clack.log.info(
+        `Retry manually: cd ${options.dir ?? "."} && ${pm} install`,
+      );
+    }
+  }
+
+  const installLine = installed
+    ? null
+    : pm
+      ? `  ${pm} install`
+      : `  ${MANUAL_INSTALL_HINT}`;
+  const trainLine =
+    pm && pm !== "npm" ? `  ${pm} arkor train` : `  npx arkor train`;
+
   clack.outro(
     [
       `Next steps:`,
       `  cd ${options.dir ?? "."}`,
-      `  ${pm} install`,
-      `  ${pm === "npm" ? "npx arkor" : `${pm} arkor`} train`,
+      ...(installLine ? [installLine] : []),
+      trainLine,
     ].join("\n"),
   );
 }
@@ -98,19 +133,44 @@ program
     "starter template: minimal | alpaca | chatml",
   )
   .option("-y, --yes", "skip interactive prompts and accept the defaults")
+  .option("--skip-install", "skip installing dependencies after scaffolding")
+  .option("--use-npm", "force npm as the package manager")
+  .option("--use-pnpm", "force pnpm as the package manager")
+  .option("--use-yarn", "force yarn as the package manager")
+  .option("--use-bun", "force bun as the package manager")
   .action(
-    async (dir: string | undefined, opts: { name?: string; template?: string; yes?: boolean }) => {
+    async (
+      dir: string | undefined,
+      opts: {
+        name?: string;
+        template?: string;
+        yes?: boolean;
+        skipInstall?: boolean;
+        useNpm?: boolean;
+        usePnpm?: boolean;
+        useYarn?: boolean;
+        useBun?: boolean;
+      },
+    ) => {
       const template =
         opts.template === "minimal" ||
         opts.template === "alpaca" ||
         opts.template === "chatml"
           ? opts.template
           : undefined;
+      const packageManager = resolvePackageManager({
+        useNpm: opts.useNpm,
+        usePnpm: opts.usePnpm,
+        useYarn: opts.useYarn,
+        useBun: opts.useBun,
+      });
       await run({
         dir,
         name: opts.name,
         template,
         yes: opts.yes,
+        skipInstall: opts.skipInstall,
+        packageManager,
       });
     },
   );

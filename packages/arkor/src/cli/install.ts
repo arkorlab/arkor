@@ -1,0 +1,84 @@
+import { spawn } from "node:child_process";
+
+export type PackageManager = "pnpm" | "yarn" | "bun" | "npm";
+
+/**
+ * Infer the package manager from `npm_config_user_agent` (set by the launcher
+ * that ran this script). Returns `undefined` when we genuinely can't tell —
+ * callers should then ask the user to install deps manually instead of
+ * silently guessing.
+ */
+export function detectPackageManager(): PackageManager | undefined {
+  const ua = process.env.npm_config_user_agent ?? "";
+  if (ua.startsWith("pnpm")) return "pnpm";
+  if (ua.startsWith("yarn")) return "yarn";
+  if (ua.startsWith("bun")) return "bun";
+  if (ua.startsWith("npm")) return "npm";
+  return undefined;
+}
+
+export interface PackageManagerFlags {
+  useNpm?: boolean;
+  usePnpm?: boolean;
+  useYarn?: boolean;
+  useBun?: boolean;
+}
+
+/**
+ * Pick a package manager from explicit `--use-*` flags (mutually exclusive)
+ * and fall back to the one that invoked the CLI. Returns `undefined` when
+ * no flag is set and detection fails.
+ */
+export function resolvePackageManager(
+  flags: PackageManagerFlags = {},
+): PackageManager | undefined {
+  const selected: PackageManager[] = [];
+  if (flags.useNpm) selected.push("npm");
+  if (flags.usePnpm) selected.push("pnpm");
+  if (flags.useYarn) selected.push("yarn");
+  if (flags.useBun) selected.push("bun");
+  if (selected.length > 1) {
+    throw new Error(
+      "Pick one of --use-npm / --use-pnpm / --use-yarn / --use-bun, not several.",
+    );
+  }
+  return selected[0] ?? detectPackageManager();
+}
+
+/**
+ * Run `install` through the given package manager in `cwd` with stdio
+ * inherited. Patterned after create-next-app's helper: `ADBLOCK` /
+ * `DISABLE_OPENCOLLECTIVE` suppress promotional output, and
+ * `NODE_ENV=development` keeps pnpm from skipping devDependencies
+ * (pnpm treats `production` as "no dev deps").
+ */
+export async function install(
+  packageManager: PackageManager,
+  cwd: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(packageManager, ["install"], {
+      cwd,
+      stdio: "inherit",
+      // `pnpm` / `yarn` / `bun` are `.cmd` shims on Windows — spawn needs a
+      // shell to resolve them.
+      shell: process.platform === "win32",
+      env: {
+        ...process.env,
+        ADBLOCK: "1",
+        NODE_ENV: "development",
+        DISABLE_OPENCOLLECTIVE: "1",
+      },
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(
+          new Error(`\`${packageManager} install\` exited with code ${code}`),
+        );
+        return;
+      }
+      resolve();
+    });
+  });
+}

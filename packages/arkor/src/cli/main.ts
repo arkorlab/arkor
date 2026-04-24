@@ -7,6 +7,7 @@ import { runJobsCancel, runJobsGet, runJobsList } from "./commands/jobs";
 import { runLogs } from "./commands/logs";
 import { runInit } from "./commands/init";
 import { runDev } from "./commands/dev";
+import { resolvePackageManager } from "./install";
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();
@@ -18,13 +19,37 @@ export async function main(argv: string[]): Promise<void> {
     .option("-y, --yes", "Accept defaults instead of prompting")
     .option("--name <name>", "Project name (default: directory name)")
     .option("--template <template>", "Starter template: minimal | alpaca | chatml")
-    .action(async (opts: { yes?: boolean; name?: string; template?: string }) => {
-      await runInit({
-        yes: opts.yes,
-        name: opts.name,
-        template: opts.template as "minimal" | "alpaca" | "chatml" | undefined,
-      });
-    });
+    .option("--skip-install", "Skip installing dependencies after scaffolding")
+    .option("--use-npm", "Force npm as the package manager")
+    .option("--use-pnpm", "Force pnpm as the package manager")
+    .option("--use-yarn", "Force yarn as the package manager")
+    .option("--use-bun", "Force bun as the package manager")
+    .action(
+      async (opts: {
+        yes?: boolean;
+        name?: string;
+        template?: string;
+        skipInstall?: boolean;
+        useNpm?: boolean;
+        usePnpm?: boolean;
+        useYarn?: boolean;
+        useBun?: boolean;
+      }) => {
+        const packageManager = resolvePackageManager({
+          useNpm: opts.useNpm,
+          usePnpm: opts.usePnpm,
+          useYarn: opts.useYarn,
+          useBun: opts.useBun,
+        });
+        await runInit({
+          yes: opts.yes,
+          name: opts.name,
+          template: opts.template as "minimal" | "alpaca" | "chatml" | undefined,
+          skipInstall: opts.skipInstall,
+          packageManager,
+        });
+      },
+    );
 
   program
     .command("login")
