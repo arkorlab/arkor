@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promptSelect, promptText, ui } from "../prompts";
-import { detectPackageManager, install } from "../install";
+import { install, type PackageManager } from "../install";
 
 const ENTRY_PATH = "src/arkor/index.ts";
 const CONFIG_PATH = "arkor.config.ts";
@@ -158,9 +158,10 @@ export interface InitOptions {
   name?: string;
   template?: TemplateId;
   skipInstall?: boolean;
+  packageManager: PackageManager;
 }
 
-export async function runInit(options: InitOptions = {}): Promise<void> {
+export async function runInit(options: InitOptions): Promise<void> {
   const cwd = process.cwd();
   const defaultName = cwd.split(/[/\\]/).pop() ?? "arkor-project";
 
@@ -198,7 +199,7 @@ export async function runInit(options: InitOptions = {}): Promise<void> {
     "Files",
   );
 
-  const pm = detectPackageManager();
+  const pm = options.packageManager;
 
   let installed = false;
   if (!options.skipInstall) {

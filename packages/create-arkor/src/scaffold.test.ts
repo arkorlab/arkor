@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   detectPackageManager,
+  resolvePackageManager,
   scaffold,
   templateChoices,
 } from "./scaffold";
@@ -142,6 +143,25 @@ describe("detectPackageManager", () => {
   it("falls back to npm when the user-agent is unknown", () => {
     delete process.env.npm_config_user_agent;
     expect(detectPackageManager()).toBe("npm");
+  });
+});
+
+describe("resolvePackageManager", () => {
+  it("returns the explicit flag when exactly one is set", () => {
+    delete process.env.npm_config_user_agent;
+    expect(resolvePackageManager({ useBun: true })).toBe("bun");
+    expect(resolvePackageManager({ useYarn: true })).toBe("yarn");
+  });
+
+  it("falls back to auto-detection when no flag is set", () => {
+    process.env.npm_config_user_agent = "pnpm/10 node/v22";
+    expect(resolvePackageManager()).toBe("pnpm");
+  });
+
+  it("rejects more than one --use-* flag", () => {
+    expect(() =>
+      resolvePackageManager({ useNpm: true, usePnpm: true }),
+    ).toThrow(/Pick one of/);
   });
 });
 

@@ -10,6 +10,33 @@ export function detectPackageManager(): PackageManager {
   return "npm";
 }
 
+export interface PackageManagerFlags {
+  useNpm?: boolean;
+  usePnpm?: boolean;
+  useYarn?: boolean;
+  useBun?: boolean;
+}
+
+/**
+ * Pick a package manager from explicit `--use-*` flags (mutually exclusive)
+ * and fall back to the one that invoked the CLI.
+ */
+export function resolvePackageManager(
+  flags: PackageManagerFlags = {},
+): PackageManager {
+  const selected: PackageManager[] = [];
+  if (flags.useNpm) selected.push("npm");
+  if (flags.usePnpm) selected.push("pnpm");
+  if (flags.useYarn) selected.push("yarn");
+  if (flags.useBun) selected.push("bun");
+  if (selected.length > 1) {
+    throw new Error(
+      "Pick one of --use-npm / --use-pnpm / --use-yarn / --use-bun, not several.",
+    );
+  }
+  return selected[0] ?? detectPackageManager();
+}
+
 /**
  * Run `install` through the given package manager in `cwd` with stdio
  * inherited. Patterned after create-next-app's helper: `ADBLOCK` /

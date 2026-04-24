@@ -3,7 +3,12 @@ import { resolve } from "node:path";
 import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { detectPackageManager, scaffold, templateChoices } from "./scaffold";
+import {
+  resolvePackageManager,
+  scaffold,
+  templateChoices,
+  type PackageManager,
+} from "./scaffold";
 import { install } from "./install";
 import type { TemplateId } from "./templates";
 
@@ -13,6 +18,7 @@ interface RunOptions {
   template?: TemplateId;
   yes?: boolean;
   skipInstall?: boolean;
+  packageManager: PackageManager;
 }
 
 function isInteractive(): boolean {
@@ -77,7 +83,7 @@ async function run(options: RunOptions): Promise<void> {
     "Files",
   );
 
-  const pm = detectPackageManager();
+  const pm = options.packageManager;
 
   let installed = false;
   if (!options.skipInstall) {
@@ -116,6 +122,10 @@ program
   )
   .option("-y, --yes", "skip interactive prompts and accept the defaults")
   .option("--skip-install", "skip installing dependencies after scaffolding")
+  .option("--use-npm", "force npm as the package manager")
+  .option("--use-pnpm", "force pnpm as the package manager")
+  .option("--use-yarn", "force yarn as the package manager")
+  .option("--use-bun", "force bun as the package manager")
   .action(
     async (
       dir: string | undefined,
@@ -124,6 +134,10 @@ program
         template?: string;
         yes?: boolean;
         skipInstall?: boolean;
+        useNpm?: boolean;
+        usePnpm?: boolean;
+        useYarn?: boolean;
+        useBun?: boolean;
       },
     ) => {
       const template =
@@ -132,12 +146,19 @@ program
         opts.template === "chatml"
           ? opts.template
           : undefined;
+      const packageManager = resolvePackageManager({
+        useNpm: opts.useNpm,
+        usePnpm: opts.usePnpm,
+        useYarn: opts.useYarn,
+        useBun: opts.useBun,
+      });
       await run({
         dir,
         name: opts.name,
         template,
         yes: opts.yes,
         skipInstall: opts.skipInstall,
+        packageManager,
       });
     },
   );
