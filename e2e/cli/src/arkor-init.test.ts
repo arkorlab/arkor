@@ -14,7 +14,7 @@ afterEach(() => {
   cleanup(cwd);
 });
 
-const SLOW = process.env.SKIP_E2E_INSTALL === "1" ? it.skip : it;
+const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
 
 describe("arkor init (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -117,12 +117,12 @@ describe("arkor init (E2E)", () => {
     expect(log.code).not.toBe(0);
   });
 
-  SLOW(
-    "runs real `npm install` and creates a git commit (gated by SKIP_E2E_INSTALL)",
-    async () => {
+  it.skipIf(SKIP_INSTALL).each([{ pm: "npm" }, { pm: "pnpm" }])(
+    "runs real $pm install + git commit (gated by SKIP_E2E_INSTALL)",
+    async ({ pm }) => {
       const result = await runCli(
         ARKOR_BIN,
-        ["init", "-y", "--use-npm", "--git"],
+        ["init", "-y", `--use-${pm}`, "--git"],
         cwd,
       );
       expect(result.code).toBe(0);

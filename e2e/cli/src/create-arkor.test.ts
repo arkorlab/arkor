@@ -29,7 +29,7 @@ async function runCreateArkor(argv: string[]) {
   return { result, targetDir };
 }
 
-const SLOW = process.env.SKIP_E2E_INSTALL === "1" ? it.skip : it;
+const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
 
 describe("create-arkor (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -148,12 +148,12 @@ describe("create-arkor (E2E)", () => {
     expect(entry).toContain('"alpaca-run"');
   });
 
-  SLOW(
-    "runs real `npm install` and creates a git commit (gated by SKIP_E2E_INSTALL)",
-    async () => {
+  it.skipIf(SKIP_INSTALL).each([{ pm: "npm" }, { pm: "pnpm" }])(
+    "runs real $pm install + git commit (gated by SKIP_E2E_INSTALL)",
+    async ({ pm }) => {
       const { result, targetDir } = await runCreateArkor([
         "-y",
-        "--use-npm",
+        `--use-${pm}`,
         "--git",
       ]);
       expect(result.code).toBe(0);
