@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARKOR_BIN } from "./bins";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
@@ -95,6 +95,33 @@ describe("arkor init (E2E)", () => {
     expect(result.stderr).toContain(
       "Pick one of --git / --skip-git, not both.",
     );
+  });
+
+  it("does not prompt when --name + --template are provided without -y", async () => {
+    // No `-y`, but every prompted value is supplied as a flag. The run
+    // should complete without hanging and apply the flag values.
+    const result = await runCli(
+      ARKOR_BIN,
+      [
+        "init",
+        "--skip-install",
+        "--skip-git",
+        "--name",
+        "no-prompt-app",
+        "--template",
+        "chatml",
+      ],
+      cwd,
+    );
+    expect(result.code).toBe(0);
+
+    const entry = readFileSync(join(cwd, "src/arkor/index.ts"), "utf8");
+    expect(entry).toContain('"chatml-run"');
+
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as { name?: string };
+    expect(pkg.name).toBe("no-prompt-app");
   });
 
   it("skips git init when the target is already a git repo", async () => {

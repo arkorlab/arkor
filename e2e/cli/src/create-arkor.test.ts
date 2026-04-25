@@ -127,6 +127,28 @@ describe("create-arkor (E2E)", () => {
     );
   });
 
+  it("does not prompt when --name + --template are provided without -y", async () => {
+    // No `-y`, but every prompted value is supplied as a flag. The run
+    // should complete without hanging and apply the flag values.
+    const { result, targetDir } = await runCreateArkor([
+      "--skip-install",
+      "--skip-git",
+      "--name",
+      "no-prompt-app",
+      "--template",
+      "chatml",
+    ]);
+    expect(result.code).toBe(0);
+
+    const pkg = JSON.parse(
+      readFileSync(join(targetDir, "package.json"), "utf8"),
+    ) as { name?: string };
+    expect(pkg.name).toBe("no-prompt-app");
+
+    const entry = readFileSync(join(targetDir, "src/arkor/index.ts"), "utf8");
+    expect(entry).toContain('"chatml-run"');
+  });
+
   it("honours --name --template alpaca", async () => {
     const { result, targetDir } = await runCreateArkor([
       "-y",
