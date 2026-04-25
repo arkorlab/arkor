@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { serve } from "@hono/node-server";
 import open from "open";
 import { fetchCliConfig } from "../../core/auth0";
@@ -64,7 +65,11 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   await ensureCredentialsForStudio();
 
   const port = options.port ?? 4000;
-  const app = buildStudioApp({ autoAnonymous: false });
+  // Per-launch CSRF token: injected into index.html as <meta>, required on
+  // every /api/* request. Prevents another tab on the same machine from
+  // hitting `arkor train` (and therefore RCE via dynamic import).
+  const studioToken = randomBytes(32).toString("base64url");
+  const app = buildStudioApp({ autoAnonymous: false, studioToken });
   const url = `http://127.0.0.1:${port}`;
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   process.stdout.write(`Arkor Studio running on ${url}\n`);

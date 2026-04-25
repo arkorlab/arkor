@@ -1,11 +1,10 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { createClient } from "@arkor/cloud-api-client";
 import {
   defaultArkorCloudApiUrl,
-  ensureCredentials,
   readCredentials,
   writeCredentials,
   requestAnonymousToken,
@@ -13,7 +12,7 @@ import {
 } from "../core/credentials";
 import { readState } from "../core/state";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,33 +25,92 @@ export interface StudioServerOptions {
    * present. Mirrors the CLI default.
    */
   autoAnonymous?: boolean;
+  /**
+   * Per-launch CSRF token. Every `/api/*` request must include it via header
+   * `X-Arkor-Studio-Token`, or `?studioToken=` for `EventSource` (which can't
+   * carry custom headers). The token is injected into the served `index.html`
+   * as a `<meta>` tag so the same-origin SPA can read it; cross-origin tabs
+   * cannot, so even a "simple" CORS POST without preflight is rejected.
+   */
+  studioToken: string;
+  /**
+   * Working directory used to resolve / validate `body.file` for `/api/train`.
+   * Defaults to `process.cwd()`.
+   */
+  cwd?: string;
 }
 
-export function buildStudioApp(options: StudioServerOptions = {}) {
+function tokensMatch(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function htmlAttrEscape(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) =>
+    ch === "&"
+      ? "&amp;"
+      : ch === "<"
+        ? "&lt;"
+        : ch === ">"
+          ? "&gt;"
+          : ch === '"'
+            ? "&quot;"
+            : "&#39;",
+  );
+}
+
+function injectStudioToken(html: string, token: string): string {
+  const meta = `<meta name="arkor-studio-token" content="${htmlAttrEscape(token)}">`;
+  const idx = html.indexOf("</head>");
+  if (idx === -1) return `${meta}${html}`;
+  return `${html.slice(0, idx)}${meta}${html.slice(idx)}`;
+}
+
+export function buildStudioApp(options: StudioServerOptions) {
   const baseUrl = options.baseUrl ?? defaultArkorCloudApiUrl();
   const assetsDir = options.assetsDir ?? join(__dirname, "assets");
   const autoAnonymous = options.autoAnonymous ?? true;
+  const studioToken = options.studioToken;
+  const trainCwd = options.cwd ?? process.cwd();
+
+  if (!studioToken || studioToken.length < 16) {
+    throw new Error(
+      "buildStudioApp requires a studioToken with at least 16 characters of entropy.",
+    );
+  }
 
   const app = new Hono();
 
-  // Loopback-only guard for credential-sensitive API routes. `arkor dev` binds
-  // to 127.0.0.1, but defence in depth keeps this explicit.
+  // Combined defense for `/api/*`:
+  //   1. Host-header guard (defense against DNS rebinding — a victim navigated
+  //      to `evil.com` rebound onto 127.0.0.1 still sends `Host: evil.com`).
+  //   2. Per-launch CSRF token. CORS is intentionally not configured: the SPA
+  //      is same-origin so CORS adds no value, and reflecting `*` would let
+  //      "simple" cross-origin POSTs (text/plain, urlencoded) skip preflight
+  //      and reach the handler. The token check rejects those — an attacker
+  //      page can't read the SPA's <meta> from another origin.
   app.use("/api/*", async (c, next) => {
     const host = c.req.header("host") ?? "";
     if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) {
       return c.json({ error: "Studio API is loopback-only" }, 403);
     }
+    const provided =
+      c.req.header("x-arkor-studio-token") ??
+      c.req.query("studioToken") ??
+      "";
+    if (!tokensMatch(provided, studioToken)) {
+      return c.json({ error: "Missing or invalid studio token" }, 403);
+    }
     await next();
   });
-  app.use("/api/*", cors({ origin: (origin) => origin ?? "*" }));
 
   async function getCredentials(): Promise<Credentials> {
     const existing = await readCredentials();
     if (existing) return existing;
     if (!autoAnonymous) {
-      throw new Error(
-        "No credentials on file. Run `arkor login` first.",
-      );
+      throw new Error("No credentials on file. Run `arkor login` first.");
     }
     const anon = await requestAnonymousToken(baseUrl, "cli");
     const creds: Credentials = {
@@ -135,16 +193,26 @@ export function buildStudioApp(options: StudioServerOptions = {}) {
   });
 
   app.post("/api/train", async (c) => {
-    const body = (await c.req
-      .json()
-      .catch(() => ({}))) as { file?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { file?: string };
+    let trainFile: string | undefined;
+    if (body.file) {
+      const baseAbs = resolve(trainCwd);
+      const abs = resolve(baseAbs, body.file);
+      if (abs !== baseAbs && !abs.startsWith(baseAbs + sep)) {
+        return c.json(
+          { error: "file must be inside the project directory" },
+          400,
+        );
+      }
+      trainFile = abs;
+    }
     const args = ["--experimental-strip-types", "--no-warnings=ExperimentalWarning"];
     const pkgBinPath = new URL("../bin.mjs", import.meta.url).pathname;
     args.push(pkgBinPath, "train");
-    if (body.file) args.push(body.file);
+    if (trainFile) args.push(trainFile);
     const child = spawn(process.execPath, args, {
       stdio: "pipe",
-      cwd: process.cwd(),
+      cwd: trainCwd,
     });
     const stream = new ReadableStream({
       start(controller) {
@@ -208,6 +276,13 @@ export function buildStudioApp(options: StudioServerOptions = {}) {
     try {
       const file = await readFile(join(assetsDir, cleaned));
       const ext = cleaned.slice(cleaned.lastIndexOf(".") + 1);
+      if (ext === "html") {
+        const html = injectStudioToken(file.toString("utf8"), studioToken);
+        return new Response(html, {
+          status: 200,
+          headers: { "content-type": CONTENT_TYPES.html! },
+        });
+      }
       return new Response(file, {
         status: 200,
         headers: {
