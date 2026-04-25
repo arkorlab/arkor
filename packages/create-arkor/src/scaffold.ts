@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { STARTER_CONFIG, STARTER_README, TEMPLATES, type TemplateId } from "./templates";
 
 export type FileAction = "created" | "kept" | "patched" | "ok";
@@ -42,7 +42,7 @@ async function ensureFile(
   contents: string,
 ): Promise<FileAction> {
   if (existsSync(absPath)) return "kept";
-  await mkdir(join(absPath, "..").replace(/\/\.$/, ""), { recursive: true });
+  await mkdir(dirname(absPath), { recursive: true });
   await writeFile(absPath, contents);
   return "created";
 }
