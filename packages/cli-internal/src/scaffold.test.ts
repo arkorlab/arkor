@@ -2,18 +2,17 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scaffold, templateChoices } from "./scaffold";
 import {
   detectPackageManager,
   resolvePackageManager,
-  scaffold,
-  templateChoices,
-} from "./scaffold";
+} from "./package-manager";
 
 let cwd: string;
 const ORIG_UA = process.env.npm_config_user_agent;
 
 beforeEach(() => {
-  cwd = mkdtempSync(join(tmpdir(), "create-arkor-test-"));
+  cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
 });
 
 afterEach(() => {
@@ -48,13 +47,7 @@ describe("scaffold", () => {
 
   it("keeps existing src/arkor/index.ts untouched", async () => {
     const existing = "// custom\nexport default {};\n";
-    writeFileSync(join(cwd, "src"), "", { flag: "w" });
-    // rewrite as directory
-    rmSync(join(cwd, "src"));
-    writeFileSync(
-      join(cwd, "placeholder.txt"),
-      "keep me",
-    );
+    writeFileSync(join(cwd, "placeholder.txt"), "keep me");
     const { readdirSync, mkdirSync } = await import("node:fs");
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), existing);

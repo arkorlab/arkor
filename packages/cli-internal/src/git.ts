@@ -56,7 +56,9 @@ export async function gitInitialCommit(
   }
 
   throw new Error(
-    `\`git commit\` exited with code ${first.code}: ${first.stderr.trim() || "(no stderr)"}`,
+    `\`git commit\` exited with code ${first.code}: ${
+      first.stderr.trim() || "(no stderr)"
+    }`,
   );
 }
 

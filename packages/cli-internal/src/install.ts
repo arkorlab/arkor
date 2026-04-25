@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { PackageManager } from "./scaffold";
+import type { PackageManager } from "./package-manager";
 
 /**
  * Run `install` through the given package manager in `cwd` with stdio

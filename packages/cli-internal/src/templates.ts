@@ -1,8 +1,6 @@
 /**
  * Starter templates written out by `create-arkor` / `arkor init`.
- *
- * Keep these aligned with the equivalent templates in
- * `arkor/src/cli/commands/init.ts` until we extract a shared package.
+ * Single source of truth — both consumers bundle this module at build time.
  */
 export type TemplateId = "minimal" | "alpaca" | "chatml";
 

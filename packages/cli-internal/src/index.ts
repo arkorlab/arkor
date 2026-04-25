@@ -1,0 +1,25 @@
+export {
+  scaffold,
+  templateChoices,
+  type FileAction,
+  type ScaffoldOptions,
+  type ScaffoldResult,
+} from "./scaffold";
+export {
+  STARTER_CONFIG,
+  STARTER_README,
+  TEMPLATES,
+  type TemplateId,
+} from "./templates";
+export {
+  detectPackageManager,
+  resolvePackageManager,
+  type PackageManager,
+  type PackageManagerFlags,
+} from "./package-manager";
+export { install } from "./install";
+export {
+  gitInitialCommit,
+  isInGitRepo,
+  type InitialCommitResult,
+} from "./git";

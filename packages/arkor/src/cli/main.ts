@@ -7,7 +7,7 @@ import { runJobsCancel, runJobsGet, runJobsList } from "./commands/jobs";
 import { runLogs } from "./commands/logs";
 import { runInit } from "./commands/init";
 import { runDev } from "./commands/dev";
-import { resolvePackageManager } from "./install";
+import { resolvePackageManager } from "@arkor/cli-internal";
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();

@@ -1,0 +1,25 @@
+{
+  "name": "@arkor/cli-internal",
+  "version": "0.0.0",
+  "description": "Private helpers shared between `arkor` and `create-arkor`. Bundled into each tarball at build time — never published to npm.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "echo 'no build (consumers bundle the source)'",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "^5",
+    "vitest": "^4.1.5"
+  }
+}

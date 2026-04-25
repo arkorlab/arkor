@@ -4,14 +4,16 @@ import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
+  gitInitialCommit,
+  install,
+  isInGitRepo,
   resolvePackageManager,
   scaffold,
   templateChoices,
   type PackageManager,
-} from "./scaffold";
-import { install } from "./install";
-import { gitInitialCommit, isInGitRepo } from "./git";
-import type { TemplateId } from "./templates";
+  type TemplateId,
+} from "@arkor/cli-internal";
+import { sanitise } from "./sanitise";
 
 interface RunOptions {
   dir?: string;
@@ -91,16 +93,6 @@ async function maybeGitInit(
     clack.log.warn(err instanceof Error ? err.message : String(err));
     clack.log.info("You can initialise git manually later.");
   }
-}
-
-function sanitise(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "arkor-project"
-  );
 }
 
 async function run(options: RunOptions): Promise<void> {

@@ -1,0 +1,19 @@
+{
+  "name": "@arkor/e2e-cli",
+  "version": "0.0.0",
+  "description": "Private E2E test suite for the `arkor` and `create-arkor` CLI scaffolders. Spawns the built `dist/bin.mjs` of each consumer in a temp dir and asserts on filesystem + stdout. Never published.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pretest": "pnpm --filter create-arkor build && pnpm --filter arkor build",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "^5",
+    "vitest": "^4.1.5"
+  }
+}
