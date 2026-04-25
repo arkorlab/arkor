@@ -28,10 +28,17 @@ function htmlAttrEscape(s: string): string {
  * SPA's `apiFetch` can attach it. `arkor dev` writes the token to
  * `~/.arkor/studio-token` on launch; we re-read on every request so that
  * starting `arkor dev` after Vite is picked up on the next reload.
+ *
+ * `apply: "serve"` constrains this to the dev server. If it ran during
+ * `vite build` it would bake the current per-launch token into `dist/
+ * index.html`, and since `document.querySelector` returns the first match,
+ * the stale baked tag would shadow the runtime tag injected by
+ * `buildStudioApp` and every `/api/*` call would 403.
  */
 function arkorStudioToken(): Plugin {
   return {
     name: "arkor-studio-token",
+    apply: "serve",
     enforce: "pre",
     async transformIndexHtml(html) {
       let token: string;
