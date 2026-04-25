@@ -1,9 +1,14 @@
+import { randomBytes } from "node:crypto";
+import { unlinkSync } from "node:fs";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { serve } from "@hono/node-server";
 import open from "open";
 import { fetchCliConfig } from "../../core/auth0";
 import {
   defaultArkorCloudApiUrl,
   readCredentials,
+  studioTokenPath,
   writeCredentials,
   requestAnonymousToken,
   type AnonymousCredentials,
@@ -60,11 +65,66 @@ async function ensureCredentialsForStudio(): Promise<void> {
   ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
 }
 
+/**
+ * Persist the per-launch token to `~/.arkor/studio-token` (mode 0600) so the
+ * studio-app Vite dev server can pick it up via its `transformIndexHtml`
+ * plugin. The bundled `arkor dev` flow doesn't need the file (it injects via
+ * `buildStudioApp`), but the SPA dev workflow (`pnpm --filter @arkor/studio-app dev`)
+ * proxies `/api/*` to :4000 and would otherwise serve a token-less index.html.
+ */
+async function persistStudioToken(token: string): Promise<string> {
+  const path = studioTokenPath();
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, token, { mode: 0o600 });
+  await chmod(path, 0o600);
+  return path;
+}
+
+function scheduleStudioTokenCleanup(path: string): void {
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    try {
+      unlinkSync(path);
+    } catch {
+      // best-effort
+    }
+  };
+  process.on("exit", cleanup);
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(sig, () => {
+      cleanup();
+      process.exit(0);
+    });
+  }
+}
+
 export async function runDev(options: DevOptions = {}): Promise<void> {
   await ensureCredentialsForStudio();
 
   const port = options.port ?? 4000;
-  const app = buildStudioApp({ autoAnonymous: false });
+  // Per-launch CSRF token: injected into index.html as <meta>, required on
+  // every /api/* request. Prevents another tab on the same machine from
+  // hitting `arkor train` (and therefore RCE via dynamic import).
+  const studioToken = randomBytes(32).toString("base64url");
+
+  // Persisting the token to disk is *only* needed for the Vite SPA dev
+  // workflow. The bundled `:port` flow injects the meta tag at request time
+  // via `buildStudioApp`, so a failure here (read-only $HOME on Docker /
+  // locked-down CI / restrictive umask) must not block the server.
+  try {
+    const tokenPath = await persistStudioToken(studioToken);
+    scheduleStudioTokenCleanup(tokenPath);
+  } catch (err) {
+    ui.log.warn(
+      `Could not write ${studioTokenPath()} (${
+        err instanceof Error ? err.message : String(err)
+      }). The Studio at http://127.0.0.1:${port} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
+    );
+  }
+
+  const app = buildStudioApp({ autoAnonymous: false, studioToken });
   const url = `http://127.0.0.1:${port}`;
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   process.stdout.write(`Arkor Studio running on ${url}\n`);

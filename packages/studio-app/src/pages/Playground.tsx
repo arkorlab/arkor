@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchJobs, type Job } from "../lib/api";
+import { apiFetch, fetchJobs, type Job } from "../lib/api";
 
 interface Message {
   role: "system" | "user" | "assistant";
@@ -36,7 +36,7 @@ export function Playground() {
         messages: [...messages, userMsg],
         stream: true,
       };
-      const res = await fetch("/api/inference/chat", {
+      const res = await apiFetch("/api/inference/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
