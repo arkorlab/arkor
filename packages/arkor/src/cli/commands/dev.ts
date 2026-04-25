@@ -108,8 +108,22 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // every /api/* request. Prevents another tab on the same machine from
   // hitting `arkor train` (and therefore RCE via dynamic import).
   const studioToken = randomBytes(32).toString("base64url");
-  const tokenPath = await persistStudioToken(studioToken);
-  scheduleStudioTokenCleanup(tokenPath);
+
+  // Persisting the token to disk is *only* needed for the Vite SPA dev
+  // workflow. The bundled `:port` flow injects the meta tag at request time
+  // via `buildStudioApp`, so a failure here (read-only $HOME on Docker /
+  // locked-down CI / restrictive umask) must not block the server.
+  try {
+    const tokenPath = await persistStudioToken(studioToken);
+    scheduleStudioTokenCleanup(tokenPath);
+  } catch (err) {
+    ui.log.warn(
+      `Could not write ${studioTokenPath()} (${
+        err instanceof Error ? err.message : String(err)
+      }). The Studio at http://127.0.0.1:${port} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
+    );
+  }
+
   const app = buildStudioApp({ autoAnonymous: false, studioToken });
   const url = `http://127.0.0.1:${port}`;
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
