@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promptSelect, promptText, ui } from "../prompts";
+import { isInteractive, promptConfirm, promptSelect, promptText, ui } from "../prompts";
 import { install, type PackageManager } from "../install";
+import { gitInitialCommit, isInGitRepo } from "../git";
 
 const ENTRY_PATH = "src/arkor/index.ts";
 const CONFIG_PATH = "arkor.config.ts";
@@ -153,6 +154,58 @@ async function patchPackageJson(
   return "patched";
 }
 
+/**
+ * Decide whether to run `git init` + initial commit, then (optionally) do it.
+ *
+ * Policy:
+ *   - `--git`       → run without asking
+ *   - `--skip-git`  → skip without asking
+ *   - interactive   → prompt (default = yes)
+ *   - non-interactive & no flag → skip (never auto-init silently)
+ *   - already inside a git repo → skip unconditionally
+ */
+async function maybeGitInit(
+  cwd: string,
+  options: InitOptions,
+): Promise<void> {
+  if (options.skipGit) return;
+
+  if (await isInGitRepo(cwd)) {
+    ui.log.info("Directory is already inside a git repository — skipping git init.");
+    return;
+  }
+
+  let shouldInit: boolean;
+  if (options.git === true) {
+    shouldInit = true;
+  } else if (isInteractive()) {
+    shouldInit = await promptConfirm({
+      message: "Initialise a git repository and create an initial commit?",
+      initialValue: true,
+    });
+  } else {
+    shouldInit = false;
+  }
+
+  if (!shouldInit) return;
+
+  ui.log.step("Initialising git repository");
+  try {
+    const result = await gitInitialCommit(
+      cwd,
+      "Initial commit from `arkor init`",
+    );
+    if (result.signingFallback) {
+      ui.log.warn(
+        "Commit signing failed — created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
+      );
+    }
+  } catch (err) {
+    ui.log.warn(err instanceof Error ? err.message : String(err));
+    ui.log.info("You can initialise git manually later.");
+  }
+}
+
 export interface InitOptions {
   yes?: boolean;
   name?: string;
@@ -160,6 +213,10 @@ export interface InitOptions {
   skipInstall?: boolean;
   /** Undefined when neither `--use-*` nor UA detection yielded a pm. */
   packageManager: PackageManager | undefined;
+  /** `true` when the user explicitly passed `--git`. Undefined → prompt. */
+  git?: boolean;
+  /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
+  skipGit?: boolean;
 }
 
 const MANUAL_INSTALL_HINT =
@@ -202,6 +259,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     results.map(([name, action]) => `${action.padEnd(8)} ${name}`).join("\n"),
     "Files",
   );
+
+  await maybeGitInit(cwd, options);
 
   const pm = options.packageManager;
 

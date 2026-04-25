@@ -24,6 +24,11 @@ export async function main(argv: string[]): Promise<void> {
     .option("--use-pnpm", "Force pnpm as the package manager")
     .option("--use-yarn", "Force yarn as the package manager")
     .option("--use-bun", "Force bun as the package manager")
+    .option(
+      "--git",
+      "Initialise a git repo and create an initial commit (skips the prompt)",
+    )
+    .option("--skip-git", "Skip the git init prompt and do not initialise git")
     .action(
       async (opts: {
         yes?: boolean;
@@ -34,7 +39,12 @@ export async function main(argv: string[]): Promise<void> {
         usePnpm?: boolean;
         useYarn?: boolean;
         useBun?: boolean;
+        git?: boolean;
+        skipGit?: boolean;
       }) => {
+        if (opts.git && opts.skipGit) {
+          throw new Error("Pick one of --git / --skip-git, not both.");
+        }
         const packageManager = resolvePackageManager({
           useNpm: opts.useNpm,
           usePnpm: opts.usePnpm,
@@ -47,6 +57,8 @@ export async function main(argv: string[]): Promise<void> {
           template: opts.template as "minimal" | "alpaca" | "chatml" | undefined,
           skipInstall: opts.skipInstall,
           packageManager,
+          git: opts.git,
+          skipGit: opts.skipGit,
         });
       },
     );
