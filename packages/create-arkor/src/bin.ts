@@ -40,6 +40,8 @@ function isInteractive(): boolean {
  * Policy:
  *   - `--git`       → run without asking
  *   - `--skip-git`  → skip without asking
+ *   - `-y` / `--yes` (without --skip-git) → run without asking (matches the
+ *     general "accept defaults" semantics; the prompt's default is yes)
  *   - interactive   → prompt (default = yes)
  *   - non-interactive & no flag → skip (never auto-init silently)
  *   - already inside a git repo → skip unconditionally
@@ -56,7 +58,7 @@ async function maybeGitInit(
   }
 
   let shouldInit: boolean;
-  if (options.git === true) {
+  if (options.git === true || options.yes) {
     shouldInit = true;
   } else if (isInteractive()) {
     const answer = await clack.confirm({
