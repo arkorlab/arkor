@@ -48,6 +48,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@arkor/cli-internal": "workspace:*",
     "@types/node": "^24",
     "tsdown": "^0.21.9",
     "typescript": "^5",
