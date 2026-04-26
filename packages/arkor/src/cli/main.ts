@@ -7,6 +7,8 @@ import { runJobsCancel, runJobsGet, runJobsList } from "./commands/jobs";
 import { runLogs } from "./commands/logs";
 import { runInit } from "./commands/init";
 import { runDev } from "./commands/dev";
+import { runBuild } from "./commands/build";
+import { runStart } from "./commands/start";
 import { resolvePackageManager } from "@arkor/cli-internal";
 
 export async function main(argv: string[]): Promise<void> {
@@ -133,6 +135,22 @@ export async function main(argv: string[]): Promise<void> {
     .option("-f, --follow", "Follow the SSE stream until the job finishes")
     .action(async (id: string, opts: { follow?: boolean }) => {
       await runLogs(id, { follow: opts.follow });
+    });
+
+  program
+    .command("build")
+    .description("Bundle src/arkor/index.ts into .arkor/build/index.mjs")
+    .argument("[entry]", "path to the source entry (default: src/arkor/index.ts)")
+    .action(async (entry?: string) => {
+      await runBuild({ entry });
+    });
+
+  program
+    .command("start")
+    .description("Run the build artifact at .arkor/build/index.mjs")
+    .argument("[entry]", "rebuild from this entry before running (optional)")
+    .action(async (entry?: string) => {
+      await runStart({ entry });
     });
 
   program
