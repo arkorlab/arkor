@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
@@ -99,12 +99,11 @@ async function run(options: RunOptions): Promise<void> {
   clack.intro("create-arkor");
 
   const cwd = options.dir ? resolve(options.dir) : process.cwd();
-  const defaultName = sanitise(
-    options.name ??
-      (options.dir
-        ? options.dir.split(/[/\\]/).pop()!
-        : process.cwd().split(/[/\\]/).pop()!),
-  );
+  // `path.basename` of the resolved cwd handles trailing separators and
+  // filesystem roots correctly. `sanitise("")` falls back to
+  // `"arkor-project"`, so the empty-basename case at root collapses to
+  // the same default the prompt would otherwise offer.
+  const defaultName = sanitise(options.name ?? basename(cwd));
 
   // Always sanitise — `defaultName` is already sanitised, but `options.name`
   // straight from `--name` is not, and falls through to package.json as-is

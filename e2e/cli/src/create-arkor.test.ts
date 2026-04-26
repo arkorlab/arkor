@@ -168,6 +168,26 @@ describe("create-arkor (E2E)", () => {
     expect(pkg.name).toBe("foo-bar");
   });
 
+  // Regression for ENG-359 — `process.cwd()` / `options.dir` ending in `/`
+  // (Docker root, `--dir foo/`, etc.) used to produce an empty defaultName
+  // because `cwd.split(/[/\\]/).pop()` returned "" and `??` only fires on
+  // null/undefined. `path.basename` correctly strips the trailing slash.
+  it("derives defaultName via basename when --dir has a trailing slash", async () => {
+    const targetDir = join(parentDir, "trail");
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["trail/", "-y", "--skip-install", "--skip-git"],
+      parentDir,
+    );
+    expect(result.code).toBe(0);
+    const pkg = JSON.parse(
+      readFileSync(join(targetDir, "package.json"), "utf8"),
+    ) as { name?: string };
+    // Before the fix this would have been "arkor-project" (the sanitise
+    // fallback for empty input).
+    expect(pkg.name).toBe("trail");
+  });
+
   it("honours --name --template alpaca", async () => {
     const { result, targetDir } = await runCreateArkor([
       "-y",

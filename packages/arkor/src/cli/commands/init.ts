@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import {
   gitInitialCommit,
   install,
@@ -90,7 +91,11 @@ async function maybeGitInit(
 
 export async function runInit(options: InitOptions): Promise<void> {
   const cwd = process.cwd();
-  const defaultName = cwd.split(/[/\\]/).pop() ?? "arkor-project";
+  // `path.basename` correctly handles trailing separators and the
+  // filesystem root (`/`, `C:\`), where the previous split-and-pop
+  // returned an empty string and `??` left it through (only null/undefined
+  // trigger the fallback). `basename("/")` returns `""`, hence the `||`.
+  const defaultName = basename(cwd) || "arkor-project";
 
   ui.intro("arkor init");
   const projectName = await promptText({
