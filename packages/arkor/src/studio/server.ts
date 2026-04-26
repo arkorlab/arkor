@@ -38,6 +38,13 @@ export interface StudioServerOptions {
    * Defaults to `process.cwd()`.
    */
   cwd?: string;
+  /**
+   * Absolute path to the `arkor` bin spawned by `/api/train`. Defaults to
+   * `dist/bin.mjs` resolved as a sibling of the bundled studio code (this
+   * file is inlined into `dist/bin.mjs` at build time, so `./bin.mjs` from
+   * here points at the bin itself). Override in tests.
+   */
+  binPath?: string;
 }
 
 function tokensMatch(provided: string, expected: string): boolean {
@@ -74,6 +81,12 @@ export function buildStudioApp(options: StudioServerOptions) {
   const autoAnonymous = options.autoAnonymous ?? true;
   const studioToken = options.studioToken;
   const trainCwd = options.cwd ?? process.cwd();
+  // `studio/server.ts` is bundled into `dist/bin.mjs` (it isn't reachable
+  // from `src/index.ts`, so tsdown doesn't extract it as a shared chunk).
+  // The bin therefore sits *next* to this code at runtime, not one
+  // directory up — `../bin.mjs` would resolve to the package root.
+  const trainBinPath =
+    options.binPath ?? fileURLToPath(new URL("./bin.mjs", import.meta.url));
 
   if (!studioToken || studioToken.length < 16) {
     throw new Error(
@@ -207,12 +220,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       trainFile = abs;
     }
     const args = ["--experimental-strip-types", "--no-warnings=ExperimentalWarning"];
-    // `studio/server.ts` is bundled into `dist/bin.mjs` (it isn't reachable
-    // from `src/index.ts`, so tsdown doesn't extract it as a shared chunk).
-    // The bin therefore sits *next* to this code at runtime, not one
-    // directory up — `../bin.mjs` would resolve to the package root.
-    const pkgBinPath = fileURLToPath(new URL("./bin.mjs", import.meta.url));
-    args.push(pkgBinPath, "train");
+    args.push(trainBinPath, "train");
     if (trainFile) args.push(trainFile);
     const child = spawn(process.execPath, args, {
       stdio: "pipe",
