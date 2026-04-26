@@ -11,6 +11,7 @@ import {
   type Credentials,
 } from "../core/credentials";
 import { readState } from "../core/state";
+import { readManifestSummary } from "./manifest";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, sep } from "node:path";
 
@@ -165,6 +166,22 @@ export function buildStudioApp(options: StudioServerOptions) {
       status: res.status,
       headers: { "content-type": "application/json" },
     });
+  });
+
+  app.get("/api/manifest", async (c) => {
+    try {
+      const manifest = await readManifestSummary(trainCwd);
+      return c.json(manifest);
+    } catch (err) {
+      // The user's `src/arkor/index.ts` may not exist yet (fresh scaffold) or
+      // the bundle may throw at import time. Surface the error as 400 so the
+      // SPA can render a hint instead of treating it as an infrastructure
+      // failure.
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        400,
+      );
+    }
   });
 
   app.get("/api/jobs", async (c) => {

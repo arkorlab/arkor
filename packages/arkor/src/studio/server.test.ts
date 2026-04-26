@@ -329,4 +329,71 @@ process.exit(0);
       expect(text).not.toContain("exit=0");
     });
   });
+
+  describe("/api/manifest", () => {
+    const FAKE_MANIFEST_SOURCE = `export const arkor = Object.freeze({
+      _kind: "arkor",
+      trainer: {
+        name: "qa-bot",
+        start: async () => ({ jobId: "j1" }),
+        wait: async () => ({ job: {}, artifacts: [] }),
+        cancel: async () => {},
+      },
+    });
+    `;
+
+    it("returns the trainer name when src/arkor/index.ts exports a manifest", async () => {
+      await writeCredentials(ANON_CREDS);
+      mkdirSync(join(trainCwd, "src/arkor"), { recursive: true });
+      writeFileSync(
+        join(trainCwd, "src/arkor/index.ts"),
+        FAKE_MANIFEST_SOURCE,
+      );
+      const app = build();
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        trainer: { name: string } | null;
+      };
+      expect(body.trainer).toEqual({ name: "qa-bot" });
+    });
+
+    it("returns 400 when src/arkor/index.ts is missing", async () => {
+      await writeCredentials(ANON_CREDS);
+      const app = build();
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/Build entry not found/);
+    });
+
+    it("returns trainer:null when the manifest has no trainer slot", async () => {
+      await writeCredentials(ANON_CREDS);
+      mkdirSync(join(trainCwd, "src/arkor"), { recursive: true });
+      writeFileSync(
+        join(trainCwd, "src/arkor/index.ts"),
+        `export const arkor = Object.freeze({ _kind: "arkor" });\n`,
+      );
+      const app = build();
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { trainer: unknown };
+      expect(body.trainer).toBeNull();
+    });
+  });
 });
