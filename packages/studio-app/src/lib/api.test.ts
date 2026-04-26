@@ -117,6 +117,28 @@ describe("streamInferenceContent (regression for ENG-358)", () => {
     expect(fragments).toEqual(["first"]);
   });
 
+  it("throws when /api/inference/chat returns 2xx with no body (regression for codex review)", async () => {
+    // A successful response without a body (e.g. 204, or an upstream that
+    // closed cleanly without writing any frames) used to surface as
+    // `Error("No response body")` in the Playground. After the SSE rewrite
+    // the silent-exit branch in `iterateSseFrames` would have left the
+    // assistant bubble empty with no feedback — guard against that.
+    globalThis.fetch = vi.fn(
+      async () => new Response(null, { status: 204 }),
+    ) as typeof fetch;
+
+    const consume = (async () => {
+      for await (const _ of streamInferenceContent({
+        messages: [],
+        stream: true,
+      })) {
+        // not expected to yield
+      }
+    })();
+
+    await expect(consume).rejects.toThrow(/no body/i);
+  });
+
   it("throws with the upstream body when /api/inference/chat returns non-2xx", async () => {
     globalThis.fetch = vi.fn(
       async () => new Response("upstream blew up", { status: 502 }),

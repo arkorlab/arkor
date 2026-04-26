@@ -117,6 +117,13 @@ export async function* streamInferenceContent(
     const text = await res.text().catch(() => "");
     throw new Error(text || `HTTP ${res.status}`);
   }
+  // `iterateSseFrames` mirrors cloud-api-client's `iterateEvents` and silently
+  // exits when there's no body. That's fine for the SDK but in the Playground
+  // it would leave an empty assistant bubble with no error surfaced — make
+  // the missing-body case loud here instead.
+  if (!res.body) {
+    throw new Error("Inference response has no body");
+  }
 
   for await (const sse of iterateSseFrames(res)) {
     if (sse.event === "ping") continue;
