@@ -24,6 +24,22 @@ export interface Job {
   config?: Record<string, unknown>;
 }
 
+/**
+ * Wire-friendly snapshot of the user's `createArkor({...})` manifest. The
+ * Studio backend builds `src/arkor/index.ts` and pulls these fields out so
+ * the SPA can show what the project contains without re-importing the
+ * artifact itself.
+ */
+export interface ManifestSummary {
+  trainer: { name: string } | null;
+}
+
+export interface ManifestError {
+  error: string;
+}
+
+export type ManifestResult = ManifestSummary | ManifestError;
+
 function readStudioToken(): string {
   if (typeof document === "undefined") return "";
   const meta = document.querySelector('meta[name="arkor-studio-token"]');
@@ -68,6 +84,18 @@ export async function fetchMe(): Promise<Me> {
 
 export async function fetchJobs(): Promise<{ jobs: Job[] }> {
   return json(await apiFetch("/api/jobs"));
+}
+
+/**
+ * Fetch a serialisable summary of the user's `createArkor({...})` manifest.
+ * Returns `{ error }` (not a thrown exception) on 4xx so the SPA can render a
+ * targeted hint — typically "no src/arkor/index.ts yet" right after scaffold.
+ */
+export async function fetchManifest(): Promise<ManifestResult> {
+  const res = await apiFetch("/api/manifest");
+  if (res.ok) return (await res.json()) as ManifestSummary;
+  if (res.status === 400) return (await res.json()) as ManifestError;
+  throw new Error(`${res.status} ${res.statusText}`);
 }
 
 export function openJobEvents(jobId: string): EventSource {
