@@ -297,8 +297,8 @@ process.exit(0);
       expect(res.status).toBe(200);
       const text = await res.text();
       expect(text).toContain("[fake-bin]");
-      // The bin receives `train` as the first non-flag arg.
-      expect(text).toContain('argv=["train"]');
+      // The bin receives `start` as the first non-flag arg.
+      expect(text).toContain('argv=["start"]');
       expect(text).toContain("exit=0");
       expect(text).not.toMatch(/Cannot find module|MODULE_NOT_FOUND|ENOENT/);
     });

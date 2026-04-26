@@ -232,8 +232,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       }
       trainFile = abs;
     }
-    const args = ["--experimental-strip-types", "--no-warnings=ExperimentalWarning"];
-    args.push(trainBinPath, "train");
+    const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
     const child = spawn(process.execPath, args, {
       stdio: "pipe",

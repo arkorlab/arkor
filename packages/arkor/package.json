@@ -14,7 +14,15 @@
     "url": "https://github.com/arkorlab/arkor/issues"
   },
   "license": "UNLICENSED",
-  "keywords": ["arkor", "llm", "lora", "fine-tuning", "training", "sdk", "cli"],
+  "keywords": [
+    "arkor",
+    "llm",
+    "lora",
+    "fine-tuning",
+    "training",
+    "sdk",
+    "cli"
+  ],
   "bin": {
     "arkor": "./dist/bin.mjs"
   },
@@ -43,6 +51,7 @@
     "@clack/prompts": "^0.8.0",
     "@hono/node-server": "^1.14.0",
     "commander": "^13.0.0",
+    "esbuild": "^0.28.0",
     "hono": "^4.7.0",
     "open": "^10.0.0",
     "zod": "^4.3.6"
