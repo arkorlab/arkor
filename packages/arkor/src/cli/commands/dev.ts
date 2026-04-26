@@ -67,19 +67,30 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
   } catch (err) {
     // Only swallow transport-level failures so Studio stays usable while
-    // offline. undici's fetch raises `TypeError("fetch failed")` (with
-    // `err.cause` set to the underlying ECONNREFUSED/ETIMEDOUT/etc.) for
-    // every transport-class error.
+    // offline. undici uses `TypeError` for *both* transport failures and
+    // configuration errors, so `instanceof TypeError` alone is too loose:
     //
-    // Everything else must surface so the user sees the real cause instead
-    // of a silently-broken Studio:
+    //   - Transport failure → `TypeError("fetch failed")` with `err.cause`
+    //     set to the underlying ECONNREFUSED/ETIMEDOUT/ENOTFOUND/etc.
+    //     The cloud-api may come back; server-side retry on first
+    //     /api/credentials hit has a chance.
+    //   - Config error (`ARKOR_CLOUD_API_URL=""`, `localhost:3003` without
+    //     scheme, etc.) → `TypeError` with a *different* message ("Invalid
+    //     URL", "URL scheme must be a HTTP(S) scheme", etc.). Every retry
+    //     will hit the same error, so we must surface it at startup.
+    //
+    // Filter on `message === "fetch failed"` because that's the contract
+    // undici exposes for transient transport failures.
+    //
+    // Everything else also surfaces:
     //   - non-2xx responses from cloud-api (`requestAnonymousToken` wraps
-    //     them in a plain `Error` — server-side retry would hit the same
-    //     reject)
+    //     them in a plain `Error` — server-side retry would re-reject)
     //   - schema mismatches (`ZodError` — cloud-api responded with garbage)
     //   - fs failures writing credentials.json (`EACCES`, `EROFS`, … —
     //     server-side retry would fail to persist for the same reason)
-    if (!(err instanceof TypeError)) throw err;
+    if (!(err instanceof TypeError) || err.message !== "fetch failed") {
+      throw err;
+    }
     ui.log.warn(
       `Could not reach ${baseUrl} (${err.message}). Studio will keep running and retry on first /api/credentials hit.`,
     );

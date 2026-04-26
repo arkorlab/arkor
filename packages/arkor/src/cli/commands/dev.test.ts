@@ -151,6 +151,23 @@ describe("ensureCredentialsForStudio", () => {
     expect(await readCredentials()).toBeNull();
   });
 
+  // Codex review on PR #10 (round 2) flagged that filtering by
+  // `instanceof TypeError` alone also swallows config errors (Node's
+  // fetch raises `TypeError("Invalid URL")` for malformed
+  // ARKOR_CLOUD_API_URL, "URL scheme must be a HTTP(S) scheme" for
+  // missing scheme, etc.). Those keep failing on every retry, so they
+  // must surface at startup instead of being silently warned.
+  it("re-throws when ARKOR_CLOUD_API_URL is malformed (config error)", async () => {
+    process.env.ARKOR_CLOUD_API_URL = "";
+    // No fetch mock — let real fetch raise the URL parse error so we
+    // exercise the actual undici contract, not a synthetic TypeError.
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(TypeError);
+    await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+      /^fetch failed$/,
+    );
+    expect(await readCredentials()).toBeNull();
+  });
+
   it("re-throws when the cloud-api responds with a body that fails schema validation", async () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
