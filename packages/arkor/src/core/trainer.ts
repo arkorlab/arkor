@@ -202,6 +202,11 @@ export function createTrainer(
    * Exponential backoff with ±25% jitter, capped at `maxReconnectDelayMs`.
    * The jitter spreads reconnect storms when a cloud-api recovers and
    * many SDK clients retry at once.
+   *
+   * The final value is clamped at `maxReconnectDelayMs` because jitter
+   * sits *outside* the exponential clamp — without the outer clamp, a
+   * long outage where `exp` already hit the cap could wait up to 1.25 ×
+   * the documented cap when `Math.random()` lands near 1.
    */
   function nextReconnectDelay(attempt: number): number {
     const exp = Math.min(
@@ -209,7 +214,7 @@ export function createTrainer(
       maxReconnectDelayMs,
     );
     const jitter = exp * (Math.random() * 0.5 - 0.25);
-    return Math.max(0, exp + jitter);
+    return Math.max(0, Math.min(maxReconnectDelayMs, exp + jitter));
   }
 
   async function delay(ms: number, signal?: AbortSignal): Promise<void> {

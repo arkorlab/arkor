@@ -485,6 +485,68 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     expect(streamCalls()).toBe(5);
   });
 
+  // Codex review on PR #13 (round 2) flagged that jitter is applied
+  // *after* the exponential is clamped to `maxReconnectDelayMs`, so a
+  // saturated `exp` could still wait up to 1.25 × the documented cap
+  // when `Math.random()` lands near 1.
+  it("clamps the jittered delay at maxReconnectDelayMs", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // Math.random = 0.9 → jitter component = exp * (0.9 * 0.5 - 0.25) =
+    // exp * 0.20. Without the outer clamp, exp + jitter = 1.20 × cap.
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.9);
+    const delays: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation((fn, ms) => {
+        delays.push(ms ?? 0);
+        return realSetTimeout(fn as () => void, 0);
+      });
+
+    try {
+      const { fetch: fetcher } = streamFetcher([
+        { kind: "throw", error: new TypeError("fetch failed") },
+        { kind: "throw", error: new TypeError("fetch failed") },
+      ]);
+
+      const trainer = createTrainer(
+        {
+          name: "run",
+          config: {
+            model: "m",
+            datasetSource: { type: "huggingface", name: "x" },
+          },
+        },
+        {
+          baseUrl: "http://mock",
+          credentials: creds,
+          cwd,
+          // base = cap means `exp` saturates the cap on the very first
+          // attempt, so the jitter would push above without the clamp.
+          reconnectDelayMs: 100,
+          maxReconnectDelayMs: 100,
+          maxReconnectAttempts: 1,
+        },
+      );
+
+      await withMockedFetch(fetcher, async () => {
+        await expect(trainer.wait()).rejects.toThrow();
+      });
+
+      // Single backoff between the first failure and the second attempt
+      // (the second hits maxReconnectAttempts and throws without delay).
+      // Was 120 ms before the fix; must not exceed 100.
+      expect(delays).toHaveLength(1);
+      expect(delays[0]).toBeLessThanOrEqual(100);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      randomSpy.mockRestore();
+    }
+  });
+
   it("emits backoff delays that grow exponentially (no jitter, ×2 each attempt)", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
