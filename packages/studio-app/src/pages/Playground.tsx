@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiFetch, fetchJobs, type Job } from "../lib/api";
+import { fetchJobs, streamInferenceContent, type Job } from "../lib/api";
 
 interface Message {
   role: "system" | "user" | "assistant";
@@ -31,24 +31,13 @@ export function Playground() {
     responseRef.current = "";
 
     try {
-      const body = {
+      const stream = streamInferenceContent({
         adapter: { kind: "final", jobId: selected },
         messages: [...messages, userMsg],
         stream: true,
-      };
-      const res = await apiFetch("/api/inference/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
       });
-      if (!res.body) throw new Error("No response body");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        responseRef.current += chunk;
+      for await (const fragment of stream) {
+        responseRef.current += fragment;
         const current = responseRef.current;
         setMessages((prev) => {
           const out = prev.slice();

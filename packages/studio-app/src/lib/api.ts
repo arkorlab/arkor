@@ -1,3 +1,5 @@
+import { createParser, type EventSourceMessage } from "eventsource-parser";
+
 export interface Credentials {
   token: string;
   mode: "auth0" | "anon";
@@ -74,6 +76,115 @@ export function openJobEvents(jobId: string): EventSource {
   return new EventSource(
     withStudioToken(`/api/jobs/${encodeURIComponent(jobId)}/events`),
   );
+}
+
+export interface ChatRequestBody {
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>;
+  adapter?: { kind: "final" | "checkpoint"; jobId: string; step?: number };
+  baseModel?: string;
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
+  stream?: boolean;
+}
+
+/**
+ * Stream assistant text deltas from `/api/inference/chat`.
+ *
+ * The Studio server proxies cloud-api's `/v1/inference/chat` SSE stream
+ * verbatim, so the body is `event: …\ndata: {…}\n\n` frames — not plain
+ * text. We parse the frames with `eventsource-parser` (the same parser
+ * the SDK's `iterateEvents` uses) and pull the assistant text out of
+ * each frame's `data` payload.
+ *
+ * Yields the per-frame text fragment so callers can append directly to
+ * the assistant message bubble.
+ */
+export async function* streamInferenceContent(
+  body: ChatRequestBody,
+  signal?: AbortSignal,
+): AsyncGenerator<string> {
+  const res = await apiFetch("/api/inference/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+
+  for await (const sse of iterateSseFrames(res)) {
+    if (sse.event === "ping") continue;
+    if (sse.event === "end" || sse.data === "[DONE]") return;
+    const fragment = extractInferenceDelta(sse.data);
+    if (fragment) yield fragment;
+  }
+}
+
+/**
+ * Mirrors `iterateEvents` from `@arkor/cloud-api-client`, inlined here
+ * because that package's main entry pulls in Node-only modules and can't
+ * be bundled into the SPA. The parser itself (eventsource-parser) is a
+ * direct dependency of cloud-api-client, so they stay in sync.
+ */
+async function* iterateSseFrames(
+  response: Response,
+): AsyncGenerator<EventSourceMessage> {
+  if (!response.body) return;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const pending: EventSourceMessage[] = [];
+  const parser = createParser({
+    onEvent(msg) {
+      pending.push(msg);
+    },
+  });
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      parser.feed(decoder.decode(value, { stream: true }));
+      while (pending.length > 0) yield pending.shift()!;
+    }
+    parser.feed(decoder.decode());
+    while (pending.length > 0) yield pending.shift()!;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * Best-effort extraction of the assistant text fragment from a single SSE
+ * frame's `data:` payload. Handles the OpenAI-style streaming envelope
+ * (`choices[0].delta.content`) and a couple of reasonable fallbacks. If
+ * `data` isn't JSON, surface it as-is so the user still sees *something*
+ * instead of silent emptiness.
+ *
+ * Exported for unit tests; not part of the SPA's public surface.
+ */
+export function extractInferenceDelta(data: string): string | null {
+  if (!data) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return data;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as Record<string, unknown>;
+  const choices = obj.choices;
+  if (Array.isArray(choices) && choices[0] && typeof choices[0] === "object") {
+    const delta = (choices[0] as { delta?: { content?: unknown } }).delta;
+    if (delta && typeof delta.content === "string") return delta.content;
+  }
+  if (typeof obj.content === "string") return obj.content;
+  if (typeof obj.text === "string") return obj.text;
+  return null;
 }
 
 export async function streamTraining(
