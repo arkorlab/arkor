@@ -149,6 +149,25 @@ describe("create-arkor (E2E)", () => {
     expect(entry).toContain('"chatml-run"');
   });
 
+  // Regression for ENG-357 — `--name "Foo Bar"` previously fell through to
+  // package.json verbatim because sanitisation only ran inside the
+  // interactive branch.
+  it("sanitises --name when prompts are skipped", async () => {
+    const { result, targetDir } = await runCreateArkor([
+      "-y",
+      "--skip-install",
+      "--skip-git",
+      "--name",
+      "Foo Bar!",
+    ]);
+    expect(result.code).toBe(0);
+
+    const pkg = JSON.parse(
+      readFileSync(join(targetDir, "package.json"), "utf8"),
+    ) as { name?: string };
+    expect(pkg.name).toBe("foo-bar");
+  });
+
   it("honours --name --template alpaca", async () => {
     const { result, targetDir } = await runCreateArkor([
       "-y",

@@ -124,6 +124,30 @@ describe("arkor init (E2E)", () => {
     expect(pkg.name).toBe("no-prompt-app");
   });
 
+  // Regression for ENG-357 — `--name "Foo Bar"` previously fell through to
+  // package.json verbatim because sanitisation only ran inside the
+  // interactive branch.
+  it("sanitises --name when prompts are skipped", async () => {
+    const result = await runCli(
+      ARKOR_BIN,
+      [
+        "init",
+        "-y",
+        "--skip-install",
+        "--skip-git",
+        "--name",
+        "Foo Bar!",
+      ],
+      cwd,
+    );
+    expect(result.code).toBe(0);
+
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as { name?: string };
+    expect(pkg.name).toBe("foo-bar");
+  });
+
   it("skips git init when the target is already a git repo", async () => {
     // Pre-seed a git repo so isInGitRepo() short-circuits.
     const initRes = await runGit(cwd, ["init", "-q"]);

@@ -2,6 +2,7 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  sanitise,
   scaffold,
   templateChoices,
   type PackageManager,
@@ -104,7 +105,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     skipWith: options.yes ? options.template ?? "minimal" : undefined,
   });
 
-  const { files } = await scaffold({ cwd, name: projectName, template });
+  // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
+  // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
+  const { files } = await scaffold({ cwd, name: sanitise(projectName), template });
 
   ui.note(
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
