@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { buildStudioApp } from "./server";
 import { writeCredentials } from "../core/credentials";
 
@@ -159,19 +165,27 @@ describe("Studio server", () => {
   });
 
   it("rejects /api/train with a file path that escapes cwd", async () => {
-    const app = build();
-    const res = await app.request("/api/train", {
-      method: "POST",
-      headers: {
-        host: "127.0.0.1:4000",
-        "x-arkor-studio-token": STUDIO_TOKEN,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ file: "../escape.ts" }),
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toMatch(/inside the project directory/);
+    // Create the escape target so we exercise the containment check, not the
+    // does-not-exist gate added in ENG-404.
+    const escapePath = resolve(trainCwd, "../escape.ts");
+    writeFileSync(escapePath, "// outside\n");
+    try {
+      const app = build();
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ file: "../escape.ts" }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/inside the project directory/);
+    } finally {
+      rmSync(escapePath, { force: true });
+    }
   });
 
   it("rejects /api/train with an absolute file path outside cwd", async () => {
@@ -186,6 +200,64 @@ describe("Studio server", () => {
       body: JSON.stringify({ file: "/etc/passwd" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  // Regression for ENG-404 — `path.resolve` doesn't follow symlinks, so a
+  // link inside the project directory pointing outside it would previously
+  // pass the containment check and be handed to `arkor train` (which would
+  // then dlopen the link's target).
+  it("rejects /api/train when body.file is a symlink to a path outside cwd", async () => {
+    await writeCredentials(ANON_CREDS);
+    symlinkSync("/etc/passwd", join(trainCwd, "evil.ts"));
+    const app = build();
+    const res = await app.request("/api/train", {
+      method: "POST",
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ file: "evil.ts" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/inside the project directory/);
+  });
+
+  it("rejects /api/train when body.file does not exist", async () => {
+    await writeCredentials(ANON_CREDS);
+    const app = build();
+    const res = await app.request("/api/train", {
+      method: "POST",
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ file: "missing.ts" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/does not exist/);
+  });
+
+  it("rejects /api/train when body.file is a broken symlink", async () => {
+    await writeCredentials(ANON_CREDS);
+    // Loop symlink: realpath throws ELOOP. Treated like ENOENT.
+    symlinkSync(join(trainCwd, "loop.ts"), join(trainCwd, "loop.ts"));
+    const app = build();
+    const res = await app.request("/api/train", {
+      method: "POST",
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ file: "loop.ts" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/does not exist/);
   });
 
   // Regression for ENG-356 — `/api/train` previously resolved the bundled
