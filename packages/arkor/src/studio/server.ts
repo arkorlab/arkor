@@ -207,7 +207,11 @@ export function buildStudioApp(options: StudioServerOptions) {
       trainFile = abs;
     }
     const args = ["--experimental-strip-types", "--no-warnings=ExperimentalWarning"];
-    const pkgBinPath = new URL("../bin.mjs", import.meta.url).pathname;
+    // `studio/server.ts` is bundled into `dist/bin.mjs` (it isn't reachable
+    // from `src/index.ts`, so tsdown doesn't extract it as a shared chunk).
+    // The bin therefore sits *next* to this code at runtime, not one
+    // directory up — `../bin.mjs` would resolve to the package root.
+    const pkgBinPath = fileURLToPath(new URL("./bin.mjs", import.meta.url));
     args.push(pkgBinPath, "train");
     if (trainFile) args.push(trainFile);
     const child = spawn(process.execPath, args, {
