@@ -13,11 +13,11 @@ so the user's job stays "write some TypeScript".
 ## Quickstart
 
 ```bash
-npm create arkor@latest my-app
+pnpm create arkor my-app
 cd my-app
-npm install
-npx arkor login        # Auth0 PKCE flow; --anonymous also works
-npx arkor dev          # opens the local Studio GUI on http://127.0.0.1:4000
+pnpm install
+pnpm arkor login       # Auth0 PKCE flow; --anonymous also works
+pnpm arkor dev         # opens the local Studio GUI on http://127.0.0.1:4000
 ```
 
 `arkor dev` is the primary surface — it starts a local Studio with hot
@@ -27,8 +27,8 @@ and trying out checkpoints in a Playground.
 CLI-only flow (no GUI):
 
 ```bash
-npx arkor build        # bundles src/arkor/ into .arkor/build/index.mjs
-npx arkor start        # runs the build artifact on the cloud
+pnpm arkor build       # bundles src/arkor/ into .arkor/build/index.mjs
+pnpm arkor start       # runs the build artifact on the cloud
 ```
 
 ## What's in a project
@@ -66,7 +66,7 @@ live behind that one command.
 | Package | What it is |
 |---|---|
 | [`arkor`](packages/arkor) | The SDK + CLI + bundled local Studio |
-| [`create-arkor`](packages/create-arkor) | `npm create arkor` scaffolder |
+| [`create-arkor`](packages/create-arkor) | `pnpm create arkor` scaffolder |
 
 ## Requirements
 

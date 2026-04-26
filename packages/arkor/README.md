@@ -11,13 +11,13 @@ The Arkor SDK + CLI + bundled local Studio. One package; three surfaces.
 Most users get this package via the scaffolder:
 
 ```bash
-npm create arkor@latest my-app
+pnpm create arkor my-app
 ```
 
 Direct install is fine too:
 
 ```bash
-npm install arkor
+pnpm add arkor
 ```
 
 Requires Node.js 22.6+.

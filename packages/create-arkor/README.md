@@ -18,7 +18,7 @@ bun create arkor my-app
 Interactive by default. Pass flags to skip prompts:
 
 ```bash
-npm create arkor@latest my-app -- \
+pnpm create arkor my-app \
   --template alpaca \
   --use-pnpm \
   --skip-install \
