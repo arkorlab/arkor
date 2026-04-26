@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -324,5 +324,220 @@ describe("createTrainer (SSE event stream)", () => {
       globalThis.fetch = originalFetch;
     }
     expect(inferResponseText).toBe("hello from checkpoint 5");
+  });
+});
+
+// Regression for ENG-406 — the previous reconnect loop had no upper bound
+// and no jitter, so a permanently-down cloud-api would keep retrying every
+// `reconnectDelayMs` forever (and on recovery several SDK clients would
+// reconnect at exactly the same instant).
+describe("createTrainer (reconnect backoff + max attempts)", () => {
+  const minimalJobRow = {
+    id: "j1",
+    orgId: "o1",
+    projectId: "p1",
+    name: "run",
+    status: "queued",
+    config: {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+    },
+    createdAt: "2026-01-01T00:00:00Z",
+    startedAt: null,
+    completedAt: null,
+  };
+
+  function streamFetcher(
+    handlers: Array<
+      | { kind: "throw"; error: Error }
+      | { kind: "stream"; chunks: string[] }
+    >,
+  ): { fetch: typeof fetch; streamCalls: () => number } {
+    let streamCalls = 0;
+    const impl: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
+        const handler = handlers[streamCalls++];
+        if (!handler) {
+          throw new Error(`unexpected stream open #${streamCalls}`);
+        }
+        if (handler.kind === "throw") throw handler.error;
+        return new Response(sseStream(handler.chunks), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+    return { fetch: impl, streamCalls: () => streamCalls };
+  }
+
+  async function withMockedFetch<T>(
+    impl: typeof fetch,
+    body: () => Promise<T>,
+  ): Promise<T> {
+    const original = globalThis.fetch;
+    globalThis.fetch = impl;
+    try {
+      return await body();
+    } finally {
+      globalThis.fetch = original;
+    }
+  }
+
+  it("rejects after maxReconnectAttempts of consecutive open failures", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // max=2 → 1 initial + 2 retries before giving up on the 3rd attempt.
+    const { fetch: fetcher, streamCalls } = streamFetcher([
+      { kind: "throw", error: new TypeError("fetch failed") },
+      { kind: "throw", error: new TypeError("fetch failed") },
+      { kind: "throw", error: new TypeError("fetch failed") },
+    ]);
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 2,
+      },
+    );
+
+    const error = await withMockedFetch(fetcher, async () =>
+      trainer.wait().catch((e: unknown) => e),
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(
+      /failed 3 consecutive times/,
+    );
+    expect((error as Error).cause).toBeInstanceOf(TypeError);
+    expect(streamCalls()).toBe(3);
+  });
+
+  it("resets the failure counter after the stream yields any frame", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // Without the reset, max=2 would trip after [throw, success, throw, throw]
+    // (4 opens). With the reset, the success in slot 2 wipes the previous
+    // failure, so we get [throw, success, throw, throw, throw] = 5 opens
+    // before the 3rd consecutive failure exceeds the limit.
+    const { fetch: fetcher, streamCalls } = streamFetcher([
+      { kind: "throw", error: new TypeError("fetch failed") },
+      {
+        kind: "stream",
+        chunks: [
+          `id: 1\nevent: training.log\ndata: ${JSON.stringify({
+            type: "training.log",
+            jobId: "j1",
+            timestamp: "2026-01-01T00:00:01Z",
+            step: 1,
+            loss: 1,
+          })}\n\n`,
+          // No terminal event — stream closes cleanly, outer loop reconnects.
+        ],
+      },
+      { kind: "throw", error: new TypeError("fetch failed") },
+      { kind: "throw", error: new TypeError("fetch failed") },
+      { kind: "throw", error: new TypeError("fetch failed") },
+    ]);
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 2,
+      },
+    );
+
+    await withMockedFetch(fetcher, async () => {
+      await expect(trainer.wait()).rejects.toThrow(
+        /failed 3 consecutive times/,
+      );
+    });
+    expect(streamCalls()).toBe(5);
+  });
+
+  it("emits backoff delays that grow exponentially (no jitter, ×2 each attempt)", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // Math.random = 0.5 → jitter component is exactly zero, so the delay
+    // schedule is base * 2^attempt clamped to maxReconnectDelayMs.
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+
+    const delays: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation((fn, ms) => {
+        delays.push(ms ?? 0);
+        return realSetTimeout(fn as () => void, 0);
+      });
+
+    try {
+      const { fetch: fetcher } = streamFetcher([
+        { kind: "throw", error: new TypeError("fetch failed") },
+        { kind: "throw", error: new TypeError("fetch failed") },
+        { kind: "throw", error: new TypeError("fetch failed") },
+      ]);
+
+      const trainer = createTrainer(
+        {
+          name: "run",
+          config: {
+            model: "m",
+            datasetSource: { type: "huggingface", name: "x" },
+          },
+        },
+        {
+          baseUrl: "http://mock",
+          credentials: creds,
+          cwd,
+          reconnectDelayMs: 10,
+          maxReconnectDelayMs: 1_000_000,
+          maxReconnectAttempts: 2,
+        },
+      );
+
+      await withMockedFetch(fetcher, async () => {
+        await expect(trainer.wait()).rejects.toThrow();
+      });
+
+      // Two backoff delays before the third attempt errors out (the third
+      // open hits maxReconnectAttempts and throws without delaying).
+      expect(delays).toEqual([10, 20]);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      randomSpy.mockRestore();
+    }
   });
 });
