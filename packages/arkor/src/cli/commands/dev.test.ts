@@ -110,12 +110,18 @@ describe("ensureCredentialsForStudio", () => {
     expect(await readCredentials()).toBeNull();
   });
 
-  it("does not throw when the cloud-api is fully unreachable", async () => {
+  // Codex review on PR #10 (round 3) flagged that swallowing transport
+  // failures when fetchCliConfig itself failed is unsafe: in Auth0-only
+  // deployments we can't tell from a network outage that /v1/auth/anonymous
+  // would have been rejected, and the server-side retry path never re-
+  // enters runLogin. So when cfg fetch fails AND the anon attempt also
+  // transport-fails, we now fail fast.
+  it("re-throws when cloud-api is fully unreachable (deployment mode unknown)", async () => {
     globalThis.fetch = vi.fn(async () => {
       throw new TypeError("fetch failed");
     }) as typeof fetch;
 
-    await expect(ensureCredentialsForStudio()).resolves.toBeUndefined();
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(TypeError);
     expect(await readCredentials()).toBeNull();
   });
 

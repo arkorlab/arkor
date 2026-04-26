@@ -39,10 +39,14 @@ export async function ensureCredentialsForStudio(): Promise<void> {
 
   const baseUrl = defaultArkorCloudApiUrl();
   let cfg: Awaited<ReturnType<typeof fetchCliConfig>> | null = null;
+  let deploymentModeKnown = false;
   try {
     cfg = await fetchCliConfig(baseUrl);
+    deploymentModeKnown = true;
   } catch {
-    cfg = null;
+    // cfg null + deploymentModeKnown=false → we couldn't even determine
+    // whether the deployment requires Auth0. See the catch below for why
+    // that matters for the bootstrap recovery decision.
   }
 
   if (cfg?.auth0Domain && cfg.clientId && cfg.audience) {
@@ -66,29 +70,28 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     await writeCredentials(creds);
     ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
   } catch (err) {
-    // Only swallow transport-level failures so Studio stays usable while
-    // offline. undici uses `TypeError` for *both* transport failures and
-    // configuration errors, so `instanceof TypeError` alone is too loose:
+    // Only swallow transport-level failures, AND only when we positively
+    // confirmed the deployment doesn't require Auth0. Two filters:
     //
-    //   - Transport failure → `TypeError("fetch failed")` with `err.cause`
-    //     set to the underlying ECONNREFUSED/ETIMEDOUT/ENOTFOUND/etc.
-    //     The cloud-api may come back; server-side retry on first
-    //     /api/credentials hit has a chance.
-    //   - Config error (`ARKOR_CLOUD_API_URL=""`, `localhost:3003` without
-    //     scheme, etc.) → `TypeError` with a *different* message ("Invalid
-    //     URL", "URL scheme must be a HTTP(S) scheme", etc.). Every retry
-    //     will hit the same error, so we must surface it at startup.
+    // 1. `TypeError("fetch failed")` is undici's contract for transient
+    //    transport failures (ECONNREFUSED/ETIMEDOUT/ENOTFOUND/etc.) where
+    //    the cloud-api may come back. Other TypeErrors are config errors
+    //    ("Invalid URL", "URL scheme must be a HTTP(S) scheme") that keep
+    //    failing on every retry. Plain Errors (non-2xx responses, ZodError
+    //    on garbage responses) and fs errors (EACCES on credentials.json)
+    //    also keep failing on retry.
     //
-    // Filter on `message === "fetch failed"` because that's the contract
-    // undici exposes for transient transport failures.
-    //
-    // Everything else also surfaces:
-    //   - non-2xx responses from cloud-api (`requestAnonymousToken` wraps
-    //     them in a plain `Error` — server-side retry would re-reject)
-    //   - schema mismatches (`ZodError` — cloud-api responded with garbage)
-    //   - fs failures writing credentials.json (`EACCES`, `EROFS`, … —
-    //     server-side retry would fail to persist for the same reason)
-    if (!(err instanceof TypeError) || err.message !== "fetch failed") {
+    // 2. `deploymentModeKnown` guards against silently starting a broken
+    //    Studio against an Auth0-only deployment. If fetchCliConfig itself
+    //    failed, we don't know whether `/v1/auth/anonymous` is even
+    //    enabled on this cloud-api. Server-side retry on /api/credentials
+    //    would hit the same anon endpoint and get a permanent rejection
+    //    instead of being routed back to the interactive `runLogin`. Fail
+    //    fast so the user sees the real cause and can re-run once
+    //    connectivity is back.
+    const isTransportFailure =
+      err instanceof TypeError && err.message === "fetch failed";
+    if (!isTransportFailure || !deploymentModeKnown) {
       throw err;
     }
     ui.log.warn(
