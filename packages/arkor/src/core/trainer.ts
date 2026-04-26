@@ -375,11 +375,13 @@ export function createTrainer(
           continue;
         }
 
+        let receivedAny = false;
         try {
           for await (const sse of iterateEvents(response)) {
             // Any frame from the server (including pings) means we're
             // connected and making progress — reset the failure counter
             // so subsequent transient blips get the full retry budget.
+            receivedAny = true;
             attempt = 0;
             if (sse.id) lastEventId = sse.id;
             if (sse.event === "ping") continue;
@@ -405,11 +407,22 @@ export function createTrainer(
           continue;
         }
 
-        if (!terminal) {
-          // Stream closed cleanly but we haven't seen a terminal event yet.
-          // Not a failure — reconnect with Last-Event-ID at the base delay
-          // (no exponential backoff, no counter increment).
+        if (terminal) break;
+
+        if (receivedAny) {
+          // Stream had real activity then closed cleanly. Not a failure —
+          // reconnect with Last-Event-ID at the base delay (no exponential
+          // backoff, no counter increment).
           await delay(initialReconnectDelayMs, abortSignal);
+        } else {
+          // 200 OK but the stream EOF'd without yielding any frame. This
+          // is the signature of a misconfigured proxy / LB that accepts
+          // the connection and immediately drops it. Count it toward
+          // `maxReconnectAttempts` so we don't loop forever at the base
+          // delay against the same broken intermediary.
+          await handleFailure(
+            new Error("SSE stream closed without emitting any frame"),
+          );
         }
       }
 

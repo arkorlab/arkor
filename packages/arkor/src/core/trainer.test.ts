@@ -410,7 +410,8 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
       },
       {
         baseUrl: "http://mock",
@@ -465,7 +466,8 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
       },
       {
         baseUrl: "http://mock",
@@ -489,6 +491,53 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   // *after* the exponential is clamped to `maxReconnectDelayMs`, so a
   // saturated `exp` could still wait up to 1.25 × the documented cap
   // when `Math.random()` lands near 1.
+  // Codex review on PR #13 (round 3) flagged that a 200-OK stream that
+  // EOFs without emitting any frame would loop forever at the base delay
+  // — `maxReconnectAttempts` was bypassed because clean closes never
+  // touched the failure counter. Misconfigured proxies / load-balancers
+  // that accept the connection and immediately drop it would hang
+  // `wait()` indefinitely.
+  it("counts clean closes with no frames toward maxReconnectAttempts", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // 200 OK with empty body each time (proxy accepts then EOFs). With
+    // max=2, three empty streams should exhaust the budget.
+    const { fetch: fetcher, streamCalls } = streamFetcher([
+      { kind: "stream", chunks: [] },
+      { kind: "stream", chunks: [] },
+      { kind: "stream", chunks: [] },
+    ]);
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 2,
+      },
+    );
+
+    const error = await withMockedFetch(fetcher, async () =>
+      trainer.wait().catch((e: unknown) => e),
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/failed 3 consecutive times/);
+    expect((error as Error).cause).toBeInstanceOf(Error);
+    expect(((error as Error).cause as Error).message).toMatch(
+      /closed without emitting any frame/,
+    );
+    expect(streamCalls()).toBe(3);
+  });
+
   it("clamps the jittered delay at maxReconnectDelayMs", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
@@ -515,10 +564,8 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const trainer = createTrainer(
         {
           name: "run",
-          config: {
-            model: "m",
-            datasetSource: { type: "huggingface", name: "x" },
-          },
+          model: "m",
+          dataset: { type: "huggingface", name: "x" },
         },
         {
           baseUrl: "http://mock",
@@ -575,10 +622,8 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const trainer = createTrainer(
         {
           name: "run",
-          config: {
-            model: "m",
-            datasetSource: { type: "huggingface", name: "x" },
-          },
+          model: "m",
+          dataset: { type: "huggingface", name: "x" },
         },
         {
           baseUrl: "http://mock",
