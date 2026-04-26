@@ -5,6 +5,14 @@ import { join } from "node:path";
 import { buildStudioApp } from "./server";
 import { writeCredentials } from "../core/credentials";
 
+const ANON_CREDS = {
+  mode: "anon" as const,
+  token: "tok",
+  anonymousId: "anon-id",
+  arkorCloudApiUrl: "http://mock",
+  orgSlug: "anon-org",
+};
+
 const STUDIO_TOKEN = "test-studio-token-0123456789";
 
 let fakeHome: string;
@@ -178,5 +186,75 @@ describe("Studio server", () => {
       body: JSON.stringify({ file: "/etc/passwd" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  // Regression for ENG-356 — `/api/train` previously resolved the bundled
+  // bin at `<pkg>/bin.mjs` (one level above `dist/`), which never existed.
+  // The DI'd `binPath` lets us assert (a) a working bin streams its stdout
+  // through the response, and (b) a missing bin surfaces ENOENT-grade errors
+  // rather than silently succeeding.
+  describe("/api/train spawn (binPath DI)", () => {
+    it("streams a real spawn's stdout and exits cleanly when binPath is valid", async () => {
+      await writeCredentials(ANON_CREDS);
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      writeFileSync(
+        fakeBin,
+        `#!/usr/bin/env node
+process.stdout.write("[fake-bin] argv=" + JSON.stringify(process.argv.slice(2)) + "\\n");
+process.exit(0);
+`,
+      );
+
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: fakeBin,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain("[fake-bin]");
+      // The bin receives `train` as the first non-flag arg.
+      expect(text).toContain('argv=["train"]');
+      expect(text).toContain("exit=0");
+      expect(text).not.toMatch(/Cannot find module|MODULE_NOT_FOUND|ENOENT/);
+    });
+
+    it("surfaces ENOENT-grade errors when binPath does not exist", async () => {
+      await writeCredentials(ANON_CREDS);
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: join(trainCwd, "definitely-not-a-bin.mjs"),
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200); // stream opens; the failure shows up in the body
+      const text = await res.text();
+      expect(text).toMatch(/Cannot find module|MODULE_NOT_FOUND|ENOENT/);
+      expect(text).toContain("exit=");
+      expect(text).not.toContain("exit=0");
+    });
   });
 });
