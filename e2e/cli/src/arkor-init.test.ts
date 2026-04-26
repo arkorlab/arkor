@@ -43,7 +43,7 @@ describe("arkor init (E2E)", () => {
     );
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("pnpm install");
-    expect(result.stdout).toContain("pnpm arkor train");
+    expect(result.stdout).toContain("pnpm arkor dev");
   });
 
   it("renders the npm next-steps (npx for run) when --use-npm is set", async () => {
@@ -54,13 +54,13 @@ describe("arkor init (E2E)", () => {
     );
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("npm install");
-    expect(result.stdout).toContain("npx arkor train");
+    expect(result.stdout).toContain("npx arkor dev");
   });
 
   it.each([
-    { pm: "yarn", trainCmd: "yarn arkor train" },
-    { pm: "bun", trainCmd: "bun arkor train" },
-  ])("renders the $pm next-steps when --use-$pm is set", async ({ pm, trainCmd }) => {
+    { pm: "yarn", devCmd: "yarn arkor dev" },
+    { pm: "bun", devCmd: "bun arkor dev" },
+  ])("renders the $pm next-steps when --use-$pm is set", async ({ pm, devCmd }) => {
     const result = await runCli(
       ARKOR_BIN,
       ["init", "-y", "--skip-install", "--skip-git", `--use-${pm}`],
@@ -68,7 +68,7 @@ describe("arkor init (E2E)", () => {
     );
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`${pm} install`);
-    expect(result.stdout).toContain(trainCmd);
+    expect(result.stdout).toContain(devCmd);
   });
 
   it("creates a real git repo and initial commit when --git is set", async () => {
@@ -115,8 +115,8 @@ describe("arkor init (E2E)", () => {
     );
     expect(result.code).toBe(0);
 
-    const entry = readFileSync(join(cwd, "src/arkor/index.ts"), "utf8");
-    expect(entry).toContain('"chatml-run"');
+    const trainer = readFileSync(join(cwd, "src/arkor/trainer.ts"), "utf8");
+    expect(trainer).toContain('"chatml-run"');
 
     const pkg = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),

@@ -172,15 +172,15 @@ async function run(options: RunOptions): Promise<void> {
     : pm
       ? `  ${pm} install`
       : `  ${MANUAL_INSTALL_HINT}`;
-  const trainLine =
-    pm && pm !== "npm" ? `  ${pm} arkor train` : `  npx arkor train`;
+  const devLine =
+    pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
 
   clack.outro(
     [
       `Next steps:`,
       `  cd ${options.dir ?? "."}`,
       ...(installLine ? [installLine] : []),
-      trainLine,
+      devLine,
     ].join("\n"),
   );
 }

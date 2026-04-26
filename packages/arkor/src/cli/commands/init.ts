@@ -139,13 +139,13 @@ export async function runInit(options: InitOptions): Promise<void> {
   // reproducible.
   await maybeGitInit(cwd, options);
 
-  const trainCmd =
-    pm && pm !== "npm" ? `${pm} arkor train` : "npx arkor train";
+  const devCmd =
+    pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
   ui.outro(
     installed
-      ? `Next: \`${trainCmd}\``
+      ? `Next: \`${devCmd}\``
       : pm
-        ? `Next: \`${pm} install\`, then \`${trainCmd}\``
-        : `Next: ${MANUAL_INSTALL_HINT}, then \`${trainCmd}\``,
+        ? `Next: \`${pm} install\`, then \`${devCmd}\``
+        : `Next: ${MANUAL_INSTALL_HINT}, then \`${devCmd}\``,
   );
 }
