@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { createClient } from "@arkor/cloud-api-client";
@@ -209,8 +209,21 @@ export function buildStudioApp(options: StudioServerOptions) {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
     let trainFile: string | undefined;
     if (body.file) {
-      const baseAbs = resolve(trainCwd);
-      const abs = resolve(baseAbs, body.file);
+      // Resolve symlinks before the containment check — `path.resolve` is purely
+      // lexical, so a symlink under the project directory pointing at e.g.
+      // `/etc/passwd` would otherwise pass `startsWith(baseAbs + sep)`. The
+      // bin spawned below would then dlopen the link's target.
+      let baseAbs: string;
+      let abs: string;
+      try {
+        baseAbs = await realpath(resolve(trainCwd));
+        abs = await realpath(resolve(baseAbs, body.file));
+      } catch {
+        return c.json(
+          { error: "file does not exist or is not accessible" },
+          400,
+        );
+      }
       if (abs !== baseAbs && !abs.startsWith(baseAbs + sep)) {
         return c.json(
           { error: "file must be inside the project directory" },
