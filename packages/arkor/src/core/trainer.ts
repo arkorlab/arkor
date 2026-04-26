@@ -10,8 +10,9 @@ import type {
   ArkorProjectState,
   CheckpointContext,
   InferArgs,
+  JobConfig,
   Trainer,
-  TrainerOptions,
+  TrainerInput,
   TrainingJob,
   TrainingLogContext,
   TrainingResult,
@@ -19,14 +20,17 @@ import type {
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
-export interface CreateTrainerContext {
-  /** Override the resolved cloud-api base URL (defaults to env / localhost:3003). */
+/**
+ * Internal runtime context. Not part of the public API surface — exposed only
+ * for tests and advanced power-user scenarios that need to inject a mock
+ * `fetch` or override the working directory.
+ *
+ * @internal
+ */
+export interface TrainerInternalContext {
   baseUrl?: string;
-  /** Override credentials (primarily for tests). */
   credentials?: Credentials;
-  /** Override the project working directory (defaults to `process.cwd()`). */
   cwd?: string;
-  /** Reconnect back-off on stream drops (ms). Defaults to 1000. */
   reconnectDelayMs?: number;
 }
 
@@ -59,21 +63,57 @@ type StreamEvent =
     })
   | (StreamEventBase & { type: "training.failed"; error: string; step?: number });
 
+function buildJobConfig(input: TrainerInput): JobConfig {
+  const config: JobConfig = {
+    model: input.model,
+    datasetSource: input.dataset,
+  };
+  if (input.lora) {
+    config.loraR = input.lora.r;
+    config.loraAlpha = input.lora.alpha;
+    if (input.lora.maxLength !== undefined) config.maxLength = input.lora.maxLength;
+    if (input.lora.loadIn4bit !== undefined) config.loadIn4bit = input.lora.loadIn4bit;
+  }
+  if (input.maxSteps !== undefined) config.maxSteps = input.maxSteps;
+  if (input.numTrainEpochs !== undefined) config.numTrainEpochs = input.numTrainEpochs;
+  if (input.learningRate !== undefined) config.learningRate = input.learningRate;
+  if (input.batchSize !== undefined) config.batchSize = input.batchSize;
+  if (input.optim !== undefined) config.optim = input.optim;
+  if (input.lrSchedulerType !== undefined) config.lrSchedulerType = input.lrSchedulerType;
+  if (input.weightDecay !== undefined) config.weightDecay = input.weightDecay;
+  if (input.warmupSteps !== undefined) config.warmupSteps = input.warmupSteps;
+  if (input.loggingSteps !== undefined) config.loggingSteps = input.loggingSteps;
+  if (input.saveSteps !== undefined) config.saveSteps = input.saveSteps;
+  if (input.evalSteps !== undefined) config.evalSteps = input.evalSteps;
+  if (input.trainOnResponsesOnly !== undefined)
+    config.trainOnResponsesOnly = input.trainOnResponsesOnly;
+  if (input.datasetFormat !== undefined) config.datasetFormat = input.datasetFormat;
+  if (input.datasetSplit !== undefined) config.datasetSplit = input.datasetSplit;
+  return config;
+}
+
 /**
  * Build a `Trainer` bound to the user's configuration.
  *
+ * Public signature: `createTrainer(input)` — runtime options like
+ * `baseUrl` / `credentials` / `cwd` come from the environment and `.arkor/`
+ * state, never from user code. The optional second argument is reserved for
+ * tests and advanced overrides.
+ *
  * `.start()` submits the job and `.wait()` opens an SSE stream
- * (`GET /v1/jobs/:id/events/stream`), dispatching callbacks as events
- * arrive. `onCheckpoint` receives an `infer` helper bound to the
- * checkpoint's adapter for mid-training evaluation.
+ * (`GET /v1/jobs/:id/events/stream`), dispatching callbacks as events arrive.
+ * `onCheckpoint` receives an `infer` helper bound to the checkpoint's adapter
+ * for mid-training evaluation.
  */
 export function createTrainer(
-  options: TrainerOptions,
-  context: CreateTrainerContext = {},
+  input: TrainerInput,
+  /** @internal */
+  context: TrainerInternalContext = {},
 ): Trainer {
   const baseUrl = context.baseUrl ?? defaultArkorCloudApiUrl();
   const reconnectDelayMs = context.reconnectDelayMs ?? 1000;
   const cwd = context.cwd ?? process.cwd();
+  const config = buildJobConfig(input);
 
   let startedJob: TrainingJob | null = null;
   let scope: { orgSlug: string; projectSlug: string } | null = null;
@@ -161,7 +201,7 @@ export function createTrainer(
       throw new Error("Trainer is in an inconsistent state");
     }
     const client = await getClient();
-    const callbacks = options.callbacks ?? {};
+    const callbacks = input.callbacks ?? {};
 
     switch (event.type) {
       case "training.started": {
@@ -235,6 +275,8 @@ export function createTrainer(
   }
 
   const trainer: Trainer = {
+    name: input.name,
+
     async start() {
       if (startedJob) return { jobId: startedJob.id };
       const client = await getClient();
@@ -244,8 +286,8 @@ export function createTrainer(
       const { job } = await client.createJob({
         orgSlug: state.orgSlug,
         projectSlug: state.projectSlug,
-        name: options.name,
-        config: options.config,
+        name: input.name,
+        config,
       });
       startedJob = job;
       return { jobId: job.id };
@@ -257,7 +299,7 @@ export function createTrainer(
         throw new Error("Trainer is in an inconsistent state after start()");
       }
       const client = await getClient();
-      const { abortSignal } = options;
+      const { abortSignal } = input;
 
       let lastEventId: string | undefined;
       let artifacts: unknown[] = [];
