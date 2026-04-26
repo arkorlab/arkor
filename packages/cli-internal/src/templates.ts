@@ -122,17 +122,31 @@ An arkor training project scaffolded by \`create-arkor\`.
 
 ## Getting started
 
+The \`dev\` / \`build\` / \`start\` package scripts forward to the matching
+\`arkor\` subcommands, so the script form works across every package
+manager (\`npm\` does not run package binaries via \`npm <bin>\` — use
+\`npm run <script>\` or \`npx arkor <subcommand>\`).
+
 \`\`\`
-pnpm install        # or npm install / yarn / bun
-pnpm arkor login    # optional; anonymous tokens work too
-pnpm arkor dev      # opens the local Studio GUI (most workflows live here)
+npm install && npm run dev
+# or: pnpm install && pnpm dev
+# or: yarn && yarn dev
+# or: bun install && bun dev
+\`\`\`
+
+\`arkor dev\` opens the local Studio GUI (most workflows live there).
+
+Optional — log in to your own org instead of using anonymous tokens:
+
+\`\`\`
+npx arkor login
 \`\`\`
 
 CLI-only flow (no GUI):
 
 \`\`\`
-pnpm arkor build    # bundles src/arkor/ into .arkor/build/index.mjs
-pnpm arkor start    # runs the build artifact on the cloud
+npm run build    # bundles src/arkor/ into .arkor/build/index.mjs
+npm run start    # runs the build artifact on the cloud
 \`\`\`
 
 ## Files
