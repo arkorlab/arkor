@@ -1,10 +1,7 @@
 import { Command } from "commander";
-import { runTrainer } from "../core/runner";
 import { runLogin } from "./commands/login";
 import { runLogout } from "./commands/logout";
 import { runWhoami } from "./commands/whoami";
-import { runJobsCancel, runJobsGet, runJobsList } from "./commands/jobs";
-import { runLogs } from "./commands/logs";
 import { runInit } from "./commands/init";
 import { runDev } from "./commands/dev";
 import { runBuild } from "./commands/build";
@@ -95,46 +92,6 @@ export async function main(argv: string[]): Promise<void> {
     .description("Print the current identity and reachable orgs")
     .action(async () => {
       await runWhoami();
-    });
-
-  program
-    .command("train")
-    .description("Run a training job defined in TypeScript")
-    .argument("[file]", "path to the training entry (default: src/arkor/index.ts)")
-    .action(async (file?: string) => {
-      await runTrainer(file);
-    });
-
-  const jobs = program.command("jobs").description("List / inspect / cancel jobs");
-  jobs
-    .command("list")
-    .description("List jobs in the current project")
-    .action(async () => {
-      await runJobsList();
-    });
-  jobs
-    .command("get")
-    .description("Show a single job")
-    .argument("<id>", "job id")
-    .action(async (id: string) => {
-      await runJobsGet(id);
-    });
-  jobs
-    .command("cancel")
-    .description("Cancel a queued or running job")
-    .argument("<id>", "job id")
-    .option("-y, --yes", "Skip confirmation")
-    .action(async (id: string, opts: { yes?: boolean }) => {
-      await runJobsCancel(id, { yes: opts.yes });
-    });
-
-  program
-    .command("logs")
-    .description("Print / tail training events for a job")
-    .argument("<id>", "job id")
-    .option("-f, --follow", "Follow the SSE stream until the job finishes")
-    .action(async (id: string, opts: { follow?: boolean }) => {
-      await runLogs(id, { follow: opts.follow });
     });
 
   program
