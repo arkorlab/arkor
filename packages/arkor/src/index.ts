@@ -1,16 +1,18 @@
 export { createTrainer } from "./core/trainer";
-export type { CreateTrainerContext } from "./core/trainer";
+export { createArkor, isArkor } from "./core/arkor";
 export { runTrainer } from "./core/runner";
 export type {
+  Arkor,
+  ArkorInput,
   ArkorProjectState,
   BlobDatasetSource,
   DatasetSource,
   HuggingfaceDatasetSource,
-  JobConfig,
   JobStatus,
+  LoraConfig,
   Trainer,
   TrainerCallbacks,
-  TrainerOptions,
+  TrainerInput,
   TrainingJob,
   TrainingResult,
 } from "./core/types";

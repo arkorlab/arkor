@@ -26,6 +26,10 @@ export interface BlobDatasetSource {
 
 export type DatasetSource = HuggingfaceDatasetSource | BlobDatasetSource;
 
+/**
+ * Wire shape sent to the cloud API's job-create endpoint. Internal — users
+ * compose a `TrainerInput` and the SDK translates to this.
+ */
 export interface JobConfig {
   model: string;
   datasetSource: DatasetSource;
@@ -118,28 +122,89 @@ export interface TrainerCallbacks {
   }) => unknown | Promise<unknown>;
 }
 
-export interface TrainerOptions {
-  /** Human-readable run name, shown in Studio + Web UI. */
+/**
+ * LoRA / quantisation knobs. Grouped here because they cluster naturally as a
+ * single concept ("how is the adapter trained?").
+ */
+export interface LoraConfig {
+  /** LoRA rank (often 8 / 16 / 32). */
+  r: number;
+  /** LoRA alpha (often 2× r). */
+  alpha: number;
+  /** Maximum sequence length (truncates samples beyond this). */
+  maxLength?: number;
+  /** Load the base model in 4-bit quantisation (QLoRA). */
+  loadIn4bit?: boolean;
+}
+
+/**
+ * User-facing input to `createTrainer`. Flat by design so the common shape
+ * reads like a config object; lifecycle handlers are grouped under
+ * `callbacks` for legibility.
+ */
+export interface TrainerInput {
+  /** Human-readable run name; shown in Studio + Web UI. */
   name: string;
-  /** Training configuration; matches the cloud API's jobConfigSchema. */
-  config: JobConfig;
+  /** Base model identifier (HuggingFace path, etc.). */
+  model: string;
+  /** Dataset source (HuggingFace name or blob URL). */
+  dataset: DatasetSource;
+  /** LoRA / quantisation knobs. */
+  lora?: LoraConfig;
+  /** Cap training at this many gradient steps. */
+  maxSteps?: number;
+  numTrainEpochs?: number;
+  learningRate?: number;
+  batchSize?: number;
+  optim?: string;
+  lrSchedulerType?: string;
+  weightDecay?: number;
   /**
-   * Optional lifecycle callbacks. `onLog` / `onCheckpoint` land in a later phase
-   * (they need an SSE event stream on the server side) and are accepted here but
-   * not yet invoked.
+   * Forwarded to the cloud API as-is. Reserved for fields that aren't yet
+   * first-classed in this SDK. Prefer the dedicated fields above when present.
    */
+  warmupSteps?: unknown;
+  loggingSteps?: unknown;
+  saveSteps?: unknown;
+  evalSteps?: unknown;
+  trainOnResponsesOnly?: unknown;
+  datasetFormat?: unknown;
+  datasetSplit?: unknown;
+  /** Optional lifecycle callbacks. */
   callbacks?: Partial<TrainerCallbacks>;
   /** Abort signal to stop polling and cancel the in-flight job. */
   abortSignal?: AbortSignal;
 }
 
 export interface Trainer {
+  /** The run name supplied by the user, copied here for discovery. */
+  readonly name: string;
   /** Submit the job. Returns the created job id. */
   start(): Promise<{ jobId: string }>;
   /** Resolve when the job reaches a terminal status. */
   wait(): Promise<TrainingResult>;
   /** Best-effort cancel; resolves once the cloud API accepts the request. */
   cancel(): Promise<void>;
+}
+
+/**
+ * Umbrella manifest produced by `createArkor`. Currently a frozen descriptor
+ * of the project's primitives. The shape is intentionally opaque — operation
+ * methods may be added later without breaking the user-facing API.
+ */
+export interface Arkor {
+  /** Runtime discriminator used by `isArkor` and `arkor build` discovery. */
+  readonly _kind: "arkor";
+  readonly trainer?: Trainer;
+  // future: readonly deploy?: Deploy;
+  // future: readonly eval?: Eval;
+}
+
+/** User-facing input to `createArkor`. Role-fixed keys. */
+export interface ArkorInput {
+  trainer?: Trainer;
+  // future: deploy?: Deploy;
+  // future: eval?: Eval;
 }
 
 export interface ArkorProjectState {

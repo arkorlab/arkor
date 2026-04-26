@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isArkor } from "./arkor";
 import type { Trainer } from "./types";
 
 const DEFAULT_ENTRY = "src/arkor/index.ts";
@@ -15,17 +16,29 @@ function isTrainer(value: unknown): value is Trainer {
   );
 }
 
+function trainerFromValue(value: unknown): Trainer | null {
+  if (isArkor(value) && value.trainer && isTrainer(value.trainer)) {
+    return value.trainer;
+  }
+  if (isTrainer(value)) return value;
+  return null;
+}
+
 function extractTrainer(mod: Record<string, unknown>): Trainer {
-  // Preferred: named export `trainer`. Fallback: `default` export.
+  // Preferred (new): `arkor` named export from createArkor({...}).
+  const fromArkor = trainerFromValue(mod.arkor);
+  if (fromArkor) return fromArkor;
+  // Power-user shortcut: a bare `trainer` export.
   if (isTrainer(mod.trainer)) return mod.trainer;
-  const def = mod.default as unknown;
-  if (isTrainer(def)) return def;
-  if (def && typeof def === "object") {
-    const t = (def as Record<string, unknown>).trainer;
-    if (isTrainer(t)) return t;
+  // Fallback: default export holding either an Arkor manifest or a Trainer.
+  const fromDefault = trainerFromValue(mod.default);
+  if (fromDefault) return fromDefault;
+  if (mod.default && typeof mod.default === "object") {
+    const nested = (mod.default as Record<string, unknown>).trainer;
+    if (isTrainer(nested)) return nested;
   }
   throw new Error(
-    "Training entry must default-export (or export `trainer`) the result of createTrainer(...).",
+    "Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.",
   );
 }
 

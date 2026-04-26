@@ -7,6 +7,7 @@ import type { Trainer } from "./types";
 
 function fakeTrainer(onStart?: () => void, onWait?: () => void): Trainer {
   return {
+    name: "n",
     async start() {
       onStart?.();
       return { jobId: "j1" };
@@ -63,6 +64,7 @@ describe("runTrainer — entry extraction", () => {
     writeFileSync(
       entry,
       `export default {
+        name: "n",
         start: async () => ({ jobId: "j1" }),
         wait: async () => ({ job: { id: "j1", orgId: "o", projectId: "p", name: "n", status: "completed", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, createdAt: "2026-01-01", startedAt: null, completedAt: null }, artifacts: [] }),
         cancel: async () => {},
@@ -78,6 +80,7 @@ describe("runTrainer — entry extraction", () => {
     writeFileSync(
       entry,
       `export const trainer = {
+        name: "n",
         start: async () => ({ jobId: "j1" }),
         wait: async () => ({ job: { id: "j1", orgId: "o", projectId: "p", name: "n", status: "completed", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, createdAt: "2026-01-01", startedAt: null, completedAt: null }, artifacts: [] }),
         cancel: async () => {},
@@ -86,11 +89,26 @@ describe("runTrainer — entry extraction", () => {
     await expect(runTrainer(entry)).resolves.toBeUndefined();
   });
 
+  it("runs when the entry named-exports an `arkor` manifest", async () => {
+    const entry = join(cwd, "arkor-entry.mjs");
+    writeFileSync(
+      entry,
+      `const trainer = {
+        name: "n",
+        start: async () => ({ jobId: "j1" }),
+        wait: async () => ({ job: { id: "j1", orgId: "o", projectId: "p", name: "n", status: "completed", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, createdAt: "2026-01-01", startedAt: null, completedAt: null }, artifacts: [] }),
+        cancel: async () => {},
+      };
+      export const arkor = Object.freeze({ _kind: "arkor", trainer });`,
+    );
+    await expect(runTrainer(entry)).resolves.toBeUndefined();
+  });
+
   it("throws when neither default nor named export is a Trainer", async () => {
     const entry = join(cwd, "bad-entry.mjs");
     writeFileSync(entry, `export default { notATrainer: true };`);
     await expect(runTrainer(entry)).rejects.toThrow(
-      /must default-export \(or export `trainer`\)/,
+      /must export `arkor`/,
     );
   });
 
