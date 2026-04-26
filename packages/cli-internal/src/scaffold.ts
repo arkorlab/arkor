@@ -1,7 +1,13 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { STARTER_CONFIG, STARTER_README, TEMPLATES, type TemplateId } from "./templates";
+import { dirname, join, resolve } from "node:path";
+import {
+  STARTER_CONFIG,
+  STARTER_INDEX,
+  STARTER_README,
+  TEMPLATES,
+  type TemplateId,
+} from "./templates";
 
 export type FileAction = "created" | "kept" | "patched" | "ok";
 
@@ -18,11 +24,18 @@ export interface ScaffoldResult {
   cwd: string;
 }
 
-const ENTRY_PATH = "src/arkor/index.ts";
+const INDEX_PATH = "src/arkor/index.ts";
+const TRAINER_PATH = "src/arkor/trainer.ts";
 const CONFIG_PATH = "arkor.config.ts";
 const README_PATH = "README.md";
 const GITIGNORE_PATH = ".gitignore";
 const PACKAGE_JSON_PATH = "package.json";
+
+const SCRIPT_DEFAULTS: Record<string, string> = {
+  dev: "arkor dev",
+  build: "arkor build",
+  start: "arkor start",
+};
 
 async function ensureDirExists(cwd: string): Promise<void> {
   if (!existsSync(cwd)) {
@@ -42,7 +55,7 @@ async function ensureFile(
   contents: string,
 ): Promise<FileAction> {
   if (existsSync(absPath)) return "kept";
-  await mkdir(join(absPath, "..").replace(/\/\.$/, ""), { recursive: true });
+  await mkdir(dirname(absPath), { recursive: true });
   await writeFile(absPath, contents);
   return "created";
 }
@@ -75,10 +88,7 @@ async function patchPackageJson(
           name,
           private: true,
           type: "module",
-          scripts: {
-            train: "arkor train",
-            dev: "arkor dev",
-          },
+          scripts: { ...SCRIPT_DEFAULTS },
           devDependencies: { arkor: "^0.0.1-alpha.0" },
         },
         null,
@@ -94,15 +104,12 @@ async function patchPackageJson(
   const scripts =
     (current.scripts as Record<string, string> | undefined) ?? {};
   let dirty = false;
-  if (!scripts.train) {
-    scripts.train = "arkor train";
-    current.scripts = scripts;
-    dirty = true;
-  }
-  if (!scripts.dev) {
-    scripts.dev = "arkor dev";
-    current.scripts = scripts;
-    dirty = true;
+  for (const [key, value] of Object.entries(SCRIPT_DEFAULTS)) {
+    if (!scripts[key]) {
+      scripts[key] = value;
+      current.scripts = scripts;
+      dirty = true;
+    }
   }
   const devDeps =
     (current.devDependencies as Record<string, string> | undefined) ?? {};
@@ -116,17 +123,23 @@ async function patchPackageJson(
   return "patched";
 }
 
-export async function scaffold(options: ScaffoldOptions): Promise<ScaffoldResult> {
+export async function scaffold(
+  options: ScaffoldOptions,
+): Promise<ScaffoldResult> {
   const cwd = resolve(options.cwd);
   await ensureDirExists(cwd);
   await ensureEmptyEnough(cwd);
 
   const files: ScaffoldResult["files"] = [];
   files.push({
-    path: ENTRY_PATH,
+    path: INDEX_PATH,
+    action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),
+  });
+  files.push({
+    path: TRAINER_PATH,
     action: await ensureFile(
-      join(cwd, ENTRY_PATH),
-      TEMPLATES[options.template].entry,
+      join(cwd, TRAINER_PATH),
+      TEMPLATES[options.template].trainer,
     ),
   });
   files.push({
@@ -135,7 +148,10 @@ export async function scaffold(options: ScaffoldOptions): Promise<ScaffoldResult
   });
   files.push({
     path: README_PATH,
-    action: await ensureFile(join(cwd, README_PATH), STARTER_README(options.name)),
+    action: await ensureFile(
+      join(cwd, README_PATH),
+      STARTER_README(options.name),
+    ),
   });
   files.push({
     path: GITIGNORE_PATH,
@@ -146,18 +162,6 @@ export async function scaffold(options: ScaffoldOptions): Promise<ScaffoldResult
     action: await patchPackageJson(cwd, options.name),
   });
   return { files, cwd };
-}
-
-export function detectPackageManager():
-  | "pnpm"
-  | "yarn"
-  | "bun"
-  | "npm" {
-  const ua = process.env.npm_config_user_agent ?? "";
-  if (ua.startsWith("pnpm")) return "pnpm";
-  if (ua.startsWith("yarn")) return "yarn";
-  if (ua.startsWith("bun")) return "bun";
-  return "npm";
 }
 
 export function templateChoices(): Array<{

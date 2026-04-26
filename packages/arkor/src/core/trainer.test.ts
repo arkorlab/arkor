@@ -136,10 +136,8 @@ describe("createTrainer (SSE event stream)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        config: {
-          model: "m",
-          datasetSource: { type: "huggingface", name: "x" },
-        },
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onStarted: ({ job }) => void calls.push(`onStarted(${job.status})`),
           onLog: ({ step, loss }) => void calls.push(`onLog(${step},${loss})`),
@@ -221,7 +219,8 @@ describe("createTrainer (SSE event stream)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onFailed: ({ error }) => {
             captured = error;
@@ -302,7 +301,8 @@ describe("createTrainer (SSE event stream)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onCheckpoint: async ({ infer }) => {
             const res = await infer({

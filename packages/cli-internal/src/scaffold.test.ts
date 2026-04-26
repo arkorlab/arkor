@@ -2,17 +2,17 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scaffold, templateChoices } from "./scaffold";
 import {
   detectPackageManager,
-  scaffold,
-  templateChoices,
-} from "./scaffold";
+  resolvePackageManager,
+} from "./package-manager";
 
 let cwd: string;
 const ORIG_UA = process.env.npm_config_user_agent;
 
 beforeEach(() => {
-  cwd = mkdtempSync(join(tmpdir(), "create-arkor-test-"));
+  cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
 });
 
 afterEach(() => {
@@ -23,7 +23,9 @@ afterEach(() => {
 describe("scaffold", () => {
   it("writes all starter files in an empty directory", async () => {
     const result = await scaffold({ cwd, name: "my-app", template: "minimal" });
+    // index.ts, trainer.ts, arkor.config.ts, README.md, .gitignore, package.json
     expect(result.files.map((f) => f.action)).toEqual([
+      "created",
       "created",
       "created",
       "created",
@@ -31,39 +33,54 @@ describe("scaffold", () => {
       "created",
     ]);
 
-    const entry = readFileSync(join(cwd, "src/arkor/index.ts"), "utf8");
-    expect(entry).toContain("createTrainer");
-    expect(entry).toContain("unsloth/gemma-4-E4B-it");
+    const index = readFileSync(join(cwd, "src/arkor/index.ts"), "utf8");
+    expect(index).toContain("createArkor");
+    expect(index).toContain('from "./trainer"');
+
+    const trainer = readFileSync(join(cwd, "src/arkor/trainer.ts"), "utf8");
+    expect(trainer).toContain("createTrainer");
+    expect(trainer).toContain("unsloth/gemma-4-E4B-it");
+    expect(trainer).toContain('"my-first-run"');
 
     const pkg = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),
     ) as Record<string, unknown>;
     expect(pkg.name).toBe("my-app");
-    expect(pkg.scripts).toMatchObject({ train: "arkor train", dev: "arkor dev" });
+    expect(pkg.scripts).toMatchObject({
+      dev: "arkor dev",
+      build: "arkor build",
+      start: "arkor start",
+    });
+    expect((pkg.scripts as Record<string, string>).train).toBeUndefined();
 
     const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
     expect(gi).toContain(".arkor/");
   });
 
-  it("keeps existing src/arkor/index.ts untouched", async () => {
-    const existing = "// custom\nexport default {};\n";
-    writeFileSync(join(cwd, "src"), "", { flag: "w" });
-    // rewrite as directory
-    rmSync(join(cwd, "src"));
-    writeFileSync(
-      join(cwd, "placeholder.txt"),
-      "keep me",
-    );
+  it("keeps existing src/arkor/index.ts and trainer.ts untouched", async () => {
+    const existingIndex = "// custom index\nexport default {};\n";
+    const existingTrainer = "// custom trainer\nexport const trainer = {};\n";
+    writeFileSync(join(cwd, "placeholder.txt"), "keep me");
     const { readdirSync, mkdirSync } = await import("node:fs");
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
-    writeFileSync(join(cwd, "src/arkor/index.ts"), existing);
+    writeFileSync(join(cwd, "src/arkor/index.ts"), existingIndex);
+    writeFileSync(join(cwd, "src/arkor/trainer.ts"), existingTrainer);
 
     const result = await scaffold({ cwd, name: "foo", template: "minimal" });
-    const entryFile = result.files.find(
+    const indexEntry = result.files.find(
       (f) => f.path === "src/arkor/index.ts",
     );
-    expect(entryFile?.action).toBe("kept");
-    expect(readFileSync(join(cwd, "src/arkor/index.ts"), "utf8")).toBe(existing);
+    const trainerEntry = result.files.find(
+      (f) => f.path === "src/arkor/trainer.ts",
+    );
+    expect(indexEntry?.action).toBe("kept");
+    expect(trainerEntry?.action).toBe("kept");
+    expect(readFileSync(join(cwd, "src/arkor/index.ts"), "utf8")).toBe(
+      existingIndex,
+    );
+    expect(readFileSync(join(cwd, "src/arkor/trainer.ts"), "utf8")).toBe(
+      existingTrainer,
+    );
     expect(readdirSync(cwd)).toContain("placeholder.txt");
   });
 
@@ -92,9 +109,10 @@ describe("scaffold", () => {
     expect(patched.name).toBe("already");
     expect(patched.dependencies).toEqual({ react: "19.0.0" });
     const scripts = patched.scripts as Record<string, string>;
+    // Existing user-defined `build` survives untouched.
     expect(scripts.build).toBe("tsc");
-    expect(scripts.train).toBe("arkor train");
     expect(scripts.dev).toBe("arkor dev");
+    expect(scripts.start).toBe("arkor start");
     const devDeps = patched.devDependencies as Record<string, string>;
     expect(devDeps.arkor).toBe("^0.0.1-alpha.0");
 
@@ -114,7 +132,7 @@ describe("scaffold", () => {
     expect(secondEntry?.action).toBe("ok");
   });
 
-  it("renders each template with a distinct entry body", async () => {
+  it("renders each template with a distinct trainer body", async () => {
     const expectations: Record<"minimal" | "alpaca" | "chatml", string> = {
       minimal: `"my-first-run"`,
       alpaca: `"alpaca-run"`,
@@ -123,8 +141,11 @@ describe("scaffold", () => {
     for (const template of ["minimal", "alpaca", "chatml"] as const) {
       const dir = mkdtempSync(join(tmpdir(), `scaffold-${template}-`));
       await scaffold({ cwd: dir, name: template, template });
-      const entry = readFileSync(join(dir, "src/arkor/index.ts"), "utf8");
-      expect(entry).toContain(expectations[template]);
+      const trainer = readFileSync(join(dir, "src/arkor/trainer.ts"), "utf8");
+      expect(trainer).toContain(expectations[template]);
+      // The umbrella manifest is template-independent.
+      const index = readFileSync(join(dir, "src/arkor/index.ts"), "utf8");
+      expect(index).toContain("createArkor({ trainer })");
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -139,9 +160,39 @@ describe("detectPackageManager", () => {
     process.env.npm_config_user_agent = "yarn/1.22.19 node/v20";
     expect(detectPackageManager()).toBe("yarn");
   });
-  it("falls back to npm when the user-agent is unknown", () => {
-    delete process.env.npm_config_user_agent;
+  it("recognises npm via user-agent", () => {
+    process.env.npm_config_user_agent = "npm/10.2.4 node/v20.10.0 linux x64";
     expect(detectPackageManager()).toBe("npm");
+  });
+  it("returns undefined when the user-agent is absent or unknown", () => {
+    delete process.env.npm_config_user_agent;
+    expect(detectPackageManager()).toBeUndefined();
+    process.env.npm_config_user_agent = "something-else/1.0";
+    expect(detectPackageManager()).toBeUndefined();
+  });
+});
+
+describe("resolvePackageManager", () => {
+  it("returns the explicit flag when exactly one is set", () => {
+    delete process.env.npm_config_user_agent;
+    expect(resolvePackageManager({ useBun: true })).toBe("bun");
+    expect(resolvePackageManager({ useYarn: true })).toBe("yarn");
+  });
+
+  it("falls back to auto-detection when no flag is set", () => {
+    process.env.npm_config_user_agent = "pnpm/10 node/v22";
+    expect(resolvePackageManager()).toBe("pnpm");
+  });
+
+  it("returns undefined when no flag is set and UA is unknown", () => {
+    delete process.env.npm_config_user_agent;
+    expect(resolvePackageManager()).toBeUndefined();
+  });
+
+  it("rejects more than one --use-* flag", () => {
+    expect(() =>
+      resolvePackageManager({ useNpm: true, usePnpm: true }),
+    ).toThrow(/Pick one of/);
   });
 });
 

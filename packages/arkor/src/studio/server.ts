@@ -1,19 +1,19 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
+import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { createClient } from "@arkor/cloud-api-client";
 import {
   defaultArkorCloudApiUrl,
-  ensureCredentials,
   readCredentials,
   writeCredentials,
   requestAnonymousToken,
   type Credentials,
 } from "../core/credentials";
 import { readState } from "../core/state";
+import { readManifestSummary } from "./manifest";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,33 +26,105 @@ export interface StudioServerOptions {
    * present. Mirrors the CLI default.
    */
   autoAnonymous?: boolean;
+  /**
+   * Per-launch CSRF token. Every `/api/*` request must include it via header
+   * `X-Arkor-Studio-Token`, or `?studioToken=` for `EventSource` (which can't
+   * carry custom headers). The token is injected into the served `index.html`
+   * as a `<meta>` tag so the same-origin SPA can read it; cross-origin tabs
+   * cannot, so even a "simple" CORS POST without preflight is rejected.
+   */
+  studioToken: string;
+  /**
+   * Working directory used to resolve / validate `body.file` for `/api/train`.
+   * Defaults to `process.cwd()`.
+   */
+  cwd?: string;
+  /**
+   * Absolute path to the `arkor` bin spawned by `/api/train`. Defaults to
+   * `dist/bin.mjs` resolved as a sibling of the bundled studio code (this
+   * file is inlined into `dist/bin.mjs` at build time, so `./bin.mjs` from
+   * here points at the bin itself). Override in tests.
+   */
+  binPath?: string;
 }
 
-export function buildStudioApp(options: StudioServerOptions = {}) {
+function tokensMatch(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function htmlAttrEscape(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) =>
+    ch === "&"
+      ? "&amp;"
+      : ch === "<"
+        ? "&lt;"
+        : ch === ">"
+          ? "&gt;"
+          : ch === '"'
+            ? "&quot;"
+            : "&#39;",
+  );
+}
+
+function injectStudioToken(html: string, token: string): string {
+  const meta = `<meta name="arkor-studio-token" content="${htmlAttrEscape(token)}">`;
+  const idx = html.indexOf("</head>");
+  if (idx === -1) return `${meta}${html}`;
+  return `${html.slice(0, idx)}${meta}${html.slice(idx)}`;
+}
+
+export function buildStudioApp(options: StudioServerOptions) {
   const baseUrl = options.baseUrl ?? defaultArkorCloudApiUrl();
   const assetsDir = options.assetsDir ?? join(__dirname, "assets");
   const autoAnonymous = options.autoAnonymous ?? true;
+  const studioToken = options.studioToken;
+  const trainCwd = options.cwd ?? process.cwd();
+  // `studio/server.ts` is bundled into `dist/bin.mjs` (it isn't reachable
+  // from `src/index.ts`, so tsdown doesn't extract it as a shared chunk).
+  // The bin therefore sits *next* to this code at runtime, not one
+  // directory up — `../bin.mjs` would resolve to the package root.
+  const trainBinPath =
+    options.binPath ?? fileURLToPath(new URL("./bin.mjs", import.meta.url));
+
+  if (!studioToken || studioToken.length < 16) {
+    throw new Error(
+      "buildStudioApp requires a studioToken with at least 16 characters of entropy.",
+    );
+  }
 
   const app = new Hono();
 
-  // Loopback-only guard for credential-sensitive API routes. `arkor dev` binds
-  // to 127.0.0.1, but defence in depth keeps this explicit.
+  // Combined defense for `/api/*`:
+  //   1. Host-header guard (defense against DNS rebinding — a victim navigated
+  //      to `evil.com` rebound onto 127.0.0.1 still sends `Host: evil.com`).
+  //   2. Per-launch CSRF token. CORS is intentionally not configured: the SPA
+  //      is same-origin so CORS adds no value, and reflecting `*` would let
+  //      "simple" cross-origin POSTs (text/plain, urlencoded) skip preflight
+  //      and reach the handler. The token check rejects those — an attacker
+  //      page can't read the SPA's <meta> from another origin.
   app.use("/api/*", async (c, next) => {
     const host = c.req.header("host") ?? "";
     if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) {
       return c.json({ error: "Studio API is loopback-only" }, 403);
     }
+    const provided =
+      c.req.header("x-arkor-studio-token") ??
+      c.req.query("studioToken") ??
+      "";
+    if (!tokensMatch(provided, studioToken)) {
+      return c.json({ error: "Missing or invalid studio token" }, 403);
+    }
     await next();
   });
-  app.use("/api/*", cors({ origin: (origin) => origin ?? "*" }));
 
   async function getCredentials(): Promise<Credentials> {
     const existing = await readCredentials();
     if (existing) return existing;
     if (!autoAnonymous) {
-      throw new Error(
-        "No credentials on file. Run `arkor login` first.",
-      );
+      throw new Error("No credentials on file. Run `arkor login` first.");
     }
     const anon = await requestAnonymousToken(baseUrl, "cli");
     const creds: Credentials = {
@@ -96,6 +168,22 @@ export function buildStudioApp(options: StudioServerOptions = {}) {
     });
   });
 
+  app.get("/api/manifest", async (c) => {
+    try {
+      const manifest = await readManifestSummary(trainCwd);
+      return c.json(manifest);
+    } catch (err) {
+      // The user's `src/arkor/index.ts` may not exist yet (fresh scaffold) or
+      // the bundle may throw at import time. Surface the error as 400 so the
+      // SPA can render a hint instead of treating it as an infrastructure
+      // failure.
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        400,
+      );
+    }
+  });
+
   app.get("/api/jobs", async (c) => {
     const state = await readState();
     if (!state) return c.json({ jobs: [] });
@@ -135,16 +223,37 @@ export function buildStudioApp(options: StudioServerOptions = {}) {
   });
 
   app.post("/api/train", async (c) => {
-    const body = (await c.req
-      .json()
-      .catch(() => ({}))) as { file?: string };
-    const args = ["--experimental-strip-types", "--no-warnings=ExperimentalWarning"];
-    const pkgBinPath = new URL("../bin.mjs", import.meta.url).pathname;
-    args.push(pkgBinPath, "train");
-    if (body.file) args.push(body.file);
+    const body = (await c.req.json().catch(() => ({}))) as { file?: string };
+    let trainFile: string | undefined;
+    if (body.file) {
+      // Resolve symlinks before the containment check — `path.resolve` is purely
+      // lexical, so a symlink under the project directory pointing at e.g.
+      // `/etc/passwd` would otherwise pass `startsWith(baseAbs + sep)`. The
+      // bin spawned below would then dlopen the link's target.
+      let baseAbs: string;
+      let abs: string;
+      try {
+        baseAbs = await realpath(resolve(trainCwd));
+        abs = await realpath(resolve(baseAbs, body.file));
+      } catch {
+        return c.json(
+          { error: "file does not exist or is not accessible" },
+          400,
+        );
+      }
+      if (abs !== baseAbs && !abs.startsWith(baseAbs + sep)) {
+        return c.json(
+          { error: "file must be inside the project directory" },
+          400,
+        );
+      }
+      trainFile = abs;
+    }
+    const args = [trainBinPath, "start"];
+    if (trainFile) args.push(trainFile);
     const child = spawn(process.execPath, args, {
       stdio: "pipe",
-      cwd: process.cwd(),
+      cwd: trainCwd,
     });
     const stream = new ReadableStream({
       start(controller) {
@@ -208,6 +317,13 @@ export function buildStudioApp(options: StudioServerOptions = {}) {
     try {
       const file = await readFile(join(assetsDir, cleaned));
       const ext = cleaned.slice(cleaned.lastIndexOf(".") + 1);
+      if (ext === "html") {
+        const html = injectStudioToken(file.toString("utf8"), studioToken);
+        return new Response(html, {
+          status: 200,
+          headers: { "content-type": CONTENT_TYPES.html! },
+        });
+      }
       return new Response(file, {
         status: 200,
         headers: {

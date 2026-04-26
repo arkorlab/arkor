@@ -33,6 +33,18 @@ export function credentialsPath(): string {
   return join(credentialsDir(), "credentials.json");
 }
 
+/**
+ * Path to the per-launch Studio CSRF token file.
+ *
+ * Source of truth: `arkor dev` writes the token here on start (mode 0600) and
+ * deletes it on exit. The studio-app Vite dev server reads from this same
+ * path via a `transformIndexHtml` plugin so the SPA receives the token even
+ * when served by Vite (which doesn't go through `buildStudioApp`'s injection).
+ */
+export function studioTokenPath(): string {
+  return join(credentialsDir(), "studio-token");
+}
+
 export async function readCredentials(): Promise<Credentials | null> {
   const path = credentialsPath();
   if (!existsSync(path)) return null;
