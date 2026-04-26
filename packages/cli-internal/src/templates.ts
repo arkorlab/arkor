@@ -1,53 +1,54 @@
 /**
  * Starter templates written out by `create-arkor` / `arkor init`.
  * Single source of truth — both consumers bundle this module at build time.
+ *
+ * Layout written to disk:
+ *
+ *   src/arkor/index.ts    ← umbrella manifest (`createArkor({ trainer })`)
+ *   src/arkor/trainer.ts  ← per-template trainer (`createTrainer({...})`)
+ *
+ * `index.ts` is identical across templates — only the trainer body differs.
  */
 export type TemplateId = "minimal" | "alpaca" | "chatml";
 
-export const TEMPLATES: Record<TemplateId, { label: string; hint: string; entry: string }> = {
-  minimal: {
-    label: "Minimal",
-    hint: "bare createTrainer call",
-    entry: `import { createTrainer } from "arkor";
+export interface Template {
+  label: string;
+  hint: string;
+  /** Body of `src/arkor/trainer.ts` for this template. */
+  trainer: string;
+}
 
-export default createTrainer({
+const MINIMAL_TRAINER = `import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
   name: "my-first-run",
-  config: {
-    model: "unsloth/gemma-4-E4B-it",
-    datasetSource: {
-      type: "huggingface",
-      name: "yahma/alpaca-cleaned",
-      split: "train[:500]",
-    },
-    maxSteps: 50,
-    loraR: 16,
-    loraAlpha: 16,
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: {
+    type: "huggingface",
+    name: "yahma/alpaca-cleaned",
+    split: "train[:500]",
   },
+  maxSteps: 50,
+  lora: { r: 16, alpha: 16 },
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
   },
 });
-`,
-  },
-  alpaca: {
-    label: "Alpaca",
-    hint: "instruction-tuning + mid-training eval",
-    entry: `import { createTrainer } from "arkor";
+`;
 
-export default createTrainer({
+const ALPACA_TRAINER = `import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
   name: "alpaca-run",
-  config: {
-    model: "unsloth/gemma-4-E4B-it",
-    datasetSource: {
-      type: "huggingface",
-      name: "yahma/alpaca-cleaned",
-      split: "train[:1000]",
-    },
-    datasetFormat: { type: "alpaca" },
-    maxSteps: 100,
-    loraR: 16,
-    loraAlpha: 16,
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: {
+    type: "huggingface",
+    name: "yahma/alpaca-cleaned",
+    split: "train[:1000]",
   },
+  datasetFormat: { type: "alpaca" },
+  maxSteps: 100,
+  lora: { r: 16, alpha: 16 },
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
     onCheckpoint: async ({ step, infer }) => {
@@ -59,34 +60,56 @@ export default createTrainer({
     },
   },
 });
-`,
-  },
-  chatml: {
-    label: "ChatML",
-    hint: "multi-turn chat fine-tuning",
-    entry: `import { createTrainer } from "arkor";
+`;
 
-export default createTrainer({
+const CHATML_TRAINER = `import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
   name: "chatml-run",
-  config: {
-    model: "unsloth/gemma-4-E4B-it",
-    datasetSource: {
-      type: "huggingface",
-      name: "stingning/ultrachat",
-      split: "train[:500]",
-    },
-    datasetFormat: { type: "chatml" },
-    maxSteps: 100,
-    loraR: 16,
-    loraAlpha: 16,
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: {
+    type: "huggingface",
+    name: "stingning/ultrachat",
+    split: "train[:500]",
   },
+  datasetFormat: { type: "chatml" },
+  maxSteps: 100,
+  lora: { r: 16, alpha: 16 },
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
   },
 });
-`,
+`;
+
+export const TEMPLATES: Record<TemplateId, Template> = {
+  minimal: {
+    label: "Minimal",
+    hint: "bare createTrainer call",
+    trainer: MINIMAL_TRAINER,
+  },
+  alpaca: {
+    label: "Alpaca",
+    hint: "instruction-tuning + mid-training eval",
+    trainer: ALPACA_TRAINER,
+  },
+  chatml: {
+    label: "ChatML",
+    hint: "multi-turn chat fine-tuning",
+    trainer: CHATML_TRAINER,
   },
 };
+
+/**
+ * Body of `src/arkor/index.ts` — identical across templates. The umbrella
+ * factory is what `arkor build` / Studio discovers; per-role primitives
+ * (`trainer`, future `deploy`, `eval`) live in sibling files and get gathered
+ * here.
+ */
+export const STARTER_INDEX = `import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+`;
 
 export const STARTER_CONFIG = `// Training defaults. Project routing (orgSlug / projectSlug) is tracked
 // automatically in .arkor/state.json — do not put it here.
@@ -100,16 +123,25 @@ An arkor training project scaffolded by \`create-arkor\`.
 ## Getting started
 
 \`\`\`
-pnpm install        # or npm install / yarn
+pnpm install        # or npm install / yarn / bun
 pnpm arkor login    # optional; anonymous tokens work too
-pnpm arkor train    # runs src/arkor/index.ts on the cloud
-pnpm arkor dev      # opens the local Studio GUI
+pnpm arkor dev      # opens the local Studio GUI (most workflows live here)
+\`\`\`
+
+CLI-only flow (no GUI):
+
+\`\`\`
+pnpm arkor build    # bundles src/arkor/ into .arkor/build/index.mjs
+pnpm arkor start    # runs the build artifact on the cloud
 \`\`\`
 
 ## Files
 
-- \`src/arkor/index.ts\` — your training entry (loaded via Node's
-  \`--experimental-strip-types\`).
+- \`src/arkor/index.ts\` — umbrella manifest (\`createArkor({ trainer })\`).
+  This is what the CLI and Studio discover.
+- \`src/arkor/trainer.ts\` — your trainer (\`createTrainer({...})\`). Add
+  sibling files for future primitives (\`deploy.ts\`, \`eval.ts\`) and
+  register them on the umbrella.
 - \`arkor.config.ts\` — training defaults. Project routing lives in
   \`.arkor/state.json\`, managed by the CLI.
 

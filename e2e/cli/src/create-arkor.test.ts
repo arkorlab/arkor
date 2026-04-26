@@ -50,11 +50,16 @@ describe("create-arkor (E2E)", () => {
     ) as { name?: string };
     expect(pkg.name).toBe(basename(targetDir));
 
-    const entry = readFileSync(join(targetDir, "src/arkor/index.ts"), "utf8");
-    expect(entry).toContain("createTrainer");
+    const index = readFileSync(join(targetDir, "src/arkor/index.ts"), "utf8");
+    expect(index).toContain("createArkor");
+    const trainer = readFileSync(
+      join(targetDir, "src/arkor/trainer.ts"),
+      "utf8",
+    );
+    expect(trainer).toContain("createTrainer");
 
-    // No `--use-*` and CI=1 → pm undefined → manual install hint + npx train.
-    expect(result.stdout).toContain("npx arkor train");
+    // No `--use-*` and CI=1 → pm undefined → manual install hint + npx dev.
+    expect(result.stdout).toContain("npx arkor dev");
     expect(result.stdout).toContain(
       "install dependencies (npm i / pnpm install / yarn / bun install)",
     );
@@ -69,7 +74,7 @@ describe("create-arkor (E2E)", () => {
     ]);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("pnpm install");
-    expect(result.stdout).toContain("pnpm arkor train");
+    expect(result.stdout).toContain("pnpm arkor dev");
   });
 
   it("renders the npm next-steps (npx for run) when --use-npm is set", async () => {
@@ -82,13 +87,13 @@ describe("create-arkor (E2E)", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("npm install");
     // npm forces `npx arkor` since `npm arkor` isn't a thing.
-    expect(result.stdout).toContain("npx arkor train");
+    expect(result.stdout).toContain("npx arkor dev");
   });
 
   it.each([
-    { pm: "yarn", trainCmd: "yarn arkor train" },
-    { pm: "bun", trainCmd: "bun arkor train" },
-  ])("renders the $pm next-steps when --use-$pm is set", async ({ pm, trainCmd }) => {
+    { pm: "yarn", devCmd: "yarn arkor dev" },
+    { pm: "bun", devCmd: "bun arkor dev" },
+  ])("renders the $pm next-steps when --use-$pm is set", async ({ pm, devCmd }) => {
     const { result } = await runCreateArkor([
       "-y",
       "--skip-install",
@@ -97,7 +102,7 @@ describe("create-arkor (E2E)", () => {
     ]);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`${pm} install`);
-    expect(result.stdout).toContain(trainCmd);
+    expect(result.stdout).toContain(devCmd);
   });
 
   it("creates a real git repo and initial commit when --git is set", async () => {
@@ -145,8 +150,11 @@ describe("create-arkor (E2E)", () => {
     ) as { name?: string };
     expect(pkg.name).toBe("no-prompt-app");
 
-    const entry = readFileSync(join(targetDir, "src/arkor/index.ts"), "utf8");
-    expect(entry).toContain('"chatml-run"');
+    const trainer = readFileSync(
+      join(targetDir, "src/arkor/trainer.ts"),
+      "utf8",
+    );
+    expect(trainer).toContain('"chatml-run"');
   });
 
   // Regression for ENG-357 — `--name "Foo Bar"` previously fell through to
@@ -205,8 +213,11 @@ describe("create-arkor (E2E)", () => {
     ) as { name?: string };
     expect(pkg.name).toBe("custom-app");
 
-    const entry = readFileSync(join(targetDir, "src/arkor/index.ts"), "utf8");
-    expect(entry).toContain('"alpaca-run"');
+    const trainer = readFileSync(
+      join(targetDir, "src/arkor/trainer.ts"),
+      "utf8",
+    );
+    expect(trainer).toContain('"alpaca-run"');
   });
 
   it.skipIf(SKIP_INSTALL).each([{ pm: "npm" }, { pm: "pnpm" }])(
