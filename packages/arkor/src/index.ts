@@ -1,6 +1,9 @@
 export { createTrainer } from "./core/trainer";
+export { createArkor, isArkor } from "./core/arkor";
 export { runTrainer } from "./core/runner";
 export type {
+  Arkor,
+  ArkorInput,
   ArkorProjectState,
   BlobDatasetSource,
   DatasetSource,

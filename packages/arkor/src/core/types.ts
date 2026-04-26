@@ -187,6 +187,26 @@ export interface Trainer {
   cancel(): Promise<void>;
 }
 
+/**
+ * Umbrella manifest produced by `createArkor`. Currently a frozen descriptor
+ * of the project's primitives. The shape is intentionally opaque — operation
+ * methods may be added later without breaking the user-facing API.
+ */
+export interface Arkor {
+  /** Runtime discriminator used by `isArkor` and `arkor build` discovery. */
+  readonly _kind: "arkor";
+  readonly trainer?: Trainer;
+  // future: readonly deploy?: Deploy;
+  // future: readonly eval?: Eval;
+}
+
+/** User-facing input to `createArkor`. Role-fixed keys. */
+export interface ArkorInput {
+  trainer?: Trainer;
+  // future: deploy?: Deploy;
+  // future: eval?: Eval;
+}
+
 export interface ArkorProjectState {
   orgSlug: string;
   projectSlug: string;
