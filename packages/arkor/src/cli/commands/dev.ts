@@ -141,7 +141,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   const port = options.port ?? 4000;
   // Per-launch CSRF token: injected into index.html as <meta>, required on
   // every /api/* request. Prevents another tab on the same machine from
-  // hitting `arkor train` (and therefore RCE via dynamic import).
+  // hitting `arkor start` (and therefore RCE via dynamic import).
   const studioToken = randomBytes(32).toString("base64url");
 
   // Persisting the token to disk is *only* needed for the Vite SPA dev

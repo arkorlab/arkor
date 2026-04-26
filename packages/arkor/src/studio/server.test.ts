@@ -204,7 +204,7 @@ describe("Studio server", () => {
 
   // Regression for ENG-404 — `path.resolve` doesn't follow symlinks, so a
   // link inside the project directory pointing outside it would previously
-  // pass the containment check and be handed to `arkor train` (which would
+  // pass the containment check and be handed to `arkor start` (which would
   // then dlopen the link's target).
   it("rejects /api/train when body.file is a symlink to a path outside cwd", async () => {
     await writeCredentials(ANON_CREDS);
