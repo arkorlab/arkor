@@ -23,17 +23,18 @@ export interface DevOptions {
 }
 
 /**
- * Ensure we have credentials on disk before the Studio server starts.
+ * Best-effort credential bootstrap before the Studio server starts.
  *
  *  - If credentials already exist → no-op.
- *  - Otherwise, ask the cloud-api whether Auth0 is configured. When it is,
- *    run the interactive PKCE login. When it isn't, fall back to anonymous.
- *
- * Doing this up-front (rather than deferring to Studio's `/api/credentials`
- * auto-anonymous) means the user gets the real Auth0 flow when available
- * instead of silently being given a throwaway identity.
+ *  - If Auth0 is configured → run the interactive PKCE login (fatal on
+ *    failure: Auth0 mode requires reaching the cloud-api to know which
+ *    tenant to authorize against).
+ *  - Otherwise → try to acquire an anonymous token. On network failure,
+ *    warn and continue: the Studio server is built with `autoAnonymous`
+ *    enabled, so it will retry on the first `/api/credentials` hit. This
+ *    keeps `arkor dev` usable when the cloud-api is momentarily down.
  */
-async function ensureCredentialsForStudio(): Promise<void> {
+export async function ensureCredentialsForStudio(): Promise<void> {
   if (await readCredentials()) return;
 
   const baseUrl = defaultArkorCloudApiUrl();
@@ -53,16 +54,24 @@ async function ensureCredentialsForStudio(): Promise<void> {
   ui.log.info(
     "No credentials on file and Auth0 isn't configured — requesting an anonymous token.",
   );
-  const anon = await requestAnonymousToken(baseUrl, "cli");
-  const creds: AnonymousCredentials = {
-    mode: "anon",
-    token: anon.token,
-    anonymousId: anon.anonymousId,
-    arkorCloudApiUrl: baseUrl,
-    orgSlug: anon.orgSlug,
-  };
-  await writeCredentials(creds);
-  ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
+  try {
+    const anon = await requestAnonymousToken(baseUrl, "cli");
+    const creds: AnonymousCredentials = {
+      mode: "anon",
+      token: anon.token,
+      anonymousId: anon.anonymousId,
+      arkorCloudApiUrl: baseUrl,
+      orgSlug: anon.orgSlug,
+    };
+    await writeCredentials(creds);
+    ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
+  } catch (err) {
+    ui.log.warn(
+      `Could not acquire an anonymous token from ${baseUrl} (${
+        err instanceof Error ? err.message : String(err)
+      }). Studio will keep running and retry on first /api/credentials hit.`,
+    );
+  }
 }
 
 /**
@@ -124,7 +133,10 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     );
   }
 
-  const app = buildStudioApp({ autoAnonymous: false, studioToken });
+  // `autoAnonymous: true` (the default) lets the Hono server retry the
+  // anonymous bootstrap on first `/api/credentials` hit if the up-front
+  // attempt above failed (e.g. cloud-api was unreachable at launch).
+  const app = buildStudioApp({ studioToken });
   const url = `http://127.0.0.1:${port}`;
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   process.stdout.write(`Arkor Studio running on ${url}\n`);
