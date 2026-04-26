@@ -23,3 +23,4 @@ export {
   isInGitRepo,
   type InitialCommitResult,
 } from "./git";
+export { sanitise } from "./sanitise";

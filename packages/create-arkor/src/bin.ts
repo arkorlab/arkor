@@ -8,12 +8,12 @@ import {
   install,
   isInGitRepo,
   resolvePackageManager,
+  sanitise,
   scaffold,
   templateChoices,
   type PackageManager,
   type TemplateId,
 } from "@arkor/cli-internal";
-import { sanitise } from "./sanitise";
 
 interface RunOptions {
   dir?: string;
@@ -106,7 +106,10 @@ async function run(options: RunOptions): Promise<void> {
         : process.cwd().split(/[/\\]/).pop()!),
   );
 
-  let name = options.name ?? defaultName;
+  // Always sanitise — `defaultName` is already sanitised, but `options.name`
+  // straight from `--name` is not, and falls through to package.json as-is
+  // when `--yes` skips the interactive prompt.
+  let name = sanitise(options.name ?? defaultName);
   let template: TemplateId = options.template ?? "minimal";
 
   if (!options.yes && isInteractive()) {
