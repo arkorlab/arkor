@@ -118,4 +118,64 @@ describe("ensureCredentialsForStudio", () => {
     await expect(ensureCredentialsForStudio()).resolves.toBeUndefined();
     expect(await readCredentials()).toBeNull();
   });
+
+  // Codex review on PR #10 (ENG-403) flagged that the original try/catch
+  // swallowed every error, which meant non-transport failures (cloud-api
+  // 5xx, schema mismatches, fs errors writing credentials.json) would
+  // start Studio in a broken state where `getCredentials()` keeps failing
+  // on /api/credentials. Only `TypeError` (undici's fetch transport
+  // failure marker) should be swallowed.
+  it("re-throws when the cloud-api is reachable but returns non-2xx", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: null,
+            clientId: null,
+            audience: null,
+            callbackPorts: [],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response("internal error", { status: 500 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(
+      /Failed to acquire anonymous token \(500\)/,
+    );
+    expect(await readCredentials()).toBeNull();
+  });
+
+  it("re-throws when the cloud-api responds with a body that fails schema validation", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: null,
+            clientId: null,
+            audience: null,
+            callbackPorts: [],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
+        return new Response(
+          JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(ensureCredentialsForStudio()).rejects.toThrow();
+    expect(await readCredentials()).toBeNull();
+  });
 });

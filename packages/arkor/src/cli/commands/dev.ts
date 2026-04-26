@@ -66,10 +66,22 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     await writeCredentials(creds);
     ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
   } catch (err) {
+    // Only swallow transport-level failures so Studio stays usable while
+    // offline. undici's fetch raises `TypeError("fetch failed")` (with
+    // `err.cause` set to the underlying ECONNREFUSED/ETIMEDOUT/etc.) for
+    // every transport-class error.
+    //
+    // Everything else must surface so the user sees the real cause instead
+    // of a silently-broken Studio:
+    //   - non-2xx responses from cloud-api (`requestAnonymousToken` wraps
+    //     them in a plain `Error` — server-side retry would hit the same
+    //     reject)
+    //   - schema mismatches (`ZodError` — cloud-api responded with garbage)
+    //   - fs failures writing credentials.json (`EACCES`, `EROFS`, … —
+    //     server-side retry would fail to persist for the same reason)
+    if (!(err instanceof TypeError)) throw err;
     ui.log.warn(
-      `Could not acquire an anonymous token from ${baseUrl} (${
-        err instanceof Error ? err.message : String(err)
-      }). Studio will keep running and retry on first /api/credentials hit.`,
+      `Could not reach ${baseUrl} (${err.message}). Studio will keep running and retry on first /api/credentials hit.`,
     );
   }
 }
