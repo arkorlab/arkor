@@ -182,6 +182,10 @@ export function extractInferenceDelta(data: string): string | null {
   } catch {
     return data;
   }
+  // Some providers/proxies serialize token chunks as plain JSON strings
+  // (`data: "Hel"`) rather than objects — surface those directly so we
+  // don't end up with a silently empty assistant bubble.
+  if (typeof parsed === "string") return parsed;
   if (!parsed || typeof parsed !== "object") return null;
   const obj = parsed as Record<string, unknown>;
   const choices = obj.choices;

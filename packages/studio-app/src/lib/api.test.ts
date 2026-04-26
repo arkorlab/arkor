@@ -21,6 +21,15 @@ describe("extractInferenceDelta", () => {
     expect(extractInferenceDelta("not-json")).toBe("not-json");
   });
 
+  it("treats JSON-string frames as token content (regression for codex review)", () => {
+    // Some providers/proxies serialize token chunks as `data: "Hel"`
+    // (a JSON string, not an object). Previously these parsed as a
+    // string, hit the `typeof parsed !== "object"` branch, and returned
+    // null — leaving the assistant bubble silently empty.
+    expect(extractInferenceDelta('"Hel"')).toBe("Hel");
+    expect(extractInferenceDelta('""')).toBe("");
+  });
+
   it("returns null for an empty data line", () => {
     expect(extractInferenceDelta("")).toBeNull();
   });
