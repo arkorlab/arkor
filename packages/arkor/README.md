@@ -147,3 +147,7 @@ import {
 
 `runTrainer(file?)` is exported for power-user embedding (e.g. running
 training from a custom Node script). `arkor start` uses it under the hood.
+
+## License
+
+MIT — see [LICENSE.md](./LICENSE.md).
