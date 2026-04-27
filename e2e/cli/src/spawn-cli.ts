@@ -29,6 +29,9 @@ export function cleanup(dir: string): void {
  * - `npm_config_user_agent: ""` forces `resolvePackageManager()` to return
  *   `undefined` unless the test passes `--use-*`. That makes the "manual
  *   install hint" branch reachable.
+ * - `GIT_AUTHOR_*` / `GIT_COMMITTER_*` are pinned so the CLI's internal
+ *   `git commit` succeeds even when the host (CI runners, fresh containers)
+ *   has no `user.name` / `user.email` configured.
  */
 export function runCli(
   binPath: string,
@@ -43,6 +46,10 @@ export function runCli(
         ...process.env,
         CI: "1",
         npm_config_user_agent: "",
+        GIT_AUTHOR_NAME: "Arkor E2E",
+        GIT_AUTHOR_EMAIL: "e2e@arkor.test",
+        GIT_COMMITTER_NAME: "Arkor E2E",
+        GIT_COMMITTER_EMAIL: "e2e@arkor.test",
         ...extraEnv,
       },
       stdio: ["ignore", "pipe", "pipe"],
