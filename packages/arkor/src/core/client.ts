@@ -1,9 +1,12 @@
 import {
   createClient as createArkorRpc,
+  parseErrorBody,
+  upgradeMessageFromBody,
   type ArkorClient,
 } from "@arkor/cloud-api-client";
 import type { z } from "zod";
 import type { Credentials } from "./credentials";
+import { recordDeprecation, tapDeprecation } from "./deprecation";
 import {
   createJobResponseSchema,
   createProjectResponseSchema,
@@ -11,6 +14,8 @@ import {
   listProjectsResponseSchema,
 } from "./schemas";
 import type { JobConfig, TrainingJob } from "./types";
+import { detectedUpgradeCommand } from "./upgrade-hint";
+import { SDK_VERSION } from "./version";
 
 export class CloudApiError extends Error {
   status: number;
@@ -28,17 +33,30 @@ function tokenFromCredentials(c: Credentials): string {
 
 async function decode<T>(res: Response, schema: z.ZodType<T>): Promise<T> {
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let message = text;
-    try {
-      const body = text ? JSON.parse(text) : null;
-      if (body && typeof body.error === "string") message = body.error;
-    } catch {
-      // ignore parse errors; fall back to raw text
-    }
-    throw new CloudApiError(res.status, message || `cloud-api ${res.status}`);
+    throw await buildCloudApiError(res);
   }
   return schema.parse(await res.json());
+}
+
+/**
+ * Build a `CloudApiError` from a non-ok Response, inlining the cloud-api
+ * gate's upgrade hint when the status is 426.
+ */
+async function buildCloudApiError(res: Response): Promise<CloudApiError> {
+  const text = await res.text().catch(() => "");
+  let parsed: unknown = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    // not JSON — fall through
+  }
+  const upgrade = upgradeMessageFromBody(res.status, parsed, {
+    upgradeCommand: detectedUpgradeCommand(),
+  });
+  const fields = parseErrorBody(parsed);
+  const message =
+    upgrade ?? fields.error ?? text ?? `cloud-api ${res.status}`;
+  return new CloudApiError(res.status, message);
 }
 
 export interface CloudApiClientOptions {
@@ -61,6 +79,8 @@ export class CloudApiClient {
       baseUrl: this.baseUrl,
       token: () => this.token,
       fetch: options.fetch,
+      clientVersion: SDK_VERSION,
+      onDeprecation: recordDeprecation,
     });
   }
 
@@ -129,8 +149,7 @@ export class CloudApiClient {
       query: scope,
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new CloudApiError(res.status, text || `cloud-api ${res.status}`);
+      throw await buildCloudApiError(res);
     }
   }
 
@@ -152,6 +171,7 @@ export class CloudApiClient {
         headers: {
           Accept: "text/event-stream",
           Authorization: this.authHeader(),
+          "X-Arkor-Client": `arkor/${SDK_VERSION}`,
           ...(options.lastEventId
             ? { "Last-Event-ID": options.lastEventId }
             : {}),
@@ -159,9 +179,9 @@ export class CloudApiClient {
         signal: options.signal,
       },
     );
+    tapDeprecation(res, SDK_VERSION);
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new CloudApiError(res.status, text || `cloud-api ${res.status}`);
+      throw await buildCloudApiError(res);
     }
     return res;
   }
@@ -194,14 +214,15 @@ export class CloudApiClient {
         headers: {
           "Content-Type": "application/json",
           Authorization: this.authHeader(),
+          "X-Arkor-Client": `arkor/${SDK_VERSION}`,
         },
         body: JSON.stringify(input.body),
         signal: input.signal,
       },
     );
+    tapDeprecation(res, SDK_VERSION);
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new CloudApiError(res.status, text || `cloud-api ${res.status}`);
+      throw await buildCloudApiError(res);
     }
     return res;
   }

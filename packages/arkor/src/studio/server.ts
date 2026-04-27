@@ -10,8 +10,18 @@ import {
   requestAnonymousToken,
   type Credentials,
 } from "../core/credentials";
+import { recordDeprecation } from "../core/deprecation";
+import { SDK_VERSION } from "../core/version";
 import { readState } from "../core/state";
 import { readManifestSummary } from "./manifest";
+
+const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
+function copyDeprecationHeaders(from: Headers, to: Headers): void {
+  for (const name of DEPRECATION_HEADERS) {
+    const value = from.get(name);
+    if (value !== null) to.set(name, value);
+  }
+}
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, sep } from "node:path";
 
@@ -159,13 +169,17 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.get("/api/me", async (c) => {
-    const rpc = createClient({ baseUrl, token: getToken });
+    const rpc = createClient({
+      baseUrl,
+      token: getToken,
+      clientVersion: SDK_VERSION,
+      onDeprecation: recordDeprecation,
+    });
     const res = await rpc.v1.me.$get();
     const body = await res.text();
-    return new Response(body, {
-      status: res.status,
-      headers: { "content-type": "application/json" },
-    });
+    const headers = new Headers({ "content-type": "application/json" });
+    copyDeprecationHeaders(res.headers, headers);
+    return new Response(body, { status: res.status, headers });
   });
 
   app.get("/api/manifest", async (c) => {
