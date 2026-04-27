@@ -46,11 +46,15 @@ cd my-arkor-app
 pnpm dev
 ```
 
-That's the whole setup. **No signup required:** on first launch, `arkor dev` opens **Studio**, a local web UI at `http://127.0.0.1:4000`, and silently bootstraps an anonymous workspace so you can fire off a real training run right away. Run `arkor login` later if you want to claim your work under an account.
+That's the whole setup. 
+**No signup required:** `arkor dev` opens **Studio**, a local web UI at `http://127.0.0.1:4000`, and silently bootstraps an anonymous workspace so you can fire off a real training run right away. 
+
+Run `arkor login` later if you want to claim your work under an account.
 
 ### Pick a template
 
-The scaffolder asks which template you want. All three start from the same small open-weight base (`unsloth/gemma-4-E4B-it`) so the first run finishes quickly.
+The scaffolder asks which template you want. 
+All three start from the same small open-weight base (`unsloth/gemma-4-E4B-it`) so the first run finishes quickly.
 
 | Template  | What it shows                                                       | Dataset                            |
 | --------- | ------------------------------------------------------------------- | ---------------------------------- |
@@ -62,9 +66,12 @@ Skip the prompt with `pnpm create arkor my-arkor-app --template alpaca`.
 
 ## Why Arkor
 
-Custom open-weight models are a real option today because of years of work in the Python ML ecosystem and the people and companies who built it out. Arkor stands on that foundation.
+Custom open-weight models are a real option today because of years of work in the Python ML ecosystem and the people and companies who built it out. 
+Arkor stands on that foundation.
 
-What we wanted, and didn't find, was a path that fits how TypeScript and Node developers already work: a workflow where fine-tuning, evaluation, and serving live in the same codebase as the product, with the same editor, types, and review flow. Type-safe configs instead of separate config files. Hot reload over your training code. A local Studio for the dev loop.
+What we wanted, and didn't find, was a path that fits how TypeScript and Node developers already work: a workflow where fine-tuning, evaluation, and serving live in the same codebase as the product, with the same editor, types, and review flow. 
+
+Type-safe configs instead of separate config files. Hot reload over your training code. A local Studio for the dev loop.
 
 The phrase we keep coming back to: **ship the model the same way you ship the product.** If that sounds right, you're the audience.
 
@@ -115,7 +122,10 @@ import { trainer } from "./trainer";
 export const arkor = createArkor({ trainer });
 ```
 
-`src/arkor/index.ts` is the file the CLI and Studio look for. Your `trainer` lives in a sibling file and is registered through `createArkor`. `deploy` and `eval` will work the same way. To add a new one, drop a file and register it; no scaffolder rerun needed.
+`src/arkor/index.ts` is the file the CLI and Studio look for. 
+Your `trainer` lives in a sibling file and is registered through `createArkor`. `deploy` and `eval` will work the same way. 
+
+To add a new one, drop a file and register it; no scaffolder rerun needed.
 
 <!--
   Studio screenshots go here once captured:
@@ -150,7 +160,11 @@ my-arkor-app/
 
 ## Architecture
 
-`arkor dev` boots a [Hono](https://hono.dev) server on `127.0.0.1:4000` that hot-reloads your code and serves a Vite + React SPA from the same origin. The SPA talks to your code via per-launch CSRF-token-gated `/api/*` routes (loopback-only, with a `Host` header guard against DNS rebinding); your code talks to the Arkor training backend over authenticated HTTPS. Training runs on managed GPUs; checkpoints stream back as SSE events that fire your `callbacks.*` in process.
+`arkor dev` boots a [Hono](https://hono.dev) server on `127.0.0.1:4000` that hot-reloads your code and serves a Vite + React SPA from the same origin. 
+
+The SPA talks to your code via per-launch CSRF-token-gated `/api/*` routes (loopback-only, with a `Host` header guard against DNS rebinding); your code talks to the Arkor training backend over authenticated HTTPS. 
+
+Training runs on managed GPUs; checkpoints stream back as SSE events that fire your `callbacks.*` in process.
 
 ## Repository
 
@@ -175,5 +189,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 
 ## License
 
-[MIT](LICENSE.md). Use it however you want.
-MIT — see [LICENSE.md](LICENSE.md).
+[MIT](LICENSE.md). 
