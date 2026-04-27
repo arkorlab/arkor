@@ -19,14 +19,13 @@
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-000" alt="MIT"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A522.6-000" alt="node ≥22.6">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="alpha">
-  <a href="https://discord.gg/vTxDErxm4"><img src="https://img.shields.io/badge/discord-join-5865F2" alt="Discord"></a>
+  <a href="https://discord.gg/YujCZYGrEZ"><img src="https://img.shields.io/badge/discord-join-5865F2" alt="Discord"></a>
 </p>
 
 <p align="center">
   <a href="https://arkor.ai/docs"><strong>Docs</strong></a> &nbsp;·&nbsp;
   <a href="#quickstart"><strong>Quickstart</strong></a> &nbsp;·&nbsp;
   <a href="#why-arkor"><strong>Why Arkor</strong></a> &nbsp;·&nbsp;
-  <a href="https://discord.gg/vTxDErxm4"><strong>Discord</strong></a>
 </p>
 
 > [!WARNING]
@@ -184,7 +183,7 @@ Arkor is alpha, and the core idea (TypeScript-native fine-tuning for product eng
 
 - **[File an issue](https://github.com/arkorlab/arkor/issues/new)** with the model + dataset + workflow you wish worked. We read everything.
 - **Star the repo** if you want updates as we move toward `0.1`.
-- **[Join Discord](https://discord.gg/vTxDErxm4)** for live discussion and early-access pings.
+- **[Join Discord](https://discord.gg/YujCZYGrEZ)** for live discussion and early-access pings.
 
 We're especially curious about: which open-weight base models you'd reach for first, what you'd want from `createDeploy` / `createEval`, and what breaks when you try the alpha.
 

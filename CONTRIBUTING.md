@@ -8,7 +8,7 @@ Thanks for your interest! Arkor is in **alpha**: we're moving fast, breaking thi
 | ----------------------- | ----------------------------------------------------------------------------------- |
 | **5 min**               | Try the [Quickstart](README.md#quickstart) and [open an issue](https://github.com/arkorlab/arkor/issues/new) about anything that confused you, broke, or felt un-TypeScript. |
 | **An afternoon**        | Pick up a [`good first issue`](https://github.com/arkorlab/arkor/labels/good%20first%20issue) or send a small PR (doc fixes, template tweaks, error-message polish). |
-| **Ongoing**             | Hop into [Discord](https://discord.gg/vTxDErxm4) and tell us what model + dataset + workflow you wish worked. We use this to prioritize. |
+| **Ongoing**             | Hop into [Discord](https://discord.gg/YujCZYGrEZ) and tell us what model + dataset + workflow you wish worked. We use this to prioritize. |
 
 If you have an idea for a non-trivial change (new SDK factory, CLI command, Studio view), please open an issue first so we can align on the API shape before you write code.
 
