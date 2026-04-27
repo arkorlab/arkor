@@ -75,4 +75,4 @@ live behind that one command.
 
 ## License
 
-UNLICENSED — see individual package metadata.
+MIT — see [LICENSE.md](LICENSE.md).

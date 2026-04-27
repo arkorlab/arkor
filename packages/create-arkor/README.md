@@ -82,3 +82,7 @@ one-off invocations.)
 `arkor dev` opens the local Studio. See the
 [`arkor` package README](../arkor/README.md) for the full SDK + CLI
 reference.
+
+## License
+
+MIT — see [LICENSE.md](./LICENSE.md).
