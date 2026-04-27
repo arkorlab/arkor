@@ -69,7 +69,7 @@ export async function getToken(credentials: Credentials): Promise<string> {
 export function defaultArkorCloudApiUrl(): string {
   return (
     process.env.ARKOR_CLOUD_API_URL?.replace(/\/$/, "") ??
-    "http://localhost:3003"
+    "https://api.arkor.ai"
   );
 }
 
