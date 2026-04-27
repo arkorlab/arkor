@@ -1,7 +1,6 @@
 import {
   createClient as createArkorRpc,
   parseErrorBody,
-  upgradeMessageFromBody,
   type ArkorClient,
 } from "@arkor/cloud-api-client";
 import type { z } from "zod";
@@ -14,7 +13,7 @@ import {
   listProjectsResponseSchema,
 } from "./schemas";
 import type { JobConfig, TrainingJob } from "./types";
-import { detectedUpgradeCommand } from "./upgrade-hint";
+import { formatSdkUpgradeError } from "./upgrade-hint";
 import { SDK_VERSION } from "./version";
 
 export class CloudApiError extends Error {
@@ -50,12 +49,15 @@ async function buildCloudApiError(res: Response): Promise<CloudApiError> {
   } catch {
     // not JSON — fall through
   }
-  const upgrade = upgradeMessageFromBody(res.status, parsed, {
-    upgradeCommand: detectedUpgradeCommand(),
-  });
+  // 426 always carries the upgrade hint, even for malformed bodies, so
+  // callers don't have to special-case the gate's response shape.
+  if (res.status === 426) {
+    return new CloudApiError(res.status, formatSdkUpgradeError(parsed));
+  }
   const fields = parseErrorBody(parsed);
-  const message =
-    upgrade ?? fields.error ?? text ?? `cloud-api ${res.status}`;
+  // Use `||` (not `??`) so an empty-string body falls through to the
+  // generic `cloud-api <status>` instead of becoming an empty message.
+  const message = fields.error || text || `cloud-api ${res.status}`;
   return new CloudApiError(res.status, message);
 }
 

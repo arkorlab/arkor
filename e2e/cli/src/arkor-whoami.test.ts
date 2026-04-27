@@ -180,6 +180,30 @@ describe("arkor whoami × SDK version gate (E2E)", () => {
     expect(result.stderr).toContain("yarn global add arkor@latest");
   });
 
+  it("still exits 1 on 426 when the body is missing or non-JSON", async () => {
+    // Regression guard: a 426 with an unfamiliar body (empty here, e.g. a
+    // proxy stripped it) must still hard-block. Earlier the formatter
+    // returned `null` for an unparseable body, which silently fell through
+    // to the "Token may be expired" branch and exited 0 — so scripts gating
+    // on `arkor whoami` would proceed past an unsupported SDK.
+    server.setHandler((_req, res) => {
+      res.statusCode = 426;
+      res.setHeader("content-type", "text/plain");
+      res.end("not really json");
+    });
+
+    const result = await runCli(ARKOR_BIN, ["whoami"], home, {
+      HOME: home,
+      ARKOR_CLOUD_API_URL: baseUrl,
+      npm_config_user_agent: "pnpm/8.15.0 npm/? node/v22 linux x64",
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Arkor SDK is no longer supported");
+    expect(result.stderr).toContain("pnpm add -g arkor@latest");
+    expect(result.stdout).not.toContain("Token may be expired");
+  });
+
   it("forwards the X-Arkor-Client header on every request", async () => {
     server.setHandler((_req, res) => {
       res.statusCode = 200;

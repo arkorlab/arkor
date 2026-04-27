@@ -7,6 +7,7 @@
 //   2. `process.argv[1]` path — heuristic for globally-installed binaries.
 //      pnpm/bun/yarn put their global bin under distinctive directories;
 //      everything else falls back to npm.
+import { upgradeMessageFromBody } from "@arkor/cloud-api-client";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 
@@ -70,4 +71,19 @@ export function upgradeCommandFor(pm: PackageManager): string {
 /** Convenience: detect the current pm and return its global-install command. */
 export function detectedUpgradeCommand(): string {
   return upgradeCommandFor(detectPackageManager());
+}
+
+/**
+ * Format a user-facing message for an HTTP 426 response. Prefers the rich
+ * message produced from the gate's structured body; falls back to a generic
+ * one-liner when the body is missing, non-JSON, or doesn't match the
+ * expected shape — so callers can rely on a non-empty string for **every**
+ * 426 instead of guarding on `null` and accidentally falling through to a
+ * different code path.
+ */
+export function formatSdkUpgradeError(body: unknown): string {
+  const upgradeCommand = detectedUpgradeCommand();
+  const rich = upgradeMessageFromBody(426, body, { upgradeCommand });
+  if (rich) return rich;
+  return `Arkor SDK is no longer supported by the cloud API. Run \`${upgradeCommand}\`.`;
 }

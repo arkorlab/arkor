@@ -4,12 +4,9 @@ import {
   readCredentials,
 } from "../../core/credentials";
 import { recordDeprecation } from "../../core/deprecation";
-import { detectedUpgradeCommand } from "../../core/upgrade-hint";
+import { formatSdkUpgradeError } from "../../core/upgrade-hint";
 import { SDK_VERSION } from "../../core/version";
-import {
-  createClient,
-  upgradeMessageFromBody,
-} from "@arkor/cloud-api-client";
+import { createClient } from "@arkor/cloud-api-client";
 
 export async function runWhoami(): Promise<void> {
   const creds = await readCredentials();
@@ -35,18 +32,17 @@ export async function runWhoami(): Promise<void> {
     // schema (200 here), so widen for the 426 check below.
     const status: number = res.status;
     if (status === 426) {
+      // Always treat 426 as a hard block, even if the body is missing /
+      // non-JSON / not the gate's expected shape. `formatSdkUpgradeError`
+      // returns a generic fallback in that case so we never silently fall
+      // through to the "Token may be expired" branch on a real version
+      // rejection.
       const body = await res.json().catch(() => null);
-      const upgrade = upgradeMessageFromBody(status, body, {
-        upgradeCommand: detectedUpgradeCommand(),
-      });
-      if (upgrade) {
-        process.stderr.write(`${upgrade}\n`);
-        // Hard-block: scripts that gate on `arkor whoami`'s exit code must
-        // see a failure here. Use `exitCode` rather than `process.exit()`
-        // so the deprecation-warning flush in `cli/main.ts` still runs.
-        process.exitCode = 1;
-        return;
-      }
+      process.stderr.write(`${formatSdkUpgradeError(body)}\n`);
+      // `exitCode` (not `process.exit()`) so the deprecation-warning flush
+      // in `cli/main.ts` still runs before exit.
+      process.exitCode = 1;
+      return;
     }
     process.stdout.write(
       `Failed to fetch /v1/me (${status}). Token may be expired.\n`,
