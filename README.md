@@ -173,7 +173,10 @@ Training runs on managed GPUs; checkpoints stream back as SSE events that fire y
 | [`arkor`](packages/arkor)                      | SDK + CLI + bundled local Studio            |
 | [`create-arkor`](packages/create-arkor)        | `pnpm create arkor` scaffolder              |
 
-Requires Node.js 22.6+. Works with pnpm / npm / yarn / bun.
+Requires Node.js 22.6+. 
+(Please use Node.js 24, preferably the latest version, for contributing to this repository.)
+
+Works with pnpm / npm / yarn / bun.
 
 ## We're shipping in public
 
