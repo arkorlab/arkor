@@ -30,7 +30,7 @@ arkor/
 
 ## Development setup
 
-Please use **Node.js 24** and **pnpm 10+**.
+Please use **Node.js 24** and **pnpm 10.21+**.
 
 ```bash
 git clone https://github.com/arkorlab/arkor.git
