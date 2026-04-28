@@ -281,7 +281,7 @@ program
   )
   .option(
     "--template <template>",
-    "starter template: minimal | alpaca | chatml",
+    "starter template: triage | translate | redaction",
   )
   .option("-y, --yes", "skip interactive prompts and accept the defaults")
   .option("--skip-install", "skip installing dependencies after scaffolding")

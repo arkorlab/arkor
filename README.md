@@ -100,7 +100,7 @@ import { createTrainer } from "arkor";
 export const trainer = createTrainer({
   name: "support-bot-v1",
   model: "unsloth/gemma-4-E4B-it",
-  dataset: { type: "huggingface", name: "yahma/alpaca-cleaned", split: "train[:1000]" },
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
   callbacks: {
