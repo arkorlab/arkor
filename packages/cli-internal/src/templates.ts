@@ -9,7 +9,13 @@
  *
  * `index.ts` is identical across templates — only the trainer body differs.
  */
-export type TemplateId = "minimal" | "alpaca" | "chatml";
+export type TemplateId =
+  | "minimal"
+  | "alpaca"
+  | "chatml"
+  | "redaction"
+  | "translate"
+  | "triage";
 
 export interface Template {
   label: string;
@@ -81,6 +87,64 @@ export const trainer = createTrainer({
 });
 `;
 
+// The three demo templates below pair `unsloth/gemma-4-E4B-it` with curated
+// HuggingFace datasets published under the `arkorlab` org. Each dataset is in
+// OpenAI messages format (chatml), one sample per JSONL line, with the system
+// prompt baked into the conversation — so `datasetFormat: { type: "chatml" }`
+// hands the right shape to the trainer's apply_chat_template step.
+//
+// Use `dryRun: true` for a 2–3 minute smoke test (50 rows, max_steps=10) before
+// committing to a full run.
+
+const REDACTION_TRAINER = `import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "redaction-run",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
+  datasetFormat: { type: "chatml" },
+  maxSteps: 100,
+  lora: { r: 16, alpha: 16 },
+  // Set dryRun: true for a fast end-to-end smoke test before a full run.
+  // dryRun: true,
+  callbacks: {
+    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+  },
+});
+`;
+
+const TRANSLATE_TRAINER = `import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "translate-run",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/translate-demo" },
+  datasetFormat: { type: "chatml" },
+  maxSteps: 100,
+  lora: { r: 16, alpha: 16 },
+  // dryRun: true,
+  callbacks: {
+    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+  },
+});
+`;
+
+const TRIAGE_TRAINER = `import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "triage-run",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  datasetFormat: { type: "chatml" },
+  maxSteps: 100,
+  lora: { r: 16, alpha: 16 },
+  // dryRun: true,
+  callbacks: {
+    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+  },
+});
+`;
+
 export const TEMPLATES: Record<TemplateId, Template> = {
   minimal: {
     label: "Minimal",
@@ -96,6 +160,21 @@ export const TEMPLATES: Record<TemplateId, Template> = {
     label: "ChatML",
     hint: "multi-turn chat fine-tuning",
     trainer: CHATML_TRAINER,
+  },
+  redaction: {
+    label: "Redaction",
+    hint: "PII redaction → structured JSON (name/email/phone/address/id/other)",
+    trainer: REDACTION_TRAINER,
+  },
+  translate: {
+    label: "Translate",
+    hint: "Multilingual intake translation across 9 languages",
+    trainer: TRANSLATE_TRAINER,
+  },
+  triage: {
+    label: "Triage",
+    hint: "Support ticket classification (category, urgency, summary, nextAction)",
+    trainer: TRIAGE_TRAINER,
   },
 };
 

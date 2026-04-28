@@ -203,6 +203,9 @@ describe("templateChoices", () => {
       "alpaca",
       "chatml",
       "minimal",
+      "redaction",
+      "translate",
+      "triage",
     ]);
     for (const t of list) {
       expect(t.label).toBeTruthy();
