@@ -5,6 +5,35 @@ import { Playground } from "./pages/Playground";
 import { RunTraining } from "./components/RunTraining";
 import { fetchCredentials, type Credentials } from "./lib/api";
 
+const PRODUCTION_CLOUD_API_URL = "https://api.arkor.ai";
+
+// Hide the cloud-api URL from the identity header when pointing at the
+// production endpoint — regular users don't need it. For Arkor contributors
+// running against a local cloud-api (`ARKOR_CLOUD_API_URL=...`), surface just
+// the host:port so it's clear which backend the Studio is talking to without
+// the protocol noise.
+function formatIdentityBaseUrl(baseUrl: string): string | null {
+  // Strip trailing slash before comparing — the server normalises env-var
+  // overrides via `defaultArkorCloudApiUrl()` today, but a future change that
+  // forwards the raw value would otherwise let `https://api.arkor.ai/` slip
+  // past the production check and surface in the header.
+  if (baseUrl.replace(/\/$/, "") === PRODUCTION_CLOUD_API_URL) return null;
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
+function formatIdentity(creds: Credentials): string {
+  const mode = creds.mode === "anon" ? "anonymous" : "auth0";
+  const org = creds.orgSlug ?? "no org";
+  const project = creds.projectSlug ? ` / ${creds.projectSlug}` : "";
+  const baseUrlLabel = formatIdentityBaseUrl(creds.baseUrl);
+  const baseUrlSuffix = baseUrlLabel ? ` · ${baseUrlLabel}` : "";
+  return `${mode} · ${org}${project}${baseUrlSuffix}`;
+}
+
 type Route =
   | { kind: "home" }
   | { kind: "job"; id: string }
@@ -55,7 +84,7 @@ export function App() {
           {error
             ? `error: ${error}`
             : creds
-              ? `${creds.mode === "anon" ? "anonymous" : "auth0"} · ${creds.orgSlug ?? "no org"}${creds.projectSlug ? ` / ${creds.projectSlug}` : ""} · ${creds.baseUrl}`
+              ? formatIdentity(creds)
               : "connecting…"}
         </div>
       </header>

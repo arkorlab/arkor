@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { CREATE_ARKOR_BIN } from "./bins";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
@@ -218,6 +218,139 @@ describe("create-arkor (E2E)", () => {
       "utf8",
     );
     expect(trainer).toContain('"alpaca-run"');
+  });
+
+  // Regression for ENG-426 — without an explicit `[dir]` the CLI used to
+  // scaffold straight into `process.cwd()`, littering whatever directory the
+  // user happened to be in. The new behaviour mirrors `create-vite`: derive
+  // the project name (prompted in interactive mode, `arkor-project` under
+  // `-y`) and create a fresh subdirectory named after it.
+  it("scaffolds into ./arkor-project/ when no [dir] is passed", async () => {
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["-y", "--skip-install", "--skip-git"],
+      parentDir,
+    );
+    expect(result.code).toBe(0);
+
+    const targetDir = join(parentDir, "arkor-project");
+    expect(existsSync(join(targetDir, "package.json"))).toBe(true);
+    expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
+
+    // Nothing should land directly in parentDir except the new subdir.
+    expect(readdirSync(parentDir).sort()).toEqual(["arkor-project"]);
+
+    // Outro should tell the user to `cd arkor-project`.
+    expect(result.stdout).toContain("cd arkor-project");
+  });
+
+  // Companion to the regression above: the explicit "scaffold here" opt-in.
+  it("scaffolds into the current directory when `.` is passed", async () => {
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      [".", "-y", "--skip-install", "--skip-git"],
+      parentDir,
+    );
+    expect(result.code).toBe(0);
+    expect(existsSync(join(parentDir, "package.json"))).toBe(true);
+    expect(existsSync(join(parentDir, "src/arkor/index.ts"))).toBe(true);
+
+    // No `cd` line in the outro when scaffolding in place.
+    expect(result.stdout).not.toMatch(/\bcd \./);
+  });
+
+  // `--name foo` without [dir] should also create `./foo/`, not pollute cwd.
+  it("scaffolds into ./<name>/ when --name is passed without [dir]", async () => {
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["-y", "--skip-install", "--skip-git", "--name", "named-app"],
+      parentDir,
+    );
+    expect(result.code).toBe(0);
+
+    const targetDir = join(parentDir, "named-app");
+    expect(existsSync(join(targetDir, "package.json"))).toBe(true);
+    const pkg = JSON.parse(
+      readFileSync(join(targetDir, "package.json"), "utf8"),
+    ) as { name?: string };
+    expect(pkg.name).toBe("named-app");
+    expect(readdirSync(parentDir).sort()).toEqual(["named-app"]);
+  });
+
+  // Collision guards for the auto-derived `./<name>/` path. When the user
+  // didn't pass `[dir]` we refuse to merge into a non-empty existing
+  // directory — easy to hit by accident (typo, forgotten earlier scaffold)
+  // and the silent merge would surprise users.
+  it("refuses to scaffold when ./arkor-project/ already exists and is non-empty", async () => {
+    const collidingDir = join(parentDir, "arkor-project");
+    mkdirSync(collidingDir);
+    writeFileSync(join(collidingDir, "sentinel.txt"), "do not touch\n");
+
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["-y", "--skip-install", "--skip-git"],
+      parentDir,
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain(
+      'Directory "arkor-project/" already exists and is not empty.',
+    );
+    // Sentinel survives — we bailed before touching anything.
+    expect(readFileSync(join(collidingDir, "sentinel.txt"), "utf8")).toBe(
+      "do not touch\n",
+    );
+    expect(existsSync(join(collidingDir, "package.json"))).toBe(false);
+  });
+
+  it("refuses to scaffold when --name target dir exists and is non-empty", async () => {
+    const collidingDir = join(parentDir, "taken");
+    mkdirSync(collidingDir);
+    writeFileSync(join(collidingDir, "sentinel.txt"), "x\n");
+
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["-y", "--skip-install", "--skip-git", "--name", "taken"],
+      parentDir,
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain(
+      'Directory "taken/" already exists and is not empty.',
+    );
+    expect(existsSync(join(collidingDir, "package.json"))).toBe(false);
+  });
+
+  // Back-compat: explicit `[dir]` keeps the "scaffold into an existing
+  // project" semantics (patches package.json / .gitignore in place,
+  // preserves existing files).
+  it("still merges into an explicitly-given [dir] that exists", async () => {
+    const targetDir = join(parentDir, "existing");
+    mkdirSync(targetDir);
+    writeFileSync(join(targetDir, "sentinel.txt"), "kept\n");
+
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["existing", "-y", "--skip-install", "--skip-git"],
+      parentDir,
+    );
+    expect(result.code).toBe(0);
+    expect(existsSync(join(targetDir, "package.json"))).toBe(true);
+    expect(readFileSync(join(targetDir, "sentinel.txt"), "utf8")).toBe("kept\n");
+  });
+
+  // Collision check should NOT fire when the would-be target is empty —
+  // makes sure the guard discriminates between empty placeholders (e.g. a
+  // pre-created mount point) and real existing projects.
+  it("scaffolds into an empty pre-existing ./<name>/ without complaining", async () => {
+    const target = join(parentDir, "arkor-project");
+    mkdirSync(target);
+
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["-y", "--skip-install", "--skip-git"],
+      parentDir,
+    );
+    expect(result.code).toBe(0);
+    expect(existsSync(join(target, "package.json"))).toBe(true);
   });
 
   it.skipIf(SKIP_INSTALL).each([{ pm: "npm" }, { pm: "pnpm" }])(

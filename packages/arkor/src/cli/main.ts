@@ -6,7 +6,7 @@ import { runInit } from "./commands/init";
 import { runDev } from "./commands/dev";
 import { runBuild } from "./commands/build";
 import { runStart } from "./commands/start";
-import { resolvePackageManager } from "@arkor/cli-internal";
+import { resolvePackageManager, type TemplateId } from "@arkor/cli-internal";
 import { getRecordedDeprecation } from "../core/deprecation";
 import { detectedUpgradeCommand } from "../core/upgrade-hint";
 import { SDK_VERSION } from "../core/version";
@@ -21,7 +21,7 @@ export async function main(argv: string[]): Promise<void> {
     .description("Scaffold src/arkor/index.ts + arkor.config.ts in the current directory")
     .option("-y, --yes", "Accept defaults instead of prompting")
     .option("--name <name>", "Project name (default: directory name)")
-    .option("--template <template>", "Starter template: minimal | alpaca | chatml")
+    .option("--template <template>", "Starter template: triage | translate | redaction")
     .option("--skip-install", "Skip installing dependencies after scaffolding")
     .option("--use-npm", "Force npm as the package manager")
     .option("--use-pnpm", "Force pnpm as the package manager")
@@ -57,7 +57,7 @@ export async function main(argv: string[]): Promise<void> {
         await runInit({
           yes: opts.yes,
           name: opts.name,
-          template: opts.template as "minimal" | "alpaca" | "chatml" | undefined,
+          template: opts.template as TemplateId | undefined,
           skipInstall: opts.skipInstall,
           packageManager,
           git: opts.git,

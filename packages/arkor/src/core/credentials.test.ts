@@ -92,8 +92,8 @@ describe("defaultArkorCloudApiUrl", () => {
     process.env.ARKOR_CLOUD_API_URL = "https://api.example.com/";
     expect(defaultArkorCloudApiUrl()).toBe("https://api.example.com");
   });
-  it("falls back to localhost:3003", () => {
+  it("falls back to https://api.arkor.ai", () => {
     delete process.env.ARKOR_CLOUD_API_URL;
-    expect(defaultArkorCloudApiUrl()).toBe("http://localhost:3003");
+    expect(defaultArkorCloudApiUrl()).toBe("https://api.arkor.ai");
   });
 });

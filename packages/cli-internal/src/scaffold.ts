@@ -169,9 +169,11 @@ export function templateChoices(): Array<{
   label: string;
   hint: string;
 }> {
-  return (Object.keys(TEMPLATES) as TemplateId[]).map((key) => ({
-    value: key,
-    label: TEMPLATES[key].label,
-    hint: TEMPLATES[key].hint,
-  }));
+  return (Object.keys(TEMPLATES) as TemplateId[])
+    .filter((key) => !TEMPLATES[key].hidden)
+    .map((key) => ({
+      value: key,
+      label: TEMPLATES[key].label,
+      hint: TEMPLATES[key].hint,
+    }));
 }

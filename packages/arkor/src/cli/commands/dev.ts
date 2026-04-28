@@ -155,7 +155,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     ui.log.warn(
       `Could not write ${studioTokenPath()} (${
         err instanceof Error ? err.message : String(err)
-      }). The Studio at http://127.0.0.1:${port} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
+      }). The Studio at http://localhost:${port} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
     );
   }
 
@@ -163,7 +163,15 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
   // attempt above failed (e.g. cloud-api was unreachable at launch).
   const app = buildStudioApp({ studioToken });
-  const url = `http://127.0.0.1:${port}`;
+  // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
+  // only — `@hono/node-server` passes hostname to `net.Server.listen`, which
+  // calls `dns.lookup`. On hosts where `/etc/hosts` orders `::1 localhost`
+  // before `127.0.0.1 localhost`, a "localhost" bind would refuse IPv4
+  // connections, breaking the studio-app Vite proxy (hardcoded to
+  // `http://127.0.0.1:4000`) and any browser that resolves localhost to
+  // IPv4. The host-header guard already accepts both, so the displayed URL
+  // can still be `localhost`.
+  const url = `http://localhost:${port}`;
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   process.stdout.write(`Arkor Studio running on ${url}\n`);
   if (!options.noBrowser) {

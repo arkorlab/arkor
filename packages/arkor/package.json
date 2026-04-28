@@ -13,7 +13,7 @@
   "bugs": {
     "url": "https://github.com/arkorlab/arkor/issues"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "keywords": [
     "arkor",
     "llm",

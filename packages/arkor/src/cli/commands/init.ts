@@ -5,6 +5,7 @@ import {
   isInGitRepo,
   sanitise,
   scaffold,
+  TEMPLATES,
   templateChoices,
   type PackageManager,
   type TemplateId,
@@ -97,17 +98,32 @@ export async function runInit(options: InitOptions): Promise<void> {
   // trigger the fallback). `basename("/")` returns `""`, hence the `||`.
   const defaultName = basename(cwd) || "arkor-project";
 
+  // Reject typos / unknown template ids before any prompt or filesystem work.
+  // `Object.hasOwn` (not `in`) so prototype keys like `toString` / `__proto__`
+  // can't pass validation and crash later inside scaffold().
+  if (
+    options.template !== undefined &&
+    !Object.hasOwn(TEMPLATES, options.template)
+  ) {
+    throw new Error(
+      `Unknown template "${options.template}". Available: ${Object.keys(TEMPLATES).join(", ")}`,
+    );
+  }
+
   ui.intro("arkor init");
   const projectName = await promptText({
     message: "Project name?",
     initialValue: options.name ?? defaultName,
     skipWith: options.yes ? options.name ?? defaultName : undefined,
   });
+  // An explicit `--template <id>` is treated as authoritative — skip the
+  // prompt entirely so a hidden-but-valid template (e.g. `minimal`) can't be
+  // overwritten by the visible-only options list.
   const template = await promptSelect<TemplateId>({
     message: "Starter template?",
-    initialValue: options.template ?? "minimal",
+    initialValue: options.template ?? "triage",
     options: templateChoices(),
-    skipWith: options.yes ? options.template ?? "minimal" : undefined,
+    skipWith: options.template ?? (options.yes ? "triage" : undefined),
   });
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
