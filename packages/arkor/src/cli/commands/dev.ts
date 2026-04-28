@@ -19,7 +19,7 @@ import { ui } from "../prompts";
 
 export interface DevOptions {
   port?: number;
-  noBrowser?: boolean;
+  open?: boolean;
 }
 
 /**
@@ -174,7 +174,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   const url = `http://localhost:${port}`;
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   process.stdout.write(`Arkor Studio running on ${url}\n`);
-  if (!options.noBrowser) {
+  if (options.open) {
     try {
       await open(url);
     } catch {

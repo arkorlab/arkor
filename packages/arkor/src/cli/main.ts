@@ -127,14 +127,14 @@ export async function main(argv: string[]): Promise<void> {
     .command("dev")
     .description("Launch Arkor Studio locally")
     .option("-p, --port <port>", "Port to bind (default: 4000)", "4000")
-    .option("--no-browser", "Do not open the browser")
+    .option("--open", "Open the Studio URL in a browser after starting")
     .action(
       withTelemetry(
         "dev",
-        async (opts: { port: string; browser?: boolean }) => {
+        async (opts: { port: string; open?: boolean }) => {
           await runDev({
             port: Number(opts.port) || 4000,
-            noBrowser: opts.browser === false,
+            open: opts.open === true,
           });
         },
         { longRunning: true },
