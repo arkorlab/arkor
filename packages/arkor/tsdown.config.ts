@@ -5,6 +5,7 @@ export default defineConfig({
   format: ["esm"],
   dts: true,
   clean: true,
+  minify: true,
   sourcemap: true,
   tsconfig: "./tsconfig.build.json",
   // `@arkor/cli-internal` is a private workspace package — bundle its source
