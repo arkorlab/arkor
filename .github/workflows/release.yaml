@@ -165,18 +165,23 @@ jobs:
             tar -tf "$TARBALL"
           done
 
+      # Publish from the package directory (not from the pre-packed tarball)
+      # so npm CLI reads README.md at publish time and embeds it in the
+      # registry packument's `readme` field. `npm publish <tarball>` does
+      # not perform that injection, which leaves the page on npmjs.com
+      # blank.
       - name: Publish arkor to npm
+        working-directory: packages/arkor
         run: |
-          VERSION="${{ steps.meta.outputs.version }}"
-          npm publish "$RUNNER_TEMP/npm-pack/arkor-$VERSION.tgz" \
+          npm publish \
             --access public \
             --tag "${{ steps.meta.outputs.npm_tag }}" \
             --provenance
 
       - name: Publish create-arkor to npm
+        working-directory: packages/create-arkor
         run: |
-          VERSION="${{ steps.meta.outputs.version }}"
-          npm publish "$RUNNER_TEMP/npm-pack/create-arkor-$VERSION.tgz" \
+          npm publish \
             --access public \
             --tag "${{ steps.meta.outputs.npm_tag }}" \
             --provenance

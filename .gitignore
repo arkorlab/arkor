@@ -4,6 +4,9 @@ node_modules/
 # Build
 dist/
 
+# Generated copies of root files (see packages/*/scripts/copy-root-files.mjs)
+packages/*/CONTRIBUTING.md
+
 # Turbo
 .turbo/
 
