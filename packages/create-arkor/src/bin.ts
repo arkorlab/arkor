@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { basename, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
@@ -98,12 +98,14 @@ async function maybeGitInit(
 async function run(options: RunOptions): Promise<void> {
   clack.intro("create-arkor");
 
-  const cwd = options.dir ? resolve(options.dir) : process.cwd();
-  // `path.basename` of the resolved cwd handles trailing separators and
-  // filesystem roots correctly. `sanitise("")` falls back to
-  // `"arkor-project"`, so the empty-basename case at root collapses to
-  // the same default the prompt would otherwise offer.
-  const defaultName = sanitise(options.name ?? basename(cwd));
+  // When `dir` is explicit, derive the project name from its basename so
+  // `npm create arkor my-app` still produces `pkg.name = "my-app"`. Otherwise
+  // we'd lose the historical UX. `sanitise("")` falls back to "arkor-project"
+  // for the root-dir / empty-basename case.
+  const defaultName = sanitise(
+    options.name ??
+      (options.dir !== undefined ? basename(resolve(options.dir)) : "arkor-project"),
+  );
 
   // Always sanitise — `defaultName` is already sanitised, but `options.name`
   // straight from `--name` is not, and falls through to package.json as-is
@@ -135,6 +137,16 @@ async function run(options: RunOptions): Promise<void> {
     template = chosenTemplate;
   }
 
+  // When no `dir` was passed, scaffold into a fresh subdirectory named after
+  // the project — matching `create-vite` / `create-next-app`. Pass `.` (or
+  // any path that resolves to `process.cwd()`) to opt into "scaffold here".
+  const cwd =
+    options.dir !== undefined
+      ? resolve(options.dir)
+      : join(process.cwd(), name);
+  const cdTarget = options.dir ?? name;
+  const inPlace = resolve(cwd) === resolve(process.cwd());
+
   const spin = clack.spinner();
   spin.start(`Scaffolding in ${cwd}`);
   const { files } = await scaffold({ cwd, name, template });
@@ -156,7 +168,9 @@ async function run(options: RunOptions): Promise<void> {
     } catch (err) {
       clack.log.warn(err instanceof Error ? err.message : String(err));
       clack.log.info(
-        `Retry manually: cd ${options.dir ?? "."} && ${pm} install`,
+        inPlace
+          ? `Retry manually: ${pm} install`
+          : `Retry manually: cd ${cdTarget} && ${pm} install`,
       );
     }
   }
@@ -178,7 +192,7 @@ async function run(options: RunOptions): Promise<void> {
   clack.outro(
     [
       `Next steps:`,
-      `  cd ${options.dir ?? "."}`,
+      ...(inPlace ? [] : [`  cd ${cdTarget}`]),
       ...(installLine ? [installLine] : []),
       devLine,
     ].join("\n"),
@@ -190,8 +204,14 @@ const program = new Command();
 program
   .name("create-arkor")
   .description("Scaffold a TypeScript arkor training project.")
-  .argument("[dir]", "target directory (default: current directory)")
-  .option("--name <name>", "project name (default: directory name)")
+  .argument(
+    "[dir]",
+    "target directory (default: a new subdirectory named after the project; pass `.` to scaffold into the current directory)",
+  )
+  .option(
+    "--name <name>",
+    "project name (default: [dir] basename, else the prompted name, else 'arkor-project')",
+  )
   .option(
     "--template <template>",
     "starter template: minimal | alpaca | chatml",

@@ -15,6 +15,16 @@ yarn create arkor my-app
 bun create arkor my-app
 ```
 
+With no positional, you'll be prompted for a project name and a fresh
+subdirectory of that name will be created in the current directory. Pass `.`
+to scaffold into the current directory instead:
+
+```bash
+npm create arkor@latest          # → ./<prompted-name>/
+npm create arkor@latest my-app   # → ./my-app/
+npm create arkor@latest .        # → scaffold here
+```
+
 Interactive by default. Pass flags to skip prompts:
 
 ```bash
@@ -29,8 +39,8 @@ pnpm create arkor my-app \
 
 | Flag | Effect |
 |---|---|
-| `[dir]` (positional) | Target directory; defaults to the current one |
-| `--name <name>` | Project name (sanitised for `package.json`) |
+| `[dir]` (positional) | Target directory. If omitted, a new subdirectory named after the project is created. Pass `.` to scaffold into the current directory |
+| `--name <name>` | Project name (sanitised for `package.json`). When `[dir]` is omitted, also used as the new subdirectory name |
 | `--template <id>` | `minimal` / `alpaca` / `chatml` |
 | `-y`, `--yes` | Accept defaults instead of prompting |
 | `--skip-install` | Don't run `<pm> install` after scaffolding |
