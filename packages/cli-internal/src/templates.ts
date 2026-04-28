@@ -161,17 +161,17 @@ export const trainer = createTrainer({
 export const TEMPLATES: Record<TemplateId, Template> = {
   triage: {
     label: "Triage",
-    hint: "Support ticket triage (estimated training: ~10 min)",
+    hint: "Support ticket triage (estimated training: ~7 min)",
     trainer: TRIAGE_TRAINER,
   },
   translate: {
     label: "Translate",
-    hint: "Multilingual intake translation across 9 languages (estimated training: ~10 min)",
+    hint: "Multilingual intake translation across 9 languages (estimated training: ~7 min)",
     trainer: TRANSLATE_TRAINER,
   },
   redaction: {
     label: "Redaction",
-    hint: "PII redaction → structured JSON (estimated training: ~15 min)",
+    hint: "PII redaction → structured JSON (estimated training: ~12 min)",
     trainer: REDACTION_TRAINER,
   },
   // The starter templates below are kept in source for reference but excluded
