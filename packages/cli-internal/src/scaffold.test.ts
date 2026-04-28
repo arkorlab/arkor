@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { scaffold, templateChoices } from "./scaffold";
 import {
   detectPackageManager,
@@ -10,6 +11,16 @@ import {
 
 let cwd: string;
 const ORIG_UA = process.env.npm_config_user_agent;
+const TEST_DIR = fileURLToPath(new URL(".", import.meta.url));
+const arkorVersion = (
+  JSON.parse(
+    readFileSync(
+      join(TEST_DIR, "../../arkor/package.json"),
+      "utf8",
+    ),
+  ) as { version: string }
+).version;
+const pinnedArkorVersion = `^${arkorVersion}`;
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
@@ -114,7 +125,7 @@ describe("scaffold", () => {
     expect(scripts.dev).toBe("arkor dev");
     expect(scripts.start).toBe("arkor start");
     const devDeps = patched.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("^0.0.1-alpha.0");
+    expect(devDeps.arkor).toBe(pinnedArkorVersion);
 
     const pkgEntry = files.find((f) => f.path === "package.json");
     expect(pkgEntry?.action).toBe("patched");

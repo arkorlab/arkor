@@ -9,6 +9,8 @@ import {
   type TemplateId,
 } from "./templates";
 
+declare const __ARKOR_VERSION__: string | undefined;
+
 export type FileAction = "created" | "kept" | "patched" | "ok";
 
 export interface ScaffoldOptions {
@@ -30,6 +32,10 @@ const CONFIG_PATH = "arkor.config.ts";
 const README_PATH = "README.md";
 const GITIGNORE_PATH = ".gitignore";
 const PACKAGE_JSON_PATH = "package.json";
+const PINNED_ARKOR_VERSION =
+  typeof __ARKOR_VERSION__ === "string"
+    ? `^${__ARKOR_VERSION__}`
+    : "^0.0.1-alpha.0";
 
 const SCRIPT_DEFAULTS: Record<string, string> = {
   dev: "arkor dev",
@@ -89,7 +95,7 @@ async function patchPackageJson(
           private: true,
           type: "module",
           scripts: { ...SCRIPT_DEFAULTS },
-          devDependencies: { arkor: "^0.0.1-alpha.0" },
+          devDependencies: { arkor: PINNED_ARKOR_VERSION },
         },
         null,
         2,
@@ -114,7 +120,7 @@ async function patchPackageJson(
   const devDeps =
     (current.devDependencies as Record<string, string> | undefined) ?? {};
   if (!devDeps.arkor) {
-    devDeps.arkor = "^0.0.1-alpha.0";
+    devDeps.arkor = PINNED_ARKOR_VERSION;
     current.devDependencies = devDeps;
     dirty = true;
   }
