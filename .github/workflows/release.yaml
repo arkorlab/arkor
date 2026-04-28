@@ -13,6 +13,11 @@ on:
           - alpha
           - beta
           - rc
+      promote_to_latest:
+        description: "Also point `latest` at this version (use during the alpha-only era so `npm install arkor` resolves to the newest pre-release). Ignored when npm_tag is already `latest`."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -207,6 +212,20 @@ jobs:
               attempt=$((attempt + 1))
               sleep "$SLEEP_SECONDS"
             done
+          done
+
+      # Re-point the `latest` dist-tag at the just-published version.
+      # Useful during the alpha-only era where there is no stable yet, so
+      # `npm install arkor` (no version) should resolve to the newest
+      # pre-release rather than the very first publish that happened to
+      # claim `latest` automatically. Skipped when npm_tag is already
+      # `latest` (the publish step already set it).
+      - name: Promote to latest
+        if: ${{ inputs.promote_to_latest && inputs.npm_tag != 'latest' }}
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          for PKG in arkor create-arkor; do
+            npm dist-tag add "$PKG@$VERSION" latest
           done
 
       - name: Create draft GitHub Release
