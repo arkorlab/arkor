@@ -5,6 +5,22 @@ import { Playground } from "./pages/Playground";
 import { RunTraining } from "./components/RunTraining";
 import { fetchCredentials, type Credentials } from "./lib/api";
 
+const PRODUCTION_CLOUD_API_URL = "https://api.arkor.ai";
+
+// Hide the cloud-api URL from the identity header when pointing at the
+// production endpoint — regular users don't need it. For Arkor contributors
+// running against a local cloud-api (`ARKOR_CLOUD_API_URL=...`), surface just
+// the host:port so it's clear which backend the Studio is talking to without
+// the protocol noise.
+function formatIdentityBaseUrl(baseUrl: string): string | null {
+  if (baseUrl === PRODUCTION_CLOUD_API_URL) return null;
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
 type Route =
   | { kind: "home" }
   | { kind: "job"; id: string }
@@ -55,7 +71,10 @@ export function App() {
           {error
             ? `error: ${error}`
             : creds
-              ? `${creds.mode === "anon" ? "anonymous" : "auth0"} · ${creds.orgSlug ?? "no org"}${creds.projectSlug ? ` / ${creds.projectSlug}` : ""} · ${creds.baseUrl}`
+              ? (() => {
+                  const baseUrlLabel = formatIdentityBaseUrl(creds.baseUrl);
+                  return `${creds.mode === "anon" ? "anonymous" : "auth0"} · ${creds.orgSlug ?? "no org"}${creds.projectSlug ? ` / ${creds.projectSlug}` : ""}${baseUrlLabel ? ` · ${baseUrlLabel}` : ""}`;
+                })()
               : "connecting…"}
         </div>
       </header>
