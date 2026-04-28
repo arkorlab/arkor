@@ -4,7 +4,7 @@
  *
  * Layout written to disk:
  *
- *   src/arkor/index.ts    ← umbrella manifest (`createArkor({ trainer })`)
+ *   src/arkor/index.ts    ← entry-point manifest (`createArkor({ trainer })`)
  *   src/arkor/trainer.ts  ← per-template trainer (`createTrainer({...})`)
  *
  * `index.ts` is identical across templates — only the trainer body differs.
@@ -197,7 +197,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
 };
 
 /**
- * Body of `src/arkor/index.ts` — identical across templates. The umbrella
+ * Body of `src/arkor/index.ts` — identical across templates. The `createArkor`
  * factory is what `arkor build` / Studio discovers; per-role primitives
  * (`trainer`, future `deploy`, `eval`) live in sibling files and get gathered
  * here.
@@ -248,11 +248,11 @@ npm run start    # runs the build artifact on the cloud
 
 ## Files
 
-- \`src/arkor/index.ts\` — umbrella manifest (\`createArkor({ trainer })\`).
+- \`src/arkor/index.ts\` — entry-point manifest (\`createArkor({ trainer })\`).
   This is what the CLI and Studio discover.
 - \`src/arkor/trainer.ts\` — your trainer (\`createTrainer({...})\`). Add
   sibling files for future primitives (\`deploy.ts\`, \`eval.ts\`) and
-  register them on the umbrella.
+  register them in the \`createArkor\` call.
 - \`arkor.config.ts\` — training defaults. Project routing lives in
   \`.arkor/state.json\`, managed by the CLI.
 

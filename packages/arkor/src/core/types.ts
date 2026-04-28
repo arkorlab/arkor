@@ -203,7 +203,7 @@ export interface Trainer {
 }
 
 /**
- * Umbrella manifest produced by `createArkor`. Currently a frozen descriptor
+ * Project entry-point manifest produced by `createArkor`. Currently a frozen descriptor
  * of the project's primitives. The shape is intentionally opaque — operation
  * methods may be added later without breaking the user-facing API.
  */

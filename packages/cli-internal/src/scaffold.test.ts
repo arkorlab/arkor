@@ -143,7 +143,7 @@ describe("scaffold", () => {
       await scaffold({ cwd: dir, name: template, template });
       const trainer = readFileSync(join(dir, "src/arkor/trainer.ts"), "utf8");
       expect(trainer).toContain(expectations[template]);
-      // The umbrella manifest is template-independent.
+      // The src/arkor/index.ts entry-point manifest is template-independent.
       const index = readFileSync(join(dir, "src/arkor/index.ts"), "utf8");
       expect(index).toContain("createArkor({ trainer })");
       rmSync(dir, { recursive: true, force: true });

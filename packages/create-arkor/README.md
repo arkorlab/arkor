@@ -52,7 +52,7 @@ pnpm create arkor my-app \
 ```
 my-app/
 ├── src/arkor/
-│   ├── index.ts        # createArkor({ trainer }) umbrella
+│   ├── index.ts        # createArkor({ trainer }) entry point
 │   └── trainer.ts      # template-specific createTrainer({...})
 ├── arkor.config.ts
 ├── README.md
@@ -73,7 +73,7 @@ non-interactive runs exit with an error.
 - **translate** — multilingual support-intake translation across 9 languages. → `{translation, detectedLanguage}` JSON. Dataset: `arkorlab/translate-demo`. ~7 min training.
 - **redaction** — PII redaction. Free-text in → `{redactedText, redactedCount, tags}` JSON with `[REDACTED]` substitutions. Dataset: `arkorlab/redaction-demo`. ~12 min training.
 
-All three pair `unsloth/gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The umbrella `src/arkor/index.ts` is identical across templates; only `src/arkor/trainer.ts` differs.
+All three pair `unsloth/gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The `src/arkor/index.ts` entry point is identical across templates; only `src/arkor/trainer.ts` differs.
 
 ## Next step
 
