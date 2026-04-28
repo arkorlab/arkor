@@ -60,8 +60,12 @@ my-app/
 └── package.json        # scripts: dev / build / start
 ```
 
-Existing files are kept (never overwritten). `package.json` is patched in
-place — only missing keys are added, so a hand-edited `build: "tsc"` survives.
+When `[dir]` is given explicitly, existing files are kept (never overwritten)
+and `package.json` is patched in place — only missing keys are added, so a
+hand-edited `build: "tsc"` survives. When the target directory is auto-derived
+(no `[dir]` passed), an existing non-empty `./<project-name>/` is treated as a
+collision: interactive runs re-prompt for a different name, and `-y` /
+non-interactive runs exit with an error.
 
 ## Templates
 

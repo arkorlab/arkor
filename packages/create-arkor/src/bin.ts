@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
 import * as clack from "@clack/prompts";
@@ -34,6 +36,25 @@ const MANUAL_INSTALL_HINT =
 
 function isInteractive(): boolean {
   return Boolean(process.stdout.isTTY) && !process.env.CI;
+}
+
+/**
+ * Truthy when `path` is a non-empty directory — or when it exists but isn't a
+ * readable directory at all (file, broken symlink, etc.). Both cases should
+ * block scaffolding into an auto-derived `./<name>/` so we don't silently
+ * merge into someone else's work.
+ */
+async function isOccupied(path: string): Promise<boolean> {
+  if (!existsSync(path)) return false;
+  try {
+    return (await readdir(path)).length > 0;
+  } catch {
+    return true;
+  }
+}
+
+function collisionMessage(name: string): string {
+  return `Directory "${name}/" already exists and is not empty.`;
 }
 
 /**
@@ -114,16 +135,34 @@ async function run(options: RunOptions): Promise<void> {
   let template: TemplateId = options.template ?? "minimal";
 
   if (!options.yes && isInteractive()) {
-    const chosenName = await clack.text({
-      message: "Project name?",
-      initialValue: defaultName,
-      validate: (v) => (v.trim() ? undefined : "Project name cannot be empty"),
-    });
-    if (clack.isCancel(chosenName)) {
-      clack.cancel("Cancelled.");
-      process.exit(1);
+    // Re-prompt loop: when the project name is auto-derived into a fresh
+    // `./<name>/` subdirectory, refuse to merge into an existing non-empty
+    // directory (likely a typo or a forgotten earlier scaffold). Explicit
+    // `dir` keeps the historical "scaffold into an existing project"
+    // semantics, so we only validate when `options.dir` is undefined.
+    let promptInitial = defaultName;
+    while (true) {
+      const chosenName = await clack.text({
+        message: "Project name?",
+        initialValue: promptInitial,
+        validate: (v) => (v.trim() ? undefined : "Project name cannot be empty"),
+      });
+      if (clack.isCancel(chosenName)) {
+        clack.cancel("Cancelled.");
+        process.exit(1);
+      }
+      const sanitised = sanitise(chosenName);
+      if (
+        options.dir === undefined &&
+        (await isOccupied(join(process.cwd(), sanitised)))
+      ) {
+        clack.log.warn(`${collisionMessage(sanitised)} Pick another name.`);
+        promptInitial = sanitised;
+        continue;
+      }
+      name = sanitised;
+      break;
     }
-    name = sanitise(chosenName);
 
     const chosenTemplate = await clack.select<TemplateId>({
       message: "Starter template?",
@@ -146,6 +185,16 @@ async function run(options: RunOptions): Promise<void> {
       : join(process.cwd(), name);
   const cdTarget = options.dir ?? name;
   const inPlace = resolve(cwd) === resolve(process.cwd());
+
+  // Guard for the non-interactive / `--yes` paths where we couldn't re-prompt
+  // (the interactive loop above already prevents this branch from firing in
+  // TTY mode). Explicit `dir` is exempt — same rationale as the loop.
+  if (options.dir === undefined && (await isOccupied(cwd))) {
+    clack.cancel(
+      `${collisionMessage(name)} Pass an explicit [dir] or remove the existing directory first.`,
+    );
+    process.exit(1);
+  }
 
   const spin = clack.spinner();
   spin.start(`Scaffolding in ${cwd}`);
