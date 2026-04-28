@@ -177,16 +177,21 @@ async function run(options: RunOptions): Promise<void> {
       break;
     }
 
-    const chosenTemplate = await clack.select<TemplateId>({
-      message: "Starter template?",
-      initialValue: template,
-      options: templateChoices(),
-    });
-    if (clack.isCancel(chosenTemplate)) {
-      clack.cancel("Cancelled.");
-      process.exit(1);
+    // An explicit `--template <id>` is treated as authoritative — skip the
+    // prompt so a hidden-but-valid template (e.g. `minimal`) can't be
+    // overwritten by the visible-only options list.
+    if (options.template === undefined) {
+      const chosenTemplate = await clack.select<TemplateId>({
+        message: "Starter template?",
+        initialValue: template,
+        options: templateChoices(),
+      });
+      if (clack.isCancel(chosenTemplate)) {
+        clack.cancel("Cancelled.");
+        process.exit(1);
+      }
+      template = chosenTemplate;
     }
-    template = chosenTemplate;
   }
 
   // When no `dir` was passed, scaffold into a fresh subdirectory named after
@@ -310,11 +315,13 @@ program
       }
       // Accept any TEMPLATES key — including hidden ones — so passing
       // `--template minimal` still scaffolds correctly (per the Template.hidden
-      // JSDoc). Reject typos / removed names with an explicit error rather than
-      // silently coercing them to the default.
+      // JSDoc). Use `Object.hasOwn` (not `in`) so prototype keys like
+      // `toString` / `__proto__` can't pass validation and crash later inside
+      // scaffold(). Reject typos / removed names with an explicit error rather
+      // than silently coercing them to the default.
       let template: TemplateId | undefined;
       if (opts.template !== undefined) {
-        if (!(opts.template in TEMPLATES)) {
+        if (!Object.hasOwn(TEMPLATES, opts.template)) {
           throw new Error(
             `Unknown template "${opts.template}". Available: ${Object.keys(TEMPLATES).join(", ")}`,
           );
