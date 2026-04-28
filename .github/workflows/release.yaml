@@ -165,20 +165,18 @@ jobs:
       - name: Publish arkor to npm
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
-          pnpm publish "$RUNNER_TEMP/npm-pack/arkor-$VERSION.tgz" \
+          npm publish "$RUNNER_TEMP/npm-pack/arkor-$VERSION.tgz" \
             --access public \
             --tag "${{ steps.meta.outputs.npm_tag }}" \
-            --provenance \
-            --no-git-checks
+            --provenance
 
       - name: Publish create-arkor to npm
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
-          pnpm publish "$RUNNER_TEMP/npm-pack/create-arkor-$VERSION.tgz" \
+          npm publish "$RUNNER_TEMP/npm-pack/create-arkor-$VERSION.tgz" \
             --access public \
             --tag "${{ steps.meta.outputs.npm_tag }}" \
-            --provenance \
-            --no-git-checks
+            --provenance
 
       - name: Verify published packages
         run: |
