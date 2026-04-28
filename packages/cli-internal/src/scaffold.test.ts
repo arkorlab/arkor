@@ -143,7 +143,7 @@ describe("scaffold", () => {
       await scaffold({ cwd: dir, name: template, template });
       const trainer = readFileSync(join(dir, "src/arkor/trainer.ts"), "utf8");
       expect(trainer).toContain(expectations[template]);
-      // The umbrella manifest is template-independent.
+      // The src/arkor/index.ts entry-point manifest is template-independent.
       const index = readFileSync(join(dir, "src/arkor/index.ts"), "utf8");
       expect(index).toContain("createArkor({ trainer })");
       rmSync(dir, { recursive: true, force: true });
@@ -197,16 +197,25 @@ describe("resolvePackageManager", () => {
 });
 
 describe("templateChoices", () => {
-  it("exposes every template with a hint", () => {
+  it("exposes only the non-hidden templates with a hint", () => {
     const list = templateChoices();
     expect(list.map((t) => t.value).sort()).toEqual([
-      "alpaca",
-      "chatml",
-      "minimal",
+      "redaction",
+      "translate",
+      "triage",
     ]);
     for (const t of list) {
       expect(t.label).toBeTruthy();
       expect(t.hint).toBeTruthy();
     }
+  });
+
+  it("preserves the TEMPLATES insertion order (triage first, fastest)", () => {
+    const list = templateChoices();
+    expect(list.map((t) => t.value)).toEqual([
+      "triage",
+      "translate",
+      "redaction",
+    ]);
   });
 });

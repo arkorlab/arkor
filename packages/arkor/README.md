@@ -24,7 +24,7 @@ Requires Node.js 22.6+.
 
 ## SDK
 
-Two factories. One umbrella, one per role.
+Two factories. One for the project entry point, one per role.
 
 ```ts
 // src/arkor/trainer.ts
@@ -33,11 +33,7 @@ import { createTrainer } from "arkor";
 export const trainer = createTrainer({
   name: "my-first-run",
   model: "unsloth/gemma-4-E4B-it",
-  dataset: {
-    type: "huggingface",
-    name: "yahma/alpaca-cleaned",
-    split: "train[:500]",
-  },
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 50,
   callbacks: {
@@ -61,10 +57,10 @@ import { trainer } from "./trainer";
 export const arkor = createArkor({ trainer });
 ```
 
-The umbrella is intentionally opaque — `createArkor` returns a frozen
-manifest today, with room to grow operation methods later without breaking
-callers. Keys are role-fixed (`trainer`, future `deploy` / `eval`) so the
-CLI and Studio can predict what's there.
+`createArkor` returns an intentionally opaque, frozen manifest — room to
+grow operation methods later without breaking callers. Keys are role-fixed
+(`trainer`, future `deploy` / `eval`) so the CLI and Studio can predict
+what's there.
 
 ### Trainer lifecycle
 

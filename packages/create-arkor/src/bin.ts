@@ -12,6 +12,7 @@ import {
   resolvePackageManager,
   sanitise,
   scaffold,
+  TEMPLATES,
   templateChoices,
   type PackageManager,
   type TemplateId,
@@ -132,7 +133,7 @@ async function run(options: RunOptions): Promise<void> {
   // straight from `--name` is not, and falls through to package.json as-is
   // when `--yes` skips the interactive prompt.
   let name = sanitise(options.name ?? defaultName);
-  let template: TemplateId = options.template ?? "minimal";
+  let template: TemplateId = options.template ?? "triage";
 
   if (!options.yes && isInteractive()) {
     // Re-prompt loop: when the project name is auto-derived into a fresh
@@ -176,16 +177,21 @@ async function run(options: RunOptions): Promise<void> {
       break;
     }
 
-    const chosenTemplate = await clack.select<TemplateId>({
-      message: "Starter template?",
-      initialValue: template,
-      options: templateChoices(),
-    });
-    if (clack.isCancel(chosenTemplate)) {
-      clack.cancel("Cancelled.");
-      process.exit(1);
+    // An explicit `--template <id>` is treated as authoritative — skip the
+    // prompt so a hidden-but-valid template (e.g. `minimal`) can't be
+    // overwritten by the visible-only options list.
+    if (options.template === undefined) {
+      const chosenTemplate = await clack.select<TemplateId>({
+        message: "Starter template?",
+        initialValue: template,
+        options: templateChoices(),
+      });
+      if (clack.isCancel(chosenTemplate)) {
+        clack.cancel("Cancelled.");
+        process.exit(1);
+      }
+      template = chosenTemplate;
     }
-    template = chosenTemplate;
   }
 
   // When no `dir` was passed, scaffold into a fresh subdirectory named after
@@ -275,7 +281,7 @@ program
   )
   .option(
     "--template <template>",
-    "starter template: minimal | alpaca | chatml",
+    "starter template: triage | translate | redaction",
   )
   .option("-y, --yes", "skip interactive prompts and accept the defaults")
   .option("--skip-install", "skip installing dependencies after scaffolding")
@@ -307,12 +313,21 @@ program
       if (opts.git && opts.skipGit) {
         throw new Error("Pick one of --git / --skip-git, not both.");
       }
-      const template =
-        opts.template === "minimal" ||
-        opts.template === "alpaca" ||
-        opts.template === "chatml"
-          ? opts.template
-          : undefined;
+      // Accept any TEMPLATES key — including hidden ones — so passing
+      // `--template minimal` still scaffolds correctly (per the Template.hidden
+      // JSDoc). Use `Object.hasOwn` (not `in`) so prototype keys like
+      // `toString` / `__proto__` can't pass validation and crash later inside
+      // scaffold(). Reject typos / removed names with an explicit error rather
+      // than silently coercing them to the default.
+      let template: TemplateId | undefined;
+      if (opts.template !== undefined) {
+        if (!Object.hasOwn(TEMPLATES, opts.template)) {
+          throw new Error(
+            `Unknown template "${opts.template}". Available: ${Object.keys(TEMPLATES).join(", ")}`,
+          );
+        }
+        template = opts.template as TemplateId;
+      }
       const packageManager = resolvePackageManager({
         useNpm: opts.useNpm,
         usePnpm: opts.usePnpm,
