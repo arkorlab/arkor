@@ -129,12 +129,16 @@ export async function main(argv: string[]): Promise<void> {
     .option("-p, --port <port>", "Port to bind (default: 4000)", "4000")
     .option("--no-browser", "Do not open the browser")
     .action(
-      withTelemetry("dev", async (opts: { port: string; browser?: boolean }) => {
-        await runDev({
-          port: Number(opts.port) || 4000,
-          noBrowser: opts.browser === false,
-        });
-      }),
+      withTelemetry(
+        "dev",
+        async (opts: { port: string; browser?: boolean }) => {
+          await runDev({
+            port: Number(opts.port) || 4000,
+            noBrowser: opts.browser === false,
+          });
+        },
+        { longRunning: true },
+      ),
     );
 
   try {

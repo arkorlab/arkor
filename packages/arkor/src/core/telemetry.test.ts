@@ -34,6 +34,7 @@ interface TelemetryModule {
   withTelemetry: <TArgs extends unknown[]>(
     command: string,
     handler: (...args: TArgs) => Promise<void>,
+    options?: { longRunning?: boolean },
   ) => (...args: TArgs) => Promise<void>;
   shutdownTelemetry: () => Promise<void>;
 }
@@ -244,5 +245,31 @@ describe("withTelemetry", () => {
     await expect(wrapped()).rejects.toThrow();
     const failed = captureMock.mock.calls[1][0];
     expect(failed.properties.error_message.length).toBe(200);
+  });
+
+  it("skips cli_command_completed for longRunning commands on success", async () => {
+    const mod = await loadTelemetry({ key: "phc_test" });
+    const wrapped = mod.withTelemetry(
+      "dev",
+      async () => {},
+      { longRunning: true },
+    );
+    await wrapped();
+    expect(captureMock).toHaveBeenCalledTimes(1);
+    expect(captureMock.mock.calls[0][0].event).toBe("cli_command_started");
+  });
+
+  it("still emits cli_command_failed for longRunning commands that throw during bring-up", async () => {
+    const mod = await loadTelemetry({ key: "phc_test" });
+    const wrapped = mod.withTelemetry(
+      "dev",
+      async () => {
+        throw new Error("port in use");
+      },
+      { longRunning: true },
+    );
+    await expect(wrapped()).rejects.toThrow("port in use");
+    const events = captureMock.mock.calls.map((c) => c[0].event);
+    expect(events).toEqual(["cli_command_started", "cli_command_failed"]);
   });
 });

@@ -35,7 +35,7 @@ export function isEnabled(): boolean {
 }
 
 function debugLog(...args: unknown[]): void {
-  if (process.env.ARKOR_TELEMETRY_DEBUG) {
+  if (envFlag("ARKOR_TELEMETRY_DEBUG")) {
     console.error("[arkor:telemetry]", ...args);
   }
 }
@@ -147,9 +147,19 @@ function safeCapture(
   }
 }
 
+export interface TelemetryOptions {
+  // Mark commands like `dev` whose handler resolves once the server is up but
+  // the process keeps serving until the user interrupts. Skips the synthetic
+  // `cli_command_completed` (which would otherwise report a near-zero
+  // duration_ms while the session is still live); `cli_command_started` still
+  // fires, and a failure during bring-up still emits `cli_command_failed`.
+  longRunning?: boolean;
+}
+
 export function withTelemetry<TArgs extends unknown[]>(
   command: string,
   handler: (...args: TArgs) => Promise<void>,
+  options: TelemetryOptions = {},
 ): (...args: TArgs) => Promise<void> {
   return async (...args: TArgs) => {
     if (!isEnabled()) {
@@ -174,7 +184,7 @@ export function withTelemetry<TArgs extends unknown[]>(
     }
     try {
       await handler(...args);
-      if (identity) {
+      if (identity && !options.longRunning) {
         safeCapture(identity.distinctId, "cli_command_completed", {
           ...baseProps,
           duration_ms: Date.now() - start,
