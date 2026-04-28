@@ -12,6 +12,7 @@ import {
   resolvePackageManager,
   sanitise,
   scaffold,
+  TEMPLATES,
   templateChoices,
   type PackageManager,
   type TemplateId,
@@ -307,12 +308,19 @@ program
       if (opts.git && opts.skipGit) {
         throw new Error("Pick one of --git / --skip-git, not both.");
       }
-      const template =
-        opts.template === "triage" ||
-        opts.template === "translate" ||
-        opts.template === "redaction"
-          ? opts.template
-          : undefined;
+      // Accept any TEMPLATES key — including hidden ones — so passing
+      // `--template minimal` still scaffolds correctly (per the Template.hidden
+      // JSDoc). Reject typos / removed names with an explicit error rather than
+      // silently coercing them to the default.
+      let template: TemplateId | undefined;
+      if (opts.template !== undefined) {
+        if (!(opts.template in TEMPLATES)) {
+          throw new Error(
+            `Unknown template "${opts.template}". Available: ${Object.keys(TEMPLATES).join(", ")}`,
+          );
+        }
+        template = opts.template as TemplateId;
+      }
       const packageManager = resolvePackageManager({
         useNpm: opts.useNpm,
         usePnpm: opts.usePnpm,
