@@ -114,7 +114,7 @@ describe("scaffold", () => {
     expect(scripts.dev).toBe("arkor dev");
     expect(scripts.start).toBe("arkor start");
     const devDeps = patched.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("^0.0.1-alpha.1");
+    expect(devDeps.arkor).toBe("^0.0.1-alpha.0");
 
     const pkgEntry = files.find((f) => f.path === "package.json");
     expect(pkgEntry?.action).toBe("patched");
