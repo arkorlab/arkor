@@ -105,9 +105,9 @@ export async function runInit(options: InitOptions): Promise<void> {
   });
   const template = await promptSelect<TemplateId>({
     message: "Starter template?",
-    initialValue: options.template ?? "minimal",
+    initialValue: options.template ?? "triage",
     options: templateChoices(),
-    skipWith: options.yes ? options.template ?? "minimal" : undefined,
+    skipWith: options.yes ? options.template ?? "triage" : undefined,
   });
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under

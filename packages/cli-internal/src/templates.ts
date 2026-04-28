@@ -22,6 +22,13 @@ export interface Template {
   hint: string;
   /** Body of `src/arkor/trainer.ts` for this template. */
   trainer: string;
+  /**
+   * When true, the template is excluded from the CLI's interactive prompt and
+   * `templateChoices()` listing. The entry stays in `TEMPLATES` so direct
+   * `scaffold({ template })` calls (e.g. tests) still work, and re-enabling
+   * is a one-line change.
+   */
+  hidden?: boolean;
 }
 
 const MINIMAL_TRAINER = `import { createTrainer } from "arkor";
@@ -145,36 +152,47 @@ export const trainer = createTrainer({
 });
 `;
 
+// Order is significant — `templateChoices()` preserves insertion order so the
+// CLI prompt lists demos first (sorted by estimated training time).
+//
+// Estimated training times assume A100 80GB on Runpod Serverless with the
+// template defaults (maxSteps: 100, batchSize: 4, LoRA r=16, 4-bit). Real
+// numbers depend on GPU availability + cold-start; treat them as ballparks.
 export const TEMPLATES: Record<TemplateId, Template> = {
+  triage: {
+    label: "Triage",
+    hint: "Support ticket triage (estimated training: ~10 min)",
+    trainer: TRIAGE_TRAINER,
+  },
+  translate: {
+    label: "Translate",
+    hint: "Multilingual intake translation across 9 languages (estimated training: ~10 min)",
+    trainer: TRANSLATE_TRAINER,
+  },
+  redaction: {
+    label: "Redaction",
+    hint: "PII redaction → structured JSON (estimated training: ~15 min)",
+    trainer: REDACTION_TRAINER,
+  },
+  // The starter templates below are kept in source for reference but excluded
+  // from the CLI prompt for now. To re-enable, drop the `hidden: true` flag.
   minimal: {
     label: "Minimal",
     hint: "bare createTrainer call",
     trainer: MINIMAL_TRAINER,
+    hidden: true,
   },
   alpaca: {
     label: "Alpaca",
     hint: "instruction-tuning + mid-training eval",
     trainer: ALPACA_TRAINER,
+    hidden: true,
   },
   chatml: {
     label: "ChatML",
     hint: "multi-turn chat fine-tuning",
     trainer: CHATML_TRAINER,
-  },
-  redaction: {
-    label: "Redaction",
-    hint: "PII redaction → structured JSON (name/email/phone/address/id/other)",
-    trainer: REDACTION_TRAINER,
-  },
-  translate: {
-    label: "Translate",
-    hint: "Multilingual intake translation across 9 languages",
-    trainer: TRANSLATE_TRAINER,
-  },
-  triage: {
-    label: "Triage",
-    hint: "Support ticket classification (category, urgency, summary, nextAction)",
-    trainer: TRIAGE_TRAINER,
+    hidden: true,
   },
 };
 

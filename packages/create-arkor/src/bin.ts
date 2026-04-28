@@ -132,7 +132,7 @@ async function run(options: RunOptions): Promise<void> {
   // straight from `--name` is not, and falls through to package.json as-is
   // when `--yes` skips the interactive prompt.
   let name = sanitise(options.name ?? defaultName);
-  let template: TemplateId = options.template ?? "minimal";
+  let template: TemplateId = options.template ?? "triage";
 
   if (!options.yes && isInteractive()) {
     // Re-prompt loop: when the project name is auto-derived into a fresh
@@ -308,9 +308,9 @@ program
         throw new Error("Pick one of --git / --skip-git, not both.");
       }
       const template =
-        opts.template === "minimal" ||
-        opts.template === "alpaca" ||
-        opts.template === "chatml"
+        opts.template === "triage" ||
+        opts.template === "translate" ||
+        opts.template === "redaction"
           ? opts.template
           : undefined;
       const packageManager = resolvePackageManager({

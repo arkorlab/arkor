@@ -197,12 +197,9 @@ describe("resolvePackageManager", () => {
 });
 
 describe("templateChoices", () => {
-  it("exposes every template with a hint", () => {
+  it("exposes only the non-hidden templates with a hint", () => {
     const list = templateChoices();
     expect(list.map((t) => t.value).sort()).toEqual([
-      "alpaca",
-      "chatml",
-      "minimal",
       "redaction",
       "translate",
       "triage",
@@ -211,5 +208,14 @@ describe("templateChoices", () => {
       expect(t.label).toBeTruthy();
       expect(t.hint).toBeTruthy();
     }
+  });
+
+  it("preserves the TEMPLATES insertion order (triage first, fastest)", () => {
+    const list = templateChoices();
+    expect(list.map((t) => t.value)).toEqual([
+      "triage",
+      "translate",
+      "redaction",
+    ]);
   });
 });
