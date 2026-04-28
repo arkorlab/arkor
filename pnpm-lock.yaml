@@ -27,8 +27,8 @@ importers:
   packages/arkor:
     dependencies:
       '@arkor/cloud-api-client':
-        specifier: ^0.0.1-alpha.0
-        version: 0.0.1-alpha.0
+        specifier: ^0.0.1-alpha.1
+        version: 0.0.1-alpha.1
       '@clack/prompts':
         specifier: ^0.8.0
         version: 0.8.2
@@ -137,8 +137,8 @@ importers:
 
 packages:
 
-  '@arkor/cloud-api-client@0.0.1-alpha.0':
-    resolution: {integrity: sha512-78qM4wmw2shFZkmEtjH6jvEmHKPGzPX+Gl/hJUjpZf9iFWvHs2A57MLI6iZvf4rMJ1e844e2uTpma/dEMWt5tw==}
+  '@arkor/cloud-api-client@0.0.1-alpha.1':
+    resolution: {integrity: sha512-kp7CYpa5bGuylELH4GuoUmrg+v7C+YrrLLc9O5TzVncUUpn8GwHTwjkk1f1qOyT1e8AsXwQ6EiQFHx+1QecWzA==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -1424,7 +1424,7 @@ packages:
 
 snapshots:
 
-  '@arkor/cloud-api-client@0.0.1-alpha.0':
+  '@arkor/cloud-api-client@0.0.1-alpha.1':
     dependencies:
       eventsource-parser: 3.0.8
       hono: 4.12.14
