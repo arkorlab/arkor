@@ -223,6 +223,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     const upstream = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
+        "X-Arkor-Client": `arkor/${SDK_VERSION}`,
         Accept: "text/event-stream",
         ...(c.req.header("Last-Event-ID")
           ? { "Last-Event-ID": c.req.header("Last-Event-ID") as string }
@@ -328,6 +329,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        "X-Arkor-Client": `arkor/${SDK_VERSION}`,
       },
       body,
     });

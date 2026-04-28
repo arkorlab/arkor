@@ -412,7 +412,12 @@ process.exit(0);
       // No state.json — server should derive a slug from cwd, create the
       // project on cloud-api, persist state, and forward the inference call.
 
-      const calls: Array<{ url: string; method: string; body?: string }> = [];
+      const calls: Array<{
+        url: string;
+        method: string;
+        body?: string;
+        headers: Record<string, string>;
+      }> = [];
       globalThis.fetch = (async (
         input: RequestInfo | URL,
         init?: RequestInit,
@@ -420,7 +425,13 @@ process.exit(0);
         const url = typeof input === "string" ? input : input.toString();
         const method = init?.method ?? "GET";
         const body = typeof init?.body === "string" ? init.body : undefined;
-        calls.push({ url, method, body });
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(
+          (init?.headers ?? {}) as Record<string, string>,
+        )) {
+          headers[k.toLowerCase()] = v;
+        }
+        calls.push({ url, method, body, headers });
         if (url.includes("/v1/projects") && method === "POST") {
           return new Response(
             JSON.stringify({
@@ -483,6 +494,9 @@ process.exit(0);
       expect(chat!.url).toContain("orgSlug=anon-org");
       expect(chat!.url).toContain("projectSlug=auto-slug");
       expect(chat!.body).toContain("unsloth/gemma-4-e4b-it");
+      // X-Arkor-Client must be present, otherwise cloud-api's SDK version
+      // gate rejects the proxied request with 426 (reason: "missing").
+      expect(chat!.headers["x-arkor-client"]).toMatch(/^arkor\/\S+$/);
     });
 
     it("proxies inference using existing state without re-creating a project", async () => {
