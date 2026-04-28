@@ -13,7 +13,11 @@ const PRODUCTION_CLOUD_API_URL = "https://api.arkor.ai";
 // the host:port so it's clear which backend the Studio is talking to without
 // the protocol noise.
 function formatIdentityBaseUrl(baseUrl: string): string | null {
-  if (baseUrl === PRODUCTION_CLOUD_API_URL) return null;
+  // Strip trailing slash before comparing — the server normalises env-var
+  // overrides via `defaultArkorCloudApiUrl()` today, but a future change that
+  // forwards the raw value would otherwise let `https://api.arkor.ai/` slip
+  // past the production check and surface in the header.
+  if (baseUrl.replace(/\/$/, "") === PRODUCTION_CLOUD_API_URL) return null;
   try {
     return new URL(baseUrl).host;
   } catch {
