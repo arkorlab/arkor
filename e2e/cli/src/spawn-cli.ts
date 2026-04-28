@@ -39,11 +39,26 @@ export function runCli(
   cwd: string,
   extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<RunResult> {
+  // `pnpm test` propagates the workspace's pnpm config to children as
+  // `npm_config_*` / `pnpm_config_*` env vars (e.g. minimumReleaseAge from
+  // pnpm-workspace.yaml becomes `npm_config_minimum_release_age`). Inside
+  // an e2e test that scaffolds a *fresh* project in /tmp and runs `pnpm
+  // install`, those leak through and apply the workspace's policy to a
+  // brand-new tree — most painfully, freshly-published `arkor` versions
+  // get blocked by minimumReleaseAge. Strip them so the spawned CLI sees
+  // a clean user shell.
+  const cleanEnv: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith("npm_config_") || key.startsWith("pnpm_config_")) {
+      continue;
+    }
+    cleanEnv[key] = value;
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [binPath, ...argv], {
       cwd,
       env: {
-        ...process.env,
+        ...cleanEnv,
         CI: "1",
         npm_config_user_agent: "",
         GIT_AUTHOR_NAME: "Arkor E2E",
