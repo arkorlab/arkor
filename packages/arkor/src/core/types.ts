@@ -51,6 +51,14 @@ export interface JobConfig {
   loadIn4bit?: boolean;
   trainOnResponsesOnly?: unknown;
   datasetSplit?: unknown;
+  /**
+   * Smoke-test mode. When true, the trainer truncates the dataset to a small
+   * sample and caps the number of training steps so the run finishes in a
+   * couple of minutes while still exercising every stage of the pipeline
+   * (data load, chat-template render, training loop, checkpoint upload, event
+   * stream). Use to validate a dataset / config before committing to a full run.
+   */
+  dryRun?: boolean;
 }
 
 export interface TrainingJob {
@@ -170,6 +178,13 @@ export interface TrainerInput {
   trainOnResponsesOnly?: unknown;
   datasetFormat?: unknown;
   datasetSplit?: unknown;
+  /**
+   * Run a smoke-test instead of a full training run. The cloud trainer
+   * truncates the dataset and caps the number of steps so the job finishes in
+   * a couple of minutes; useful for validating a new dataset or config before
+   * committing to a long run.
+   */
+  dryRun?: boolean;
   /** Optional lifecycle callbacks. */
   callbacks?: Partial<TrainerCallbacks>;
   /** Abort signal to stop polling and cancel the in-flight job. */
