@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { createClient } from "@arkor/cloud-api-client";
-import { CloudApiClient } from "../core/client";
+import { CloudApiClient, CloudApiError } from "../core/client";
 import {
   defaultArkorCloudApiUrl,
   readCredentials,
@@ -282,18 +282,31 @@ export function buildStudioApp(options: StudioServerOptions) {
   // so the Playground's base-model mode works on a fresh launch with no
   // prior `arkor init`.
   app.post("/api/inference/chat", async (c) => {
-    const credentials = await getCredentials();
-    let state;
+    let credentials: Credentials;
+    let state: { orgSlug: string; projectSlug: string };
     try {
+      credentials = await getCredentials();
       const client = new CloudApiClient({ baseUrl, credentials });
       state = await ensureProjectState({ cwd: trainCwd, client, credentials });
     } catch (err) {
+      // Propagate cloud-api's status verbatim (e.g. 401 / 403 / 5xx) so the
+      // SPA / clients can react appropriately — collapsing everything to 400
+      // would mis-report upstream outages and auth failures. Anything else
+      // (local writeState failures, missing-credentials guard) is treated as
+      // a server-side error.
+      if (err instanceof CloudApiError) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: err.status,
+          headers: { "content-type": "application/json" },
+        });
+      }
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
-        400,
+        500,
       );
     }
-    const token = await getToken();
+    const token =
+      credentials.mode === "anon" ? credentials.token : credentials.accessToken;
     const body = await c.req.text();
     const url = `${baseUrl}/v1/inference/chat?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
     const upstream = await fetch(url, {

@@ -530,5 +530,67 @@ process.exit(0);
       const chat = calls.find((c) => c.url.includes("/v1/inference/chat"));
       expect(chat!.url).toContain("projectSlug=existing");
     });
+
+    it("propagates the cloud-api status when project bootstrap fails", async () => {
+      await writeCredentials(ANON_CREDS);
+      // No state.json — bootstrap will hit cloud-api, which returns 503.
+      // We expect that 503 to be passed through, not collapsed to 400.
+
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        if (url.includes("/v1/projects") && method === "POST") {
+          return new Response(JSON.stringify({ error: "upstream is down" }), {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-e4b-it",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/upstream is down/);
+    });
+
+    it("returns 500 with a controlled body when getCredentials throws", async () => {
+      // autoAnonymous: false + no credentials → getCredentials() throws inside
+      // the handler. Previously this surfaced as an unhandled 500 from Hono's
+      // default error path; now it's caught and returned as a structured
+      // response so clients can render the error.
+      const app = build(); // build() uses autoAnonymous: false
+      const res = await app.request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-e4b-it",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/credentials|login/i);
+    });
   });
 });
