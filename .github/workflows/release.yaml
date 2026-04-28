@@ -183,8 +183,24 @@ jobs:
       - name: Verify published packages
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
+          MAX_ATTEMPTS=120
+          SLEEP_SECONDS=5
           for PKG in arkor create-arkor; do
-            npm view "$PKG@$VERSION" version
+            attempt=1
+            while true; do
+              RESOLVED="$(npm view "$PKG@$VERSION" version 2>/dev/null || true)"
+              if [[ "$RESOLVED" == "$VERSION" ]]; then
+                echo "$PKG@$VERSION verified"
+                break
+              fi
+              if (( attempt >= MAX_ATTEMPTS )); then
+                echo "Failed to verify $PKG@$VERSION after $MAX_ATTEMPTS attempts (last response: '${RESOLVED:-<empty>}')"
+                exit 1
+              fi
+              echo "Attempt $attempt/$MAX_ATTEMPTS: $PKG@$VERSION not yet visible on registry, retrying in ${SLEEP_SECONDS}s..."
+              attempt=$((attempt + 1))
+              sleep "$SLEEP_SECONDS"
+            done
           done
 
       - name: Create draft GitHub Release
