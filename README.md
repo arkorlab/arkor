@@ -28,7 +28,7 @@
 </p>
 
 > [!WARNING]
-> Arkor is **alpha** (`0.0.1-alpha.2`). APIs change without notice. We're shipping in public, and feedback shapes what lands next.
+> Arkor is **alpha** (`0.0.1-alpha.3`). APIs change without notice. We're shipping in public, and feedback shapes what lands next.
 
 <!--
   Demo media goes here once recorded:
