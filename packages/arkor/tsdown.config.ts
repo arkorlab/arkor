@@ -1,4 +1,5 @@
 import { defineConfig } from "tsdown";
+import pkg from "./package.json" with { type: "json" };
 
 export default defineConfig({
   entry: ["src/index.ts", "src/bin.ts"],
@@ -12,5 +13,8 @@ export default defineConfig({
   // isn't on npm.
   deps: {
     alwaysBundle: ["@arkor/cli-internal"],
+  },
+  define: {
+    __ARKOR_VERSION__: JSON.stringify(pkg.version),
   },
 });
