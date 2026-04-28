@@ -45,7 +45,7 @@ pnpm dev
 ```
 
 **No signup required:** 
-`arkor dev` opens **Studio**, a local web UI at `localhost:4000`, and silently bootstraps an anonymous workspace so you can fire off a real training run right away. 
+`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`, and silently bootstraps an anonymous workspace so you can fire off a real training run right away. 
 
 Run `arkor login` later if you want to claim your work under an account.
 
