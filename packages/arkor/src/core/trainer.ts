@@ -89,6 +89,7 @@ function buildJobConfig(input: TrainerInput): JobConfig {
     config.trainOnResponsesOnly = input.trainOnResponsesOnly;
   if (input.datasetFormat !== undefined) config.datasetFormat = input.datasetFormat;
   if (input.datasetSplit !== undefined) config.datasetSplit = input.datasetSplit;
+  if (input.dryRun !== undefined) config.dryRun = input.dryRun;
   return config;
 }
 
