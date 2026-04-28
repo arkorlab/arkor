@@ -25,6 +25,15 @@ function formatIdentityBaseUrl(baseUrl: string): string | null {
   }
 }
 
+function formatIdentity(creds: Credentials): string {
+  const mode = creds.mode === "anon" ? "anonymous" : "auth0";
+  const org = creds.orgSlug ?? "no org";
+  const project = creds.projectSlug ? ` / ${creds.projectSlug}` : "";
+  const baseUrlLabel = formatIdentityBaseUrl(creds.baseUrl);
+  const baseUrlSuffix = baseUrlLabel ? ` · ${baseUrlLabel}` : "";
+  return `${mode} · ${org}${project}${baseUrlSuffix}`;
+}
+
 type Route =
   | { kind: "home" }
   | { kind: "job"; id: string }
@@ -75,10 +84,7 @@ export function App() {
           {error
             ? `error: ${error}`
             : creds
-              ? (() => {
-                  const baseUrlLabel = formatIdentityBaseUrl(creds.baseUrl);
-                  return `${creds.mode === "anon" ? "anonymous" : "auth0"} · ${creds.orgSlug ?? "no org"}${creds.projectSlug ? ` / ${creds.projectSlug}` : ""}${baseUrlLabel ? ` · ${baseUrlLabel}` : ""}`;
-                })()
+              ? formatIdentity(creds)
               : "connecting…"}
         </div>
       </header>
