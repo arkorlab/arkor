@@ -52,16 +52,16 @@ Run `arkor login` later if you want to claim your work under an account.
 
 ### Pick a template
 
-The scaffolder asks which template you want. 
-All three start from the same small open-weight base (`unsloth/gemma-4-E4B-it`) so the first run finishes quickly.
+The scaffolder asks which template you want.
+All three pair the same small open-weight base (`unsloth/gemma-4-E4B-it`) with a curated public dataset on HuggingFace, so the first run finishes in minutes.
 
-| Template  | What it shows                                                       | Dataset                            |
-| --------- | ------------------------------------------------------------------- | ---------------------------------- |
-| `minimal` | The smallest working `createTrainer({ ... })` call.                 | `yahma/alpaca-cleaned` (500 rows)  |
-| `alpaca`  | Instruction-tuning with mid-training `infer()` on every checkpoint. | `yahma/alpaca-cleaned` (1000 rows) |
-| `chatml`  | Multi-turn chat fine-tuning over a real chat dataset.               | `stingning/ultrachat` (500 rows)   |
+| Template    | Task                                                            | Dataset                     | Est. training |
+| ----------- | --------------------------------------------------------------- | --------------------------- | ------------- |
+| `triage`    | Support ticket → `{category, urgency, summary, nextAction}` JSON | `arkorlab/triage-demo`      | ~7 min        |
+| `translate` | Multilingual support intake translation across 9 languages       | `arkorlab/translate-demo`   | ~7 min        |
+| `redaction` | PII redaction → tagged `[REDACTED]` spans + categories           | `arkorlab/redaction-demo`   | ~12 min       |
 
-Skip the prompt with `pnpm create arkor my-arkor-app --template alpaca`.
+Skip the prompt with `pnpm create arkor my-arkor-app --template triage`.
 
 ## Why Arkor
 

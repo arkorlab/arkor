@@ -29,7 +29,7 @@ Interactive by default. Pass flags to skip prompts:
 
 ```bash
 pnpm create arkor my-app \
-  --template alpaca \
+  --template triage \
   --use-pnpm \
   --skip-install \
   --skip-git
@@ -41,7 +41,7 @@ pnpm create arkor my-app \
 |---|---|
 | `[dir]` (positional) | Target directory. If omitted, a new subdirectory named after the project is created. Pass `.` to scaffold into the current directory |
 | `--name <name>` | Project name (sanitised for `package.json`). When `[dir]` is omitted, also used as the new subdirectory name |
-| `--template <id>` | `minimal` / `alpaca` / `chatml` |
+| `--template <id>` | `triage` / `translate` / `redaction` |
 | `-y`, `--yes` | Accept defaults instead of prompting |
 | `--skip-install` | Don't run `<pm> install` after scaffolding |
 | `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun` | Force a package manager (otherwise auto-detected from `npm_config_user_agent`) |
@@ -69,13 +69,11 @@ non-interactive runs exit with an error.
 
 ## Templates
 
-- **minimal** — bare `createTrainer` call, the smallest working example.
-- **alpaca** — instruction-tuning with a mid-training `onCheckpoint` that
-  fires an `infer({...})` against the in-progress adapter.
-- **chatml** — multi-turn chat fine-tuning on `stingning/ultrachat`.
+- **triage** — support ticket triage. Free-text in → `{category, urgency, summary, nextAction}` JSON. Dataset: `arkorlab/triage-demo`. ~7 min training.
+- **translate** — multilingual support-intake translation across 9 languages. → `{translation, detectedLanguage}` JSON. Dataset: `arkorlab/translate-demo`. ~7 min training.
+- **redaction** — PII redaction. Free-text in → `{redactedText, redactedCount, tags}` JSON with `[REDACTED]` substitutions. Dataset: `arkorlab/redaction-demo`. ~12 min training.
 
-The umbrella `src/arkor/index.ts` is identical across templates; only
-`src/arkor/trainer.ts` differs.
+All three pair `unsloth/gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The umbrella `src/arkor/index.ts` is identical across templates; only `src/arkor/trainer.ts` differs.
 
 ## Next step
 
