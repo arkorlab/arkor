@@ -8,6 +8,7 @@ import { runBuild } from "./commands/build";
 import { runStart } from "./commands/start";
 import { resolvePackageManager, type TemplateId } from "@arkor/cli-internal";
 import { getRecordedDeprecation } from "../core/deprecation";
+import { shutdownTelemetry, withTelemetry } from "../core/telemetry";
 import { detectedUpgradeCommand } from "../core/upgrade-hint";
 import { SDK_VERSION } from "../core/version";
 import { ui } from "./prompts";
@@ -33,7 +34,7 @@ export async function main(argv: string[]): Promise<void> {
     )
     .option("--skip-git", "Skip the git init prompt and do not initialise git")
     .action(
-      async (opts: {
+      withTelemetry("init", async (opts: {
         yes?: boolean;
         name?: string;
         template?: string;
@@ -63,7 +64,7 @@ export async function main(argv: string[]): Promise<void> {
           git: opts.git,
           skipGit: opts.skipGit,
         });
-      },
+      }),
     );
 
   program
@@ -72,7 +73,7 @@ export async function main(argv: string[]): Promise<void> {
     .option("--anonymous", "Issue a throwaway anonymous token instead")
     .option("--no-browser", "Print the URL instead of opening a browser")
     .action(
-      async (opts: {
+      withTelemetry("login", async (opts: {
         anonymous?: boolean;
         browser?: boolean;
       }) => {
@@ -80,51 +81,65 @@ export async function main(argv: string[]): Promise<void> {
           anonymous: opts.anonymous,
           noBrowser: opts.browser === false,
         });
-      },
+      }),
     );
 
   program
     .command("logout")
     .description("Delete ~/.arkor/credentials.json")
     .option("-y, --yes", "Skip confirmation")
-    .action(async (opts: { yes?: boolean }) => {
-      await runLogout({ yes: opts.yes });
-    });
+    .action(
+      withTelemetry("logout", async (opts: { yes?: boolean }) => {
+        await runLogout({ yes: opts.yes });
+      }),
+    );
 
   program
     .command("whoami")
     .description("Print the current identity and reachable orgs")
-    .action(async () => {
-      await runWhoami();
-    });
+    .action(
+      withTelemetry("whoami", async () => {
+        await runWhoami();
+      }),
+    );
 
   program
     .command("build")
     .description("Bundle src/arkor/index.ts into .arkor/build/index.mjs")
     .argument("[entry]", "path to the source entry (default: src/arkor/index.ts)")
-    .action(async (entry?: string) => {
-      await runBuild({ entry });
-    });
+    .action(
+      withTelemetry("build", async (entry?: string) => {
+        await runBuild({ entry });
+      }),
+    );
 
   program
     .command("start")
     .description("Run the build artifact at .arkor/build/index.mjs")
     .argument("[entry]", "rebuild from this entry before running (optional)")
-    .action(async (entry?: string) => {
-      await runStart({ entry });
-    });
+    .action(
+      withTelemetry("start", async (entry?: string) => {
+        await runStart({ entry });
+      }),
+    );
 
   program
     .command("dev")
     .description("Launch Arkor Studio locally")
     .option("-p, --port <port>", "Port to bind (default: 4000)", "4000")
     .option("--no-browser", "Do not open the browser")
-    .action(async (opts: { port: string; browser?: boolean }) => {
-      await runDev({
-        port: Number(opts.port) || 4000,
-        noBrowser: opts.browser === false,
-      });
-    });
+    .action(
+      withTelemetry(
+        "dev",
+        async (opts: { port: string; browser?: boolean }) => {
+          await runDev({
+            port: Number(opts.port) || 4000,
+            noBrowser: opts.browser === false,
+          });
+        },
+        { longRunning: true },
+      ),
+    );
 
   try {
     await program.parseAsync(argv, { from: "user" });
@@ -136,5 +151,6 @@ export async function main(argv: string[]): Promise<void> {
         `${notice.message} (current: ${SDK_VERSION}).${sunset} Run \`${detectedUpgradeCommand()}\`.`,
       );
     }
+    await shutdownTelemetry();
   }
 }
