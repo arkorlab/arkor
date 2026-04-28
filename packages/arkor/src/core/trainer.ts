@@ -31,7 +31,25 @@ export interface TrainerInternalContext {
   baseUrl?: string;
   credentials?: Credentials;
   cwd?: string;
+  /**
+   * Initial reconnect back-off in milliseconds. Subsequent failures use
+   * exponential backoff (×2 each time) capped at `maxReconnectDelayMs`.
+   * Defaults to 1000.
+   */
   reconnectDelayMs?: number;
+  /**
+   * Cap for the exponential backoff delay in milliseconds. Defaults to
+   * 60_000 (60 s) so a multi-hour outage doesn't escalate beyond the
+   * recovery window the cloud-api is optimised for.
+   */
+  maxReconnectDelayMs?: number;
+  /**
+   * Maximum number of consecutive failed reconnect attempts before
+   * `wait()` rejects with the last error. Counter resets every time the
+   * stream yields at least one event (so a single mid-stream blip doesn't
+   * count against a long-running job). Undefined means unlimited.
+   */
+  maxReconnectAttempts?: number;
 }
 
 interface StreamEventBase {
@@ -112,7 +130,9 @@ export function createTrainer(
   context: TrainerInternalContext = {},
 ): Trainer {
   const baseUrl = context.baseUrl ?? defaultArkorCloudApiUrl();
-  const reconnectDelayMs = context.reconnectDelayMs ?? 1000;
+  const initialReconnectDelayMs = context.reconnectDelayMs ?? 1000;
+  const maxReconnectDelayMs = context.maxReconnectDelayMs ?? 60_000;
+  const maxReconnectAttempts = context.maxReconnectAttempts;
   const cwd = context.cwd ?? process.cwd();
   const config = buildJobConfig(input);
 
@@ -177,6 +197,25 @@ export function createTrainer(
     };
     await writeState(state, cwd);
     return state;
+  }
+
+  /**
+   * Exponential backoff with ±25% jitter, capped at `maxReconnectDelayMs`.
+   * The jitter spreads reconnect storms when a cloud-api recovers and
+   * many SDK clients retry at once.
+   *
+   * The final value is clamped at `maxReconnectDelayMs` because jitter
+   * sits *outside* the exponential clamp — without the outer clamp, a
+   * long outage where `exp` already hit the cap could wait up to 1.25 ×
+   * the documented cap when `Math.random()` lands near 1.
+   */
+  function nextReconnectDelay(attempt: number): number {
+    const exp = Math.min(
+      initialReconnectDelayMs * 2 ** attempt,
+      maxReconnectDelayMs,
+    );
+    const jitter = exp * (Math.random() * 0.5 - 0.25);
+    return Math.max(0, Math.min(maxReconnectDelayMs, exp + jitter));
   }
 
   async function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -305,6 +344,25 @@ export function createTrainer(
       let lastEventId: string | undefined;
       let artifacts: unknown[] = [];
       let terminal = false;
+      // Consecutive failed reconnects. Reset every time the stream yields
+      // at least one event so a long-running job that briefly drops
+      // doesn't burn through `maxReconnectAttempts` over its lifetime.
+      let attempt = 0;
+
+      const handleFailure = async (err: unknown): Promise<void> => {
+        if (abortSignal?.aborted) throw err;
+        if (
+          maxReconnectAttempts !== undefined &&
+          attempt >= maxReconnectAttempts
+        ) {
+          throw new Error(
+            `Trainer SSE stream failed ${attempt + 1} consecutive times; giving up.`,
+            { cause: err },
+          );
+        }
+        await delay(nextReconnectDelay(attempt), abortSignal);
+        attempt++;
+      };
 
       while (!terminal) {
         let response: Response;
@@ -314,14 +372,18 @@ export function createTrainer(
             signal: abortSignal,
           });
         } catch (err) {
-          if (abortSignal?.aborted) throw err;
-          // Transient network error — back off and retry.
-          await delay(reconnectDelayMs, abortSignal);
+          await handleFailure(err);
           continue;
         }
 
+        let receivedAny = false;
         try {
           for await (const sse of iterateEvents(response)) {
+            // Any frame from the server (including pings) means we're
+            // connected and making progress — reset the failure counter
+            // so subsequent transient blips get the full retry budget.
+            receivedAny = true;
+            attempt = 0;
             if (sse.id) lastEventId = sse.id;
             if (sse.event === "ping") continue;
             if (sse.event === "end") {
@@ -342,16 +404,26 @@ export function createTrainer(
             }
           }
         } catch (err) {
-          if (abortSignal?.aborted) throw err;
-          // Stream closed unexpectedly — back off and resume with Last-Event-ID.
-          await delay(reconnectDelayMs, abortSignal);
+          await handleFailure(err);
           continue;
         }
 
-        if (!terminal) {
-          // Stream closed cleanly but we haven't seen a terminal event yet.
-          // Reconnect with Last-Event-ID to drain the queue.
-          await delay(reconnectDelayMs, abortSignal);
+        if (terminal) break;
+
+        if (receivedAny) {
+          // Stream had real activity then closed cleanly. Not a failure —
+          // reconnect with Last-Event-ID at the base delay (no exponential
+          // backoff, no counter increment).
+          await delay(initialReconnectDelayMs, abortSignal);
+        } else {
+          // 200 OK but the stream EOF'd without yielding any frame. This
+          // is the signature of a misconfigured proxy / LB that accepts
+          // the connection and immediately drops it. Count it toward
+          // `maxReconnectAttempts` so we don't loop forever at the base
+          // delay against the same broken intermediary.
+          await handleFailure(
+            new Error("SSE stream closed without emitting any frame"),
+          );
         }
       }
 
