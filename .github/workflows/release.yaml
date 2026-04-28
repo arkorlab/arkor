@@ -1,0 +1,209 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      npm_tag:
+        description: "npm dist-tag"
+        required: true
+        default: "latest"
+        type: choice
+        options:
+          - latest
+          - alpha
+          - beta
+          - rc
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    # npm Trusted Publisher 側で environment を指定するなら一致させる
+    # environment: npm-publish
+
+    steps:
+      - name: Ensure workflow is running on a tag
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            echo "This workflow must be run on a Git tag ref."
+            echo "Example:"
+            echo "  gh workflow run release.yaml --ref v1.2.3 -f npm_tag=latest"
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF_NAME}" != v* ]]; then
+            echo "Tag must start with v, e.g. v1.2.3"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NPM_TAG="${{ inputs.npm_tag }}"
+
+          ARKOR_VERSION="$(node -p "require('./packages/arkor/package.json').version")"
+          CREATE_ARKOR_VERSION="$(node -p "require('./packages/create-arkor/package.json').version")"
+
+          if [[ "$ARKOR_VERSION" != "$VERSION" ]]; then
+            echo "packages/arkor/package.json version does not match tag"
+            echo "package.json: $ARKOR_VERSION"
+            echo "tag:          $VERSION"
+            exit 1
+          fi
+
+          if [[ "$CREATE_ARKOR_VERSION" != "$VERSION" ]]; then
+            echo "packages/create-arkor/package.json version does not match tag"
+            echo "package.json: $CREATE_ARKOR_VERSION"
+            echo "tag:          $VERSION"
+            exit 1
+          fi
+
+          case "$VERSION" in
+            *-alpha|*-alpha.*)
+              EXPECTED_NPM_TAG="alpha"
+              ;;
+            *-beta|*-beta.*)
+              EXPECTED_NPM_TAG="beta"
+              ;;
+            *-rc|*-rc.*)
+              EXPECTED_NPM_TAG="rc"
+              ;;
+            *-*)
+              echo "Unsupported prerelease version: $VERSION"
+              echo "Allowed prerelease labels: alpha, beta, rc"
+              exit 1
+              ;;
+            *)
+              EXPECTED_NPM_TAG="latest"
+              ;;
+          esac
+
+          if [[ "$NPM_TAG" != "$EXPECTED_NPM_TAG" ]]; then
+            echo "npm_tag does not match version"
+            echo "version:          $VERSION"
+            echo "expected npm_tag: $EXPECTED_NPM_TAG"
+            echo "actual npm_tag:   $NPM_TAG"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$NPM_TAG" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Release"
+            echo ""
+            echo "- Packages: \`arkor\`, \`create-arkor\`"
+            echo "- Version: \`$VERSION\`"
+            echo "- Git tag: \`${GITHUB_REF_NAME}\`"
+            echo "- npm dist-tag: \`$NPM_TAG\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check npm versions are not published yet
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          for PKG in arkor create-arkor; do
+            if npm view "$PKG@$VERSION" version >/dev/null 2>&1; then
+              echo "$PKG@$VERSION is already published"
+              exit 1
+            fi
+          done
+
+      - name: Check GitHub Release does not exist yet
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "GitHub Release already exists: $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Pack and inspect tarballs
+        run: |
+          PACK_DIR="$RUNNER_TEMP/npm-pack"
+          rm -rf "$PACK_DIR"
+          mkdir -p "$PACK_DIR"
+
+          for PKG_DIR in packages/arkor packages/create-arkor; do
+            (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
+          done
+
+          for TARBALL in "$PACK_DIR"/*.tgz; do
+            echo "## $(basename "$TARBALL")"
+            tar -tf "$TARBALL"
+          done
+
+      - name: Publish arkor to npm
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          pnpm publish "$RUNNER_TEMP/npm-pack/arkor-$VERSION.tgz" \
+            --access public \
+            --tag "${{ steps.meta.outputs.npm_tag }}" \
+            --provenance \
+            --no-git-checks
+
+      - name: Publish create-arkor to npm
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          pnpm publish "$RUNNER_TEMP/npm-pack/create-arkor-$VERSION.tgz" \
+            --access public \
+            --tag "${{ steps.meta.outputs.npm_tag }}" \
+            --provenance \
+            --no-git-checks
+
+      - name: Verify published packages
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          for PKG in arkor create-arkor; do
+            npm view "$PKG@$VERSION" version
+          done
+
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          PACK_DIR="$RUNNER_TEMP/npm-pack"
+
+          ARGS=(
+            "$GITHUB_REF_NAME"
+            "$PACK_DIR"/*.tgz
+            --draft
+            --verify-tag
+            --generate-notes
+          )
+
+          if [[ "$VERSION" == *"-"* ]]; then
+            ARGS+=(--prerelease)
+          fi
+
+          gh release create "${ARGS[@]}"
