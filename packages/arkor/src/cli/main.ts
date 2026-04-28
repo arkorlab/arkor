@@ -7,10 +7,14 @@ import { runDev } from "./commands/dev";
 import { runBuild } from "./commands/build";
 import { runStart } from "./commands/start";
 import { resolvePackageManager, type TemplateId } from "@arkor/cli-internal";
+import { getRecordedDeprecation } from "../core/deprecation";
+import { detectedUpgradeCommand } from "../core/upgrade-hint";
+import { SDK_VERSION } from "../core/version";
+import { ui } from "./prompts";
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();
-  program.name("arkor").description("Arkor CLI").version("0.0.1-alpha.0");
+  program.name("arkor").description("Arkor CLI").version(SDK_VERSION);
 
   program
     .command("init")
@@ -122,5 +126,15 @@ export async function main(argv: string[]): Promise<void> {
       });
     });
 
-  await program.parseAsync(argv, { from: "user" });
+  try {
+    await program.parseAsync(argv, { from: "user" });
+  } finally {
+    const notice = getRecordedDeprecation();
+    if (notice) {
+      const sunset = notice.sunset ? ` Cutoff: ${notice.sunset}.` : "";
+      ui.log.warn(
+        `${notice.message} (current: ${SDK_VERSION}).${sunset} Run \`${detectedUpgradeCommand()}\`.`,
+      );
+    }
+  }
 }

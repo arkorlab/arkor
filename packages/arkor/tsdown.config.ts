@@ -1,4 +1,5 @@
 import { defineConfig } from "tsdown";
+import pkg from "./package.json" with { type: "json" };
 
 export default defineConfig({
   entry: ["src/index.ts", "src/bin.ts"],
@@ -13,5 +14,11 @@ export default defineConfig({
   // isn't on npm.
   deps: {
     alwaysBundle: ["@arkor/cli-internal"],
+  },
+  // Inline the package version so `core/version.ts` reports a real value
+  // without a runtime JSON import. The fallback in `version.ts` only fires
+  // under vitest, where this transform doesn't run.
+  define: {
+    __SDK_VERSION__: JSON.stringify(pkg.version),
   },
 });
