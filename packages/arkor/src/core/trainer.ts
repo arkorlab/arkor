@@ -1,13 +1,12 @@
 import { iterateEvents } from "@arkor/cloud-api-client";
-import { CloudApiClient, CloudApiError } from "./client";
+import { CloudApiClient } from "./client";
 import {
   defaultArkorCloudApiUrl,
   ensureCredentials,
   type Credentials,
 } from "./credentials";
-import { readState, writeState } from "./state";
+import { ensureProjectState } from "./projectState";
 import type {
-  ArkorProjectState,
   CheckpointContext,
   InferArgs,
   JobConfig,
@@ -150,53 +149,9 @@ export function createTrainer(
     return clientPromise;
   }
 
-  async function ensureProjectState(
-    client: CloudApiClient,
-  ): Promise<ArkorProjectState> {
-    const existing = await readState(cwd);
-    if (existing) return existing;
-
+  async function resolveProjectState(client: CloudApiClient) {
     const credentials = context.credentials ?? (await ensureCredentials());
-    if (credentials.mode !== "anon") {
-      throw new Error(
-        "No .arkor/state.json found. Run `arkor init` to scaffold the project, or create .arkor/state.json manually with { orgSlug, projectSlug, projectId }.",
-      );
-    }
-    const orgSlug = credentials.orgSlug;
-
-    const baseName = cwd.split(/[/\\]/).filter(Boolean).pop() ?? "project";
-    const projectSlug = baseName
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "project";
-
-    let project: { id: string; slug: string };
-    try {
-      const res = await client.createProject({
-        orgSlug,
-        name: baseName,
-        slug: projectSlug,
-      });
-      project = res.project;
-    } catch (err) {
-      if (err instanceof CloudApiError && err.status === 409) {
-        const { projects } = await client.listProjects(orgSlug);
-        const found = projects.find((p) => p.slug === projectSlug);
-        if (!found) throw err;
-        project = found;
-      } else {
-        throw err;
-      }
-    }
-
-    const state: ArkorProjectState = {
-      orgSlug,
-      projectSlug: project.slug,
-      projectId: project.id,
-    };
-    await writeState(state, cwd);
-    return state;
+    return ensureProjectState({ cwd, client, credentials });
   }
 
   /**
@@ -320,7 +275,7 @@ export function createTrainer(
     async start() {
       if (startedJob) return { jobId: startedJob.id };
       const client = await getClient();
-      const state = await ensureProjectState(client);
+      const state = await resolveProjectState(client);
       scope = { orgSlug: state.orgSlug, projectSlug: state.projectSlug };
 
       const { job } = await client.createJob({

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+  existsSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
   mkdirSync,
@@ -10,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildStudioApp } from "./server";
 import { writeCredentials } from "../core/credentials";
+import { writeState } from "../core/state";
 
 const ANON_CREDS = {
   mode: "anon" as const,
@@ -394,6 +397,138 @@ process.exit(0);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { trainer: unknown };
       expect(body.trainer).toBeNull();
+    });
+  });
+
+  describe("/api/inference/chat", () => {
+    const ORIG_FETCH = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("auto-bootstraps project state and proxies base-model inference", async () => {
+      await writeCredentials(ANON_CREDS);
+      // No state.json — server should derive a slug from cwd, create the
+      // project on cloud-api, persist state, and forward the inference call.
+
+      const calls: Array<{ url: string; method: string; body?: string }> = [];
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        const body = typeof init?.body === "string" ? init.body : undefined;
+        calls.push({ url, method, body });
+        if (url.includes("/v1/projects") && method === "POST") {
+          return new Response(
+            JSON.stringify({
+              project: {
+                id: "p-bootstrap",
+                slug: "auto-slug",
+                name: "auto",
+                orgId: "anon-org-id",
+              },
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v1/inference/chat")) {
+          return new Response("data: {\"content\":\"hi\"}\n\n", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-e4b-it",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+      const text = await res.text();
+      expect(text).toContain('"content":"hi"');
+
+      // State was persisted using the bootstrapped project's slug.
+      const statePath = join(trainCwd, ".arkor", "state.json");
+      expect(existsSync(statePath)).toBe(true);
+      const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+        orgSlug: string;
+        projectSlug: string;
+        projectId: string;
+      };
+      expect(state).toEqual({
+        orgSlug: "anon-org",
+        projectSlug: "auto-slug",
+        projectId: "p-bootstrap",
+      });
+
+      // Inference request carried the bootstrapped scope and the body verbatim.
+      const chat = calls.find((c) => c.url.includes("/v1/inference/chat"));
+      expect(chat).toBeDefined();
+      expect(chat!.url).toContain("orgSlug=anon-org");
+      expect(chat!.url).toContain("projectSlug=auto-slug");
+      expect(chat!.body).toContain("unsloth/gemma-4-e4b-it");
+    });
+
+    it("proxies inference using existing state without re-creating a project", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "existing", projectId: "p-existing" },
+        trainCwd,
+      );
+
+      const calls: Array<{ url: string; method: string }> = [];
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        calls.push({ url, method });
+        if (url.includes("/v1/inference/chat")) {
+          return new Response("data: {\"content\":\"ok\"}\n\n", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-e4b-it",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      // Only the inference call should have hit the network — no project
+      // create/list when state is already present.
+      expect(calls.filter((c) => c.url.includes("/v1/projects"))).toHaveLength(0);
+      const chat = calls.find((c) => c.url.includes("/v1/inference/chat"));
+      expect(chat!.url).toContain("projectSlug=existing");
     });
   });
 });

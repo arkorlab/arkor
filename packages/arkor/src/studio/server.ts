@@ -3,6 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { createClient } from "@arkor/cloud-api-client";
+import { CloudApiClient } from "../core/client";
 import {
   defaultArkorCloudApiUrl,
   readCredentials,
@@ -10,6 +11,7 @@ import {
   requestAnonymousToken,
   type Credentials,
 } from "../core/credentials";
+import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
 import { readManifestSummary } from "./manifest";
 import { fileURLToPath } from "node:url";
@@ -276,10 +278,21 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   // Playground hits this so mid-training inference from Studio has the same
-  // auth path as the rest of /api/*.
+  // auth path as the rest of /api/*. State is auto-bootstrapped (anon only)
+  // so the Playground's base-model mode works on a fresh launch with no
+  // prior `arkor init`.
   app.post("/api/inference/chat", async (c) => {
-    const state = await readState();
-    if (!state) return c.json({ error: "No project state" }, 400);
+    const credentials = await getCredentials();
+    let state;
+    try {
+      const client = new CloudApiClient({ baseUrl, credentials });
+      state = await ensureProjectState({ cwd: trainCwd, client, credentials });
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        400,
+      );
+    }
     const token = await getToken();
     const body = await c.req.text();
     const url = `${baseUrl}/v1/inference/chat?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
