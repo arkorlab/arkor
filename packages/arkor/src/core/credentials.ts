@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { anonymousTokenResponseSchema } from "./schemas";
+import { SDK_VERSION } from "./version";
 
 export interface Auth0Credentials {
   mode: "auth0";
@@ -88,7 +89,10 @@ export async function requestAnonymousToken(
 }> {
   const res = await fetch(`${baseUrl}/v1/auth/anonymous`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Arkor-Client": `arkor/${SDK_VERSION}`,
+    },
     body: JSON.stringify({ kind }),
   });
   if (!res.ok) {
