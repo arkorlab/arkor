@@ -140,12 +140,24 @@ async function run(options: RunOptions): Promise<void> {
     // directory (likely a typo or a forgotten earlier scaffold). Explicit
     // `dir` keeps the historical "scaffold into an existing project"
     // semantics, so we only validate when `options.dir` is undefined.
-    let promptInitial = defaultName;
+    //
+    // First attempt: empty input field showing `defaultName` as a placeholder;
+    // pressing Enter on empty input falls back to `defaultName` via clack's
+    // `defaultValue`. After a collision, pre-fill the rejected name as
+    // `initialValue` so the user can edit (e.g. add a suffix) instead of
+    // retyping, and require non-empty input — otherwise the user could loop
+    // forever by pressing Enter on the same colliding default.
+    let retryInitial: string | null = null;
     while (true) {
       const chosenName = await clack.text({
         message: "Project name?",
-        initialValue: promptInitial,
-        validate: (v) => (v.trim() ? undefined : "Project name cannot be empty"),
+        ...(retryInitial === null
+          ? { placeholder: defaultName, defaultValue: defaultName }
+          : { initialValue: retryInitial }),
+        validate: (v) =>
+          retryInitial !== null && !v.trim()
+            ? "Project name cannot be empty"
+            : undefined,
       });
       if (clack.isCancel(chosenName)) {
         clack.cancel("Cancelled.");
@@ -157,7 +169,7 @@ async function run(options: RunOptions): Promise<void> {
         (await isOccupied(join(process.cwd(), sanitised)))
       ) {
         clack.log.warn(`${collisionMessage(sanitised)} Pick another name.`);
-        promptInitial = sanitised;
+        retryInitial = sanitised;
         continue;
       }
       name = sanitised;
