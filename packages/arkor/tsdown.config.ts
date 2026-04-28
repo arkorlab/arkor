@@ -20,5 +20,9 @@ export default defineConfig({
   // under vitest, where this transform doesn't run.
   define: {
     __SDK_VERSION__: JSON.stringify(pkg.version),
+    __ARKOR_POSTHOG_KEY__: JSON.stringify(process.env.ARKOR_POSTHOG_KEY ?? ""),
+    __ARKOR_POSTHOG_HOST__: JSON.stringify(
+      process.env.ARKOR_POSTHOG_HOST ?? "https://us.i.posthog.com",
+    ),
   },
 });

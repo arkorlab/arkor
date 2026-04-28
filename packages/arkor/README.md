@@ -144,6 +144,32 @@ import {
 `runTrainer(file?)` is exported for power-user embedding (e.g. running
 training from a custom Node script). `arkor start` uses it under the hood.
 
+## Telemetry
+
+The CLI sends anonymous usage events to PostHog so we can see which commands
+are being run and where they fail. Three events are emitted per invocation:
+
+- `cli_command_started`
+- `cli_command_completed` (includes `duration_ms`)
+- `cli_command_failed` (includes `duration_ms`, `error_name`, and the first
+  200 chars of `error_message`)
+
+Each event carries `command`, `sdk_version`, `node_version`, `platform`, and
+`auth_mode` (`auth0` / `anon` / `none`). The distinct ID is your Auth0 `sub`
+when logged in, your `anonymousId` after `arkor login --anonymous`, or a
+locally generated UUID stored at `~/.arkor/telemetry-id`.
+
+To opt out, set either of the following before running any `arkor` command:
+
+```sh
+export DO_NOT_TRACK=1
+# or
+export ARKOR_TELEMETRY_DISABLED=1
+```
+
+When opted out the PostHog client is never instantiated and no network
+request is made.
+
 ## License
 
-MIT — see [LICENSE.md](./LICENSE.md).
+MIT. See [LICENSE.md](./LICENSE.md).
