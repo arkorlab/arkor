@@ -3,6 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { createClient } from "@arkor/cloud-api-client";
+import { CloudApiClient, CloudApiError } from "../core/client";
 import {
   defaultArkorCloudApiUrl,
   readCredentials,
@@ -10,6 +11,7 @@ import {
   requestAnonymousToken,
   type Credentials,
 } from "../core/credentials";
+import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
 import { readManifestSummary } from "./manifest";
 import { fileURLToPath } from "node:url";
@@ -276,11 +278,35 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   // Playground hits this so mid-training inference from Studio has the same
-  // auth path as the rest of /api/*.
+  // auth path as the rest of /api/*. State is auto-bootstrapped (anon only)
+  // so the Playground's base-model mode works on a fresh launch with no
+  // prior `arkor init`.
   app.post("/api/inference/chat", async (c) => {
-    const state = await readState();
-    if (!state) return c.json({ error: "No project state" }, 400);
-    const token = await getToken();
+    let credentials: Credentials;
+    let state: { orgSlug: string; projectSlug: string };
+    try {
+      credentials = await getCredentials();
+      const client = new CloudApiClient({ baseUrl, credentials });
+      state = await ensureProjectState({ cwd: trainCwd, client, credentials });
+    } catch (err) {
+      // Propagate cloud-api's status verbatim (e.g. 401 / 403 / 5xx) so the
+      // SPA / clients can react appropriately — collapsing everything to 400
+      // would mis-report upstream outages and auth failures. Anything else
+      // (local writeState failures, missing-credentials guard) is treated as
+      // a server-side error.
+      if (err instanceof CloudApiError) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: err.status,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+    const token =
+      credentials.mode === "anon" ? credentials.token : credentials.accessToken;
     const body = await c.req.text();
     const url = `${baseUrl}/v1/inference/chat?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
     const upstream = await fetch(url, {
