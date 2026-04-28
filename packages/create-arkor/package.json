@@ -19,13 +19,14 @@
     "create-arkor": "./dist/bin.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "CONTRIBUTING.md"
   ],
   "engines": {
     "node": ">=22.6"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json --noEmit && tsdown",
+    "build": "tsc -p tsconfig.build.json --noEmit && tsdown && node scripts/copy-root-files.mjs",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
