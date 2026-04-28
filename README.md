@@ -23,9 +23,8 @@
 </p>
 
 <p align="center">
-  <a href="https://arkor.ai/docs"><strong>Docs</strong></a> &nbsp;·&nbsp;
   <a href="#quickstart"><strong>Quickstart</strong></a> &nbsp;·&nbsp;
-  <a href="#why-arkor"><strong>Why Arkor</strong></a> &nbsp;·&nbsp;
+  <a href="#why-arkor"><strong>Why Arkor</strong></a>
 </p>
 
 > [!WARNING]
@@ -45,8 +44,8 @@ cd my-arkor-app
 pnpm dev
 ```
 
-That's the whole setup. 
-**No signup required:** `arkor dev` opens **Studio**, a local web UI at `http://127.0.0.1:4000`, and silently bootstraps an anonymous workspace so you can fire off a real training run right away. 
+**No signup required:** 
+`arkor dev` opens **Studio**, a local web UI at `localhost:4000`, and silently bootstraps an anonymous workspace so you can fire off a real training run right away. 
 
 Run `arkor login` later if you want to claim your work under an account.
 
@@ -55,11 +54,11 @@ Run `arkor login` later if you want to claim your work under an account.
 The scaffolder asks which template you want.
 All three pair the same small open-weight base (`unsloth/gemma-4-E4B-it`) with a curated public dataset on HuggingFace, so the first run finishes in minutes.
 
-| Template    | Task                                                            | Dataset                     | Est. training |
-| ----------- | --------------------------------------------------------------- | --------------------------- | ------------- |
-| `triage`    | Support ticket → `{category, urgency, summary, nextAction}` JSON | `arkorlab/triage-demo`      | ~7 min        |
-| `translate` | Multilingual support intake translation across 9 languages       | `arkorlab/translate-demo`   | ~7 min        |
-| `redaction` | PII redaction → tagged `[REDACTED]` spans + categories           | `arkorlab/redaction-demo`   | ~12 min       |
+| Template    | Task            | Example                                                                                          | Dataset                     | Est. training |
+| ----------- | --------------- | ------------------------------------------------------------------------------------------------ | --------------------------- | ------------- |
+| `triage`    | Support triage  | `"Can't log in"` → `{category: "auth", urgency: "high", summary: "...", nextAction: "..."}`      | `arkorlab/triage-demo`      | ~7 min        |
+| `translate` | Translation     | `"パスワードを忘れました"` → `{translation: "I forgot my password", detectedLanguage: "ja"}`     | `arkorlab/translate-demo`   | ~7 min        |
+| `redaction` | PII redaction   | `"Email john@x.com"` → `{redactedText: "Email [REDACTED]", redactedCount: 1, tags: ["EMAIL"]}`   | `arkorlab/redaction-demo`   | ~12 min       |
 
 Skip the prompt with `pnpm create arkor my-arkor-app --template triage`.
 
@@ -76,20 +75,36 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 
 ## What works today
 
-- ✅ **Fine-tune an open-weight LLM from one file.** `createTrainer({ model, dataset, lora, ... })` runs LoRA training on the base model you point it at.
-- ✅ **Pull data from HuggingFace, or bring your own URL.** The `dataset` field accepts any HF name (with optional `split`) or a blob URL to a JSONL file.
-- ✅ **React to training in code, not in a dashboard.** Lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) fire as the run streams from the cloud, fully typed.
-- ✅ **Sanity-check the model before the run finishes.** Inside `onCheckpoint`, call `infer({ messages })` against the model as it's being trained.
-- ✅ **Watch the run in a local Studio.** `arkor dev` opens a UI with a jobs list, live loss chart, log tail, and a Playground for chatting with your fine-tuned models.
-- ✅ **Try it without an account.** Anonymous workspace by default; run `arkor login` (Auth0 PKCE) to claim your work later.
+- [x] **Fine-tune an open-weight LLM from one file.** `createTrainer({ model, dataset, lora, ... })` runs LoRA training on the base model you point it at.
+- [x] **Three curated templates that run end-to-end.** `triage`, `translate`, and `redaction` pair the same Gemma base with a public HuggingFace dataset and finish in minutes.
+- [x] **React to training in code, not in a dashboard.** Lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) fire as the run streams from the cloud, fully typed.
+- [x] **Sanity-check the model before the run finishes.** Inside `onCheckpoint`, call `infer({ messages })` against the model as it's being trained.
+- [x] **Watch the run in a local Studio.** `arkor dev` opens a UI with a jobs list, live loss chart, log tail, and a Playground for chatting with your fine-tuned models.
+- [x] **Try it without an account.** Anonymous workspace by default; run `arkor login` (Auth0 PKCE) to claim your work later.
 
 ## What's coming next
 
-- ⏳ **Deploy a fine-tuned model as an inference endpoint** with `createDeploy(...)`.
-- ⏳ **Run evaluations on every checkpoint** with `createEval(...)`.
-- ⏳ **Bring your own datasets and base models.** CSV / JSONL uploads and custom HuggingFace base models.
-- ⏳ **Team and multi-org workspaces.**
-- ⏳ **Self-host the training backend.** Today we host it.
+### Framework API
+
+- [ ] **Generate synthetic training data from a small seed set.**
+- [ ] **Distillation-focused templates** that pair compatible teacher and student models.
+- [ ] **Templates aimed at small, on-device models** (WebGPU, mobile).
+
+### SDK and CLI
+
+- [ ] **Train on a local GPU.** Today every run goes to Arkor's managed GPUs.
+- [ ] **Bring your own dataset.** Any HuggingFace name, a JSONL file, or a blob URL.
+- [ ] **More base models beyond Gemma.**
+
+### Studio
+
+- [ ] **Download a trained model as a file** and run it on your own machine or deploy target. Today, runs stay on Arkor's managed inference.
+- [ ] **Surface the dry-run option in the UI** for fast smoke tests.
+
+### Other
+
+- [ ] **Self-host the training backend.** Today we host it.
+- [ ] **A real documentation site.** Today this README is all there is.
 
 ## A taste of the API
 
@@ -122,9 +137,9 @@ export const arkor = createArkor({ trainer });
 ```
 
 `src/arkor/index.ts` is the file the CLI and Studio look for. 
-Your `trainer` lives in a sibling file and is registered through `createArkor`. `deploy` and `eval` will work the same way. 
+Your `trainer` lives in a sibling file and is registered through `createArkor`.
 
-To add a new one, drop a file and register it; no scaffolder rerun needed.
+To add another trainer, drop a file and register it; no scaffolder rerun needed.
 
 <!--
   Studio screenshots go here once captured:
@@ -185,10 +200,10 @@ Arkor is alpha, and the core idea (TypeScript-native fine-tuning for product eng
 - **Star the repo** if you want updates as we move toward `0.1`.
 - **[Join Discord](https://discord.gg/YujCZYGrEZ)** for live discussion and early-access pings.
 
-We're especially curious about: which open-weight base models you'd reach for first, what you'd want from `createDeploy` / `createEval`, and what breaks when you try the alpha.
+We're especially curious about: which open-weight base models you'd reach for first, which datasets you'd point Arkor at, where you'd want the trained model to run, and what breaks when you try the alpha.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 
 ## License
 
-[MIT](LICENSE.md). 
+[MIT](LICENSE.md)
