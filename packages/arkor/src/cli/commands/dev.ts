@@ -66,17 +66,15 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       "No credentials on file — requesting an anonymous token.",
     );
   }
+  // Scoped to just `requestAnonymousToken` on purpose: this is where we
+  // decide whether the network failure is recoverable (transport blip vs
+  // permanent rejection vs OAuth-only deployment). Local failures from
+  // `writeCredentials` (EACCES/EROFS/EISDIR on `~/.arkor/credentials.json`)
+  // would be miscategorised here, so they live outside this try block and
+  // surface with their original fs message intact.
+  let anon: Awaited<ReturnType<typeof requestAnonymousToken>>;
   try {
-    const anon = await requestAnonymousToken(baseUrl, "cli");
-    const creds: AnonymousCredentials = {
-      mode: "anon",
-      token: anon.token,
-      anonymousId: anon.anonymousId,
-      arkorCloudApiUrl: baseUrl,
-      orgSlug: anon.orgSlug,
-    };
-    await writeCredentials(creds);
-    ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
+    anon = await requestAnonymousToken(baseUrl, "cli");
   } catch (err) {
     // Decide whether to swallow the failure or surface it. Two filters:
     //
@@ -85,8 +83,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     //    the cloud-api may come back. Other TypeErrors are config errors
     //    ("Invalid URL", "URL scheme must be a HTTP(S) scheme") that keep
     //    failing on every retry. Plain Errors (non-2xx responses, ZodError
-    //    on garbage responses) and fs errors (EACCES on credentials.json)
-    //    also keep failing on retry.
+    //    on garbage responses) also keep failing on retry.
     //
     // 2. `deploymentModeKnown` guards against silently starting a broken
     //    Studio when we couldn't reach the cloud-api at all. If
@@ -120,6 +117,16 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     }
     throw err;
   }
+
+  const creds: AnonymousCredentials = {
+    mode: "anon",
+    token: anon.token,
+    anonymousId: anon.anonymousId,
+    arkorCloudApiUrl: baseUrl,
+    orgSlug: anon.orgSlug,
+  };
+  await writeCredentials(creds);
+  ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
 }
 
 /**

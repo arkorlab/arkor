@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureCredentialsForStudio } from "./dev";
@@ -242,6 +242,49 @@ describe("ensureCredentialsForStudio", () => {
       /arkor login --oauth/,
     );
     expect(await readCredentials()).toBeNull();
+  });
+
+  // Codex P2 review on PR #65 — the OAuth-only wrap used to span the whole
+  // anon bootstrap, so fs errors from `writeCredentials` were also rewritten
+  // as "deployment may require sign-in", hiding the actionable fs cause.
+  // We force `writeCredentials` to fail by pre-creating
+  // `~/.arkor/credentials.json` as a directory (so `writeFile` raises
+  // EISDIR) and assert the fs error propagates intact.
+  it("does not rewrite fs errors from writeCredentials as OAuth hints", async () => {
+    mkdirSync(join(fakeHome, ".arkor", "credentials.json"), {
+      recursive: true,
+    });
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response(
+          JSON.stringify({
+            token: "anon-tok",
+            anonymousId: "anon-aid",
+            kind: "cli",
+            personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(/EISDIR/);
+    await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+      /arkor login --oauth/,
+    );
   });
 
   it("re-throws when the cloud-api responds with a body that fails schema validation", async () => {
