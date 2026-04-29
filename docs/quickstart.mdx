@@ -1,22 +1,92 @@
 ---
 title: "Quickstart"
-description: "Scaffold an Arkor project, fine-tune a small open-weight LLM, and chat with it from a local Studio."
+description: "Scaffold an Arkor project, fine-tune a small open-weight LLM, and chat with it from a local Studio in about 5 minutes."
 ---
 
 # Quickstart
 
+In about 5 minutes of setup, plus 7 to 12 minutes of training time, you will go from zero to a fine-tuned model you can chat with in a local Playground.
+
+## Prerequisites
+
+- **Node.js 22.6 or newer.** Node 24 is recommended.
+- **pnpm.** Other package managers (npm, yarn, bun) work too; the examples below use pnpm.
+- A working internet connection. Training runs on Arkor's managed GPUs.
+
+No account, no credit card, no GPU on your machine.
+
+## 1. Scaffold a project
+
 ```bash
 pnpm create arkor my-arkor-app
 cd my-arkor-app
+```
+
+The scaffolder asks which template you want. Pick the one closest to what you eventually want to build:
+
+| Template    | Task                    | Output shape                                          | Estimated training |
+| ----------- | ----------------------- | ----------------------------------------------------- | ------------------ |
+| `triage`    | Support triage          | `{ category, urgency, summary, nextAction }`          | ~7 min             |
+| `translate` | 9-language translation  | `{ translation, detectedLanguage }`                   | ~7 min             |
+| `redaction` | PII redaction           | `{ redactedText, redactedCount, tags }`               | ~12 min            |
+
+Each template pairs the same small open-weight base (`unsloth/gemma-4-E4B-it`) with a curated public dataset on HuggingFace. The training is real and finishes in minutes, so you get to see the whole loop end to end.
+
+To skip the prompt:
+
+```bash
+pnpm create arkor my-arkor-app --template triage
+```
+
+## 2. Look at what was generated
+
+```
+my-arkor-app/
+├── src/arkor/
+│   ├── index.ts        # createArkor({ trainer })
+│   └── trainer.ts      # createTrainer({ ... })
+├── arkor.config.ts
+├── .arkor/             # state + build artifacts (gitignored)
+└── package.json        # dev / build / start
+```
+
+The two files that matter for now:
+
+- **`src/arkor/trainer.ts`** holds your trainer definition. Model, dataset, LoRA settings, hyperparameters, and lifecycle callbacks all live here.
+- **`src/arkor/index.ts`** is the entry point. It calls `createArkor({ trainer })` so the CLI and Studio can discover what to run.
+
+Open `trainer.ts`. The shape is the same across templates; only the dataset, output schema, and example prompts differ.
+
+## 3. Start the dev loop
+
+```bash
 pnpm dev
 ```
 
-{/* TODO: write the real quickstart.
+This runs `arkor dev`, which:
 
-Topics to cover:
-- Prerequisites (Node 22.6+, pnpm)
-- `pnpm create arkor` template choices (triage / translate / redaction)
-- What `pnpm dev` does (Studio at http://localhost:4000, anonymous workspace, first run)
-- Where to look in Studio (jobs, loss chart, Playground)
-- Next steps (`arkor login`, customising the trainer)
-*/}
+1. Boots a local Studio at `http://localhost:4000`.
+2. Bootstraps an anonymous workspace silently. No signup required.
+3. Watches your `src/arkor/` files for changes.
+
+Open Studio in your browser and you will see three things to look at:
+
+- **Jobs.** A list of training runs. Click into one to see live status.
+- **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
+- **Playground.** Once a checkpoint is available, pick the adapter from the selector and chat with the partially trained model. Compare it against the base model side by side.
+
+## 4. Claim your work (optional)
+
+Anonymous workspaces are useful for trying things out, but the work is tied to that local machine. Once you decide you want to keep what you trained:
+
+```bash
+arkor login
+```
+
+This runs an Auth0 PKCE flow on a loopback port and links your local credentials to an account. From then on, runs from this machine show up under that account on any device.
+
+## 5. Where to go next
+
+- **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Save the file and watch Studio pick up the next run.
+- **Try another template.** Run `pnpm create arkor` again with a different `--template` to compare.
