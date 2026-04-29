@@ -73,7 +73,7 @@ Once a run is in flight, three views matter:
 - **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
 - **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Compare it against the base model side by side. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
 
-If you edit `src/arkor/trainer.ts` after the first build, run `npx arkor build` (or delete `.arkor/build/`) before the next run so the rebuilt code is what trains.
+While `arkor dev` is running, Studio rebuilds your trainer on each request to its manifest endpoint (with cache-busted re-imports), so edits to `src/arkor/` flow into the next Run training click automatically. No manual rebuild step.
 
 ## 4. Claim your work (optional)
 
@@ -90,5 +90,5 @@ This runs an Auth0 PKCE flow on a loopback port and links your local credentials
 ## 5. Where to go next
 
 - **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
-- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Run `npx arkor build` (or delete `.arkor/build/`) before the next run so your edits land.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. With `arkor dev` running, Studio picks up the edits on the next Run training click.
 - **Try another template.** Run `pnpm create arkor` again with a different `--template` to compare.
