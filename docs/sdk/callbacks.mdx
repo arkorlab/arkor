@@ -70,7 +70,7 @@ onLog: ({ step, loss, evalLoss }) => {
 }
 ```
 
-Common uses: forward metrics to your own pipeline (PostHog, Datadog), detect divergence early, implement custom early-stopping by aborting the trainer.
+Common uses: forward metrics to your own pipeline (PostHog, Datadog), detect divergence early, and implement custom early-stopping. For early-stopping, remember that aborting the [`abortSignal`](/sdk/trainer-control#abortsignal) only stops your local `wait()`; call [`trainer.cancel()`](/sdk/trainer-control#cancel) afterwards to actually stop the GPU on the backend.
 
 ## `onCheckpoint({ step, adapter, job, infer, artifacts })`
 
