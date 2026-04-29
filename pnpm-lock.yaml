@@ -57,6 +57,9 @@ importers:
       '@arkor/cli-internal':
         specifier: workspace:*
         version: link:../cli-internal
+      '@arkor/studio-app':
+        specifier: workspace:*
+        version: link:../studio-app
       '@types/node':
         specifier: ^24
         version: 24.12.2
