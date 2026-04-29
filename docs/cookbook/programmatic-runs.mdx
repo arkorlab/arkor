@@ -9,15 +9,16 @@ description: "Drive training from a Next.js API route, a cron worker, or CI with
 
 This recipe shows the two shapes that come up first.
 
-## Shape 1: `runTrainer` (matches what `arkor start` does)
+## Shape 1: `runTrainer` (the same function `arkor start` runs)
 
-`runTrainer` is exactly what `arkor start` calls under the hood. It resolves `src/arkor/index.ts`, picks the trainer (preferring `arkor`, then `trainer`, then `default`), then runs `start()` and `wait()` for you.
+`runTrainer` is the function `arkor start` invokes after building. With no argument it imports `src/arkor/index.ts` directly; `arkor start` first runs `arkor build` and then calls `runTrainer` on the bundled artifact at `.arkor/build/index.mjs`. Either way it picks the trainer from the loaded module (preferring `arkor`, then `trainer`, then `default`) and runs `start()` and `wait()` for you.
 
 ```ts
 import { runTrainer } from "arkor";
 
-await runTrainer();                        // resolves src/arkor/index.ts
-await runTrainer("src/arkor/alt.ts");      // explicit entry path
+await runTrainer();                          // imports src/arkor/index.ts
+await runTrainer("src/arkor/alt.ts");        // explicit source entry
+await runTrainer(".arkor/build/index.mjs");  // explicit built artifact
 ```
 
 This is the right shape when you already have the trainer defined in `src/arkor/` and just need to trigger it from non-CLI code: a GitHub Action step, a build step, a one-off script. You inherit all the trainer's callbacks and `abortSignal` wiring.
