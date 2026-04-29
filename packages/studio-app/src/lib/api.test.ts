@@ -203,6 +203,20 @@ describe("redactPath", () => {
   it("leaves short slug segments alone", () => {
     expect(redactPath("/api/credentials")).toBe("/api/credentials");
   });
+
+  it("strips scheme and host for absolute URLs so the path is parsed cleanly", () => {
+    expect(
+      redactPath(
+        "https://api.arkor.ai/v1/jobs/123e4567-e89b-12d3-a456-426614174000/events?token=secret",
+      ),
+    ).toBe("/v1/jobs/:id/events");
+  });
+
+  it("falls back gracefully for unparseable absolute-looking URLs", () => {
+    // Best effort: don't throw, don't tokenise the scheme. An unparseable
+    // URL falls through to raw input handling.
+    expect(redactPath("https://")).toBe("https://");
+  });
 });
 
 describe("apiFetch error capture", () => {

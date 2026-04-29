@@ -64,10 +64,23 @@ const STUDIO_TOKEN = readStudioToken();
  * Replace UUID-like and hex-id segments with `:id` so PostHog endpoint
  * cardinality stays bounded, and strip the query string so the CSRF token
  * carried by EventSource calls never reaches the wire.
+ *
+ * Accepts both relative paths (the only thing apiFetch passes today) and
+ * absolute URLs; for the latter the scheme/host are dropped so the leading
+ * `https:` segment doesn't end up tokenised by the split below.
  */
 export function redactPath(input: string): string {
-  const qIdx = input.indexOf("?");
-  const path = qIdx === -1 ? input : input.slice(0, qIdx);
+  let path: string;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) {
+    try {
+      path = new URL(input).pathname;
+    } catch {
+      path = input;
+    }
+  } else {
+    const qIdx = input.indexOf("?");
+    path = qIdx === -1 ? input : input.slice(0, qIdx);
+  }
   return path
     .split("/")
     .map((seg) =>
