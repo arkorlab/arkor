@@ -47,7 +47,7 @@ The current views are intentionally small:
 
 - **Jobs.** Status, name, created time, and ID, polled every few seconds.
 - **Job detail.** Loss chart, log tail (most recent events), and live status. Streamed via Server-Sent Events so it stays current without manual refresh.
-- **Playground.** Adapter selector (base model or any checkpoint from your jobs), a chat UI, and a streaming response. Calls flow through the CLI, then to the managed inference endpoint.
+- **Playground.** Adapter selector (base model or the final adapter from any completed job), a chat UI, and a streaming response. Calls flow through the CLI, then to the managed inference endpoint. The Playground only lists jobs that have finished. To run inference against an intermediate checkpoint while a run is still in flight, use [`onCheckpoint`](/concepts/lifecycle) callbacks instead.
 
 A walkthrough of each view with screenshots lives in the Studio section (coming next in the docs).
 
