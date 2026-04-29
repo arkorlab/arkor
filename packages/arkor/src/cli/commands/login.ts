@@ -24,6 +24,9 @@ export interface LoginOptions {
 }
 
 export async function runLogin(options: LoginOptions = {}): Promise<void> {
+  if (options.oauth && options.anonymous) {
+    throw new Error("Pick one of --oauth / --anonymous, not both.");
+  }
   if (options.anonymous) {
     await runAnonymousLogin();
     return;
