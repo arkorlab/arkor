@@ -23,7 +23,7 @@ arkor dev [options]
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `-p, --port <port>` | `4000` | Port to bind. The displayed URL uses `localhost`, but the listener binds `127.0.0.1` directly so it cannot end up IPv6-only on hosts where `/etc/hosts` lists `::1` before `127.0.0.1`. Non-numeric values fall back to `4000`. |
+| `-p, --port <port>` | `4000` | Port to bind. The displayed URL uses `localhost`, but the listener binds `127.0.0.1` directly so it cannot end up IPv6-only on hosts where `/etc/hosts` lists `::1` before `127.0.0.1`. Invalid or falsy values (for example `0`) fall back to `4000`. |
 | `--open` | off | Open the Studio URL in a browser after the server is up. |
 
 ## What happens at launch
