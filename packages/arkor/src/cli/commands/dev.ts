@@ -122,8 +122,13 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       err.status < 500 &&
       oauthAvailable
     ) {
+      // Surface only the status code at the top level — the inner
+      // `err.message` already starts with "Failed to acquire…" and
+      // includes the response-body snippet, which would double-prefix the
+      // wrap and risk leaking noisy HTML/JSON error pages. The full
+      // detail is preserved on `cause` for debugging.
       throw new Error(
-        `Failed to bootstrap an anonymous session (${err.message}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
+        `Failed to bootstrap an anonymous session (HTTP ${err.status}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
         { cause: err },
       );
     }

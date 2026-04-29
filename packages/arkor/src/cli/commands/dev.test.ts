@@ -274,6 +274,14 @@ describe("ensureCredentialsForStudio", () => {
     await expect(ensureCredentialsForStudio()).rejects.toThrow(
       /arkor login --oauth/,
     );
+    // Copilot review on PR #65 (round 4) flagged that the wrap used to
+    // double-prefix the inner "Failed to acquire anonymous token (...)"
+    // message and leak the response-body snippet. Lock in the cleaner
+    // top-level form: status code only, full detail on `cause`.
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(/HTTP 403/);
+    await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+      /anonymous tokens disabled/,
+    );
     expect(await readCredentials()).toBeNull();
   });
 
