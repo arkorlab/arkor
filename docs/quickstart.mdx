@@ -57,23 +57,23 @@ The two files that matter for now:
 
 Open `trainer.ts`. The shape is the same across templates; only the dataset, output schema, and example prompts differ.
 
-## 3. Start the dev loop
+## 3. Open Studio and start a run
 
 ```bash
 pnpm dev
 ```
 
-This runs `arkor dev`, which:
+This runs `arkor dev`, which boots Studio at `http://localhost:4000`. Studio is the UI; `arkor dev` itself does not start training and does not watch your trainer files.
 
-1. Boots a local Studio at `http://localhost:4000`.
-2. Bootstraps an anonymous workspace silently. No signup required.
-3. Watches your `src/arkor/` files for changes.
+In the browser, click **Run training**. Studio runs `arkor start` for you in the background, which compiles `src/arkor/index.ts` and submits the job to the managed backend. The first time you trigger anything, an anonymous workspace is created automatically: no signup, no credit card.
 
-Open Studio in your browser and you will see three things to look at:
+Once a run is in flight, three views matter:
 
 - **Jobs.** A list of training runs. Click into one to see live status.
 - **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
 - **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Compare it against the base model side by side. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
+
+If you edit `src/arkor/trainer.ts` after the first build, run `npx arkor build` (or delete `.arkor/build/`) before the next run so the rebuilt code is what trains.
 
 ## 4. Claim your work (optional)
 
@@ -90,5 +90,5 @@ This runs an Auth0 PKCE flow on a loopback port and links your local credentials
 ## 5. Where to go next
 
 - **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
-- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Save the file and watch Studio pick up the next run.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Run `npx arkor build` (or delete `.arkor/build/`) before the next run so your edits land.
 - **Try another template.** Run `pnpm create arkor` again with a different `--template` to compare.
