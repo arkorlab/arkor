@@ -3,8 +3,6 @@ title: "Introduction"
 description: "Arkor is the TypeScript framework for fine-tuning open-weight LLMs."
 ---
 
-# Introduction
-
 Arkor lets TypeScript and Node developers fine-tune open-weight LLMs the same way they ship the rest of their product: type-safe configs, lifecycle callbacks in your own code, and a local Studio for the dev loop.
 
 ## Who Arkor is for
@@ -24,13 +22,13 @@ What Arkor adds is a TypeScript surface on top of that stack. Today it covers fi
 In practice:
 
 - **Type-safe configs.** `createTrainer({ model, dataset, lora, ... })` is checked at compile time. No YAML drift, no separate config language.
-- **Fast iteration on training code.** Edit your trainer, run `npx arkor build` (or refresh Studio's Run training page so its manifest endpoint rebuilds), and the next run uses the latest code. No notebook restart.
+- **Fast iteration on training code.** Edit your trainer, rebuild, and the next run uses the latest code. No notebook restart.
 - **Callbacks in your own code.** `onLog`, `onCheckpoint`, `onCompleted`, `onFailed` fire on your TypeScript functions, fully typed. From inside `onCheckpoint` you can call `infer({ messages })` against the partial model and sanity-check it before the run finishes.
 - **A local Studio.** Run `arkor dev` and a web UI shows job status, a live loss chart, the log tail, and a Playground for chatting with your fine-tuned model. No external dashboard, no signup.
 
 ## What works today
 
-Arkor is alpha and honest about it. APIs change without notice as the design settles. The current version is published to [npm](https://www.npmjs.com/package/arkor).
+Arkor is alpha. APIs change without notice as the design settles. The current version is published to [npm](https://www.npmjs.com/package/arkor).
 
 What you can do right now:
 

@@ -3,8 +3,6 @@ title: "Project structure"
 description: "Where Arkor expects your code, and what lives in .arkor/ and ~/.arkor/."
 ---
 
-# Project structure
-
 A scaffolded Arkor project looks like this:
 
 ```
@@ -69,7 +67,7 @@ It is currently a placeholder. The runtime does not read fields from it yet. All
 
 You should not commit this directory.
 
-- **`.arkor/state.json`**. Project routing: `orgSlug`, `projectSlug`, `projectId`. This is how the runtime maps your local repo to a workspace on the managed backend. The file is created by `ensureProjectState()`, which is called the first time you run training (or hit base-model inference) on the project. For **anonymous** workspaces it is auto-created on that first call. For **Auth0** users the runtime errors out and asks you to run `arkor init` first. Do not edit by hand.
+- **`.arkor/state.json`**. Project routing: `orgSlug`, `projectSlug`, `projectId`. This is how the runtime maps your local repo to a workspace on the managed backend. The file is created by `ensureProjectState()`, which runs the first time you start training (or hit base-model inference). For **anonymous** workspaces it is auto-created on that first call. For **Auth0** workspaces the runtime errors out instead: today, neither `arkor login` nor `arkor init` populates the file, so you create it by hand with `{ orgSlug, projectSlug, projectId }` and the runtime takes over from there. Once it exists, do not edit it by hand.
 - **`.arkor/build/index.mjs`**. Output of `arkor build`: an esbuild bundle of `src/arkor/index.ts` targeting Node 22.6 with bare specifiers kept external. `arkor start` runs this.
 
 ## `~/.arkor/` (per-user)
@@ -83,7 +81,7 @@ Lives in your home directory, shared across all Arkor projects on the machine.
 
 ## What the CLI looks for
 
-- `arkor dev` starts the Studio web server at `127.0.0.1:4000` and writes `~/.arkor/studio-token`. It does not file-watch `src/arkor/`. Studio's `/api/manifest` endpoint does call `runBuild` and re-import with a cache-bust query, but only when the UI fetches it, which currently happens when the Run training page mounts (see `packages/studio-app/src/components/RunTraining.tsx`). If you stay on that page across multiple runs, the build artifact is reused. To pick up edits between runs, refresh the Run training page (or run `arkor build` from the terminal) before the next click. `arkor dev` does not write `.arkor/state.json` on its own.
+- `arkor dev` starts the Studio web server at `127.0.0.1:4000` and writes `~/.arkor/studio-token`. It does not file-watch `src/arkor/`. Studio's `/api/manifest` endpoint does call `runBuild` and re-imports with a cache-bust query, but only when the Studio UI fetches it (currently on Run training page mount). If you stay on that page across multiple runs the build artifact is reused; refresh the Run training page (or run `arkor build` from the terminal) between edits to pick up changes. `arkor dev` does not write `.arkor/state.json` on its own.
 - `arkor build` reads `src/arkor/index.ts` (or the entry you pass) and writes `.arkor/build/index.mjs`. You only need to call this directly outside the Studio dev loop (e.g. CI, or right before `arkor start` from a script).
 - `arkor start` resolves the entry through the runner, rebuilds `.arkor/build/index.mjs` if it is missing or you passed an explicit entry, and runs it (which calls `trainer.start()` and `trainer.wait()`). Triggering training from Studio internally spawns `arkor start`.
 
