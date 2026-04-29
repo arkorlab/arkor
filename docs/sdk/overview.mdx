@@ -50,7 +50,7 @@ These are exported for code that drives Arkor outside the CLI flow, e.g. running
 | Symbol | Source | Purpose |
 | --- | --- | --- |
 | `runTrainer(file?)` | `core/runner.ts` | What `arkor start` calls under the hood. Resolves the entry, picks the trainer (preferring `arkor`, then `trainer`, then default export), runs `start()` + `wait()`. |
-| `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | Read or write `~/.arkor/credentials.json`. `ensureCredentials` returns the existing record or throws if none. |
+| `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | Read or write `~/.arkor/credentials.json`. `ensureCredentials` returns the existing record if present and **bootstraps a fresh anonymous identity** (calls `requestAnonymousToken` and persists it) when no credentials exist. It throws only if the bootstrap itself fails (network / token-endpoint error). |
 | `requestAnonymousToken(baseUrl, kind?)` | `core/credentials.ts` | Mint a fresh anonymous token directly. The CLI uses this on `arkor login --anonymous` and on first `arkor dev`. |
 | `credentialsPath()` | `core/credentials.ts` | Absolute path to `~/.arkor/credentials.json`. |
 | `readState(cwd?)` / `writeState(state, cwd?)` / `statePath(cwd?)` | `core/state.ts` | Read or write `.arkor/state.json` (project routing). |

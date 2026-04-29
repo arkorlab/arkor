@@ -37,7 +37,7 @@ The returned object is `Object.freeze`-d. There are no methods on it; the framew
 
 ## What works today
 
-- `trainer`: pass a `Trainer` produced by [`createTrainer`](/sdk/create-trainer). Optional in the type, but a manifest with no `trainer` cannot be run by `arkor start` (the runner throws `Training entry must export 'arkor' (from createArkor({...})) or 'trainer'...`).
+- `trainer`: pass a `Trainer` produced by [`createTrainer`](/sdk/create-trainer). Optional in the type, but a manifest with no `trainer` cannot be run by `arkor start` (the runner throws ``Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.``).
 
 ## Not yet
 
@@ -63,4 +63,4 @@ if (isArkor(value)) {
 }
 ```
 
-A small type guard exported alongside `createArkor` for code that consumes manifests dynamically. It checks `_kind === "arkor"` on a frozen object. Use it sparingly; in normal code the typed export from `index.ts` already gives you the right shape.
+A small type guard exported alongside `createArkor` for code that consumes manifests dynamically. It checks that the value is a non-null object with `_kind === "arkor"` (it does **not** verify `Object.isFrozen`, even though `createArkor` itself produces a frozen value). Use it sparingly; in normal code the typed export from `index.ts` already gives you the right shape.

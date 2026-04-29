@@ -101,8 +101,8 @@ Use `abortSignal` for "I no longer care about waiting on this run" (request time
 `wait()` keeps the SSE stream alive across transient failures by default:
 
 - A clean stream EOF after at least one received frame triggers an immediate reconnect at the base delay (`initialReconnectDelayMs`, default 1000 ms) without counting against the failure budget. The stream resumes via `Last-Event-ID`.
-- A connect error or a stream EOF without any received frame counts as a failure and goes through `handleFailure`: exponential backoff via `initialReconnectDelayMs * 2 ** attempt`, capped by `maxReconnectAttempts`.
-- `maxReconnectAttempts` defaults to `undefined` (unlimited). There is no public `createTrainer` option to set it today; the field exists in an internal context type. For most projects this means transient SSE failures are silently retried for as long as the job runs.
+- A connect error or a stream EOF without any received frame counts as a failure and goes through `handleFailure`: exponential backoff via `initialReconnectDelayMs * 2 ** attempt`, with the per-attempt delay clamped at `maxReconnectDelayMs` (default 60 000 ms) and the consecutive-failure count capped at `maxReconnectAttempts`.
+- `maxReconnectAttempts` defaults to `undefined` (unlimited consecutive failures). It is not configurable through `TrainerInput`; the only way to set it (along with `reconnectDelayMs` and `maxReconnectDelayMs`) is the second `context` argument to `createTrainer`, annotated `@internal` and subject to change. For most projects this means transient SSE failures are silently retried for as long as the job runs.
 
 This same path is what catches thrown user callbacks (see [Lifecycle callbacks § Exception handling](/sdk/callbacks#exception-handling-read-carefully)). If you need deterministic error handling, catch inside the callback rather than relying on `wait()` to reject.
 

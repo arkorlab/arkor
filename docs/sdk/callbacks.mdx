@@ -122,7 +122,7 @@ Throwing inside a callback does **not** behave like a normal Promise rejection. 
 2. Otherwise, if `maxReconnectAttempts` was configured and the counter is exceeded, `wait()` rejects with a wrapping error.
 3. Otherwise, the SDK delays and reopens the SSE stream.
 
-`maxReconnectAttempts` defaults to `undefined` (unlimited), and there is no public way to set it from `createTrainer` today. In practice that means a thrown callback is **caught and retried**, possibly indefinitely. If `Last-Event-ID` advances across the retry, the originally failing event is also skipped.
+`maxReconnectAttempts` defaults to `undefined` (unlimited). It is not configurable through `TrainerInput`; the only way to set it is the second `context` argument to `createTrainer`, which is annotated `@internal` and may change without notice. In practice, with default settings, a thrown callback is **caught and retried**, possibly indefinitely. If `Last-Event-ID` advances across the retry, the originally failing event is also skipped.
 
 For deterministic error handling, catch inside the callback:
 

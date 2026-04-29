@@ -17,7 +17,7 @@ export const trainer = createTrainer({
 });
 ```
 
-`createTrainer` returns a `Trainer` object with `start` / `wait` / `cancel` methods (see [Trainer control](/sdk/trainer-control)). All shape and validation lives on the `TrainerInput` you pass in.
+`createTrainer` returns a `Trainer` object with `start` / `wait` / `cancel` methods (see [Trainer control](/sdk/trainer-control)). The function does **not** run client-side validation on `TrainerInput`: TypeScript checks the typed fields at compile time, and the rest is forwarded to the cloud-api when `start()` runs. Bad values surface as backend errors during the run, not as client-side throws at construction.
 
 ## Required fields
 
