@@ -83,7 +83,7 @@ Lives in your home directory, shared across all Arkor projects on the machine.
 
 ## What the CLI looks for
 
-- `arkor dev` starts the Studio web server at `127.0.0.1:4000` and writes `~/.arkor/studio-token`. The CLI itself does not file-watch your trainer, but Studio's `/api/manifest` endpoint calls `runBuild` and re-imports the artifact with a cache-bust query on every request, and the UI hits that endpoint on page loads. Effect: while `arkor dev` is running, edits to `src/arkor/` are reflected in Studio and used for the next training run without any manual rebuild. `arkor dev` does not write `.arkor/state.json` on its own.
+- `arkor dev` starts the Studio web server at `127.0.0.1:4000` and writes `~/.arkor/studio-token`. It does not file-watch `src/arkor/`. Studio's `/api/manifest` endpoint does call `runBuild` and re-import with a cache-bust query, but only when the UI fetches it, which currently happens when the Run training page mounts (see `packages/studio-app/src/components/RunTraining.tsx`). If you stay on that page across multiple runs, the build artifact is reused. To pick up edits between runs, refresh the Run training page (or run `arkor build` from the terminal) before the next click. `arkor dev` does not write `.arkor/state.json` on its own.
 - `arkor build` reads `src/arkor/index.ts` (or the entry you pass) and writes `.arkor/build/index.mjs`. You only need to call this directly outside the Studio dev loop (e.g. CI, or right before `arkor start` from a script).
 - `arkor start` resolves the entry through the runner, rebuilds `.arkor/build/index.mjs` if it is missing or you passed an explicit entry, and runs it (which calls `trainer.start()` and `trainer.wait()`). Triggering training from Studio internally spawns `arkor start`.
 
