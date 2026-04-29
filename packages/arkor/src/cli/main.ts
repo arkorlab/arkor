@@ -69,15 +69,21 @@ export async function main(argv: string[]): Promise<void> {
 
   program
     .command("login")
-    .description("Sign in to arkor (Auth0 Authorization Code + PKCE on loopback)")
+    .description("Sign in to arkor (OAuth Authorization Code + PKCE on loopback)")
+    .option("--oauth", "Sign in via OAuth in the browser")
     .option("--anonymous", "Issue a throwaway anonymous token instead")
     .option("--no-browser", "Print the URL instead of opening a browser")
     .action(
       withTelemetry("login", async (opts: {
+        oauth?: boolean;
         anonymous?: boolean;
         browser?: boolean;
       }) => {
+        if (opts.oauth && opts.anonymous) {
+          throw new Error("Pick one of --oauth / --anonymous, not both.");
+        }
         await runLogin({
+          oauth: opts.oauth,
           anonymous: opts.anonymous,
           noBrowser: opts.browser === false,
         });

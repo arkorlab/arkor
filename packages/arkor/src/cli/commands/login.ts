@@ -13,9 +13,11 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 import { acquireAnonymousTokenResult } from "../anonymous";
-import { ui } from "../prompts";
+import { promptSelect, ui } from "../prompts";
 
 export interface LoginOptions {
+  /** Force the OAuth (Auth0) flow even if `--anonymous` would otherwise be selected interactively. */
+  oauth?: boolean;
   anonymous?: boolean;
   /** Skip opening the browser (prints the URL instead). Useful for headless environments. */
   noBrowser?: boolean;
@@ -29,19 +31,57 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
 
   const baseUrl = defaultArkorCloudApiUrl();
   const cfg = await fetchCliConfig(baseUrl);
-  if (!cfg.auth0Domain || !cfg.clientId || !cfg.audience) {
+  const oauthAvailable = Boolean(
+    cfg.auth0Domain && cfg.clientId && cfg.audience,
+  );
+
+  if (!oauthAvailable) {
+    if (options.oauth) {
+      throw new Error(
+        "OAuth is not configured for this deployment. Re-run without --oauth or pass --anonymous.",
+      );
+    }
     ui.log.info(
-      "Auth0 is not configured — continuing with an anonymous session.",
+      "OAuth is not configured — continuing with an anonymous session.",
     );
+    await runAnonymousLogin();
+    return;
+  }
+
+  // Interactive choice: when neither flag was passed, ask which mode to use.
+  // Non-interactive contexts (CI, piped stdout) default to anonymous via
+  // `initialValue` because OAuth requires a browser callback that CI can't
+  // satisfy — silently falling back to anon is safer than hanging on the
+  // PKCE loopback. Automation that wants OAuth must opt in with `--oauth`.
+  const mode = options.oauth
+    ? "oauth"
+    : await promptSelect<"oauth" | "anonymous">({
+        message: "How would you like to sign in?",
+        options: [
+          {
+            value: "oauth",
+            label: "OAuth (browser)",
+            hint: "Sign in to your account (requires an arkor.ai web account)",
+          },
+          {
+            value: "anonymous",
+            label: "Anonymous",
+            hint: "Throwaway token, no account",
+          },
+        ],
+        initialValue: "anonymous",
+      });
+
+  if (mode === "anonymous") {
     await runAnonymousLogin();
     return;
   }
 
   await runAuth0Login(
     {
-      auth0Domain: cfg.auth0Domain,
-      clientId: cfg.clientId,
-      audience: cfg.audience,
+      auth0Domain: cfg.auth0Domain!,
+      clientId: cfg.clientId!,
+      audience: cfg.audience!,
       callbackPorts: cfg.callbackPorts,
     },
     options,

@@ -46,6 +46,45 @@ describe("ensureCredentialsForStudio", () => {
     expect(await readCredentials()).toEqual(creds);
   });
 
+  // When OAuth is advertised by the deployment, `arkor dev` no longer
+  // hands off to `runLogin` — that would block the Studio launch on a
+  // browser flow. Instead we bootstrap anon and show a hint pointing at
+  // `arkor login`, leaving the upgrade in the user's hands.
+  it("bootstraps anonymous credentials even when OAuth is configured", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response(
+          JSON.stringify({
+            token: "anon-tok",
+            anonymousId: "anon-aid",
+            kind: "cli",
+            personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await ensureCredentialsForStudio();
+    expect(await readCredentials()).toMatchObject({
+      mode: "anon",
+      token: "anon-tok",
+    });
+  });
+
   it("bootstraps anonymous credentials when Auth0 isn't configured", async () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);

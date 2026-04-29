@@ -14,7 +14,6 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 import { buildStudioApp } from "../../studio/server";
-import { runLogin } from "./login";
 import { ui } from "../prompts";
 
 export interface DevOptions {
@@ -26,13 +25,14 @@ export interface DevOptions {
  * Best-effort credential bootstrap before the Studio server starts.
  *
  *  - If credentials already exist → no-op.
- *  - If Auth0 is configured → run the interactive PKCE login (fatal on
- *    failure: Auth0 mode requires reaching the cloud-api to know which
- *    tenant to authorize against).
- *  - Otherwise → try to acquire an anonymous token. On network failure,
- *    warn and continue: the Studio server is built with `autoAnonymous`
- *    enabled, so it will retry on the first `/api/credentials` hit. This
- *    keeps `arkor dev` usable when the cloud-api is momentarily down.
+ *  - Otherwise → always acquire an anonymous token. When the deployment
+ *    advertises OAuth, surface a hint pointing at `arkor login` so the user
+ *    can upgrade to a real session whenever they want, but don't block the
+ *    Studio launch on it.
+ *  - On anonymous-bootstrap network failure, warn and continue: the Studio
+ *    server is built with `autoAnonymous` enabled, so it will retry on the
+ *    first `/api/credentials` hit. This keeps `arkor dev` usable when the
+ *    cloud-api is momentarily down.
  */
 export async function ensureCredentialsForStudio(): Promise<void> {
   if (await readCredentials()) return;
@@ -45,19 +45,22 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     deploymentModeKnown = true;
   } catch {
     // cfg null + deploymentModeKnown=false → we couldn't even determine
-    // whether the deployment requires Auth0. See the catch below for why
+    // whether the deployment offers OAuth. See the catch below for why
     // that matters for the bootstrap recovery decision.
   }
 
-  if (cfg?.auth0Domain && cfg.clientId && cfg.audience) {
-    ui.log.info("No credentials on file — launching `arkor login`.");
-    await runLogin();
-    return;
-  }
-
-  ui.log.info(
-    "No credentials on file and Auth0 isn't configured — requesting an anonymous token.",
+  const oauthAvailable = Boolean(
+    cfg?.auth0Domain && cfg.clientId && cfg.audience,
   );
+  if (oauthAvailable) {
+    ui.log.info(
+      "No credentials on file — bootstrapping an anonymous session. Run `arkor login` to sign in to your account instead.",
+    );
+  } else {
+    ui.log.info(
+      "No credentials on file — requesting an anonymous token.",
+    );
+  }
   try {
     const anon = await requestAnonymousToken(baseUrl, "cli");
     const creds: AnonymousCredentials = {
@@ -82,13 +85,12 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     //    also keep failing on retry.
     //
     // 2. `deploymentModeKnown` guards against silently starting a broken
-    //    Studio against an Auth0-only deployment. If fetchCliConfig itself
-    //    failed, we don't know whether `/v1/auth/anonymous` is even
-    //    enabled on this cloud-api. Server-side retry on /api/credentials
-    //    would hit the same anon endpoint and get a permanent rejection
-    //    instead of being routed back to the interactive `runLogin`. Fail
-    //    fast so the user sees the real cause and can re-run once
-    //    connectivity is back.
+    //    Studio when we couldn't reach the cloud-api at all. If
+    //    `fetchCliConfig` itself failed we don't know whether
+    //    `/v1/auth/anonymous` is even enabled on this deployment, so the
+    //    server-side retry on `/api/credentials` could keep failing
+    //    indefinitely. Fail fast so the user sees the real cause and can
+    //    re-run once connectivity is back.
     const isTransportFailure =
       err instanceof TypeError && err.message === "fetch failed";
     if (!isTransportFailure || !deploymentModeKnown) {
