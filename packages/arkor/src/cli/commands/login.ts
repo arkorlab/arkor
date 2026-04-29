@@ -16,7 +16,7 @@ import { acquireAnonymousTokenResult } from "../anonymous";
 import { promptSelect, ui } from "../prompts";
 
 export interface LoginOptions {
-  /** Force the OAuth (Auth0) flow even if `--anonymous` would otherwise be selected interactively. */
+  /** Force the OAuth browser flow even if `--anonymous` would otherwise be selected interactively. */
   oauth?: boolean;
   anonymous?: boolean;
   /** Skip opening the browser (prints the URL instead). Useful for headless environments. */

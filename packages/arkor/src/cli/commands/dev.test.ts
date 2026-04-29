@@ -85,7 +85,7 @@ describe("ensureCredentialsForStudio", () => {
     });
   });
 
-  it("bootstraps anonymous credentials when Auth0 isn't configured", async () => {
+  it("bootstraps anonymous credentials when OAuth isn't configured", async () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
@@ -150,11 +150,11 @@ describe("ensureCredentialsForStudio", () => {
   });
 
   // Codex review on PR #10 (round 3) flagged that swallowing transport
-  // failures when fetchCliConfig itself failed is unsafe: in Auth0-only
+  // failures when fetchCliConfig itself failed is unsafe: on OAuth-only
   // deployments we can't tell from a network outage that /v1/auth/anonymous
-  // would have been rejected, and the server-side retry path never re-
-  // enters runLogin. So when cfg fetch fails AND the anon attempt also
-  // transport-fails, we now fail fast.
+  // would have been rejected, and the server-side retry on /api/credentials
+  // would just keep failing. So when cfg fetch fails AND the anon attempt
+  // also transport-fails, we now fail fast.
   it("re-throws when cloud-api is fully unreachable (deployment mode unknown)", async () => {
     globalThis.fetch = vi.fn(async () => {
       throw new TypeError("fetch failed");
@@ -209,6 +209,37 @@ describe("ensureCredentialsForStudio", () => {
     await expect(ensureCredentialsForStudio()).rejects.toThrow(TypeError);
     await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
       /^fetch failed$/,
+    );
+    expect(await readCredentials()).toBeNull();
+  });
+
+  // Codex P1 review on PR #65 — OAuth-only deployments advertise Auth0 in
+  // /v1/auth/cli/config but reject /v1/auth/anonymous. The new "always try
+  // anon first" flow used to leave first-run users on those deployments
+  // with a bare "Failed to acquire anonymous token (4xx)" error and no way
+  // forward. We now wrap the failure with a pointer at `arkor login --oauth`.
+  it("wraps anon-rejected failures with an `arkor login --oauth` hint when OAuth is configured", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response("anonymous tokens disabled", { status: 403 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(
+      /arkor login --oauth/,
     );
     expect(await readCredentials()).toBeNull();
   });

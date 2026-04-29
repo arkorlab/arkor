@@ -53,6 +53,11 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     cfg?.auth0Domain && cfg.clientId && cfg.audience,
   );
   if (oauthAvailable) {
+    // Point at `--oauth` rather than the bare `arkor login`. Anyone who
+    // acts on this message already implicitly accepted the anon path
+    // (they ran `arkor dev` without logging in first); their only reason
+    // to follow up is to upgrade to OAuth, so the interactive picker
+    // would just add friction. Surface the fast path directly.
     ui.log.info(
       "No credentials on file — bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
     );
@@ -73,8 +78,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     await writeCredentials(creds);
     ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
   } catch (err) {
-    // Only swallow transport-level failures, AND only when we positively
-    // confirmed the deployment doesn't require Auth0. Two filters:
+    // Decide whether to swallow the failure or surface it. Two filters:
     //
     // 1. `TypeError("fetch failed")` is undici's contract for transient
     //    transport failures (ECONNREFUSED/ETIMEDOUT/ENOTFOUND/etc.) where
@@ -93,12 +97,28 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     //    re-run once connectivity is back.
     const isTransportFailure =
       err instanceof TypeError && err.message === "fetch failed";
-    if (!isTransportFailure || !deploymentModeKnown) {
-      throw err;
+    if (isTransportFailure && deploymentModeKnown) {
+      ui.log.warn(
+        `Could not reach ${baseUrl} (${err.message}). Studio will keep running and retry on first /api/credentials hit.`,
+      );
+      return;
     }
-    ui.log.warn(
-      `Could not reach ${baseUrl} (${err.message}). Studio will keep running and retry on first /api/credentials hit.`,
-    );
+    // OAuth-only deployments (`/v1/auth/cli/config` advertises Auth0 but
+    // `/v1/auth/anonymous` is disabled) used to be handled by delegating to
+    // `runLogin()` here. The new flow always tries anon first, so a
+    // permanent rejection of `/v1/auth/anonymous` would leave the user with
+    // a bare "Failed to acquire anonymous token (4xx)" error and no way
+    // forward. Wrap the error with an explicit pointer at `arkor login
+    // --oauth` so first-run users on those deployments still have a
+    // discoverable next step.
+    if (!isTransportFailure && oauthAvailable) {
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to bootstrap an anonymous session (${cause}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
+        { cause: err },
+      );
+    }
+    throw err;
   }
 }
 

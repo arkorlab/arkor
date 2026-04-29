@@ -48,7 +48,7 @@ describe("runLogin", () => {
   });
 
   // `--oauth` is an explicit opt-in. If the deployment doesn't advertise
-  // Auth0, silently falling back to anon would mask a misconfiguration the
+  // OAuth, silently falling back to anon would mask a misconfiguration the
   // user is actively asking us to surface. Keep the failure loud.
   it("throws when --oauth is passed but the deployment has no OAuth config", async () => {
     globalThis.fetch = vi.fn(async (input) => {
