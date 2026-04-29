@@ -79,8 +79,14 @@ The "reuse the artifact" path is what lets Studio surface trainer edits via its 
 
 | Message | What it means | Fix |
 | --- | --- | --- |
-| `Training entry not found: <abs-path>. Provide a path or create src/arkor/index.ts.` | The runner could not find the bundle (or the entry override). | Run `arkor build` first, or pass an entry that exists. |
+| `Build entry not found: <abs-path>. Create src/arkor/index.ts or pass an explicit entry argument.` | `arkor start` runs `arkor build` first whenever you pass an entry argument, or whenever `.arkor/build/index.mjs` is missing. A bad entry path surfaces here, not at the runner stage. | Pass an entry that exists, or omit it and rely on the default `src/arkor/index.ts`. |
 | `Training entry must export 'arkor' (from createArkor({...})) or 'trainer' (from createTrainer({...})), or default-export one of them.` | The bundle imported successfully but did not expose any of the supported export shapes. | See [Project structure § `src/arkor/`](/concepts/project-structure#srcarkor) for the three accepted forms (named `arkor`, named `trainer`, or default). |
+
+`runTrainer` (programmatic):
+
+| Message | What it means | Fix |
+| --- | --- | --- |
+| `Training entry not found: <abs-path>. Provide a path or create src/arkor/index.ts.` | Surfaces when the runner is invoked directly (e.g. `import { runTrainer } from "arkor"`) with a path that does not exist. The CLI does not hit this path; `arkor start` would have failed earlier in the build stage. | Pass a path that exists, or `import "./src/arkor/index.ts"` first to catch it at module-load time. |
 
 ## Examples
 
