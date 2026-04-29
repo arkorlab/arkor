@@ -25,7 +25,7 @@ arkor login [options]
 
 | Flag | Description |
 | --- | --- |
-| `--anonymous` | Skip the Auth0 flow and request a throwaway anonymous token. The same token type that `arkor dev` bootstraps for you on a fresh machine. |
+| `--anonymous` | Skip the Auth0 flow and request a throwaway anonymous token. This is also what `arkor dev` falls back to on a fresh machine when the cloud-api reports that Auth0 is not configured for the deployment; on Auth0-configured deployments `arkor dev` runs the PKCE flow instead. |
 | `--no-browser` | Disable the automatic `open(url)` call. The authorization URL is printed in both modes (`Browser: <url>` line); this flag only stops the CLI from launching a browser for you. Useful in headless environments (SSH, Docker). |
 
 ### What happens
