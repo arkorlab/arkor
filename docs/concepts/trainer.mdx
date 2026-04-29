@@ -82,7 +82,7 @@ createTrainer({
 });
 ```
 
-`dryRun: true` tells the backend to validate the trainer end to end without burning real GPU time. Useful in CI or when wiring up callbacks for the first time.
+`dryRun: true` tells the backend to run a minimal end-to-end smoke test of the trainer: the full pipeline (including the training loop) executes against a truncated dataset / capped step count so it finishes quickly. It still uses GPU time, just much less of it. Useful in CI or when wiring up callbacks for the first time.
 
 ## What `createTrainer` returns
 
@@ -95,13 +95,13 @@ interface Trainer {
 }
 ```
 
-- **`start()`** kicks off the run on the managed backend and resolves with the assigned `jobId`. It does not wait for completion.
-- **`wait()`** returns once the run finishes (or fails). All registered callbacks fire while it is in flight; this is how you observe the run.
-- **`cancel()`** asks the backend to stop the run. Safe to call after the run already finished.
+- **`start()`** submits the job to the managed backend and resolves with the assigned `jobId`. It does not wait for completion, and it does **not** dispatch any callbacks on its own.
+- **`wait()`** opens the SSE event stream for the run and returns once the run finishes (or fails). All registered callbacks fire from inside `wait()`; if you call `start()` without later calling `wait()`, no callbacks ever run.
+- **`cancel()`** asks the backend to stop the run. This is a best-effort request: the backend may return an error if the run is already in a terminal state (completed, failed, or already cancelled), so be prepared to catch.
 
-`pnpm dev` (which is `arkor dev` underneath) and `arkor start` both call `start()` and `wait()` for you. You only call them directly if you wire training into your own code outside the CLI.
+`arkor start` calls `start()` and `wait()` for you (it is what Studio's "Run training" button spawns under the hood). `arkor dev` does **not** run the trainer; it only boots the Studio UI. Call `start()` and `wait()` directly only if you wire training into your own code outside the CLI.
 
-## Cancellation with `AbortSignal`
+## Stopping `wait()` with `AbortSignal`
 
 ```ts
 const controller = new AbortController();
@@ -116,7 +116,16 @@ const trainer = createTrainer({
 controller.abort();
 ```
 
-Aborting the signal is equivalent to calling `cancel()`. Useful when you want to tie the run to a timeout, a request lifetime, or a parent process that exits.
+`abortSignal` is **only** about your local `wait()`: aborting it stops the SSE event-stream fetch and any retry / backoff delays inside `wait()`, so `wait()` returns and your process can move on. It does **not** call `cancel()` and does **not** ask the backend to stop the run; the job keeps using GPU time on the managed side.
+
+If you want to actually stop training (and the cost), call `trainer.cancel()` separately:
+
+```ts
+controller.abort();          // stops your local wait() loop
+await trainer.cancel();      // asks the backend to stop the job
+```
+
+Use `abortSignal` for "I no longer care about waiting on this run" (a request timed out, a parent process is exiting). Use `cancel()` for "stop the run on the backend".
 
 ## Reacting to events
 

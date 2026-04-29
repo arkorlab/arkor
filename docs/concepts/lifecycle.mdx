@@ -21,10 +21,13 @@ createTrainer({
 ## When each callback fires
 
 ```
-.start()
+.start()                 ── submits the job, returns { jobId }. No callbacks here.
    │
    ▼
-onStarted ─── once, when the backend accepts the job
+.wait()                  ── opens the SSE event stream. Callbacks dispatch from here.
+   │
+   ▼
+onStarted ─── once, when the stream reports `training.started`
    │
    ▼
 onLog     ─── many times, once per training-step batch of metrics
@@ -38,13 +41,15 @@ or
 onFailed     ── once, on backend-reported failure
 ```
 
+All five callbacks are dispatched from inside `wait()`. If you call `start()` without later calling `wait()`, **no callbacks fire**, even though the run is still happening on the backend. `arkor start` calls `wait()` for you; if you wire training into your own code outside the CLI, make sure you do too.
+
 `onCompleted` and `onFailed` are mutually exclusive: exactly one of the two fires per run.
 
 Returning a promise from any callback is fine. Arkor awaits it before moving on, so you can do async work (writing to a database, posting to Slack, calling `infer`) without races.
 
 ## `onStarted({ job })`
 
-Fires once, after `start()` returns and the backend accepts the job.
+Fires once, when the SSE stream opened by `wait()` reports a `training.started` event. Note that this is not the same moment `start()` resolves: `start()` only submits the job and returns its `jobId`.
 
 ```ts
 onStarted: ({ job }) => {
@@ -113,7 +118,7 @@ onFailed: ({ job, error }) => {
 },
 ```
 
-A thrown exception inside one of your other callbacks does not trigger `onFailed`; that is for backend-side failures only. Callback exceptions surface through `wait()` instead.
+`onFailed` is for backend-reported failures only. A thrown exception inside one of your own callbacks does **not** route through `onFailed`, and it is also not guaranteed to fail `wait()` cleanly: the current runtime catches errors thrown during event dispatch and treats them as SSE failures, which feed into the reconnect loop. The original exception can end up retried or skipped rather than surfacing where you would expect. If you need deterministic behavior, catch errors inside the callback and decide what to do (log, abort, persist) before they escape.
 
 ## A complete example
 
