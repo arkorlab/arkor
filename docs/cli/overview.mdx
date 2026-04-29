@@ -1,18 +1,37 @@
 ---
 title: "CLI"
-description: "The Arkor CLI: dev, build, start, and friends."
+description: "The arkor CLI: full command reference."
 ---
 
 # CLI
 
-{/* TODO: write the real CLI reference.
+The `arkor` CLI is the command surface around an Arkor project. The scaffolder ([`pnpm create arkor`](/quickstart)) installs `arkor` as a local devDependency, so prefer `npx arkor <command>` (or `pnpm exec arkor <command>` / `yarn arkor <command>` / `bun arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally.
 
-Commands to document:
-- `arkor init`
-- `arkor login` / `arkor logout` / `arkor whoami`
-- `arkor dev` (Studio at http://localhost:4000, hot reload)
-- `arkor build` (bundle to .arkor/build/index.mjs)
-- `arkor start` (run the build artifact)
+## Commands
 
-Note the Next.js-style dev/build/start triad. The older train/jobs/logs commands have been removed.
-*/}
+| Command | What it does |
+| --- | --- |
+| [`arkor init`](/cli/init) | Scaffold `src/arkor/index.ts` + `arkor.config.ts` in the current directory. |
+| [`arkor dev`](/cli/dev) | Launch [Studio](/concepts/studio) on `http://localhost:4000` (configurable). |
+| [`arkor build`](/cli/build-and-start) | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`. |
+| [`arkor start`](/cli/build-and-start) | Run the build artifact (auto-builds when missing). |
+| [`arkor login`](/cli/auth) | Sign in via Auth0 PKCE on loopback, or `--anonymous` for a throwaway token. |
+| [`arkor logout`](/cli/auth) | Delete `~/.arkor/credentials.json`. |
+| [`arkor whoami`](/cli/auth) | Print the current identity and reachable orgs. |
+
+## Conventions across commands
+
+- **`--help` / `-h`** is available on every command; `arkor <command> --help` prints the flag list and usage.
+- **`arkor --version` / `-V`** prints the installed SDK version (the same `SDK_VERSION` the package exports).
+- **Exit codes.** Successful commands exit 0. Failures throw and the process exits non-zero. `arkor whoami` exits 1 specifically when the cloud-api returns 426 (the SDK is too old; it prints the upgrade command before exiting).
+- **Telemetry.** Every command runs through a small instrumentation wrapper so usage events can be sent to PostHog. Set `DO_NOT_TRACK=1` to disable telemetry, or `ARKOR_TELEMETRY_DEBUG=1` to log the events that would be sent. There is no separate flag.
+- **Deprecation notices.** When the cloud-api responds with `Deprecation` / `Sunset` / `Warning` headers, the CLI prints a one-line warning at the end of the run with the suggested upgrade command.
+
+## Project versus user state
+
+Two locations matter, and the CLI reads / writes both:
+
+- **`.arkor/`** (per-project, gitignored): `state.json` (project routing) and `build/index.mjs` (the bundled trainer).
+- **`~/.arkor/`** (per-user): `credentials.json` (auth) and `studio-token` (per-launch CSRF token, transient).
+
+See [Project structure](/concepts/project-structure) for the file-by-file rundown.

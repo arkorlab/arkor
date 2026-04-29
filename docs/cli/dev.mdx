@@ -1,0 +1,58 @@
+---
+title: "arkor dev"
+description: "Launch Arkor Studio locally."
+---
+
+# `arkor dev`
+
+```bash
+npx arkor dev
+```
+
+Boots [Studio](/concepts/studio), the local web UI, on `http://localhost:4000`. Studio is where you click **Run training** to spawn `arkor start` against your `src/arkor/index.ts`, watch the run stream in, and chat with the resulting adapter in the Playground.
+
+`arkor dev` itself does **not** start a training run; it only serves the UI plus a small loopback API the SPA talks to.
+
+## Synopsis
+
+```
+arkor dev [options]
+```
+
+## Options
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-p, --port <port>` | `4000` | Port to bind. The displayed URL uses `localhost`, but the listener binds `127.0.0.1` directly so it cannot end up IPv6-only on hosts where `/etc/hosts` lists `::1` before `127.0.0.1`. Non-numeric values fall back to `4000`. |
+| `--open` | off | Open the Studio URL in a browser after the server is up. |
+
+## What happens at launch
+
+1. **Credential bootstrap.** If `~/.arkor/credentials.json` does not exist, the CLI calls `/v1/auth/cli-config` on the cloud-api. If Auth0 is configured for the deployment, it forwards to `arkor login` (interactive PKCE). Otherwise it requests an anonymous token and writes the credentials. On a transient network failure (only when the deployment mode is positively known) it warns and continues; the Studio server retries on the first `/api/credentials` hit.
+2. **CSRF token.** A 32-byte token (base64url, ~43 chars) is generated for this launch. It is injected into `index.html` as `<meta name="arkor-studio-token">` so the same-origin SPA can read it. Cross-origin tabs cannot read the meta and are rejected by the `/api/*` middleware.
+3. **Token persistence (best-effort).** The same token is written to `~/.arkor/studio-token` (mode `0600`) so the studio-app Vite dev server (`pnpm --filter @arkor/studio-app dev`) can pick it up. If writing fails (read-only `$HOME`, locked-down umask), `arkor dev` continues; only the standalone Vite dev workflow is affected.
+4. **Listener.** Hono on `127.0.0.1:<port>`. The `Host` header guard accepts both `127.0.0.1` and `localhost`, so the URL the CLI prints (`http://localhost:<port>`) works without surprising DNS-rebinding fallout.
+
+When the process exits (normal exit, `SIGINT`, `SIGTERM`, or `SIGHUP`) the studio-token file is removed on a best-effort basis. A crash can leave the file on disk; the next `arkor dev` rotates it.
+
+## Loopback + CSRF: the security model in one paragraph
+
+The Studio server enforces three checks on every `/api/*` request:
+
+1. The `Host` header must be `127.0.0.1` or `localhost` (defense against DNS rebinding).
+2. The CSRF token must be present, either as the `X-Arkor-Studio-Token` header or `?studioToken=...` (used by `EventSource`, which cannot send custom headers). Token comparison is `timingSafeEqual`.
+3. CORS is intentionally not configured: the SPA is same-origin so CORS adds no value, and reflecting `*` would let "simple" cross-origin POSTs (`text/plain`, `urlencoded`) skip preflight. Without a token, the middleware rejects them.
+
+This means `arkor dev` is safe on a shared dev machine: another tab cannot read the meta, a stale tab from a previous launch holds an old token that no longer matches, and an attacker page in a different origin cannot forge requests.
+
+## Examples
+
+Default port:
+```bash
+npx arkor dev
+```
+
+Custom port + auto-open:
+```bash
+npx arkor dev --port 5000 --open
+```

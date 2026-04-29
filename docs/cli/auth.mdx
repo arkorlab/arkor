@@ -1,0 +1,98 @@
+---
+title: "arkor login / logout / whoami"
+description: "Sign in to Arkor's managed backend, sign out, and inspect the current identity."
+---
+
+# `arkor login`, `arkor logout`, `arkor whoami`
+
+Three short commands that read or write `~/.arkor/credentials.json`. None of them touches `.arkor/state.json`; project routing is set up separately by the runtime on the first `trainer.start()` (anonymous workspaces) or by `arkor init` (Auth0 workspaces).
+
+## `arkor login`
+
+```bash
+npx arkor login
+```
+
+Sign in to the managed backend. The default flow is Auth0 Authorization Code + PKCE on a loopback callback, falling back to an anonymous session when the cloud-api reports that Auth0 is not configured.
+
+### Synopsis
+
+```
+arkor login [options]
+```
+
+### Options
+
+| Flag | Description |
+| --- | --- |
+| `--anonymous` | Skip the Auth0 flow and request a throwaway anonymous token. The same token type that `arkor dev` bootstraps for you on a fresh machine. |
+| `--no-browser` | Print the authorization URL instead of opening a browser. Useful in headless environments (SSH, Docker). |
+
+### What happens
+
+1. The CLI calls `/v1/auth/cli-config` on the cloud-api to read the deployment's Auth0 settings.
+2. If Auth0 is not configured (or `--anonymous` is passed), it requests an anonymous token from `/v1/auth/anonymous` and writes it to `~/.arkor/credentials.json` with `mode: "anon"`.
+3. If Auth0 is configured, it generates a PKCE pair, starts a loopback HTTP server on one of the cloud-api-provided callback ports, opens (or prints) the authorize URL, and waits for the callback. State is verified before exchanging the code for tokens; a mismatch aborts to prevent CSRF. The resulting Auth0 tokens are written to `~/.arkor/credentials.json` with `mode: "auth0"`.
+
+The loopback server is closed in a `finally` block so it does not stick around if login fails.
+
+### Anonymous mode in one paragraph
+
+Anonymous credentials let you try Arkor without an account: training runs, jobs, and any work you do are tied to the local machine via the anonymous token. Switching to Auth0 later (`arkor login`) replaces the credentials file but does not migrate the work; if you want to keep what you trained anonymously, run `arkor login` before you start the run.
+
+## `arkor logout`
+
+```bash
+npx arkor logout
+```
+
+Deletes `~/.arkor/credentials.json`. Prompts for confirmation by default.
+
+### Synopsis
+
+```
+arkor logout [options]
+```
+
+### Options
+
+| Flag | Description |
+| --- | --- |
+| `-y, --yes` | Skip the confirmation prompt. |
+
+### Behavior
+
+- If the credentials file does not exist, the CLI logs `No credentials on file.` and exits.
+- If the user declines the prompt, the CLI logs `Aborted.` and exits without deleting.
+- `arkor logout` does not touch `.arkor/state.json` or the `.arkor/build/` artifact. To start fully fresh, remove `.arkor/` manually as well.
+
+## `arkor whoami`
+
+```bash
+npx arkor whoami
+```
+
+Prints the current identity from `/v1/me` on the cloud-api, plus the org slugs you can reach.
+
+### Synopsis
+
+```
+arkor whoami
+```
+
+No flags.
+
+### Output
+
+When signed in, the command prints the JSON `user` object pretty-printed, then a single `Orgs: <slug>, <slug>, …` line if the response includes any. When `~/.arkor/credentials.json` is missing, it prints `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.` and exits.
+
+### Exit codes
+
+- `0`: signed in, identity printed.
+- `0`: not signed in; the message is informational only.
+- `1`: the cloud-api returned `426 Upgrade Required`. The CLI prints the upgrade hint (and the upgrade command for your detected package manager) and sets `process.exitCode = 1` so the deprecation-warning flush in `arkor`'s shutdown hook still runs before the process exits.
+- Other 4xx / 5xx are reported as `Failed to fetch /v1/me (<status>). Token may be expired.` and exit `0`.
+
+## Where the credentials live
+
+Both modes write to the same file at `~/.arkor/credentials.json` and are tagged with a `mode` field of either `"auth0"` or `"anon"` so the rest of the CLI (and the Studio server) knows which path to use. See [Project structure](/concepts/project-structure) for the full layout.
