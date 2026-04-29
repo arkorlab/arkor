@@ -1,0 +1,60 @@
+---
+title: "Run training and watch jobs"
+description: "Studio's Home and Job detail pages: trigger a run, watch it stream, inspect a single job."
+---
+
+# Run training and watch jobs
+
+Studio's Home page (`#/`) is split into two columns: **Run training** on the left, the **Jobs list** on the right. Clicking a job in the list navigates to **Job detail** (`#/jobs/:id`), which is where the live event stream and the loss chart live.
+
+## Run training
+
+The Run training panel calls `/api/manifest` once when the page loads. The response is the project's `createArkor({ trainer })` summary, which the panel uses to label the action:
+
+- `Run training: <trainer name>` once a trainer is found.
+- `No trainer in src/arkor/index.ts yet. Add createTrainer(...) and pass it to createArkor.` if the bundle imported but exposed nothing.
+- `Couldn't read manifest: <error>` if the build itself failed (typo in `src/arkor/`, etc.).
+
+The button is disabled while a run is in flight and while no trainer has resolved.
+
+When you click it, Studio sends `POST /api/train`. The backend spawns `arkor start` in a subprocess and streams its stdout / stderr back as raw text. The pre-formatted log box auto-scrolls; what you see is exactly what the spawned `arkor start` would print in a terminal.
+
+There is no input form for picking the trainer or passing flags: Studio always runs the trainer registered through `createArkor`, and `arkor start` reuses `.arkor/build/index.mjs` if it already exists. Edits to `src/arkor/` are not picked up automatically across multiple clicks on the same page; reload the Run training page (or run `npx arkor build` from a terminal) between edits and the next click. See [CLI § build / start](/cli/build-and-start) for the precise rebuild rules.
+
+## Jobs list
+
+The Jobs list polls `GET /api/jobs` once at mount, then every 5 seconds. There is no manual refresh button; the interval is fixed.
+
+| Column | Source |
+| --- | --- |
+| Status | `Job.status` (`queued` / `running` / `completed` / `failed` / `cancelled`). The cell carries a CSS class for colouring. |
+| Name | `Job.name`. Links to `#/jobs/<id>`. |
+| Created | `new Date(Job.createdAt).toLocaleString()`. |
+| ID | `Job.id`, monospaced. |
+
+The list shows whatever order the backend returned. There is no client-side filter, search, or pagination. When the project has no jobs yet, the panel reads `No jobs yet.`.
+
+## Job detail
+
+`#/jobs/:id` opens a Server-Sent Events connection to `GET /api/jobs/:id/events` via `EventSource`. The page listens for five named events plus a stream sentinel:
+
+| Event | Effect on the page |
+| --- | --- |
+| `training.started` | Status flips to `running`. The raw line `[started] <data>` is appended to the event log. |
+| `training.log` | The `step` and `loss` are appended to the loss chart's data array. The raw line `[log] step=<n> loss=<value>` joins the event log. |
+| `checkpoint.saved` | Raw line `[checkpoint] <data>` joins the event log. The chart is not affected. |
+| `training.completed` | Status flips to `completed`. Artifact count is shown below the status (`artifacts: <n>`). |
+| `training.failed` | Status flips to `failed`. The error message from the event payload is shown beneath the status. |
+| `end` | The page closes the EventSource. No reconnect. |
+
+Stream errors append `[stream error]` to the log; reconnect is left to the browser's `EventSource` retry behaviour.
+
+The event log keeps only the **last 50 lines** (older lines drop off as new ones arrive). It is a raw `<pre>` block, intended for quick inspection rather than full forensic logs; for the complete history, look at the cloud-api directly.
+
+The loss chart is a single SVG path (`640 × 200`) drawn from `training.log` events that include a numeric `loss`. It uses min-max scaling on the y-axis and the step number on the x-axis. There is no zoom, no tooltip, and no export. If no `training.log` event has arrived yet, the chart slot reads `No training.log events yet.`.
+
+## Things this page does not do
+
+- **No cancel button.** To stop a running job, call [`trainer.cancel()`](/sdk/trainer-control#cancel) from your own code that drives the trainer. Studio does not expose this in the UI today.
+- **No artifact browser.** The page reports the artifact count for completed jobs but does not list or link to individual artifacts. For full artifact access, use the cloud-api or the SDK's `onCompleted({ artifacts })` callback during the run.
+- **No mid-run inference.** The Playground is for completed jobs only (see [Playground](/studio/playground)). For live inspection during a run, use the SDK's [`onCheckpoint({ infer })`](/sdk/callbacks).

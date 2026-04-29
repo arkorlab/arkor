@@ -53,6 +53,14 @@
         ]
       },
       {
+        "group": "Studio",
+        "pages": [
+          "studio/overview",
+          "studio/jobs",
+          "studio/playground"
+        ]
+      },
+      {
         "group": "Cookbook",
         "pages": [
           "cookbook/overview",

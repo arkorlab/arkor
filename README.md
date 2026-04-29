@@ -11,7 +11,7 @@
 
 <p align="center">
   Ship custom open-weight models the same way you ship your TypeScript app.
-  Type-safe configs, hot reload, a local Studio (web UI) to start and watch runs, and managed GPUs.
+  Type-safe configs, a local Studio (web UI) to start and watch runs, and managed GPUs.
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@
 </p>
 
 > [!WARNING]
-> Arkor is **alpha** (`0.0.1-alpha.3`). APIs change without notice. We're shipping in public, and feedback shapes what lands next.
+> Arkor is **alpha**. APIs change without notice. We're shipping in public, and feedback shapes what lands next.
 
 <!--
   Demo media goes here once recorded:
@@ -46,7 +46,7 @@ pnpm dev
 ```
 
 **No signup required:** 
-`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`, and silently bootstraps an anonymous workspace so you can fire off a real training run right away. 
+`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it either signs you in (if your deployment has Auth0 configured) or silently provisions an anonymous workspace, so you can fire off a real training run right away. 
 
 Run `arkor login` later if you want to claim your work under an account.
 
@@ -70,7 +70,7 @@ Arkor stands on that foundation.
 
 What we wanted, and didn't find, was a path that fits how TypeScript and Node developers already work: a workflow where fine-tuning, evaluation, and serving live in the same codebase as the product, with the same editor, types, and review flow. 
 
-Type-safe configs instead of separate config files. Hot reload over your training code. A local Studio for the dev loop.
+Type-safe configs instead of separate config files. A local Studio for the dev loop.
 
 The phrase we keep coming back to: **ship the model the same way you ship the product.** If that sounds right, you're the audience.
 
@@ -81,7 +81,7 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 - [x] **React to training in code, not in a dashboard.** Lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) fire as the run streams from the cloud, fully typed.
 - [x] **Sanity-check the model before the run finishes.** Inside `onCheckpoint`, call `infer({ messages })` against the model as it's being trained.
 - [x] **Watch the run in a local Studio.** `arkor dev` opens a UI with a jobs list, live loss chart, log tail, and a Playground for chatting with your fine-tuned models.
-- [x] **Try it without an account.** Anonymous workspace by default; run `arkor login` (Auth0 PKCE) to claim your work later.
+- [x] **Try it without an account.** When the deployment has no Auth0 configured, `arkor dev` provisions an anonymous workspace silently. On Auth0-configured deployments, `arkor login` runs PKCE and attaches the work to your account; without Auth0 it simply re-issues an anonymous session.
 
 ## What's coming next
 
@@ -94,7 +94,7 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 ### SDK and CLI
 
 - [ ] **Train on a local GPU.** Today every run goes to Arkor's managed GPUs.
-- [ ] **Bring your own dataset.** Any HuggingFace name, a JSONL file, or a blob URL.
+- [ ] **Bring your own dataset from a JSONL file.** Today, any HuggingFace name and any blob URL (with optional auth token) already work.
 - [ ] **More base models beyond Gemma.**
 
 ### Studio
@@ -140,8 +140,6 @@ export const arkor = createArkor({ trainer });
 `src/arkor/index.ts` is the file the CLI and Studio look for. 
 Your `trainer` lives in a sibling file and is registered through `createArkor`.
 
-To add another trainer, drop a file and register it; no scaffolder rerun needed.
-
 <!--
   Studio screenshots go here once captured:
     - assets/studio-jobs.png        Jobs list
@@ -167,7 +165,7 @@ my-arkor-app/
 | ------------------------------------ | ---------------------------------------------------------------------- |
 | `arkor init`                         | Scaffold a new project in the current directory                        |
 | `arkor login` / `logout` / `whoami`  | Auth0 PKCE / anonymous tokens                                          |
-| `arkor dev`                          | Launch the local Studio web UI (with hot reload)                       |
+| `arkor dev`                          | Launch the local Studio web UI                                         |
 | `arkor build`                        | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`                |
 | `arkor start`                        | Run the build artifact (auto-builds when missing)                      |
 
@@ -175,7 +173,7 @@ my-arkor-app/
 
 ## Architecture
 
-`arkor dev` boots a [Hono](https://hono.dev) server on `127.0.0.1:4000` that hot-reloads your code and serves a Vite + React SPA from the same origin. 
+`arkor dev` boots a [Hono](https://hono.dev) server on `127.0.0.1:4000` that serves a Vite + React SPA from the same origin. 
 
 The SPA talks to your code via per-launch CSRF-token-gated `/api/*` routes (loopback-only, with a `Host` header guard against DNS rebinding); your code talks to the Arkor training backend over authenticated HTTPS. 
 
@@ -196,13 +194,12 @@ Works with pnpm / npm / yarn / bun.
 
 ## We're shipping in public
 
-Arkor is alpha, and the core idea (TypeScript-native fine-tuning for product engineers) is something we want to design *with* the people who'd use it. If that's you:
+Arkor is alpha, and the core idea (TypeScript-native fine-tuning for product engineers) is something we want to design *with* the people who'd use it. 
+If that's you:
 
 - **[File an issue](https://github.com/arkorlab/arkor/issues/new)** with the model + dataset + workflow you wish worked. We read everything.
 - **Star the repo** if you want updates as we move toward `0.1`.
 - **[Join Discord](https://discord.gg/YujCZYGrEZ)** for live discussion and early-access pings.
-
-We're especially curious about: which open-weight base models you'd reach for first, which datasets you'd point Arkor at, where you'd want the trained model to run, and what breaks when you try the alpha.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 

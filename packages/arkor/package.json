@@ -34,13 +34,14 @@
   },
   "files": [
     "dist",
+    "docs",
     "CONTRIBUTING.md"
   ],
   "engines": {
     "node": ">=22.6"
   },
   "scripts": {
-    "build": "pnpm --filter @arkor/studio-app bundle && tsc -p tsconfig.build.json --noEmit && tsdown && node scripts/copy-studio-assets.mjs && node scripts/copy-root-files.mjs",
+    "build": "pnpm --filter @arkor/studio-app bundle && tsc -p tsconfig.build.json --noEmit && tsdown && node scripts/copy-studio-assets.mjs && node scripts/copy-root-files.mjs && node scripts/copy-docs.mjs",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
