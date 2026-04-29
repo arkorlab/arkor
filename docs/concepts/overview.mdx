@@ -1,16 +1,19 @@
 ---
 title: "Concepts"
-description: "The mental model behind Arkor: trainer, deploy, eval, and the Studio dev loop."
+description: "The mental model behind Arkor: project layout, trainer, lifecycle callbacks, and Studio."
 ---
 
 # Concepts
 
-{/* TODO: write the real concepts overview.
+This section gives you the mental model you need before diving into the [SDK reference](/sdk/overview) or [CLI reference](/cli/overview). Read these in order; each builds on the previous.
 
-Topics to cover:
-- `createArkor({ trainer, deploy, eval })` umbrella and what each slot is for
-- `createTrainer({ ... })` and its lifecycle callbacks (onStarted, onLog, onCheckpoint, onCompleted, onFailed)
-- The `src/arkor/index.ts` entry point that the CLI and Studio discover
-- Where state lives (`.arkor/`) and what `arkor build` produces
-- Managed GPUs vs (future) local GPUs
-*/}
+## What to read
+
+- [**Project structure**](/concepts/project-structure). Where Arkor expects code to live (`src/arkor/index.ts`, `src/arkor/trainer.ts`), what `.arkor/` and `~/.arkor/` are for, and what `arkor.config.ts` does (and does not) do today.
+- [**Trainer**](/concepts/trainer). The shape of `createTrainer`: required fields, dataset sources, LoRA settings, and the `Trainer.start / wait / cancel` lifecycle.
+- [**Lifecycle callbacks**](/concepts/lifecycle). The five callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`), their argument shapes, and when each fires. This is where most of the value of doing fine-tuning in TypeScript lives.
+- [**Studio**](/concepts/studio). What the local web UI is for, why it runs on loopback, and how it fits into the dev loop.
+
+## The one-paragraph version
+
+You define a `Trainer` with `createTrainer({ name, model, dataset, ... })` in `src/arkor/trainer.ts` and register it through `createArkor({ trainer })` in `src/arkor/index.ts`. `arkor dev` opens a local Studio in the browser; clicking **Run training** in Studio spawns `arkor start`, which calls `trainer.start()` and `trainer.wait()`. While `wait()` is open, callbacks dispatch from the SSE event stream, training streams from Arkor's managed GPUs, and the same view is reflected back into Studio.

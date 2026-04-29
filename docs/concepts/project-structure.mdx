@@ -1,0 +1,90 @@
+---
+title: "Project structure"
+description: "Where Arkor expects your code, and what lives in .arkor/ and ~/.arkor/."
+---
+
+# Project structure
+
+A scaffolded Arkor project looks like this:
+
+```
+my-arkor-app/
+├── src/arkor/
+│   ├── index.ts        # createArkor({ trainer })
+│   └── trainer.ts      # createTrainer({ ... })
+├── arkor.config.ts
+├── .arkor/             # per-project state (gitignored)
+└── package.json        # dev / build / start
+```
+
+Two layers of state matter beyond your source: `.arkor/` (per-project, in the repo) and `~/.arkor/` (per-user, in your home directory).
+
+## `src/arkor/`
+
+Arkor discovers your project by looking for `src/arkor/index.ts`. That file should expose the result of `createArkor()`. The CLI accepts three export shapes (in priority order):
+
+1. **`export const arkor = createArkor({ trainer })`** (preferred, what the templates produce).
+2. **`export const trainer = createTrainer({ ... })`** as a power-user shortcut when you do not need the umbrella.
+3. **A default export** holding either an `Arkor` manifest or a `Trainer`.
+
+```ts
+// src/arkor/index.ts (preferred shape)
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+The trainer itself lives in a sibling file by convention so `index.ts` stays thin:
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+You can split the trainer further (helpers, prompt builders) however you want; only `index.ts` needs to be at the canonical path.
+
+To register additional trainers in the future, drop more files and pass them through `createArkor`. Today the API accepts a single `trainer`; `deploy` and `eval` slots are reserved on the type but not yet implemented.
+
+## `arkor.config.ts`
+
+`pnpm create arkor` generates a default `arkor.config.ts`:
+
+```ts
+// arkor.config.ts
+export default {};
+```
+
+It is currently a placeholder. The runtime does not read fields from it yet. All training defaults live on the `Trainer` itself (`maxSteps`, `learningRate`, `lora`, etc.) so you control them per-trainer rather than at the project level. Leave the file alone unless you have a reason to delete it.
+
+## `.arkor/` (per-project, gitignored)
+
+You should not commit this directory.
+
+- **`.arkor/state.json`**. Project routing: `orgSlug`, `projectSlug`, `projectId`. This is how the runtime maps your local repo to a workspace on the managed backend. The file is created by `ensureProjectState()`, which is called the first time you run training (or hit base-model inference) on the project. For **anonymous** workspaces it is auto-created on that first call. For **Auth0** users the runtime errors out and asks you to run `arkor init` first. Do not edit by hand.
+- **`.arkor/build/index.mjs`**. Output of `arkor build`: an esbuild bundle of `src/arkor/index.ts` targeting Node 22.6 with bare specifiers kept external. `arkor start` runs this.
+
+## `~/.arkor/` (per-user)
+
+Lives in your home directory, shared across all Arkor projects on the machine.
+
+- **`~/.arkor/credentials.json`**. Auth state. Either an Auth0 token (after `arkor login`) or an anonymous token (created on first use if you never logged in). The file is tagged with a `mode` field of `"auth0"` or `"anon"` so the CLI knows which path you are on. `arkor login` writes only this file; it does **not** create `.arkor/state.json`.
+- **`~/.arkor/studio-token`** (transient). A per-launch CSRF token written by `arkor dev` (mode `0600`). Used by Studio to authorize calls back into the CLI's local server. Rotated on every `arkor dev` run.
+
+`arkor logout` deletes `credentials.json`. The studio token is removed on process exit on a best-effort basis (it may linger if `arkor dev` crashes) and is rotated on the next launch.
+
+## What the CLI looks for
+
+- `arkor dev` starts the Studio web server at `127.0.0.1:4000` and writes `~/.arkor/studio-token`. It does not file-watch `src/arkor/`. Studio's `/api/manifest` endpoint does call `runBuild` and re-import with a cache-bust query, but only when the UI fetches it, which currently happens when the Run training page mounts (see `packages/studio-app/src/components/RunTraining.tsx`). If you stay on that page across multiple runs, the build artifact is reused. To pick up edits between runs, refresh the Run training page (or run `arkor build` from the terminal) before the next click. `arkor dev` does not write `.arkor/state.json` on its own.
+- `arkor build` reads `src/arkor/index.ts` (or the entry you pass) and writes `.arkor/build/index.mjs`. You only need to call this directly outside the Studio dev loop (e.g. CI, or right before `arkor start` from a script).
+- `arkor start` resolves the entry through the runner, rebuilds `.arkor/build/index.mjs` if it is missing or you passed an explicit entry, and runs it (which calls `trainer.start()` and `trainer.wait()`). Triggering training from Studio internally spawns `arkor start`.
+
+Knowing where state lives makes the CLI predictable: if something looks wrong, peek at `.arkor/state.json` and `~/.arkor/credentials.json` before reaching for support.
