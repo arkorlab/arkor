@@ -234,6 +234,32 @@ describe("queueing", () => {
   });
 });
 
+describe("init failure", () => {
+  it("resolves cleanly and drops the queue when posthog.init throws (no unbounded queue)", async () => {
+    initMock.mockImplementationOnce(() => {
+      throw new Error("blocked storage");
+    });
+    const mod = await load();
+    // Pre-init event would normally queue and flush; with init failure
+    // it must be dropped, not retained.
+    mod.track("studio_page_viewed", { page: "home" });
+    // The init promise itself must NOT reject — telemetry failures should
+    // never break callers (App.tsx fire-and-forgets via `void`).
+    await expect(mod.initTelemetry(ENABLED_CFG)).resolves.toBeUndefined();
+    expect(captureMock).not.toHaveBeenCalled();
+
+    // Subsequent track() / captureException() drop instead of growing the
+    // internal queue forever. Verified indirectly: no mock invocations and
+    // no thrown errors over many calls.
+    for (let i = 0; i < 50; i++) {
+      mod.track("studio_train_form_submitted", { i });
+      mod.captureException(new Error(`post-failure-${i}`));
+    }
+    expect(captureMock).not.toHaveBeenCalled();
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("debug flag", () => {
   it("calls posthog.debug when cfg.debug is true via the loaded callback", async () => {
     const mod = await load();

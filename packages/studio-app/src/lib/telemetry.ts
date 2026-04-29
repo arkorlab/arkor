@@ -86,28 +86,40 @@ export async function initTelemetry(cfg: StudioTelemetryConfig): Promise<void> {
   }
   state.enabled = true;
   state.initPromise = (async () => {
-    const mod = await import("posthog-js");
-    const posthog = mod.default;
-    posthog.init(cfg.posthogKey, {
-      api_host: cfg.posthogHost,
-      autocapture: false,
-      capture_pageview: false,
-      capture_pageleave: false,
-      disable_session_recording: true,
-      persistence: "localStorage",
-      loaded: (ph) => {
-        if (cfg.debug) ph.debug();
-      },
-    });
-    posthog.identify(cfg.distinctId, { auth_mode: cfg.authMode });
-    posthog.register({
-      sdk_version: cfg.sdkVersion,
-      auth_mode: cfg.authMode,
-      surface: "studio",
-    });
-    state.client = posthog;
-    installGlobalHandlers();
-    flushQueue(posthog);
+    try {
+      const mod = await import("posthog-js");
+      const posthog = mod.default;
+      posthog.init(cfg.posthogKey, {
+        api_host: cfg.posthogHost,
+        autocapture: false,
+        capture_pageview: false,
+        capture_pageleave: false,
+        disable_session_recording: true,
+        persistence: "localStorage",
+        loaded: (ph) => {
+          if (cfg.debug) ph.debug();
+        },
+      });
+      posthog.identify(cfg.distinctId, { auth_mode: cfg.authMode });
+      posthog.register({
+        sdk_version: cfg.sdkVersion,
+        auth_mode: cfg.authMode,
+        surface: "studio",
+      });
+      state.client = posthog;
+      installGlobalHandlers();
+      flushQueue(posthog);
+    } catch (err) {
+      // Chunk-load failure, blocked storage, or any other SDK init error:
+      // flip back to disabled so subsequent track()/captureException calls
+      // stop queueing. Without this, state.enabled stays true forever and
+      // state.pending grows unbounded in long-lived sessions.
+      state.enabled = false;
+      state.pending = [];
+      if (cfg.debug && typeof console !== "undefined") {
+        console.error("[arkor:studio:telemetry] init failed", err);
+      }
+    }
   })();
   return state.initPromise;
 }
