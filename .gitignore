@@ -7,6 +7,9 @@ dist/
 # Generated copies of root files (see packages/*/scripts/copy-root-files.mjs)
 packages/*/CONTRIBUTING.md
 
+# Generated copy of docs/ (see packages/arkor/scripts/copy-docs.mjs)
+packages/arkor/docs/
+
 # Turbo
 .turbo/
 
