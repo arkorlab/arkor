@@ -47,7 +47,7 @@ dataset: {
 | --- | --- | --- |
 | `type` | `"blob"` | Discriminant. |
 | `url` | `string` | HTTPS URL the backend can fetch. |
-| `token` | `string?` | Sent as `Authorization: Bearer <token>` if present. |
+| `token` | `string?` | Forwarded to the cloud-api in the job config; the backend uses it when fetching the blob. The exact HTTP wire format (header, scheme, etc.) is backend-defined and not part of the SDK contract. |
 
 Use this for datasets you host yourself (signed S3 URL, internal CDN, etc.). The backend pulls the URL once at the start of the run.
 
