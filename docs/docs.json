@@ -51,6 +51,14 @@
           "sdk/infer",
           "sdk/trainer-control"
         ]
+      },
+      {
+        "group": "Studio",
+        "pages": [
+          "studio/overview",
+          "studio/jobs",
+          "studio/playground"
+        ]
       }
     ]
   },

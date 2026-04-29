@@ -1,0 +1,69 @@
+---
+title: "Studio"
+description: "The local web UI you get from arkor dev: start runs, watch them stream, chat with finished adapters."
+---
+
+# Studio
+
+Studio is the local web UI that boots when you run [`arkor dev`](/cli/dev). It lives on your machine, talks to the same CLI process over loopback, and goes away when you stop the dev server. There is no separate signup, no public URL.
+
+Open it at `http://localhost:4000` (configurable with `arkor dev --port`).
+
+## Layout
+
+The header shows the current identity in the form `<mode> · <org>[ / <project>][ · <baseUrl-host>]`, where `mode` is `anonymous` or `auth0`. The cloud-api host suffix is hidden when the CLI is pointing at the production endpoint and shown otherwise.
+
+Three pages, switched via the in-app nav:
+
+| Route | Page | What you do here |
+| --- | --- | --- |
+| `#/` | [Home](/studio/jobs) | Trigger a training run and watch the jobs list. |
+| `#/jobs/:id` | [Job detail](/studio/jobs#job-detail) | Live status, loss chart, and event log for one run. |
+| `#/playground` | [Playground](/studio/playground) | Chat with a completed adapter or the base model. |
+
+## Architecture
+
+```
+Studio (browser tab, http://localhost:4000)
+   │  /api/* on loopback, CSRF-token gated
+   ▼
+arkor CLI (your machine)
+   │  authenticated HTTPS
+   ▼
+Arkor managed backend
+```
+
+Three checks run on every `/api/*` request:
+
+1. **Host header guard.** Only `127.0.0.1` and `localhost` are accepted. A victim navigated to a malicious site that DNS-rebinds onto `127.0.0.1` would still send `Host: evil.com`, which the middleware rejects with HTTP 403.
+2. **Per-launch CSRF token.** `arkor dev` generates a 32-byte token (base64url) on every launch, injects it into `index.html` as `<meta name="arkor-studio-token">`, and requires it on every `/api/*` call (header `X-Arkor-Studio-Token`, or `?studioToken=` for `EventSource` requests). Cross-origin tabs cannot read the meta, so a "simple" cross-origin POST that skips preflight is still rejected. Comparison is `timingSafeEqual`.
+3. **No CORS.** The SPA is same-origin so CORS adds no value. Reflecting `*` would let "simple" cross-origin POSTs (`text/plain`, `urlencoded`) through; the token check is what rejects them.
+
+The token is rotated on every `arkor dev` launch, so a stale tab from a previous run will fail with HTTP 403 until you reload it.
+
+## What works today
+
+| Feature | Notes |
+| --- | --- |
+| **Run training** | A button on the Home page. It calls `POST /api/train`, which spawns `arkor start` and streams stdout/stderr back into the page as raw text. |
+| **Jobs list** | Home page, polled at a fixed 5-second interval. Columns: Status, Name (links to detail), Created, ID. |
+| **Job detail** | Live status badge, an SVG loss chart, and a raw event log (last 50 lines). Streams from `/api/jobs/:id/events` via Server-Sent Events. |
+| **Playground** | Chat UI on `#/playground`. Two modes: a single supported base model, or the final adapter from any completed job. |
+
+## Not yet
+
+These exist either at the SDK or HTTP-API level, but not as Studio UI today:
+
+| Missing UI | Workaround |
+| --- | --- |
+| Cancel or pause a running job | Call [`trainer.cancel()`](/sdk/trainer-control#cancel) from your own code. |
+| Pick an intermediate checkpoint adapter in the Playground | Use [`onCheckpoint({ infer })`](/sdk/callbacks) inside your trainer. The SDK's `infer` is bound to the just-saved checkpoint. |
+| Filter / search / paginate the jobs list | Out of scope for the polling list view today. |
+| Multiple trainers per project | `/api/manifest` returns a single `trainer`. The SDK [`createArkor`](/sdk/create-arkor) only accepts one. |
+| Tweak `temperature` / `topP` / `maxTokens` from Playground | The HTTP API ([`InferArgs`](/sdk/infer)) accepts these; pass them when calling `infer` from the SDK. |
+| Loss chart zoom, export, tooltip | The chart is a static SVG path. |
+| Light-mode toggle | The Studio CSS pins `color-scheme: dark`. |
+
+## When not to use Studio
+
+Studio is a development tool. It only listens on loopback, only while `arkor dev` is up, and rotates its CSRF token every launch. For production usage, call [`infer`](/sdk/infer) from your own application code (or whatever serving layer you ship) rather than pointing users at Studio.
