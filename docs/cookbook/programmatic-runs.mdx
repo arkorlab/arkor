@@ -91,12 +91,34 @@ The two halves are symmetric: `start` submits, `wait` runs the SSE event stream 
 
 **Next.js API route.** Trigger a run on demand from your app, return the `jobId`, and let the frontend poll Studio (or your own status page) for progress.
 
+`createTrainer` caches the started job, so a single trainer instance can only drive one run; calling `start()` on it a second time returns the original `jobId`. In a long-lived Next.js server process, that means the route has to build a fresh trainer per request. Expose a factory from your trainer module:
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export function makeTrainer() {
+  return createTrainer({
+    name: "support-bot-v1",
+    model: "unsloth/gemma-4-E4B-it",
+    dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+    lora: { r: 16, alpha: 16 },
+    maxSteps: 100,
+  });
+}
+
+export const trainer = makeTrainer();   // for arkor dev / arkor start
+```
+
+Then call the factory from each request:
+
 ```ts
 // app/api/train/route.ts
 import { NextResponse } from "next/server";
-import { trainer } from "@/src/arkor/trainer";
+import { makeTrainer } from "@/src/arkor/trainer";
 
 export async function POST() {
+  const trainer = makeTrainer();
   const { jobId } = await trainer.start();
   // Drive wait() in the background. The .catch only fires on transport-
   // level errors (abort, reconnect exhausted); a `training.failed`
@@ -110,7 +132,7 @@ export async function POST() {
 }
 ```
 
-(For real production use, push the run into a worker rather than tying it to an HTTP request lifetime; the local pattern is the same.)
+(For real production use, push the run into a worker rather than tying it to an HTTP request lifetime; the factory pattern is the same.)
 
 **Cron / scheduled retraining.** Run nightly fine-tunes against a freshly snapshotted dataset:
 
