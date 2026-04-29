@@ -39,14 +39,24 @@ export function RunTraining() {
     setLog("");
     let streamStarted = false;
     let exitCode: number | null = null;
+    // Server writes `\n---\nexit=${code}\n` as the last enqueue, but the
+    // body reader can split that byte sequence anywhere, so a per-chunk
+    // regex on the marker can miss when the split lands inside it. Hold a
+    // small rolling tail across chunks and require the trailing `\n` so we
+    // only commit once the full digit run has arrived.
+    let exitTail = "";
+    const EXIT_TAIL_KEEP = 64;
     try {
       await streamTraining((chunk) => {
         if (!streamStarted) {
           streamStarted = true;
           track("studio_train_subprocess_started", {});
         }
-        const match = chunk.match(/\nexit=(-?\d+)/);
-        if (match) exitCode = Number(match[1]);
+        if (exitCode === null) {
+          exitTail = (exitTail + chunk).slice(-EXIT_TAIL_KEEP);
+          const match = exitTail.match(/\nexit=(-?\d+)\n/);
+          if (match) exitCode = Number(match[1]);
+        }
         setLog((prev) => {
           const next = prev + chunk;
           queueMicrotask(() => {
