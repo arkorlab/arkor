@@ -7,7 +7,7 @@ import {
 } from "../lib/baseModels";
 
 interface Message {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "error";
   content: string;
 }
 
@@ -39,18 +39,22 @@ export function Playground() {
 
   async function send() {
     if (!canSend) return;
-    const userMsg: Message = { role: "user", content: input };
+    const userMsg = { role: "user", content: input } as const;
     setMessages((prev) => [...prev, userMsg, { role: "assistant", content: "" }]);
     setInput("");
     setStreaming(true);
     responseRef.current = "";
 
     try {
+      const history = messages.filter(
+        (m): m is { role: "system" | "user" | "assistant"; content: string } =>
+          m.role !== "error",
+      );
       const stream = streamInferenceContent({
         ...(mode === "base"
           ? { baseModel }
           : { adapter: { kind: "final", jobId: selectedJob! } }),
-        messages: [...messages, userMsg],
+        messages: [...history, userMsg],
         stream: true,
       });
       for await (const fragment of stream) {
@@ -63,13 +67,18 @@ export function Playground() {
         });
       }
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `[error] ${err instanceof Error ? err.message : String(err)}`,
-        },
-      ]);
+      const content = err instanceof Error ? err.message : String(err);
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        const errorMsg: Message = { role: "error", content };
+        if (last && last.role === "assistant" && last.content === "") {
+          const out = prev.slice();
+          out[out.length - 1] = errorMsg;
+          return out;
+        }
+        return [...prev, errorMsg];
+      });
+      track("studio_sse_error", { source: "inference" });
     } finally {
       setStreaming(false);
     }
