@@ -37,6 +37,17 @@
       {
         "group": "SDK",
         "pages": ["sdk/overview"]
+      },
+      {
+        "group": "Cookbook",
+        "pages": [
+          "cookbook/overview",
+          "cookbook/mid-run-eval",
+          "cookbook/early-stopping",
+          "cookbook/notifications",
+          "cookbook/programmatic-runs",
+          "cookbook/customizing-templates"
+        ]
       }
     ]
   },

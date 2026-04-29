@@ -1,0 +1,182 @@
+---
+title: "Customizing the starter templates"
+description: "Treat the scaffolded templates as starting points. Change the dataset, hyperparameters, callbacks, and base model."
+---
+
+# Customizing the starter templates
+
+`pnpm create arkor` writes a working trainer in `src/arkor/trainer.ts`. The templates are a starting point: every field is yours to change, and most projects will outgrow the defaults within the first few runs. This recipe walks the four customizations that come up first.
+
+The starting trainer (after `--template triage`) looks like this:
+
+```ts
+// src/arkor/trainer.ts (scaffolded)
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+## 1. Swap the dataset
+
+The dataset is what the model actually learns from. The most common change is moving from the demo dataset to your own.
+
+**Use a different HuggingFace dataset.** Pass `name`, optionally pin `split` and `subset`:
+
+```ts
+dataset: {
+  type: "huggingface",
+  name: "your-org/your-private-dataset",
+  split: "train",        // optional, defaults to dataset's default split
+  subset: "v3",          // optional, for datasets with multiple subsets
+},
+```
+
+**Use a blob URL** (any HTTPS URL the backend can fetch). Useful for data you cannot put on the Hub:
+
+```ts
+dataset: {
+  type: "blob",
+  url: "https://internal.example.com/data/2026-04.jsonl",
+  token: process.env.DATASET_TOKEN,    // sent as `Authorization: Bearer ...`
+},
+```
+
+There is no `{ type: "file" }` option today. Local files have to be hosted somewhere the backend can reach. See [SDK § DatasetSource](/sdk/dataset).
+
+## 2. Adjust hyperparameters
+
+The typed optionals on `TrainerInput` are the safe knobs. Each takes the cloud-API default if omitted:
+
+```ts
+createTrainer({
+  // ...
+  lora: {
+    r: 32,                 // higher rank captures more, costs more
+    alpha: 64,             // often 2 × r
+    maxLength: 2048,       // truncate long samples to this many tokens
+    loadIn4bit: true,      // QLoRA, ~4× memory savings, slight quality cost
+  },
+  maxSteps: 500,
+  learningRate: 2e-4,
+  batchSize: 8,
+  weightDecay: 0.01,
+  lrSchedulerType: "cosine",
+});
+```
+
+For ultra-fast iteration on the trainer file itself, flip on `dryRun`:
+
+```ts
+createTrainer({
+  // ...
+  dryRun: true,
+});
+```
+
+`dryRun: true` runs the full pipeline against a truncated dataset and a capped step count. It still uses GPU time (it is a smoke test, not a no-op), but the run finishes in a couple of minutes so you can check that your config and callbacks behave before committing to a long run. See [SDK § createTrainer](/sdk/create-trainer).
+
+The advanced fields (`warmupSteps`, `loggingSteps`, `saveSteps`, `evalSteps`, `trainOnResponsesOnly`, `datasetFormat`, `datasetSplit`) are typed as `unknown` and forwarded to the cloud API verbatim. Use them only if you already know the backend's expected shape; the SDK does not type-check the values you pass.
+
+## 3. Add lifecycle callbacks
+
+Callbacks are how every other recipe in this section plugs in. Even the scaffolded trainer can grow callbacks one at a time:
+
+```ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  callbacks: {
+    onLog: ({ step, loss }) => {
+      if (loss !== null) console.log(`step=${step} loss=${loss.toFixed(4)}`);
+    },
+    onCheckpoint: async ({ step, infer }) => {
+      // see /cookbook/mid-run-eval
+    },
+    onCompleted: async ({ job, artifacts }) => {
+      // see /cookbook/notifications
+    },
+    onFailed: async ({ job, error }) => {
+      // see /cookbook/notifications
+    },
+  },
+});
+```
+
+The recipes in this section are the most common combinations:
+
+- [Mid-run evaluation](/cookbook/mid-run-eval) plugs into `onCheckpoint`.
+- [Early stopping](/cookbook/early-stopping) plugs into `onLog` and the trainer's `abortSignal`.
+- [Slack / Discord notifications](/cookbook/notifications) plug into `onCompleted` and `onFailed`.
+
+Pick the ones that match your run. The trainer file is just TypeScript; you can compose them freely.
+
+## 4. Change the base model
+
+The `model` field is forwarded to the cloud API as a string. Today the curated path uses `unsloth/gemma-4-E4B-it`, which is what every starter template ships with. The cloud API decides what other identifiers it accepts; sending an unsupported value produces a 4xx from upstream and a `training.failed` event with the backend's error message.
+
+```ts
+model: "unsloth/gemma-4-E4B-it",   // curated; this is the supported path today
+```
+
+Trying a different base is something the roadmap explicitly calls out (see the project README's "What's coming next"). Until that lands, treat the `model` field as a single supported value rather than an open menu.
+
+## Putting it together
+
+A trainer that uses every customization above looks like this:
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK_URL;
+
+async function postSlack(text: string): Promise<void> {
+  if (!SLACK_WEBHOOK) return;
+  try {
+    await fetch(SLACK_WEBHOOK, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+  } catch (err) {
+    console.warn("slack post failed:", err);
+  }
+}
+
+const controller = new AbortController();
+
+export const trainer = createTrainer({
+  name: "support-bot-v2",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 32, alpha: 64, maxLength: 2048, loadIn4bit: true },
+  maxSteps: 500,
+  learningRate: 2e-4,
+  abortSignal: controller.signal,
+  callbacks: {
+    onLog: ({ step, loss }) => {
+      if (loss === null || !Number.isFinite(loss)) return;
+      if (loss > 5) controller.abort();
+    },
+    onCompleted: async ({ job, artifacts }) => {
+      await postSlack(`✓ ${job.name} done (${artifacts.length} artifact(s))`);
+    },
+    onFailed: async ({ job, error }) => {
+      await postSlack(`✗ ${job.name} failed: ${error}`);
+    },
+  },
+});
+```
+
+This is still a 30-line file you can read top to bottom. The point of the templates is not the specific code they emit; it is the shape they hand you, with a real run already wired up, so the customization above is an editor session away.

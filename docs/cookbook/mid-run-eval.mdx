@@ -1,0 +1,84 @@
+---
+title: "Mid-run evaluation"
+description: "Sanity-check the half-trained model against a fixed prompt at every checkpoint, before the run finishes."
+---
+
+# Mid-run evaluation
+
+The single biggest reason to fine-tune in TypeScript is that you can call into the partially trained model from your own code while the run is still going. The hook is `onCheckpoint`: each time the backend uploads a checkpoint, the SDK calls back into your function and hands you an `infer` bound to that exact checkpoint adapter.
+
+This recipe wires it up against a fixed prompt so you can spot regressions long before the loss curve says anything is wrong.
+
+## The pattern
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const GOLDEN_PROMPT = [
+  { role: "user" as const, content: "I can't log in to my account." },
+];
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  callbacks: {
+    onCheckpoint: async ({ step, infer }) => {
+      try {
+        const res = await infer({
+          messages: GOLDEN_PROMPT,
+          stream: false,        // get a single JSON body so this snippet stays short
+          maxTokens: 80,
+        });
+        const data = (await res.json()) as { content?: string };
+        const sample = data.content ?? "";
+        console.log(`step=${step} sample=${JSON.stringify(sample.slice(0, 80))}`);
+      } catch (err) {
+        console.error(`step=${step} infer failed:`, err);
+      }
+    },
+  },
+});
+```
+
+What this gives you, immediately:
+
+- A short generated sample written to stdout for every checkpoint, side by side with the loss numbers.
+- Confirmation that inference itself works against the new adapter (so a silent serving-side regression is caught at training time).
+- A natural place to add comparisons or assertions later.
+
+## Why this is hard to do anywhere else
+
+`infer` is **bound to the just-saved checkpoint** (`{ kind: "checkpoint", jobId, step }`). You cannot reach an intermediate checkpoint from Studio's Playground, and there is no separate CLI command for it; the only path today is from inside `onCheckpoint`. That is exactly why this recipe wants to run there, not after the fact.
+
+The function returns the raw `Response` from the cloud API, so the streaming and decoding shape is up to you. The snippet above passes `stream: false` to keep the body a single JSON document; for true streaming, see [SDK § infer](/sdk/infer).
+
+## Variations
+
+**Compare against the base model on the same prompt.** Studio's Playground already has a Base / Adapter mode toggle, but you can do the same thing from `onCheckpoint` to score automatically rather than eyeballing it.
+
+```ts
+async function generate(prompt: typeof GOLDEN_PROMPT, infer: (args: any) => Promise<Response>) {
+  const res = await infer({ messages: prompt, stream: false, maxTokens: 80 });
+  const data = (await res.json()) as { content?: string };
+  return data.content ?? "";
+}
+
+onCheckpoint: async ({ step, infer }) => {
+  const sample = await generate(GOLDEN_PROMPT, infer);
+  await postSampleToReviewQueue({ step, sample });
+},
+```
+
+**Trigger early stopping based on the sample.** Pair this with the [Early stopping recipe](/cookbook/early-stopping): if the checkpoint output drifts away from a reference text by more than your tolerance, abort the controller. The next checkpoint will not fire.
+
+**Send checkpoints to a Slack channel for review.** Combine with the [Notifications recipe](/cookbook/notifications). Post each step's sample as a Slack message; reviewers can vote with reactions while the run continues.
+
+## What to keep in mind
+
+- **Wrap in `try / catch`.** A throw out of `onCheckpoint` is caught by the SSE reconnect loop and may be retried (see [SDK § Lifecycle callbacks](/sdk/callbacks)). For deterministic behavior, handle the error inside the callback and decide what to do.
+- **Inference costs a real call.** The backend serves the request from the live training cluster. Keep `maxTokens` modest if you are hitting every checkpoint.
+- **`infer` is per-call, not memoized.** Calling it twice in the same `onCheckpoint` makes two backend requests. Compose your prompts together in one call when you can.

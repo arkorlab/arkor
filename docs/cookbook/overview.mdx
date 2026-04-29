@@ -1,0 +1,37 @@
+---
+title: "Cookbook"
+description: "Recipes that show what TypeScript unlocks for an Arkor training run today."
+---
+
+# Cookbook
+
+Arkor is alpha. The framework's surface is intentionally small: one trainer, one manifest slot, a handful of lifecycle callbacks. What makes that small surface worthwhile is that **all of it is your TypeScript code**. Anything you can express in TS, you can wire into a training run, with the same editor, types, and review flow as the rest of your product.
+
+This section collects the patterns that show up first when you try. Each recipe stays inside today's public SDK: no roadmap APIs, no internal imports, nothing that requires forking the runtime.
+
+## Recipes
+
+| Recipe | What it shows | Built on |
+| --- | --- | --- |
+| [Mid-run evaluation](/cookbook/mid-run-eval) | Sanity-check the half-trained model against a fixed prompt at every checkpoint, before the run finishes. | [`onCheckpoint({ infer })`](/sdk/callbacks) |
+| [Early stopping on diverging loss](/cookbook/early-stopping) | Abort a run automatically when the loss curve goes the wrong way, and stop the GPU on the backend too. | [`onLog`](/sdk/callbacks), [`AbortSignal`](/sdk/trainer-control), [`trainer.cancel()`](/sdk/trainer-control) |
+| [Slack / Discord notifications](/cookbook/notifications) | Post to a webhook on completion or failure, without leaving the trainer file. | [`onCompleted` / `onFailed`](/sdk/callbacks), `fetch` |
+| [Programmatic runs (no CLI)](/cookbook/programmatic-runs) | Drive training from a Next.js API route, a cron worker, or CI without going through `arkor dev` / `arkor start`. | [`runTrainer`](/sdk/overview), [`Trainer.start / wait`](/sdk/trainer-control) |
+| [Customizing the starter templates](/cookbook/customizing-templates) | Treat the scaffolded templates as starting points. Change the dataset, hyperparameters, callbacks, and base model. | [`createTrainer`](/sdk/create-trainer), [`DatasetSource`](/sdk/dataset) |
+
+## A note on callback exceptions before you start
+
+Three of the recipes below put logic inside the lifecycle callbacks. The runtime catches errors thrown out of a callback and routes them through the SSE reconnect loop ([SDK § Lifecycle callbacks](/sdk/callbacks)), and `maxReconnectAttempts` defaults to unlimited. In practice that means a `throw` inside a callback can be silently retried.
+
+The recipes here use a simple convention to stay deterministic:
+
+- **State changes go through outer variables.** Use an `AbortController`, a closure flag, or a returned Promise rather than throwing.
+- **Side effects are guarded with `try / catch` inside the callback.** If a Slack post fails, log it and continue; do not let it bubble.
+
+This is a pattern, not a limit on what you can do. Once you have it, the recipes compose cleanly.
+
+## Things this section does not cover
+
+- **Production deploys.** Arkor today only runs on managed GPUs, and `createArkor`'s `deploy` slot is a reserved type field with no implementation. Serving recipes will land when that surface lands.
+- **Multiple trainers per project.** `createArkor` accepts a single `trainer`; running several together is a programmatic-run pattern (see the recipe), not a manifest pattern.
+- **Custom base models beyond what the backend accepts.** The `model` field is forwarded to the cloud API verbatim; today the curated path is Gemma. Recipes do not pretend other models work end to end.
