@@ -1,4 +1,15 @@
 import { createParser, type EventSourceMessage } from "eventsource-parser";
+import { track } from "./telemetry";
+
+export interface StudioTelemetryWire {
+  enabled: boolean;
+  distinctId: string;
+  authMode: "auth0" | "anon" | "none";
+  posthogKey: string;
+  posthogHost: string;
+  sdkVersion: string;
+  debug: boolean;
+}
 
 export interface Credentials {
   token: string;
@@ -6,6 +17,7 @@ export interface Credentials {
   baseUrl: string;
   orgSlug: string | null;
   projectSlug: string | null;
+  telemetry: StudioTelemetryWire;
 }
 
 export interface Me {
@@ -49,6 +61,26 @@ function readStudioToken(): string {
 const STUDIO_TOKEN = readStudioToken();
 
 /**
+ * Replace UUID-like and hex-id segments with `:id` so PostHog endpoint
+ * cardinality stays bounded, and strip the query string so the CSRF token
+ * carried by EventSource calls never reaches the wire.
+ */
+export function redactPath(input: string): string {
+  const qIdx = input.indexOf("?");
+  const path = qIdx === -1 ? input : input.slice(0, qIdx);
+  return path
+    .split("/")
+    .map((seg) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)
+        ? ":id"
+        : /^[0-9a-f]{16,}$/i.test(seg)
+          ? ":id"
+          : seg,
+    )
+    .join("/");
+}
+
+/**
  * `fetch` with the per-launch CSRF token attached. The token is read once at
  * module load from the `<meta>` tag the Studio server injects into
  * `index.html`; cross-origin tabs cannot read it (same-origin policy on the
@@ -60,7 +92,16 @@ export async function apiFetch(
 ): Promise<Response> {
   const headers = new Headers(init?.headers);
   if (STUDIO_TOKEN) headers.set("X-Arkor-Studio-Token", STUDIO_TOKEN);
-  return fetch(input, { ...init, headers });
+  const res = await fetch(input, { ...init, headers });
+  if (!res.ok) {
+    track("studio_api_error", {
+      endpoint: redactPath(input),
+      method: init?.method ?? "GET",
+      status: res.status,
+      status_text: res.statusText,
+    });
+  }
+  return res;
 }
 
 function withStudioToken(url: string): string {

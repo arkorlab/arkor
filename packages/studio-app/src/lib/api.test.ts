@@ -1,5 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { extractInferenceDelta, streamInferenceContent } from "./api";
+import {
+  apiFetch,
+  extractInferenceDelta,
+  redactPath,
+  streamInferenceContent,
+} from "./api";
+
+const { trackMock } = vi.hoisted(() => ({ trackMock: vi.fn() }));
+vi.mock("./telemetry", () => ({
+  track: trackMock,
+  trackPageView: vi.fn(),
+  captureException: vi.fn(),
+  initTelemetry: vi.fn(async () => {}),
+}));
 
 describe("extractInferenceDelta", () => {
   it("pulls OpenAI-style streaming deltas from choices[0].delta.content", () => {
@@ -165,5 +178,64 @@ describe("streamInferenceContent (regression for ENG-358)", () => {
     })();
 
     await expect(consume).rejects.toThrow(/upstream blew up/);
+  });
+});
+
+describe("redactPath", () => {
+  it("replaces UUID-like segments with :id", () => {
+    expect(redactPath("/api/jobs/123e4567-e89b-12d3-a456-426614174000/events")).toBe(
+      "/api/jobs/:id/events",
+    );
+  });
+
+  it("replaces long hex-id segments with :id", () => {
+    expect(redactPath("/api/jobs/a1b2c3d4e5f6a7b8c9d0/events")).toBe(
+      "/api/jobs/:id/events",
+    );
+  });
+
+  it("strips query strings (CSRF token leak guard)", () => {
+    expect(redactPath("/api/jobs/abc/events?studioToken=secret")).toBe(
+      "/api/jobs/abc/events",
+    );
+  });
+
+  it("leaves short slug segments alone", () => {
+    expect(redactPath("/api/credentials")).toBe("/api/credentials");
+  });
+});
+
+describe("apiFetch error capture", () => {
+  const ORIG_FETCH = globalThis.fetch;
+
+  beforeEach(() => {
+    trackMock.mockClear();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ORIG_FETCH;
+  });
+
+  it("fires studio_api_error with redacted endpoint on non-OK responses", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("nope", { status: 500, statusText: "Boom" }),
+    ) as typeof fetch;
+    await apiFetch(
+      "/api/jobs/123e4567-e89b-12d3-a456-426614174000/events?studioToken=x",
+    );
+    expect(trackMock).toHaveBeenCalledWith("studio_api_error", {
+      endpoint: "/api/jobs/:id/events",
+      method: "GET",
+      status: 500,
+      status_text: "Boom",
+    });
+  });
+
+  it("does not fire studio_api_error on 2xx responses", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("{}", { status: 200 }),
+    ) as typeof fetch;
+    await apiFetch("/api/credentials");
+    expect(trackMock).not.toHaveBeenCalled();
   });
 });

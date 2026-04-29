@@ -15,6 +15,7 @@ import { recordDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
 import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
+import { getIdentity, getTelemetryConfig } from "../core/telemetry";
 import { readManifestSummary } from "./manifest";
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
@@ -161,12 +162,23 @@ export function buildStudioApp(options: StudioServerOptions) {
     const token = await getToken();
     const creds = await getCredentials();
     const state = await readState();
+    const identity = await getIdentity();
+    const tcfg = getTelemetryConfig();
     return c.json({
       token,
       mode: creds.mode,
       baseUrl,
       orgSlug: state?.orgSlug ?? (creds.mode === "anon" ? creds.orgSlug : null),
       projectSlug: state?.projectSlug ?? null,
+      telemetry: {
+        enabled: tcfg.enabled,
+        distinctId: identity.distinctId,
+        authMode: identity.authMode,
+        posthogKey: tcfg.enabled ? tcfg.posthogKey : "",
+        posthogHost: tcfg.posthogHost,
+        sdkVersion: SDK_VERSION,
+        debug: tcfg.debug,
+      },
     });
   });
 
