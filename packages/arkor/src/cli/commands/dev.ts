@@ -54,7 +54,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
   );
   if (oauthAvailable) {
     ui.log.info(
-      "No credentials on file — bootstrapping an anonymous session. Run `arkor login` to sign in to your account instead.",
+      "No credentials on file — bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
     );
   } else {
     ui.log.info(
