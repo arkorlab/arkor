@@ -17,7 +17,7 @@ Arkor is for that exact workflow.
 
 Custom open-weight models are a real option today because of years of work in the Python ML ecosystem and the people and companies who built it out. Arkor stands on that foundation: the training itself runs on the same stack everyone else uses.
 
-What Arkor adds is a TypeScript surface on top of that stack, so fine-tuning, evaluation, and serving live in the same codebase as the product you are shipping, with the same editor, types, and review flow.
+What Arkor adds is a TypeScript surface on top of that stack. Today it covers fine-tuning; evaluation and serving are next. The aim is for the model workflow to live in the same codebase as the product you are shipping, with the same editor, types, and review flow.
 
 ## What "ship the model the same way you ship the product" means
 
@@ -30,15 +30,15 @@ In practice:
 
 ## What works today
 
-Arkor is alpha (`0.0.1-alpha.3`) and honest about it. APIs change without notice as the design settles.
+Arkor is alpha and honest about it. APIs change without notice as the design settles. The current version is published to [npm](https://www.npmjs.com/package/arkor).
 
 What you can do right now:
 
 - Fine-tune an open-weight LLM (Gemma-based today) from a single file.
 - Pick from three end-to-end templates that finish in minutes: `triage` (support classification), `translate` (9 languages), and `redaction` (PII extraction).
 - React to training in code via lifecycle callbacks, not a dashboard.
-- Run training on Arkor's managed GPUs with no separate infra setup. Try it without an account; run `arkor login` later to claim your work.
-- Watch the run live in the local Studio and chat with checkpoints in the Playground.
+- Run training on Arkor's managed GPUs with no separate infra setup. Try it without an account; run `npx arkor login` later to claim your work.
+- Watch the run live in the local Studio. Once it finishes, chat with the trained model in the Playground.
 
 What is not in yet:
 

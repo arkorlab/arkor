@@ -1,11 +1,11 @@
 ---
 title: "Quickstart"
-description: "Scaffold an Arkor project, fine-tune a small open-weight LLM, and chat with it from a local Studio in about 5 minutes."
+description: "Scaffold an Arkor project, fine-tune a small open-weight LLM, and chat with it from a local Studio."
 ---
 
 # Quickstart
 
-In about 5 minutes of setup, plus 7 to 12 minutes of training time, you will go from zero to a fine-tuned model you can chat with in a local Playground.
+In a few minutes you will go from zero to a fine-tuned model you can chat with in a local Playground. The training itself takes 7 to 12 minutes; setup time depends on your connection and what is already installed.
 
 ## Prerequisites
 
@@ -73,15 +73,17 @@ Open Studio in your browser and you will see three things to look at:
 
 - **Jobs.** A list of training runs. Click into one to see live status.
 - **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
-- **Playground.** Once a checkpoint is available, pick the adapter from the selector and chat with the partially trained model. Compare it against the base model side by side.
+- **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Compare it against the base model side by side. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
 
 ## 4. Claim your work (optional)
 
 Anonymous workspaces are useful for trying things out, but the work is tied to that local machine. Once you decide you want to keep what you trained:
 
 ```bash
-arkor login
+npx arkor login
 ```
+
+The scaffolded project installs `arkor` as a local devDependency, so prefer `npx arkor <command>` (or `pnpm exec arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README uses the same convention.
 
 This runs an Auth0 PKCE flow on a loopback port and links your local credentials to an account. From then on, runs from this machine show up under that account on any device.
 
