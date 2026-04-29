@@ -297,7 +297,16 @@ describe("ensureCredentialsForStudio", () => {
   // `readCredentials()` blow up first with EISDIR before the bootstrap
   // logic ever ran — so the assertion accidentally passed for the wrong
   // reason (Copilot review on PR #65).
-  it("does not rewrite fs errors from writeCredentials as OAuth hints", async () => {
+  //
+  // Skipped under UID 0: root bypasses chmod permission checks on Linux,
+  // so `writeFile` would succeed and the assertion would never trigger
+  // (Codex review on PR #65). Most CI runners are non-root; container-
+  // based root CI just loses this one assertion, the wrap-narrowing
+  // logic itself is still covered by the schema-validation and 5xx
+  // tests above.
+  const isRoot =
+    typeof process.getuid === "function" && process.getuid() === 0;
+  it.skipIf(isRoot)("does not rewrite fs errors from writeCredentials as OAuth hints", async () => {
     const arkorDir = join(fakeHome, ".arkor");
     mkdirSync(arkorDir, { recursive: true });
     chmodSync(arkorDir, 0o555);
