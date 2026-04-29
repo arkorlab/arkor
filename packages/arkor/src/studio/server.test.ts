@@ -164,9 +164,12 @@ describe("Studio server", () => {
       else delete process.env.ARKOR_TELEMETRY_DEBUG;
     });
 
-    it("includes a telemetry block with anon distinctId and disabled flag in tests", async () => {
+    it("returns inert identity fields when telemetry is disabled in tests", async () => {
       // No __ARKOR_POSTHOG_KEY__ is injected in this test environment, so
-      // enabled must be false and posthogKey must be empty.
+      // enabled must be false and posthogKey must be empty. Identity
+      // fields must also be inert: we do not want to expose a stable
+      // distinctId (or call the persistent telemetry-id getter that may
+      // create the file) when the user has opted out of telemetry.
       await writeCredentials(ANON_CREDS);
       const app = build();
       const res = await app.request("/api/credentials", {
@@ -190,8 +193,8 @@ describe("Studio server", () => {
       expect(body.telemetry).toBeDefined();
       expect(body.telemetry!.enabled).toBe(false);
       expect(body.telemetry!.posthogKey).toBe("");
-      expect(body.telemetry!.distinctId).toBe("anon-id");
-      expect(body.telemetry!.authMode).toBe("anon");
+      expect(body.telemetry!.distinctId).toBe("");
+      expect(body.telemetry!.authMode).toBe("none");
       expect(body.telemetry!.posthogHost).toMatch(/posthog\.com$/);
       expect(typeof body.telemetry!.sdkVersion).toBe("string");
       expect(body.telemetry!.debug).toBe(false);

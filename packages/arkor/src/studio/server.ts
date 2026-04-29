@@ -162,8 +162,14 @@ export function buildStudioApp(options: StudioServerOptions) {
     const token = await getToken();
     const creds = await getCredentials();
     const state = await readState();
-    const identity = await getIdentity();
     const tcfg = getTelemetryConfig();
+    // Avoid touching the persistent telemetry-id file or returning a stable
+    // distinctId to the SPA when the user has opted out (DO_NOT_TRACK,
+    // missing PostHog key, etc.). The SPA-side `initTelemetry` early-returns
+    // when `enabled` is false, so the placeholder identity is never read.
+    const identity = tcfg.enabled
+      ? await getIdentity()
+      : { distinctId: "", authMode: "none" as const };
     return c.json({
       token,
       mode: creds.mode,

@@ -65,7 +65,12 @@ export function redactPath(input: string): string {
     try {
       path = new URL(input).pathname;
     } catch {
-      path = input;
+      // URL parse failed (malformed scheme, missing host, etc.) but the
+      // input still looks absolute. Strip the query string ourselves so
+      // credentials carried in `?studioToken=...` never reach telemetry
+      // even on unparseable URLs.
+      const qIdx = input.indexOf("?");
+      path = qIdx === -1 ? input : input.slice(0, qIdx);
     }
   } else {
     const qIdx = input.indexOf("?");

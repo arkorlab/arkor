@@ -218,6 +218,14 @@ describe("redactPath", () => {
     // URL falls through to raw input handling.
     expect(redactPath("https://")).toBe("https://");
   });
+
+  it("still strips the query string when the URL parser rejects the input", () => {
+    // Even if `new URL(...)` throws, the catch fallback must drop the
+    // query so a CSRF token like ?studioToken=... cannot reach telemetry.
+    expect(redactPath("https://?studioToken=secret")).not.toContain(
+      "studioToken",
+    );
+  });
 });
 
 describe("apiFetch error capture", () => {
