@@ -5,7 +5,7 @@ description: "Sign in to Arkor's managed backend, sign out, and inspect the curr
 
 # `arkor login`, `arkor logout`, `arkor whoami`
 
-Three short commands that read or write `~/.arkor/credentials.json`. None of them touches `.arkor/state.json`; project routing is set up separately by the runtime on the first `trainer.start()` (anonymous workspaces) or by `arkor init` (Auth0 workspaces).
+Three short commands that read or write `~/.arkor/credentials.json`. None of them touches `.arkor/state.json`. For anonymous workspaces, project routing is auto-created by the runtime on the first `trainer.start()` (or first inference call). For Auth0 workspaces, `.arkor/state.json` has to exist before the run: today, neither `arkor login` nor `arkor init` creates it, so the practical path is to create it manually with `{ orgSlug, projectSlug, projectId }`. The runtime points you at this fallback when it errors out on a missing state file.
 
 ## `arkor login`
 
@@ -26,11 +26,11 @@ arkor login [options]
 | Flag | Description |
 | --- | --- |
 | `--anonymous` | Skip the Auth0 flow and request a throwaway anonymous token. The same token type that `arkor dev` bootstraps for you on a fresh machine. |
-| `--no-browser` | Print the authorization URL instead of opening a browser. Useful in headless environments (SSH, Docker). |
+| `--no-browser` | Disable the automatic `open(url)` call. The authorization URL is printed in both modes (`Browser: <url>` line); this flag only stops the CLI from launching a browser for you. Useful in headless environments (SSH, Docker). |
 
 ### What happens
 
-1. The CLI calls `/v1/auth/cli-config` on the cloud-api to read the deployment's Auth0 settings.
+1. The CLI calls `/v1/auth/cli/config` on the cloud-api to read the deployment's Auth0 settings.
 2. If Auth0 is not configured (or `--anonymous` is passed), it requests an anonymous token from `/v1/auth/anonymous` and writes it to `~/.arkor/credentials.json` with `mode: "anon"`.
 3. If Auth0 is configured, it generates a PKCE pair, starts a loopback HTTP server on one of the cloud-api-provided callback ports, opens (or prints) the authorize URL, and waits for the callback. State is verified before exchanging the code for tokens; a mismatch aborts to prevent CSRF. The resulting Auth0 tokens are written to `~/.arkor/credentials.json` with `mode: "auth0"`.
 
