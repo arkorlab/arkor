@@ -16,4 +16,4 @@ This section gives you the mental model you need before diving into the [SDK ref
 
 ## The one-paragraph version
 
-You define a `Trainer` with `createTrainer({ name, model, dataset, ... })` in `src/arkor/trainer.ts` and register it through `createArkor({ trainer })` in `src/arkor/index.ts`. The CLI and Studio find that entry point automatically. When you run `arkor dev`, training streams from Arkor's managed GPUs and your TypeScript callbacks fire as events arrive. Studio shows the same stream in a browser so you can watch it without leaving the loop.
+You define a `Trainer` with `createTrainer({ name, model, dataset, ... })` in `src/arkor/trainer.ts` and register it through `createArkor({ trainer })` in `src/arkor/index.ts`. `arkor dev` opens a local Studio in the browser; clicking **Run training** in Studio spawns `arkor start`, which calls `trainer.start()` and `trainer.wait()`. While `wait()` is open, callbacks dispatch from the SSE event stream, training streams from Arkor's managed GPUs, and the same view is reflected back into Studio.

@@ -116,12 +116,24 @@ const trainer = createTrainer({
 controller.abort();
 ```
 
-`abortSignal` is **only** about your local `wait()`: aborting it stops the SSE event-stream fetch and any retry / backoff delays inside `wait()`, so `wait()` returns and your process can move on. It does **not** call `cancel()` and does **not** ask the backend to stop the run; the job keeps using GPU time on the managed side.
-
-If you want to actually stop training (and the cost), call `trainer.cancel()` separately:
+`abortSignal` is **only** about your local `wait()`: aborting it stops the SSE event-stream fetch and any retry / backoff delays inside `wait()`. The current implementation throws on abort (the backoff `delay` rejects with `signal.reason`, and the failure handler re-throws when the signal is aborted), so `wait()` rejects rather than resolving cleanly. Wrap it in `try / catch` if you abort:
 
 ```ts
-controller.abort();          // stops your local wait() loop
+try {
+  await trainer.wait();
+} catch (err) {
+  if (controller.signal.aborted) {
+    // expected: we asked wait() to stop
+  } else {
+    throw err;
+  }
+}
+```
+
+`abortSignal` does **not** call `cancel()` and does **not** ask the backend to stop the run; the job keeps using GPU time on the managed side. If you want to actually stop training (and the cost), call `trainer.cancel()` separately:
+
+```ts
+controller.abort();          // local wait() rejects
 await trainer.cancel();      // asks the backend to stop the job
 ```
 
