@@ -44,7 +44,7 @@
     "primary": {
       "type": "button",
       "label": "Get started",
-      "href": "/quickstart"
+      "href": "quickstart"
     }
   },
   "footer": {
