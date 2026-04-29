@@ -37,6 +37,14 @@
       {
         "group": "SDK",
         "pages": ["sdk/overview"]
+      },
+      {
+        "group": "Studio",
+        "pages": [
+          "studio/overview",
+          "studio/jobs",
+          "studio/playground"
+        ]
       }
     ]
   },
