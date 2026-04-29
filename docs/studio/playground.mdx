@@ -1,0 +1,47 @@
+---
+title: "Playground"
+description: "Chat with the base model or the final adapter from a completed job."
+---
+
+# Playground
+
+The Playground (`#/playground`) is a small chat UI for sanity-checking a model. Two modes, switched with a radio button:
+
+- **Base model.** Chat against one of the base models the cloud-api accepts on `/v1/inference/chat`. Today there is one supported value: `unsloth/gemma-4-e4b-it`.
+- **Adapter.** Chat against the **final** adapter from a completed job (`{ kind: "final", jobId }`). Intermediate checkpoints are not selectable here.
+
+The Playground fetches `/api/jobs` once when the page mounts and filters the response to `status === "completed"`. The Adapter dropdown lists those jobs in whatever order the backend returned. There is no automatic refresh; reload the page after a new run finishes to see it in the list, or switch modes and back.
+
+## Sending a message
+
+The chat surface is intentionally minimal: a list of `{ role, content }` messages, an input field, and a Send button. The conversation history is local to the page and is cleared on reload.
+
+When you submit, Studio calls `POST /api/inference/chat` with:
+
+```ts
+{
+  messages: [...history, { role: "user", content: input }],
+  stream: true,
+  ...(mode === "base"
+    ? { baseModel }
+    : { adapter: { kind: "final", jobId } }),
+}
+```
+
+The response is an SSE stream of token deltas. Studio parses each frame and appends to the assistant message in place, so the bubble fills in as the model generates. The Send button is disabled while a stream is in flight.
+
+## Things this page does not do
+
+- **Intermediate checkpoints.** The dropdown only lists completed jobs and only sends `kind: "final"`. To run inference during a run, use the SDK's [`onCheckpoint({ infer })`](/sdk/callbacks): the `infer` it gives you is bound to the checkpoint that just landed.
+- **`temperature` / `topP` / `maxTokens`.** The HTTP shape ([`InferArgs`](/sdk/infer)) accepts these, but the Playground does not surface input fields for them. Studio sends only `messages` and the mode-specific fields. To experiment with these knobs, call the SDK's `infer` directly with the values you want.
+- **System prompts.** The input field only adds a `user` role. There is no field for `system`. Edit `src/arkor/trainer.ts` (or call `infer` programmatically) if you want to test with a system prompt.
+- **Conversation export / share.** Reload the page and the history is gone. Copy out manually if you want to keep it.
+- **Auth-aware list filtering.** The Adapter dropdown shows whatever `/api/jobs` returns for the current credentials; it does not filter by author or any other dimension.
+
+## When to use the Playground
+
+- Quick before-and-after comparison between base and adapter on a fixed prompt.
+- A first sanity check that a fine-tune did something useful before wiring it into your application.
+- Demoing a finished run to a colleague on the same machine.
+
+For anything more structured (regression suites, paired comparisons across many adapters, A/B in production), reach for the SDK and your own evaluation code rather than the Playground.
