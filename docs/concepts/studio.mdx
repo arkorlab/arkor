@@ -15,7 +15,7 @@ Three jobs:
 2. **See training happen.** A jobs list with live status, a loss chart that updates as the run streams in, and a tail of training events. You can leave it open in a tab while you work on other things.
 3. **Try a finished model.** A Playground page lets you pick the base model or the final adapter from any completed job and chat with it. The Playground does not load intermediate checkpoints; for mid-run inference, use [`onCheckpoint`](/concepts/lifecycle) callbacks in your trainer.
 
-A note on the dev loop: Studio reflects whatever `src/arkor/` exports, but Arkor does **not** automatically rebuild your trainer on file changes. If you edit `trainer.ts`, run `arkor build` (or delete `.arkor/build/index.mjs`) before kicking off the next run so it picks up your edits.
+A note on the dev loop: while `arkor dev` is running, Studio's manifest endpoint rebuilds and re-imports your trainer on every request (with a cache-bust query, see `packages/arkor/src/studio/manifest.ts`). The UI hits that endpoint on page loads, so edits to `src/arkor/` are picked up automatically: save the file, switch tabs in Studio, and the next Run training click compiles and submits the latest code. No manual rebuild step.
 
 ## Where Studio runs
 
