@@ -44,13 +44,19 @@
     "primary": {
       "type": "button",
       "label": "Get started",
-      "href": "quickstart"
+      "href": "/quickstart"
     }
   },
   "footer": {
     "socials": {
       "github": "https://github.com/arkorlab/arkor",
       "x": "https://x.com/arkorlab"
+    }
+  },
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_n8WJmqCs2Tkk7ABceBpuiq6e6aqwhayhjQzrBFTjidMH",
+      "sessionRecording": false
     }
   }
 }
