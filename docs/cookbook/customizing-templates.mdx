@@ -154,8 +154,6 @@ async function postSlack(text: string): Promise<void> {
   }
 }
 
-const controller = new AbortController();
-
 export const trainer = createTrainer({
   name: "support-bot-v2",
   model: "unsloth/gemma-4-E4B-it",
@@ -163,11 +161,11 @@ export const trainer = createTrainer({
   lora: { r: 32, alpha: 64, maxLength: 2048, loadIn4bit: true },
   maxSteps: 500,
   learningRate: 2e-4,
-  abortSignal: controller.signal,
   callbacks: {
     onLog: ({ step, loss }) => {
-      if (loss === null || !Number.isFinite(loss)) return;
-      if (loss > 5) controller.abort();
+      if (loss !== null && Number.isFinite(loss)) {
+        console.log(`step=${step} loss=${loss.toFixed(4)}`);
+      }
     },
     onCompleted: async ({ job, artifacts }) => {
       await postSlack(`✓ ${job.name} done (${artifacts.length} artifact(s))`);
@@ -180,3 +178,5 @@ export const trainer = createTrainer({
 ```
 
 This is still a 30-line file you can read top to bottom. The point of the templates is not the specific code they emit; it is the shape they hand you, with a real run already wired up, so the customization above is an editor session away.
+
+To layer early stopping on top, follow [Early stopping](/cookbook/early-stopping) — it shows the `AbortController` + `trainer.cancel()` pair you need so an aborted run does not keep burning GPU on the backend.
