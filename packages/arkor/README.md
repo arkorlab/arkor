@@ -2,7 +2,7 @@
 
 The Arkor SDK + CLI + bundled local Studio. One package; three surfaces.
 
-> Status: alpha (`0.0.1-alpha.3`). APIs may change without notice. No compat
+> Status: alpha (`0.0.1-alpha.4`). APIs may change without notice. No compat
 > shims are offered between alpha versions — pin and re-read the changelog
 > before bumping.
 

@@ -89,7 +89,7 @@ async function patchPackageJson(
           private: true,
           type: "module",
           scripts: { ...SCRIPT_DEFAULTS },
-          devDependencies: { arkor: "^0.0.1-alpha.2" },
+          devDependencies: { arkor: "^0.0.1-alpha.3" },
         },
         null,
         2,
@@ -114,7 +114,7 @@ async function patchPackageJson(
   const devDeps =
     (current.devDependencies as Record<string, string> | undefined) ?? {};
   if (!devDeps.arkor) {
-    devDeps.arkor = "^0.0.1-alpha.2";
+    devDeps.arkor = "^0.0.1-alpha.3";
     current.devDependencies = devDeps;
     dirty = true;
   }
