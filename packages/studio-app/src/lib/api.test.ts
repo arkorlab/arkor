@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   apiFetch,
   extractInferenceDelta,
+  fetchManifest,
   redactPath,
   streamInferenceContent,
 } from "./api";
@@ -251,5 +252,56 @@ describe("apiFetch error capture", () => {
     ) as typeof fetch;
     await apiFetch("/api/credentials");
     expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("suppresses studio_api_error for statuses listed in silentStatuses", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "no manifest" }), {
+          status: 400,
+        }),
+    ) as typeof fetch;
+    await apiFetch("/api/manifest", { silentStatuses: [400] });
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("still fires studio_api_error for non-listed statuses when silentStatuses is set", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("nope", { status: 500 }),
+    ) as typeof fetch;
+    await apiFetch("/api/manifest", { silentStatuses: [400] });
+    expect(trackMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("fetchManifest telemetry", () => {
+  const ORIG_FETCH = globalThis.fetch;
+
+  beforeEach(() => {
+    trackMock.mockClear();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ORIG_FETCH;
+  });
+
+  it("returns the error body without firing studio_api_error on 400", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "Build entry not found" }), {
+          status: 400,
+        }),
+    ) as typeof fetch;
+    const result = await fetchManifest();
+    expect(result).toEqual({ error: "Build entry not found" });
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("does not suppress real 5xx failures from fetchManifest", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("oops", { status: 500 }),
+    ) as typeof fetch;
+    await expect(fetchManifest()).rejects.toThrow();
+    expect(trackMock).toHaveBeenCalledOnce();
   });
 });
