@@ -26,6 +26,20 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
 
+      # Turbo's local cache is at .turbo/cache. Keying on the commit SHA
+      # always writes a fresh entry; restore-keys falls back to the most
+      # recent prior cache for the same OS/node so unaffected task hashes
+      # hit immediately. node version is part of the key because turbo's
+      # hash currently does not factor it in, and we want to keep the
+      # matrix entries from clobbering each other if that ever changes.
+      - name: Cache Turborepo
+        uses: actions/cache@v5
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-node${{ matrix.node }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-node${{ matrix.node }}-
+
       - name: Install
         run: pnpm install
 
