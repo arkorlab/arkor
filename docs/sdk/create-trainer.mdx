@@ -1,0 +1,90 @@
+---
+title: "createTrainer"
+description: "Define a fine-tuning run: model, dataset, LoRA, hyperparameters, callbacks."
+---
+
+# `createTrainer`
+
+```ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+`createTrainer` returns a `Trainer` object with `start` / `wait` / `cancel` methods (see [Trainer control](/sdk/trainer-control)). All shape and validation lives on the `TrainerInput` you pass in.
+
+## Required fields
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `name` | `string` | Run name, shown in Studio and on the managed backend. |
+| `model` | `string` | Base model identifier. Today the curated templates use `unsloth/gemma-4-E4B-it`. |
+| `dataset` | [`DatasetSource`](/sdk/dataset) | HuggingFace dataset name or blob URL. |
+
+## Typed optional fields
+
+These have first-class TypeScript types and are safe to use:
+
+| Field | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `lora` | `LoraConfig` | backend default | LoRA / QLoRA knobs (`r`, `alpha`, `maxLength?`, `loadIn4bit?`). |
+| `maxSteps` | `number` | backend default | Cap on training steps. |
+| `numTrainEpochs` | `number` | backend default | Number of dataset passes (alternative to `maxSteps`). |
+| `learningRate` | `number` | backend default | Optimizer step size. |
+| `batchSize` | `number` | backend default | Per-device training batch size. |
+| `optim` | `string` | backend default | Optimizer name. |
+| `lrSchedulerType` | `string` | backend default | Learning-rate schedule (e.g. `linear`, `cosine`). |
+| `weightDecay` | `number` | backend default | Regularization weight. |
+| `dryRun` | `boolean` | `false` | Smoke test (see below). |
+| `callbacks` | `Partial<TrainerCallbacks>` | `{}` | See [Lifecycle callbacks](/sdk/callbacks). |
+| `abortSignal` | `AbortSignal` | none | Stops a local `wait()`. Does **not** cancel the backend job; see [Trainer control](/sdk/trainer-control#abortsignal). |
+
+## `LoraConfig`
+
+```ts
+interface LoraConfig {
+  r: number;            // LoRA rank (often 8 / 16 / 32)
+  alpha: number;        // LoRA alpha (often 2 × r)
+  maxLength?: number;   // Truncate samples beyond this many tokens
+  loadIn4bit?: boolean; // Load the base model in 4-bit (QLoRA)
+}
+```
+
+Omit `lora` entirely to take the backend defaults. `r: 16, alpha: 16` is the starting point the bundled templates use.
+
+## `dryRun`
+
+```ts
+createTrainer({
+  name: "smoke",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  dryRun: true,
+});
+```
+
+`dryRun: true` tells the backend to truncate the dataset and cap the number of steps so the run finishes in a couple of minutes while still exercising every stage of the pipeline (data load, chat-template render, training loop, checkpoint upload, event stream).
+
+It still uses GPU time, just much less of it. Useful in CI or when wiring up callbacks for the first time, not as a way to avoid spend entirely.
+
+## Advanced: forwarded fields
+
+These are typed as `unknown` and forwarded to the cloud API verbatim (`packages/arkor/src/core/trainer.ts:100-108`). They are reserved on the input shape so the SDK can support fields the backend exposes before the SDK has caught up with first-class typing.
+
+| Field | Status |
+| --- | --- |
+| `warmupSteps`, `loggingSteps`, `saveSteps`, `evalSteps` | Forwarded as-is. Use only if you already know the backend's expected shape. |
+| `trainOnResponsesOnly` | Forwarded as-is. |
+| `datasetFormat`, `datasetSplit` | Forwarded as-is. The dedicated `dataset` field's `split` should be preferred for HuggingFace sources. |
+
+These fields are explicitly **not** stable: the backend contract for them can change between releases, and there is no compile-time check on the value you pass. Prefer the typed fields above; reach for these only when nothing else covers what you need.
+
+## Not yet
+
+- Multi-trainer projects. `createArkor` accepts a single `trainer`; there is no array form. To register a second trainer, you would either swap the export at runtime or wait for the API to gain that shape.

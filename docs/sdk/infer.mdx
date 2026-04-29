@@ -1,0 +1,78 @@
+---
+title: "infer"
+description: "Run inference against a checkpoint adapter from inside onCheckpoint."
+---
+
+# `infer`
+
+`infer` is a function passed into [`onCheckpoint`](/sdk/callbacks#oncheckpoint-step-adapter-job-infer-artifacts-) on `CheckpointContext`. It runs an inference request bound to the just-saved checkpoint adapter and returns the raw `Response`. There is no top-level `infer` export; the SDK exposes it as a callback argument so that the call is automatically scoped to the right job + checkpoint step.
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  const res = await infer({
+    messages: [
+      { role: "user", content: "I can't log in." },
+    ],
+  });
+  console.log(`step=${step} sample=`, await res.text());
+}
+```
+
+## Input
+
+```ts
+interface InferArgs {
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>;
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
+  /** Default: true. Set false to get a single JSON body instead of SSE. */
+  stream?: boolean;
+  signal?: AbortSignal;
+}
+```
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `messages` | array of `{ role, content }` | Chat history. The roles match the OpenAI / HuggingFace chat-template convention. |
+| `temperature` | `number?` | Sampling temperature. Backend default if omitted. |
+| `topP` | `number?` | Nucleus sampling. Backend default if omitted. |
+| `maxTokens` | `number?` | Maximum response tokens. Backend default if omitted. |
+| `stream` | `boolean?` | Default **true** (SSE). Set `false` for a single JSON body. |
+| `signal` | `AbortSignal?` | Aborts the local fetch. Does not stop work on the backend; the model finishes generating but you stop reading. |
+
+## Output
+
+`infer` returns `Promise<Response>`: the raw Fetch `Response`. The SDK does not parse the body; you decide how to consume it:
+
+```ts
+// Streaming (default)
+const res = await infer({ messages });
+for await (const chunk of res.body!) {
+  // chunk: Uint8Array of one or more SSE frames
+}
+
+// Or read the whole stream at once
+const text = await res.text();
+
+// Or, if you set stream: false, parse the JSON body
+const res = await infer({ messages, stream: false });
+const data = await res.json();
+```
+
+When `stream: true` (the default), the body is an SSE event stream in the same shape Studio's Playground consumes. The SDK does not currently expose a frame parser for this stream; if you need decoded text deltas, copy the small `extractInferenceDelta` helper from `packages/studio-app/src/lib/api.ts` or write a parser around `eventsource-parser`.
+
+## Constraints
+
+- `infer` lives **only** on `CheckpointContext`. There is no equivalent for completed jobs from the SDK side; for that path use the cloud-api directly or trigger the run again. Studio's Playground is the UI-level route to chat with a completed adapter.
+- The call is scoped to `{ kind: "checkpoint", jobId, step }`. You cannot retarget it to a different checkpoint or a different model from inside `onCheckpoint`.
+- The function is not memoized: every call hits the backend.
+
+## When you would use it
+
+- **Sanity check during a run.** Compare a checkpoint at step 50 to one at step 100 against a fixed prompt. If the loss curve looks fine but outputs are degraded, you find out before the run finishes.
+- **Custom early-stopping.** Combine with a simple eval prompt: if outputs diverge, abort the run via `controller.abort()` (see [`abortSignal`](/sdk/trainer-control#abortsignal)) and call `trainer.cancel()` to stop the backend.
+- **Live preview into your own UI.** Send the checkpoint output to Slack, an internal review queue, or your own app's preview channel.

@@ -1,0 +1,59 @@
+---
+title: "DatasetSource"
+description: "Where the trainer pulls data from: HuggingFace name or blob URL."
+---
+
+# `DatasetSource`
+
+`createTrainer` accepts one dataset, expressed as a discriminated union on `type`:
+
+```ts
+type DatasetSource =
+  | { type: "huggingface"; name: string; split?: string; subset?: string }
+  | { type: "blob";        url: string;  token?: string };
+```
+
+## HuggingFace
+
+```ts
+dataset: {
+  type: "huggingface",
+  name: "arkorlab/triage-demo",
+  // split: "train",
+  // subset: "v1",
+}
+```
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `type` | `"huggingface"` | Discriminant. |
+| `name` | `string` | Repository name (e.g. `arkorlab/triage-demo`). Public repos work without further auth. |
+| `split` | `string?` | Override the default split. Optional. |
+| `subset` | `string?` | For datasets that publish multiple subsets. Optional. |
+
+This is the form the bundled templates (`triage` / `translate` / `redaction`) use. Most projects start here.
+
+## Blob URL
+
+```ts
+dataset: {
+  type: "blob",
+  url: "https://example.com/data.jsonl",
+  // token: process.env.DATASET_TOKEN,
+}
+```
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `type` | `"blob"` | Discriminant. |
+| `url` | `string` | HTTPS URL the backend can fetch. |
+| `token` | `string?` | Sent as `Authorization: Bearer <token>` if present. |
+
+Use this for datasets you host yourself (signed S3 URL, internal CDN, etc.). The backend pulls the URL once at the start of the run.
+
+## Picking a form
+
+- Reach for `huggingface` when the dataset is already on the Hub. It is the most-tested path.
+- Reach for `blob` when you need a dataset that cannot live on the Hub (proprietary content, signed URL, internal-only).
+
+Local files (`{ type: "file", path: "./data.jsonl" }`) are not in `DatasetSource` today. To use one, host it as a blob URL or upload it to a private HuggingFace repo first.

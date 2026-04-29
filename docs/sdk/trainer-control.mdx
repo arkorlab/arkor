@@ -1,0 +1,136 @@
+---
+title: "Trainer control"
+description: "start, wait, cancel, abortSignal, and how reconnects work."
+---
+
+# Trainer control
+
+`createTrainer` returns a `Trainer` object with three methods:
+
+```ts
+interface Trainer {
+  readonly name: string;
+  start(): Promise<{ jobId: string }>;
+  wait(): Promise<TrainingResult>;
+  cancel(): Promise<void>;
+}
+
+interface TrainingResult {
+  job: TrainingJob;
+  artifacts: unknown[];
+}
+```
+
+`arkor start` and Studio's "Run training" button both call `start()` followed by `wait()`. You only call them yourself when you wire training into your own code (a server, a script, a custom CLI).
+
+## `start()`
+
+```ts
+const { jobId } = await trainer.start();
+```
+
+- Submits the job to the cloud API and resolves once the backend has accepted it. The returned `jobId` is the same id you see in Studio and in the SDK's `TrainingJob.id`.
+- Idempotent: calling `start()` a second time on the same trainer returns the same `jobId` without resubmitting (`packages/arkor/src/core/trainer.ts:275-289`).
+- Does **not** open the event stream and does **not** dispatch any callbacks. `wait()` is what does that.
+
+## `wait()`
+
+```ts
+const { job, artifacts } = await trainer.wait();
+```
+
+- Opens the SSE event stream for the run, dispatches each frame to your callbacks, and resolves with the terminal `TrainingResult` when the stream reports `training.completed` or `training.failed`.
+- Calls `start()` for you if you have not called it yet.
+- All five [lifecycle callbacks](/sdk/callbacks) fire from inside `wait()`. If you call `start()` without `wait()`, no callbacks run, even though the run continues on the backend.
+- Reconnects on transient SSE errors (see below).
+
+## `cancel()`
+
+```ts
+await trainer.cancel();
+```
+
+- If `start()` has not been called yet, `cancel()` is a no-op (early return at `:388-389`).
+- Otherwise it sends a cancel request to the backend.
+- **Best-effort.** The SDK does not short-circuit on terminal status; if the run already completed, failed, or was cancelled, the backend may return a non-2xx and `cancel()` rejects. Wrap in `try / catch` if you call it speculatively.
+
+## `abortSignal`
+
+```ts
+const controller = new AbortController();
+
+const trainer = createTrainer({
+  name: "with-timeout",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  abortSignal: controller.signal,
+});
+
+// Later, from anywhere:
+controller.abort();
+```
+
+`abortSignal` controls **only your local `wait()` loop**. When the signal aborts:
+
+1. The pending SSE fetch is aborted (`trainer.ts:325-328`).
+2. Any active reconnect-backoff `delay` rejects with `signal.reason` (`trainer.ts:178`).
+3. `handleFailure` re-throws when the signal is aborted (`trainer.ts:308`).
+4. `wait()` therefore **rejects**, not resolves, when you abort.
+
+It does **not** call `cancel()` and does **not** send anything to the backend. The job keeps using GPU time on the managed side.
+
+If you want both effects (stop waiting locally and stop the run on the backend), do them separately:
+
+```ts
+try {
+  await trainer.wait();
+} catch (err) {
+  if (controller.signal.aborted) {
+    // expected: we asked wait() to stop
+  } else {
+    throw err;
+  }
+}
+await trainer.cancel(); // best-effort; see above
+```
+
+Use `abortSignal` for "I no longer care about waiting on this run" (request timeout, parent process exit). Use `cancel()` for "stop the run on the backend".
+
+## Reconnects
+
+`wait()` keeps the SSE stream alive across transient failures by default:
+
+- A clean stream EOF after at least one received frame triggers an immediate reconnect at the base delay (`initialReconnectDelayMs`, default 1000 ms) without counting against the failure budget. The stream resumes via `Last-Event-ID`.
+- A connect error or a stream EOF without any received frame counts as a failure and goes through `handleFailure`: exponential backoff via `initialReconnectDelayMs * 2 ** attempt`, capped by `maxReconnectAttempts`.
+- `maxReconnectAttempts` defaults to `undefined` (unlimited). There is no public `createTrainer` option to set it today; the field exists in an internal context type. For most projects this means transient SSE failures are silently retried for as long as the job runs.
+
+This same path is what catches thrown user callbacks (see [Lifecycle callbacks § Exception handling](/sdk/callbacks#exception-handling-read-carefully)). If you need deterministic error handling, catch inside the callback rather than relying on `wait()` to reject.
+
+## Two-process pattern
+
+A common shape for non-CLI use is to keep a long-lived trainer reference and let your own code orchestrate `start`, `wait`, and `cancel`:
+
+```ts
+import { createTrainer } from "arkor";
+
+const trainer = createTrainer({ /* ... */ });
+
+const controller = new AbortController();
+process.on("SIGINT", () => controller.abort());
+
+const { jobId } = await trainer.start();
+console.log(`Started ${jobId}`);
+
+try {
+  const { artifacts } = await trainer.wait();
+  console.log(`Finished with ${artifacts.length} artifact(s).`);
+} catch (err) {
+  if (controller.signal.aborted) {
+    await trainer.cancel().catch(() => {});
+    throw new Error("Aborted by signal");
+  }
+  throw err;
+}
+```
+
+This is functionally what `arkor start` does, minus the entry resolution from `runTrainer`.
