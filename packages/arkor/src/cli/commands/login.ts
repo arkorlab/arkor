@@ -13,7 +13,7 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 import { acquireAnonymousTokenResult } from "../anonymous";
-import { isInteractive, promptSelect, ui } from "../prompts";
+import { promptSelect, ui } from "../prompts";
 
 export interface LoginOptions {
   /** Force the OAuth browser flow even if `--anonymous` would otherwise be selected interactively. */
@@ -52,14 +52,18 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
   }
 
   // PKCE needs a browser callback. `startLoopbackServer().waitForCallback`
-  // has no timeout, so a non-interactive `--oauth` run would hang
-  // indefinitely. Fail fast with a clear pointer at the automation-
-  // friendly alternative instead. Placed after the OAuth-availability
-  // check so an OAuth-less deployment still surfaces "OAuth is not
-  // configured" first (the more specific, actionable error).
-  if (options.oauth && !isInteractive()) {
+  // has no timeout, so a CI run that lands on the OAuth path would hang
+  // forever waiting for a redirect that the runner can't make. Fail fast
+  // with a clear pointer at the automation-friendly alternative instead.
+  //
+  // Gated on `process.env.CI` specifically (not the broader
+  // `!isInteractive()` check from prompts.ts) so legitimate local
+  // headless flows like `arkor login --oauth --no-browser | tee logs`
+  // still work — pipes set `process.stdout.isTTY = false` but a browser
+  // is still reachable on the user's machine.
+  if (options.oauth && process.env.CI) {
     throw new Error(
-      "--oauth requires an interactive terminal (browser callback). Use --anonymous in CI / non-TTY contexts.",
+      "--oauth needs a browser callback that CI runners can't complete. Use --anonymous in CI.",
     );
   }
 

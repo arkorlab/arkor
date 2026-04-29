@@ -21,7 +21,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.HOME = ORIG_HOME;
+  if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
+  else delete process.env.HOME;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
@@ -47,13 +48,16 @@ describe("runLogin", () => {
     expect(await readCredentials()).toBeNull();
   });
 
-  // PKCE needs a browser callback that CI can't satisfy, and the loopback
-  // server has no timeout. Without an early guard, `--oauth` in CI would
-  // hang indefinitely waiting for a redirect that will never come. The
-  // guard sits *after* the OAuth-availability check so deployments that
+  // PKCE needs a browser callback that CI runners can't satisfy, and the
+  // loopback server has no timeout. Without an early guard, `--oauth` in
+  // CI would hang indefinitely waiting for a redirect that will never
+  // come. The guard is gated on `process.env.CI` (set by `beforeEach`)
+  // and sits *after* the OAuth-availability check so deployments that
   // don't even offer OAuth surface "OAuth is not configured" first
-  // (covered by the next test).
-  it("throws when --oauth is passed in a non-interactive context", async () => {
+  // (covered by the next test). Local headless flows like
+  // `arkor login --oauth --no-browser | tee` are not blocked because
+  // `CI` is unset there even though stdout isn't a TTY.
+  it("throws when --oauth is passed in CI", async () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
@@ -71,7 +75,7 @@ describe("runLogin", () => {
     }) as typeof fetch;
 
     await expect(runLogin({ oauth: true })).rejects.toThrow(
-      /--oauth requires an interactive terminal/,
+      /CI runners can't complete/,
     );
     expect(await readCredentials()).toBeNull();
   });

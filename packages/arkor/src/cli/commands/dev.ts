@@ -110,11 +110,18 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     // --oauth` so first-run users on those deployments still have a
     // discoverable next step.
     //
-    // Gate on `AnonymousTokenRejectedError` specifically (not all
-    // non-transport errors) so ZodErrors from a malformed cloud-api
-    // response, fs failures, or any other non-rejection cause keeps its
-    // original message instead of being mislabelled as a sign-in problem.
-    if (err instanceof AnonymousTokenRejectedError && oauthAvailable) {
+    // Gate on `AnonymousTokenRejectedError` *and* a 4xx status so the
+    // wrap fires only for genuine deployment rejection (401/403/404 et
+    // al). 5xx is a transient cloud-api failure where retrying makes
+    // sense, ZodErrors signal a malformed response (server bug), and fs
+    // failures are out of scope for the anon endpoint entirely — none of
+    // these should be mislabelled as a sign-in requirement.
+    if (
+      err instanceof AnonymousTokenRejectedError &&
+      err.status >= 400 &&
+      err.status < 500 &&
+      oauthAvailable
+    ) {
       throw new Error(
         `Failed to bootstrap an anonymous session (${err.message}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
         { cause: err },

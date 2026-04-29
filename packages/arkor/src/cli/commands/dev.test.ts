@@ -21,7 +21,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.HOME = ORIG_HOME;
+  if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
+  else delete process.env.HOME;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
   globalThis.fetch = ORIG_FETCH;
@@ -211,6 +212,38 @@ describe("ensureCredentialsForStudio", () => {
       /^fetch failed$/,
     );
     expect(await readCredentials()).toBeNull();
+  });
+
+  // Copilot review on PR #65 (round 4) flagged that the wrap originally
+  // fired for *all* `AnonymousTokenRejectedError`s including 5xx. A
+  // transient cloud-api 500 isn't a sign-in policy decision, so the OAuth
+  // hint there would be misleading. The wrap is now gated on 4xx only.
+  it("does not rewrite 5xx anon failures as OAuth hints when OAuth is configured", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response("transient db hiccup", { status: 503 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(
+      /Failed to acquire anonymous token \(503\)/,
+    );
+    await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+      /arkor login --oauth/,
+    );
   });
 
   // Codex P1 review on PR #65 — OAuth-only deployments advertise Auth0 in
