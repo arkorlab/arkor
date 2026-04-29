@@ -35,6 +35,7 @@ interface TelemetryModule {
   track: (event: string, props?: Record<string, unknown>) => void;
   trackPageView: (page: "home" | "job" | "playground") => void;
   captureException: (err: unknown, context?: Record<string, unknown>) => void;
+  disableTelemetry: () => void;
 }
 
 async function load(): Promise<TelemetryModule> {
@@ -231,6 +232,53 @@ describe("queueing", () => {
       error_name: "Unknown",
       error_message: "just a string",
     });
+  });
+});
+
+describe("disableTelemetry", () => {
+  it("drops the queue and turns track()/captureException into no-ops when init never runs", async () => {
+    const mod = await load();
+    // Simulate the App's mount: events fire before any init has been called.
+    mod.track("studio_page_viewed", { page: "home" });
+    mod.captureException(new Error("early boom"));
+    // Then /api/credentials fails: App calls disableTelemetry() instead of
+    // initTelemetry, and subsequent polling continues to fail.
+    mod.disableTelemetry();
+    for (let i = 0; i < 50; i++) {
+      mod.track("studio_api_error", { i });
+    }
+    // Even after init eventually being attempted, no events flush.
+    await mod.initTelemetry(ENABLED_CFG);
+    expect(captureMock).not.toHaveBeenCalled();
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when init has already run", async () => {
+    const mod = await load();
+    await mod.initTelemetry(ENABLED_CFG);
+    mod.disableTelemetry(); // must not tear down a working client
+    mod.track("studio_page_viewed", { page: "home" });
+    expect(captureMock).toHaveBeenCalledWith("studio_page_viewed", {
+      page: "home",
+    });
+  });
+});
+
+describe("queue cap", () => {
+  it("caps the pre-init queue at 100 items (FIFO drop) when init never runs", async () => {
+    const mod = await load();
+    // 200 events with no init: only the most recent 100 should remain.
+    for (let i = 0; i < 200; i++) {
+      mod.track("studio_api_error", { i });
+    }
+    // Now init resolves successfully — flush should emit at most 100 events.
+    await mod.initTelemetry(ENABLED_CFG);
+    expect(captureMock).toHaveBeenCalledTimes(100);
+    // FIFO: the oldest (i=0..99) dropped, the newest (i=100..199) survived.
+    const firstFlushed = captureMock.mock.calls[0]![1] as { i: number };
+    const lastFlushed = captureMock.mock.calls[99]![1] as { i: number };
+    expect(firstFlushed.i).toBe(100);
+    expect(lastFlushed.i).toBe(199);
   });
 });
 

@@ -4,7 +4,11 @@ import { JobDetail } from "./pages/JobDetail";
 import { Playground } from "./pages/Playground";
 import { RunTraining } from "./components/RunTraining";
 import { fetchCredentials, type Credentials } from "./lib/api";
-import { initTelemetry, trackPageView } from "./lib/telemetry";
+import {
+  disableTelemetry,
+  initTelemetry,
+  trackPageView,
+} from "./lib/telemetry";
 
 const PRODUCTION_CLOUD_API_URL = "https://api.arkor.ai";
 
@@ -72,9 +76,12 @@ export function App() {
         // Fire-and-forget; the wrapper buffers events fired before init resolves.
         void initTelemetry(c.telemetry);
       })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      );
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err));
+        // Without this, initTelemetry never runs and every subsequent
+        // apiFetch failure keeps queueing studio_api_error forever.
+        disableTelemetry();
+      });
   }, []);
 
   useEffect(() => {

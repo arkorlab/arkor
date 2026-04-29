@@ -42,6 +42,13 @@ interface State {
   globalHandlersInstalled: boolean;
 }
 
+// Hard cap on how many pre-init events we keep buffered. If init never runs
+// (e.g. /api/credentials returns 403 after a studio token rotation), each
+// failing JobsList poll would otherwise grow this queue for the life of the
+// tab. 100 is enough to retain a session's startup events; older items are
+// dropped FIFO once the cap is hit.
+const MAX_PENDING = 100;
+
 const state: State = {
   enabled: false,
   client: null,
@@ -55,6 +62,11 @@ const state: State = {
 // successful init and are discarded if init resolves disabled.
 function isDisabledAfterInit(): boolean {
   return state.initPromise !== null && !state.enabled;
+}
+
+function pushPending(item: QueueItem): void {
+  if (state.pending.length >= MAX_PENDING) state.pending.shift();
+  state.pending.push(item);
 }
 
 function flushQueue(posthog: PostHog): void {
@@ -134,7 +146,7 @@ export function track(event: string, props?: Props): void {
     return;
   }
   if (isDisabledAfterInit()) return;
-  state.pending.push({ kind: "event", event, props });
+  pushPending({ kind: "event", event, props });
 }
 
 export function trackPageView(page: StudioPage): void {
@@ -161,7 +173,24 @@ export function captureException(err: unknown, context?: Props): void {
     return;
   }
   if (isDisabledAfterInit()) return;
-  state.pending.push({ kind: "exception", err, props });
+  pushPending({ kind: "exception", err, props });
+}
+
+/**
+ * Tear telemetry down without trying to load posthog-js. Used by App.tsx
+ * when the bootstrap call to /api/credentials fails (e.g. stale studio
+ * token returns 403): without this, initTelemetry() never runs, every
+ * subsequent failing apiFetch keeps queueing studio_api_error events,
+ * and the in-memory queue grows for the life of the tab. After this
+ * call track()/captureException() drop via isDisabledAfterInit().
+ *
+ * No-op if init has already started (success or failure path).
+ */
+export function disableTelemetry(): void {
+  if (state.initPromise) return;
+  state.enabled = false;
+  state.pending = [];
+  state.initPromise = Promise.resolve();
 }
 
 function installGlobalHandlers(): void {
