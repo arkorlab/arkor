@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { initMock, captureMock, captureExceptionMock, identifyMock, registerMock, debugMock } =
   vi.hoisted(() => ({
@@ -35,7 +35,6 @@ interface TelemetryModule {
   track: (event: string, props?: Record<string, unknown>) => void;
   trackPageView: (page: "home" | "job" | "playground") => void;
   captureException: (err: unknown, context?: Record<string, unknown>) => void;
-  _resetForTests: () => void;
 }
 
 async function load(): Promise<TelemetryModule> {
@@ -60,11 +59,6 @@ beforeEach(() => {
   identifyMock.mockClear();
   registerMock.mockClear();
   debugMock.mockClear();
-});
-
-afterEach(async () => {
-  const mod = await load();
-  mod._resetForTests();
 });
 
 describe("initTelemetry (disabled paths)", () => {
@@ -190,6 +184,52 @@ describe("queueing", () => {
     await initP;
     expect(captureMock).toHaveBeenCalledWith("studio_page_viewed", {
       page: "home",
+    });
+  });
+
+  it("buffers track() calls fired BEFORE initTelemetry is even called (initial pageview)", async () => {
+    // Mirrors the App's mount-time `trackPageView(route.kind)` running before
+    // `fetchCredentials()` resolves and calls initTelemetry.
+    const mod = await load();
+    mod.track("studio_page_viewed", { page: "home" });
+    expect(captureMock).not.toHaveBeenCalled();
+    await mod.initTelemetry(ENABLED_CFG);
+    expect(captureMock).toHaveBeenCalledWith("studio_page_viewed", {
+      page: "home",
+    });
+  });
+
+  it("drops pre-init events when initTelemetry resolves disabled", async () => {
+    const mod = await load();
+    mod.track("studio_page_viewed", { page: "home" });
+    await mod.initTelemetry({ ...ENABLED_CFG, enabled: false });
+    expect(captureMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves Error instances across the queue so flush forwards them to posthog.captureException", async () => {
+    // Bug fix: queued exceptions previously flushed via posthog.capture("$exception", props),
+    // dropping the original Error reference and the stack trace it carried.
+    const mod = await load();
+    const err = new Error("boom");
+    mod.captureException(err, { source: "react_error_boundary" });
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+    await mod.initTelemetry(ENABLED_CFG);
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+    const [forwardedErr, props] = captureExceptionMock.mock.calls[0];
+    expect(forwardedErr).toBe(err);
+    expect(props.error_name).toBe("Error");
+    expect(props.error_message).toBe("boom");
+    expect(props.source).toBe("react_error_boundary");
+  });
+
+  it("flushes non-Error queued exceptions via capture('$exception')", async () => {
+    const mod = await load();
+    mod.captureException("just a string");
+    await mod.initTelemetry(ENABLED_CFG);
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+    expect(captureMock).toHaveBeenCalledWith("$exception", {
+      error_name: "Unknown",
+      error_message: "just a string",
     });
   });
 });

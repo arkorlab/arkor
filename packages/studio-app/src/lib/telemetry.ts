@@ -30,11 +30,15 @@ function classifyError(err: unknown): { name: string; message: string } {
   return { name: "Unknown", message: truncate(String(err ?? "")) };
 }
 
+type QueueItem =
+  | { kind: "event"; event: string; props?: Props }
+  | { kind: "exception"; err: unknown; props: Props };
+
 interface State {
   enabled: boolean;
   client: PostHog | null;
   initPromise: Promise<void> | null;
-  pending: Array<{ event: string; props?: Props }>;
+  pending: QueueItem[];
   globalHandlersInstalled: boolean;
 }
 
@@ -45,6 +49,32 @@ const state: State = {
   pending: [],
   globalHandlersInstalled: false,
 };
+
+// Pre-init events (e.g. the App's mount-time pageview that fires before
+// `fetchCredentials()` resolves) must be queued, not dropped. They flush on
+// successful init and are discarded if init resolves disabled.
+function isDisabledAfterInit(): boolean {
+  return state.initPromise !== null && !state.enabled;
+}
+
+function flushQueue(posthog: PostHog): void {
+  const queued = state.pending.splice(0, state.pending.length);
+  for (const item of queued) {
+    try {
+      if (item.kind === "event") {
+        posthog.capture(item.event, item.props);
+      } else if (item.err instanceof Error) {
+        // Forward the original Error so PostHog records the full stack.
+        // capture('$exception', props) on a queued plain object would lose it.
+        posthog.captureException(item.err, item.props);
+      } else {
+        posthog.capture("$exception", item.props);
+      }
+    } catch {
+      // PostHog errors must never propagate.
+    }
+  }
+}
 
 export async function initTelemetry(cfg: StudioTelemetryConfig): Promise<void> {
   if (state.initPromise) return state.initPromise;
@@ -77,29 +107,22 @@ export async function initTelemetry(cfg: StudioTelemetryConfig): Promise<void> {
     });
     state.client = posthog;
     installGlobalHandlers();
-    const queued = state.pending.splice(0, state.pending.length);
-    for (const item of queued) {
-      try {
-        posthog.capture(item.event, item.props);
-      } catch {
-        // PostHog errors must never propagate.
-      }
-    }
+    flushQueue(posthog);
   })();
   return state.initPromise;
 }
 
 export function track(event: string, props?: Props): void {
-  if (!state.enabled) return;
-  if (!state.client) {
-    state.pending.push({ event, props });
+  if (state.client) {
+    try {
+      state.client.capture(event, props);
+    } catch {
+      // swallow
+    }
     return;
   }
-  try {
-    state.client.capture(event, props);
-  } catch {
-    // swallow
-  }
+  if (isDisabledAfterInit()) return;
+  state.pending.push({ kind: "event", event, props });
 }
 
 export function trackPageView(page: StudioPage): void {
@@ -107,26 +130,26 @@ export function trackPageView(page: StudioPage): void {
 }
 
 export function captureException(err: unknown, context?: Props): void {
-  if (!state.enabled) return;
   const { name, message } = classifyError(err);
   const props: Props = {
     ...(context ?? {}),
     error_name: name,
     error_message: message,
   };
-  if (!state.client) {
-    state.pending.push({ event: "$exception", props });
+  if (state.client) {
+    try {
+      if (err instanceof Error) {
+        state.client.captureException(err, props);
+      } else {
+        state.client.capture("$exception", props);
+      }
+    } catch {
+      // swallow
+    }
     return;
   }
-  try {
-    if (err instanceof Error) {
-      state.client.captureException(err, props);
-    } else {
-      state.client.capture("$exception", props);
-    }
-  } catch {
-    // swallow
-  }
+  if (isDisabledAfterInit()) return;
+  state.pending.push({ kind: "exception", err, props });
 }
 
 function installGlobalHandlers(): void {
@@ -139,13 +162,4 @@ function installGlobalHandlers(): void {
   window.addEventListener("error", (e) => {
     captureException(e.error ?? e.message, { source: "window_error" });
   });
-}
-
-// Test-only reset. Not part of the public surface.
-export function _resetForTests(): void {
-  state.enabled = false;
-  state.client = null;
-  state.initPromise = null;
-  state.pending = [];
-  state.globalHandlersInstalled = false;
 }
