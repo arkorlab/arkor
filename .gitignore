@@ -10,6 +10,10 @@ packages/*/CONTRIBUTING.md
 # Turbo
 .turbo/
 
+# Mintlify (docs/) local cache
+.mintlify/
+.mint/
+
 # Environment
 .env
 .env.local

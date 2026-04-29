@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "e2e/*"
+  - "docs"
 minimumReleaseAge: 1440
 trustPolicy: no-downgrade
 trustPolicyExclude:

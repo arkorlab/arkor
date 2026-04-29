@@ -1,0 +1,56 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Arkor",
+  "description": "The TypeScript framework for fine-tuning open-weight LLMs.",
+  "colors": {
+    "primary": "#000000",
+    "light": "#FFFFFF",
+    "dark": "#000000"
+  },
+  "logo": {
+    "light": "images/logo.svg",
+    "dark": "images/logo-dark.svg",
+    "href": "https://arkor.ai"
+  },
+  "favicon": "images/logo.svg",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get started",
+        "pages": ["introduction", "quickstart"]
+      },
+      {
+        "group": "Concepts",
+        "pages": ["concepts/overview"]
+      },
+      {
+        "group": "CLI",
+        "pages": ["cli/overview"]
+      },
+      {
+        "group": "SDK",
+        "pages": ["sdk/overview"]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/arkorlab/arkor"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get started",
+      "href": "quickstart"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/arkorlab/arkor",
+      "x": "https://x.com/arkorlab"
+    }
+  }
+}

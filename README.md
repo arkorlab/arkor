@@ -24,7 +24,8 @@
 
 <p align="center">
   <a href="#quickstart"><strong>Quickstart</strong></a> &nbsp;·&nbsp;
-  <a href="#why-arkor"><strong>Why Arkor</strong></a>
+  <a href="#why-arkor"><strong>Why Arkor</strong></a> &nbsp;·&nbsp;
+  <a href="https://docs.arkor.ai"><strong>Docs</strong></a>
 </p>
 
 > [!WARNING]
@@ -104,7 +105,7 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 ### Other
 
 - [ ] **Self-host the training backend.** Today we host it.
-- [ ] **A real documentation site.** Today this README is all there is.
+- [x] **A real documentation site.** Sources live in [`docs/`](docs); the published site is [docs.arkor.ai](https://docs.arkor.ai).
 
 ## A taste of the API
 
@@ -186,6 +187,7 @@ Training runs on managed GPUs; checkpoints stream back as SSE events that fire y
 | ---------------------------------------------- | ------------------------------------------- |
 | [`arkor`](packages/arkor)                      | SDK + CLI + bundled local Studio            |
 | [`create-arkor`](packages/create-arkor)        | `pnpm create arkor` scaffolder              |
+| [`docs`](docs)                                 | Mintlify source for [docs.arkor.ai](https://docs.arkor.ai) (`pnpm --filter @arkor/docs docs:dev`) |
 
 Requires Node.js 22.6+. 
 (Please use Node.js 24, preferably the latest version, for contributing to this repository.)
