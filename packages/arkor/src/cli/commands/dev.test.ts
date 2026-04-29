@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureCredentialsForStudio } from "./dev";
@@ -247,13 +247,19 @@ describe("ensureCredentialsForStudio", () => {
   // Codex P2 review on PR #65 — the OAuth-only wrap used to span the whole
   // anon bootstrap, so fs errors from `writeCredentials` were also rewritten
   // as "deployment may require sign-in", hiding the actionable fs cause.
-  // We force `writeCredentials` to fail by pre-creating
-  // `~/.arkor/credentials.json` as a directory (so `writeFile` raises
-  // EISDIR) and assert the fs error propagates intact.
+  //
+  // Setup: pre-create `~/.arkor` and chmod 0o555 (read+exec, no write) so
+  // `readCredentials()` cleanly returns null (credentials.json doesn't
+  // exist) but `writeCredentials()`'s `writeFile` raises EACCES on the
+  // locked-down parent dir. An earlier draft of this test pre-created
+  // `~/.arkor/credentials.json` *as a directory*, but that made
+  // `readCredentials()` blow up first with EISDIR before the bootstrap
+  // logic ever ran — so the assertion accidentally passed for the wrong
+  // reason (Copilot review on PR #65).
   it("does not rewrite fs errors from writeCredentials as OAuth hints", async () => {
-    mkdirSync(join(fakeHome, ".arkor", "credentials.json"), {
-      recursive: true,
-    });
+    const arkorDir = join(fakeHome, ".arkor");
+    mkdirSync(arkorDir, { recursive: true });
+    chmodSync(arkorDir, 0o555);
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
@@ -281,10 +287,50 @@ describe("ensureCredentialsForStudio", () => {
       throw new Error(`unexpected fetch: ${url}`);
     }) as typeof fetch;
 
-    await expect(ensureCredentialsForStudio()).rejects.toThrow(/EISDIR/);
+    try {
+      await expect(ensureCredentialsForStudio()).rejects.toThrow(/EACCES/);
+      await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+        /arkor login --oauth/,
+      );
+    } finally {
+      // Restore writable so the afterEach `rmSync` can clean up.
+      chmodSync(arkorDir, 0o755);
+    }
+  });
+
+  // Copilot review on PR #65 (round 3) flagged that the OAuth-only wrap
+  // used to fire on *any* non-transport failure when oauthAvailable=true,
+  // including ZodErrors from a malformed cloud-api response. Now that the
+  // wrap is gated on `AnonymousTokenRejectedError`, schema-validation
+  // failures keep their original message even when OAuth is advertised.
+  it("does not rewrite schema-validation errors as OAuth hints when OAuth is configured", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
+        return new Response(
+          JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
     await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
       /arkor login --oauth/,
     );
+    expect(await readCredentials()).toBeNull();
   });
 
   it("re-throws when the cloud-api responds with a body that fails schema validation", async () => {

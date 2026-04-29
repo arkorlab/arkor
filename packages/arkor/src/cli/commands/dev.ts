@@ -6,6 +6,7 @@ import { serve } from "@hono/node-server";
 import open from "open";
 import { fetchCliConfig } from "../../core/auth0";
 import {
+  AnonymousTokenRejectedError,
   defaultArkorCloudApiUrl,
   readCredentials,
   studioTokenPath,
@@ -108,10 +109,14 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     // forward. Wrap the error with an explicit pointer at `arkor login
     // --oauth` so first-run users on those deployments still have a
     // discoverable next step.
-    if (!isTransportFailure && oauthAvailable) {
-      const cause = err instanceof Error ? err.message : String(err);
+    //
+    // Gate on `AnonymousTokenRejectedError` specifically (not all
+    // non-transport errors) so ZodErrors from a malformed cloud-api
+    // response, fs failures, or any other non-rejection cause keeps its
+    // original message instead of being mislabelled as a sign-in problem.
+    if (err instanceof AnonymousTokenRejectedError && oauthAvailable) {
       throw new Error(
-        `Failed to bootstrap an anonymous session (${cause}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
+        `Failed to bootstrap an anonymous session (${err.message}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
         { cause: err },
       );
     }

@@ -13,7 +13,7 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 import { acquireAnonymousTokenResult } from "../anonymous";
-import { promptSelect, ui } from "../prompts";
+import { isInteractive, promptSelect, ui } from "../prompts";
 
 export interface LoginOptions {
   /** Force the OAuth browser flow even if `--anonymous` would otherwise be selected interactively. */
@@ -49,6 +49,18 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
     );
     await runAnonymousLogin();
     return;
+  }
+
+  // PKCE needs a browser callback. `startLoopbackServer().waitForCallback`
+  // has no timeout, so a non-interactive `--oauth` run would hang
+  // indefinitely. Fail fast with a clear pointer at the automation-
+  // friendly alternative instead. Placed after the OAuth-availability
+  // check so an OAuth-less deployment still surfaces "OAuth is not
+  // configured" first (the more specific, actionable error).
+  if (options.oauth && !isInteractive()) {
+    throw new Error(
+      "--oauth requires an interactive terminal (browser callback). Use --anonymous in CI / non-TTY contexts.",
+    );
   }
 
   // Interactive choice: when neither flag was passed, ask which mode to use.

@@ -47,6 +47,35 @@ describe("runLogin", () => {
     expect(await readCredentials()).toBeNull();
   });
 
+  // PKCE needs a browser callback that CI can't satisfy, and the loopback
+  // server has no timeout. Without an early guard, `--oauth` in CI would
+  // hang indefinitely waiting for a redirect that will never come. The
+  // guard sits *after* the OAuth-availability check so deployments that
+  // don't even offer OAuth surface "OAuth is not configured" first
+  // (covered by the next test).
+  it("throws when --oauth is passed in a non-interactive context", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(runLogin({ oauth: true })).rejects.toThrow(
+      /--oauth requires an interactive terminal/,
+    );
+    expect(await readCredentials()).toBeNull();
+  });
+
   // `--oauth` is an explicit opt-in. If the deployment doesn't advertise
   // OAuth, silently falling back to anon would mask a misconfiguration the
   // user is actively asking us to surface. Keep the failure loud.
