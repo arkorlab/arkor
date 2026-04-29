@@ -1,0 +1,56 @@
+---
+title: "Studio"
+description: "The local web UI that watches your training runs and lets you chat with checkpoints."
+---
+
+# Studio
+
+Studio is the local web UI you get when you run `arkor dev`. It is not a separate service to sign into; it boots on your machine, talks to the same Arkor CLI process, and goes away when you stop the dev server.
+
+## What Studio is for
+
+Three jobs:
+
+1. **See training happen.** A jobs list with live status, a loss chart that updates as the run streams in, and a tail of training events. You can leave it open in a tab while you work on other things.
+2. **Try the model out, including mid-run.** A Playground page lets you pick the base model or any saved checkpoint adapter and chat with it. Comparing a checkpoint at step 50 against the base model is a few clicks.
+3. **Stay in the dev loop.** Studio reflects whatever trainer you have in `src/arkor/`. Edit `trainer.ts`, save, and the next run shows up automatically.
+
+## Where Studio runs
+
+When you start `arkor dev`, the CLI:
+
+1. Boots a Hono server on `127.0.0.1:4000` (use `-p` to change the port).
+2. Serves a Vite + React SPA from the same origin so the UI talks to the CLI through `/api/*` on loopback.
+3. Issues a per-launch CSRF token (saved to `~/.arkor/studio-token` with mode `0600`) and requires every request to present it.
+
+The server only binds to loopback and rejects requests with a non-loopback `Host` header. There is no public URL, no inbound connection, and the token rotates every time you start `arkor dev`. You can run Studio safely on a shared dev machine without worrying about exposing your training data.
+
+## How Studio fits with the managed backend
+
+Studio is just a viewer for what your CLI is doing. The CLI talks to the managed backend over authenticated HTTPS; Studio asks the CLI (over loopback) what to render.
+
+```
+Studio (browser tab)
+   │  /api/* on loopback, CSRF-token gated
+   ▼
+arkor CLI (your machine)
+   │  authenticated HTTPS
+   ▼
+Arkor managed backend (training, inference)
+```
+
+That separation is why Studio works without you logging into anything in the browser: the CLI already has your credentials in `~/.arkor/credentials.json`, and Studio inherits them by virtue of running locally.
+
+## What you actually see
+
+The current views are intentionally small:
+
+- **Jobs.** Status, name, created time, and ID, polled every few seconds.
+- **Job detail.** Loss chart, log tail (most recent events), and live status. Streamed via Server-Sent Events so it stays current without manual refresh.
+- **Playground.** Adapter selector (base model or any checkpoint from your jobs), a chat UI, and a streaming response. Calls flow through the CLI, then to the managed inference endpoint.
+
+A walkthrough of each view with screenshots lives in the Studio section (coming next in the docs).
+
+## When not to use Studio
+
+Studio is a development tool. It runs on your machine, only on loopback, and only while `arkor dev` is up. For production usage of a fine-tuned model you would call `infer` from your own application code (or wire it into whatever serving layer you ship), not point users at Studio.

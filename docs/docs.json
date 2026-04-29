@@ -22,7 +22,13 @@
       },
       {
         "group": "Concepts",
-        "pages": ["concepts/overview"]
+        "pages": [
+          "concepts/overview",
+          "concepts/project-structure",
+          "concepts/trainer",
+          "concepts/lifecycle",
+          "concepts/studio"
+        ]
       },
       {
         "group": "CLI",

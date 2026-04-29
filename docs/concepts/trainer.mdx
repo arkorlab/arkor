@@ -1,0 +1,123 @@
+---
+title: "Trainer"
+description: "createTrainer: required fields, dataset sources, LoRA settings, and the start / wait / cancel lifecycle."
+---
+
+# Trainer
+
+`createTrainer` is the heart of an Arkor project. Everything Arkor knows about a fine-tuning run, from the base model down to the LoRA rank, is on the object you pass in.
+
+## Minimal example
+
+```ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+});
+```
+
+That alone is a valid trainer. Defaults are filled in for everything else.
+
+## Required fields
+
+| Field     | Type            | Notes                                                      |
+| --------- | --------------- | ---------------------------------------------------------- |
+| `name`    | `string`        | Job name shown in Studio and the managed backend.          |
+| `model`   | `string`        | A model identifier the backend recognizes (Gemma today).   |
+| `dataset` | `DatasetSource` | See [Dataset sources](#dataset-sources).                   |
+
+## Dataset sources
+
+`DatasetSource` is a discriminated union on `type`:
+
+```ts
+type DatasetSource =
+  | { type: "huggingface"; name: string; split?: string; subset?: string }
+  | { type: "blob";        url: string;  token?: string };
+```
+
+- **HuggingFace**. The most common shape. Arkor pulls the dataset by name. Use `split` to override the default split and `subset` for datasets that publish multiple subsets.
+- **Blob URL**. Any HTTPS URL the backend can fetch. Pass `token` if the URL needs an `Authorization: Bearer` header.
+
+## LoRA configuration
+
+Pass `lora` to control LoRA settings. All four fields are typed:
+
+```ts
+lora?: {
+  r: number;             // LoRA rank
+  alpha: number;         // LoRA alpha
+  maxLength?: number;    // Maximum sequence length
+  loadIn4bit?: boolean;  // QLoRA quantization
+}
+```
+
+If you omit `lora`, the backend applies sensible defaults. `r: 16, alpha: 16` is a good starting point for the bundled templates.
+
+## Common hyperparameters
+
+| Field             | Type     | What it does                                                |
+| ----------------- | -------- | ----------------------------------------------------------- |
+| `maxSteps`        | `number` | Cap on training steps. Often the simplest knob to turn.     |
+| `numTrainEpochs`  | `number` | Alternative to `maxSteps`: number of dataset passes.        |
+| `learningRate`    | `number` | Step size for the optimizer.                                |
+| `batchSize`       | `number` | Per-device training batch size.                             |
+| `optim`           | `string` | Optimizer name (the backend list governs valid values).     |
+| `lrSchedulerType` | `string` | LR schedule (linear, cosine, etc).                          |
+| `weightDecay`     | `number` | Regularization weight.                                      |
+
+If you only set `maxSteps`, the rest stay at backend defaults. That is usually what you want for the first few runs.
+
+## Smoke testing with `dryRun`
+
+```ts
+createTrainer({
+  name: "smoke",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  dryRun: true,
+});
+```
+
+`dryRun: true` tells the backend to validate the trainer end to end without burning real GPU time. Useful in CI or when wiring up callbacks for the first time.
+
+## What `createTrainer` returns
+
+```ts
+interface Trainer {
+  readonly name: string;
+  start(): Promise<{ jobId: string }>;
+  wait(): Promise<TrainingResult>;
+  cancel(): Promise<void>;
+}
+```
+
+- **`start()`** kicks off the run on the managed backend and resolves with the assigned `jobId`. It does not wait for completion.
+- **`wait()`** returns once the run finishes (or fails). All registered callbacks fire while it is in flight; this is how you observe the run.
+- **`cancel()`** asks the backend to stop the run. Safe to call after the run already finished.
+
+`pnpm dev` (which is `arkor dev` underneath) and `arkor start` both call `start()` and `wait()` for you. You only call them directly if you wire training into your own code outside the CLI.
+
+## Cancellation with `AbortSignal`
+
+```ts
+const controller = new AbortController();
+const trainer = createTrainer({
+  name: "cancellable",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  abortSignal: controller.signal,
+});
+
+// Later, from anywhere:
+controller.abort();
+```
+
+Aborting the signal is equivalent to calling `cancel()`. Useful when you want to tie the run to a timeout, a request lifetime, or a parent process that exits.
+
+## Reacting to events
+
+The whole point of doing this in TypeScript is that you can hook into the run with [lifecycle callbacks](/concepts/lifecycle): `onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`. That is the next concept to read.
