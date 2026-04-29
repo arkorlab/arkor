@@ -43,7 +43,7 @@ dataset: {
 dataset: {
   type: "blob",
   url: "https://internal.example.com/data/2026-04.jsonl",
-  token: process.env.DATASET_TOKEN,    // sent as `Authorization: Bearer ...`
+  token: process.env.DATASET_TOKEN,    // forwarded to the backend for the blob fetch (wire format backend-defined)
 },
 ```
 

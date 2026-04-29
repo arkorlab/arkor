@@ -20,20 +20,33 @@ await runTrainer();                        // resolves src/arkor/index.ts
 await runTrainer("src/arkor/alt.ts");      // explicit entry path
 ```
 
-This is the right shape when you already have the trainer defined in `src/arkor/` and just need to trigger it from non-CLI code: a GitHub Action step, a build step, a one-off script. You inherit all the trainer's callbacks and `abortSignal` wiring; the function returns when the run reaches a terminal state.
+This is the right shape when you already have the trainer defined in `src/arkor/` and just need to trigger it from non-CLI code: a GitHub Action step, a build step, a one-off script. You inherit all the trainer's callbacks and `abortSignal` wiring.
+
+A subtle point that bites in CI: `runTrainer()` (and `trainer.wait()`) **resolves** whether the run ended `completed` or `failed`. The SSE stream simply terminates either way; only transport-level errors (abort, reconnect exhausted) reject the promise. A naive `try / catch` around `runTrainer()` would let a failed training job exit `0`. To make CI fail on a failed run, drive the trainer directly so you can inspect the terminal status:
 
 ```ts
 // scripts/train.ts
-import { runTrainer } from "arkor";
+import { trainer } from "../src/arkor/trainer";
+
+const { jobId } = await trainer.start();
+console.log(`Started ${jobId}`);
 
 try {
-  await runTrainer();
-  process.exit(0);
+  const result = await trainer.wait();
+  if (result.job.status === "completed") {
+    process.exit(0);
+  }
+  console.error(`status=${result.job.status}: ${result.job.error ?? "no error message"}`);
+  process.exit(1);
 } catch (err) {
-  console.error("training failed:", err);
+  // wait() rejected before reaching a terminal status (abortSignal aborted,
+  // reconnect attempts exhausted, etc.). Treat as a CI failure too.
+  console.error("wait() threw:", err);
   process.exit(1);
 }
 ```
+
+Use `await runTrainer()` directly only when you do not need to detect a `failed` run from the calling code (for example, when an `onFailed` callback in the trainer already routes the failure to your alerting).
 
 ## Shape 2: Direct `start()` / `wait()` (full control)
 
@@ -81,18 +94,23 @@ The two halves are symmetric: `start` submits, `wait` runs the SSE event stream 
 ```ts
 // app/api/train/route.ts
 import { NextResponse } from "next/server";
-import { runTrainer } from "arkor";
+import { trainer } from "@/src/arkor/trainer";
 
 export async function POST() {
-  // Fire-and-forget; the route returns immediately while the run continues.
-  void runTrainer().catch((err) => {
-    console.error("background training failed:", err);
+  const { jobId } = await trainer.start();
+  // Drive wait() in the background. The .catch only fires on transport-
+  // level errors (abort, reconnect exhausted); a `training.failed`
+  // terminal state resolves wait() normally with `result.job.status`
+  // set to "failed". For alerting on a failed run, use the trainer's
+  // onFailed callback (see /cookbook/notifications).
+  void trainer.wait().catch((err) => {
+    console.error("wait() threw:", err);
   });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ jobId });
 }
 ```
 
-(For real production use, you would push the run into a worker rather than tying it to an HTTP request lifetime; but the local pattern is the same.)
+(For real production use, push the run into a worker rather than tying it to an HTTP request lifetime; the local pattern is the same.)
 
 **Cron / scheduled retraining.** Run nightly fine-tunes against a freshly snapshotted dataset:
 
