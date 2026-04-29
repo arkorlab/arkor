@@ -27,9 +27,9 @@ export interface DevOptions {
  *
  *  - If credentials already exist → no-op.
  *  - Otherwise → always acquire an anonymous token. When the deployment
- *    advertises OAuth, surface a hint pointing at `arkor login` so the user
- *    can upgrade to a real session whenever they want, but don't block the
- *    Studio launch on it.
+ *    advertises OAuth, surface a hint pointing at `arkor login --oauth` so
+ *    the user can upgrade to a real session whenever they want, but don't
+ *    block the Studio launch on it.
  *  - On anonymous-bootstrap network failure, warn and continue: the Studio
  *    server is built with `autoAnonymous` enabled, so it will retry on the
  *    first `/api/credentials` hit. This keeps `arkor dev` usable when the
