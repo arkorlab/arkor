@@ -65,7 +65,7 @@ pnpm dev
 
 This runs `arkor dev`, which boots Studio at `http://localhost:4000`. Studio is the UI; `arkor dev` itself does not start training and does not watch your trainer files.
 
-In the browser, click **Run training**. Studio runs `arkor start` for you in the background, which submits the job to the managed backend using the existing `.arkor/build/index.mjs` artifact. On the very first run that artifact does not exist yet, so `arkor start` auto-builds from `src/arkor/index.ts` first. The first time you trigger anything, an anonymous workspace is created automatically: no signup, no credit card.
+In the browser, click **Run training**. Studio runs `arkor start` for you in the background, which submits the job to the managed backend using `.arkor/build/index.mjs`. If that artifact is missing, `arkor start` auto-builds it from `src/arkor/index.ts`; in the Studio flow you rarely see this path because Studio's `/api/manifest` endpoint already rebuilt the artifact when the Run training page loaded. The first time you trigger anything, an anonymous workspace is created automatically: no signup, no credit card.
 
 Once a run is in flight, three views matter:
 
