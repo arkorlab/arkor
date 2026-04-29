@@ -1,0 +1,108 @@
+---
+title: "arkor build / start"
+description: "Bundle the trainer and run it without Studio."
+---
+
+# `arkor build` and `arkor start`
+
+`arkor build` and `arkor start` are the headless equivalent of [Studio](/concepts/studio)'s **Run training** button. Use them when you want to run a trainer without booting the UI: in CI, on a server, or from another script.
+
+Studio's **Run training** internally spawns `arkor start` (without an entry argument) so the runtime path is the same in both flows.
+
+## `arkor build`
+
+```bash
+npx arkor build
+```
+
+Bundles `src/arkor/index.ts` into `.arkor/build/index.mjs` using esbuild.
+
+### Synopsis
+
+```
+arkor build [entry]
+```
+
+### Argument
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `entry` | `src/arkor/index.ts` | Source entry to bundle. Both relative and absolute paths work. |
+
+### Output
+
+`.arkor/build/index.mjs` (`outDir` defaults to `.arkor/build`). The output is a single ESM file targeting Node 22.6, with `packages: "external"` so bare specifiers (`arkor`, anything from `node_modules`) stay external and the artifact resolves the runtime SDK from your installed `node_modules`. Only relative imports are bundled inline.
+
+If the entry does not exist, `arkor build` throws with a hint to either create `src/arkor/index.ts` or pass an explicit entry.
+
+## `arkor start`
+
+```bash
+npx arkor start
+```
+
+Runs `.arkor/build/index.mjs`. The runner imports the bundle, finds the registered trainer (preferring `export const arkor`, then `export const trainer`, then the default export), and calls `trainer.start()` followed by `trainer.wait()`.
+
+### Synopsis
+
+```
+arkor start [entry]
+```
+
+### Argument
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `entry` | _none_ | When provided, `arkor start` rebuilds the project with this entry **before** running. When omitted, an existing build artifact is reused; if it does not exist, `arkor start` auto-builds with the default entry first. |
+
+The auto-build-on-missing behavior exists so Studio's "Run training" does not have to chain two spawns. From a script you usually want to call `arkor build` and `arkor start` explicitly so a build failure surfaces before you commit to running.
+
+### Behavior summary
+
+| Situation | What `arkor start` does |
+| --- | --- |
+| `entry` argument passed | Rebuild with the given entry, then run. |
+| Artifact missing, no `entry` | Auto-build with the default entry, then run. |
+| Artifact present, no `entry` | Reuse the artifact, run as-is. |
+
+The "reuse the artifact" path is what lets Studio surface trainer edits via its `/api/manifest` rebuild rather than the train endpoint. For a CLI-only workflow, run `arkor build` whenever you change `src/arkor/`.
+
+## Common errors
+
+`arkor build`:
+
+| Message | What it means | Fix |
+| --- | --- | --- |
+| `Build entry not found: <abs-path>. Create src/arkor/index.ts or pass an explicit entry argument.` | The default entry does not exist and no explicit entry was passed. | Run from a project root (the directory containing `src/arkor/index.ts`), or pass an entry: `arkor build path/to/entry.ts`. |
+
+`arkor start`:
+
+| Message | What it means | Fix |
+| --- | --- | --- |
+| `Build entry not found: <abs-path>. Create src/arkor/index.ts or pass an explicit entry argument.` | `arkor start` runs `arkor build` first whenever you pass an entry argument, or whenever `.arkor/build/index.mjs` is missing. A bad entry path surfaces here, not at the runner stage. | Pass an entry that exists, or omit it and rely on the default `src/arkor/index.ts`. |
+| `Training entry must export 'arkor' (from createArkor({...})) or 'trainer' (from createTrainer({...})), or default-export one of them.` | The bundle imported successfully but did not expose any of the supported export shapes. | See [Project structure § `src/arkor/`](/concepts/project-structure#srcarkor) for the three accepted forms (named `arkor`, named `trainer`, or default). |
+
+`runTrainer` (programmatic):
+
+| Message | What it means | Fix |
+| --- | --- | --- |
+| `Training entry not found: <abs-path>. Provide a path or create src/arkor/index.ts.` | Surfaces when the runner is invoked directly (e.g. `import { runTrainer } from "arkor"`) with a path that does not exist. The CLI does not hit this path; `arkor start` would have failed earlier in the build stage. | Pass a path that exists, or `import "./src/arkor/index.ts"` first to catch it at module-load time. |
+
+## Examples
+
+Build then start, two steps:
+```bash
+npx arkor build
+npx arkor start
+```
+
+One step, force a rebuild from a different entry:
+```bash
+npx arkor start src/arkor/experiment.ts
+```
+
+Rebuild stale artifact between trainer edits:
+```bash
+# After editing src/arkor/trainer.ts:
+npx arkor build && npx arkor start
+```

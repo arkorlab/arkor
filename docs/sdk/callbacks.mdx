@@ -1,0 +1,162 @@
+---
+title: "Lifecycle callbacks"
+description: "The five callbacks Arkor fires while a training run streams from the backend."
+---
+
+# Lifecycle callbacks
+
+Pass callbacks under `createTrainer({ callbacks: { ... } })`. All five are optional; the SDK type is `Partial<TrainerCallbacks>`. They run inside `trainer.wait()`, dispatched from the backend's SSE event stream.
+
+```ts
+createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  callbacks: {
+    onStarted: ({ job }) => console.log(`run ${job.id} accepted`),
+    onLog: ({ step, loss }) => {
+      if (loss !== null) console.log(`step=${step} loss=${loss.toFixed(4)}`);
+    },
+    onCheckpoint: async ({ step, infer }) => {
+      const res = await infer({
+        messages: [{ role: "user", content: "Hello" }],
+      });
+      console.log(`ckpt @ ${step}:`, await res.text());
+    },
+    onCompleted: ({ job }) => console.log(`run ${job.id} done`),
+    onFailed: ({ error }) => console.error(`failed: ${error}`),
+  },
+});
+```
+
+## When each callback fires
+
+```
+trainer.start()    submits the job and returns { jobId }. No callbacks yet.
+   │
+   ▼
+trainer.wait()     opens the SSE stream. Callbacks dispatch from here.
+   │
+   ▼
+onStarted          once, on the `training.started` event
+onLog              many times, one per metrics frame
+onCheckpoint       several times, one per checkpoint upload
+onCompleted        once, on `training.completed`
+        ── or ──
+onFailed           once, on `training.failed` (backend-reported failure)
+```
+
+If you call `start()` without `wait()`, no callbacks ever run. `arkor start` calls both for you; programmatic callers must do the same.
+
+## `onStarted({ job })`
+
+Fires when the SSE stream reports `training.started`. Use it for log lines or a "training started" notification.
+
+```ts
+onStarted: ({ job }) => {
+  // job: TrainingJob (id, name, status, config, ...)
+}
+```
+
+## `onLog({ step, loss, evalLoss, learningRate, epoch, samplesPerSecond, job })`
+
+Fires repeatedly as training progresses. Each numeric field is `number | null`: backends only fill in fields they have on a given step (so `evalLoss` is null on non-eval steps, `learningRate` may be null between LR-scheduler updates, etc.).
+
+```ts
+onLog: ({ step, loss, evalLoss }) => {
+  if (loss !== null) {
+    forwardToMetrics({ step, loss, evalLoss });
+  }
+}
+```
+
+Common uses: forward metrics to your own pipeline (PostHog, Datadog), detect divergence early, and implement custom early-stopping. For early-stopping, remember that aborting the [`abortSignal`](/sdk/trainer-control#abortsignal) only stops your local `wait()`; call [`trainer.cancel()`](/sdk/trainer-control#cancel) afterwards to actually stop the GPU on the backend.
+
+## `onCheckpoint({ step, adapter, job, infer, artifacts })`
+
+Fires when an adapter checkpoint is saved on the backend, while the run is still going. `adapter` is `{ kind: "checkpoint", jobId, step }`. `infer` is described in detail on the [infer](/sdk/infer) page; in short it takes a chat-style request and returns a raw `Response`.
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  const res = await infer({
+    messages: [{ role: "user", content: "Can't log in" }],
+  });
+  const sample = await res.text();
+  // Decide whether the model is on track
+}
+```
+
+This is where most of the value of doing fine-tuning in TypeScript lives: you can run the half-trained model against a held-out prompt before the full run finishes.
+
+## `onCompleted({ job, artifacts })`
+
+Fires once on success. `artifacts` is `unknown[]`: the raw artifact list the backend sent. Schemas evolve, so the SDK does not narrow it.
+
+```ts
+onCompleted: ({ job, artifacts }) => {
+  saveAdapterId({ jobId: job.id, count: artifacts.length });
+}
+```
+
+## `onFailed({ job, error })`
+
+Fires once on a backend-reported failure. `error` is a `string` (the message the backend sent), not an `Error` instance.
+
+```ts
+onFailed: ({ job, error }) => {
+  // error: string
+}
+```
+
+`onFailed` is **only** for backend-side failures. Exceptions thrown inside your other callbacks do not reach `onFailed`; see below for what does happen to them.
+
+## Sequencing
+
+Each callback is awaited before the next event is dispatched. You can return a promise (writing to a database, posting to Slack, calling `infer`) and the SDK will wait for it before processing the next frame. There are no concurrent callback invocations for the same trainer.
+
+## Exception handling (read carefully)
+
+Throwing inside a callback does **not** behave like a normal Promise rejection. The SDK's event loop wraps dispatch in a try/catch and routes any throw to the SSE reconnect handler (`packages/arkor/src/core/trainer.ts:335-364`, then `handleFailure` at `:307-320`):
+
+1. If `abortSignal.aborted` is set, the error re-throws and `wait()` rejects.
+2. Otherwise, if `maxReconnectAttempts` was configured and the counter is exceeded, `wait()` rejects with a wrapping error.
+3. Otherwise, the SDK delays and reopens the SSE stream.
+
+`maxReconnectAttempts` defaults to `undefined` (unlimited). It is not configurable through `TrainerInput`; the only way to set it is the second `context` argument to `createTrainer`, which is annotated `@internal` and may change without notice. In practice, with default settings, a thrown callback is **caught and retried**, possibly indefinitely. If `Last-Event-ID` advances across the retry, the originally failing event is also skipped.
+
+For deterministic error handling, catch inside the callback:
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  try {
+    await sendToReview({ step, sample: await (await infer({ ... })).text() });
+  } catch (err) {
+    // log / metric / decide whether to fail the run yourself by calling
+    // trainer.cancel() from outside the callback
+  }
+}
+```
+
+## Type sketches
+
+```ts
+interface TrainingLogContext {
+  step: number;
+  loss: number | null;
+  evalLoss: number | null;
+  learningRate: number | null;
+  epoch: number | null;
+  samplesPerSecond: number | null;
+  job: TrainingJob;
+}
+
+interface CheckpointContext {
+  step: number;
+  adapter: { kind: "checkpoint"; jobId: string; step: number };
+  job: TrainingJob;
+  infer: (args: InferArgs) => Promise<Response>;
+  artifacts?: unknown[];
+}
+```
+
+`TrainingLogContext` and `CheckpointContext` are not exported by name from `arkor`; mirror the shapes inline if you want typed callback parameters in your own code.

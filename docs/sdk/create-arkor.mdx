@@ -1,0 +1,66 @@
+---
+title: "createArkor"
+description: "Wrap a Trainer into an Arkor project manifest the CLI and Studio can discover."
+---
+
+# `createArkor`
+
+```ts
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+`createArkor` produces the project manifest that `arkor dev`, `arkor start`, and Studio's `/api/manifest` endpoint look for in `src/arkor/index.ts`. Today the manifest only carries a `Trainer`; the type reserves space for `deploy` and `eval` slots, but neither is implemented.
+
+## Signature
+
+```ts
+function createArkor(input: ArkorInput): Arkor;
+
+interface ArkorInput {
+  trainer?: Trainer;
+  // future: deploy?: Deploy;
+  // future: eval?: Eval;
+}
+
+interface Arkor {
+  readonly _kind: "arkor";
+  readonly trainer?: Trainer;
+  // future: readonly deploy?: Deploy;
+  // future: readonly eval?: Eval;
+}
+```
+
+The returned object is `Object.freeze`-d. There are no methods on it; the framework reads `_kind` and `trainer` directly.
+
+## What works today
+
+- `trainer`: pass a `Trainer` produced by [`createTrainer`](/sdk/create-trainer). Optional in the type, but a manifest with no `trainer` cannot be run by `arkor start` (the runner throws ``Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.``).
+
+## Not yet
+
+- `deploy` and `eval` slots. They appear in `ArkorInput` and `Arkor` as commented-out reserved fields. Passing them today is a type error, and there is no runtime path for them. Treat them as roadmap markers, not as forward-compatible API.
+
+## Recognized export shapes
+
+`arkor start` (via `runTrainer`) inspects `src/arkor/index.ts` for one of three exports, in priority order:
+
+1. `export const arkor = createArkor({ ... })` (preferred, what the templates produce)
+2. `export const trainer = createTrainer({ ... })` (power-user shortcut, no manifest)
+3. `export default ...` (either an `Arkor` manifest or a bare `Trainer`)
+
+If none match, the runner throws with the message above. Templates always emit shape 1; pick that unless you know why you want one of the others.
+
+## `isArkor`
+
+```ts
+import { isArkor } from "arkor";
+
+if (isArkor(value)) {
+  // value: Arkor
+}
+```
+
+A small type guard exported alongside `createArkor` for code that consumes manifests dynamically. It checks that the value is a non-null object with `_kind === "arkor"` (it does **not** verify `Object.isFrozen`, even though `createArkor` itself produces a frozen value). Use it sparingly; in normal code the typed export from `index.ts` already gives you the right shape.
