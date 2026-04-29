@@ -3,8 +3,6 @@ title: "Trainer"
 description: "createTrainer: required fields, dataset sources, LoRA settings, and the start / wait / cancel lifecycle."
 ---
 
-# Trainer
-
 `createTrainer` is the heart of an Arkor project. Everything Arkor knows about a fine-tuning run, from the base model down to the LoRA rank, is on the object you pass in.
 
 ## Minimal example
@@ -40,7 +38,7 @@ type DatasetSource =
 ```
 
 - **HuggingFace**. The most common shape. Arkor pulls the dataset by name. Use `split` to override the default split and `subset` for datasets that publish multiple subsets.
-- **Blob URL**. Any HTTPS URL the backend can fetch. Pass `token` if the URL needs an `Authorization: Bearer` header.
+- **Blob URL**. Any HTTPS URL the backend can fetch. Pass `token` if the backend needs auth to retrieve the URL; the value is forwarded to the cloud-api and used during the dataset fetch (the exact wire format is backend-defined and not part of the SDK contract).
 
 ## LoRA configuration
 

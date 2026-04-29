@@ -1,16 +1,72 @@
 ---
 title: "SDK"
-description: "The Arkor SDK: createArkor, createTrainer, infer, and the lifecycle callbacks."
+description: "The Arkor SDK: createArkor, createTrainer, lifecycle callbacks, infer, and the helpers around them."
 ---
 
 # SDK
 
-{/* TODO: write the real SDK reference.
+The `arkor` package exposes the TypeScript surface that the CLI and Studio sit on top of. Everything you need for a typical project lives in three primitives plus their typed inputs.
 
-APIs to document:
-- `createArkor({ trainer, deploy, eval })`
-- `createTrainer({ name, model, dataset, lora, maxSteps, callbacks })`
-- Lifecycle callbacks: onStarted, onLog, onCheckpoint, onCompleted, onFailed
-- `infer({ messages })` from inside `onCheckpoint` for sanity checks
-- Dataset shapes (HuggingFace name, JSONL, blob URL)
-*/}
+## Minimal example
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+```ts
+// src/arkor/index.ts
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+That is the whole shape `arkor dev` and `arkor start` discover.
+
+## Main API
+
+| Symbol | Page |
+| --- | --- |
+| [`createArkor(input)`](/sdk/create-arkor) | Project manifest. Wraps a `Trainer` so the CLI / Studio can find it. |
+| [`createTrainer(input)`](/sdk/create-trainer) | The fine-tuning run definition: model, dataset, LoRA, hyperparameters, callbacks. |
+| [`Trainer.start / wait / cancel`](/sdk/trainer-control) | Run-control methods. `wait()` is where lifecycle callbacks fire. |
+| [`TrainerCallbacks`](/sdk/callbacks) | The five lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`). |
+| [`InferArgs` / `infer`](/sdk/infer) | Inference inside `onCheckpoint`. Returns a raw `Response`. |
+| [`DatasetSource`](/sdk/dataset) | HuggingFace dataset name or blob URL. |
+
+## Auxiliary helpers (advanced)
+
+These are exported for code that drives Arkor outside the CLI flow, e.g. running training from your own server or a script. Most projects do not need them.
+
+| Symbol | Source | Purpose |
+| --- | --- | --- |
+| `runTrainer(file?)` | `core/runner.ts` | What `arkor start` calls under the hood. Resolves the entry, picks the trainer (preferring `arkor`, then `trainer`, then default export), runs `start()` + `wait()`. |
+| `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | Read or write `~/.arkor/credentials.json`. `ensureCredentials` returns the existing record if present and **bootstraps a fresh anonymous identity** (calls `requestAnonymousToken` and persists it) when no credentials exist. Throws on a few paths: the credentials file exists but is unreadable / not valid JSON (`readCredentials` does a bare `JSON.parse`), or the anonymous-token bootstrap itself fails (network / token-endpoint error). The file is assumed to be SDK-written. |
+| `requestAnonymousToken(baseUrl, kind?)` | `core/credentials.ts` | Mint a fresh anonymous token directly. The CLI uses this on `arkor login --anonymous` and on first `arkor dev`. |
+| `credentialsPath()` | `core/credentials.ts` | Absolute path to `~/.arkor/credentials.json`. |
+| `readState(cwd?)` / `writeState(state, cwd?)` / `statePath(cwd?)` | `core/state.ts` | Read or write `.arkor/state.json` (project routing). |
+| `isArkor(value)` | `core/arkor.ts` | Type guard for the manifest. |
+
+## Types
+
+Public type exports (from `arkor`):
+
+`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `Auth0Credentials` / `AnonymousCredentials` / `Credentials` for the auth helpers.
+
+`TrainingLogContext`, `CheckpointContext`, `InferArgs` are not exported by name today; they are documented in the [callbacks](/sdk/callbacks) and [infer](/sdk/infer) pages so you can mirror them inline if you need typed callback parameters.
+
+## Not in the public surface
+
+These exist in the source tree but are intentionally not exported from `arkor`. Treat them as internal:
+
+- `SDK_VERSION`, `defaultArkorCloudApiUrl()`: used by the CLI and Studio server. Do not import via deep paths; the export contract may change.
+- The CLI command runners (`runBuild`, `runStart`, `runDev`, `runInit`, `runLogin`, `runLogout`, `runWhoami`): they live under `src/cli/commands/` and are CLI-private. If you need to drive a training run, use `runTrainer` (above) or call `trainer.start()` / `trainer.wait()` directly.

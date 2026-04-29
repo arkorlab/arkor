@@ -1,18 +1,62 @@
 ---
 title: "CLI"
-description: "The Arkor CLI: dev, build, start, and friends."
+description: "The arkor CLI: full command reference."
 ---
 
 # CLI
 
-{/* TODO: write the real CLI reference.
+The `arkor` CLI is the command surface around an Arkor project. The scaffolder ([`pnpm create arkor`](/quickstart)) installs `arkor` as a local devDependency, so prefer `npx arkor <command>` (or `pnpm exec arkor <command>` / `yarn arkor <command>` / `bun arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally.
 
-Commands to document:
-- `arkor init`
-- `arkor login` / `arkor logout` / `arkor whoami`
-- `arkor dev` (Studio at http://localhost:4000, hot reload)
-- `arkor build` (bundle to .arkor/build/index.mjs)
-- `arkor start` (run the build artifact)
+## Commands
 
-Note the Next.js-style dev/build/start triad. The older train/jobs/logs commands have been removed.
-*/}
+| Command | What it does |
+| --- | --- |
+| [`arkor init`](/cli/init) | Scaffold `src/arkor/index.ts` + `arkor.config.ts` in the current directory. |
+| [`arkor dev`](/cli/dev) | Launch [Studio](/concepts/studio) on `http://localhost:4000` (configurable). |
+| [`arkor build`](/cli/build-and-start) | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`. |
+| [`arkor start`](/cli/build-and-start) | Run the build artifact (auto-builds when missing). |
+| [`arkor login`](/cli/auth) | Sign in via Auth0 PKCE on loopback, or `--anonymous` for a throwaway token. |
+| [`arkor logout`](/cli/auth) | Delete `~/.arkor/credentials.json`. |
+| [`arkor whoami`](/cli/auth) | Print the current identity and reachable orgs. |
+
+## Conventions across commands
+
+- **`--help` / `-h`** is available on every command; `arkor <command> --help` prints the flag list and usage.
+- **`arkor --version` / `-V`** prints the installed SDK version (the same `SDK_VERSION` the package exports).
+- **Exit codes.** Successful commands exit 0. Most commands exit non-zero on failure (uncaught throws, build errors, etc.). `arkor whoami` is a deliberate exception: it prints the failure to stdout but still exits 0 for ordinary cloud-api errors (`Failed to fetch /v1/me (<status>)`), and only sets `process.exitCode = 1` when the cloud-api responds with 426 (SDK too old). Wrapper scripts that need to detect a `whoami` failure should grep stdout, not rely on the exit code.
+- **Telemetry.** Every command runs through a small instrumentation wrapper so usage events can be sent to PostHog. See [Environment variables](#environment-variables) below for the full opt-out / debug knobs.
+- **Deprecation notices.** When the cloud-api response carries `Deprecation: true`, the CLI prints a one-line warning at the end of the run with the suggested upgrade command. The `Warning` and `Sunset` headers (when present) format the message; they do not trigger the warning on their own.
+
+## Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `DO_NOT_TRACK=1` | Disable telemetry across every command. The persistent telemetry-id file is not created or read. |
+| `ARKOR_TELEMETRY_DISABLED=1` | Same as `DO_NOT_TRACK`. Provided as an Arkor-specific alias for setups that already gate other tools on `DO_NOT_TRACK` and want a separate switch. |
+| `ARKOR_TELEMETRY_DEBUG=1` | Enable verbose internal logging from the telemetry module (init failures, identity-file read/write errors, capture failures, shutdown errors). Telemetry **is still sent** when this flag is on; this is a diagnostic aid, not a dry-run switch. To stop sending events, use `DO_NOT_TRACK=1` or `ARKOR_TELEMETRY_DISABLED=1`. |
+| `CI=1` (or any non-TTY stdout) | Force non-interactive mode. `arkor init` skips its prompts and uses the values you passed via flags (or built-in defaults under `--yes`); git init runs without asking when `--git` or `--yes` is set, and is skipped silently otherwise. See [`arkor init` § In CI / non-interactive shells](/cli/init#in-ci---non-interactive-shells). |
+
+### On the roadmap
+
+The CLI does read `ARKOR_CLOUD_API_URL` and uses it as the cloud-api endpoint when set (`packages/arkor/src/core/credentials.ts`'s `defaultArkorCloudApiUrl`), but pointing at a non-default endpoint (self-hosted or staging) is **not** yet a stable user-facing knob: the env var is internal-only and may change without notice, and there are no compatibility guarantees on alternate endpoints. First-class support for self-hosted / staging deployments is on the roadmap.
+
+## Programmatic invocation
+
+The `arkor` package re-exports `runTrainer` so you can drive a training run from your own TypeScript code instead of going through `arkor start`:
+
+```ts
+import { runTrainer } from "arkor";
+
+await runTrainer(); // resolves src/arkor/index.ts and calls trainer.start() + .wait()
+```
+
+The CLI command runners themselves (`runBuild`, `runStart`, `runDev`, etc.) are intentionally **not** part of the public surface and may change without notice. If you want to wire training into your own code, prefer `runTrainer` or call `trainer.start()` / `trainer.wait()` directly.
+
+## Project versus user state
+
+Two locations matter, and the CLI reads / writes both:
+
+- **`.arkor/`** (per-project, gitignored): `state.json` (project routing) and `build/index.mjs` (the bundled trainer).
+- **`~/.arkor/`** (per-user): `credentials.json` (auth) and `studio-token` (per-launch CSRF token, transient).
+
+See [Project structure](/concepts/project-structure) for the file-by-file rundown.

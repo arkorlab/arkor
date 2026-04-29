@@ -32,11 +32,25 @@
       },
       {
         "group": "CLI",
-        "pages": ["cli/overview"]
+        "pages": [
+          "cli/overview",
+          "cli/init",
+          "cli/dev",
+          "cli/build-and-start",
+          "cli/auth"
+        ]
       },
       {
         "group": "SDK",
-        "pages": ["sdk/overview"]
+        "pages": [
+          "sdk/overview",
+          "sdk/create-arkor",
+          "sdk/create-trainer",
+          "sdk/dataset",
+          "sdk/callbacks",
+          "sdk/infer",
+          "sdk/trainer-control"
+        ]
       },
       {
         "group": "Cookbook",

@@ -3,8 +3,6 @@ title: "Studio"
 description: "The local web UI for starting training runs, watching them stream, and chatting with finished models."
 ---
 
-# Studio
-
 Studio is the local web UI you get when you run `arkor dev`. It is not a separate service to sign into; it boots on your machine, talks to the same Arkor CLI process, and goes away when you stop the dev server.
 
 ## What Studio is for
@@ -43,6 +41,8 @@ Arkor managed backend (training, inference)
 
 That separation is why Studio works without you logging into anything in the browser: the CLI already has your credentials in `~/.arkor/credentials.json`, and Studio inherits them by virtue of running locally.
 
+If `~/.arkor/credentials.json` is missing, the entry point decides what to do. **`arkor dev`** (and `arkor login` itself) checks the cloud-api at launch and runs the interactive Auth0 PKCE flow when the deployment requires Auth0; otherwise it requests an anonymous token. The **Studio server's lazy bootstrap** (when an `/api/*` request arrives before credentials are on disk) only does the anonymous fallback: it never runs the Auth0 flow on its own. So on an Auth0-configured deployment, run `arkor login` (or let `arkor dev` open the browser flow at launch) before clicking around in Studio; the credentials file is shared, so Studio picks up the account session on its next request.
+
 ## What you actually see
 
 The current views are intentionally small:
@@ -51,7 +51,7 @@ The current views are intentionally small:
 - **Job detail.** Loss chart, log tail (most recent events), and live status. Streamed via Server-Sent Events so it stays current without manual refresh.
 - **Playground.** Adapter selector (base model or the final adapter from any completed job), a chat UI, and a streaming response. Calls flow through the CLI, then to the managed inference endpoint. The Playground only lists jobs that have finished. To run inference against an intermediate checkpoint while a run is still in flight, use [`onCheckpoint`](/concepts/lifecycle) callbacks instead.
 
-A walkthrough of each view with screenshots lives in the Studio section (coming next in the docs).
+A walkthrough of each view (Run training, Job detail, Playground) lives in the [Studio](/studio/overview) section.
 
 ## When not to use Studio
 
