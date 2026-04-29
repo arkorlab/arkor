@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureCredentialsForStudio } from "./dev";
@@ -21,7 +21,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.HOME = ORIG_HOME;
+  if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
+  else delete process.env.HOME;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
   globalThis.fetch = ORIG_FETCH;
@@ -46,7 +47,46 @@ describe("ensureCredentialsForStudio", () => {
     expect(await readCredentials()).toEqual(creds);
   });
 
-  it("bootstraps anonymous credentials when Auth0 isn't configured", async () => {
+  // When OAuth is advertised by the deployment, `arkor dev` no longer
+  // hands off to `runLogin` — that would block the Studio launch on a
+  // browser flow. Instead we bootstrap anon and show a hint pointing at
+  // `arkor login`, leaving the upgrade in the user's hands.
+  it("bootstraps anonymous credentials even when OAuth is configured", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response(
+          JSON.stringify({
+            token: "anon-tok",
+            anonymousId: "anon-aid",
+            kind: "cli",
+            personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await ensureCredentialsForStudio();
+    expect(await readCredentials()).toMatchObject({
+      mode: "anon",
+      token: "anon-tok",
+    });
+  });
+
+  it("bootstraps anonymous credentials when OAuth isn't configured", async () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
@@ -111,11 +151,11 @@ describe("ensureCredentialsForStudio", () => {
   });
 
   // Codex review on PR #10 (round 3) flagged that swallowing transport
-  // failures when fetchCliConfig itself failed is unsafe: in Auth0-only
+  // failures when fetchCliConfig itself failed is unsafe: on OAuth-only
   // deployments we can't tell from a network outage that /v1/auth/anonymous
-  // would have been rejected, and the server-side retry path never re-
-  // enters runLogin. So when cfg fetch fails AND the anon attempt also
-  // transport-fails, we now fail fast.
+  // would have been rejected, and the server-side retry on /api/credentials
+  // would just keep failing. So when cfg fetch fails AND the anon attempt
+  // also transport-fails, we now fail fast.
   it("re-throws when cloud-api is fully unreachable (deployment mode unknown)", async () => {
     globalThis.fetch = vi.fn(async () => {
       throw new TypeError("fetch failed");
@@ -170,6 +210,175 @@ describe("ensureCredentialsForStudio", () => {
     await expect(ensureCredentialsForStudio()).rejects.toThrow(TypeError);
     await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
       /^fetch failed$/,
+    );
+    expect(await readCredentials()).toBeNull();
+  });
+
+  // Copilot review on PR #65 (round 4) flagged that the wrap originally
+  // fired for *all* `AnonymousTokenRejectedError`s including 5xx. A
+  // transient cloud-api 500 isn't a sign-in policy decision, so the OAuth
+  // hint there would be misleading. The wrap is now gated on 4xx only.
+  it("does not rewrite 5xx anon failures as OAuth hints when OAuth is configured", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response("transient db hiccup", { status: 503 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(
+      /Failed to acquire anonymous token \(503\)/,
+    );
+    await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+      /arkor login --oauth/,
+    );
+  });
+
+  // Codex P1 review on PR #65 — OAuth-only deployments advertise Auth0 in
+  // /v1/auth/cli/config but reject /v1/auth/anonymous. The new "always try
+  // anon first" flow used to leave first-run users on those deployments
+  // with a bare "Failed to acquire anonymous token (4xx)" error and no way
+  // forward. We now wrap the failure with a pointer at `arkor login --oauth`.
+  it("wraps anon-rejected failures with an `arkor login --oauth` hint when OAuth is configured", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response("anonymous tokens disabled", { status: 403 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(
+      /arkor login --oauth/,
+    );
+    // Copilot review on PR #65 (round 4) flagged that the wrap used to
+    // double-prefix the inner "Failed to acquire anonymous token (...)"
+    // message and leak the response-body snippet. Lock in the cleaner
+    // top-level form: status code only, full detail on `cause`.
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(/HTTP 403/);
+    await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+      /anonymous tokens disabled/,
+    );
+    expect(await readCredentials()).toBeNull();
+  });
+
+  // Codex P2 review on PR #65 — the OAuth-only wrap used to span the whole
+  // anon bootstrap, so fs errors from `writeCredentials` were also rewritten
+  // as "deployment may require sign-in", hiding the actionable fs cause.
+  //
+  // Setup: pre-create `~/.arkor` and chmod 0o555 (read+exec, no write) so
+  // `readCredentials()` cleanly returns null (credentials.json doesn't
+  // exist) but `writeCredentials()`'s `writeFile` raises EACCES on the
+  // locked-down parent dir. An earlier draft of this test pre-created
+  // `~/.arkor/credentials.json` *as a directory*, but that made
+  // `readCredentials()` blow up first with EISDIR before the bootstrap
+  // logic ever ran — so the assertion accidentally passed for the wrong
+  // reason (Copilot review on PR #65).
+  //
+  // Skipped under UID 0: root bypasses chmod permission checks on Linux,
+  // so `writeFile` would succeed and the assertion would never trigger
+  // (Codex review on PR #65). Most CI runners are non-root; container-
+  // based root CI just loses this one assertion, the wrap-narrowing
+  // logic itself is still covered by the schema-validation and 5xx
+  // tests above.
+  const isRoot =
+    typeof process.getuid === "function" && process.getuid() === 0;
+  it.skipIf(isRoot)("does not rewrite fs errors from writeCredentials as OAuth hints", async () => {
+    const arkorDir = join(fakeHome, ".arkor");
+    mkdirSync(arkorDir, { recursive: true });
+    chmodSync(arkorDir, 0o555);
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        return new Response(
+          JSON.stringify({
+            token: "anon-tok",
+            anonymousId: "anon-aid",
+            kind: "cli",
+            personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      await expect(ensureCredentialsForStudio()).rejects.toThrow(/EACCES/);
+      await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+        /arkor login --oauth/,
+      );
+    } finally {
+      // Restore writable so the afterEach `rmSync` can clean up.
+      chmodSync(arkorDir, 0o755);
+    }
+  });
+
+  // Copilot review on PR #65 (round 3) flagged that the OAuth-only wrap
+  // used to fire on *any* non-transport failure when oauthAvailable=true,
+  // including ZodErrors from a malformed cloud-api response. Now that the
+  // wrap is gated on `AnonymousTokenRejectedError`, schema-validation
+  // failures keep their original message even when OAuth is advertised.
+  it("does not rewrite schema-validation errors as OAuth hints when OAuth is configured", async () => {
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: "tenant.auth0.com",
+            clientId: "client-id",
+            audience: "https://api.arkor.ai",
+            callbackPorts: [4000],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/v1/auth/anonymous")) {
+        // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
+        return new Response(
+          JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+      /arkor login --oauth/,
     );
     expect(await readCredentials()).toBeNull();
   });

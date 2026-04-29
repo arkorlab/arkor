@@ -6,6 +6,7 @@ import { serve } from "@hono/node-server";
 import open from "open";
 import { fetchCliConfig } from "../../core/auth0";
 import {
+  AnonymousTokenRejectedError,
   defaultArkorCloudApiUrl,
   readCredentials,
   studioTokenPath,
@@ -14,7 +15,6 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 import { buildStudioApp } from "../../studio/server";
-import { runLogin } from "./login";
 import { ui } from "../prompts";
 
 export interface DevOptions {
@@ -26,13 +26,14 @@ export interface DevOptions {
  * Best-effort credential bootstrap before the Studio server starts.
  *
  *  - If credentials already exist → no-op.
- *  - If Auth0 is configured → run the interactive PKCE login (fatal on
- *    failure: Auth0 mode requires reaching the cloud-api to know which
- *    tenant to authorize against).
- *  - Otherwise → try to acquire an anonymous token. On network failure,
- *    warn and continue: the Studio server is built with `autoAnonymous`
- *    enabled, so it will retry on the first `/api/credentials` hit. This
- *    keeps `arkor dev` usable when the cloud-api is momentarily down.
+ *  - Otherwise → always acquire an anonymous token. When the deployment
+ *    advertises OAuth, surface a hint pointing at `arkor login --oauth` so
+ *    the user can upgrade to a real session whenever they want, but don't
+ *    block the Studio launch on it.
+ *  - On anonymous-bootstrap network failure, warn and continue: the Studio
+ *    server is built with `autoAnonymous` enabled, so it will retry on the
+ *    first `/api/credentials` hit. This keeps `arkor dev` usable when the
+ *    cloud-api is momentarily down.
  */
 export async function ensureCredentialsForStudio(): Promise<void> {
   if (await readCredentials()) return;
@@ -45,59 +46,104 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     deploymentModeKnown = true;
   } catch {
     // cfg null + deploymentModeKnown=false → we couldn't even determine
-    // whether the deployment requires Auth0. See the catch below for why
+    // whether the deployment offers OAuth. See the catch below for why
     // that matters for the bootstrap recovery decision.
   }
 
-  if (cfg?.auth0Domain && cfg.clientId && cfg.audience) {
-    ui.log.info("No credentials on file — launching `arkor login`.");
-    await runLogin();
-    return;
-  }
-
-  ui.log.info(
-    "No credentials on file and Auth0 isn't configured — requesting an anonymous token.",
+  const oauthAvailable = Boolean(
+    cfg?.auth0Domain && cfg.clientId && cfg.audience,
   );
+  if (oauthAvailable) {
+    // Point at `--oauth` rather than the bare `arkor login`. Anyone who
+    // acts on this message already implicitly accepted the anon path
+    // (they ran `arkor dev` without logging in first); their only reason
+    // to follow up is to upgrade to OAuth, so the interactive picker
+    // would just add friction. Surface the fast path directly.
+    ui.log.info(
+      "No credentials on file — bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
+    );
+  } else {
+    ui.log.info(
+      "No credentials on file — requesting an anonymous token.",
+    );
+  }
+  // Scoped to just `requestAnonymousToken` on purpose: this is where we
+  // decide whether the network failure is recoverable (transport blip vs
+  // permanent rejection vs OAuth-only deployment). Local failures from
+  // `writeCredentials` (EACCES/EROFS/EISDIR on `~/.arkor/credentials.json`)
+  // would be miscategorised here, so they live outside this try block and
+  // surface with their original fs message intact.
+  let anon: Awaited<ReturnType<typeof requestAnonymousToken>>;
   try {
-    const anon = await requestAnonymousToken(baseUrl, "cli");
-    const creds: AnonymousCredentials = {
-      mode: "anon",
-      token: anon.token,
-      anonymousId: anon.anonymousId,
-      arkorCloudApiUrl: baseUrl,
-      orgSlug: anon.orgSlug,
-    };
-    await writeCredentials(creds);
-    ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
+    anon = await requestAnonymousToken(baseUrl, "cli");
   } catch (err) {
-    // Only swallow transport-level failures, AND only when we positively
-    // confirmed the deployment doesn't require Auth0. Two filters:
+    // Decide whether to swallow the failure or surface it. Two filters:
     //
     // 1. `TypeError("fetch failed")` is undici's contract for transient
     //    transport failures (ECONNREFUSED/ETIMEDOUT/ENOTFOUND/etc.) where
     //    the cloud-api may come back. Other TypeErrors are config errors
     //    ("Invalid URL", "URL scheme must be a HTTP(S) scheme") that keep
     //    failing on every retry. Plain Errors (non-2xx responses, ZodError
-    //    on garbage responses) and fs errors (EACCES on credentials.json)
-    //    also keep failing on retry.
+    //    on garbage responses) also keep failing on retry.
     //
     // 2. `deploymentModeKnown` guards against silently starting a broken
-    //    Studio against an Auth0-only deployment. If fetchCliConfig itself
-    //    failed, we don't know whether `/v1/auth/anonymous` is even
-    //    enabled on this cloud-api. Server-side retry on /api/credentials
-    //    would hit the same anon endpoint and get a permanent rejection
-    //    instead of being routed back to the interactive `runLogin`. Fail
-    //    fast so the user sees the real cause and can re-run once
-    //    connectivity is back.
+    //    Studio when we couldn't reach the cloud-api at all. If
+    //    `fetchCliConfig` itself failed we don't know whether
+    //    `/v1/auth/anonymous` is even enabled on this deployment, so the
+    //    server-side retry on `/api/credentials` could keep failing
+    //    indefinitely. Fail fast so the user sees the real cause and can
+    //    re-run once connectivity is back.
     const isTransportFailure =
       err instanceof TypeError && err.message === "fetch failed";
-    if (!isTransportFailure || !deploymentModeKnown) {
-      throw err;
+    if (isTransportFailure && deploymentModeKnown) {
+      ui.log.warn(
+        `Could not reach ${baseUrl} (${err.message}). Studio will keep running and retry on first /api/credentials hit.`,
+      );
+      return;
     }
-    ui.log.warn(
-      `Could not reach ${baseUrl} (${err.message}). Studio will keep running and retry on first /api/credentials hit.`,
-    );
+    // OAuth-only deployments (`/v1/auth/cli/config` advertises Auth0 but
+    // `/v1/auth/anonymous` is disabled) used to be handled by delegating to
+    // `runLogin()` here. The new flow always tries anon first, so a
+    // permanent rejection of `/v1/auth/anonymous` would leave the user with
+    // a bare "Failed to acquire anonymous token (4xx)" error and no way
+    // forward. Wrap the error with an explicit pointer at `arkor login
+    // --oauth` so first-run users on those deployments still have a
+    // discoverable next step.
+    //
+    // Gate on `AnonymousTokenRejectedError` *and* a 4xx status so the
+    // wrap fires only for genuine deployment rejection (401/403/404 et
+    // al). 5xx is a transient cloud-api failure where retrying makes
+    // sense, ZodErrors signal a malformed response (server bug), and fs
+    // failures are out of scope for the anon endpoint entirely — none of
+    // these should be mislabelled as a sign-in requirement.
+    if (
+      err instanceof AnonymousTokenRejectedError &&
+      err.status >= 400 &&
+      err.status < 500 &&
+      oauthAvailable
+    ) {
+      // Surface only the status code at the top level — the inner
+      // `err.message` already starts with "Failed to acquire…" and
+      // includes the response-body snippet, which would double-prefix the
+      // wrap and risk leaking noisy HTML/JSON error pages. The full
+      // detail is preserved on `cause` for debugging.
+      throw new Error(
+        `Failed to bootstrap an anonymous session (HTTP ${err.status}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
+        { cause: err },
+      );
+    }
+    throw err;
   }
+
+  const creds: AnonymousCredentials = {
+    mode: "anon",
+    token: anon.token,
+    anonymousId: anon.anonymousId,
+    arkorCloudApiUrl: baseUrl,
+    orgSlug: anon.orgSlug,
+  };
+  await writeCredentials(creds);
+  ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
 }
 
 /**

@@ -26,6 +26,28 @@ export interface AnonymousCredentials {
 
 export type Credentials = Auth0Credentials | AnonymousCredentials;
 
+/**
+ * Thrown by `requestAnonymousToken` when the cloud-api responds with a
+ * non-2xx status while requesting an anonymous token.
+ *
+ * Covers both explicit deployment-side rejection (e.g. anonymous tokens
+ * disabled — typically 401/403/404) and other HTTP failures such as
+ * transient 5xx server errors. Distinct from transport failures (raw
+ * `TypeError("fetch failed")`), schema mismatches (`ZodError`), and
+ * local fs errors so callers can pattern-match on "anon endpoint
+ * returned an HTTP error" separately and inspect `status` to decide
+ * how to react. `arkor dev` only wraps 4xx as a sign-in hint, leaving
+ * 5xx to surface with its original message.
+ */
+export class AnonymousTokenRejectedError extends Error {
+  readonly status: number;
+  constructor(status: number, bodySnippet: string) {
+    super(`Failed to acquire anonymous token (${status}): ${bodySnippet}`);
+    this.name = "AnonymousTokenRejectedError";
+    this.status = status;
+  }
+}
+
 function credentialsDir(): string {
   return join(homedir(), ".arkor");
 }
@@ -97,9 +119,7 @@ export async function requestAnonymousToken(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(
-      `Failed to acquire anonymous token (${res.status}): ${text.slice(0, 500)}`,
-    );
+    throw new AnonymousTokenRejectedError(res.status, text.slice(0, 500));
   }
   const parsed = anonymousTokenResponseSchema.parse(await res.json());
   return {
