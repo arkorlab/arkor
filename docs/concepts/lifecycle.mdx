@@ -3,8 +3,6 @@ title: "Lifecycle callbacks"
 description: "The five callbacks Arkor fires during a training run, and what each one is good for."
 ---
 
-# Lifecycle callbacks
-
 Arkor fires five callbacks as a training run progresses. They are all optional, and each one is a plain TypeScript function that runs in your process. This is what makes the loop feel like the rest of your application: no notebook, no out-of-band dashboard, no separate config language.
 
 ```ts
@@ -74,7 +72,7 @@ onLog: ({ step, loss, evalLoss }) => {
 Common uses:
 
 - Forward to your own metrics pipeline (e.g. PostHog, Datadog).
-- Detect divergence early: if `loss` is climbing, abort the run.
+- Detect divergence early: if `loss` is climbing, abort `wait()` via `abortSignal` and call `trainer.cancel()` to stop the GPU on the backend.
 - Implement custom early stopping logic.
 
 ## `onCheckpoint({ step, adapter, job, infer, artifacts })`
