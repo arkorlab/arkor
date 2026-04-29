@@ -9,11 +9,11 @@
     "dark": "#000000"
   },
   "logo": {
-    "light": "/images/logo.svg",
-    "dark": "/images/logo-dark.svg",
+    "light": "images/logo.svg",
+    "dark": "images/logo-dark.svg",
     "href": "https://arkor.ai"
   },
-  "favicon": "/images/logo.svg",
+  "favicon": "images/logo.svg",
   "navigation": {
     "groups": [
       {
