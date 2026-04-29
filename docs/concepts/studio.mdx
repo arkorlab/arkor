@@ -11,7 +11,7 @@ Studio is the local web UI you get when you run `arkor dev`. It is not a separat
 
 Three jobs:
 
-1. **Start a training run.** A "Run training" button compiles your trainer (via `arkor start` under the hood) and submits the job to the managed backend.
+1. **Start a training run.** A "Run training" button submits the job to the managed backend by spawning `arkor start` under the hood. `arkor start` runs the existing `.arkor/build/index.mjs` artifact (and only auto-builds it when missing); see the dev-loop note below for how Studio keeps that artifact fresh.
 2. **See training happen.** A jobs list with live status, a loss chart that updates as the run streams in, and a tail of training events. You can leave it open in a tab while you work on other things.
 3. **Try a finished model.** A Playground page lets you pick the base model or the final adapter from any completed job and chat with it. The Playground does not load intermediate checkpoints; for mid-run inference, use [`onCheckpoint`](/concepts/lifecycle) callbacks in your trainer.
 

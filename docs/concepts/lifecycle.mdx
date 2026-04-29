@@ -43,7 +43,7 @@ onFailed     ── once, on backend-reported failure
 
 All five callbacks are dispatched from inside `wait()`. If you call `start()` without later calling `wait()`, **no callbacks fire**, even though the run is still happening on the backend. `arkor start` calls `wait()` for you; if you wire training into your own code outside the CLI, make sure you do too.
 
-`onCompleted` and `onFailed` are mutually exclusive: exactly one of the two fires per run.
+`onCompleted` and `onFailed` are mutually exclusive: at most one of them fires per run. If `wait()` throws before a terminal event arrives (for example when `abortSignal` is aborted, or reconnect attempts are exhausted), it is possible that neither one fires.
 
 Returning a promise from any callback is fine. Arkor awaits it before moving on, so you can do async work (writing to a database, posting to Slack, calling `infer`) without races.
 
