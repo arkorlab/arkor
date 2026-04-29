@@ -32,7 +32,13 @@
       },
       {
         "group": "CLI",
-        "pages": ["cli/overview"]
+        "pages": [
+          "cli/overview",
+          "cli/init",
+          "cli/dev",
+          "cli/build-and-start",
+          "cli/auth"
+        ]
       },
       {
         "group": "SDK",
