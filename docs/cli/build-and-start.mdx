@@ -67,6 +67,21 @@ The auto-build-on-missing behavior exists so Studio's "Run training" does not ha
 
 The "reuse the artifact" path is what lets Studio surface trainer edits via its `/api/manifest` rebuild rather than the train endpoint. For a CLI-only workflow, run `arkor build` whenever you change `src/arkor/`.
 
+## Common errors
+
+`arkor build`:
+
+| Message | What it means | Fix |
+| --- | --- | --- |
+| `Build entry not found: <abs-path>. Create src/arkor/index.ts or pass an explicit entry argument.` | The default entry does not exist and no explicit entry was passed. | Run from a project root (the directory containing `src/arkor/index.ts`), or pass an entry: `arkor build path/to/entry.ts`. |
+
+`arkor start`:
+
+| Message | What it means | Fix |
+| --- | --- | --- |
+| `Training entry not found: <abs-path>. Provide a path or create src/arkor/index.ts.` | The runner could not find the bundle (or the entry override). | Run `arkor build` first, or pass an entry that exists. |
+| `Training entry must export 'arkor' (from createArkor({...})) or 'trainer' (from createTrainer({...})), or default-export one of them.` | The bundle imported successfully but did not expose any of the supported export shapes. | See [Project structure § `src/arkor/`](/concepts/project-structure#srcarkor) for the three accepted forms (named `arkor`, named `trainer`, or default). |
+
 ## Examples
 
 Build then start, two steps:

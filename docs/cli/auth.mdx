@@ -96,3 +96,25 @@ When signed in, the command prints the JSON `user` object pretty-printed, then a
 ## Where the credentials live
 
 Both modes write to the same file at `~/.arkor/credentials.json` and are tagged with a `mode` field of either `"auth0"` or `"anon"` so the rest of the CLI (and the Studio server) knows which path to use. See [Project structure](/concepts/project-structure) for the full layout.
+
+## Token expiry
+
+For Auth0 sessions, the credentials file records both the access token and the issued refresh token, plus the `expiresAt` timestamp returned by the token exchange. The refresh token is stored today, but the CLI does **not** yet auto-refresh expired access tokens; that path is on the roadmap.
+
+In practice that means:
+
+- An expired access token shows up as a `Failed to fetch /v1/me (401). Token may be expired.` from `arkor whoami`, or analogous failures from anything that talks to the cloud-api.
+- The fix is to re-run `arkor login`, which goes through the full PKCE flow again and overwrites `~/.arkor/credentials.json` with fresh tokens.
+
+Anonymous tokens have no client-side expiry tracking; the cloud-api decides when they stop working. If an anonymous session starts failing, run `arkor login --anonymous` to mint a new one (this issues a new `anonymousId`, so it is effectively a different workspace).
+
+## Common errors
+
+| Message | Where | What it means | Fix |
+| --- | --- | --- | --- |
+| `State mismatch — aborting to prevent CSRF` | `arkor login` (Auth0) | The `state` returned to the loopback callback does not match the one the CLI generated, almost always because the browser hit a stale tab from a previous login attempt. | Re-run `arkor login` and complete the flow in the freshly opened tab. |
+| `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login` (Auth0) | The Auth0 token endpoint succeeded but the response had no `refresh_token`. Usually a deployment misconfiguration on the Auth0 side. | Enable the `offline_access` scope on the Auth0 Application, or report the deployment to your Arkor admin. |
+| `No credentials on file.` | `arkor logout` | `~/.arkor/credentials.json` does not exist. Nothing to delete. | Run `arkor login` first if you wanted to sign in. |
+| `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.` | `arkor whoami` | Same condition as above, surfaced from a different command. | Same fix. |
+| `Failed to fetch /v1/me (<status>). Token may be expired.` | `arkor whoami` | The cloud-api rejected the request with a non-200, non-426 status. Most often expired access tokens. | Run `arkor login` again. The exit code stays `0` so wrapper scripts can inspect the message. |
+| `426 Upgrade Required` (with upgrade hint) | `arkor whoami` (and other cloud-api calls) | The deployment requires a newer SDK version. The CLI prints the upgrade command for your detected package manager and sets `process.exitCode = 1`. | Upgrade the `arkor` package and re-run. |

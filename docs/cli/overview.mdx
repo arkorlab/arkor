@@ -24,8 +24,33 @@ The `arkor` CLI is the command surface around an Arkor project. The scaffolder (
 - **`--help` / `-h`** is available on every command; `arkor <command> --help` prints the flag list and usage.
 - **`arkor --version` / `-V`** prints the installed SDK version (the same `SDK_VERSION` the package exports).
 - **Exit codes.** Successful commands exit 0. Failures throw and the process exits non-zero. `arkor whoami` exits 1 specifically when the cloud-api returns 426 (the SDK is too old; it prints the upgrade command before exiting).
-- **Telemetry.** Every command runs through a small instrumentation wrapper so usage events can be sent to PostHog. Set `DO_NOT_TRACK=1` to disable telemetry, or `ARKOR_TELEMETRY_DEBUG=1` to log the events that would be sent. There is no separate flag.
+- **Telemetry.** Every command runs through a small instrumentation wrapper so usage events can be sent to PostHog. See [Environment variables](#environment-variables) below for the full opt-out / debug knobs.
 - **Deprecation notices.** When the cloud-api responds with `Deprecation` / `Sunset` / `Warning` headers, the CLI prints a one-line warning at the end of the run with the suggested upgrade command.
+
+## Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `DO_NOT_TRACK=1` | Disable telemetry across every command. The persistent telemetry-id file is not created or read. |
+| `ARKOR_TELEMETRY_DISABLED=1` | Same as `DO_NOT_TRACK`. Provided as an Arkor-specific alias for setups that already gate other tools on `DO_NOT_TRACK` and want a separate switch. |
+| `ARKOR_TELEMETRY_DEBUG=1` | Log the events that would be sent to PostHog instead of sending them. Useful for verifying which command surfaces emit which events. |
+| `CI=1` (or any non-TTY stdout) | Force non-interactive mode. `arkor init` skips its prompts and uses the values you passed via flags (or built-in defaults under `--yes`); the git-init prompt is treated as "no" unless you pass `--git` explicitly. See [`arkor init` § In CI / non-interactive shells](/cli/init#in-ci---non-interactive-shells). |
+
+### On the roadmap
+
+Pointing the CLI at a non-default cloud-api endpoint (for self-hosted or staging deployments) is not yet a stable user-facing knob and should be treated as internal until announced. The cloud-api URL is currently hard-pinned to the Arkor-managed default.
+
+## Programmatic invocation
+
+The `arkor` package re-exports `runTrainer` so you can drive a training run from your own TypeScript code instead of going through `arkor start`:
+
+```ts
+import { runTrainer } from "arkor";
+
+await runTrainer(); // resolves src/arkor/index.ts and calls trainer.start() + .wait()
+```
+
+The CLI command runners themselves (`runBuild`, `runStart`, `runDev`, etc.) are intentionally **not** part of the public surface and may change without notice. If you want to wire training into your own code, prefer `runTrainer` or call `trainer.start()` / `trainer.wait()` directly.
 
 ## Project versus user state
 
