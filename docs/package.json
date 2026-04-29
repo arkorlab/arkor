@@ -3,8 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "mint dev",
-    "build": "mint build",
+    "docs:dev": "mint dev",
+    "docs:build": "mint build",
     "broken-links": "mint broken-links"
   },
   "devDependencies": {
