@@ -81,7 +81,7 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 - [x] **React to training in code, not in a dashboard.** Lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) fire as the run streams from the cloud, fully typed.
 - [x] **Sanity-check the model before the run finishes.** Inside `onCheckpoint`, call `infer({ messages })` against the model as it's being trained.
 - [x] **Watch the run in a local Studio.** `arkor dev` opens a UI with a jobs list, live loss chart, log tail, and a Playground for chatting with your fine-tuned models.
-- [x] **Try it without an account.** When the deployment has no Auth0 configured, `arkor dev` provisions an anonymous workspace silently. Either way, `arkor login` (Auth0 PKCE) attaches the work to your account.
+- [x] **Try it without an account.** When the deployment has no Auth0 configured, `arkor dev` provisions an anonymous workspace silently. On Auth0-configured deployments, `arkor login` runs PKCE and attaches the work to your account; without Auth0 it simply re-issues an anonymous session.
 
 ## What's coming next
 
