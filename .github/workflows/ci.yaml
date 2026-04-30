@@ -17,53 +17,64 @@ jobs:
         node:
           # Major: introduced --experimental-strip-types
           - '>=22.6.0 <22.7.0'     # .ts type stripping becomes available
-    
+
           # Major: introduced --experimental-transform-types
           - '>=22.7.0 <22.8.0'     # supports TS syntax that requires transforms, such as enum
-    
+
           - '>=22.8.0 <22.9.0'     # sourceURL / transform-related changes
           - '>=22.9.0 <22.10.0'    # amaro made externalizable
           - '>=22.10.0 <22.12.0'   # process.features.typescript / TS test runner changes
           - '>=22.12.0 <22.13.0'   # amaro updates
           - '>=22.13.0 <22.14.0'   # added module.stripTypeScriptTypes
-    
+
           # Major: TypeScript support for eval / worker input and error classification
           - '>=22.14.0 <22.15.0'   # STDIN eval / worker eval TS input / ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
-    
+
           - '>=22.15.0 <22.17.0'   # amaro update series
           - '>=22.17.0 <22.18.0'   # TS module mocking sourcemap fix
-    
+
           # Major: strip-types enabled by default in Node 22 LTS
           - '>=22.18.0 <22.20.0'   # unflagged / warning removed / amaro 1.1.0
-    
+
           - '>=22.20.0 <22.21.0'   # amaro updates
           - '>=22.21.0 <23'        # amaro updates
-    
+
           - '>=24.0.0 <24.1.0'     # Node 24 initial state; strip-types default-on / Stability: RC
           - '>=24.1.0 <24.3.0'     # amaro updates
-    
+
           # Major: experimental warning removed in Node 24
           - '>=24.3.0 <24.5.0'     # warning removed / amaro 1.1.0 / CJS TS loader refactor
-    
+
           - '>=24.5.0 <24.8.0'     # amaro updates
           - '>=24.8.0 <24.10.0'    # amaro updates
           - '>=24.10.0 <24.12.0'   # amaro updates
-    
+
           # Major: type stripping marked Stable in Node 24 LTS
           - '24.12.0'              # exact boundary version where type stripping became stable
           - '>=24.12.0 <25'        # stable Node 24 range after 24.12.0
+
+        # rolldown's native binding requires Node ^20.19 || >=22.12. For matrix
+        # entries below that range, install + tsdown build run on a bootstrap
+        # Node, and the matrix Node below exercises the resulting dist/ at
+        # runtime (with e2e-cli's pretest hook bypassed). All other entries
+        # use the simple flow: install / typecheck / test / build on the
+        # matrix Node directly.
+        include:
+          - { node: '>=22.6.0 <22.7.0',  rolldownIncompat: true }
+          - { node: '>=22.7.0 <22.8.0',  rolldownIncompat: true }
+          - { node: '>=22.8.0 <22.9.0',  rolldownIncompat: true }
+          - { node: '>=22.9.0 <22.10.0', rolldownIncompat: true }
+          - { node: '>=22.10.0 <22.12.0', rolldownIncompat: true }
 
     steps:
       - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v6
 
-      # tsdown's bundler (rolldown) requires Node ^20.19 || >=22.12 for its
-      # native binding, and several matrix entries fall below that range.
-      # Install dependencies and pre-build the tsdown-using CLIs on a
-      # known-compatible Node; the matrix Node below then exercises the
-      # resulting dist/ at runtime.
+      # rolldown-incompatible path: install + tsdown build run here, on a
+      # known-compatible Node. The matrix Node below then exercises dist/.
       - name: Setup bootstrap Node
+        if: ${{ matrix.rolldownIncompat }}
         uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -83,21 +94,31 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-node${{ matrix.node }}-
 
-      - name: Install
+      - name: Install (bootstrap Node)
+        if: ${{ matrix.rolldownIncompat }}
         run: pnpm install
 
-      - name: Build CLI dist
+      - name: Build CLI dist (bootstrap Node)
+        if: ${{ matrix.rolldownIncompat }}
         run: pnpm --filter create-arkor build && pnpm --filter arkor build
 
       - name: Setup matrix Node
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
+          # On the rolldown-incompatible path the bootstrap setup above
+          # already restored the pnpm store, so skip cache here to avoid
+          # a redundant post-job save.
+          cache: ${{ !matrix.rolldownIncompat && 'pnpm' || '' }}
 
       - name: Print resolved Node version
         run: |
           node --version
           echo "**Resolved Node:** \`$(node --version)\` (matrix: \`${{ matrix.node }}\`)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install
+        if: ${{ !matrix.rolldownIncompat }}
+        run: pnpm install
 
       - name: Typecheck
         run: pnpm typecheck
@@ -106,7 +127,16 @@ jobs:
       # on matrix Nodes below rolldown's supported range. Skip it in the turbo
       # run and invoke vitest directly so the dist/ produced by the bootstrap
       # step above is used as-is.
-      - name: Test
+      - name: Test (rolldown-incompatible Node)
+        if: ${{ matrix.rolldownIncompat }}
         run: |
           pnpm exec turbo run test --filter='!@arkor/e2e-cli'
           pnpm --filter @arkor/e2e-cli exec vitest run
+
+      - name: Test
+        if: ${{ !matrix.rolldownIncompat }}
+        run: pnpm test
+
+      - name: Build
+        if: ${{ !matrix.rolldownIncompat }}
+        run: pnpm build
