@@ -107,12 +107,14 @@ React SPA from the same origin. Two roles:
 
 Studio is loopback-only and per-launch CSRF-token-gated:
 
-- `/api/*` requires the `X-Arkor-Studio-Token` header (or
-  `?studioToken=` query for `EventSource`). The token is generated on
-  every `arkor dev` launch and injected into the served `index.html` as
-  a `<meta>` tag the same-origin SPA reads at startup.
-- The middleware also rejects requests whose `Host` isn't `127.0.0.1` or
-  `localhost` — defense against DNS rebinding.
+- Every request, including static HTML, rejects `Host` values other than
+  `127.0.0.1` or `localhost` — defense against DNS rebinding before the
+  token-bearing HTML is served.
+- `/api/*` requires the `X-Arkor-Studio-Token` header. The job-event stream
+  route also accepts `?studioToken=` because `EventSource` cannot send custom
+  headers. Mutation routes never accept the token from the query string.
+  The token is generated on every `arkor dev` launch and injected into the
+  served `index.html` as a `<meta>` tag the same-origin SPA reads at startup.
 
 ## Public exports
 

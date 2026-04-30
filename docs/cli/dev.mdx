@@ -40,7 +40,7 @@ When the process exits (normal exit, `SIGINT`, `SIGTERM`, or `SIGHUP`) the studi
 The Studio server enforces three checks on every `/api/*` request:
 
 1. The `Host` header must be `127.0.0.1` or `localhost` (defense against DNS rebinding).
-2. The CSRF token must be present, either as the `X-Arkor-Studio-Token` header or `?studioToken=...` (used by `EventSource`, which cannot send custom headers). Token comparison is `timingSafeEqual`.
+2. The CSRF token must be present as the `X-Arkor-Studio-Token` header. The job-event stream also accepts `?studioToken=...` because `EventSource` cannot send custom headers; mutation routes do not accept query-string tokens. Token comparison is `timingSafeEqual`.
 3. CORS is intentionally not configured: the SPA is same-origin so CORS adds no value, and reflecting `*` would let "simple" cross-origin POSTs (`text/plain`, `urlencoded`) skip preflight. Without a token, the middleware rejects them.
 
 This means `arkor dev` is safe on a shared dev machine: another tab cannot read the meta, a stale tab from a previous launch holds an old token that no longer matches, and an attacker page in a different origin cannot forge requests.
