@@ -1,0 +1,54 @@
+# Codecov configuration. Reference: https://docs.codecov.com/docs/codecov-yaml
+#
+# We upload one lcov report per package via the GitHub Action's `flags`.
+# Each flag is scoped to its package's source path so cross-package noise
+# does not pollute per-package coverage trends.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: arkor
+      paths:
+        - packages/arkor/src
+    - name: create-arkor
+      paths:
+        - packages/create-arkor/src
+    - name: cli-internal
+      paths:
+        - packages/cli-internal/src
+    - name: studio-app
+      paths:
+        - packages/studio-app/src
+
+ignore:
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.d.ts"
+  - "**/dist/**"
+  - "**/node_modules/**"
+  - "e2e/**"
+  - "docs/**"
+  - "packages/arkor/scripts/**"
+  - "packages/create-arkor/scripts/**"
+  - "packages/arkor/src/bin.ts"
+  - "packages/create-arkor/src/bin.ts"
+  - "packages/studio-app/src/main.tsx"

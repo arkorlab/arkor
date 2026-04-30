@@ -13,6 +13,9 @@ packages/arkor/docs/
 # Turbo
 .turbo/
 
+# Vitest coverage reports (uploaded to Codecov in CI)
+coverage/
+
 # Mintlify (docs/) local cache
 .mintlify/
 .mint/
