@@ -12,7 +12,10 @@ import {
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
-import { acquireAnonymousTokenResult } from "../anonymous";
+import {
+  ANON_PERSISTENCE_NUDGE,
+  acquireAnonymousTokenResult,
+} from "../anonymous";
 import { promptSelect, ui } from "../prompts";
 
 export interface LoginOptions {
@@ -28,7 +31,14 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
     throw new Error("Pick one of --oauth / --anonymous, not both.");
   }
   if (options.anonymous) {
-    await runAnonymousLogin();
+    // `oauthAvailable` unknown here — we deliberately skip the cfg fetch on
+    // the explicit `--anonymous` shortcut so a partially-degraded cloud-api
+    // doesn't block the only flow that doesn't need it. The nudge defaults
+    // to "show" inside `runAnonymousLogin` for this case; on a rare anon-
+    // only deployment the user just gets a slightly inaccurate hint, not a
+    // contradiction with any prior message (we never said "OAuth is
+    // configured" on this path).
+    await runAnonymousLogin({});
     return;
   }
 
@@ -47,7 +57,7 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
     ui.log.info(
       "OAuth is not configured — continuing with an anonymous session.",
     );
-    await runAnonymousLogin();
+    await runAnonymousLogin({ oauthAvailable: false });
     return;
   }
 
@@ -92,7 +102,7 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
       });
 
   if (mode === "anonymous") {
-    await runAnonymousLogin();
+    await runAnonymousLogin({ oauthAvailable: true });
     return;
   }
 
@@ -107,7 +117,17 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
   );
 }
 
-async function runAnonymousLogin(): Promise<void> {
+async function runAnonymousLogin(opts: {
+  /**
+   * Whether OAuth is available on this deployment. `undefined` means the
+   * caller hasn't fetched the CLI config yet (the explicit `--anonymous`
+   * shortcut path), in which case we default to showing the nudge: most
+   * deployments offer OAuth, and a misleading hint on a rare anon-only
+   * deployment is preferable to silently dropping the persistence warning
+   * for everyone else.
+   */
+  oauthAvailable?: boolean;
+}): Promise<void> {
   const baseUrl = defaultArkorCloudApiUrl();
   const spin = ui.spinner();
   spin.start("Requesting anonymous token");
@@ -124,17 +144,10 @@ async function runAnonymousLogin(): Promise<void> {
   ui.log.info(
     "This id is how Arkor Cloud recognises this client across sessions — keep `~/.arkor/credentials.json` to stay signed in as the same anonymous identity.",
   );
-  // Persistence nudge. The cloud-api does not promise to retain anon-scoped
-  // work indefinitely (no account binding, eligible for cleanup), so we point
-  // users at OAuth before they invest in the session. The user-facing copy
-  // intentionally says "sign in" rather than "migrate": there is no server-
-  // side path to carry an existing anon id's work into a future OAuth org,
-  // so an "upgrade" really means starting fresh under the new account.
-  // Surfacing that caveat here would just discourage the upgrade — keep it
-  // to this comment until we actually ship a migration path.
-  ui.log.warn(
-    "Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to save your work to your Arkor Cloud account.",
-  );
+  // see ../anonymous.ts for wording rationale and gating contract.
+  if (opts.oauthAvailable !== false) {
+    ui.log.warn(ANON_PERSISTENCE_NUDGE);
+  }
   ui.log.success(`Signed in anonymously (personal org: ${result.orgSlug}).`);
 }
 
