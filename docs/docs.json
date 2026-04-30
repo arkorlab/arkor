@@ -79,6 +79,19 @@
       },
       {
         "language": "ja",
+        "navbar": {
+          "links": [
+            {
+              "label": "GitHub",
+              "href": "https://github.com/arkorlab/arkor"
+            }
+          ],
+          "primary": {
+            "type": "button",
+            "label": "Get started",
+            "href": "/ja/quickstart"
+          }
+        },
         "groups": [
           {
             "group": "はじめに",

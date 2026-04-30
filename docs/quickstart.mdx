@@ -83,7 +83,7 @@ pnpm exec arkor login --oauth
 
 This runs the Arkor Cloud OAuth (PKCE) flow on a loopback port and links your local credentials to an account. From then on, runs from this machine show up under that account on any device.
 
-The scaffolded project installs `arkor` as a local devDependency, so prefer `pnpm exec arkor <command>` over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README uses the same convention.
+The scaffolded project installs `arkor` as a local devDependency, so use your package manager's local-bin runner (e.g. `pnpm exec arkor <command>`, `npx arkor <command>`, `yarn arkor <command>`, or `bunx arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README walks through the equivalent setup for npm, pnpm, yarn, and bun.
 
 A few caveats. Running `pnpm exec arkor login` without a flag opens an interactive picker that defaults to `Anonymous`; accepting the default mints a brand-new anonymous token (a new `anonymousId`) and overwrites `~/.arkor/credentials.json`, so it lands you in a different workspace from the previous anonymous session, not a refresh of it. Switching to OAuth overwrites the same file and does not migrate prior anonymous workspaces or jobs into the account. Merging anonymous work into an OAuth account once you sign in is on the roadmap; until that lands, sign in before the runs you want associated with the account.
 
