@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // Source of truth for this path is `packages/arkor/src/core/credentials.ts`
 // (`studioTokenPath`). Cross-package imports complicate the Vite config build
@@ -62,7 +63,7 @@ function arkorStudioToken(): Plugin {
 // server on :4000. Production build goes straight to `dist/` and is copied
 // into arkor's package dist/ by `scripts/copy-studio-assets.mjs`.
 export default defineConfig({
-  plugins: [react(), arkorStudioToken()],
+  plugins: [react(), tailwindcss(), arkorStudioToken()],
   server: {
     host: "127.0.0.1",
     port: 5173,
