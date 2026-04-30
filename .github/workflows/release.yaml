@@ -148,6 +148,9 @@ jobs:
         run: pnpm run build
 
       - name: Test
+        env:
+          ARKOR_POSTHOG_KEY: ${{ secrets.ARKOR_POSTHOG_KEY }}
+          ARKOR_POSTHOG_HOST: ${{ secrets.ARKOR_POSTHOG_HOST }}
         run: pnpm run test
 
       - name: Pack and inspect tarballs
