@@ -95,7 +95,9 @@ jobs:
           node-version: ${{ matrix.node }}
 
       - name: Print resolved Node version
-        run: node --version
+        run: |
+          node --version
+          echo "**Resolved Node:** \`$(node --version)\` (matrix: \`${{ matrix.node }}\`)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Typecheck
         run: pnpm typecheck
