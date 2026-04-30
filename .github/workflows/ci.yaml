@@ -186,6 +186,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           files: ./packages/arkor/coverage/lcov.info
           flags: arkor
           fail_ci_if_error: false
@@ -195,6 +196,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           files: ./packages/create-arkor/coverage/lcov.info
           flags: create-arkor
           fail_ci_if_error: false
@@ -204,6 +206,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           files: ./packages/cli-internal/coverage/lcov.info
           flags: cli-internal
           fail_ci_if_error: false
@@ -213,6 +216,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           files: ./packages/studio-app/coverage/lcov.info
           flags: studio-app
           fail_ci_if_error: false
@@ -226,6 +230,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           files: ./e2e/cli/coverage/lcov.info
           flags: e2e-cli
           fail_ci_if_error: false
@@ -239,6 +244,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           report_type: test_results
           files: ./packages/arkor/coverage/junit.xml
           flags: arkor
@@ -249,6 +255,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           report_type: test_results
           files: ./packages/create-arkor/coverage/junit.xml
           flags: create-arkor
@@ -259,6 +266,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           report_type: test_results
           files: ./packages/cli-internal/coverage/junit.xml
           flags: cli-internal
@@ -269,6 +277,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           report_type: test_results
           files: ./packages/studio-app/coverage/junit.xml
           flags: studio-app
@@ -279,6 +288,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
+          disable_search: true
           report_type: test_results
           files: ./e2e/cli/coverage/junit.xml
           flags: e2e-cli
