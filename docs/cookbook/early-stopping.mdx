@@ -1,0 +1,137 @@
+---
+title: "Early stopping on diverging loss"
+description: "Abort a run automatically when the loss curve goes the wrong way, and stop the GPU on the backend too."
+---
+
+# Early stopping on diverging loss
+
+If the loss starts climbing or NaNs out, the rest of the run is wasted compute. Arkor does not have built-in early stopping; it does have everything you need to bolt it on in a few lines of TypeScript.
+
+This recipe uses three primitives together:
+
+- `onLog` to watch the loss as it streams from the backend.
+- An `AbortController` whose signal is wired into the trainer.
+- `trainer.cancel()` to stop the run on the backend after we abort locally.
+
+## The pattern
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const LOSS_CEILING = 5.0;        // tune to your dataset
+
+export function makeTrainer() {
+  const controller = new AbortController();
+
+  const trainer = createTrainer({
+    name: "support-bot-v1",
+    model: "unsloth/gemma-4-E4B-it",
+    dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+    lora: { r: 16, alpha: 16 },
+    maxSteps: 100,
+    abortSignal: controller.signal,
+    callbacks: {
+      onLog: ({ step, loss }) => {
+        if (loss === null) return;
+        if (!Number.isFinite(loss) || loss > LOSS_CEILING) {
+          console.warn(`step=${step} loss=${loss} exceeds ceiling, aborting`);
+          controller.abort();
+        }
+      },
+    },
+  });
+
+  return { trainer, controller };
+}
+```
+
+You then drive the run yourself so you can react to the abort:
+
+```ts
+// src/arkor/index.ts
+import { createArkor } from "arkor";
+import { makeTrainer } from "./trainer";
+
+const { trainer, controller } = makeTrainer();
+export const arkor = createArkor({ trainer });
+
+// If you want to run training outside the CLI:
+async function main() {
+  try {
+    await trainer.wait();
+  } catch (err) {
+    if (controller.signal.aborted) {
+      // wait() rejected because we aborted locally. Now stop the run on
+      // the backend so the GPU does not keep churning.
+      try {
+        await trainer.cancel();
+      } catch {
+        // best effort; cancel may reject if the job already finished
+      }
+      return;
+    }
+    throw err;
+  }
+}
+```
+
+If you keep using `arkor start` (Studio's "Run training" or the CLI), the export above is enough: the controller still aborts `wait()`, but you cannot wrap the CLI's `await` in your own `try / catch`. The pattern above is the safe one when you want guaranteed backend cancellation.
+
+## Why both `abortSignal` and `cancel`?
+
+`abortSignal` and `cancel` do different things, and the docs say so explicitly because mixing them up wastes spend.
+
+- **`abortSignal`** stops your local `wait()` loop ([SDK § Trainer control](/sdk/trainer-control)). It does **not** call `cancel`, does **not** message the backend, and the job keeps running on the managed GPU.
+- **`trainer.cancel()`** asks the backend to stop the job. Best effort: the request may reject if the job is already in a terminal state (completed, failed, cancelled). Wrap in `try / catch` if you call it speculatively.
+
+For "I do not want to wait anymore", `abortSignal` alone is enough. For "I do not want to keep paying", call `cancel` after the abort.
+
+## Variations
+
+**Smoothed threshold.** A single bad step can be a noisy outlier. Track a rolling window inside the closure:
+
+```ts
+const recent: number[] = [];
+const WINDOW = 10;
+
+onLog: ({ step, loss }) => {
+  if (loss === null || !Number.isFinite(loss)) return;
+  recent.push(loss);
+  if (recent.length > WINDOW) recent.shift();
+  const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+  if (recent.length === WINDOW && avg > LOSS_CEILING) {
+    controller.abort();
+  }
+}
+```
+
+**Patience-based early stopping.** Track the lowest loss seen and the number of steps since it improved:
+
+```ts
+let best = Infinity;
+let stalled = 0;
+const PATIENCE = 30;
+
+onLog: ({ step, loss }) => {
+  if (loss === null || !Number.isFinite(loss)) return;
+  if (loss < best) {
+    best = loss;
+    stalled = 0;
+  } else {
+    stalled++;
+    if (stalled >= PATIENCE) {
+      console.warn(`no improvement for ${PATIENCE} steps, aborting at ${step}`);
+      controller.abort();
+    }
+  }
+}
+```
+
+**External trigger.** The same `controller` works from outside the trainer file. A Next.js API route, a SIGINT handler, or a parent process can call `controller.abort()` to stop the run on demand.
+
+## What to keep in mind
+
+- **Do not throw inside the callback.** A throw is caught by the SSE reconnect loop and the run keeps going (see [SDK § Lifecycle callbacks](/sdk/callbacks)). Use the controller; that is the deterministic path.
+- **`abortSignal` does not cancel the backend.** This is the most common gotcha. Always pair `controller.abort()` with `trainer.cancel()` if cost matters.
+- **The `loss` field is `number | null`.** Backends only fill in the loss on metric steps; non-metric frames carry `null`. The `Number.isFinite` check also rejects `NaN`, which is the more common divergence signal in practice.
