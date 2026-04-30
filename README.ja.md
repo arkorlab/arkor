@@ -161,13 +161,13 @@ my-arkor-app/
 
 ## CLI
 
-| コマンド                              | 用途                                                                  |
-| ------------------------------------ | --------------------------------------------------------------------- |
-| `arkor init`                         | カレントディレクトリに新しいプロジェクトをスキャフォールド             |
-| `arkor login` / `logout` / `whoami`  | Arkor Cloud の OAuth (PKCE) / 匿名トークン                            |
-| `arkor dev`                          | ローカル Studio Web UI を起動                                         |
-| `arkor build`                        | `src/arkor/index.ts` を `.arkor/build/index.mjs` にバンドル           |
-| `arkor start`                        | ビルド成果物を実行 (なければ自動ビルド)                               |
+| コマンド                                            | 用途                                                                  |
+| -------------------------------------------------- | --------------------------------------------------------------------- |
+| `arkor init`                                       | カレントディレクトリに新しいプロジェクトをスキャフォールド             |
+| `arkor login` / `arkor logout` / `arkor whoami`    | Arkor Cloud の OAuth (PKCE) / 匿名トークン                            |
+| `arkor dev`                                        | ローカル Studio Web UI を起動                                         |
+| `arkor build`                                      | `src/arkor/index.ts` を `.arkor/build/index.mjs` にバンドル           |
+| `arkor start`                                      | ビルド成果物を実行 (なければ自動ビルド)                               |
 
 スキャフォールド済みプロジェクトでは `pnpm dev` が `arkor dev` に解決されるので、ほとんどのワークフローはそのコマンド 1 つの裏に収まります。
 

@@ -161,13 +161,13 @@ my-arkor-app/
 
 ## CLI
 
-| Command                              | Purpose                                                                |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `arkor init`                         | Scaffold a new project in the current directory                        |
-| `arkor login` / `logout` / `whoami`  | Arkor Cloud OAuth (PKCE) / anonymous tokens                            |
-| `arkor dev`                          | Launch the local Studio web UI                                         |
-| `arkor build`                        | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`                |
-| `arkor start`                        | Run the build artifact (auto-builds when missing)                      |
+| Command                                            | Purpose                                                                |
+| -------------------------------------------------- | ---------------------------------------------------------------------- |
+| `arkor init`                                       | Scaffold a new project in the current directory                        |
+| `arkor login` / `arkor logout` / `arkor whoami`    | Arkor Cloud OAuth (PKCE) / anonymous tokens                            |
+| `arkor dev`                                        | Launch the local Studio web UI                                         |
+| `arkor build`                                      | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`                |
+| `arkor start`                                      | Run the build artifact (auto-builds when missing)                      |
 
 `pnpm dev` resolves to `arkor dev` in scaffolded projects, so most workflows live behind that one command.
 
