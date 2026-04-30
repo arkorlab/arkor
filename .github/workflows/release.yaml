@@ -178,11 +178,6 @@ jobs:
             tar -tf "$TARBALL"
           done
 
-      - name: Generate GitHub artifact attestations for release tarballs
-        uses: actions/attest@v4
-        with:
-          subject-path: ${{ runner.temp }}/npm-pack/*.tgz
-
       - name: Test
         env:
           ARKOR_POSTHOG_KEY: ${{ secrets.ARKOR_POSTHOG_KEY }}
@@ -193,6 +188,27 @@ jobs:
           # every release run would emit real PostHog events from CI.
           ARKOR_TELEMETRY_DISABLED: "1"
         run: pnpm run test
+
+      # Re-pack after Test so the attestation and the GitHub Release
+      # artifacts capture the same dist/ that `npm publish` (from the
+      # package directory, below) will upload — the e2e-cli pretest
+      # rebuilds dist/, so the pre-Test pack that fed
+      # ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC is now stale for that
+      # purpose.
+      - name: Re-pack release tarballs
+        run: |
+          PACK_DIR="$RUNNER_TEMP/npm-pack"
+          rm -rf "$PACK_DIR"
+          mkdir -p "$PACK_DIR"
+
+          for PKG_DIR in packages/arkor packages/create-arkor; do
+            (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
+          done
+
+      - name: Generate GitHub artifact attestations for release tarballs
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/npm-pack/*.tgz
 
       # Publish from the package directory (not from the pre-packed tarball)
       # so npm CLI reads README.md at publish time and embeds it in the

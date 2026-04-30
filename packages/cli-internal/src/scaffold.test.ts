@@ -147,8 +147,11 @@ describe("scaffold", () => {
   });
 
   it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when set", async () => {
-    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC =
-      "file:/tmp/arkor/arkor-0.0.1-alpha.4.tgz";
+    // The value is opaque to scaffold — only that it's faithfully
+    // round-tripped into package.json matters, so use a relative
+    // `file:` spec that is platform-neutral (no Unix-only `/tmp`).
+    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.4.tgz";
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = overrideSpec;
     const { files } = await scaffold({
       cwd,
       name: "override-app",
@@ -158,9 +161,44 @@ describe("scaffold", () => {
       readFileSync(join(cwd, "package.json"), "utf8"),
     ) as Record<string, unknown>;
     const devDeps = pkg.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("file:/tmp/arkor/arkor-0.0.1-alpha.4.tgz");
+    expect(devDeps.arkor).toBe(overrideSpec);
     const pkgEntry = files.find((f) => f.path === "package.json");
     expect(pkgEntry?.action).toBe("created");
+  });
+
+  it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when patching an existing package.json", async () => {
+    // The spec resolution is shared between the create path (above)
+    // and the patch path that runs when `package.json` already exists
+    // but has no `devDependencies.arkor`. Cover the patch path too so
+    // the override doesn't silently regress to the default there.
+    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.4.tgz";
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = overrideSpec;
+    writeFileSync(
+      join(cwd, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "existing-app",
+          version: "1.0.0",
+          private: true,
+          devDependencies: { typescript: "^5.0.0" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const { files } = await scaffold({
+      cwd,
+      name: "existing-app",
+      template: "minimal",
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const devDeps = pkg.devDependencies as Record<string, string>;
+    expect(devDeps.arkor).toBe(overrideSpec);
+    expect(devDeps.typescript).toBe("^5.0.0");
+    const pkgEntry = files.find((f) => f.path === "package.json");
+    expect(pkgEntry?.action).toBe("patched");
   });
 
   it("renders each template with a distinct trainer body", async () => {

@@ -180,6 +180,20 @@ jobs:
           ARKOR_TELEMETRY_DISABLED: "1"
         run: pnpm run test
 
+      # Re-pack after Test so the dry-run publish exercises the same
+      # dist/ that the real release would upload. The pre-Test pack
+      # only existed to feed ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC; the
+      # e2e-cli pretest rebuilt dist/ since.
+      - name: Re-pack release tarballs
+        run: |
+          PACK_DIR="$RUNNER_TEMP/npm-pack"
+          rm -rf "$PACK_DIR"
+          mkdir -p "$PACK_DIR"
+
+          for PKG_DIR in packages/arkor packages/create-arkor; do
+            (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
+          done
+
       - name: Dry run publish (arkor)
         run: |
           VERSION="${{ steps.meta.outputs.version }}"

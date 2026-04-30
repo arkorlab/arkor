@@ -14,7 +14,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "env": ["ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC"],
+      "env": ["ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC", "SKIP_E2E_INSTALL"],
       "outputs": []
     },
     "typecheck": {
