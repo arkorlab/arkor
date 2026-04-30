@@ -17,6 +17,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  attestations: write
 
 concurrency:
   group: release
@@ -164,6 +165,11 @@ jobs:
             echo "## $(basename "$TARBALL")"
             tar -tf "$TARBALL"
           done
+
+      - name: Generate GitHub artifact attestations for release tarballs
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/npm-pack/*.tgz
 
       # Publish from the package directory (not from the pre-packed tarball)
       # so npm CLI reads README.md at publish time and embeds it in the
