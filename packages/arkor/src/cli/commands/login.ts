@@ -124,6 +124,17 @@ async function runAnonymousLogin(): Promise<void> {
   ui.log.info(
     "This id is how Arkor Cloud recognises this client across sessions — keep `~/.arkor/credentials.json` to stay signed in as the same anonymous identity.",
   );
+  // Persistence nudge. The cloud-api does not promise to retain anon-scoped
+  // work indefinitely (no account binding, eligible for cleanup), so we point
+  // users at OAuth before they invest in the session. The user-facing copy
+  // intentionally says "sign in" rather than "migrate": there is no server-
+  // side path to carry an existing anon id's work into a future OAuth org,
+  // so an "upgrade" really means starting fresh under the new account.
+  // Surfacing that caveat here would just discourage the upgrade — keep it
+  // to this comment until we actually ship a migration path.
+  ui.log.warn(
+    "Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to save your work to your Arkor Cloud account.",
+  );
   ui.log.success(`Signed in anonymously (personal org: ${result.orgSlug}).`);
 }
 
