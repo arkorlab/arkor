@@ -40,10 +40,11 @@ export interface StudioServerOptions {
   autoAnonymous?: boolean;
   /**
    * Per-launch CSRF token. Every `/api/*` request must include it via header
-   * `X-Arkor-Studio-Token`, or `?studioToken=` for `EventSource` (which can't
-   * carry custom headers). The token is injected into the served `index.html`
-   * as a `<meta>` tag so the same-origin SPA can read it; cross-origin tabs
-   * cannot, so even a "simple" CORS POST without preflight is rejected.
+   * `X-Arkor-Studio-Token`; the job-event stream also accepts `?studioToken=`
+   * because `EventSource` cannot carry custom headers. The token is injected
+   * into the served `index.html` as a `<meta>` tag so the same-origin SPA can
+   * read it; cross-origin tabs cannot, so even a "simple" CORS POST without
+   * preflight is rejected.
    */
   studioToken: string;
   /**
@@ -109,22 +110,38 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   const app = new Hono();
 
-  // Combined defense for `/api/*`:
-  //   1. Host-header guard (defense against DNS rebinding — a victim navigated
-  //      to `evil.com` rebound onto 127.0.0.1 still sends `Host: evil.com`).
-  //   2. Per-launch CSRF token. CORS is intentionally not configured: the SPA
+  const loopbackHostPattern = /^(127\.0\.0\.1|localhost)(:\d+)?$/;
+  const jobEventsPathPattern = /^\/api\/jobs\/[^/]+\/events$/;
+
+  // Host-header guard for every route, including static HTML that carries the
+  // per-launch Studio token. This is the DNS-rebinding boundary: a victim
+  // navigated to `evil.com` rebound onto 127.0.0.1 still sends `Host: evil.com`.
+  app.use("*", async (c, next) => {
+    const host = c.req.header("host") ?? "";
+    if (!loopbackHostPattern.test(host)) {
+      if (c.req.path.startsWith("/api/")) {
+        return c.json({ error: "Studio API is loopback-only" }, 403);
+      }
+      return c.text("Studio is loopback-only", 403);
+    }
+    await next();
+  });
+
+  // CSRF defense for `/api/*`:
+  //   1. Per-launch token. CORS is intentionally not configured: the SPA
   //      is same-origin so CORS adds no value, and reflecting `*` would let
   //      "simple" cross-origin POSTs (text/plain, urlencoded) skip preflight
   //      and reach the handler. The token check rejects those — an attacker
   //      page can't read the SPA's <meta> from another origin.
+  //   2. `?studioToken=` is accepted only on the job-event stream route
+  //      because `EventSource` cannot send custom headers. Mutation routes
+  //      require the header so a leaked token in a URL is not enough to POST.
   app.use("/api/*", async (c, next) => {
-    const host = c.req.header("host") ?? "";
-    if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) {
-      return c.json({ error: "Studio API is loopback-only" }, 403);
-    }
+    const queryTokenAllowed =
+      c.req.method === "GET" && jobEventsPathPattern.test(c.req.path);
     const provided =
       c.req.header("x-arkor-studio-token") ??
-      c.req.query("studioToken") ??
+      (queryTokenAllowed ? c.req.query("studioToken") : undefined) ??
       "";
     if (!tokensMatch(provided, studioToken)) {
       return c.json({ error: "Missing or invalid studio token" }, 403);

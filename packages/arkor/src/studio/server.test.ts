@@ -89,6 +89,17 @@ describe("Studio server", () => {
     );
   });
 
+  it("rejects non-loopback static requests without leaking the studio token", async () => {
+    const app = build();
+    const res = await app.request("/", {
+      headers: { host: "evil.example:4000" },
+    });
+    expect(res.status).toBe(403);
+    const text = await res.text();
+    expect(text).not.toContain(STUDIO_TOKEN);
+    expect(text).not.toContain("arkor-studio-token");
+  });
+
   it("rejects non-loopback API requests (DNS rebinding defense)", async () => {
     const app = build();
     const res = await app.request("/api/credentials", {
@@ -151,7 +162,16 @@ describe("Studio server", () => {
     });
   });
 
-  it("accepts the studio token via ?studioToken= for SSE-style requests", async () => {
+  it("rejects ?studioToken= on non-event API requests", async () => {
+    const app = build();
+    const res = await app.request(
+      `/api/credentials?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+      { headers: { host: "127.0.0.1:4000" } },
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("accepts the studio token via ?studioToken= for job event streams", async () => {
     await writeCredentials({
       mode: "anon",
       token: "tok",
@@ -161,10 +181,12 @@ describe("Studio server", () => {
     });
     const app = build();
     const res = await app.request(
-      `/api/credentials?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+      `/api/jobs/job-1/events?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
       { headers: { host: "127.0.0.1:4000" } },
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("No project state");
   });
 
   it("rejects /api/train with a file path that escapes cwd", async () => {
@@ -203,6 +225,22 @@ describe("Studio server", () => {
       body: JSON.stringify({ file: "/etc/passwd" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("rejects /api/train when the studio token is only in the query string", async () => {
+    const app = build();
+    const res = await app.request(
+      `/api/train?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+      {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "content-type": "text/plain",
+        },
+        body: "{}",
+      },
+    );
+    expect(res.status).toBe(403);
   });
 
   // Regression for ENG-404 — `path.resolve` doesn't follow symlinks, so a
