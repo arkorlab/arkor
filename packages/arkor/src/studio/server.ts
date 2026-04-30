@@ -11,7 +11,7 @@ import {
   requestAnonymousToken,
   type Credentials,
 } from "../core/credentials";
-import { recordDeprecation } from "../core/deprecation";
+import { recordDeprecation, tapDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
 import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
@@ -177,7 +177,17 @@ export function buildStudioApp(options: StudioServerOptions) {
       baseUrl,
       token: getToken,
       clientVersion: SDK_VERSION,
-      onDeprecation: recordDeprecation,
+      // The wrapper around `recordDeprecation` is a workaround for a
+      // bug in `@arkor/cloud-api-client` where a `void` return is fed
+      // into `typeof result.then === 'function'`, which throws and
+      // logs `[@arkor/cloud-api-client] onDeprecation handler threw;
+      // ignoring:` on every deprecated response. Returning `null`
+      // short-circuits that check (`null !== null` is false) without
+      // changing the recorded-deprecation behavior.
+      onDeprecation: (notice) => {
+        recordDeprecation(notice);
+        return null;
+      },
     });
   }
 
@@ -253,12 +263,19 @@ export function buildStudioApp(options: StudioServerOptions) {
           : {}),
       },
     });
+    // This route bypasses `createRpc()` (the SSE body has to be streamed
+    // straight through), so deprecation propagation has to be wired by
+    // hand: record the notice into the SDK's latest-wins store and
+    // forward the Deprecation/Warning/Sunset headers to the browser
+    // alongside the event stream.
+    tapDeprecation(upstream, SDK_VERSION);
     const headers = new Headers();
     headers.set(
       "content-type",
       upstream.headers.get("content-type") ?? "text/event-stream",
     );
     headers.set("cache-control", "no-cache, no-transform");
+    copyDeprecationHeaders(upstream.headers, headers);
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 
