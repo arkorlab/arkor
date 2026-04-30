@@ -10,13 +10,27 @@ import {
 
 let cwd: string;
 const ORIG_UA = process.env.npm_config_user_agent;
+const ORIG_ARKOR_SPEC = process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC;
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
+  delete process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC;
 });
 
 afterEach(() => {
-  process.env.npm_config_user_agent = ORIG_UA;
+  // Node coerces env-var assignments to strings, so a plain
+  // `process.env.X = undefined` writes the literal string "undefined".
+  // Mirror the spec restore: delete on undefined, otherwise reassign.
+  if (ORIG_UA === undefined) {
+    delete process.env.npm_config_user_agent;
+  } else {
+    process.env.npm_config_user_agent = ORIG_UA;
+  }
+  if (ORIG_ARKOR_SPEC === undefined) {
+    delete process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC;
+  } else {
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = ORIG_ARKOR_SPEC;
+  }
   rmSync(cwd, { recursive: true, force: true });
 });
 
@@ -114,7 +128,7 @@ describe("scaffold", () => {
     expect(scripts.dev).toBe("arkor dev");
     expect(scripts.start).toBe("arkor start");
     const devDeps = patched.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("^0.0.1-alpha.3");
+    expect(devDeps.arkor).toBe("^0.0.1-alpha.4");
 
     const pkgEntry = files.find((f) => f.path === "package.json");
     expect(pkgEntry?.action).toBe("patched");
@@ -130,6 +144,84 @@ describe("scaffold", () => {
     const second = await scaffold({ cwd, name: "n", template: "minimal" });
     const secondEntry = second.files.find((f) => f.path === ".gitignore");
     expect(secondEntry?.action).toBe("ok");
+  });
+
+  it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when set", async () => {
+    // The value is opaque to scaffold — only that it's faithfully
+    // round-tripped into package.json matters, so use a relative
+    // `file:` spec that is platform-neutral (no Unix-only `/tmp`).
+    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.4.tgz";
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = overrideSpec;
+    const { files } = await scaffold({
+      cwd,
+      name: "override-app",
+      template: "minimal",
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const devDeps = pkg.devDependencies as Record<string, string>;
+    expect(devDeps.arkor).toBe(overrideSpec);
+    const pkgEntry = files.find((f) => f.path === "package.json");
+    expect(pkgEntry?.action).toBe("created");
+  });
+
+  it.each([
+    { label: "empty string", value: "" },
+    { label: "whitespace only", value: "   " },
+  ])(
+    "falls back to the default spec when ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC is $label",
+    async ({ value }) => {
+      // Without the trim+length guard, an empty/whitespace override would
+      // be written verbatim into package.json (`"arkor": ""`), which is
+      // not a valid dependency spec. Treat both as "unset".
+      process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = value;
+      await scaffold({
+        cwd,
+        name: "blank-override",
+        template: "minimal",
+      });
+      const pkg = JSON.parse(
+        readFileSync(join(cwd, "package.json"), "utf8"),
+      ) as Record<string, unknown>;
+      const devDeps = pkg.devDependencies as Record<string, string>;
+      expect(devDeps.arkor).toBe("^0.0.1-alpha.4");
+    },
+  );
+
+  it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when patching an existing package.json", async () => {
+    // The spec resolution is shared between the create path (above)
+    // and the patch path that runs when `package.json` already exists
+    // but has no `devDependencies.arkor`. Cover the patch path too so
+    // the override doesn't silently regress to the default there.
+    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.4.tgz";
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = overrideSpec;
+    writeFileSync(
+      join(cwd, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "existing-app",
+          version: "1.0.0",
+          private: true,
+          devDependencies: { typescript: "^5.0.0" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const { files } = await scaffold({
+      cwd,
+      name: "existing-app",
+      template: "minimal",
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const devDeps = pkg.devDependencies as Record<string, string>;
+    expect(devDeps.arkor).toBe(overrideSpec);
+    expect(devDeps.typescript).toBe("^5.0.0");
+    const pkgEntry = files.find((f) => f.path === "package.json");
+    expect(pkgEntry?.action).toBe("patched");
   });
 
   it("renders each template with a distinct trainer body", async () => {

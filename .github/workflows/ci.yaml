@@ -129,12 +129,16 @@ jobs:
       # step above is used as-is.
       - name: Test (rolldown-incompatible Node)
         if: ${{ matrix.rolldownIncompat }}
+        env:
+          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: |
           pnpm exec turbo run test --filter='!@arkor/e2e-cli'
           pnpm --filter @arkor/e2e-cli exec vitest run
 
       - name: Test
         if: ${{ !matrix.rolldownIncompat }}
+        env:
+          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: pnpm test
 
       - name: Build
