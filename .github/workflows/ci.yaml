@@ -11,10 +11,47 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # This matrix intentionally covers Node.js versions where built-in
+        # TypeScript execution was experimental, so we can verify behavioral
+        # differences across strip-types / transform-types / amaro changes.
         node:
-          - '>=22.6.0 <22.18.0'
-          - '^22.18'
-          - '24'
+          # Major: introduced --experimental-strip-types
+          - '>=22.6.0 <22.7.0'     # .ts type stripping becomes available
+    
+          # Major: introduced --experimental-transform-types
+          - '>=22.7.0 <22.8.0'     # supports TS syntax that requires transforms, such as enum
+    
+          - '>=22.8.0 <22.9.0'     # sourceURL / transform-related changes
+          - '>=22.9.0 <22.10.0'    # amaro made externalizable
+          - '>=22.10.0 <22.12.0'   # process.features.typescript / TS test runner changes
+          - '>=22.12.0 <22.13.0'   # amaro updates
+          - '>=22.13.0 <22.14.0'   # added module.stripTypeScriptTypes
+    
+          # Major: TypeScript support for eval / worker input and error classification
+          - '>=22.14.0 <22.15.0'   # STDIN eval / worker eval TS input / ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+    
+          - '>=22.15.0 <22.17.0'   # amaro update series
+          - '>=22.17.0 <22.18.0'   # TS module mocking sourcemap fix
+    
+          # Major: strip-types enabled by default in Node 22 LTS
+          - '>=22.18.0 <22.20.0'   # unflagged / warning removed / amaro 1.1.0
+    
+          - '>=22.20.0 <22.21.0'   # amaro updates
+          - '>=22.21.0 <23'        # amaro updates
+    
+          - '>=24.0.0 <24.1.0'     # Node 24 initial state; strip-types default-on / Stability: RC
+          - '>=24.1.0 <24.3.0'     # amaro updates
+    
+          # Major: experimental warning removed in Node 24
+          - '>=24.3.0 <24.5.0'     # warning removed / amaro 1.1.0 / CJS TS loader refactor
+    
+          - '>=24.5.0 <24.8.0'     # amaro updates
+          - '>=24.8.0 <24.10.0'    # amaro updates
+          - '>=24.10.0 <24.12.0'   # amaro updates
+    
+          # Major: type stripping marked Stable in Node 24 LTS
+          - '24.12.0'              # exact boundary version where type stripping became stable
+          - '>=24.12.0 <25'        # stable Node 24 range after 24.12.0
 
     steps:
       - uses: actions/checkout@v6
