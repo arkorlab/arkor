@@ -1,0 +1,161 @@
+---
+title: "ライフサイクルコールバック"
+description: "バックエンドからのストリーム中に Arkor が発火する 5 つのコールバック。"
+---
+
+# ライフサイクルコールバック
+
+コールバックは `createTrainer({ callbacks: { ... } })` の下に渡します。5 つすべてオプションで、SDK 上の型は `Partial<TrainerCallbacks>` です。バックエンドの SSE イベントストリームから `trainer.wait()` 内でディスパッチされて動きます。
+
+```ts
+createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  callbacks: {
+    onStarted: ({ job }) => console.log(`run ${job.id} accepted`),
+    onLog: ({ step, loss }) => {
+      if (loss !== null) console.log(`step=${step} loss=${loss.toFixed(4)}`);
+    },
+    onCheckpoint: async ({ step, infer }) => {
+      const res = await infer({
+        messages: [{ role: "user", content: "Hello" }],
+      });
+      console.log(`ckpt @ ${step}:`, await res.text());
+    },
+    onCompleted: ({ job }) => console.log(`run ${job.id} done`),
+    onFailed: ({ error }) => console.error(`failed: ${error}`),
+  },
+});
+```
+
+## それぞれのコールバックがいつ発火するか
+
+```
+trainer.start()    ジョブを投入し { jobId } を返す。コールバックはまだ。
+   │
+   ▼
+trainer.wait()     SSE ストリームを開く。コールバックはここから発火。
+   │
+   ▼
+onStarted          1 回。`training.started` イベント時
+onLog              多数回。メトリクスフレームごとに 1 回
+onCheckpoint       数回。チェックポイントアップロードごとに 1 回
+onCompleted        1 回。`training.completed` 時
+        ── または ──
+onFailed           1 回。`training.failed`（バックエンド報告の失敗）時
+```
+
+`start()` を呼んで `wait()` を呼ばないと、コールバックは決して動きません。`arkor start` は両方呼んでくれます。プログラムから呼び出す側も同じことをしてください。
+
+## `onStarted({ job })`
+
+SSE ストリームが `training.started` を報告したときに発火します。ログ行や「学習開始しました」通知に使ってください。
+
+```ts
+onStarted: ({ job }) => {
+  // job: TrainingJob (id, name, status, config, ...)
+}
+```
+
+## `onLog({ step, loss, evalLoss, learningRate, epoch, samplesPerSecond, job })`
+
+学習が進むにつれて繰り返し発火します。各数値フィールドは `number | null`: バックエンドはあるステップで持っているフィールドだけ埋めます（なので `evalLoss` は eval 以外のステップで null、`learningRate` は LR スケジューラ更新の合間に null、等）。
+
+```ts
+onLog: ({ step, loss, evalLoss }) => {
+  if (loss !== null) {
+    forwardToMetrics({ step, loss, evalLoss });
+  }
+}
+```
+
+よくある用途は次のとおりです。自前のパイプライン（PostHog、Datadog）へのメトリクス転送、早期発散の検知、カスタム early stopping の実装。early stopping については、[`abortSignal`](/ja/sdk/trainer-control#abortsignal) の abort はあなたのローカル `wait()` を止めるだけだと忘れずに。バックエンドの GPU を実際に止めるには、その後 [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。
+
+## `onCheckpoint({ step, adapter, job, infer, artifacts })`
+
+学習中にバックエンドでアダプタチェックポイントが保存されたときに発火します。`adapter` は `{ kind: "checkpoint", jobId, step }`。`infer` の詳細は [infer](/ja/sdk/infer) ページにあります。要するにチャット形式のリクエストを取り、生の `Response` を返す関数です。
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  const res = await infer({
+    messages: [{ role: "user", content: "Can't log in" }],
+  });
+  const sample = await res.text();
+  // モデルが順調かどうか判定
+}
+```
+
+TypeScript でファインチューニングする価値の多くがここに集まります: 学習途中のモデルを取り置いたプロンプトで、全体の学習完了前に走らせられます。
+
+## `onCompleted({ job, artifacts })`
+
+成功時に 1 回発火。`artifacts` は `unknown[]`: バックエンドが送った生の artifact リスト。スキーマは進化するため SDK で絞り込みません。
+
+```ts
+onCompleted: ({ job, artifacts }) => {
+  saveAdapterId({ jobId: job.id, count: artifacts.length });
+}
+```
+
+## `onFailed({ job, error })`
+
+バックエンド報告の失敗で 1 回発火。`error` は `string`（バックエンドが送ったメッセージ）であり、`Error` インスタンスではありません。
+
+```ts
+onFailed: ({ job, error }) => {
+  // error: string
+}
+```
+
+`onFailed` は **バックエンド側の** 失敗専用です。あなたの他のコールバック内で投げられた例外は `onFailed` には届きません。何が起きるかは下記。
+
+## 順序
+
+各コールバックは次のイベントがディスパッチされる前に await されます。Promise を返してよく（DB への書き込み、Slack への投稿、`infer` の呼び出し等）、SDK は次のフレーム処理前にそれを待ちます。同一トレーナーに対する並行ディスパッチはありません。
+
+## 例外ハンドリング（よく読んでください）
+
+コールバック内で throw しても通常の Promise reject のようには **振る舞いません**。SDK のイベントループは dispatch を try/catch で包み、throw を SSE 再接続ハンドラ（`packages/arkor/src/core/trainer.ts:335-364`、続いて `:307-320` の `handleFailure`）にルートします:
+
+1. `abortSignal.aborted` が立っていれば、エラーは再 throw され `wait()` は reject。
+2. それ以外で `maxReconnectAttempts` が設定されカウンタ超過なら、`wait()` はラップされたエラーで reject。
+3. それ以外なら、SDK は遅延を入れて SSE ストリームを再オープン。
+
+`maxReconnectAttempts` のデフォルトは `undefined`（無制限）です。`TrainerInput` から設定はできず、`createTrainer` の第 2 引数 `context`（`@internal` 注釈付きで予告なく変わり得る）でしか設定できません。実用上、デフォルト設定では throw されたコールバックは **catch されてリトライ** され、無期限に続く可能性があります。`Last-Event-ID` がリトライ間で進めば、元の失敗イベント自体もスキップされます。
+
+決定的なエラーハンドリングが必要ならコールバック内で catch してください:
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  try {
+    await sendToReview({ step, sample: await (await infer({ ... })).text() });
+  } catch (err) {
+    // ログ／メトリクス／コールバックの外側で trainer.cancel() を呼んで自分で学習を失敗させるか判断
+  }
+}
+```
+
+## 型のスケッチ
+
+```ts
+interface TrainingLogContext {
+  step: number;
+  loss: number | null;
+  evalLoss: number | null;
+  learningRate: number | null;
+  epoch: number | null;
+  samplesPerSecond: number | null;
+  job: TrainingJob;
+}
+
+interface CheckpointContext {
+  step: number;
+  adapter: { kind: "checkpoint"; jobId: string; step: number };
+  job: TrainingJob;
+  infer: (args: InferArgs) => Promise<Response>;
+  artifacts?: unknown[];
+}
+```
+
+`TrainingLogContext` と `CheckpointContext` は `arkor` から名前付きでエクスポートされていません。自分のコードで型付きコールバックパラメータが欲しいならインラインで形をミラーしてください。

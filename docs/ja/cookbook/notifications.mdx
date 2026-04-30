@@ -1,0 +1,103 @@
+---
+title: "Slack / Discord 通知"
+description: "学習が完了 or 失敗したときに、trainer.ts の中から webhook を叩く。"
+---
+
+# Slack / Discord 通知
+
+学習は長いので、ずっと Studio を見続ける人はいません。終端の `onCompleted` と `onFailed` コールバックは、チームが普段いる場所にステータスメッセージを流すのにうってつけです。
+
+このレシピは Slack incoming webhook を使います。Discord、Microsoft Teams、任意の HTTP エンドポイントも同じやり方で動きます。`fetch` できるものなら何でも通知先になります。
+
+## パターン
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+
+async function postSlack(payload: Record<string, unknown>): Promise<void> {
+  if (!WEBHOOK_URL) return;
+  try {
+    const res = await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.warn(`slack webhook ${res.status} ${res.statusText}`);
+    }
+  } catch (err) {
+    // 通知失敗をコールバックの外に逃がさない。
+    console.warn("slack webhook failed:", err);
+  }
+}
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  callbacks: {
+    onCompleted: async ({ job, artifacts }) => {
+      await postSlack({
+        text: `:white_check_mark: *${job.name}* finished (${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}). Job \`${job.id}\`.`,
+      });
+    },
+    onFailed: async ({ job, error }) => {
+      await postSlack({
+        text: `:x: <!here> *${job.name}* failed: ${error}\nJob \`${job.id}\`.`,
+      });
+    },
+  },
+});
+```
+
+`<!here>` メンションは失敗時にしか発火しないので、成功時は誰も呼び出しません。チームの学習ジョブが実際にどれだけ失敗するかに合わせて緊急度を調整してください。
+
+## なぜ内側の `try / catch` が大事か
+
+webhook リクエストが throw すると（Slack 障害、DNS の不調、コードが 200 番台以外を再 throw する等）、コールバックは reject します。Arkor ランタイムはその reject を catch して SSE 再接続ループに送ります（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）。`maxReconnectAttempts` がデフォルトの無制限のままだと、不安定な webhook が静かに永遠にリトライされ得て、リトライ間で `Last-Event-ID` が進めば元のイベントが飲み込まれます。
+
+webhook は学習成功の判定基準ではなく副作用として扱ってください。内側で catch、知りたければログに残す。
+
+## バリエーション
+
+**ステップごとの進捗 ping。** `onLog` と組み合わせて N ステップごとに 1 行投稿:
+
+```ts
+onLog: async ({ step, loss }) => {
+  if (step % 100 !== 0 || loss === null) return;
+  await postSlack({ text: `step=${step} loss=${loss.toFixed(4)}` });
+},
+```
+
+うるさいので、重要な学習だけにしたいなら `process.env.NOTIFY_PROGRESS === "1"` でゲートしてください。
+
+**学習中のサンプル共有。** [学習中の評価レシピ](/ja/cookbook/mid-run-eval) と組み合わせる: 各チェックポイントのサンプルをレビューチャネルに投稿し、学習が続いている間に同僚がリアクションで反応できます。
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  try {
+    const res = await infer({
+      messages: [{ role: "user", content: "Can't log in" }],
+      stream: false,
+      maxTokens: 80,
+    });
+    const data = (await res.json()) as { content?: string };
+    await postSlack({ text: `step=${step} → ${data.content ?? "(empty)"}` });
+  } catch (err) {
+    console.warn("checkpoint sample failed:", err);
+  }
+}
+```
+
+**他の宛先。** PostHog の `capture()`、Datadog のイベント、DB への insert: 形は同じです。副作用を自分でエラーを飲み込む `async` ヘルパーの裏に置き、ライフサイクルコールバックから呼ぶ。トレーナーファイルに追加のオーケストレーションは不要です。
+
+## 心に留めておくこと
+
+- **内側の `try / catch` は必須。** 通知は あれば便利、ですが webhook の障害が学習イベントストリームを静かにリトライさせていいわけがありません。
+- **シークレットをトレーナーファイルに置かない。** 例では `SLACK_WEBHOOK_URL` を `process.env` から読み、webhook が `git` に入らないようにしています。トークンベースの宛先全般に同じ考え方を。
+- **`error` は `string` であることを忘れない。** `onFailed` の `error` 引数はバックエンドが送った文字列で（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）、`Error` インスタンスではありません。直接埋め込み、`.message` を呼んだりしないでください。

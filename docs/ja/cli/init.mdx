@@ -1,0 +1,119 @@
+---
+title: "arkor init"
+description: "カレントディレクトリに Arkor プロジェクトをスキャフォールド。"
+---
+
+# `arkor init`
+
+```bash
+pnpm exec arkor init
+```
+
+`src/arkor/index.ts`、`src/arkor/trainer.ts`、`arkor.config.ts`、スターター `package.json` を **カレントディレクトリ** にスキャフォールドします。既存リポジトリに Arkor を追加したいときに使います（`pnpm create arkor my-app` のフローは同じスキャフォールダを 1 つ上のディレクトリで実行します）。
+
+デフォルトでは部分的に対話的です。プロジェクト名とスターターテンプレートを尋ね、`--skip-install` が指定されない限り（確認プロンプトなしで）パッケージマネージャの `install` を自動実行し、`git init` の前にだけ確認します。パッケージマネージャが解決できない（`--use-*` フラグなし、`npm_config_user_agent` からの検出も失敗）ときは install ステップはスキップされ、最後に手動 install のヒントが表示されます。
+
+## 概要
+
+```
+arkor init [options]
+```
+
+## オプション
+
+| フラグ | 説明 |
+| --- | --- |
+| `-y, --yes` | プロンプトの代わりにデフォルトを採用（プロジェクト名はディレクトリ名、テンプレートは `triage`）。 |
+| `--name <name>` | プロジェクト名。デフォルトはカレントディレクトリ名（パスに basename がない場合 `arkor-project`、例えば `/`）。`package.json` に書く前にサニタイズされます。 |
+| `--template <id>` | スターターテンプレート。表示される選択肢: `triage`、`translate`、`redaction`。バリデータは明示的に渡したときに限り隠し ID（`minimal`、`alpaca`、`chatml`）も受け付けます。未知の ID はファイル操作前に例外が発生します。 |
+| `--skip-install` | スキャフォールド後のパッケージマネージャの `install` をスキップ。 |
+| `--use-npm` | パッケージマネージャに npm を強制。 |
+| `--use-pnpm` | パッケージマネージャに pnpm を強制。 |
+| `--use-yarn` | パッケージマネージャに yarn を強制。 |
+| `--use-bun` | パッケージマネージャに bun を強制。 |
+| `--git` | 確認なしで git リポジトリを初期化し、初回コミットを作成。 |
+| `--skip-git` | git init を黙ってスキップ。 |
+
+`--git` と `--skip-git` は排他です。両方渡すと例外が発生します。
+
+## テンプレート
+
+| テンプレート | タスク | 出力の形 |
+| --- | --- | --- |
+| `triage` | サポートのトリアージ | `{ category, urgency, summary, nextAction }` |
+| `translate` | 9 言語の翻訳 | `{ translation, detectedLanguage }` |
+| `redaction` | 個人情報のマスク | `{ redactedText, redactedCount, tags }` |
+
+3 つとも同じ小型のオープンウェイトベース（`unsloth/gemma-4-E4B-it`）と HuggingFace 上の厳選公開データセットを組み合わせています。
+
+隠しテンプレート（`minimal`、`alpaca`、`chatml`）は意図的にミニマルで、参照用として存在します。対話ピッカーには出てきません。
+
+## パッケージマネージャ検出
+
+`--use-*` フラグが渡されないとき、CLI は `npm_config_user_agent` を見てどのパッケージマネージャから呼ばれたかを検出します（これは `corepack` が使う標準の仕組みなので、`pnpm dlx`、`yarn dlx`、`bunx` などすべて動きます）。
+
+検出に失敗してフラグもなければ install ステップはスキップされ、手動 install のヒントが最後に表示されます。
+
+## Git ポリシー
+
+`arkor init` は `git init` + 初回コミットを実行するかどうかを次のルールを上から評価して決めます:
+
+1. カレントディレクトリが既に git リポジトリ内なら、スキップ（ログを出す）。
+2. `--skip-git` が渡されていれば、スキップ。
+3. `--git` または `-y` が渡されていれば、確認なしで実行。
+4. 対話的なシェルでは尋ねる（デフォルト: yes）。
+5. 非対話的でフラグなしなら、スキップ。
+
+git init は install の **後** に走るので、パッケージマネージャが生成したロックファイルが初回コミットに含まれます。コミット署名に失敗（GPG agent が動いていない等）した場合、CLI は署名なしコミットにフォールバックして警告します。あとで `git commit --amend -S` で再署名できます。
+
+## CI / 非対話シェル
+
+`process.stdout` が TTY でない、または `CI` が環境にあるとき `arkor init` は非対話的になります。プロンプトはデフォルト値でスキップされ入力待ちでブロックしません。CI から決定的にスキャフォールドするには:
+
+```bash
+pnpm exec arkor init --yes --template triage --use-pnpm --skip-git
+```
+
+`--yes` でプロジェクト名とテンプレートのデフォルト（ディレクトリ名と `triage`）を採用、`--use-pnpm` でパッケージマネージャ検出をショートサーキット、`--skip-git` で git init をオプトアウト。`node_modules/` がすでにあるイメージなら `--skip-install` も渡してください。
+
+非対話シェルで `--yes` を忘れてもコマンドは完走します（プロンプトはデフォルトを使う）が、サイレントでログから見落としやすい挙動になります。上記の明示形を推奨します。
+
+## よくあるエラー
+
+| メッセージ | 意味 | 対処 |
+| --- | --- | --- |
+| `Pick one of --git / --skip-git, not both.`（`--git` と `--skip-git` のどちらか一方だけ指定してください） | git 関連の両フラグを渡した。 | どちらか一方にする。 |
+| `Unknown template "<id>". Available: triage, translate, redaction, minimal, alpaca, chatml`（未知のテンプレート `<id>`。利用可能: triage, translate, redaction, minimal, alpaca, chatml） | `--template` の値がどの登録テンプレート ID にも一致しなかった。 | 一覧の ID を使う。隠し ID（`minimal`、`alpaca`、`chatml`）は明示指定時のみ有効。 |
+| `Commit signing failed — created an unsigned commit.`（コミット署名に失敗したため、署名なしコミットを作成しました） | `git init` は成功したが初回コミットを GPG 署名できなかった。 | 署名のセットアップを直したら `git commit --amend -S` で再署名。リポジトリ自体は問題なし。 |
+
+## 例
+
+対話:
+```bash
+pnpm exec arkor init
+```
+
+デフォルト採用、install スキップ、git スキップ:
+```bash
+pnpm exec arkor init --yes --skip-install --skip-git
+```
+
+テンプレートを固定して pnpm を強制:
+```bash
+pnpm exec arkor init --template translate --use-pnpm
+```
+
+## 何が書かれるか
+
+スキャフォールダが触るパスは 6 つ。いずれもユーザーの既存内容を上書きしません:
+
+| パス | 振る舞い |
+| --- | --- |
+| `src/arkor/index.ts` | 無ければ `createArkor({ trainer })` で **作成**。あれば **そのまま**。 |
+| `src/arkor/trainer.ts` | 無ければ選んだテンプレートの `createTrainer({...})` で **作成**。あれば **そのまま**。 |
+| `arkor.config.ts` | 無ければプレイスホルダーの export として **作成**。あれば **そのまま**。[プロジェクト構成](/ja/concepts/project-structure) を参照。 |
+| `README.md` | 無ければスターター README で **作成**。あれば **そのまま**。 |
+| `.gitignore` | 無ければ `node_modules/`、`dist/`、`.arkor/` で **作成**。ファイルがあって `.arkor/` が入っていなければ追記で **パッチ**。既に入っていれば変更なし（**Ok**）。 |
+| `package.json` | 無ければ name / `private` / `type: "module"` / `dev`+`build`+`start` のスターター scripts / `devDependencies.arkor` で **作成**。不足している script があれば追加し、`devDependencies.arkor` がなければ追加する **パッチ**。既存の値（カスタム `dev` script など）は **上書きしません**。すべて揃っていれば変更なし（**Ok**）。 |
+
+CLI は install 前に "Files" ノートとしてファイル一覧を表示し、各パスの `action`（`created` / `kept` / `patched` / `ok`）を出すので、何が変わったか正確に確認できます。

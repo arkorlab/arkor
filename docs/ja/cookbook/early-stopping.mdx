@@ -1,0 +1,137 @@
+---
+title: "loss 発散時の early stopping"
+description: "loss 曲線が悪い方向に進んだら学習を自動 abort し、バックエンドの GPU も止める。"
+---
+
+# loss 発散時の early stopping
+
+loss が上がり始めたり NaN になったりしたら、それ以降の学習は無駄な計算です。Arkor に組み込みの early stopping はありませんが、TypeScript 数行でくっつけるための材料はすべて揃っています。
+
+このレシピは 3 つのプリミティブを組み合わせます:
+
+- バックエンドからストリームされる loss を見る `onLog`。
+- そのシグナルをトレーナーに配線した `AbortController`。
+- ローカル abort 後にバックエンドの学習も止める `trainer.cancel()`。
+
+## パターン
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const LOSS_CEILING = 5.0;        // データセットに合わせて調整
+
+export function makeTrainer() {
+  const controller = new AbortController();
+
+  const trainer = createTrainer({
+    name: "support-bot-v1",
+    model: "unsloth/gemma-4-E4B-it",
+    dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+    lora: { r: 16, alpha: 16 },
+    maxSteps: 100,
+    abortSignal: controller.signal,
+    callbacks: {
+      onLog: ({ step, loss }) => {
+        if (loss === null) return;
+        if (!Number.isFinite(loss) || loss > LOSS_CEILING) {
+          console.warn(`step=${step} loss=${loss} exceeds ceiling, aborting`);
+          controller.abort();
+        }
+      },
+    },
+  });
+
+  return { trainer, controller };
+}
+```
+
+その後、abort に反応できるよう自分で学習を駆動します:
+
+```ts
+// src/arkor/index.ts
+import { createArkor } from "arkor";
+import { makeTrainer } from "./trainer";
+
+const { trainer, controller } = makeTrainer();
+export const arkor = createArkor({ trainer });
+
+// CLI 外で学習を走らせたい場合:
+async function main() {
+  try {
+    await trainer.wait();
+  } catch (err) {
+    if (controller.signal.aborted) {
+      // ローカル abort で wait() が reject。続けてバックエンドの学習を止め、
+      // GPU を回し続けないようにする。
+      try {
+        await trainer.cancel();
+      } catch {
+        // ベストエフォート。ジョブが既に終わっていれば cancel は reject し得る
+      }
+      return;
+    }
+    throw err;
+  }
+}
+```
+
+`arkor start`（Studio の "Run training" や CLI）を使い続けるなら上のエクスポートだけで十分です: controller は依然として `wait()` を abort しますが、CLI の `await` を自前の `try / catch` で囲むことはできません。バックエンドのキャンセルを保証したいなら上のパターンが安全策です。
+
+## なぜ `abortSignal` と `cancel` の両方？
+
+`abortSignal` と `cancel` は別物です。混同するとお金を捨てるので、ドキュメントもここを明示しています。
+
+- **`abortSignal`** はローカルの `wait()` ループを止めます（[SDK § トレーナー制御](/ja/sdk/trainer-control)）。`cancel` を呼びませんし、バックエンドにも何も送らず、ジョブはマネージド GPU で走り続けます。
+- **`trainer.cancel()`** はバックエンドにジョブの停止を依頼します。ベストエフォート: ジョブが既に終端状態（completed、failed、cancelled）にあるとリクエストは reject されることがあります。投機的に呼ぶなら `try / catch` で囲んでください。
+
+「もう待ちたくない」だけなら `abortSignal` で十分。「もう課金させたくない」なら abort の後に `cancel` も呼ぶこと。
+
+## バリエーション
+
+**スムージングしたしきい値。** 1 ステップだけの悪い値はノイズかもしれません。クロージャ内でローリングウィンドウを保持:
+
+```ts
+const recent: number[] = [];
+const WINDOW = 10;
+
+onLog: ({ step, loss }) => {
+  if (loss === null || !Number.isFinite(loss)) return;
+  recent.push(loss);
+  if (recent.length > WINDOW) recent.shift();
+  const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+  if (recent.length === WINDOW && avg > LOSS_CEILING) {
+    controller.abort();
+  }
+}
+```
+
+**忍耐ベースの early stopping。** これまでの最小 loss と、それから改善のないステップ数を追跡:
+
+```ts
+let best = Infinity;
+let stalled = 0;
+const PATIENCE = 30;
+
+onLog: ({ step, loss }) => {
+  if (loss === null || !Number.isFinite(loss)) return;
+  if (loss < best) {
+    best = loss;
+    stalled = 0;
+  } else {
+    stalled++;
+    if (stalled >= PATIENCE) {
+      console.warn(`no improvement for ${PATIENCE} steps, aborting at ${step}`);
+      controller.abort();
+    }
+  }
+}
+```
+
+**外部トリガー。** 同じ `controller` はトレーナーファイルの外からも動きます。Next.js API ルート、SIGINT ハンドラ、親プロセスから `controller.abort()` を呼べばオンデマンドに学習を止められます。
+
+## 心に留めておくこと
+
+- **コールバック内で throw しない。** throw は SSE 再接続ループに catch されて学習が進み続けます（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks) 参照）。controller を使うこと。それが決定的なパスです。
+- **`abortSignal` はバックエンドをキャンセルしない。** 一番よくある落とし穴です。コストが問題なら `controller.abort()` と `trainer.cancel()` を必ずペアで。
+- **`loss` フィールドは `number | null`。** バックエンドはメトリクスステップでしか loss を埋めません。非メトリクスフレームは `null` を運びます。`Number.isFinite` チェックは `NaN` も弾き、実用上はこちらの方が発散シグナルとしてよく出てきます。

@@ -58,7 +58,7 @@ These are exported for code that drives Arkor outside the CLI flow, e.g. running
 
 Public type exports (from `arkor`):
 
-`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `Auth0Credentials` / `AnonymousCredentials` / `Credentials` for the auth helpers.
+`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `Auth0Credentials` (the OAuth credentials type, named after the underlying Auth0-based provider), `AnonymousCredentials`, and `Credentials` for the auth helpers.
 
 `TrainingLogContext`, `CheckpointContext`, `InferArgs` are not exported by name today; they are documented in the [callbacks](/sdk/callbacks) and [infer](/sdk/infer) pages so you can mirror them inline if you need typed callback parameters.
 

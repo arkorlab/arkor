@@ -1,0 +1,70 @@
+---
+title: "SDK"
+description: "Arkor SDK: createArkor、createTrainer、ライフサイクルコールバック、infer、その周辺ヘルパー。"
+---
+
+`arkor` パッケージは、CLI と Studio が乗っかっている TypeScript の表面を露出します。典型的なプロジェクトに必要なものは、3 つのプリミティブとそれぞれの型付き入力にすべて収まります。
+
+## 最小例
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+```ts
+// src/arkor/index.ts
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+これが `arkor dev` と `arkor start` が発見する全体の形です。
+
+## 主要 API
+
+| シンボル | ページ |
+| --- | --- |
+| [`createArkor(input)`](/ja/sdk/create-arkor) | プロジェクトマニフェスト。CLI / Studio が見つけられるよう `Trainer` をラップ。 |
+| [`createTrainer(input)`](/ja/sdk/create-trainer) | ファインチューニング学習の定義: モデル、データセット、LoRA、ハイパラ、コールバック。 |
+| [`Trainer.start / wait / cancel`](/ja/sdk/trainer-control) | 学習制御メソッド。`wait()` がライフサイクルコールバックを発火する場所。 |
+| [`TrainerCallbacks`](/ja/sdk/callbacks) | 5 つのライフサイクルコールバック（`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`）。 |
+| [`InferArgs` / `infer`](/ja/sdk/infer) | `onCheckpoint` 内での推論。生の `Response` を返す。 |
+| [`DatasetSource`](/ja/sdk/dataset) | HuggingFace データセット名 or blob URL。 |
+
+## 補助ヘルパー（上級者向け）
+
+CLI フローの外で Arkor を駆動するコード（自前のサーバーやスクリプトから学習を走らせる等）のためにエクスポートされています。ほとんどのプロジェクトでは不要です。
+
+| シンボル | ソース | 目的 |
+| --- | --- | --- |
+| `runTrainer(file?)` | `core/runner.ts` | `arkor start` が裏で呼んでいるもの。エントリを解決し、トレーナーを選び（`arkor` を最優先、次に `trainer`、最後に default export）、`start()` + `wait()` を実行。 |
+| `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | `~/.arkor/credentials.json` の読み書き。`ensureCredentials` は既存レコードがあれば返し、無ければ **新規の匿名 identity をブートストラップ**（`requestAnonymousToken` を呼んで永続化）。次のパスで throw する場合あり: 認証情報ファイルが存在するが読めない／不正な JSON（`readCredentials` は素の `JSON.parse`）、匿名トークンのブートストラップ自体の失敗（ネットワーク／トークンエンドポイントエラー）。ファイルは SDK が書いている前提。 |
+| `requestAnonymousToken(baseUrl, kind?)` | `core/credentials.ts` | 新しい匿名トークンを直接発行。CLI は `arkor login --anonymous` と初回 `arkor dev` でこれを使う。 |
+| `credentialsPath()` | `core/credentials.ts` | `~/.arkor/credentials.json` の絶対パス。 |
+| `readState(cwd?)` / `writeState(state, cwd?)` / `statePath(cwd?)` | `core/state.ts` | `.arkor/state.json`（プロジェクトルーティング）の読み書き。 |
+| `isArkor(value)` | `core/arkor.ts` | マニフェストの型ガード。 |
+
+## 型
+
+公開型エクスポート（`arkor` から）:
+
+`Arkor`、`ArkorInput`、`ArkorProjectState`、`BlobDatasetSource`、`DatasetSource`、`HuggingfaceDatasetSource`、`JobStatus`、`LoraConfig`、`Trainer`、`TrainerCallbacks`、`TrainerInput`、`TrainingJob`、`TrainingResult`。加えて認証ヘルパー用の `Auth0Credentials`（OAuth 認証情報の型。内部実装が Auth0 ベースのため命名がそうなっている）、`AnonymousCredentials`、`Credentials`。
+
+`TrainingLogContext`、`CheckpointContext`、`InferArgs` は今のところ名前付きでエクスポートされていません。型付きのコールバックパラメータが必要なら、[コールバック](/ja/sdk/callbacks) と [infer](/ja/sdk/infer) ページを見てインラインで形をミラーしてください。
+
+## 公開面に含まれないもの
+
+ソースツリーには存在しますが意図的に `arkor` からエクスポートされていないもの。内部扱いです:
+
+- `SDK_VERSION`、`defaultArkorCloudApiUrl()`: CLI と Studio サーバーが使う。深いパスから import しないでください。エクスポート契約は変わり得ます。
+- CLI コマンドランナー（`runBuild`、`runStart`、`runDev`、`runInit`、`runLogin`、`runLogout`、`runWhoami`）: `src/cli/commands/` 以下にあり、CLI 専用です。学習ランを駆動したいなら（上記の）`runTrainer` を使うか、`trainer.start()` / `trainer.wait()` を直接呼んでください。
