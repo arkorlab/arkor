@@ -1,0 +1,182 @@
+---
+title: "スターターテンプレートのカスタマイズ"
+description: "スキャフォールドされたテンプレートを起点として扱う。データセット、ハイパラ、コールバック、ベースモデルを変える。"
+---
+
+# スターターテンプレートのカスタマイズ
+
+`pnpm create arkor` は動くトレーナーを `src/arkor/trainer.ts` に書き出します。テンプレートは出発点で、どのフィールドも変更してよく、多くのプロジェクトは最初の数ランでデフォルトを卒業します。このレシピは最初に出てくる 4 つのカスタマイズを順に見ます。
+
+出発点のトレーナー（`--template triage` 直後）はこんな形:
+
+```ts
+// src/arkor/trainer.ts (scaffolded)
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+## 1. データセットを差し替える
+
+データセットはモデルが実際に学ぶものです。一番よくある変更は、デモデータセットから自分のデータセットへの切り替えです。
+
+**別の HuggingFace データセットを使う。** `name` を渡し、必要なら `split` と `subset` を固定:
+
+```ts
+dataset: {
+  type: "huggingface",
+  name: "your-org/your-private-dataset",
+  split: "train",        // 任意。データセットのデフォルト split
+  subset: "v3",          // 任意。複数 subset を持つデータセット用
+},
+```
+
+**Blob URL を使う**（バックエンドが取得できる任意の HTTPS URL）。Hub に置けないデータに便利:
+
+```ts
+dataset: {
+  type: "blob",
+  url: "https://internal.example.com/data/2026-04.jsonl",
+  token: process.env.DATASET_TOKEN,    // バックエンドの blob 取得時に転送（ワイヤーフォーマットはバックエンド側で定義）
+},
+```
+
+今のところ `{ type: "file" }` オプションはありません。ローカルファイルはバックエンドが到達できる場所にホストしてください。[SDK § DatasetSource](/ja/sdk/dataset) を参照。
+
+## 2. ハイパーパラメータを調整する
+
+`TrainerInput` 上の型付きオプションは安全なツマミです。省略すれば各々クラウド API のデフォルトを取ります:
+
+```ts
+createTrainer({
+  // ...
+  lora: {
+    r: 32,                 // ランクが高いほどよく学べるがコストも上がる
+    alpha: 64,             // しばしば 2 × r
+    maxLength: 2048,       // 長いサンプルをこのトークン数で切り詰める
+    loadIn4bit: true,      // QLoRA、約 4 倍のメモリ節約、わずかな品質コスト
+  },
+  maxSteps: 500,
+  learningRate: 2e-4,
+  batchSize: 8,
+  weightDecay: 0.01,
+  lrSchedulerType: "cosine",
+});
+```
+
+トレーナーファイル自体を超高速で反復したいときは `dryRun` を立てます:
+
+```ts
+createTrainer({
+  // ...
+  dryRun: true,
+});
+```
+
+`dryRun: true` はデータセットを切り詰め、ステップ数を制限してフルパイプラインを走らせます。GPU 時間は使います（スモークテストで no-op ではない）が、ランは数分で終わるので、長いランにコミットする前に設定とコールバックの挙動を確認できます。[SDK § createTrainer](/ja/sdk/create-trainer) を参照。
+
+上級者向けフィールド（`warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps`、`trainOnResponsesOnly`、`datasetFormat`、`datasetSplit`）は `unknown` として型付けされ、クラウド API にそのまま転送されます。バックエンドの想定形を既に知っている場合のみ使ってください。SDK は渡す値を型チェックしません。
+
+## 3. ライフサイクルコールバックを追加する
+
+このセクションの他のレシピは、いずれもコールバックで噛み合います。スキャフォールド済みのトレーナーでも、コールバックを 1 つずつ足していけます:
+
+```ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  callbacks: {
+    onLog: ({ step, loss }) => {
+      if (loss !== null) console.log(`step=${step} loss=${loss.toFixed(4)}`);
+    },
+    onCheckpoint: async ({ step, infer }) => {
+      // /ja/cookbook/mid-run-eval を参照
+    },
+    onCompleted: async ({ job, artifacts }) => {
+      // /ja/cookbook/notifications を参照
+    },
+    onFailed: async ({ job, error }) => {
+      // /ja/cookbook/notifications を参照
+    },
+  },
+});
+```
+
+このセクションのレシピは、最もよくある組み合わせです:
+
+- [ラン中の評価](/ja/cookbook/mid-run-eval) は `onCheckpoint` に挿し込みます。
+- [Early stopping](/ja/cookbook/early-stopping) は `onLog` とトレーナーの `abortSignal` に挿し込みます。
+- [Slack / Discord 通知](/ja/cookbook/notifications) は `onCompleted` と `onFailed` に挿し込みます。
+
+ランに合うものを選んでください。トレーナーファイルはただの TypeScript なので、自由に合成できます。
+
+## 4. ベースモデルを変える
+
+`model` フィールドはクラウド API に文字列としてそのまま転送されます。今日のキュレートパスは `unsloth/gemma-4-E4B-it`（すべてのスターターテンプレートに同梱）。クラウド API がそれ以外のどの ID を受け付けるかを決めます。サポートされない値を送ると上流から 4xx が返り、`training.failed` イベントにバックエンドのエラーメッセージが乗ります。
+
+```ts
+model: "unsloth/gemma-4-E4B-it",   // キュレート済み。今日サポートされているパス
+```
+
+別のベースを試すのはロードマップに明示的に挙がっています（プロジェクト README の「What's coming next」を参照）。それが届くまでは、`model` フィールドは開いたメニューではなく、単一のサポート値として扱ってください。
+
+## 全部まとめる
+
+上記すべてのカスタマイズを使ったトレーナーはこんな形:
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK_URL;
+
+async function postSlack(text: string): Promise<void> {
+  if (!SLACK_WEBHOOK) return;
+  try {
+    await fetch(SLACK_WEBHOOK, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+  } catch (err) {
+    console.warn("slack post failed:", err);
+  }
+}
+
+export const trainer = createTrainer({
+  name: "support-bot-v2",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 32, alpha: 64, maxLength: 2048, loadIn4bit: true },
+  maxSteps: 500,
+  learningRate: 2e-4,
+  callbacks: {
+    onLog: ({ step, loss }) => {
+      if (loss !== null && Number.isFinite(loss)) {
+        console.log(`step=${step} loss=${loss.toFixed(4)}`);
+      }
+    },
+    onCompleted: async ({ job, artifacts }) => {
+      await postSlack(`✓ ${job.name} done (${artifacts.length} artifact(s))`);
+    },
+    onFailed: async ({ job, error }) => {
+      await postSlack(`✗ ${job.name} failed: ${error}`);
+    },
+  },
+});
+```
+
+これでもまだ 30 行のファイルで、上から下まで読めます。テンプレートの要点はそれが吐く具体的なコードではなく、実際のランがすでに配線された状態の形を渡してくれること。上のカスタマイズはエディタセッション 1 つで届く距離です。
+
+Early stopping を上に重ねるなら、[Early stopping](/ja/cookbook/early-stopping) を参照してください。abort されたランがバックエンドの GPU を回し続けないようにする `AbortController` + `trainer.cancel()` のペアを示しています。

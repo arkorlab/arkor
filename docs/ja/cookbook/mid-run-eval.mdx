@@ -1,0 +1,84 @@
+---
+title: "ラン中の評価"
+description: "チェックポイントごとに固定プロンプトで半学習済みモデルをサニティチェックし、ラン完了前に確認する。"
+---
+
+# ラン中の評価
+
+TypeScript でファインチューニングする最大の理由は、ランがまだ進行中の状態で、自分のコードから半学習済みモデルを呼べる点です。フックは `onCheckpoint`: バックエンドがチェックポイントをアップロードするたびに、SDK があなたの関数を呼び戻し、そのチェックポイントアダプタに紐づいた `infer` を渡してくれます。
+
+このレシピは固定プロンプトに対してそれを組み込み、loss 曲線が異常を示すよりずっと前にリグレッションを検知できるようにします。
+
+## パターン
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const GOLDEN_PROMPT = [
+  { role: "user" as const, content: "I can't log in to my account." },
+];
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  callbacks: {
+    onCheckpoint: async ({ step, infer }) => {
+      try {
+        const res = await infer({
+          messages: GOLDEN_PROMPT,
+          stream: false,        // スニペットを短く保つため単一の JSON ボディで受け取る
+          maxTokens: 80,
+        });
+        const data = (await res.json()) as { content?: string };
+        const sample = data.content ?? "";
+        console.log(`step=${step} sample=${JSON.stringify(sample.slice(0, 80))}`);
+      } catch (err) {
+        console.error(`step=${step} infer failed:`, err);
+      }
+    },
+  },
+});
+```
+
+これがすぐ得られるもの:
+
+- チェックポイントごとに短い生成サンプルを stdout に書き出し、loss の数字と並べて見られる。
+- 新しいアダプタに対して推論自体が動くことの確認（つまりサービング側の静かなリグレッションを学習時に捕まえられる）。
+- 後で比較やアサーションを足す自然な場所。
+
+## なぜ他の場所では難しいのか
+
+`infer` は **今しがた保存されたチェックポイントに紐づいています**（`{ kind: "checkpoint", jobId, step }`）。Studio の Playground から中間チェックポイントには到達できず、専用の CLI コマンドもありません。今日唯一のパスは `onCheckpoint` の中からです。だからこのレシピは事後ではなくそこで走るべきなのです。
+
+関数はクラウド API からの生の `Response` を返すので、ストリーミング・デコードの形はあなた次第です。上のスニペットは `stream: false` を渡してボディを単一 JSON ドキュメントに保ちました。本物のストリーミングは [SDK § infer](/ja/sdk/infer) を参照。
+
+## バリエーション
+
+**同じプロンプトでベースモデルと比較。** Studio の Playground はすでに Base / Adapter のモード切替を持っていますが、目視ではなく自動でスコアを付けたいなら、同じことを `onCheckpoint` から行えます。
+
+```ts
+async function generate(prompt: typeof GOLDEN_PROMPT, infer: (args: any) => Promise<Response>) {
+  const res = await infer({ messages: prompt, stream: false, maxTokens: 80 });
+  const data = (await res.json()) as { content?: string };
+  return data.content ?? "";
+}
+
+onCheckpoint: async ({ step, infer }) => {
+  const sample = await generate(GOLDEN_PROMPT, infer);
+  await postSampleToReviewQueue({ step, sample });
+},
+```
+
+**サンプルから early stopping をトリガー。** [Early stopping レシピ](/ja/cookbook/early-stopping) と組み合わせる: チェックポイント出力が参照テキストから許容を超えてドリフトしたら controller を abort。次のチェックポイントは発火しません。
+
+**チェックポイントを Slack チャネルにレビュー用で送る。** [通知レシピ](/ja/cookbook/notifications) と組み合わせる。各ステップのサンプルを Slack メッセージとして投稿し、ランが続いている間にレビュアーがリアクションで投票できます。
+
+## 心に留めておくこと
+
+- **`try / catch` で囲む。** `onCheckpoint` から throw すると SSE 再接続ループに catch されてリトライされ得ます（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks) 参照）。決定的な振る舞いが必要ならコールバック内でエラーを処理してどうするか決める。
+- **推論は実際の呼び出しコストがかかる。** バックエンドはライブの学習クラスタからリクエストを返します。毎チェックポイントを叩くなら `maxTokens` は控えめに。
+- **`infer` は呼び出しごと、メモ化されない。** 同じ `onCheckpoint` 内で 2 回呼ぶとバックエンドリクエストも 2 つ。可能なら 1 回の呼び出しでプロンプトをまとめて。

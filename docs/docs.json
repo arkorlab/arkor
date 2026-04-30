@@ -63,6 +63,17 @@
               "studio/jobs",
               "studio/playground"
             ]
+          },
+          {
+            "group": "Cookbook",
+            "pages": [
+              "cookbook/overview",
+              "cookbook/mid-run-eval",
+              "cookbook/early-stopping",
+              "cookbook/notifications",
+              "cookbook/programmatic-runs",
+              "cookbook/customizing-templates"
+            ]
           }
         ]
       },
@@ -112,18 +123,18 @@
               "ja/studio/jobs",
               "ja/studio/playground"
             ]
+          },
+          {
+            "group": "Cookbook",
+            "pages": [
+              "ja/cookbook/overview",
+              "ja/cookbook/mid-run-eval",
+              "ja/cookbook/early-stopping",
+              "ja/cookbook/notifications",
+              "ja/cookbook/programmatic-runs",
+              "ja/cookbook/customizing-templates"
+            ]
           }
-        ]
-      },
-      {
-        "group": "Cookbook",
-        "pages": [
-          "cookbook/overview",
-          "cookbook/mid-run-eval",
-          "cookbook/early-stopping",
-          "cookbook/notifications",
-          "cookbook/programmatic-runs",
-          "cookbook/customizing-templates"
         ]
       }
     ]

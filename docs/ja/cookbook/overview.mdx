@@ -1,0 +1,37 @@
+---
+title: "Cookbook"
+description: "Arkor の学習ランで TypeScript が今日できることを示すレシピ集。"
+---
+
+# Cookbook
+
+Arkor はアルファ版です。フレームワークの公開面はあえて小さく抑えてあります: トレーナー 1 つ、マニフェストスロット 1 つ、いくつかのライフサイクルコールバック。その小ささを価値あるものにしているのは、**そのすべてがあなたの TypeScript コード** という点です。TS で表現できるものは何でも学習ランに組み込めて、プロダクトの他の部分と同じエディタ・型・レビューの流儀でやっていけます。
+
+このセクションは、実際にやり始めると最初に出てくるパターンを集めたものです。各レシピは今日の公開 SDK の中だけで完結します: ロードマップ API も、内部 import も、ランタイムをフォークする必要もありません。
+
+## レシピ一覧
+
+| レシピ | 何を示すか | ベース |
+| --- | --- | --- |
+| [ラン中の評価](/ja/cookbook/mid-run-eval) | チェックポイントごとに固定プロンプトで半学習済みモデルをサニティチェックし、ラン完了前に確認する。 | [`onCheckpoint({ infer })`](/ja/sdk/callbacks) |
+| [loss 発散時の early stopping](/ja/cookbook/early-stopping) | loss 曲線が悪い方向に進んだらランを自動 abort し、バックエンドの GPU も止める。 | [`onLog`](/ja/sdk/callbacks)、[`AbortSignal`](/ja/sdk/trainer-control)、[`trainer.cancel()`](/ja/sdk/trainer-control) |
+| [Slack / Discord 通知](/ja/cookbook/notifications) | 完了時 / 失敗時に webhook を叩く、トレーナーファイルから出ずに。 | [`onCompleted` / `onFailed`](/ja/sdk/callbacks)、`fetch` |
+| [プログラム駆動ラン（CLI なし）](/ja/cookbook/programmatic-runs) | `arkor dev` / `arkor start` を介さず、Next.js API ルート、cron ワーカー、CI から学習を駆動する。 | [`runTrainer`](/ja/sdk/overview)、[`Trainer.start / wait`](/ja/sdk/trainer-control) |
+| [スターターテンプレートのカスタマイズ](/ja/cookbook/customizing-templates) | スキャフォールドされたテンプレートを起点として扱う。データセット、ハイパラ、コールバック、ベースモデルを変える。 | [`createTrainer`](/ja/sdk/create-trainer)、[`DatasetSource`](/ja/sdk/dataset) |
+
+## 始める前にコールバックの例外について 1 つだけ
+
+下記の 3 つのレシピはライフサイクルコールバック内にロジックを置きます。ランタイムはコールバックから throw されたエラーを catch して SSE 再接続ループに送り（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）、`maxReconnectAttempts` のデフォルトは無制限です。実用上、コールバック内の `throw` は黙ってリトライされ得ます。
+
+ここのレシピは決定的に動かすために単純な慣例を使います:
+
+- **状態変更は外側の変数経由で。** throw の代わりに `AbortController`、クロージャのフラグ、返した Promise を使う。
+- **副作用はコールバック内で `try / catch` でガード。** Slack 投稿が失敗したらログだけ残して継続し、外に漏らさない。
+
+これは制限ではなくパターンです。これを身につければ、レシピはきれいに合成できます。
+
+## このセクションが扱わないこと
+
+- **本番デプロイ。** 今日 Arkor はマネージド GPU 上でしか動かず、`createArkor` の `deploy` スロットは型上の予約フィールドで実装はありません。サービング系のレシピはその表面が出てきたら追加されます。
+- **プロジェクトごとの複数トレーナー。** `createArkor` は単一の `trainer` を受け付けます。複数を一緒に走らせるのはマニフェストパターンではなくプログラム駆動パターンです（該当レシピ参照）。
+- **バックエンドが受け付ける以外のカスタムベースモデル。** `model` フィールドはクラウド API にそのまま転送されます。今日のキュレートパスは Gemma です。レシピはそれ以外のモデルがエンドツーエンドで動くようなふりをしません。

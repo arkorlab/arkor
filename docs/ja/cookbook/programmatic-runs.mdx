@@ -1,0 +1,187 @@
+---
+title: "プログラム駆動ラン（CLI なし）"
+description: "arkor dev / arkor start を介さず、Next.js API ルート、cron ワーカー、CI から学習を駆動する。"
+---
+
+# プログラム駆動ラン（CLI なし）
+
+`arkor dev` と `arkor start` は反復作業に便利ですが、トレーナーを走らせる唯一の方法ではありません。`arkor` パッケージは `runTrainer` を再エクスポートしており、`Trainer` 自体に `start` / `wait` / `cancel` があるので、任意の TypeScript コードからランを駆動できます: サーバールート、cron ワーカー、CI ステップなど。
+
+このレシピは最初に出てくる 2 つの形を紹介します。
+
+## 形 1: `runTrainer`（`arkor start` が呼ぶ関数そのもの）
+
+`runTrainer` は `arkor start` がビルド後に呼ぶ関数です。引数なしだと `src/arkor/index.ts` を直接 import します。`arkor start` はまず `arkor build` を走らせてから、バンドル成果物 `.arkor/build/index.mjs` に対して `runTrainer` を呼びます。いずれにせよロード済みモジュールからトレーナーを選び（`arkor` を最優先、次に `trainer`、最後に `default`）、`start()` と `wait()` を呼んでくれます。
+
+```ts
+import { runTrainer } from "arkor";
+
+await runTrainer();                          // src/arkor/index.ts を import
+await runTrainer("src/arkor/alt.ts");        // 明示的なソースエントリ
+await runTrainer(".arkor/build/index.mjs");  // 明示的なビルド成果物
+```
+
+トレーナーが既に `src/arkor/` にあって、CLI 以外のコード（GitHub Actions のステップ、ビルドステップ、使い捨てスクリプト）からトリガーしたいだけなら、これが正しい形です。トレーナーのコールバックと `abortSignal` の配線をそのまま継承します。
+
+**`.ts` エントリでの Node バージョン注意。** `arkor` CLI の bin は、走っている Node が TypeScript ストリッピングを有効化していないとき自動で `--experimental-strip-types` で再 exec します。プログラム呼び出し側はその恩恵を受けません。`runTrainer()` を `.ts` のソースエントリに対して呼ぶスクリプトを動かすには、Node 23+（TypeScript ストリッピングがデフォルトで有効）を使うか、Node 22.6+ なら `--experimental-strip-types` を付けてください。実験フラグに依存したくないなら、`runTrainer` をビルド出力（`.arkor/build/index.mjs`）に向ければよいです。成果物は素の ESM で、対応 Node であればフラグなしで動きます。
+
+CI で刺さりがちな細かい点: `runTrainer()`（および `trainer.wait()`）はランが `completed` で終わっても `failed` で終わっても **resolve します**。SSE ストリームはどちらでも単に終了し、reject するのはトランスポートレベルのエラー（abort、再接続が尽きた等）だけです。`runTrainer()` を素朴に `try / catch` で囲むと、失敗した学習ジョブでも CI は `0` で終わってしまいます。CI を失敗させたいなら、トレーナーを直接駆動して終端ステータスを検査してください:
+
+```ts
+// scripts/train.ts
+import { trainer } from "../src/arkor/trainer";
+
+const { jobId } = await trainer.start();
+console.log(`Started ${jobId}`);
+
+try {
+  const result = await trainer.wait();
+  if (result.job.status === "completed") {
+    process.exit(0);
+  }
+  console.error(`status=${result.job.status}: ${result.job.error ?? "no error message"}`);
+  process.exit(1);
+} catch (err) {
+  // wait() が終端ステータスに到達する前に reject（abortSignal abort、
+  // 再接続試行尽き、等）。CI 失敗扱い。
+  console.error("wait() threw:", err);
+  process.exit(1);
+}
+```
+
+`failed` を呼び出し側で検知する必要がない場合（例えばトレーナーの `onFailed` コールバックが既にアラート系に飛ばしている場合）にだけ、`await runTrainer()` を直接使ってください。
+
+## 形 2: 直接 `start()` / `wait()`（フルコントロール）
+
+トレーナー参照を保持したい、キャンセルを明示的に管理したい、1 プロセスから複数のトレーナーを走らせたい、という場合は自分で `Trainer` を組み立てて直接駆動します。
+
+```ts
+import { createArkor, createTrainer } from "arkor";
+
+const controller = new AbortController();
+
+const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  abortSignal: controller.signal,
+});
+
+export const arkor = createArkor({ trainer });
+
+async function main() {
+  const { jobId } = await trainer.start();
+  console.log(`Started job ${jobId}`);
+
+  try {
+    const result = await trainer.wait();
+    console.log(`Finished with ${result.artifacts.length} artifact(s).`);
+  } catch (err) {
+    if (controller.signal.aborted) {
+      await trainer.cancel().catch(() => {});
+      throw new Error("Aborted");
+    }
+    throw err;
+  }
+}
+```
+
+両半分は対称的: `start` が投入、`wait` がコールバックを駆動する SSE イベントストリームを動かします。自分で呼ぶことで参照を保持したり、その周りでログを取ったり、ランを合成したりできます。
+
+## このパターンが嵌まる場面
+
+**Next.js API ルート。** アプリからオンデマンドにランをトリガーし、`jobId` を返して、フロントエンドが Studio（あるいは自前のステータスページ）で進捗をポーリング。
+
+`createTrainer` は開始したジョブをキャッシュするので、単一のトレーナーインスタンスで駆動できるランは 1 つだけです。同じインスタンスで `start()` を 2 回呼んでも元の `jobId` が返ります。長寿命の Next.js サーバープロセスでは、ルートはリクエストごとに新しいトレーナーを作る必要があります。トレーナーモジュールからファクトリを公開してください:
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export function makeTrainer() {
+  return createTrainer({
+    name: "support-bot-v1",
+    model: "unsloth/gemma-4-E4B-it",
+    dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+    lora: { r: 16, alpha: 16 },
+    maxSteps: 100,
+  });
+}
+
+export const trainer = makeTrainer();   // arkor dev / arkor start 用
+```
+
+そしてリクエストごとにファクトリを呼びます:
+
+```ts
+// app/api/train/route.ts
+import { NextResponse } from "next/server";
+import { makeTrainer } from "@/src/arkor/trainer";
+
+export async function POST() {
+  const trainer = makeTrainer();
+  const { jobId } = await trainer.start();
+  // wait() はバックグラウンドで駆動。.catch はトランスポートレベルの
+  // エラー（abort、再接続尽き）だけで発火する。`training.failed` の
+  // 終端状態は wait() を通常 resolve させ `result.job.status` が
+  // "failed" になる。失敗ランをアラートしたいならトレーナーの
+  // onFailed コールバックを使う（/ja/cookbook/notifications を参照）。
+  void trainer.wait().catch((err) => {
+    console.error("wait() threw:", err);
+  });
+  return NextResponse.json({ jobId });
+}
+```
+
+（実本番では HTTP リクエストの寿命にランを縛らず、ワーカーに押し込むこと。ファクトリのパターンは同じです。）
+
+**Cron / 定期再学習。** 新しくスナップショットしたデータセットに対して夜間ファインチューンを走らせる:
+
+```ts
+// scripts/nightly.ts
+import { runTrainer } from "arkor";
+
+const dateTag = new Date().toISOString().slice(0, 10);
+process.env.RUN_LABEL = `nightly-${dateTag}`;
+
+await runTrainer();
+```
+
+**CI スモークテスト。** トレーナー側で `dryRun: true` と組み合わせれば、長い GPU ランを焼かずにトレーナー設定をエンドツーエンドで検証できます:
+
+```ts
+// scripts/ci-smoke.ts
+import { runTrainer } from "arkor";
+
+if (process.env.CI) {
+  process.env.ARKOR_SMOKE = "1";
+}
+await runTrainer();
+```
+
+トレーナー側で `process.env.ARKOR_SMOKE` を読んで `dryRun: true` を立てるようにします。ランは数分で終わり、トレーナー設定に問題があれば CI ジョブが派手に失敗します。
+
+**1 プロセスから複数トレーナー。** `createArkor` は単一の `trainer` を受け付けるので、マルチトレーナープロジェクトは宣言的ではなくプログラム駆動です。順次でも並行でも:
+
+```ts
+const a = createTrainer({ /* ... */ });
+const b = createTrainer({ /* ... */ });
+
+// 順次
+const ra = await a.wait();   // start() を暗黙に呼ぶ
+const rb = await b.wait();
+
+// 並行
+const [ra2, rb2] = await Promise.all([a.wait(), b.wait()]);
+```
+
+どちらの `wait()` も必要なら `start()` をトリガーします。
+
+## 心に留めておくこと
+
+- **`runTrainer` と直接の `start` / `wait` は同じライフサイクルを共有。** コールバックは `wait()` から発火します。`start()` を呼んで `wait()` をスキップすると、バックエンドで学習が進んでいてもコールバックは動きません。
+- **`abortSignal` と `cancel` は依然として別物。** 二段階パターンは [Early stopping](/ja/cookbook/early-stopping) を参照。
+- **[SDK § overview](/ja/sdk/overview) の補助ヘルパーはこれらのワークフローのためにエクスポートされている。** `readCredentials`、`writeCredentials`、`ensureCredentials`、`requestAnonymousToken`、`state.json` ヘルパーは、CLI を介さずに認証やルーティングをブートストラップする必要があるコード向けです。
+- **`runBuild` / `runStart` / `runDev` はエクスポートされない。** CLI コマンドランナーは `cli/commands/` 以下にあり、意図的に CLI 専用です。`arkor start` が使うのと同じフローへの公開エントリは `runTrainer` だけです。
