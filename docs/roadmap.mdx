@@ -3,39 +3,31 @@ title: Roadmap
 description: What we're building next in Arkor.
 ---
 
-Arkor is in alpha, so this page is intentionally sparse: it lists what's queued behind the current cycle and where we're heading, not a calendar. Items move between sections as we learn, and we don't commit to dates yet.
+Arkor is in alpha, so this page is intentionally sparse. Items are grouped by what state they're in: actively being built, scoped and waiting their turn, or under consideration. We don't commit to dates yet.
 
-Statuses used below: `exploring` for open design, `in progress` for active build, `shipped` once it lands in a release.
+## In progress
 
-## Now
+Nothing actively in development on the public surface this cycle. Current effort is on stabilizing what's already shipped (CLI, Studio, scaffolder).
 
-Nothing currently flagged as Now. Active work this cycle is focused on stabilizing what's already shipped (CLI, Studio, scaffolder).
-
-## Next
+## Up next
 
 <CardGroup cols={2}>
   <Card title="Auth0 token auto-refresh" icon="key" href="/cli/auth">
     <div id="auth0-token-auto-refresh" />
-    `exploring`
-
     Silent refresh on expiry, so long-running sessions stop getting interrupted by re-login.
   </Card>
 </CardGroup>
 
-## Later
+## Backlog
 
 <CardGroup cols={2}>
   <Card title="Self-hosted deployments" icon="server" href="/cli/overview">
     <div id="self-hosted-deployments" />
-    `exploring`
-
     First-class `ARKOR_CLOUD_API_URL` with documented endpoints and versioned API guarantees.
   </Card>
 
   <Card title="deploy and eval slots" icon="rocket" href="/sdk/create-arkor">
     <div id="deploy-and-eval-slots" />
-    `exploring`
-
     Grow `createArkor` into an umbrella for shipping and evaluating models, not only training.
   </Card>
 </CardGroup>
