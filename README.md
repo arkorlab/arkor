@@ -46,9 +46,9 @@ pnpm dev
 ```
 
 **No signup required:** 
-`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it either signs you in (if your deployment has Auth0 configured) or silently provisions an anonymous workspace, so you can fire off a real training run right away. 
+`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it signs you in via Arkor Cloud OAuth, so you can fire off a real training run right away. 
 
-Run `arkor login` later if you want to claim your work under an account.
+Pass `--anonymous` to `arkor login` if you'd rather skip the account flow and use a throwaway workspace.
 
 ### Pick a template
 
@@ -77,11 +77,11 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 ## What works today
 
 - [x] **Fine-tune an open-weight LLM from one file.** `createTrainer({ model, dataset, lora, ... })` runs LoRA training on the base model you point it at.
-- [x] **Three curated templates that run end-to-end.** `triage`, `translate`, and `redaction` pair the same Gemma base with a public HuggingFace dataset and finish in minutes.
+- [x] **Three curated templates that run end-to-end.** `triage`, `translate`, and `redaction` pair the same Gemma 4 base with a public HuggingFace dataset and finish in minutes.
 - [x] **React to training in code, not in a dashboard.** Lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) fire as the run streams from the cloud, fully typed.
 - [x] **Sanity-check the model before the run finishes.** Inside `onCheckpoint`, call `infer({ messages })` against the model as it's being trained.
 - [x] **Watch the run in a local Studio.** `arkor dev` opens a UI with a jobs list, live loss chart, log tail, and a Playground for chatting with your fine-tuned models.
-- [x] **Try it without an account.** When the deployment has no Auth0 configured, `arkor dev` provisions an anonymous workspace silently. On Auth0-configured deployments, `arkor login` runs PKCE and attaches the work to your account; without Auth0 it simply re-issues an anonymous session.
+- [x] **Try it without an account.** `arkor login` runs Arkor Cloud OAuth (PKCE) and attaches the work to your account; pass `--anonymous` to get a throwaway workspace instead.
 
 ## What's coming next
 
@@ -95,7 +95,7 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 
 - [ ] **Train on a local GPU.** Today every run goes to Arkor's managed GPUs.
 - [ ] **Bring your own dataset from a JSONL file.** Today, any HuggingFace name and any blob URL (with optional auth token) already work.
-- [ ] **More base models beyond Gemma.**
+- [ ] **More base models beyond Gemma 4.**
 
 ### Studio
 
@@ -164,7 +164,7 @@ my-arkor-app/
 | Command                              | Purpose                                                                |
 | ------------------------------------ | ---------------------------------------------------------------------- |
 | `arkor init`                         | Scaffold a new project in the current directory                        |
-| `arkor login` / `logout` / `whoami`  | Auth0 PKCE / anonymous tokens                                          |
+| `arkor login` / `logout` / `whoami`  | Arkor Cloud OAuth (PKCE) / anonymous tokens                            |
 | `arkor dev`                          | Launch the local Studio web UI                                         |
 | `arkor build`                        | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`                |
 | `arkor start`                        | Run the build artifact (auto-builds when missing)                      |
