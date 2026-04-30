@@ -1,0 +1,40 @@
+---
+title: Roadmap
+description: What we're building next in Arkor.
+---
+
+Arkor is in alpha. This page lists the work that's happening, planned, or being explored. Items move between sections as priorities and findings evolve. We avoid date commitments at this stage, so expect timing to shift.
+
+Status values used below: `in progress`, `exploring`, `shipped`.
+
+## Now
+
+### Auth0 token auto-refresh
+
+Status: `in progress`
+
+After `arkor login --oauth`, the CLI persists the refresh token alongside the access token, but it does not yet exchange the refresh token automatically when the access token expires. Today users re-authenticate by running `arkor login` again. The next step is silent refresh on expiry, so long-running sessions stop being interrupted.
+
+Related: [CLI auth](/cli/auth)
+
+## Next
+
+No items currently scoped for Next. Work promotes from Later once it is sized and prioritized.
+
+## Later
+
+### Self-hosted deployments
+
+Status: `exploring`
+
+`ARKOR_CLOUD_API_URL` is already read internally as the cloud-api endpoint, but pointing at a non-default endpoint (self-hosted, staging) is not a stable user-facing knob. The variable is internal-only and can change without notice, and there are no compatibility guarantees on alternate endpoints. The eventual destination is first-class support for self-hosted and staging targets, with a documented configuration surface and versioned API guarantees.
+
+Related: [CLI overview](/cli/overview)
+
+### `deploy` and `eval` slots
+
+Status: `exploring`
+
+`createArkor` reserves `deploy` and `eval` fields in `ArkorInput` and `Arkor` as commented-out type slots. Passing them today is a type error, and there is no runtime path. They mark the intent for `createArkor` to grow into an umbrella for shipping and evaluating models, not only training, but the shape of those APIs is not yet decided.
+
+Related: [createArkor](/sdk/create-arkor)

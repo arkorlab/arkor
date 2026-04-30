@@ -17,6 +17,10 @@
   "navigation": {
     "groups": [
       {
+        "group": "Roadmap",
+        "pages": ["roadmap"]
+      },
+      {
         "group": "Get started",
         "pages": ["introduction", "quickstart"]
       },
