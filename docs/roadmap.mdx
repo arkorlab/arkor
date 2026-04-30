@@ -5,7 +5,7 @@ description: What we're building next in Arkor.
 
 Arkor is in alpha, so this page is intentionally sparse: it lists what's queued behind the current cycle and where we're heading, not a calendar. Items move between sections as we learn, and we don't commit to dates yet.
 
-Each item carries a status: `exploring` (open design), `in progress` (actively being built), or `shipped` (in a release).
+Statuses used below: `exploring` for open design, `in progress` for active build, `shipped` once it lands in a release.
 
 ## Now
 
@@ -13,28 +13,29 @@ Nothing currently flagged as Now. Active work this cycle is focused on stabilizi
 
 ## Next
 
-### Auth0 token auto-refresh
+<CardGroup cols={2}>
+  <Card title="Auth0 token auto-refresh" icon="key" href="/cli/auth">
+    <div id="auth0-token-auto-refresh" />
+    `exploring`
 
-Status: `exploring`
-
-After signing in with Auth0, the CLI persists the refresh token alongside the access token, but it does not yet exchange the refresh token automatically when the access token expires. Today users re-authenticate by running `arkor login` again. The work is silent refresh on expiry, so long-running sessions stop getting interrupted.
-
-Related: [CLI auth](/cli/auth)
+    Silent refresh on expiry, so long-running sessions stop getting interrupted by re-login.
+  </Card>
+</CardGroup>
 
 ## Later
 
-### Self-hosted deployments
+<CardGroup cols={2}>
+  <Card title="Self-hosted deployments" icon="server" href="/cli/overview">
+    <div id="self-hosted-deployments" />
+    `exploring`
 
-Status: `exploring`
+    First-class `ARKOR_CLOUD_API_URL` with documented endpoints and versioned API guarantees.
+  </Card>
 
-`ARKOR_CLOUD_API_URL` is already read internally as the cloud-api endpoint, but pointing at a non-default endpoint (self-hosted, staging) is not a stable user-facing knob. The variable is internal-only and may change without notice, and there are no compatibility guarantees on alternate endpoints. The destination is first-class support for self-hosted and staging targets, with a documented configuration surface and versioned API guarantees.
+  <Card title="deploy and eval slots" icon="rocket" href="/sdk/create-arkor">
+    <div id="deploy-and-eval-slots" />
+    `exploring`
 
-Related: [CLI overview](/cli/overview)
-
-### `deploy` and `eval` slots
-
-Status: `exploring`
-
-`createArkor` reserves `deploy` and `eval` fields in `ArkorInput` and `Arkor` as commented-out type slots. Passing them today is a type error, and there is no runtime path. They mark the intent for `createArkor` to grow into an umbrella for shipping and evaluating models, not only training, but the shape of those APIs is not yet decided.
-
-Related: [createArkor](/sdk/create-arkor)
+    Grow `createArkor` into an umbrella for shipping and evaluating models, not only training.
+  </Card>
+</CardGroup>
