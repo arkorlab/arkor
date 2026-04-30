@@ -172,6 +172,15 @@ export function buildStudioApp(options: StudioServerOptions) {
     return c.mode === "anon" ? c.token : c.accessToken;
   }
 
+  function createRpc() {
+    return createClient({
+      baseUrl,
+      token: getToken,
+      clientVersion: SDK_VERSION,
+      onDeprecation: recordDeprecation,
+    });
+  }
+
   // ---- API routes ---------------------------------------------------------
 
   app.get("/api/credentials", async (c) => {
@@ -188,12 +197,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.get("/api/me", async (c) => {
-    const rpc = createClient({
-      baseUrl,
-      token: getToken,
-      clientVersion: SDK_VERSION,
-      onDeprecation: recordDeprecation,
-    });
+    const rpc = createRpc();
     const res = await rpc.v1.me.$get();
     const body = await res.text();
     const headers = new Headers({ "content-type": "application/json" });
@@ -220,12 +224,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   app.get("/api/jobs", async (c) => {
     const state = await readState(trainCwd);
     if (!state) return c.json({ jobs: [] });
-    const rpc = createClient({
-      baseUrl,
-      token: getToken,
-      clientVersion: SDK_VERSION,
-      onDeprecation: recordDeprecation,
-    });
+    const rpc = createRpc();
     const res = await rpc.v1.jobs.$get({
       query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
     });
