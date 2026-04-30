@@ -78,12 +78,12 @@ If you edit `src/arkor/` between runs, refresh the Run training page (or run `np
 Anonymous workspaces are useful for trying things out, but the work is tied to that local machine. Once you decide you want to keep what you trained:
 
 ```bash
-npx arkor login
+npx arkor login --oauth
 ```
 
 The scaffolded project installs `arkor` as a local devDependency, so prefer `npx arkor <command>` (or `pnpm exec arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README uses the same convention.
 
-This runs an Auth0 PKCE flow on a loopback port and links your local credentials to an account. From then on, runs from this machine show up under that account on any device.
+`--oauth` runs an Auth0 PKCE flow on a loopback port and links your local credentials to an account. From then on, runs from this machine show up under that account on any device. Without the flag, `arkor login` shows an interactive picker that defaults to `Anonymous`, which would just refresh the throwaway session you already have.
 
 ## 5. Where to go next
 

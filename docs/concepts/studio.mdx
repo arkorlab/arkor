@@ -41,7 +41,7 @@ Arkor managed backend (training, inference)
 
 That separation is why Studio works without you logging into anything in the browser: the CLI already has your credentials in `~/.arkor/credentials.json`, and Studio inherits them by virtue of running locally.
 
-If `~/.arkor/credentials.json` is missing, the entry point decides what to do. **`arkor dev`** (and `arkor login` itself) checks the cloud-api at launch and runs the interactive Auth0 PKCE flow when the deployment requires Auth0; otherwise it requests an anonymous token. The **Studio server's lazy bootstrap** (when an `/api/*` request arrives before credentials are on disk) only does the anonymous fallback: it never runs the Auth0 flow on its own. So on an Auth0-configured deployment, run `arkor login` (or let `arkor dev` open the browser flow at launch) before clicking around in Studio; the credentials file is shared, so Studio picks up the account session on its next request.
+If `~/.arkor/credentials.json` is missing, the entry point decides what to do. **`arkor dev`** always bootstraps an anonymous session at launch (regardless of whether the deployment offers OAuth) and prints a one-line hint pointing at `arkor login --oauth` so you can upgrade to a real account whenever you want; it never auto-launches the OAuth flow. The **Studio server's lazy bootstrap** (when an `/api/*` request arrives before credentials are on disk) does the same anonymous fallback. To use an account session on an OAuth-configured deployment, run `arkor login --oauth` separately before (or after) clicking around in Studio; the credentials file is shared, so Studio picks up the account session on its next request.
 
 ## What you actually see
 

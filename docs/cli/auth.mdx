@@ -13,7 +13,7 @@ Three short commands that read or write `~/.arkor/credentials.json`. None of the
 npx arkor login
 ```
 
-Sign in to the managed backend. The default flow is Auth0 Authorization Code + PKCE on a loopback callback, falling back to an anonymous session when the cloud-api reports that Auth0 is not configured.
+Sign in to the managed backend. With no flags the CLI checks the deployment's `cli/config` and, when OAuth is available, asks interactively whether to sign in via OAuth or as an anonymous session. The interactive selector defaults to **Anonymous**, so accepting the default (or piping into a non-TTY) lands on the anonymous path; OAuth runs only when you explicitly select it or pass `--oauth`. When OAuth is not configured for the deployment, the CLI prints `OAuth is not configured — continuing with an anonymous session.` and skips the prompt entirely.
 
 ### Synopsis
 
@@ -25,20 +25,23 @@ arkor login [options]
 
 | Flag | Description |
 | --- | --- |
-| `--anonymous` | Skip the Auth0 flow and request a throwaway anonymous token. This is also what `arkor dev` falls back to on a fresh machine when the cloud-api reports that Auth0 is not configured for the deployment; on Auth0-configured deployments `arkor dev` runs the PKCE flow instead. |
-| `--no-browser` | Disable the automatic `open(url)` call. The authorization URL is printed in both modes (`Browser: <url>` line); this flag only stops the CLI from launching a browser for you. Useful in headless environments (SSH, Docker). |
+| `--oauth` | Skip the picker and run the Auth0 Authorization Code + PKCE flow directly. Mutually exclusive with `--anonymous`. Errors out with `OAuth is not configured for this deployment. Re-run without --oauth or pass --anonymous.` if the deployment has no Auth0 settings, and with `--oauth needs a browser callback that CI runners can't complete. Use --anonymous in CI.` when `process.env.CI` is set (PKCE needs a browser callback, so the loopback would hang forever in CI). |
+| `--anonymous` | Skip the picker and request a throwaway anonymous token. Mutually exclusive with `--oauth`. This is also what `arkor dev` does at launch when no credentials exist on disk: it always bootstraps anonymous first, regardless of whether the deployment offers OAuth. |
+| `--no-browser` | Disable the automatic `open(url)` call. The authorization URL is printed either way (`Browser: <url>` line); this flag only stops the CLI from launching a browser for you. Useful in headless environments (SSH, Docker). It only affects the OAuth path. |
 
 ### What happens
 
-1. The CLI calls `/v1/auth/cli/config` on the cloud-api to read the deployment's Auth0 settings.
-2. If Auth0 is not configured (or `--anonymous` is passed), it requests an anonymous token from `/v1/auth/anonymous` and writes it to `~/.arkor/credentials.json` with `mode: "anon"`.
-3. If Auth0 is configured, it generates a PKCE pair, starts a loopback HTTP server on one of the cloud-api-provided callback ports, opens (or prints) the authorize URL, and waits for the callback. State is verified before exchanging the code for tokens; a mismatch aborts to prevent CSRF. The resulting Auth0 tokens are written to `~/.arkor/credentials.json` with `mode: "auth0"`.
+1. The CLI calls `/v1/auth/cli/config` on the cloud-api to read the deployment's OAuth settings.
+2. If `--anonymous` is passed, or OAuth is not configured for the deployment, it requests an anonymous token from `/v1/auth/anonymous` and writes it to `~/.arkor/credentials.json` with `mode: "anon"`.
+3. If OAuth is configured and `--oauth` is passed, it skips straight to the OAuth flow.
+4. If OAuth is configured and no flag is passed, it shows an interactive picker (`OAuth (browser)` / `Anonymous`) with **Anonymous** preselected. Accepting the default — including in non-interactive contexts where the prompt is non-blocking — runs the anonymous path; choosing OAuth runs the OAuth flow.
+5. The OAuth flow generates a PKCE pair, starts a loopback HTTP server on one of the cloud-api-provided callback ports, opens (or prints) the authorize URL, and waits for the callback. State is verified before exchanging the code for tokens; a mismatch aborts to prevent CSRF. The resulting Auth0 tokens are written to `~/.arkor/credentials.json` with `mode: "auth0"`.
 
 The loopback server is closed in a `finally` block so it does not stick around if login fails.
 
 ### Anonymous mode in one paragraph
 
-Anonymous credentials let you try Arkor without an account: training runs, jobs, and any work you do are tied to the local machine via the anonymous token. Switching to Auth0 later (`arkor login`) replaces the credentials file but does not migrate the work; if you want to keep what you trained anonymously, run `arkor login` before you start the run.
+Anonymous credentials let you try Arkor without an account: training runs, jobs, and any work you do are tied to the local machine via the anonymous token. Switching to OAuth later (`arkor login --oauth`, or selecting `OAuth (browser)` from the picker) replaces the credentials file but does not migrate the work; if you want to keep what you trained anonymously, run `arkor login --oauth` before you start the run.
 
 ## `arkor logout`
 
@@ -104,7 +107,7 @@ For Auth0 sessions, the credentials file records both the access token and the i
 In practice that means:
 
 - An expired access token shows up as a `Failed to fetch /v1/me (401). Token may be expired.` from `arkor whoami`, or analogous failures from anything that talks to the cloud-api.
-- The fix is to re-run `arkor login`, which goes through the full PKCE flow again and overwrites `~/.arkor/credentials.json` with fresh tokens.
+- The fix is to re-run `arkor login --oauth`, which goes through the full PKCE flow again and overwrites `~/.arkor/credentials.json` with fresh tokens.
 
 Anonymous tokens have no client-side expiry tracking; the cloud-api decides when they stop working. If an anonymous session starts failing, run `arkor login --anonymous` to mint a new one (this issues a new `anonymousId`, so it is effectively a different workspace).
 
@@ -112,9 +115,12 @@ Anonymous tokens have no client-side expiry tracking; the cloud-api decides when
 
 | Message | Where | What it means | Fix |
 | --- | --- | --- | --- |
-| `State mismatch — aborting to prevent CSRF` | `arkor login` (Auth0) | The `state` returned to the loopback callback does not match the one the CLI generated, almost always because the browser hit a stale tab from a previous login attempt. | Re-run `arkor login` and complete the flow in the freshly opened tab. |
-| `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login` (Auth0) | The Auth0 token endpoint succeeded but the response had no `refresh_token`. Usually a deployment misconfiguration on the Auth0 side. | Enable the `offline_access` scope on the Auth0 Application, or report the deployment to your Arkor admin. |
+| `Pick one of --oauth / --anonymous, not both.` | `arkor login` | Both mode flags were passed. | Pass at most one. |
+| `OAuth is not configured for this deployment. Re-run without --oauth or pass --anonymous.` | `arkor login --oauth` | The deployment's `cli/config` has no Auth0 settings, so PKCE has nowhere to go. | Re-run without `--oauth` (the CLI will fall through to anonymous), or pass `--anonymous` explicitly. |
+| `--oauth needs a browser callback that CI runners can't complete. Use --anonymous in CI.` | `arkor login --oauth` (with `process.env.CI` set) | PKCE depends on a loopback redirect from a browser, which CI cannot satisfy. | Use `--anonymous` in CI. For local headless flows that still have a reachable browser (e.g. `... --no-browser \| tee logs`), unset `CI` for the run. |
+| `State mismatch — aborting to prevent CSRF` | `arkor login --oauth` | The `state` returned to the loopback callback does not match the one the CLI generated, almost always because the browser hit a stale tab from a previous login attempt. | Re-run `arkor login --oauth` and complete the flow in the freshly opened tab. |
+| `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login --oauth` | The Auth0 token endpoint succeeded but the response had no `refresh_token`. Usually a deployment misconfiguration on the Auth0 side. | Enable the `offline_access` scope on the Auth0 Application, or report the deployment to your Arkor admin. |
 | `No credentials on file.` | `arkor logout` | `~/.arkor/credentials.json` does not exist. Nothing to delete. | Run `arkor login` first if you wanted to sign in. |
 | `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.` | `arkor whoami` | Same condition as above, surfaced from a different command. | Same fix. |
-| `Failed to fetch /v1/me (<status>). Token may be expired.` | `arkor whoami` | The cloud-api rejected the request with a non-200, non-426 status. Most often expired access tokens. | Run `arkor login` again. The exit code stays `0` so wrapper scripts can inspect the message. |
+| `Failed to fetch /v1/me (<status>). Token may be expired.` | `arkor whoami` | The cloud-api rejected the request with a non-200, non-426 status. Most often expired access tokens. | Run `arkor login --oauth` again. The exit code stays `0` so wrapper scripts can inspect the message. |
 | `426 Upgrade Required` (with upgrade hint) | `arkor whoami` (and other cloud-api calls) | The deployment requires a newer SDK version. The CLI prints the upgrade command for your detected package manager and sets `process.exitCode = 1`. | Upgrade the `arkor` package and re-run. |

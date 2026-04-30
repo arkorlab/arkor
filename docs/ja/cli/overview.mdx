@@ -13,7 +13,7 @@ description: "arkor CLI: 全コマンドリファレンス。"
 | [`arkor dev`](/ja/cli/dev) | [Studio](/ja/concepts/studio) を `http://localhost:4000` で起動（設定可）。 |
 | [`arkor build`](/ja/cli/build-and-start) | `src/arkor/index.ts` を `.arkor/build/index.mjs` にバンドル。 |
 | [`arkor start`](/ja/cli/build-and-start) | ビルド成果物を実行（無いときは自動ビルド）。 |
-| [`arkor login`](/ja/cli/auth) | ループバック上の Auth0 PKCE でサインイン、または `--anonymous` で使い捨てトークン。 |
+| [`arkor login`](/ja/cli/auth) | サインイン。フラグなしでは対話ピッカー（初期選択: `Anonymous`）を表示。`--oauth` でループバック上の Auth0 PKCE フロー、`--anonymous` でピッカーをスキップして使い捨てトークン。 |
 | [`arkor logout`](/ja/cli/auth) | `~/.arkor/credentials.json` を削除。 |
 | [`arkor whoami`](/ja/cli/auth) | 現在の identity と到達できる org を表示。 |
 
