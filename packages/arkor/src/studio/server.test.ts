@@ -172,6 +172,31 @@ describe("Studio server", () => {
     expect(res.status).toBe(403);
   });
 
+  it("returns project state from the Studio training cwd", async () => {
+    await writeCredentials(ANON_CREDS);
+    await writeState(
+      {
+        orgSlug: "state-org",
+        projectSlug: "state-project",
+        projectId: "p-state",
+      },
+      trainCwd,
+    );
+    const app = build();
+    const res = await app.request("/api/credentials", {
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      orgSlug: "state-org",
+      projectSlug: "state-project",
+    });
+  });
+
   it("accepts the studio token via ?studioToken= for job event streams", async () => {
     await writeCredentials({
       mode: "anon",
@@ -443,6 +468,44 @@ process.exit(0);
       expect(res.headers.get("Warning")).toContain("jobs endpoint deprecated");
       expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
       expect(getRecordedDeprecation()?.message).toBe("jobs endpoint deprecated");
+    });
+
+    it("uses the Studio training cwd for job event streams", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "events-org",
+          projectSlug: "events-project",
+          projectId: "p-events",
+        },
+        trainCwd,
+      );
+
+      let capturedUrl: string | null = null;
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        _init?: RequestInit,
+      ) => {
+        capturedUrl = typeof input === "string" ? input : input.toString();
+        return new Response("event: end\ndata: {}\n\n", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs/job-1/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(capturedUrl).not.toBeNull();
+      expect(capturedUrl!).toContain("/v1/jobs/job-1/events/stream");
+      expect(capturedUrl!).toContain("orgSlug=events-org");
+      expect(capturedUrl!).toContain("projectSlug=events-project");
     });
   });
 

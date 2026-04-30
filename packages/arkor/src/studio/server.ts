@@ -177,7 +177,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   app.get("/api/credentials", async (c) => {
     const token = await getToken();
     const creds = await getCredentials();
-    const state = await readState();
+    const state = await readState(trainCwd);
     return c.json({
       token,
       mode: creds.mode,
@@ -240,7 +240,7 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.get("/api/jobs/:id/events", async (c) => {
     const id = c.req.param("id");
-    const state = await readState();
+    const state = await readState(trainCwd);
     if (!state) return c.json({ error: "No project state" }, 400);
     const token = await getToken();
     const url = `${baseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
