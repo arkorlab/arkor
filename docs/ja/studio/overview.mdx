@@ -1,6 +1,6 @@
 ---
 title: "Studio"
-description: "arkor dev で得られるローカル Web UI: ランを開始し、ストリームを眺め、完了アダプタとチャットする。"
+description: "arkor dev で得られるローカル Web UI: 学習を開始し、ストリームを眺め、完了アダプタとチャットする。"
 ---
 
 # Studio
@@ -17,14 +17,14 @@ Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するロー
 
 | ルート | ページ | やること |
 | --- | --- | --- |
-| `#/` | [Home](/ja/studio/jobs) | 学習ランをトリガーしてジョブ一覧を眺める。 |
-| `#/jobs/:id` | [Job 詳細](/ja/studio/jobs#job-詳細) | 1 ランのライブステータス、loss チャート、イベントログ。 |
+| `#/` | [Home](/ja/studio/jobs) | 学習をトリガーしてジョブ一覧を眺める。 |
+| `#/jobs/:id` | [Job 詳細](/ja/studio/jobs#job-詳細) | 1 つのジョブのライブステータス、loss チャート、イベントログ。 |
 | `#/playground` | [Playground](/ja/studio/playground) | 完了アダプタやベースモデルとチャット。 |
 
 ## アーキテクチャ
 
 ```
-Studio（ブラウザタブ、http://localhost:4000）
+Studio（ブラウザータブ、http://localhost:4000）
    │  ループバック上の /api/*、CSRF トークン必須
    ▼
 arkor CLI（あなたのマシン）
@@ -39,7 +39,7 @@ Arkor マネージドバックエンド
 2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダ `X-Arkor-Studio-Token`、または `EventSource` リクエスト用に `?studioToken=`）。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較は `timingSafeEqual`。
 3. **CORS なし。** SPA は同一オリジンなので CORS は価値を加えません。`*` を反射すると「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまうので、トークンチェックがそれを拒否します。
 
-トークンは `arkor dev` 起動のたびにローテートされるので、前回ランの古いタブはリロードするまで HTTP 403 で失敗します。
+トークンは `arkor dev` 起動のたびにローテートされるので、前回起動時の古いタブはリロードするまで HTTP 403 で失敗します。
 
 ## 今日できること
 

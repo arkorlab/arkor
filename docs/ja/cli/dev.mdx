@@ -9,9 +9,9 @@ description: "Arkor Studio をローカル起動する。"
 npx arkor dev
 ```
 
-[Studio](/ja/concepts/studio)（ローカル Web UI）を `http://localhost:4000` で起動します。Studio は **Run training** をクリックして `src/arkor/index.ts` に対し `arkor start` をスポーンし、ランをストリームで眺め、出来上がったアダプタと Playground でチャットする場所です。
+[Studio](/ja/concepts/studio)（ローカル Web UI）を `http://localhost:4000` で起動します。Studio は **Run training** をクリックして `src/arkor/index.ts` に対し `arkor start` をスポーンし、進捗をストリームで眺め、出来上がったアダプタと Playground でチャットする場所です。
 
-`arkor dev` 自体は学習ランを開始 **しません**。UI と SPA が話すための小さなループバック API を提供するだけです。
+`arkor dev` 自体は学習を開始 **しません**。UI と SPA が話すための小さなループバック API を提供するだけです。
 
 ## 概要
 
@@ -24,7 +24,7 @@ arkor dev [options]
 | フラグ | デフォルト | 説明 |
 | --- | --- | --- |
 | `-p, --port <port>` | `4000` | バインドするポート。表示 URL は `localhost` ですが、リスナは `127.0.0.1` を直接バインドします。これにより `/etc/hosts` で `::1` が `127.0.0.1` より先に並ぶホストでも IPv6 専用に終わりません。CLI は値を `Number(opts.port) || 4000` でパースするので、falsy な結果（`0`、非数）は `4000` に正規化されます。**truthy な不正値はそのまま透過します**: 負のポートや `65535` を超えるポートはリスナにそのまま到達し `serve()` の失敗（例: `RangeError`）として現れます。1〜65535 の標準範囲を自分で守ってください。 |
-| `--open` | off | サーバー起動後にブラウザで Studio URL を開く。 |
+| `--open` | off | サーバー起動後にブラウザーで Studio URL を開く。 |
 
 ## 起動時に何が起きるか
 
@@ -56,10 +56,10 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 | `Error: listen EADDRINUSE: address already in use 127.0.0.1:4000` | 別プロセスがポートを保持。 | 止めるか `--port <other>`。 |
 | `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.` | 起動時にクラウド API へ届かないが、デプロイモードが positively known。Studio サーバーは起動して再試行する。 | 接続を回復させれば `arkor dev` を再起動せずに次の `/api/credentials` ポーリングで SPA が回復。 |
 | `No credentials on file — bootstrapping an anonymous session. Run arkor login --oauth to sign in to your account instead.` | OAuth を提供しているデプロイでこのマシン初回の `arkor dev`。Studio をすぐ起動できるよう CLI が匿名でブートストラップしている旨の案内で、エラーではない。 | 何もしなくてよい。本物のアカウントにアップグレードしたいなら、別途 `arkor login --oauth` を実行（`~/.arkor/credentials.json` を上書き）して Studio をリロード。 |
-| `Failed to bootstrap an anonymous session (HTTP <status>). This deployment may require sign-in — run arkor login --oauth and try again.` | デプロイが OAuth を提供しているが `/v1/auth/anonymous` が 4xx で拒否され、匿名ブートストラップが進められない。 | `arkor login --oauth` でブラウザフローを完了してから `arkor dev` を再実行。 |
+| `Failed to bootstrap an anonymous session (HTTP <status>). This deployment may require sign-in — run arkor login --oauth and try again.` | デプロイが OAuth を提供しているが `/v1/auth/anonymous` が 4xx で拒否され、匿名ブートストラップが進められない。 | `arkor login --oauth` でブラウザーフローを完了してから `arkor dev` を再実行。 |
 | `Could not write ~/.arkor/studio-token (...). The Studio at http://localhost:<port> is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.` | `$HOME` が読み取り専用、または umask が `0600` をブロック。同梱 Studio は機能し、影響はスタンドアロン Vite dev ワークフローのみ。 | 書ける home から実行するか、`arkor dev` が提供する同梱 Studio のみを使う。 |
-| HTTP 403 with `{ "error": "Studio API is loopback-only" }`（ブラウザ devtools） | `Host` ヘッダが `127.0.0.1` / `localhost` 以外。 | `http://localhost:<port>` か `http://127.0.0.1:<port>` で Studio に到達。リバースプロキシや `0.0.0.0` バインドのシェルは設計通り拒否されます。 |
-| HTTP 403 with `{ "error": "Missing or invalid studio token" }`（ブラウザ devtools） | ページ内の CSRF トークンが現在の起動と一致しない。たいていは前回 `arkor dev` の古いタブ。 | タブをリロード。トークンは起動ごとにローテート。 |
+| HTTP 403 with `{ "error": "Studio API is loopback-only" }`（ブラウザー devtools） | `Host` ヘッダが `127.0.0.1` / `localhost` 以外。 | `http://localhost:<port>` か `http://127.0.0.1:<port>` で Studio に到達。リバースプロキシや `0.0.0.0` バインドのシェルは設計通り拒否されます。 |
+| HTTP 403 with `{ "error": "Missing or invalid studio token" }`（ブラウザー devtools） | ページ内の CSRF トークンが現在の起動と一致しない。たいていは前回 `arkor dev` の古いタブ。 | タブをリロード。トークンは起動ごとにローテート。 |
 
 ## 例
 

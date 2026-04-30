@@ -39,9 +39,9 @@ const { jobId } = await trainer.start();
 const { job, artifacts } = await trainer.wait();
 ```
 
-- ランの SSE イベントストリームを開き、各フレームをコールバックにディスパッチし、ストリームが `training.completed` か `training.failed` を報告したときに終端の `TrainingResult` で resolve します。
+- 学習の SSE イベントストリームを開き、各フレームをコールバックにディスパッチし、ストリームが `training.completed` か `training.failed` を報告したときに終端の `TrainingResult` で resolve します。
 - まだ `start()` を呼んでいなければ代わりに呼んでくれます。
-- 5 つの[ライフサイクルコールバック](/ja/sdk/callbacks)はすべて `wait()` 内から発火します。`start()` を呼んで `wait()` を呼ばないと、ランがバックエンドで進行していてもコールバックは動きません。
+- 5 つの[ライフサイクルコールバック](/ja/sdk/callbacks)はすべて `wait()` 内から発火します。`start()` を呼んで `wait()` を呼ばないと、学習がバックエンドで進行していてもコールバックは動きません。
 - 一過性の SSE エラーでは再接続します（下記）。
 
 ## `cancel()`
@@ -52,7 +52,7 @@ await trainer.cancel();
 
 - `start()` がまだ呼ばれていなければ `cancel()` は no-op（`:388-389` で早期 return）。
 - そうでなければバックエンドにキャンセルリクエストを送ります。
-- **ベストエフォート。** SDK は終端ステータスでショートサーキットしません。ランが既に completed / failed / cancelled なら、バックエンドは non-2xx を返すことがあり `cancel()` は reject します。投機的に呼ぶなら `try / catch` で囲んでください。
+- **ベストエフォート。** SDK は終端ステータスでショートサーキットしません。学習が既に completed / failed / cancelled なら、バックエンドは non-2xx を返すことがあり `cancel()` は reject します。投機的に呼ぶなら `try / catch` で囲んでください。
 
 ## `abortSignal`
 
@@ -79,7 +79,7 @@ controller.abort();
 
 これは `cancel()` を呼ばず、バックエンドにも何も送りません。マネージド側ではジョブが GPU 時間を使い続けます。
 
-両方の効果（ローカルでの待機停止と、バックエンドのラン停止）が欲しいなら別々にやります:
+両方の効果（ローカルでの待機停止と、バックエンドの学習停止）が欲しいなら別々にやります:
 
 ```ts
 try {
@@ -94,7 +94,7 @@ try {
 await trainer.cancel(); // ベストエフォート、上記参照
 ```
 
-「このランを待つのはもういい」（リクエストタイムアウト、親プロセス終了）なら `abortSignal`。「バックエンド側でランを止めたい」なら `cancel()`。
+「この学習を待つのはもういい」（リクエストタイムアウト、親プロセス終了）なら `abortSignal`。「バックエンド側で学習を止めたい」なら `cancel()`。
 
 ## 再接続
 

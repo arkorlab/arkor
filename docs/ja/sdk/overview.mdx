@@ -35,8 +35,8 @@ export const arkor = createArkor({ trainer });
 | シンボル | ページ |
 | --- | --- |
 | [`createArkor(input)`](/ja/sdk/create-arkor) | プロジェクトマニフェスト。CLI / Studio が見つけられるよう `Trainer` をラップ。 |
-| [`createTrainer(input)`](/ja/sdk/create-trainer) | ファインチューニングランの定義: モデル、データセット、LoRA、ハイパラ、コールバック。 |
-| [`Trainer.start / wait / cancel`](/ja/sdk/trainer-control) | ラン制御メソッド。`wait()` がライフサイクルコールバックを発火する場所。 |
+| [`createTrainer(input)`](/ja/sdk/create-trainer) | ファインチューニング学習の定義: モデル、データセット、LoRA、ハイパラ、コールバック。 |
+| [`Trainer.start / wait / cancel`](/ja/sdk/trainer-control) | 学習制御メソッド。`wait()` がライフサイクルコールバックを発火する場所。 |
 | [`TrainerCallbacks`](/ja/sdk/callbacks) | 5 つのライフサイクルコールバック（`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`）。 |
 | [`InferArgs` / `infer`](/ja/sdk/infer) | `onCheckpoint` 内での推論。生の `Response` を返す。 |
 | [`DatasetSource`](/ja/sdk/dataset) | HuggingFace データセット名 or blob URL。 |

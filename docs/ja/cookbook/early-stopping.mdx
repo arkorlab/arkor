@@ -1,17 +1,17 @@
 ---
 title: "loss 発散時の early stopping"
-description: "loss 曲線が悪い方向に進んだらランを自動 abort し、バックエンドの GPU も止める。"
+description: "loss 曲線が悪い方向に進んだら学習を自動 abort し、バックエンドの GPU も止める。"
 ---
 
 # loss 発散時の early stopping
 
-loss が上がり始めたり NaN になったりしたら、残りのランは無駄な計算です。Arkor に組み込みの early stopping はありませんが、TypeScript 数行でくっつけるための材料はすべて揃っています。
+loss が上がり始めたり NaN になったりしたら、それ以降の学習は無駄な計算です。Arkor に組み込みの early stopping はありませんが、TypeScript 数行でくっつけるための材料はすべて揃っています。
 
 このレシピは 3 つのプリミティブを組み合わせます:
 
 - バックエンドからストリームされる loss を見る `onLog`。
 - そのシグナルをトレーナーに配線した `AbortController`。
-- ローカル abort 後にバックエンドのランも止める `trainer.cancel()`。
+- ローカル abort 後にバックエンドの学習も止める `trainer.cancel()`。
 
 ## パターン
 
@@ -46,7 +46,7 @@ export function makeTrainer() {
 }
 ```
 
-その後、abort に反応できるよう自分でランを駆動します:
+その後、abort に反応できるよう自分で学習を駆動します:
 
 ```ts
 // src/arkor/index.ts
@@ -62,7 +62,7 @@ async function main() {
     await trainer.wait();
   } catch (err) {
     if (controller.signal.aborted) {
-      // ローカル abort で wait() が reject。続けてバックエンドのランを止め、
+      // ローカル abort で wait() が reject。続けてバックエンドの学習を止め、
       // GPU を回し続けないようにする。
       try {
         await trainer.cancel();
@@ -128,10 +128,10 @@ onLog: ({ step, loss }) => {
 }
 ```
 
-**外部トリガー。** 同じ `controller` はトレーナーファイルの外からも動きます。Next.js API ルート、SIGINT ハンドラ、親プロセスから `controller.abort()` を呼べばオンデマンドにランを止められます。
+**外部トリガー。** 同じ `controller` はトレーナーファイルの外からも動きます。Next.js API ルート、SIGINT ハンドラ、親プロセスから `controller.abort()` を呼べばオンデマンドに学習を止められます。
 
 ## 心に留めておくこと
 
-- **コールバック内で throw しない。** throw は SSE 再接続ループに catch されてランが進み続けます（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks) 参照）。controller を使うこと。それが決定的なパスです。
+- **コールバック内で throw しない。** throw は SSE 再接続ループに catch されて学習が進み続けます（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks) 参照）。controller を使うこと。それが決定的なパスです。
 - **`abortSignal` はバックエンドをキャンセルしない。** 一番よくある落とし穴です。コストが問題なら `controller.abort()` と `trainer.cancel()` を必ずペアで。
 - **`loss` フィールドは `number | null`。** バックエンドはメトリクスステップでしか loss を埋めません。非メトリクスフレームは `null` を運びます。`Number.isFinite` チェックは `NaN` も弾き、実用上はこちらの方が発散シグナルとしてよく出てきます。

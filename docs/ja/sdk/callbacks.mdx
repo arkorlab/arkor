@@ -74,7 +74,7 @@ onLog: ({ step, loss, evalLoss }) => {
 
 ## `onCheckpoint({ step, adapter, job, infer, artifacts })`
 
-ラン進行中にバックエンドでアダプタチェックポイントが保存されたときに発火します。`adapter` は `{ kind: "checkpoint", jobId, step }`。`infer` の詳細は [infer](/ja/sdk/infer) ページにあります。要するにチャット形式のリクエストを取り、生の `Response` を返す関数です。
+学習中にバックエンドでアダプタチェックポイントが保存されたときに発火します。`adapter` は `{ kind: "checkpoint", jobId, step }`。`infer` の詳細は [infer](/ja/sdk/infer) ページにあります。要するにチャット形式のリクエストを取り、生の `Response` を返す関数です。
 
 ```ts
 onCheckpoint: async ({ step, infer }) => {
@@ -86,7 +86,7 @@ onCheckpoint: async ({ step, infer }) => {
 }
 ```
 
-TypeScript でファインチューニングする価値の多くがここに集まります: 学習途中のモデルを取り置いたプロンプトで、フルラン完了前に走らせられます。
+TypeScript でファインチューニングする価値の多くがここに集まります: 学習途中のモデルを取り置いたプロンプトで、全体の学習完了前に走らせられます。
 
 ## `onCompleted({ job, artifacts })`
 
@@ -131,7 +131,7 @@ onCheckpoint: async ({ step, infer }) => {
   try {
     await sendToReview({ step, sample: await (await infer({ ... })).text() });
   } catch (err) {
-    // ログ／メトリクス／コールバックの外側で trainer.cancel() を呼んで自分でラン失敗を決めるか判断
+    // ログ／メトリクス／コールバックの外側で trainer.cancel() を呼んで自分で学習を失敗させるか判断
   }
 }
 ```

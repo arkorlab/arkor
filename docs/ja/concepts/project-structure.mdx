@@ -61,7 +61,7 @@ export const trainer = createTrainer({
 export default {};
 ```
 
-現状はプレースホルダです。ランタイムはまだここからフィールドを読み取りません。学習のデフォルト値（`maxSteps`、`learningRate`、`lora` など）はすべて `Trainer` 自体に持たせるので、プロジェクトレベルではなくトレーナーごとにコントロールできます。削除する理由がない限り、ファイルはそのままにしておいてください。
+現状はプレイスホルダーです。ランタイムはまだここからフィールドを読み取りません。学習のデフォルト値（`maxSteps`、`learningRate`、`lora` など）はすべて `Trainer` 自体に持たせるので、プロジェクトレベルではなくトレーナーごとにコントロールできます。削除する理由がない限り、ファイルはそのままにしておいてください。
 
 ## `.arkor/`（プロジェクトごと、gitignore 済み）
 
@@ -81,7 +81,7 @@ export default {};
 
 ## CLI が探すもの
 
-- `arkor dev` は Studio の Web サーバーを `127.0.0.1:4000` で起動し、`~/.arkor/studio-token` を書きます。`src/arkor/` をファイル監視はしません。Studio の `/api/manifest` エンドポイントは確かに `runBuild` を呼びキャッシュバストクエリで再 import しますが、それは Studio UI が fetch したときだけです（現状は Run training ページのマウント時）。同じページに留まったまま複数のランをすると、ビルド成果物は再利用されます。編集した後は Run training ページをリロード（あるいはターミナルから `arkor build`）して変更を取り込んでください。`arkor dev` は単独で `.arkor/state.json` を書きません。
+- `arkor dev` は Studio の Web サーバーを `127.0.0.1:4000` で起動し、`~/.arkor/studio-token` を書きます。`src/arkor/` をファイル監視はしません。Studio の `/api/manifest` エンドポイントは確かに `runBuild` を呼びキャッシュバストクエリで再 import しますが、それは Studio UI が fetch したときだけです（現状は Run training ページのマウント時）。同じページに留まったまま学習を複数回実行すると、ビルド成果物は再利用されます。編集した後は Run training ページをリロード（あるいはターミナルから `arkor build`）して変更を取り込んでください。`arkor dev` は単独で `.arkor/state.json` を書きません。
 - `arkor build` は `src/arkor/index.ts`（または渡したエントリ）を読んで `.arkor/build/index.mjs` を書きます。Studio の dev ループの外側で直接呼ぶ必要があるのは CI や、スクリプトから `arkor start` の直前に走らせる場合などです。
 - `arkor start` はランナー経由でエントリを解決し、`.arkor/build/index.mjs` がない、もしくは明示的なエントリを渡したときはリビルドして実行します（これが `trainer.start()` と `trainer.wait()` を呼びます）。Studio から学習をトリガーすると内部的に `arkor start` がスポーンされます。
 
