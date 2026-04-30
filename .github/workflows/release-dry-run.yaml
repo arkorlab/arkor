@@ -143,6 +143,11 @@ jobs:
         env:
           ARKOR_POSTHOG_KEY: ${{ secrets.ARKOR_POSTHOG_KEY }}
           ARKOR_POSTHOG_HOST: ${{ secrets.ARKOR_POSTHOG_HOST }}
+          # Disable runtime telemetry: e2e-cli spawns the built `arkor`
+          # binary, which has the key baked in by the pretest rebuild
+          # above. Without this, every release run would emit real
+          # PostHog events from CI.
+          ARKOR_TELEMETRY_DISABLED: "1"
         run: pnpm run test
 
       - name: Pack and inspect tarballs
