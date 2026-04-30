@@ -121,6 +121,9 @@ async function runAnonymousLogin(): Promise<void> {
   };
   await writeCredentials(creds);
   spin.stop(`Anonymous id: ${result.anonymousId}`);
+  ui.log.info(
+    "This id is how Arkor Cloud recognises this client across sessions — keep `~/.arkor/credentials.json` to stay signed in as the same anonymous identity.",
+  );
   ui.log.success(`Signed in anonymously (personal org: ${result.orgSlug}).`);
 }
 
