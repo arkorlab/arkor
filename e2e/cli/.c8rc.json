@@ -1,0 +1,15 @@
+{
+  "$comment": "c8 wraps vitest, sets NODE_V8_COVERAGE so the spawned CLI children write V8 coverage data, and merges the result. Sourcemaps emitted by tsdown remap dist/* hits to the original src/* files, so the resulting lcov references repo paths under packages/{arkor,create-arkor}/src/**.",
+  "all": false,
+  "include": [
+    "../../packages/arkor/dist/**",
+    "../../packages/create-arkor/dist/**"
+  ],
+  "exclude": [
+    "**/*.test.*",
+    "**/node_modules/**"
+  ],
+  "reporter": ["text", "lcov"],
+  "reports-dir": "./coverage",
+  "temp-directory": "./.v8-coverage"
+}

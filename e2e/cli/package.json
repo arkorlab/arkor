@@ -6,13 +6,16 @@
   "type": "module",
   "scripts": {
     "pretest": "pnpm --filter create-arkor build && pnpm --filter arkor build",
+    "pretest:coverage": "pnpm --filter create-arkor build && pnpm --filter arkor build",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "c8 --config .c8rc.json vitest run"
   },
   "devDependencies": {
     "@types/node": "^24",
+    "c8": "^10.1.3",
     "typescript": "^5",
     "vitest": "^4.1.5"
   }

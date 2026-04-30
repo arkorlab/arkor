@@ -16,6 +16,9 @@ packages/arkor/docs/
 # Vitest coverage reports (uploaded to Codecov in CI)
 coverage/
 
+# Raw V8 coverage data emitted by NODE_V8_COVERAGE for E2E coverage
+.v8-coverage/
+
 # Mintlify (docs/) local cache
 .mintlify/
 .mint/

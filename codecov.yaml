@@ -38,6 +38,16 @@ flag_management:
     - name: studio-app
       paths:
         - packages/studio-app/src
+    # E2E coverage is collected by spawning the built CLIs under c8 and
+    # remapping the resulting V8 coverage through tsdown's sourcemaps. Hits
+    # land back in `packages/{arkor,create-arkor}/src/**`, overlapping with
+    # the unit-test flags. Codecov merges flags into the overall report;
+    # this flag exists so we can see how much of each CLI is covered by
+    # E2E specifically (vs unit tests alone).
+    - name: e2e-cli
+      paths:
+        - packages/arkor/src
+        - packages/create-arkor/src
 
 ignore:
   - "**/*.test.ts"

@@ -217,6 +217,19 @@ jobs:
           flags: studio-app
           fail_ci_if_error: false
 
+      # E2E coverage is collected via c8 wrapping vitest in e2e/cli; the
+      # spawned CLI children inherit NODE_V8_COVERAGE and their hits are
+      # remapped through tsdown's sourcemaps back into
+      # packages/{arkor,create-arkor}/src/**.
+      - name: Upload e2e-cli coverage
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: ./e2e/cli/coverage/lcov.info
+          flags: e2e-cli
+          fail_ci_if_error: false
+
       # Codecov Test Analytics — uploads JUnit XML produced by the vitest
       # `junit` reporter. Tracks pass/fail history per test, surfaces flaky
       # tests, and shows failure trends on the Codecov dashboard. See
@@ -259,4 +272,14 @@ jobs:
           report_type: test_results
           files: ./packages/studio-app/coverage/junit.xml
           flags: studio-app
+          fail_ci_if_error: false
+
+      - name: Upload e2e-cli test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          report_type: test_results
+          files: ./e2e/cli/coverage/junit.xml
+          flags: e2e-cli
           fail_ci_if_error: false
