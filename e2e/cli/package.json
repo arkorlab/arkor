@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "pretest": "pnpm --filter create-arkor build && pnpm --filter arkor build",
-    "pretest:coverage": "pnpm --filter create-arkor build && pnpm --filter arkor build",
+    "pretest:coverage": "CREATE_ARKOR_BUILD_SOURCEMAP=1 pnpm --filter create-arkor build && pnpm --filter arkor build",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
     "test": "vitest run",

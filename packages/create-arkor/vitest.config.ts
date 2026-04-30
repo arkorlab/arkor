@@ -3,7 +3,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     // `default` keeps normal CLI output; `junit` writes the XML that
-    // codecov/test-results-action consumes for Test Analytics.
+    // codecov/codecov-action (with `report_type: test_results`) consumes
+    // for Test Analytics.
     reporters: ["default", "junit"],
     outputFile: {
       junit: "./coverage/junit.xml",
@@ -13,7 +14,9 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage",
       include: ["src/**/*.ts"],
-      exclude: ["src/**/*.test.ts", "src/**/*.d.ts", "src/bin.ts"],
+      // `src/bin.ts` is the only source file in this package, so excluding
+      // it would leave the `create-arkor` flag with zero eligible files.
+      exclude: ["src/**/*.test.ts", "src/**/*.d.ts"],
     },
   },
 });

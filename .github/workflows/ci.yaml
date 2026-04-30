@@ -174,12 +174,14 @@ jobs:
       - name: Install
         run: pnpm install
 
-      # Tests must keep going on failure so JUnit XML still gets uploaded
-      # to Codecov Test Analytics. Subsequent upload steps gate on
-      # `!cancelled()` so they run even when this step fails; the job's
-      # final outcome still reflects the test result.
+      # Tests must keep going on failure so every package still produces
+      # its lcov.info / junit.xml; turbo's default `--continue=never` would
+      # cancel sibling tasks after the first failure and starve the upload
+      # steps below. Subsequent uploads gate on `!cancelled()` so they run
+      # even when tests fail; the job's final outcome still reflects the
+      # test result.
       - name: Test with coverage
-        run: pnpm test:coverage
+        run: pnpm exec turbo run test:coverage --continue
 
       - name: Upload arkor coverage
         if: ${{ !cancelled() }}

@@ -60,5 +60,7 @@ ignore:
   - "packages/arkor/scripts/**"
   - "packages/create-arkor/scripts/**"
   - "packages/arkor/src/bin.ts"
-  - "packages/create-arkor/src/bin.ts"
+  # `packages/create-arkor/src/bin.ts` is intentionally NOT ignored: it is
+  # the only source file in that package, so excluding it would leave the
+  # `create-arkor` flag with zero eligible files.
   - "packages/studio-app/src/main.tsx"
