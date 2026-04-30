@@ -151,6 +151,87 @@ describe("Studio server", () => {
     });
   });
 
+  describe("/api/credentials telemetry block", () => {
+    const ORIG_DO_NOT_TRACK = process.env.DO_NOT_TRACK;
+    const ORIG_DEBUG = process.env.ARKOR_TELEMETRY_DEBUG;
+
+    afterEach(() => {
+      if (ORIG_DO_NOT_TRACK !== undefined)
+        process.env.DO_NOT_TRACK = ORIG_DO_NOT_TRACK;
+      else delete process.env.DO_NOT_TRACK;
+      if (ORIG_DEBUG !== undefined)
+        process.env.ARKOR_TELEMETRY_DEBUG = ORIG_DEBUG;
+      else delete process.env.ARKOR_TELEMETRY_DEBUG;
+    });
+
+    it("returns inert identity fields when telemetry is disabled in tests", async () => {
+      // No __ARKOR_POSTHOG_KEY__ is injected in this test environment, so
+      // enabled must be false and posthogKey must be empty. Identity
+      // fields must also be inert: we do not want to expose a stable
+      // distinctId (or call the persistent telemetry-id getter that may
+      // create the file) when the user has opted out of telemetry.
+      await writeCredentials(ANON_CREDS);
+      const app = build();
+      const res = await app.request("/api/credentials", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        telemetry?: {
+          enabled: boolean;
+          distinctId: string;
+          authMode: string;
+          posthogKey: string;
+          posthogHost: string;
+          sdkVersion: string;
+          debug: boolean;
+        };
+      };
+      expect(body.telemetry).toBeDefined();
+      expect(body.telemetry!.enabled).toBe(false);
+      expect(body.telemetry!.posthogKey).toBe("");
+      expect(body.telemetry!.distinctId).toBe("");
+      expect(body.telemetry!.authMode).toBe("none");
+      expect(body.telemetry!.posthogHost).toMatch(/posthog\.com$/);
+      expect(typeof body.telemetry!.sdkVersion).toBe("string");
+      expect(body.telemetry!.debug).toBe(false);
+    });
+
+    it("forces enabled=false when DO_NOT_TRACK is set", async () => {
+      process.env.DO_NOT_TRACK = "1";
+      await writeCredentials(ANON_CREDS);
+      const app = build();
+      const res = await app.request("/api/credentials", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      const body = (await res.json()) as {
+        telemetry?: { enabled: boolean; posthogKey: string };
+      };
+      expect(body.telemetry!.enabled).toBe(false);
+      expect(body.telemetry!.posthogKey).toBe("");
+    });
+
+    it("reflects ARKOR_TELEMETRY_DEBUG in the debug field", async () => {
+      process.env.ARKOR_TELEMETRY_DEBUG = "1";
+      await writeCredentials(ANON_CREDS);
+      const app = build();
+      const res = await app.request("/api/credentials", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      const body = (await res.json()) as { telemetry?: { debug: boolean } };
+      expect(body.telemetry!.debug).toBe(true);
+    });
+  });
+
   it("accepts the studio token via ?studioToken= for SSE-style requests", async () => {
     await writeCredentials({
       mode: "anon",

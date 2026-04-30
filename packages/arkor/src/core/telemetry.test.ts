@@ -22,11 +22,18 @@ vi.mock("posthog-node", () => ({
 const ORIG_HOME = process.env.HOME;
 const ORIG_DO_NOT_TRACK = process.env.DO_NOT_TRACK;
 const ORIG_DISABLED = process.env.ARKOR_TELEMETRY_DISABLED;
+const ORIG_DEBUG = process.env.ARKOR_TELEMETRY_DEBUG;
 
 let fakeHome: string;
 
 interface TelemetryModule {
   isEnabled: () => boolean;
+  getTelemetryConfig: () => {
+    enabled: boolean;
+    posthogKey: string;
+    posthogHost: string;
+    debug: boolean;
+  };
   getIdentity: () => Promise<{
     distinctId: string;
     authMode: "auth0" | "anon" | "none";
@@ -57,6 +64,7 @@ beforeEach(() => {
   process.env.HOME = fakeHome;
   delete process.env.DO_NOT_TRACK;
   delete process.env.ARKOR_TELEMETRY_DISABLED;
+  delete process.env.ARKOR_TELEMETRY_DEBUG;
   captureMock.mockClear();
   shutdownMock.mockClear();
   constructorMock.mockClear();
@@ -68,6 +76,8 @@ afterEach(() => {
   else delete process.env.DO_NOT_TRACK;
   if (ORIG_DISABLED !== undefined) process.env.ARKOR_TELEMETRY_DISABLED = ORIG_DISABLED;
   else delete process.env.ARKOR_TELEMETRY_DISABLED;
+  if (ORIG_DEBUG !== undefined) process.env.ARKOR_TELEMETRY_DEBUG = ORIG_DEBUG;
+  else delete process.env.ARKOR_TELEMETRY_DEBUG;
   rmSync(fakeHome, { recursive: true, force: true });
 });
 
@@ -109,6 +119,52 @@ describe("isEnabled", () => {
   it("returns true when key is set and no opt-out flags are present", async () => {
     const mod = await loadTelemetry({ key: "phc_test" });
     expect(mod.isEnabled()).toBe(true);
+  });
+});
+
+describe("getTelemetryConfig", () => {
+  it("returns enabled=true with key and default host when no opt-out is set", async () => {
+    const mod = await loadTelemetry({ key: "phc_test" });
+    const cfg = mod.getTelemetryConfig();
+    expect(cfg).toEqual({
+      enabled: true,
+      posthogKey: "phc_test",
+      posthogHost: "https://us.i.posthog.com",
+      debug: false,
+    });
+  });
+
+  it("returns enabled=false when DO_NOT_TRACK is set, but still surfaces the key/host", async () => {
+    process.env.DO_NOT_TRACK = "1";
+    const mod = await loadTelemetry({ key: "phc_test" });
+    expect(mod.getTelemetryConfig().enabled).toBe(false);
+  });
+
+  it("returns enabled=false when ARKOR_TELEMETRY_DISABLED is set", async () => {
+    process.env.ARKOR_TELEMETRY_DISABLED = "1";
+    const mod = await loadTelemetry({ key: "phc_test" });
+    expect(mod.getTelemetryConfig().enabled).toBe(false);
+  });
+
+  it("returns enabled=false when no key is baked in", async () => {
+    const mod = await loadTelemetry({});
+    expect(mod.getTelemetryConfig().enabled).toBe(false);
+  });
+
+  it("reflects ARKOR_TELEMETRY_DEBUG in the debug flag", async () => {
+    process.env.ARKOR_TELEMETRY_DEBUG = "1";
+    const mod = await loadTelemetry({ key: "phc_test" });
+    expect(mod.getTelemetryConfig().debug).toBe(true);
+  });
+
+  it("honours the host override", async () => {
+    const mod = await loadTelemetry({
+      key: "phc_test",
+      host: "https://eu.i.posthog.com",
+    });
+    expect(mod.getTelemetryConfig().posthogHost).toBe(
+      "https://eu.i.posthog.com",
+    );
   });
 });
 

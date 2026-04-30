@@ -5,6 +5,7 @@ import {
   SUPPORTED_BASE_MODELS,
   type SupportedBaseModel,
 } from "../lib/baseModels";
+import { track } from "../lib/telemetry";
 
 interface Message {
   role: "system" | "user" | "assistant";
@@ -70,6 +71,7 @@ export function Playground() {
           content: `[error] ${err instanceof Error ? err.message : String(err)}`,
         },
       ]);
+      track("studio_sse_error", { source: "inference" });
     } finally {
       setStreaming(false);
     }

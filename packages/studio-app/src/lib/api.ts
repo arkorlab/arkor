@@ -1,4 +1,5 @@
 import { createParser, type EventSourceMessage } from "eventsource-parser";
+import { track, type StudioTelemetryConfig } from "./telemetry";
 
 export interface Credentials {
   token: string;
@@ -6,6 +7,7 @@ export interface Credentials {
   baseUrl: string;
   orgSlug: string | null;
   projectSlug: string | null;
+  telemetry: StudioTelemetryConfig;
 }
 
 export interface Me {
@@ -49,6 +51,55 @@ function readStudioToken(): string {
 const STUDIO_TOKEN = readStudioToken();
 
 /**
+ * Replace UUID-like and hex-id segments with `:id` so PostHog endpoint
+ * cardinality stays bounded, and strip the query string so the CSRF token
+ * carried by EventSource calls never reaches the wire.
+ *
+ * Accepts both relative paths (the only thing apiFetch passes today) and
+ * absolute URLs; for the latter the scheme/host are dropped so the leading
+ * `https:` segment doesn't end up tokenised by the split below.
+ */
+export function redactPath(input: string): string {
+  let path: string;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) {
+    try {
+      path = new URL(input).pathname;
+    } catch {
+      // URL parse failed (malformed scheme, missing host, etc.) but the
+      // input still looks absolute. Strip the query string ourselves so
+      // credentials carried in `?studioToken=...` never reach telemetry
+      // even on unparseable URLs.
+      const qIdx = input.indexOf("?");
+      path = qIdx === -1 ? input : input.slice(0, qIdx);
+    }
+  } else {
+    const qIdx = input.indexOf("?");
+    path = qIdx === -1 ? input : input.slice(0, qIdx);
+  }
+  return path
+    .split("/")
+    .map((seg) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)
+        ? ":id"
+        : /^[0-9a-f]{16,}$/i.test(seg)
+          ? ":id"
+          : seg,
+    )
+    .join("/");
+}
+
+export interface ApiFetchInit extends RequestInit {
+  /**
+   * Status codes the caller has chosen to treat as a normal flow (e.g.
+   * `/api/manifest` returning 400 to mean "no manifest yet"). Listed
+   * statuses skip the `studio_api_error` event so they don't pollute
+   * error telemetry. Failures still surface to the caller as non-OK
+   * responses.
+   */
+  silentStatuses?: number[];
+}
+
+/**
  * `fetch` with the per-launch CSRF token attached. The token is read once at
  * module load from the `<meta>` tag the Studio server injects into
  * `index.html`; cross-origin tabs cannot read it (same-origin policy on the
@@ -56,11 +107,21 @@ const STUDIO_TOKEN = readStudioToken();
  */
 export async function apiFetch(
   input: string,
-  init?: RequestInit,
+  init?: ApiFetchInit,
 ): Promise<Response> {
-  const headers = new Headers(init?.headers);
+  const { silentStatuses, ...rest } = init ?? {};
+  const headers = new Headers(rest.headers);
   if (STUDIO_TOKEN) headers.set("X-Arkor-Studio-Token", STUDIO_TOKEN);
-  return fetch(input, { ...init, headers });
+  const res = await fetch(input, { ...rest, headers });
+  if (!res.ok && !silentStatuses?.includes(res.status)) {
+    track("studio_api_error", {
+      endpoint: redactPath(input),
+      method: rest.method ?? "GET",
+      status: res.status,
+      status_text: res.statusText,
+    });
+  }
+  return res;
 }
 
 function withStudioToken(url: string): string {
@@ -89,10 +150,13 @@ export async function fetchJobs(): Promise<{ jobs: Job[] }> {
 /**
  * Fetch a serialisable summary of the user's `createArkor({...})` manifest.
  * Returns `{ error }` (not a thrown exception) on 4xx so the SPA can render a
- * targeted hint — typically "no src/arkor/index.ts yet" right after scaffold.
+ * targeted hint, typically "no src/arkor/index.ts yet" right after scaffold.
+ *
+ * 400 is part of the expected flow here, so it's marked silent to keep
+ * `studio_api_error` events scoped to genuine failures.
  */
 export async function fetchManifest(): Promise<ManifestResult> {
-  const res = await apiFetch("/api/manifest");
+  const res = await apiFetch("/api/manifest", { silentStatuses: [400] });
   if (res.ok) return (await res.json()) as ManifestSummary;
   if (res.status === 400) return (await res.json()) as ManifestError;
   throw new Error(`${res.status} ${res.statusText}`);

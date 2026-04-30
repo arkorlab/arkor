@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { openJobEvents } from "../lib/api";
+import { track } from "../lib/telemetry";
 
 interface LogPoint {
   step: number;
@@ -17,15 +18,26 @@ export function JobDetail({ jobId }: { jobId: string }) {
   const [status, setStatus] = useState<string>("waiting…");
   const [terminal, setTerminal] = useState<TerminalInfo | null>(null);
   const [rawTail, setRawTail] = useState<string[]>([]);
+  const startedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
+    startedAtRef.current = null;
     const es = openJobEvents(jobId);
     function pushRaw(line: string) {
       setRawTail((prev) => [...prev.slice(-50), line]);
     }
+    function durationMs(): number | null {
+      return startedAtRef.current === null
+        ? null
+        : Date.now() - startedAtRef.current;
+    }
     es.addEventListener("training.started", (ev: MessageEvent) => {
       setStatus("running");
       pushRaw(`[started] ${ev.data}`);
+      if (startedAtRef.current === null) {
+        startedAtRef.current = Date.now();
+        track("studio_train_run_subscribed", { job_id: jobId });
+      }
     });
     es.addEventListener("training.log", (ev: MessageEvent) => {
       try {
@@ -47,26 +59,43 @@ export function JobDetail({ jobId }: { jobId: string }) {
     });
     es.addEventListener("training.completed", (ev: MessageEvent) => {
       setStatus("completed");
+      let artifactCount = 0;
       try {
         const d = JSON.parse(ev.data) as { artifacts?: unknown[] };
+        artifactCount = d.artifacts?.length ?? 0;
         setTerminal({ status: "completed", artifacts: d.artifacts ?? [] });
       } catch {
         setTerminal({ status: "completed" });
       }
       pushRaw(`[completed] ${ev.data}`);
+      track("studio_train_run_completed", {
+        job_id: jobId,
+        duration_ms: durationMs(),
+        artifact_count: artifactCount,
+      });
     });
     es.addEventListener("training.failed", (ev: MessageEvent) => {
       setStatus("failed");
+      let failureReason = "";
       try {
         const d = JSON.parse(ev.data) as { error: string };
+        failureReason = d.error ?? "";
         setTerminal({ status: "failed", error: d.error });
       } catch {
         setTerminal({ status: "failed" });
       }
       pushRaw(`[failed] ${ev.data}`);
+      track("studio_train_run_failed", {
+        job_id: jobId,
+        duration_ms: durationMs(),
+        failure_reason: failureReason.slice(0, 200),
+      });
     });
     es.addEventListener("end", () => es.close());
-    es.onerror = () => pushRaw("[stream error]");
+    es.onerror = () => {
+      pushRaw("[stream error]");
+      track("studio_sse_error", { source: "training" });
+    };
     return () => es.close();
   }, [jobId]);
 

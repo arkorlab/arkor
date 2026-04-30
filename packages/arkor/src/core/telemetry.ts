@@ -34,6 +34,22 @@ export function isEnabled(): boolean {
   return true;
 }
 
+export interface TelemetryConfig {
+  enabled: boolean;
+  posthogKey: string;
+  posthogHost: string;
+  debug: boolean;
+}
+
+export function getTelemetryConfig(): TelemetryConfig {
+  return {
+    enabled: isEnabled(),
+    posthogKey: POSTHOG_KEY,
+    posthogHost: POSTHOG_HOST,
+    debug: envFlag("ARKOR_TELEMETRY_DEBUG"),
+  };
+}
+
 function debugLog(...args: unknown[]): void {
   if (envFlag("ARKOR_TELEMETRY_DEBUG")) {
     console.error("[arkor:telemetry]", ...args);

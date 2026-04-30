@@ -1,5 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { extractInferenceDelta, streamInferenceContent } from "./api";
+import {
+  apiFetch,
+  extractInferenceDelta,
+  fetchManifest,
+  redactPath,
+  streamInferenceContent,
+} from "./api";
+
+const { trackMock } = vi.hoisted(() => ({ trackMock: vi.fn() }));
+vi.mock("./telemetry", () => ({
+  track: trackMock,
+  trackPageView: vi.fn(),
+  captureException: vi.fn(),
+  initTelemetry: vi.fn(async () => {}),
+}));
 
 describe("extractInferenceDelta", () => {
   it("pulls OpenAI-style streaming deltas from choices[0].delta.content", () => {
@@ -165,5 +179,137 @@ describe("streamInferenceContent (regression for ENG-358)", () => {
     })();
 
     await expect(consume).rejects.toThrow(/upstream blew up/);
+  });
+});
+
+describe("redactPath", () => {
+  it("replaces UUID-like segments with :id", () => {
+    expect(redactPath("/api/jobs/123e4567-e89b-12d3-a456-426614174000/events")).toBe(
+      "/api/jobs/:id/events",
+    );
+  });
+
+  it("replaces long hex-id segments with :id", () => {
+    expect(redactPath("/api/jobs/a1b2c3d4e5f6a7b8c9d0/events")).toBe(
+      "/api/jobs/:id/events",
+    );
+  });
+
+  it("strips query strings (CSRF token leak guard)", () => {
+    expect(redactPath("/api/jobs/abc/events?studioToken=secret")).toBe(
+      "/api/jobs/abc/events",
+    );
+  });
+
+  it("leaves short slug segments alone", () => {
+    expect(redactPath("/api/credentials")).toBe("/api/credentials");
+  });
+
+  it("strips scheme and host for absolute URLs so the path is parsed cleanly", () => {
+    expect(
+      redactPath(
+        "https://api.arkor.ai/v1/jobs/123e4567-e89b-12d3-a456-426614174000/events?token=secret",
+      ),
+    ).toBe("/v1/jobs/:id/events");
+  });
+
+  it("falls back gracefully for unparseable absolute-looking URLs", () => {
+    // Best effort: don't throw, don't tokenise the scheme. An unparseable
+    // URL falls through to raw input handling.
+    expect(redactPath("https://")).toBe("https://");
+  });
+
+  it("still strips the query string when the URL parser rejects the input", () => {
+    // Even if `new URL(...)` throws, the catch fallback must drop the
+    // query so a CSRF token like ?studioToken=... cannot reach telemetry.
+    expect(redactPath("https://?studioToken=secret")).not.toContain(
+      "studioToken",
+    );
+  });
+});
+
+describe("apiFetch error capture", () => {
+  const ORIG_FETCH = globalThis.fetch;
+
+  beforeEach(() => {
+    trackMock.mockClear();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ORIG_FETCH;
+  });
+
+  it("fires studio_api_error with redacted endpoint on non-OK responses", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("nope", { status: 500, statusText: "Boom" }),
+    ) as typeof fetch;
+    await apiFetch(
+      "/api/jobs/123e4567-e89b-12d3-a456-426614174000/events?studioToken=x",
+    );
+    expect(trackMock).toHaveBeenCalledWith("studio_api_error", {
+      endpoint: "/api/jobs/:id/events",
+      method: "GET",
+      status: 500,
+      status_text: "Boom",
+    });
+  });
+
+  it("does not fire studio_api_error on 2xx responses", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("{}", { status: 200 }),
+    ) as typeof fetch;
+    await apiFetch("/api/credentials");
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("suppresses studio_api_error for statuses listed in silentStatuses", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "no manifest" }), {
+          status: 400,
+        }),
+    ) as typeof fetch;
+    await apiFetch("/api/manifest", { silentStatuses: [400] });
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("still fires studio_api_error for non-listed statuses when silentStatuses is set", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("nope", { status: 500 }),
+    ) as typeof fetch;
+    await apiFetch("/api/manifest", { silentStatuses: [400] });
+    expect(trackMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("fetchManifest telemetry", () => {
+  const ORIG_FETCH = globalThis.fetch;
+
+  beforeEach(() => {
+    trackMock.mockClear();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = ORIG_FETCH;
+  });
+
+  it("returns the error body without firing studio_api_error on 400", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "Build entry not found" }), {
+          status: 400,
+        }),
+    ) as typeof fetch;
+    const result = await fetchManifest();
+    expect(result).toEqual({ error: "Build entry not found" });
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("does not suppress real 5xx failures from fetchManifest", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("oops", { status: 500 }),
+    ) as typeof fetch;
+    await expect(fetchManifest()).rejects.toThrow();
+    expect(trackMock).toHaveBeenCalledOnce();
   });
 });
