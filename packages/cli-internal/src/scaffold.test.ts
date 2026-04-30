@@ -166,6 +166,29 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("created");
   });
 
+  it.each([
+    { label: "empty string", value: "" },
+    { label: "whitespace only", value: "   " },
+  ])(
+    "falls back to the default spec when ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC is $label",
+    async ({ value }) => {
+      // Without the trim+length guard, an empty/whitespace override would
+      // be written verbatim into package.json (`"arkor": ""`), which is
+      // not a valid dependency spec. Treat both as "unset".
+      process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = value;
+      await scaffold({
+        cwd,
+        name: "blank-override",
+        template: "minimal",
+      });
+      const pkg = JSON.parse(
+        readFileSync(join(cwd, "package.json"), "utf8"),
+      ) as Record<string, unknown>;
+      const devDeps = pkg.devDependencies as Record<string, string>;
+      expect(devDeps.arkor).toBe("^0.0.1-alpha.4");
+    },
+  );
+
   it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when patching an existing package.json", async () => {
     // The spec resolution is shared between the create path (above)
     // and the patch path that runs when `package.json` already exists
