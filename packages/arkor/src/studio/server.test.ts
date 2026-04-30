@@ -13,7 +13,10 @@ import { join, resolve } from "node:path";
 import { buildStudioApp } from "./server";
 import { writeCredentials } from "../core/credentials";
 import { writeState } from "../core/state";
-import { getRecordedDeprecation } from "../core/deprecation";
+import {
+  clearRecordedDeprecation,
+  getRecordedDeprecation,
+} from "../core/deprecation";
 
 const ANON_CREDS = {
   mode: "anon" as const,
@@ -399,6 +402,12 @@ process.exit(0);
 
   describe("/api/jobs", () => {
     const ORIG_FETCH = globalThis.fetch;
+
+    beforeEach(() => {
+      // Module-level deprecation state is shared across tests; reset so that
+      // a leftover notice from a prior test can't masquerade as a hit here.
+      clearRecordedDeprecation();
+    });
 
     afterEach(() => {
       globalThis.fetch = ORIG_FETCH;
