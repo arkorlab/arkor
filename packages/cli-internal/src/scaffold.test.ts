@@ -10,6 +10,7 @@ import {
 
 let cwd: string;
 const ORIG_UA = process.env.npm_config_user_agent;
+const ORIG_ARKOR_SPEC = process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC;
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
@@ -17,6 +18,11 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.npm_config_user_agent = ORIG_UA;
+  if (ORIG_ARKOR_SPEC === undefined) {
+    delete process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC;
+  } else {
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = ORIG_ARKOR_SPEC;
+  }
   rmSync(cwd, { recursive: true, force: true });
 });
 
@@ -114,7 +120,7 @@ describe("scaffold", () => {
     expect(scripts.dev).toBe("arkor dev");
     expect(scripts.start).toBe("arkor start");
     const devDeps = patched.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("^0.0.1-alpha.3");
+    expect(devDeps.arkor).toBe("^0.0.1-alpha.4");
 
     const pkgEntry = files.find((f) => f.path === "package.json");
     expect(pkgEntry?.action).toBe("patched");
@@ -130,6 +136,23 @@ describe("scaffold", () => {
     const second = await scaffold({ cwd, name: "n", template: "minimal" });
     const secondEntry = second.files.find((f) => f.path === ".gitignore");
     expect(secondEntry?.action).toBe("ok");
+  });
+
+  it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when set", async () => {
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC =
+      "file:/tmp/arkor/arkor-0.0.1-alpha.4.tgz";
+    const { files } = await scaffold({
+      cwd,
+      name: "override-app",
+      template: "minimal",
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const devDeps = pkg.devDependencies as Record<string, string>;
+    expect(devDeps.arkor).toBe("file:/tmp/arkor/arkor-0.0.1-alpha.4.tgz");
+    const pkgEntry = files.find((f) => f.path === "package.json");
+    expect(pkgEntry?.action).toBe("created");
   });
 
   it("renders each template with a distinct trainer body", async () => {
