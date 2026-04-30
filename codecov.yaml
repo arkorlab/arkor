@@ -1,0 +1,66 @@
+# Codecov configuration. Reference: https://docs.codecov.com/docs/codecov-yaml
+#
+# We upload one lcov report per package via the GitHub Action's `flags`.
+# Each flag is scoped to its package's source path so cross-package noise
+# does not pollute per-package coverage trends.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: arkor
+      paths:
+        - packages/arkor/src
+    - name: create-arkor
+      paths:
+        - packages/create-arkor/src
+    - name: cli-internal
+      paths:
+        - packages/cli-internal/src
+    - name: studio-app
+      paths:
+        - packages/studio-app/src
+    # E2E coverage is collected by spawning the built CLIs under c8 and
+    # remapping the resulting V8 coverage through tsdown's sourcemaps. Hits
+    # land back in `packages/{arkor,create-arkor}/src/**`, overlapping with
+    # the unit-test flags. Codecov merges flags into the overall report;
+    # this flag exists so we can see how much of each CLI is covered by
+    # E2E specifically (vs unit tests alone).
+    - name: e2e-cli
+      paths:
+        - packages/arkor/src
+        - packages/create-arkor/src
+
+ignore:
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.d.ts"
+  - "**/dist/**"
+  - "**/node_modules/**"
+  - "e2e/**"
+  - "docs/**"
+  - "packages/arkor/scripts/**"
+  - "packages/create-arkor/scripts/**"
+  - "packages/arkor/src/bin.ts"
+  # `packages/create-arkor/src/bin.ts` is intentionally NOT ignored: it is
+  # the only source file in that package, so excluding it would leave the
+  # `create-arkor` flag with zero eligible files.
+  - "packages/studio-app/src/main.tsx"
