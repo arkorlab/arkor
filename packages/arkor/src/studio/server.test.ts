@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 import { buildStudioApp } from "./server";
 import { writeCredentials } from "../core/credentials";
 import { writeState } from "../core/state";
+import { getRecordedDeprecation } from "../core/deprecation";
 
 const ANON_CREDS = {
   mode: "anon" as const,
@@ -368,6 +369,80 @@ process.exit(0);
       expect(text).toMatch(/Cannot find module|MODULE_NOT_FOUND|ENOENT/);
       expect(text).toContain("exit=");
       expect(text).not.toContain("exit=0");
+    });
+  });
+
+  describe("/api/jobs", () => {
+    const ORIG_FETCH = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("forwards SDK version metadata and deprecation headers", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "jobs-project", projectId: "p-jobs" },
+        trainCwd,
+      );
+
+      let captured: {
+        url: string;
+        method: string;
+        headers: Record<string, string>;
+      } | null = null;
+
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const req = input instanceof Request ? input : null;
+        const headers = new Headers(req?.headers);
+        if (init?.headers) {
+          for (const [key, value] of new Headers(init.headers)) {
+            headers.set(key, value);
+          }
+        }
+        const lowerHeaders: Record<string, string> = {};
+        for (const [key, value] of headers) {
+          lowerHeaders[key.toLowerCase()] = value;
+        }
+        captured = {
+          url: req ? req.url : input.toString(),
+          method: init?.method ?? req?.method ?? "GET",
+          headers: lowerHeaders,
+        };
+        return new Response(JSON.stringify({ jobs: [] }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            Deprecation: "true",
+            Warning: '299 - "jobs endpoint deprecated"',
+            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+          },
+        });
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(captured).not.toBeNull();
+      expect(captured!.url).toContain("/v1/jobs");
+      expect(captured!.url).toContain("orgSlug=anon-org");
+      expect(captured!.url).toContain("projectSlug=jobs-project");
+      expect(captured!.method).toBe("GET");
+      expect(captured!.headers.authorization).toBe("Bearer tok");
+      expect(captured!.headers["x-arkor-client"]).toMatch(/^arkor\/\S+$/);
+      expect(res.headers.get("Deprecation")).toBe("true");
+      expect(res.headers.get("Warning")).toContain("jobs endpoint deprecated");
+      expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
+      expect(getRecordedDeprecation()?.message).toBe("jobs endpoint deprecated");
     });
   });
 

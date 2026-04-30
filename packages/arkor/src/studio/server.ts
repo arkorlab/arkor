@@ -218,16 +218,23 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.get("/api/jobs", async (c) => {
-    const state = await readState();
+    const state = await readState(trainCwd);
     if (!state) return c.json({ jobs: [] });
-    const rpc = createClient({ baseUrl, token: getToken });
+    const rpc = createClient({
+      baseUrl,
+      token: getToken,
+      clientVersion: SDK_VERSION,
+      onDeprecation: recordDeprecation,
+    });
     const res = await rpc.v1.jobs.$get({
       query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
     });
     const body = await res.text();
+    const headers = new Headers({ "content-type": "application/json" });
+    copyDeprecationHeaders(res.headers, headers);
     return new Response(body, {
       status: res.status,
-      headers: { "content-type": "application/json" },
+      headers,
     });
   });
 
