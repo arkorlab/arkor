@@ -94,6 +94,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
+      - name: Print resolved Node version
+        run: node --version
+
       - name: Typecheck
         run: pnpm typecheck
 
