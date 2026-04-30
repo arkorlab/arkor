@@ -19,9 +19,13 @@ export async function acquireAnonymousTokenResult(baseUrl: string) {
 //      saved or transferred. Surfacing that limitation directly would
 //      just discourage the upgrade we want users to take; revisit when a
 //      migration path actually ships server-side.
-//   3. Callers must gate emission on `oauthAvailable` — pointing at
-//      `arkor login --oauth` on an anon-only deployment contradicts the
-//      "OAuth is not configured" message and steers users at a command
-//      that fails immediately.
+//   3. Callers must gate emission on `oauthAvailable === true` — i.e.
+//      suppress the nudge whenever OAuth availability is *not* confirmed,
+//      including the "unknown" case (cfg fetch skipped on the explicit
+//      `--anonymous` shortcut, or cfg fetch failed). Pointing at `arkor
+//      login --oauth` on an anon-only deployment would contradict the
+//      "OAuth is not configured" message and steer users at a command
+//      that fails immediately, so erring on suppression is safer than
+//      defaulting to show.
 export const ANON_PERSISTENCE_NUDGE =
   "Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to tie future work to your Arkor Cloud account.";
