@@ -28,6 +28,10 @@
   <a href="https://docs.arkor.ai"><strong>Docs</strong></a>
 </p>
 
+<p align="center">
+  <a href="README.ja.md">日本語</a>
+</p>
+
 > [!WARNING]
 > Arkor is **alpha**. APIs change without notice. We're shipping in public, and feedback shapes what lands next.
 

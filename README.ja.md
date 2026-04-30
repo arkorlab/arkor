@@ -28,6 +28,10 @@
   <a href="https://docs.arkor.ai"><strong>ドキュメント</strong></a>
 </p>
 
+<p align="center">
+  <a href="README.md">English</a>
+</p>
+
 > [!WARNING]
 > Arkor は **alpha** 段階です。API は予告なく変更されます。私たちはオープンに開発を進めており、フィードバックが次に何が入るかを左右します。
 
