@@ -58,9 +58,15 @@ jobs:
 
       - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v6
+      # tsdown's bundler (rolldown) requires Node ^20.19 || >=22.12 for its
+      # native binding, and several matrix entries fall below that range.
+      # Install dependencies and pre-build the tsdown-using CLIs on a
+      # known-compatible Node; the matrix Node below then exercises the
+      # resulting dist/ at runtime.
+      - name: Setup bootstrap Node
+        uses: actions/setup-node@v6
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '24'
           cache: pnpm
 
       # Turbo's local cache is at .turbo/cache. Keying on the commit SHA
@@ -80,11 +86,22 @@ jobs:
       - name: Install
         run: pnpm install
 
+      - name: Build CLI dist
+        run: pnpm --filter create-arkor build && pnpm --filter arkor build
+
+      - name: Setup matrix Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+
       - name: Typecheck
         run: pnpm typecheck
 
+      # e2e-cli's pretest hook rebuilds create-arkor with tsdown, which fails
+      # on matrix Nodes below rolldown's supported range. Skip it in the turbo
+      # run and invoke vitest directly so the dist/ produced by the bootstrap
+      # step above is used as-is.
       - name: Test
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
+        run: |
+          pnpm exec turbo run test --filter='!@arkor/e2e-cli'
+          pnpm --filter @arkor/e2e-cli exec vitest run
