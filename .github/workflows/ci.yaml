@@ -145,11 +145,12 @@ jobs:
     name: coverage · upload to Codecov
     runs-on: ubuntu-latest
     # The matrix above already exercises tests across Node versions; this
-    # job runs once on the newest LTS to keep coverage uploads stable.
-    # Codecov uploads use OIDC (`use_oidc: true`) — no CODECOV_TOKEN secret
-    # is stored in this repo. `id-token: write` is required for the runner
-    # to mint the OIDC JWT that codecov-action exchanges for an upload
-    # token. See https://docs.codecov.com/docs/github-tokenless-uploads.
+    # job runs once on the newest LTS to keep coverage + Test Analytics
+    # uploads stable. Codecov uploads use OIDC (`use_oidc: true`) — no
+    # CODECOV_TOKEN secret is stored in this repo. `id-token: write` is
+    # required for the runner to mint the OIDC JWT that codecov-action
+    # exchanges for an upload token. See
+    # https://docs.codecov.com/docs/github-tokenless-uploads.
     permissions:
       id-token: write
     steps:
@@ -173,10 +174,15 @@ jobs:
       - name: Install
         run: pnpm install
 
+      # Tests must keep going on failure so JUnit XML still gets uploaded
+      # to Codecov Test Analytics. Subsequent upload steps gate on
+      # `!cancelled()` so they run even when this step fails; the job's
+      # final outcome still reflects the test result.
       - name: Test with coverage
         run: pnpm test:coverage
 
       - name: Upload arkor coverage
+        if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
@@ -185,6 +191,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload create-arkor coverage
+        if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
@@ -193,6 +200,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload cli-internal coverage
+        if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
@@ -201,9 +209,54 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload studio-app coverage
+        if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
           files: ./packages/studio-app/coverage/lcov.info
+          flags: studio-app
+          fail_ci_if_error: false
+
+      # Codecov Test Analytics — uploads JUnit XML produced by the vitest
+      # `junit` reporter. Tracks pass/fail history per test, surfaces flaky
+      # tests, and shows failure trends on the Codecov dashboard. See
+      # https://docs.codecov.com/docs/test-analytics.
+      - name: Upload arkor test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          report_type: test_results
+          files: ./packages/arkor/coverage/junit.xml
+          flags: arkor
+          fail_ci_if_error: false
+
+      - name: Upload create-arkor test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          report_type: test_results
+          files: ./packages/create-arkor/coverage/junit.xml
+          flags: create-arkor
+          fail_ci_if_error: false
+
+      - name: Upload cli-internal test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          report_type: test_results
+          files: ./packages/cli-internal/coverage/junit.xml
+          flags: cli-internal
+          fail_ci_if_error: false
+
+      - name: Upload studio-app test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          report_type: test_results
+          files: ./packages/studio-app/coverage/junit.xml
           flags: studio-app
           fail_ci_if_error: false
