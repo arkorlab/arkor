@@ -43,6 +43,10 @@ arkor login [options]
 
 匿名認証は、アカウントなしで Arkor を試すためのものです。学習、ジョブ、その他の作業は匿名トークンを介してローカルマシンに紐づきます。あとで OAuth に切り替える（`arkor login --oauth`、またはピッカーから `OAuth (browser)` を選ぶ）と認証情報ファイルは差し替えられますが、作業は移行されません。匿名で学習したものを残したいなら、学習を始める前に `arkor login --oauth` を走らせてください。
 
+### 匿名発行時の出力
+
+どちらの匿名パスでも CLI は `Anonymous id: <id>` を表示し、続けて「同じ id がセッションをまたいで Arkor Cloud がこのクライアントを認識するための識別子であり、`~/.arkor/credentials.json` を保持していれば同じ identity を維持できる」旨の info 行を出します。ピッカー → **Anonymous** のパスでは、さらに成功メッセージと並んで 1 行の warn（`Anonymous sessions aren't guaranteed to persist — sign in with arkor login --oauth to tie future work to your Arkor Cloud account.`、和訳: 匿名セッションは永続性が保証されないので、今後の作業を Arkor Cloud アカウントに紐付けたいなら `arkor login --oauth` でサインインしてください）が出るので、発行時点でアップグレードのヒントが見えます。明示的な `--anonymous` ショートカットでは `/v1/auth/cli/config` の取得をスキップしているため `arkor login --oauth` がそのデプロイで成功するかわからず、稀に存在する匿名専用デプロイで失敗するコマンドへユーザーを誘導しないよう、warn は意図的に抑制されます。
+
 ## `arkor logout`
 
 ```bash
