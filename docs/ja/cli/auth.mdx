@@ -1,0 +1,120 @@
+---
+title: "arkor login / logout / whoami"
+description: "Arkor のマネージドバックエンドにサインイン／サインアウトし、現在の identity を確認する。"
+---
+
+# `arkor login`、`arkor logout`、`arkor whoami`
+
+`~/.arkor/credentials.json` を読み書きするだけの 3 つの短いコマンドです。いずれも `.arkor/state.json` には触りません。匿名ワークスペースでは、初回 `trainer.start()`（または初回推論呼び出し）でランタイムがプロジェクトルーティングを自動作成します。Auth0 ワークスペースではランの前に `.arkor/state.json` が存在している必要があります。今のところ `arkor login` も `arkor init` もこれを作らないので、現実的なパスは `{ orgSlug, projectSlug, projectId }` を手で書くことです。状態ファイルが無くてランタイムがエラーを吐くと、このフォールバックを案内します。
+
+## `arkor login`
+
+```bash
+npx arkor login
+```
+
+マネージドバックエンドにサインインします。デフォルトのフローはループバックコールバック上の Auth0 Authorization Code + PKCE で、クラウド API がこのデプロイで Auth0 が未構成と報告する場合は匿名セッションにフォールバックします。
+
+### 概要
+
+```
+arkor login [options]
+```
+
+### オプション
+
+| フラグ | 説明 |
+| --- | --- |
+| `--anonymous` | Auth0 フローをスキップして使い捨ての匿名トークンを要求します。これは新規マシンでクラウド API がこのデプロイで Auth0 未構成と報告した場合の `arkor dev` のフォールバックでもあります。Auth0 構成済みデプロイでは `arkor dev` は代わりに PKCE フローを走らせます。 |
+| `--no-browser` | 自動の `open(url)` 呼び出しを無効化。authorization URL は両モードとも表示（`Browser: <url>` 行）されます。このフラグは CLI がブラウザを起動するのを止めるだけです。ヘッドレス環境（SSH、Docker）で便利。 |
+
+### 何が起きるか
+
+1. CLI はクラウド API の `/v1/auth/cli/config` を呼んでデプロイの Auth0 設定を読みます。
+2. Auth0 が未構成（または `--anonymous` 指定）なら、`/v1/auth/anonymous` から匿名トークンを要求し、`mode: "anon"` で `~/.arkor/credentials.json` に書きます。
+3. Auth0 構成済みなら、PKCE ペアを生成し、クラウド API から提供されたコールバックポートのいずれかでループバック HTTP サーバーを起動し、authorize URL を開く（または表示する）、コールバックを待ちます。コードをトークンに交換する前に state を検証し、不一致は CSRF 防止のため abort されます。得られた Auth0 トークンは `mode: "auth0"` で `~/.arkor/credentials.json` に書かれます。
+
+ループバックサーバーは `finally` ブロックで閉じられるので、login が失敗してもサーバーは残りません。
+
+### 匿名モードを 1 段落で
+
+匿名認証は、アカウントなしで Arkor を試すためのものです。学習ラン、ジョブ、その他の作業は匿名トークンを介してローカルマシンに紐づきます。あとで Auth0 に切り替える（`arkor login`）と認証情報ファイルは差し替えられますが、作業は移行されません。匿名で学習したものを残したいなら、ランを始める前に `arkor login` を走らせてください。
+
+## `arkor logout`
+
+```bash
+npx arkor logout
+```
+
+`~/.arkor/credentials.json` を削除します。デフォルトでは確認プロンプトが出ます。
+
+### 概要
+
+```
+arkor logout [options]
+```
+
+### オプション
+
+| フラグ | 説明 |
+| --- | --- |
+| `-y, --yes` | 確認プロンプトをスキップ。 |
+
+### 振る舞い
+
+- 認証情報ファイルが存在しなければ、CLI は `No credentials on file.` と出して終了。
+- ユーザーがプロンプトを断ると `Aborted.` と出して削除せずに終了。
+- `arkor logout` は `.arkor/state.json` や `.arkor/build/` 成果物には触りません。完全に最初からやり直すには `.arkor/` も手動で削除してください。
+
+## `arkor whoami`
+
+```bash
+npx arkor whoami
+```
+
+クラウド API の `/v1/me` から現在の identity を表示し、到達できる org slug も並べます。
+
+### 概要
+
+```
+arkor whoami
+```
+
+フラグはありません。
+
+### 出力
+
+サインイン中なら `user` オブジェクトを JSON で pretty-print し、レスポンスに org が含まれていれば `Orgs: <slug>, <slug>, …` を 1 行で出します。`~/.arkor/credentials.json` が無いときは `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.` と出して終了します。
+
+### 終了コード
+
+- `0`: サインイン中、identity を表示。
+- `0`: 未サインイン、メッセージは情報用のみ。
+- `1`: クラウド API が `426 Upgrade Required` を返した。CLI はアップグレードのヒント（と検出したパッケージマネージャ用のアップグレードコマンド）を表示し、`process.exitCode = 1` を立てて、`arkor` のシャットダウンフックの非推奨警告フラッシュが終了前に走るようにします。
+- それ以外の 4xx / 5xx は `Failed to fetch /v1/me (<status>). Token may be expired.` として報告し、`0` で終了します。
+
+## 認証情報の保存場所
+
+両モードとも同じファイル `~/.arkor/credentials.json` に書き、`mode` フィールドが `"auth0"` か `"anon"` でタグ付けされます。これにより CLI（と Studio サーバー）はどのパスを使うかわかります。レイアウト全体は [プロジェクト構成](/ja/concepts/project-structure) を参照。
+
+## トークンの有効期限
+
+Auth0 セッションでは、認証情報ファイルにアクセストークンと発行されたリフレッシュトークン、トークン交換が返した `expiresAt` タイムスタンプを記録します。リフレッシュトークンは保存していますが、CLI は **まだ** 期限切れアクセストークンの自動リフレッシュをしません。これはロードマップ上です。
+
+実用上の意味は:
+
+- 期限切れアクセストークンは `arkor whoami` から `Failed to fetch /v1/me (401). Token may be expired.` として、あるいはクラウド API と話すあらゆるものから類似の失敗として現れます。
+- 直し方は `arkor login` をもう一度走らせることです。フル PKCE フローを通って `~/.arkor/credentials.json` を新トークンで上書きします。
+
+匿名トークンはクライアント側に有効期限の追跡がなく、いつ動かなくなるかはクラウド API が決めます。匿名セッションが失敗し始めたら `arkor login --anonymous` で新しいものを発行してください（新しい `anonymousId` が発行されるので、実質的には別ワークスペースになります）。
+
+## よくあるエラー
+
+| メッセージ | 場所 | 意味 | 対処 |
+| --- | --- | --- | --- |
+| `State mismatch — aborting to prevent CSRF` | `arkor login`（Auth0） | ループバックコールバックに返ってきた `state` が CLI の生成したものと一致しない。たいていは前回 login の古いタブをブラウザが開いたケース。 | `arkor login` を再実行し、新規に開いたタブでフローを完了。 |
+| `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login`（Auth0） | Auth0 のトークンエンドポイントは成功したがレスポンスに `refresh_token` が無かった。たいていは Auth0 側のデプロイ設定ミス。 | Auth0 アプリケーションで `offline_access` スコープを有効化するか、デプロイを Arkor 管理者に報告。 |
+| `No credentials on file.` | `arkor logout` | `~/.arkor/credentials.json` が存在しない。削除対象なし。 | サインインしたいなら先に `arkor login`。 |
+| `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.` | `arkor whoami` | 上と同じ条件を別コマンドから出している。 | 同じ対処。 |
+| `Failed to fetch /v1/me (<status>). Token may be expired.` | `arkor whoami` | クラウド API が non-200 / non-426 で拒否した。多くは期限切れアクセストークン。 | `arkor login` を再実行。終了コードは `0` のままで、ラッパースクリプトはメッセージを検査できる。 |
+| `426 Upgrade Required`（アップグレードヒント付き） | `arkor whoami`（および他のクラウド API 呼び出し） | デプロイがより新しい SDK バージョンを要求している。CLI は検出したパッケージマネージャ用のアップグレードコマンドを表示し、`process.exitCode = 1` を立てる。 | `arkor` パッケージをアップグレードして再実行。 |

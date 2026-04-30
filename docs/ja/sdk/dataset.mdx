@@ -1,0 +1,59 @@
+---
+title: "DatasetSource"
+description: "トレーナーがデータを引いてくる場所: HuggingFace 名 or blob URL。"
+---
+
+# `DatasetSource`
+
+`createTrainer` はデータセットを 1 つ受け取ります。`type` で判別される union として表現します:
+
+```ts
+type DatasetSource =
+  | { type: "huggingface"; name: string; split?: string; subset?: string }
+  | { type: "blob";        url: string;  token?: string };
+```
+
+## HuggingFace
+
+```ts
+dataset: {
+  type: "huggingface",
+  name: "arkorlab/triage-demo",
+  // split: "train",
+  // subset: "v1",
+}
+```
+
+| フィールド | 型 | 補足 |
+| --- | --- | --- |
+| `type` | `"huggingface"` | 判別子。 |
+| `name` | `string` | リポジトリ名（例: `arkorlab/triage-demo`）。公開リポジトリは追加認証なしで動きます。 |
+| `split` | `string?` | デフォルト split を上書き。任意。 |
+| `subset` | `string?` | 複数 subset を公開しているデータセット用。任意。 |
+
+これは同梱テンプレート（`triage` / `translate` / `redaction`）が使う形です。多くのプロジェクトはここから始めます。
+
+## Blob URL
+
+```ts
+dataset: {
+  type: "blob",
+  url: "https://example.com/data.jsonl",
+  // token: process.env.DATASET_TOKEN,
+}
+```
+
+| フィールド | 型 | 補足 |
+| --- | --- | --- |
+| `type` | `"blob"` | 判別子。 |
+| `url` | `string` | バックエンドが取得できる HTTPS URL。 |
+| `token` | `string?` | ジョブ設定としてクラウド API に転送され、バックエンドが blob を取得する際に使われます。具体的な HTTP ワイヤーフォーマット（ヘッダ、scheme 等）はバックエンド側で定義され、SDK の契約には含まれません。 |
+
+自分がホストしているデータセット（署名付き S3 URL、社内 CDN 等）に使ってください。バックエンドはランの開始時に URL を一度引きます。
+
+## どちらを選ぶか
+
+- データセットが既に Hub にあるなら `huggingface`。最もテストされたパス。
+- Hub に置けないデータセット（プロプライエタリな内容、署名付き URL、社内専用）なら `blob`。
+
+ローカルファイル（`{ type: "file", path: "./data.jsonl" }`）は今のところ `DatasetSource` にありません。使うには blob URL としてホストするか、プライベート HuggingFace リポジトリにアップロードしてください。

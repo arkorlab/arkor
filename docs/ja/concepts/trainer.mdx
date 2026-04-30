@@ -1,0 +1,142 @@
+---
+title: "トレーナー"
+description: "createTrainer: 必須フィールド、データセットソース、LoRA 設定、start / wait / cancel のライフサイクル。"
+---
+
+`createTrainer` は Arkor プロジェクトの心臓部です。Arkor がファインチューニングのランについて知っているすべて — ベースモデルから LoRA ランクまで — は、ここに渡したオブジェクトに乗っています。
+
+## 最小例
+
+```ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+});
+```
+
+これだけで有効なトレーナーです。それ以外はすべてデフォルト値で埋められます。
+
+## 必須フィールド
+
+| フィールド | 型              | 補足                                                         |
+| ---------- | --------------- | ------------------------------------------------------------ |
+| `name`     | `string`        | Studio とマネージドバックエンドに表示されるジョブ名。         |
+| `model`    | `string`        | バックエンドが認識するモデル ID（今は Gemma）。             |
+| `dataset`  | `DatasetSource` | [データセットソース](#データセットソース) を参照。            |
+
+## データセットソース
+
+`DatasetSource` は `type` で判別される union です:
+
+```ts
+type DatasetSource =
+  | { type: "huggingface"; name: string; split?: string; subset?: string }
+  | { type: "blob";        url: string;  token?: string };
+```
+
+- **HuggingFace**。最もよく使う形。Arkor が名前でデータセットを取得します。デフォルトの split を上書きするには `split`、複数の subset を公開しているデータセットには `subset` を使います。
+- **Blob URL**。バックエンドが取得できる任意の HTTPS URL。URL の取得に認証が必要なら `token` を渡してください。値はクラウド API に転送されてデータセット取得時に使われます（具体的なワイヤーフォーマットはバックエンド側で定義され、SDK の契約には含まれません）。
+
+## LoRA 設定
+
+LoRA の設定は `lora` で渡します。4 つのフィールドすべてが型付きです:
+
+```ts
+lora?: {
+  r: number;             // LoRA ランク
+  alpha: number;         // LoRA alpha
+  maxLength?: number;    // 最大シーケンス長
+  loadIn4bit?: boolean;  // QLoRA 量子化
+}
+```
+
+`lora` を省略するとバックエンドが妥当なデフォルトを適用します。同梱テンプレートでの出発点としては `r: 16, alpha: 16` が良い線です。
+
+## よく使うハイパーパラメータ
+
+| フィールド          | 型       | 役割                                                      |
+| ------------------- | -------- | --------------------------------------------------------- |
+| `maxSteps`          | `number` | 学習ステップの上限。最も単純に回せるツマミ。             |
+| `numTrainEpochs`    | `number` | `maxSteps` の代替: データセットを何周するか。            |
+| `learningRate`      | `number` | オプティマイザのステップサイズ。                         |
+| `batchSize`         | `number` | デバイスごとの学習バッチサイズ。                         |
+| `optim`             | `string` | オプティマイザ名（バックエンドのリストが有効値を決める）。 |
+| `lrSchedulerType`   | `string` | LR スケジュール（linear、cosine など）。                 |
+| `weightDecay`       | `number` | 正則化の重み。                                           |
+
+`maxSteps` だけ設定すれば、それ以外はバックエンドのデフォルトのままです。最初の数ランではそれが普通望ましい挙動です。
+
+## `dryRun` でのスモークテスト
+
+```ts
+createTrainer({
+  name: "smoke",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  dryRun: true,
+});
+```
+
+`dryRun: true` はトレーナーのエンドツーエンドのスモークテストをバックエンドに依頼します。フルパイプライン（学習ループ含む）が、切り詰めたデータセットと制限付きステップで実行されるので素早く終わります。GPU 時間は使いますが、はるかに少ない量です。CI や、初めてコールバックを組んでいるときに便利です。
+
+## `createTrainer` の返り値
+
+```ts
+interface Trainer {
+  readonly name: string;
+  start(): Promise<{ jobId: string }>;
+  wait(): Promise<TrainingResult>;
+  cancel(): Promise<void>;
+}
+```
+
+- **`start()`** はマネージドバックエンドにジョブを投入し、割り当てられた `jobId` を返します。完了は待たず、コールバックも単独では発火しません。
+- **`wait()`** はランの SSE イベントストリームを開き、ランが終わる（or 失敗する）と返ります。登録したコールバックはすべて `wait()` 内から発火します。`start()` を呼んだ後 `wait()` を呼ばないと、コールバックは決して動きません。
+- **`cancel()`** はバックエンドにラン停止をお願いします。これはベストエフォートのリクエスト: ランがすでに終端状態（completed、failed、cancelled）にある場合バックエンドはエラーを返すことがあるので、catch する準備をしてください。
+
+`arkor start` があなたの代わりに `start()` と `wait()` を呼びます（Studio の "Run training" ボタンが内部でスポーンするものです）。`start()` と `wait()` を直接呼ぶのは、CLI の外側で学習を自分のコードに組み込む場合だけです。`arkor dev` 自体はトレーナーを実行しません。Studio UI を起動するだけです。
+
+## `AbortSignal` で `wait()` を止める
+
+```ts
+const controller = new AbortController();
+const trainer = createTrainer({
+  name: "cancellable",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  abortSignal: controller.signal,
+});
+
+// あとで、どこからでも:
+controller.abort();
+```
+
+`abortSignal` はあくまで **ローカルの** `wait()` に関するものです。abort すると `wait()` 内の SSE イベントストリームの fetch と、リトライ／バックオフの遅延が停止されます。現在の実装では abort 時に throw します（バックオフの `delay` が `signal.reason` で reject し、failure handler はシグナルが abort されていれば再 throw する）。なので `wait()` はクリーンに resolve せず reject します。abort するなら `try / catch` で囲んでください:
+
+```ts
+try {
+  await trainer.wait();
+} catch (err) {
+  if (controller.signal.aborted) {
+    // 想定通り: wait() を止めるよう頼んだ
+  } else {
+    throw err;
+  }
+}
+```
+
+`abortSignal` は `cancel()` を呼びませんし、バックエンドにランの停止を依頼もしません。マネージド側ではジョブが GPU 時間を使い続けます。学習を実際に止めたい（コストも止めたい）場合は別途 `trainer.cancel()` を呼んでください:
+
+```ts
+controller.abort();          // ローカルの wait() が reject
+await trainer.cancel();      // バックエンドにジョブ停止を依頼
+```
+
+「このランを待つのはもういい」（リクエストタイムアウト、親プロセス終了）なら `abortSignal`。「バックエンド側でランを止めたい」なら `cancel()` を使ってください。
+
+## イベントへのリアクション
+
+これを TypeScript でやる目的は、ランに [ライフサイクルコールバック](/ja/concepts/lifecycle) — `onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed` — を仕掛けられることです。次に読むべきコンセプトです。

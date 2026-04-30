@@ -1,0 +1,60 @@
+---
+title: "学習ランの開始とジョブの観察"
+description: "Studio の Home と Job 詳細ページ: ランをトリガーし、ストリームを眺め、1 ジョブを掘り下げる。"
+---
+
+# 学習ランの開始とジョブの観察
+
+Studio の Home ページ（`#/`）は左の **Run training** と右の **Jobs リスト** の 2 列で構成されます。一覧でジョブをクリックすると **Job 詳細**（`#/jobs/:id`）に遷移し、ライブイベントストリームと loss チャートはここに置かれています。
+
+## Run training
+
+Run training パネルはページ読み込み時に `/api/manifest` を 1 度呼びます。レスポンスはプロジェクトの `createArkor({ trainer })` のサマリで、これをもとにアクションをラベル付けします:
+
+- トレーナーが見つかれば `Run training: <trainer name>`。
+- バンドルは import されたが何も露出しない場合 `No trainer in src/arkor/index.ts yet. Add createTrainer(...) and pass it to createArkor.`。
+- ビルド自体が失敗（`src/arkor/` の typo 等）した場合 `Couldn't read manifest: <error>`。
+
+ボタンはランの進行中、およびトレーナー未解決のとき無効化されます。
+
+クリックすると Studio は `POST /api/train` を送ります。バックエンドはサブプロセスで `arkor start` を spawn し、stdout / stderr を生テキストとしてストリーム返却します。整形済みログボックスは自動スクロールし、表示されるのはターミナルで `arkor start` を走らせたときの出力そのものです。
+
+トレーナー選択やフラグを渡す入力フォームはありません: Studio は常に `createArkor` で登録されたトレーナーを走らせ、`arkor start` は `.arkor/build/index.mjs` があれば再利用します。同じページで複数回クリックする間に `src/arkor/` の編集は自動では拾われません。編集の合間に Run training ページをリロード（あるいはターミナルから `npx arkor build`）してから次のクリックをしてください。具体的なリビルドルールは [CLI § build / start](/ja/cli/build-and-start) を参照。
+
+## Jobs リスト
+
+Jobs リストはマウント時に 1 度、その後 5 秒ごとに `GET /api/jobs` をポーリングします。手動リフレッシュボタンはなく、間隔は固定です。
+
+| 列 | ソース |
+| --- | --- |
+| Status | `Job.status`（`queued` / `running` / `completed` / `failed` / `cancelled`）。セルは色付け用の CSS クラスを持つ。 |
+| Name | `Job.name`。`#/jobs/<id>` にリンク。 |
+| Created | `new Date(Job.createdAt).toLocaleString()`。 |
+| ID | `Job.id`、等幅フォント。 |
+
+リストはバックエンドが返した順そのままを表示します。クライアント側のフィルタ、検索、ページングはありません。プロジェクトにジョブがまだ無いとき、パネルは `No jobs yet.` と読みます。
+
+## Job 詳細
+
+`#/jobs/:id` は `EventSource` 経由で `GET /api/jobs/:id/events` への Server-Sent Events 接続を開きます。ページは 5 つの名前付きイベントとストリーム終端を待ち受けます:
+
+| イベント | ページへの効果 |
+| --- | --- |
+| `training.started` | ステータスが `running` に変わる。生行 `[started] <data>` がイベントログに追加。 |
+| `training.log` | `step` と `loss` が loss チャートのデータ配列に追加。生行 `[log] step=<n> loss=<value>` がイベントログに加わる。 |
+| `checkpoint.saved` | 生行 `[checkpoint] <data>` がイベントログに加わる。チャートには影響なし。 |
+| `training.completed` | ステータスが `completed` に変わる。artifact 数がステータス下に表示（`artifacts: <n>`）。 |
+| `training.failed` | ステータスが `failed` に変わる。イベントペイロードのエラーメッセージがステータス下に表示。 |
+| `end` | ページが EventSource をクローズ。再接続なし。 |
+
+ストリームエラーはログに `[stream error]` を追加します。再接続はブラウザの `EventSource` の retry 挙動に任されます。
+
+イベントログは **直近 50 行** だけを保持します（新着につれて古い行が消えていきます）。生の `<pre>` ブロックで、フォレンジック用ではなく素早い目視確認のためのものです。完全な履歴はクラウド API を直接見てください。
+
+loss チャートは単一の SVG パス（`640 × 200`）で、数値 `loss` を含む `training.log` イベントから描画します。Y 軸は min-max スケーリング、X 軸はステップ番号です。ズーム、ツールチップ、エクスポートはありません。`training.log` イベントが 1 つも来ていなければ、チャート枠は `No training.log events yet.` と読みます。
+
+## このページがしないこと
+
+- **キャンセルボタンなし。** 動作中ジョブを止めるには、トレーナーを駆動する自前コードから [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。Studio は今日 UI で公開していません。
+- **Artifact ブラウザなし。** 完了ジョブの artifact 数は出ますが、個別 artifact をリスト／リンクしません。完全な artifact アクセスにはクラウド API を、あるいはラン中の SDK の `onCompleted({ artifacts })` コールバックを使ってください。
+- **ラン途中の推論なし。** Playground は完了ジョブ専用です（[Playground](/ja/studio/playground) 参照）。ラン途中のライブ確認には SDK の [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使ってください。

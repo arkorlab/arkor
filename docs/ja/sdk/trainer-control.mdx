@@ -1,0 +1,139 @@
+---
+title: "トレーナー制御"
+description: "start、wait、cancel、abortSignal、再接続の仕組み。"
+---
+
+# トレーナー制御
+
+`createTrainer` は次の 3 メソッドを持つ `Trainer` オブジェクトを返します:
+
+```ts
+interface Trainer {
+  readonly name: string;
+  start(): Promise<{ jobId: string }>;
+  wait(): Promise<TrainingResult>;
+  cancel(): Promise<void>;
+}
+
+interface TrainingResult {
+  job: TrainingJob;
+  artifacts: unknown[];
+}
+```
+
+`arkor start` と Studio の "Run training" ボタンはどちらも `start()` の後に `wait()` を呼びます。これらを自分で呼ぶのは、学習を自前のコード（サーバー、スクリプト、独自 CLI）に組み込むときだけです。
+
+## `start()`
+
+```ts
+const { jobId } = await trainer.start();
+```
+
+- ジョブをクラウド API に投入し、バックエンドが受理した時点で resolve。返ってくる `jobId` は Studio で見えるもの、SDK の `TrainingJob.id` と同じです。
+- 冪等: 同じトレーナーで `start()` を 2 回目に呼んでも再投入せず同じ `jobId` を返します（`packages/arkor/src/core/trainer.ts:275-289`）。
+- イベントストリームを開かず、コールバックを発火 **しません**。それをするのは `wait()` です。
+
+## `wait()`
+
+```ts
+const { job, artifacts } = await trainer.wait();
+```
+
+- ランの SSE イベントストリームを開き、各フレームをコールバックにディスパッチし、ストリームが `training.completed` か `training.failed` を報告したときに終端の `TrainingResult` で resolve します。
+- まだ `start()` を呼んでいなければ代わりに呼んでくれます。
+- 5 つの[ライフサイクルコールバック](/ja/sdk/callbacks)はすべて `wait()` 内から発火します。`start()` を呼んで `wait()` を呼ばないと、ランがバックエンドで進行していてもコールバックは動きません。
+- 一過性の SSE エラーでは再接続します（下記）。
+
+## `cancel()`
+
+```ts
+await trainer.cancel();
+```
+
+- `start()` がまだ呼ばれていなければ `cancel()` は no-op（`:388-389` で早期 return）。
+- そうでなければバックエンドにキャンセルリクエストを送ります。
+- **ベストエフォート。** SDK は終端ステータスでショートサーキットしません。ランが既に completed / failed / cancelled なら、バックエンドは non-2xx を返すことがあり `cancel()` は reject します。投機的に呼ぶなら `try / catch` で囲んでください。
+
+## `abortSignal`
+
+```ts
+const controller = new AbortController();
+
+const trainer = createTrainer({
+  name: "with-timeout",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  abortSignal: controller.signal,
+});
+
+// あとで、どこからでも:
+controller.abort();
+```
+
+`abortSignal` は **あくまでローカルの `wait()` ループ** をコントロールします。シグナルが abort すると:
+
+1. 進行中の SSE fetch が abort される（`trainer.ts:325-328`）。
+2. 動作中の再接続バックオフ `delay` が `signal.reason` で reject される（`trainer.ts:178`）。
+3. シグナルが abort されている場合、`handleFailure` が再 throw する（`trainer.ts:308`）。
+4. 結果として `wait()` は abort 時に resolve ではなく **reject** する。
+
+これは `cancel()` を呼ばず、バックエンドにも何も送りません。マネージド側ではジョブが GPU 時間を使い続けます。
+
+両方の効果（ローカルでの待機停止と、バックエンドのラン停止）が欲しいなら別々にやります:
+
+```ts
+try {
+  await trainer.wait();
+} catch (err) {
+  if (controller.signal.aborted) {
+    // 想定通り: wait() を止めるよう頼んだ
+  } else {
+    throw err;
+  }
+}
+await trainer.cancel(); // ベストエフォート、上記参照
+```
+
+「このランを待つのはもういい」（リクエストタイムアウト、親プロセス終了）なら `abortSignal`。「バックエンド側でランを止めたい」なら `cancel()`。
+
+## 再接続
+
+`wait()` はデフォルトで一過性の障害を超えて SSE ストリームを生かし続けます:
+
+- 少なくとも 1 フレーム受信した後のクリーンなストリーム EOF は、即時再接続をベース遅延（`initialReconnectDelayMs`、デフォルト 1000 ms）で起こし、失敗予算には数えません。ストリームは `Last-Event-ID` で再開します。
+- 接続エラー、または 1 フレームも受信せずの EOF は失敗としてカウントされ `handleFailure` を経由します: 指数バックオフは `initialReconnectDelayMs * 2 ** attempt`、各試行の遅延は `maxReconnectDelayMs`（デフォルト 60 000 ms）にクランプ、連続失敗カウントは `maxReconnectAttempts` で上限。
+- `maxReconnectAttempts` のデフォルトは `undefined`（連続失敗無制限）。`TrainerInput` から設定はできず、`reconnectDelayMs` と `maxReconnectDelayMs` も含め `createTrainer` の第 2 引数 `context`（`@internal` 注釈付き、変更され得る）からのみ設定できます。多くのプロジェクトでこれは、ジョブが走っている限り一過性 SSE 失敗が黙ってリトライされ続ける、ということを意味します。
+
+このパスはユーザーコールバックの throw もキャッチします（[ライフサイクルコールバック § 例外ハンドリング](/ja/sdk/callbacks#例外ハンドリングよく読んでください) を参照）。決定的なエラーハンドリングが必要なら、`wait()` の reject に頼るのではなくコールバック内で catch してください。
+
+## ツープロセスパターン
+
+CLI 以外で使うときの典型的な形は、長寿命のトレーナー参照を持って自前のコードで `start`、`wait`、`cancel` を制御するものです:
+
+```ts
+import { createTrainer } from "arkor";
+
+const controller = new AbortController();
+process.on("SIGINT", () => controller.abort());
+
+const trainer = createTrainer({
+  /* ... */
+  abortSignal: controller.signal, // abort() で wait() が実際に reject するよう接続
+});
+
+const { jobId } = await trainer.start();
+console.log(`Started ${jobId}`);
+
+try {
+  const { artifacts } = await trainer.wait();
+  console.log(`Finished with ${artifacts.length} artifact(s).`);
+} catch (err) {
+  if (controller.signal.aborted) {
+    await trainer.cancel().catch(() => {});
+    throw new Error("Aborted by signal");
+  }
+  throw err;
+}
+```
+
+これは `runTrainer` のエントリ解決を除けば、`arkor start` がやっているのと機能的に同じです。

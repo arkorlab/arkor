@@ -1,0 +1,73 @@
+---
+title: "arkor dev"
+description: "Arkor Studio をローカル起動する。"
+---
+
+# `arkor dev`
+
+```bash
+npx arkor dev
+```
+
+[Studio](/ja/concepts/studio)（ローカル Web UI）を `http://localhost:4000` で起動します。Studio は **Run training** をクリックして `src/arkor/index.ts` に対し `arkor start` をスポーンし、ランをストリームで眺め、出来上がったアダプタと Playground でチャットする場所です。
+
+`arkor dev` 自体は学習ランを開始 **しません**。UI と SPA が話すための小さなループバック API を提供するだけです。
+
+## 概要
+
+```
+arkor dev [options]
+```
+
+## オプション
+
+| フラグ | デフォルト | 説明 |
+| --- | --- | --- |
+| `-p, --port <port>` | `4000` | バインドするポート。表示 URL は `localhost` ですが、リスナは `127.0.0.1` を直接バインドします。これにより `/etc/hosts` で `::1` が `127.0.0.1` より先に並ぶホストでも IPv6 専用に終わりません。CLI は値を `Number(opts.port) || 4000` でパースするので、falsy な結果（`0`、非数）は `4000` に正規化されます。**truthy な不正値はそのまま透過します**: 負のポートや `65535` を超えるポートはリスナにそのまま到達し `serve()` の失敗（例: `RangeError`）として現れます。1〜65535 の標準範囲を自分で守ってください。 |
+| `--open` | off | サーバー起動後にブラウザで Studio URL を開く。 |
+
+## 起動時に何が起きるか
+
+1. **認証情報のブートストラップ。** `~/.arkor/credentials.json` が無いとき、CLI はクラウド API の `/v1/auth/cli/config` を呼びます。デプロイで Auth0 が構成されていれば `arkor login`（対話的 PKCE）に転送します。そうでなければ匿名トークンを要求して認証情報を書きます。一過性のネットワーク障害（デプロイモードが positively known な場合のみ）では警告して続行し、Studio サーバーは初回の `/api/credentials` ヒットで再試行します。
+2. **CSRF トークン。** この起動用に 32 バイトのトークン（base64url、約 43 文字）を生成。同一オリジンの SPA が読めるよう `<meta name="arkor-studio-token">` として `index.html` にインジェクトされます。クロスオリジンタブはこの meta を読めず、`/api/*` のミドルウェアに拒否されます。
+3. **トークンの永続化（ベストエフォート）。** 同じトークンを `~/.arkor/studio-token`（モード `0600`）にも書きます。studio-app の Vite dev サーバー（`pnpm --filter @arkor/studio-app dev`）が拾えるようにするためです。書き込みが失敗（`$HOME` が読み取り専用、umask が厳しい等）しても `arkor dev` は続行します。影響を受けるのはスタンドアロン Vite dev ワークフローだけです。
+4. **リスナ。** `127.0.0.1:<port>` 上の Hono。`Host` ヘッダのガードは `127.0.0.1` と `localhost` の両方を受け付けるので、CLI が表示する URL（`http://localhost:<port>`）は DNS リバインディング系の挙動なしで動きます。
+
+プロセス終了時（通常終了、`SIGINT`、`SIGTERM`、`SIGHUP`）に studio-token ファイルはベストエフォートで削除されます。クラッシュするとファイルがディスク上に残ることがあり、その場合は次回 `arkor dev` がローテートします。
+
+## ループバック + CSRF: セキュリティモデルを 1 段落で
+
+Studio サーバーはすべての `/api/*` リクエストに 3 つのチェックを課します:
+
+1. `Host` ヘッダは `127.0.0.1` か `localhost`（DNS リバインディング対策）。
+2. CSRF トークンは `X-Arkor-Studio-Token` ヘッダか `?studioToken=...`（カスタムヘッダを送れない `EventSource` 用）として必須。比較は `timingSafeEqual`。
+3. CORS は意図的に未設定: SPA は同一オリジンなので CORS は価値を加えず、`*` を反射すると preflight をスキップする「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまう。トークンが無ければミドルウェアが拒否します。
+
+これにより `arkor dev` は共有開発マシンでも安全です。別タブは meta を読めず、過去の起動の古いタブはトークンが一致せず、別オリジンの攻撃者ページはリクエストを偽造できません。
+
+## ポートが使用中のとき
+
+`arkor dev` は空きポートの自動採用はしません。指定ポートが既に使われている（前回の `arkor dev` が残っている、無関係な dev サーバー、等）と `serve()` は Node の `net.Server` から来る `EADDRINUSE` をそのまま表に出してプロセスは非ゼロで終了します。`-p <port>` で別のポートを選ぶか、占有しているプロセスを止めてください。
+
+## よくあるエラー
+
+| 症状 | 意味 | 対処 |
+| --- | --- | --- |
+| `Error: listen EADDRINUSE: address already in use 127.0.0.1:4000` | 別プロセスがポートを保持。 | 止めるか `--port <other>`。 |
+| `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.` | 起動時にクラウド API へ届かないが、デプロイが匿名ブートストラップに対応していると positively known。Studio サーバーは起動して再試行する。 | 接続を回復させれば `arkor dev` を再起動せずに次の `/api/credentials` ポーリングで SPA が回復。 |
+| `No credentials on file — launching \`arkor login\`.` | デプロイで Auth0 が構成されていて、認証情報がまだ無い。 | ブラウザで開いた PKCE フローを完了。完了後 `arkor dev` が続行。 |
+| `Could not write ~/.arkor/studio-token (...). The Studio at http://localhost:<port> is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.` | `$HOME` が読み取り専用、または umask が `0600` をブロック。同梱 Studio は機能し、影響はスタンドアロン Vite dev ワークフローのみ。 | 書ける home から実行するか、`arkor dev` が提供する同梱 Studio のみを使う。 |
+| HTTP 403 with `{ "error": "Studio API is loopback-only" }`（ブラウザ devtools） | `Host` ヘッダが `127.0.0.1` / `localhost` 以外。 | `http://localhost:<port>` か `http://127.0.0.1:<port>` で Studio に到達。リバースプロキシや `0.0.0.0` バインドのシェルは設計通り拒否されます。 |
+| HTTP 403 with `{ "error": "Missing or invalid studio token" }`（ブラウザ devtools） | ページ内の CSRF トークンが現在の起動と一致しない。たいていは前回 `arkor dev` の古いタブ。 | タブをリロード。トークンは起動ごとにローテート。 |
+
+## 例
+
+デフォルトポート:
+```bash
+npx arkor dev
+```
+
+ポート指定 + 自動オープン:
+```bash
+npx arkor dev --port 5000 --open
+```
