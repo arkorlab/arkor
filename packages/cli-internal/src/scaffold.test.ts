@@ -14,10 +14,18 @@ const ORIG_ARKOR_SPEC = process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC;
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
+  delete process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC;
 });
 
 afterEach(() => {
-  process.env.npm_config_user_agent = ORIG_UA;
+  // Node coerces env-var assignments to strings, so a plain
+  // `process.env.X = undefined` writes the literal string "undefined".
+  // Mirror the spec restore: delete on undefined, otherwise reassign.
+  if (ORIG_UA === undefined) {
+    delete process.env.npm_config_user_agent;
+  } else {
+    process.env.npm_config_user_agent = ORIG_UA;
+  }
   if (ORIG_ARKOR_SPEC === undefined) {
     delete process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC;
   } else {

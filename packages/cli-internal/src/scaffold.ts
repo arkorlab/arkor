@@ -33,7 +33,12 @@ const PACKAGE_JSON_PATH = "package.json";
 const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.4";
 
 function resolveArkorScaffoldSpec(): string {
-  return process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC ?? DEFAULT_ARKOR_SPEC;
+  // Treat unset, empty, and whitespace-only values the same: fall back to
+  // the default. Without this, `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=""`
+  // (or just spaces) would write `"arkor": ""` into the scaffolded
+  // package.json, which is not a valid dependency spec.
+  const override = process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC?.trim();
+  return override && override.length > 0 ? override : DEFAULT_ARKOR_SPEC;
 }
 
 const SCRIPT_DEFAULTS: Record<string, string> = {

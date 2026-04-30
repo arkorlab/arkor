@@ -14,6 +14,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
+      "env": ["ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC"],
       "outputs": []
     },
     "typecheck": {
