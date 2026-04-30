@@ -8,6 +8,7 @@ import {
   startLoopbackServer,
 } from "../../core/auth0";
 import {
+  credentialsPath,
   defaultArkorCloudApiUrl,
   writeCredentials,
   type AnonymousCredentials,
@@ -145,7 +146,7 @@ async function runAnonymousLogin(opts: {
   await writeCredentials(creds);
   spin.stop(`Anonymous id: ${result.anonymousId}`);
   ui.log.info(
-    "This id is how Arkor Cloud recognises this client across sessions — keep `~/.arkor/credentials.json` to stay signed in as the same anonymous identity.",
+    `This id is how Arkor Cloud recognises this client across sessions — keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
   );
   // see ../anonymous.ts for wording rationale and gating contract.
   if (opts.oauthAvailable === true) {
