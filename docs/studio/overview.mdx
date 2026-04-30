@@ -35,8 +35,8 @@ Arkor managed backend
 
 Three checks run on every `/api/*` request:
 
-1. **Host header guard.** Only `127.0.0.1` and `localhost` are accepted. A victim navigated to a malicious site that DNS-rebinds onto `127.0.0.1` would still send `Host: evil.com`, which the middleware rejects with HTTP 403.
-2. **Per-launch CSRF token.** `arkor dev` generates a 32-byte token (base64url) on every launch, injects it into `index.html` as `<meta name="arkor-studio-token">`, and requires it on every `/api/*` call (header `X-Arkor-Studio-Token`, or `?studioToken=` for `EventSource` requests). Cross-origin tabs cannot read the meta, so a "simple" cross-origin POST that skips preflight is still rejected. Comparison is `timingSafeEqual`.
+1. **Host header guard.** Only `127.0.0.1` and `localhost` are accepted for every request, including static HTML. A victim navigated to a malicious site that DNS-rebinds onto `127.0.0.1` would still send `Host: evil.com`, which the server rejects with HTTP 403 before serving token-bearing HTML.
+2. **Per-launch CSRF token.** `arkor dev` generates a 32-byte token (base64url) on every launch, injects it into `index.html` as `<meta name="arkor-studio-token">`, and requires it on every `/api/*` call as `X-Arkor-Studio-Token`. The job-event stream also accepts `?studioToken=` because `EventSource` cannot send custom headers; mutation routes do not accept query-string tokens. Cross-origin tabs cannot read the meta, so a "simple" cross-origin POST that skips preflight is still rejected. Comparison is `timingSafeEqual`.
 3. **No CORS.** The SPA is same-origin so CORS adds no value. Reflecting `*` would let "simple" cross-origin POSTs (`text/plain`, `urlencoded`) through; the token check is what rejects them.
 
 The token is rotated on every `arkor dev` launch, so a stale tab from a previous run will fail with HTTP 403 until you reload it.

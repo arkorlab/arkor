@@ -17,6 +17,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  attestations: write
 
 concurrency:
   group: release
@@ -148,6 +149,14 @@ jobs:
         run: pnpm run build
 
       - name: Test
+        env:
+          ARKOR_POSTHOG_KEY: ${{ secrets.ARKOR_POSTHOG_KEY }}
+          ARKOR_POSTHOG_HOST: ${{ secrets.ARKOR_POSTHOG_HOST }}
+          # Disable runtime telemetry: `pnpm run test` triggers the
+          # e2e-cli pretest, which rebuilds `arkor` with the key baked
+          # in. The tests then spawn that binary, so without this flag
+          # every release run would emit real PostHog events from CI.
+          ARKOR_TELEMETRY_DISABLED: "1"
         run: pnpm run test
 
       - name: Pack and inspect tarballs
@@ -164,6 +173,11 @@ jobs:
             echo "## $(basename "$TARBALL")"
             tar -tf "$TARBALL"
           done
+
+      - name: Generate GitHub artifact attestations for release tarballs
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/npm-pack/*.tgz
 
       # Publish from the package directory (not from the pre-packed tarball)
       # so npm CLI reads README.md at publish time and embeds it in the

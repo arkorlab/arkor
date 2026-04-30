@@ -1,0 +1,88 @@
+---
+title: "プロジェクト構成"
+description: "Arkor がコードを置く場所、そして .arkor/ と ~/.arkor/ に何が入っているか。"
+---
+
+スキャフォールドされた Arkor プロジェクトはこんな形をしています:
+
+```
+my-arkor-app/
+├── src/arkor/
+│   ├── index.ts        # createArkor({ trainer })
+│   └── trainer.ts      # createTrainer({ ... })
+├── arkor.config.ts
+├── .arkor/             # プロジェクトごとの状態（gitignore 済み）
+└── package.json        # dev / build / start
+```
+
+ソース以外に重要なのは 2 層の状態です: `.arkor/`（プロジェクトごと、リポジトリ内）と `~/.arkor/`（ユーザーごと、ホームディレクトリ）。
+
+## `src/arkor/`
+
+Arkor はプロジェクトを `src/arkor/index.ts` を見ることで発見します。このファイルは `createArkor()` の結果を露出させてください。CLI は次の 3 つのエクスポート形を優先順位順に受け付けます:
+
+1. **`export const arkor = createArkor({ trainer })`**（推奨。テンプレートが生成する形）。
+2. **`export const trainer = createTrainer({ ... })`**（パワーユーザー向けショートカット。アンブレラ不要のとき）。
+3. **デフォルトエクスポート**（`Arkor` マニフェスト or `Trainer` のいずれか）。
+
+```ts
+// src/arkor/index.ts（推奨形）
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+トレーナー本体は慣例で兄弟ファイルに置き、`index.ts` を薄く保ちます:
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+トレーナーをさらに分割しても構いません（ヘルパー、プロンプトビルダーなど）。正規パスにあるべきなのは `index.ts` だけです。
+
+将来的に複数トレーナーを登録する場合は、ファイルを増やして `createArkor` に渡すことになります。今のところ API は単一の `trainer` だけを受け付けます。`deploy` と `eval` のスロットは型上で予約されていますが未実装です。
+
+## `arkor.config.ts`
+
+`pnpm create arkor` はデフォルトで次の `arkor.config.ts` を生成します:
+
+```ts
+// arkor.config.ts
+export default {};
+```
+
+現状はプレイスホルダーです。ランタイムはまだここからフィールドを読み取りません。学習のデフォルト値（`maxSteps`、`learningRate`、`lora` など）はすべて `Trainer` 自体に持たせるので、プロジェクトレベルではなくトレーナーごとにコントロールできます。削除する理由がない限り、ファイルはそのままにしておいてください。
+
+## `.arkor/`（プロジェクトごと、gitignore 済み）
+
+このディレクトリはコミットしないでください。
+
+- **`.arkor/state.json`**。プロジェクトのルーティング: `orgSlug`、`projectSlug`、`projectId`。これによってランタイムはローカルリポジトリをマネージドバックエンドのワークスペースにマップします。ファイルは `ensureProjectState()` が作成し、これは初回の学習開始（または初回のベースモデル推論）の際に走ります。**匿名**ワークスペースではこの初回呼び出しで自動作成されます。**OAuth** ワークスペースの場合はランタイムがエラーを返します。今のところ `arkor login` も `arkor init` もこのファイルを populate しないので、`{ orgSlug, projectSlug, projectId }` を手動で書いて作るのが現実的なパスです。一度作られたら手で編集しないでください。
+- **`.arkor/build/index.mjs`**。`arkor build` の出力。`src/arkor/index.ts` を Node 22.6 ターゲットで esbuild した単一バンドルで、bare specifier は外部のままにしてあります。`arkor start` がこれを実行します。
+
+## `~/.arkor/`（ユーザーごと）
+
+ホームディレクトリにあり、マシン上のすべての Arkor プロジェクト間で共有されます。
+
+- **`~/.arkor/credentials.json`**。認証状態。`arkor login --oauth` 後の Arkor Cloud OAuth トークンか、未ログインで初使用時に作られる匿名トークンのいずれか。ファイルは `mode` フィールドが `"auth0"` か `"anon"` でタグ付けされており、CLI はどのパスにいるかを把握します。`arkor login` はこのファイルだけを書きます。`.arkor/state.json` は **作成しません**。
+- **`~/.arkor/studio-token`**（一時的）。`arkor dev` が起動ごとに書く CSRF トークン（モード `0600`）。Studio が CLI のローカルサーバーへの呼び出しを認可するのに使います。`arkor dev` 起動のたびにローテートされます。
+
+`arkor logout` は `credentials.json` を削除します。Studio トークンはプロセス終了時にベストエフォートで削除され（`arkor dev` がクラッシュすると残る場合あり）、次回起動時にローテートされます。
+
+## CLI が探すもの
+
+- `arkor dev` は Studio の Web サーバーを `127.0.0.1:4000` で起動し、`~/.arkor/studio-token` を書きます。`src/arkor/` をファイル監視はしません。Studio の `/api/manifest` エンドポイントは確かに `runBuild` を呼びキャッシュバストクエリで再 import しますが、それは Studio UI が fetch したときだけです（現状は Run training ページのマウント時）。同じページに留まったまま学習を複数回実行すると、ビルド成果物は再利用されます。編集した後は Run training ページをリロード（あるいはターミナルから `arkor build`）して変更を取り込んでください。`arkor dev` は単独で `.arkor/state.json` を書きません。
+- `arkor build` は `src/arkor/index.ts`（または渡したエントリ）を読んで `.arkor/build/index.mjs` を書きます。Studio の dev ループの外側で直接呼ぶ必要があるのは CI や、スクリプトから `arkor start` の直前に走らせる場合などです。
+- `arkor start` はランナー経由でエントリを解決し、`.arkor/build/index.mjs` がない、もしくは明示的なエントリを渡したときはリビルドして実行します（これが `trainer.start()` と `trainer.wait()` を呼びます）。Studio から学習をトリガーすると内部的に `arkor start` がスポーンされます。
+
+状態がどこに住んでいるかを把握しておくと CLI の挙動が予測しやすくなります。何かおかしいと思ったら、サポートに頼る前に `.arkor/state.json` と `~/.arkor/credentials.json` を覗いてみてください。

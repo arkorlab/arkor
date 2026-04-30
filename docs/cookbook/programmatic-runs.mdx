@@ -1,0 +1,187 @@
+---
+title: "Programmatic runs (no CLI)"
+description: "Drive training from a Next.js API route, a cron worker, or CI without going through arkor dev / arkor start."
+---
+
+# Programmatic runs (no CLI)
+
+`arkor dev` and `arkor start` are convenient for iteration, but they are not the only way to run a trainer. The `arkor` package re-exports `runTrainer`, and `Trainer` itself has `start` / `wait` / `cancel`, so you can drive a run from any TypeScript code: a server route, a cron worker, a CI step.
+
+This recipe shows the two shapes that come up first.
+
+## Shape 1: `runTrainer` (the same function `arkor start` runs)
+
+`runTrainer` is the function `arkor start` invokes after building. With no argument it imports `src/arkor/index.ts` directly; `arkor start` first runs `arkor build` and then calls `runTrainer` on the bundled artifact at `.arkor/build/index.mjs`. Either way it picks the trainer from the loaded module (preferring `arkor`, then `trainer`, then `default`) and runs `start()` and `wait()` for you.
+
+```ts
+import { runTrainer } from "arkor";
+
+await runTrainer();                          // imports src/arkor/index.ts
+await runTrainer("src/arkor/alt.ts");        // explicit source entry
+await runTrainer(".arkor/build/index.mjs");  // explicit built artifact
+```
+
+This is the right shape when you already have the trainer defined in `src/arkor/` and just need to trigger it from non-CLI code: a GitHub Action step, a build step, a one-off script. You inherit all the trainer's callbacks and `abortSignal` wiring.
+
+**Node version note for `.ts` entries.** `arkor` CLI's bin auto re-execs Node with `--experimental-strip-types` when the running Node does not already enable TypeScript stripping. Programmatic callers do not get that. To run a script that calls `runTrainer()` against a `.ts` source entry, use Node 23+ (TypeScript stripping is on by default), or pass `--experimental-strip-types` on Node 22.6+. If you would rather not depend on the experimental flag, point `runTrainer` at the build output (`.arkor/build/index.mjs`) instead. The artifact is plain ESM and runs on any supported Node version without flags.
+
+A subtle point that bites in CI: `runTrainer()` (and `trainer.wait()`) **resolves** whether the run ended `completed` or `failed`. The SSE stream simply terminates either way; only transport-level errors (abort, reconnect exhausted) reject the promise. A naive `try / catch` around `runTrainer()` would let a failed training job exit `0`. To make CI fail on a failed run, drive the trainer directly so you can inspect the terminal status:
+
+```ts
+// scripts/train.ts
+import { trainer } from "../src/arkor/trainer";
+
+const { jobId } = await trainer.start();
+console.log(`Started ${jobId}`);
+
+try {
+  const result = await trainer.wait();
+  if (result.job.status === "completed") {
+    process.exit(0);
+  }
+  console.error(`status=${result.job.status}: ${result.job.error ?? "no error message"}`);
+  process.exit(1);
+} catch (err) {
+  // wait() rejected before reaching a terminal status (abortSignal aborted,
+  // reconnect attempts exhausted, etc.). Treat as a CI failure too.
+  console.error("wait() threw:", err);
+  process.exit(1);
+}
+```
+
+Use `await runTrainer()` directly only when you do not need to detect a `failed` run from the calling code (for example, when an `onFailed` callback in the trainer already routes the failure to your alerting).
+
+## Shape 2: Direct `start()` / `wait()` (full control)
+
+When you want to keep the trainer reference around, manage cancellation explicitly, or run multiple trainers from one process, build the `Trainer` yourself and drive it directly.
+
+```ts
+import { createArkor, createTrainer } from "arkor";
+
+const controller = new AbortController();
+
+const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  abortSignal: controller.signal,
+});
+
+export const arkor = createArkor({ trainer });
+
+async function main() {
+  const { jobId } = await trainer.start();
+  console.log(`Started job ${jobId}`);
+
+  try {
+    const result = await trainer.wait();
+    console.log(`Finished with ${result.artifacts.length} artifact(s).`);
+  } catch (err) {
+    if (controller.signal.aborted) {
+      await trainer.cancel().catch(() => {});
+      throw new Error("Aborted");
+    }
+    throw err;
+  }
+}
+```
+
+The two halves are symmetric: `start` submits, `wait` runs the SSE event stream that drives your callbacks. Calling them yourself is what lets you keep references, log around them, or compose runs together.
+
+## Where this pattern fits
+
+**Next.js API route.** Trigger a run on demand from your app, return the `jobId`, and let the frontend poll Studio (or your own status page) for progress.
+
+`createTrainer` caches the started job, so a single trainer instance can only drive one run; calling `start()` on it a second time returns the original `jobId`. In a long-lived Next.js server process, that means the route has to build a fresh trainer per request. Expose a factory from your trainer module:
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export function makeTrainer() {
+  return createTrainer({
+    name: "support-bot-v1",
+    model: "unsloth/gemma-4-E4B-it",
+    dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+    lora: { r: 16, alpha: 16 },
+    maxSteps: 100,
+  });
+}
+
+export const trainer = makeTrainer();   // for arkor dev / arkor start
+```
+
+Then call the factory from each request:
+
+```ts
+// app/api/train/route.ts
+import { NextResponse } from "next/server";
+import { makeTrainer } from "@/src/arkor/trainer";
+
+export async function POST() {
+  const trainer = makeTrainer();
+  const { jobId } = await trainer.start();
+  // Drive wait() in the background. The .catch only fires on transport-
+  // level errors (abort, reconnect exhausted); a `training.failed`
+  // terminal state resolves wait() normally with `result.job.status`
+  // set to "failed". For alerting on a failed run, use the trainer's
+  // onFailed callback (see /cookbook/notifications).
+  void trainer.wait().catch((err) => {
+    console.error("wait() threw:", err);
+  });
+  return NextResponse.json({ jobId });
+}
+```
+
+(For real production use, push the run into a worker rather than tying it to an HTTP request lifetime; the factory pattern is the same.)
+
+**Cron / scheduled retraining.** Run nightly fine-tunes against a freshly snapshotted dataset:
+
+```ts
+// scripts/nightly.ts
+import { runTrainer } from "arkor";
+
+const dateTag = new Date().toISOString().slice(0, 10);
+process.env.RUN_LABEL = `nightly-${dateTag}`;
+
+await runTrainer();
+```
+
+**CI smoke test.** Combine with `dryRun: true` in the trainer to validate the trainer config end to end without burning a long GPU run:
+
+```ts
+// scripts/ci-smoke.ts
+import { runTrainer } from "arkor";
+
+if (process.env.CI) {
+  process.env.ARKOR_SMOKE = "1";
+}
+await runTrainer();
+```
+
+Your trainer reads `process.env.ARKOR_SMOKE` and flips `dryRun: true` when set; the run finishes in a couple of minutes and the CI job fails loudly if anything is wrong with the trainer's config.
+
+**Multiple trainers from one process.** `createArkor` accepts a single `trainer`, so multi-trainer projects are programmatic, not declarative. Run them in sequence or in parallel:
+
+```ts
+const a = createTrainer({ /* ... */ });
+const b = createTrainer({ /* ... */ });
+
+// Sequential
+const ra = await a.wait();   // calls start() implicitly
+const rb = await b.wait();
+
+// Concurrent
+const [ra2, rb2] = await Promise.all([a.wait(), b.wait()]);
+```
+
+Both `wait()` calls will trigger their `start()` if needed.
+
+## What to keep in mind
+
+- **`runTrainer` and direct `start` / `wait` share the same lifecycle.** Callbacks fire from `wait()`. If you call `start()` and skip `wait()`, no callbacks run, even though the backend keeps training.
+- **`abortSignal` and `cancel` are still separate.** See [Early stopping](/cookbook/early-stopping) for the two-step pattern.
+- **The auxiliary helpers in [SDK § overview](/sdk/overview) are exported for these workflows.** `readCredentials`, `writeCredentials`, `ensureCredentials`, `requestAnonymousToken`, and the `state.json` helpers are there for code that needs to bootstrap auth or routing without going through the CLI.
+- **`runBuild` / `runStart` / `runDev` are not exported.** The CLI command runners live under `cli/commands/` and are intentionally CLI-private. `runTrainer` is the only public entry to the same flow `arkor start` uses.

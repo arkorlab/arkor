@@ -1,0 +1,77 @@
+---
+title: "arkor dev"
+description: "Arkor Studio をローカル起動する。"
+---
+
+# `arkor dev`
+
+```bash
+pnpm exec arkor dev
+```
+
+[Studio](/ja/concepts/studio)（ローカル Web UI）を `http://localhost:4000` で起動します。Studio は **Run training** をクリックして `src/arkor/index.ts` に対し `arkor start` をスポーンし、進捗をストリームで眺め、出来上がったアダプタと Playground でチャットする場所です。
+
+`arkor dev` 自体は学習を開始 **しません**。UI と SPA が話すための小さなループバック API を提供するだけです。
+
+## 概要
+
+```
+arkor dev [options]
+```
+
+## オプション
+
+| フラグ | デフォルト | 説明 |
+| --- | --- | --- |
+| `-p, --port <port>` | `4000` | バインドするポート。表示 URL は `localhost` ですが、リスナは `127.0.0.1` を直接バインドします。これにより `/etc/hosts` で `::1` が `127.0.0.1` より先に並ぶホストでも IPv6 専用に終わりません。CLI は値を `Number(opts.port) || 4000` でパースするので、falsy な結果（`0`、非数）は `4000` に正規化されます。**truthy な不正値はそのまま透過します**。負のポートや `65535` を超えるポートはリスナにそのまま到達し `serve()` の失敗（例: `RangeError`）として現れます。1 から 65535 の標準範囲を自分で守ってください。 |
+| `--open` | off | サーバー起動後にブラウザーで Studio URL を開く。 |
+
+## 起動時に何が起きるか
+
+1. **認証情報のブートストラップ。** `~/.arkor/credentials.json` が無いとき、CLI は **常に匿名セッションのブートストラップを試みます**。`/v1/auth/cli/config` を呼び、続いて `/v1/auth/anonymous` から匿名トークンを要求し、`No credentials on file — bootstrapping an anonymous session. Run arkor login --oauth to sign in to your account instead.`（認証情報ファイルがありません。匿名セッションをブートストラップします。アカウントでサインインしたい場合は `arkor login --oauth` を実行してください）と表示します。これにより、好きなタイミングで本物のアカウントへアップグレードできます。OAuth フローを自動で起動することはありません。一過性のトランスポート障害（`fetch failed`）の扱いはタイミングで分かれます。`/v1/auth/cli/config` が成功してデプロイモードが特定済みのあと、`/v1/auth/anonymous` で同様の障害が出た場合のみ警告して続行し、Studio サーバーは初回の `/api/credentials` ヒットで再試行します。`/v1/auth/cli/config` 自体に到達できなかった場合は同じトランスポートエラーがそのまま再スローされて `arkor dev` は fail-fast で終了するので、接続を回復してから再実行してください。`/v1/auth/anonymous` が 4xx で拒否される場合（例えば、このデプロイで匿名サインインが無効になっているなど）は HTTP ステータスを含むエラーで `arkor login --oauth` を案内します（フルメッセージ: `Failed to bootstrap an anonymous session (HTTP <status>). This deployment may require sign-in — run arkor login --oauth and try again.`、和訳: 匿名セッションのブートストラップに失敗しました（HTTP `<status>`）。このデプロイはサインインが必要かもしれません。`arkor login --oauth` を実行して再試行してください）。
+2. **CSRF トークン。** この起動用に 32 バイトのトークン（base64url、約 43 文字）を生成。同一オリジンの SPA が読めるよう `<meta name="arkor-studio-token">` として `index.html` にインジェクトされます。クロスオリジンタブはこの meta を読めず、`/api/*` のミドルウェアに拒否されます。
+3. **トークンの永続化（ベストエフォート）。** 同じトークンを `~/.arkor/studio-token`（モード `0600`）にも書きます。studio-app の Vite dev サーバー（`pnpm --filter @arkor/studio-app dev`）が拾えるようにするためです。書き込みが失敗（`$HOME` が読み取り専用、umask が厳しい等）しても `arkor dev` は続行します。影響を受けるのはスタンドアロン Vite dev ワークフローだけです。
+4. **リスナ。** `127.0.0.1:<port>` 上の Hono。`Host` ヘッダのガードは `127.0.0.1` と `localhost` の両方を受け付けるので、CLI が表示する URL（`http://localhost:<port>`）は DNS リバインディング系の挙動なしで動きます。
+
+プロセス終了時（通常終了、`SIGINT`、`SIGTERM`、`SIGHUP`）に studio-token ファイルはベストエフォートで削除されます。クラッシュするとファイルがディスク上に残ることがあり、その場合は次回 `arkor dev` がローテートします。
+
+## ループバックと CSRF のセキュリティモデルを 1 段落で
+
+Studio サーバーはすべての `/api/*` リクエストに 3 つのチェックを課します。
+
+1. `Host` ヘッダは `127.0.0.1` か `localhost`（DNS リバインディング対策）。
+2. CSRF トークンは `X-Arkor-Studio-Token` ヘッダか `?studioToken=...`（カスタムヘッダを送れない `EventSource` 用）として必須。比較は `timingSafeEqual`。
+3. CORS は意図的に未設定。SPA は同一オリジンなので CORS は価値を加えず、`*` を反射すると preflight をスキップする「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまう。トークンが無ければミドルウェアが拒否します。
+
+これにより `arkor dev` は共有開発マシンでも安全です。別タブは meta を読めず、過去の起動の古いタブはトークンが一致せず、別オリジンの攻撃者ページはリクエストを偽造できません。
+
+## ポートが使用中のとき
+
+`arkor dev` は空きポートの自動採用はしません。指定ポートが既に使われている（前回の `arkor dev` が残っている、無関係な dev サーバー、等）と `serve()` は Node の `net.Server` から来る `EADDRINUSE` をそのまま表に出してプロセスは非ゼロで終了します。`-p <port>` で別のポートを選ぶか、占有しているプロセスを止めてください。
+
+## よくあるエラー
+
+| 症状 | 意味 | 対処 |
+| --- | --- | --- |
+| `Error: listen EADDRINUSE: address already in use 127.0.0.1:4000`（エラー: アドレス `127.0.0.1:4000` は既に使用中） | 別プロセスがポートを保持。 | 止めるか `--port <other>`。 |
+| `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.`（`<baseUrl>` に到達できませんでした（fetch 失敗）。Studio は起動を続け、初回の `/api/credentials` 受信時に再試行します） | `/v1/auth/cli/config` は成功したが、続く `/v1/auth/anonymous` がトランスポート障害で失敗。Studio サーバーは起動して再試行する。 | 接続を回復させれば `arkor dev` を再起動せずに次の `/api/credentials` ポーリングで SPA が回復。 |
+| `TypeError: fetch failed`（または同等のトランスポートエラーで `arkor dev` がそのまま終了する場合） | `/v1/auth/cli/config` 自体に届かなかったため、デプロイモードが特定できず fail-fast。 | 接続を回復してから `arkor dev` を再実行。 |
+| `No credentials on file — bootstrapping an anonymous session. Run arkor login --oauth to sign in to your account instead.`（認証情報ファイルがありません。匿名セッションをブートストラップします。アカウントでサインインしたい場合は `arkor login --oauth` を実行してください） | このマシン初回の `arkor dev`。Studio をすぐ起動できるよう CLI が匿名でブートストラップしている旨の案内で、エラーではない。 | 何もしなくてよい。本物のアカウントにアップグレードしたいなら、別途 `arkor login --oauth` を実行（`~/.arkor/credentials.json` を上書き）して Studio をリロード。 |
+| `Failed to bootstrap an anonymous session (HTTP <status>). This deployment may require sign-in — run arkor login --oauth and try again.`（匿名セッションのブートストラップに失敗しました（HTTP `<status>`）。このデプロイはサインインが必要かもしれません。`arkor login --oauth` を実行して再試行してください） | `/v1/auth/anonymous` が 4xx で拒否され、匿名ブートストラップが進められない。 | `arkor login --oauth` でブラウザーフローを完了してから `arkor dev` を再実行。 |
+| `Could not write ~/.arkor/studio-token (...). The Studio at http://localhost:<port> is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`（`~/.arkor/studio-token` を書き込めませんでした（...）。`http://localhost:<port>` の Studio には影響しませんが、Vite SPA の dev ワークフローでは `/api/*` で 403 になります） | `$HOME` が読み取り専用、または umask が `0600` をブロック。同梱 Studio は機能し、影響はスタンドアロン Vite dev ワークフローのみ。 | 書ける home から実行するか、`arkor dev` が提供する同梱 Studio のみを使う。 |
+| HTTP 403 with `{ "error": "Studio API is loopback-only" }`（Studio API はループバック専用です。ブラウザーの devtools で確認） | `Host` ヘッダが `127.0.0.1` / `localhost` 以外。 | `http://localhost:<port>` か `http://127.0.0.1:<port>` で Studio に到達。リバースプロキシや `0.0.0.0` バインドのシェルは設計通り拒否されます。 |
+| HTTP 403 with `{ "error": "Missing or invalid studio token" }`（studio token が欠けているか無効です。ブラウザーの devtools で確認） | ページ内の CSRF トークンが現在の起動と一致しない。たいていは前回 `arkor dev` の古いタブ。 | タブをリロード。トークンは起動ごとにローテート。 |
+
+## 例
+
+デフォルトポート。
+
+```bash
+pnpm exec arkor dev
+```
+
+ポート指定と自動オープン。
+
+```bash
+pnpm exec arkor dev --port 5000 --open
+```

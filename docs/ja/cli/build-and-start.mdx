@@ -1,0 +1,108 @@
+---
+title: "arkor build / start"
+description: "Studio なしでトレーナーをバンドルして実行する。"
+---
+
+# `arkor build` と `arkor start`
+
+`arkor build` と `arkor start` は [Studio](/ja/concepts/studio) の **Run training** ボタンのヘッドレス相当です。UI を起動せずにトレーナーを動かしたいとき（CI、サーバー、別スクリプトから）に使ってください。
+
+Studio の **Run training** は内部的に `arkor start`（エントリ引数なし）をスポーンするので、両フローでランタイムパスは同一です。
+
+## `arkor build`
+
+```bash
+pnpm exec arkor build
+```
+
+`src/arkor/index.ts` を esbuild で `.arkor/build/index.mjs` にバンドルします。
+
+### 概要
+
+```
+arkor build [entry]
+```
+
+### 引数
+
+| 引数 | デフォルト | 説明 |
+| --- | --- | --- |
+| `entry` | `src/arkor/index.ts` | バンドルするソースエントリ。相対パスでも絶対パスでも動きます。 |
+
+### 出力
+
+`.arkor/build/index.mjs`（`outDir` のデフォルトは `.arkor/build`）。出力は単一の ESM ファイル、Node 22.6 をターゲットにし、`packages: "external"` で bare specifier（`arkor`、`node_modules` 内のもの）はバンドルせず、成果物はあなたの `node_modules` からランタイム SDK を解決します。インライン化されるのは相対 import のみです。
+
+エントリが存在しない場合、`arkor build` は `src/arkor/index.ts` を作るか明示的なエントリを渡すよう促すメッセージで例外が発生します。
+
+## `arkor start`
+
+```bash
+pnpm exec arkor start
+```
+
+`.arkor/build/index.mjs` を実行します。ランナーはバンドルを import し、登録済みトレーナーを見つけ（`export const arkor` を最優先、次に `export const trainer`、最後にデフォルトエクスポート）、`trainer.start()` の後に `trainer.wait()` を呼びます。
+
+### 概要
+
+```
+arkor start [entry]
+```
+
+### 引数
+
+| 引数 | デフォルト | 説明 |
+| --- | --- | --- |
+| `entry` | _なし_ | 渡されたとき、`arkor start` は実行 **前** にこのエントリでプロジェクトをリビルドします。省略時は既存ビルド成果物を再利用し、無ければデフォルトエントリで自動ビルドしてから走ります。 |
+
+無ければ自動ビルドする挙動は、Studio の "Run training" が 2 回 spawn を連鎖させずに済むためのものです。スクリプトからは通常、`arkor build` と `arkor start` を明示的に呼んで、ビルド失敗が走り出す前に表に出るようにしたいはずです。
+
+### 振る舞いまとめ
+
+| 状況 | `arkor start` の挙動 |
+| --- | --- |
+| `entry` 引数あり | 与えられたエントリでリビルドして実行。 |
+| 成果物なし、`entry` なし | デフォルトエントリで自動ビルドして実行。 |
+| 成果物あり、`entry` なし | 成果物を再利用してそのまま実行。 |
+
+「成果物の再利用」のパスがあるおかげで、Studio はトレーナーの編集を train エンドポイントではなく `/api/manifest` のリビルド経由で表に出せます。CLI 中心のワークフローでは、`src/arkor/` を編集したら毎回 `arkor build` を走らせてください。
+
+## よくあるエラー
+
+`arkor build`:
+
+| メッセージ | 意味 | 対処 |
+| --- | --- | --- |
+| `Build entry not found: <abs-path>. Create src/arkor/index.ts or pass an explicit entry argument.`（ビルドエントリが見つかりません: `<abs-path>`。`src/arkor/index.ts` を作成するか、明示的なエントリ引数を渡してください） | デフォルトエントリが存在せず明示的なエントリも渡されなかった。 | プロジェクトルート（`src/arkor/index.ts` を含むディレクトリ）から実行するか、エントリを渡す。例: `arkor build path/to/entry.ts`。 |
+
+`arkor start`:
+
+| メッセージ | 意味 | 対処 |
+| --- | --- | --- |
+| `Build entry not found: <abs-path>. Create src/arkor/index.ts or pass an explicit entry argument.`（ビルドエントリが見つかりません: `<abs-path>`。`src/arkor/index.ts` を作成するか、明示的なエントリ引数を渡してください） | `arkor start` はエントリ引数を渡したとき、または `.arkor/build/index.mjs` が無いとき先に `arkor build` を走らせます。不正なエントリパスはランナー段階ではなくここで表に出ます。 | 存在するエントリを渡すか、省略してデフォルトの `src/arkor/index.ts` に任せる。 |
+| `Training entry must export 'arkor' (from createArkor({...})) or 'trainer' (from createTrainer({...})), or default-export one of them.`（学習エントリは `createArkor({...})` の `arkor` か `createTrainer({...})` の `trainer` をエクスポートするか、いずれかをデフォルトエクスポートする必要があります） | バンドルの import は成功したが、サポートしているエクスポート形をどれも露出していない。 | 受け付ける 3 つの形（名前付き `arkor`、名前付き `trainer`、デフォルト）は [プロジェクト構成 § `src/arkor/`](/ja/concepts/project-structure#srcarkor) を参照。 |
+
+`runTrainer`（プログラム）:
+
+| メッセージ | 意味 | 対処 |
+| --- | --- | --- |
+| `Training entry not found: <abs-path>. Provide a path or create src/arkor/index.ts.`（学習エントリが見つかりません: `<abs-path>`。パスを指定するか `src/arkor/index.ts` を作成してください） | ランナーを直接呼んだとき（例: `import { runTrainer } from "arkor"`）に存在しないパスを渡した場合に表に出ます。CLI はこのパスに当たりません。`arkor start` ならビルド段階で先に失敗します。 | 存在するパスを渡すか、`import "./src/arkor/index.ts"` を先にしてモジュールロード時に検知。 |
+
+## 例
+
+ビルドして開始（2 ステップ）:
+```bash
+pnpm exec arkor build
+pnpm exec arkor start
+```
+
+別エントリでリビルドを強制（1 ステップ）:
+```bash
+pnpm exec arkor start src/arkor/experiment.ts
+```
+
+トレーナー編集後、古い成果物をリビルド:
+```bash
+# src/arkor/trainer.ts を編集した後:
+pnpm exec arkor build && pnpm exec arkor start
+```

@@ -1,0 +1,103 @@
+---
+title: "Slack / Discord notifications"
+description: "Post to a webhook when a training run finishes or fails, from inside trainer.ts."
+---
+
+# Slack / Discord notifications
+
+Training runs take long enough that nobody actually watches Studio the whole time. The terminal `onCompleted` and `onFailed` callbacks are perfect places to fan a status message out to wherever your team already lives.
+
+This recipe uses Slack incoming webhooks; Discord, Microsoft Teams, and arbitrary HTTP endpoints work the same way. Anything you can `fetch`, you can notify.
+
+## The pattern
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
+
+async function postSlack(payload: Record<string, unknown>): Promise<void> {
+  if (!WEBHOOK_URL) return;
+  try {
+    const res = await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.warn(`slack webhook ${res.status} ${res.statusText}`);
+    }
+  } catch (err) {
+    // Never let a notification failure escape the callback.
+    console.warn("slack webhook failed:", err);
+  }
+}
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  callbacks: {
+    onCompleted: async ({ job, artifacts }) => {
+      await postSlack({
+        text: `:white_check_mark: *${job.name}* finished (${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}). Job \`${job.id}\`.`,
+      });
+    },
+    onFailed: async ({ job, error }) => {
+      await postSlack({
+        text: `:x: <!here> *${job.name}* failed: ${error}\nJob \`${job.id}\`.`,
+      });
+    },
+  },
+});
+```
+
+The `<!here>` mention only fires on failure, so successful runs do not page anyone. Adjust the urgency to match how often your team's training jobs actually fail.
+
+## Why the inner `try / catch` matters
+
+If the webhook request throws (Slack outage, DNS hiccup, a non-2xx response that your code rethrows on), the callback rejects. The Arkor runtime catches that rejection and routes it through the SSE reconnect loop ([SDK § Lifecycle callbacks](/sdk/callbacks)). With `maxReconnectAttempts` at its default of unlimited, a flaky webhook can quietly retry forever, and `Last-Event-ID` advancing across the retry can swallow the original event.
+
+Treat the webhook as a side effect, not as part of the run's success criterion. Catch inside; log if you want to know.
+
+## Variations
+
+**Per-step progress pings.** Combine with `onLog` to post a one-line progress message every N steps:
+
+```ts
+onLog: async ({ step, loss }) => {
+  if (step % 100 !== 0 || loss === null) return;
+  await postSlack({ text: `step=${step} loss=${loss.toFixed(4)}` });
+},
+```
+
+This is loud; gate it on `process.env.NOTIFY_PROGRESS === "1"` if you only want it for important runs.
+
+**Mid-run sample sharing.** Combine with the [Mid-run evaluation recipe](/cookbook/mid-run-eval): post each checkpoint sample to a review channel so colleagues can react with reactions while the run continues.
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  try {
+    const res = await infer({
+      messages: [{ role: "user", content: "Can't log in" }],
+      stream: false,
+      maxTokens: 80,
+    });
+    const data = (await res.json()) as { content?: string };
+    await postSlack({ text: `step=${step} → ${data.content ?? "(empty)"}` });
+  } catch (err) {
+    console.warn("checkpoint sample failed:", err);
+  }
+}
+```
+
+**Other destinations.** PostHog `capture()`, a Datadog event, a database insert: the shape is the same. Put the side effect behind an `async` helper that swallows its own errors and call it from the lifecycle callbacks. The trainer file does not need any extra orchestration.
+
+## What to keep in mind
+
+- **Inner `try / catch` is mandatory.** Notifications are nice to have; an outage in your webhook should never silently retry your training event stream.
+- **Keep secrets out of the trainer file.** The example reads `SLACK_WEBHOOK_URL` from `process.env` so the webhook does not land in `git`. Same idea for any token-based destination.
+- **Remember `error` is a `string`.** `onFailed`'s `error` argument is the string the backend sent ([SDK § Lifecycle callbacks](/sdk/callbacks)), not an `Error` instance. Embed it directly; do not call `.message` on it.
