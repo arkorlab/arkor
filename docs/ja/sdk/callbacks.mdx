@@ -70,7 +70,7 @@ onLog: ({ step, loss, evalLoss }) => {
 }
 ```
 
-よくある用途: 自前のパイプライン（PostHog、Datadog）にメトリクスを転送、早期発散の検知、カスタム early-stopping の実装。early-stopping については、[`abortSignal`](/ja/sdk/trainer-control#abortsignal) の abort はあなたのローカル `wait()` を止めるだけだと忘れずに。バックエンドの GPU を実際に止めるには、その後 [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。
+よくある用途は次のとおりです。自前のパイプライン（PostHog、Datadog）へのメトリクス転送、早期発散の検知、カスタム early stopping の実装。early stopping については、[`abortSignal`](/ja/sdk/trainer-control#abortsignal) の abort はあなたのローカル `wait()` を止めるだけだと忘れずに。バックエンドの GPU を実際に止めるには、その後 [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。
 
 ## `onCheckpoint({ step, adapter, job, infer, artifacts })`
 

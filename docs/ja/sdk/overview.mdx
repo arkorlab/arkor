@@ -58,7 +58,7 @@ CLI フローの外で Arkor を駆動するコード（自前のサーバーや
 
 公開型エクスポート（`arkor` から）:
 
-`Arkor`、`ArkorInput`、`ArkorProjectState`、`BlobDatasetSource`、`DatasetSource`、`HuggingfaceDatasetSource`、`JobStatus`、`LoraConfig`、`Trainer`、`TrainerCallbacks`、`TrainerInput`、`TrainingJob`、`TrainingResult`、加えて認証ヘルパー用の `Auth0Credentials` / `AnonymousCredentials` / `Credentials`。
+`Arkor`、`ArkorInput`、`ArkorProjectState`、`BlobDatasetSource`、`DatasetSource`、`HuggingfaceDatasetSource`、`JobStatus`、`LoraConfig`、`Trainer`、`TrainerCallbacks`、`TrainerInput`、`TrainingJob`、`TrainingResult`。加えて認証ヘルパー用の `Auth0Credentials`（OAuth 認証情報の型。内部実装が Auth0 ベースのため命名がそうなっている）、`AnonymousCredentials`、`Credentials`。
 
 `TrainingLogContext`、`CheckpointContext`、`InferArgs` は今のところ名前付きでエクスポートされていません。型付きのコールバックパラメータが必要なら、[コールバック](/ja/sdk/callbacks) と [infer](/ja/sdk/infer) ページを見てインラインで形をミラーしてください。
 

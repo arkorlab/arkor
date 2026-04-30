@@ -74,5 +74,5 @@ const data = await res.json();
 ## 使いどころ
 
 - **学習中のサニティチェック。** ステップ 50 のチェックポイントとステップ 100 のチェックポイントを固定プロンプトで比較。loss 曲線は問題なく見えても出力が劣化していれば、学習完了前に気付けます。
-- **カスタム early-stopping。** 簡単な eval プロンプトと組み合わせて、出力が逸脱したら `controller.abort()`（[`abortSignal`](/ja/sdk/trainer-control#abortsignal) を参照）で学習を止め、`trainer.cancel()` でバックエンドを停止。
+- **カスタム early stopping。** 簡単な eval プロンプトと組み合わせて、出力が逸脱したら `controller.abort()`（[`abortSignal`](/ja/sdk/trainer-control#abortsignal) を参照）で学習を止め、`trainer.cancel()` でバックエンドを停止。
 - **自前 UI へのライブプレビュー。** チェックポイントの出力を Slack、社内レビューキュー、自前アプリのプレビューチャネルに送る。

@@ -37,7 +37,7 @@ interface Arkor {
 
 ## 今日できること
 
-- `trainer`: [`createTrainer`](/ja/sdk/create-trainer) で作った `Trainer` を渡す。型上はオプショナルですが、`trainer` のないマニフェストは `arkor start` で実行できません（ランナーが ``Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.`` で throw します）。
+- `trainer`: [`createTrainer`](/ja/sdk/create-trainer) で作った `Trainer` を渡す。型上はオプショナルですが、`trainer` のないマニフェストは `arkor start` で実行できません（ランナーが ``Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.`` で例外が発生します）。
 
 ## まだないもの
 
@@ -51,7 +51,7 @@ interface Arkor {
 2. `export const trainer = createTrainer({ ... })`（パワーユーザー向けショートカット、マニフェストなし）
 3. `export default ...`（`Arkor` マニフェストか、ベアな `Trainer` のいずれか）
 
-どれもマッチしないとランナーは上記メッセージで throw します。テンプレートは常に形 1 を吐きます。他を選ぶ理由が分かっていない限り、これを選んでください。
+どれもマッチしないとランナーは上記メッセージで例外が発生します。テンプレートは常に形 1 を吐きます。他を選ぶ理由が分かっていない限り、これを選んでください。
 
 ## `isArkor`
 
@@ -63,4 +63,4 @@ if (isArkor(value)) {
 }
 ```
 
-マニフェストを動的に消費するコードのために `createArkor` と一緒にエクスポートされている小さな型ガードです。値が non-null なオブジェクトで `_kind === "arkor"` であることをチェックします（`Object.isFrozen` は確認 **しません**。`createArkor` 自体は frozen な値を生成するにもかかわらず）。普通に使う場面は限られます。通常のコードでは `index.ts` からの型付きエクスポートが既に正しい形を与えてくれます。
+マニフェストを動的に消費するコードのために `createArkor` と一緒にエクスポートされている小さな型ガードです。値が null でないオブジェクトで `_kind === "arkor"` であることをチェックします（`Object.isFrozen` は確認 **しません**。`createArkor` 自体は frozen な値を生成するにもかかわらず）。普通に使う場面は限られます。通常のコードでは `index.ts` からの型付きエクスポートが既に正しい形を与えてくれます。

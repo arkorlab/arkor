@@ -50,7 +50,7 @@ const { job, artifacts } = await trainer.wait();
 await trainer.cancel();
 ```
 
-- `start()` がまだ呼ばれていなければ `cancel()` は no-op（`:388-389` で早期 return）。
+- `start()` がまだ呼ばれていなければ `cancel()` は何もしません（`:388-389` で早期 return）。
 - そうでなければバックエンドにキャンセルリクエストを送ります。
 - **ベストエフォート。** SDK は終端ステータスでショートサーキットしません。学習が既に completed / failed / cancelled なら、バックエンドは non-2xx を返すことがあり `cancel()` は reject します。投機的に呼ぶなら `try / catch` で囲んでください。
 

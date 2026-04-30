@@ -71,22 +71,22 @@ Once a run is in flight, three views matter:
 - **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
 - **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Use the mode toggle to switch between the base model and the adapter. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
 
-If you edit `src/arkor/` between runs, refresh the Run training page (or run `npx arkor build`) before the next click so the new code is what runs.
+If you edit `src/arkor/` between runs, refresh the Run training page (or run `pnpm exec arkor build`) before the next click so the new code is what runs.
 
 ## 4. Claim your work (optional)
 
 Anonymous workspaces are useful for trying things out, but the work is tied to that local machine. Once you decide you want to keep what you trained:
 
 ```bash
-npx arkor login --oauth
+pnpm exec arkor login --oauth
 ```
 
-The scaffolded project installs `arkor` as a local devDependency, so prefer `npx arkor <command>` (or `pnpm exec arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README uses the same convention.
+The scaffolded project installs `arkor` as a local devDependency, so prefer `pnpm exec arkor <command>` over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README uses the same convention.
 
-`--oauth` runs an Auth0 PKCE flow on a loopback port and links your local credentials to an account. From then on, runs from this machine show up under that account on any device. Without the flag, `arkor login` shows an interactive picker that defaults to `Anonymous`, which would just refresh the throwaway session you already have.
+`--oauth` runs the Arkor Cloud OAuth (PKCE) flow on a loopback port and links your local credentials to an account. From then on, runs from this machine show up under that account on any device. Without the flag, `arkor login` shows an interactive picker that defaults to `Anonymous`, which would just refresh the throwaway session you already have.
 
 ## 5. Where to go next
 
 - **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
-- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Refresh the Run training page (or run `npx arkor build`) before the next click so your edits land.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Refresh the Run training page (or run `pnpm exec arkor build`) before the next click so your edits land.
 - **Try another template.** Run `pnpm create arkor` again with a different `--template` to compare.

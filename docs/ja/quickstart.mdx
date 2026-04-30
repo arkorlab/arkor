@@ -26,7 +26,7 @@ cd my-arkor-app
 | ------------ | ----------------------- | ----------------------------------------------------- | ------------ |
 | `triage`     | サポートのトリアージ    | `{ category, urgency, summary, nextAction }`          | 約 7 分      |
 | `translate`  | 9 言語の翻訳            | `{ translation, detectedLanguage }`                   | 約 7 分      |
-| `redaction`  | PII の伏字              | `{ redactedText, redactedCount, tags }`               | 約 12 分     |
+| `redaction`  | 個人情報のマスク        | `{ redactedText, redactedCount, tags }`               | 約 12 分     |
 
 いずれも同じ小型のオープンウェイトベース（`unsloth/gemma-4-E4B-it`）と、HuggingFace 上の厳選された公開データセットを組み合わせたものです。学習は本物で、数分で終わるので、ループ全体をエンドツーエンドで体験できます。
 
@@ -71,22 +71,22 @@ pnpm dev
 - **Loss チャートとイベントログ。** マネージド GPU から進捗がストリームされるにつれて、loss 曲線が更新され、ログのテールに学習イベントが表示されます。最初の学習はテンプレートにより 7〜12 分かかります。
 - **Playground。** ジョブが完了したら、最終アダプタをセレクタから選んでチャット。モード切替でベースモデルとアダプタを行き来できます。学習中に中間チェックポイントで推論を走らせたい場合は Studio ではなく `onCheckpoint` コールバックを使ってください。
 
-学習の合間に `src/arkor/` を編集した場合は、Run training ページをリロード（または `npx arkor build` を実行）してから次のクリックをすると、新しいコードが動きます。
+学習の合間に `src/arkor/` を編集した場合は、Run training ページをリロード（または `pnpm exec arkor build` を実行）してから次のクリックをすると、新しいコードが動きます。
 
 ## 4. 作業を引き継ぐ（任意）
 
 匿名ワークスペースは試行に便利ですが、作業はそのローカルマシンに紐づきます。学習したものを残したくなったら:
 
 ```bash
-npx arkor login --oauth
+pnpm exec arkor login --oauth
 ```
 
-スキャフォールドされたプロジェクトは `arkor` をローカル devDependency としてインストールするので、CLI をグローバルにインストールしていない限り、素の `arkor` ではなく `npx arkor <command>`（または `pnpm exec arkor <command>`）を優先してください。生成される README も同じ慣例に従っています。
+スキャフォールドされたプロジェクトは `arkor` をローカル devDependency としてインストールするので、CLI をグローバルにインストールしていない限り、素の `arkor` ではなく `pnpm exec arkor <command>` を優先してください。生成される README も同じ慣例に従っています。
 
-`--oauth` を付けるとループバックポート上で Auth0 PKCE フローを走らせ、ローカルの認証情報をアカウントに紐づけます。以降、このマシンからの学習はどのデバイスからも当該アカウントの下に表示されます。フラグなしの `arkor login` は初期選択が `Anonymous` の対話ピッカーを表示するので、デフォルトを受け入れると既にある使い捨てセッションを更新するだけになります。
+`--oauth` を付けるとループバックポート上で Arkor Cloud の OAuth（PKCE）フローを走らせ、ローカルの認証情報をアカウントに紐づけます。以降、このマシンからの学習はどのデバイスからも当該アカウントの下に表示されます。フラグなしの `arkor login` は初期選択が `Anonymous` の対話ピッカーを表示するので、デフォルトを受け入れると既にある使い捨てセッションを更新するだけになります。
 
 ## 5. 次に読むもの
 
 - **コンセプト。** [Concepts](/ja/concepts/overview) を読み、`createArkor`、`createTrainer`、ライフサイクルコールバック、Studio のメンタルモデルを構築してください。
-- **トレーナーをカスタマイズ。** `src/arkor/trainer.ts` を開き、`lora.r` や `maxSteps` を調整したり、コールバックを追加したり。Run training ページをリロード（または `npx arkor build`）してから次のクリックで反映されます。
+- **トレーナーをカスタマイズ。** `src/arkor/trainer.ts` を開き、`lora.r` や `maxSteps` を調整したり、コールバックを追加したり。Run training ページをリロード（または `pnpm exec arkor build`）してから次のクリックで反映されます。
 - **別のテンプレートを試す。** `pnpm create arkor` を別の `--template` で再実行して比較してみてください。

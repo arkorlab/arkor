@@ -79,7 +79,7 @@ createTrainer({
 });
 ```
 
-`dryRun: true` はデータセットを切り詰め、ステップ数を制限してフルパイプラインを走らせます。GPU 時間は使います（スモークテストで no-op ではない）が、学習は数分で終わるので、長い学習にコミットする前に設定とコールバックの挙動を確認できます。[SDK § createTrainer](/ja/sdk/create-trainer) を参照。
+`dryRun: true` はデータセットを切り詰め、ステップ数を制限してフルパイプラインを走らせます。GPU 時間は使います（スモークテストであり、何もしないわけではありません）が、学習は数分で終わるので、長い学習にコミットする前に設定とコールバックの挙動を確認できます。[SDK § createTrainer](/ja/sdk/create-trainer) を参照。
 
 上級者向けフィールド（`warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps`、`trainOnResponsesOnly`、`datasetFormat`、`datasetSplit`）は `unknown` として型付けされ、クラウド API にそのまま転送されます。バックエンドの想定形を既に知っている場合のみ使ってください。SDK は渡す値を型チェックしません。
 

@@ -3,7 +3,7 @@ title: "CLI"
 description: "arkor CLI: 全コマンドリファレンス。"
 ---
 
-`arkor` CLI は Arkor プロジェクトを取り巻くコマンド面です。スキャフォールダ（[`pnpm create arkor`](/ja/quickstart)）が `arkor` をローカル devDependency としてインストールするので、CLI をグローバルにインストールしていない限り、素の `arkor` ではなく `npx arkor <command>`（または `pnpm exec arkor <command>` / `yarn arkor <command>` / `bun arkor <command>`）を優先してください。
+`arkor` CLI は Arkor プロジェクトを取り巻くコマンド面です。スキャフォールダ（[`pnpm create arkor`](/ja/quickstart)）が `arkor` をローカル devDependency としてインストールするので、CLI をグローバルにインストールしていない限り、素の `arkor` ではなく `pnpm exec arkor <command>` を優先してください。
 
 ## コマンド
 
@@ -13,7 +13,7 @@ description: "arkor CLI: 全コマンドリファレンス。"
 | [`arkor dev`](/ja/cli/dev) | [Studio](/ja/concepts/studio) を `http://localhost:4000` で起動（設定可）。 |
 | [`arkor build`](/ja/cli/build-and-start) | `src/arkor/index.ts` を `.arkor/build/index.mjs` にバンドル。 |
 | [`arkor start`](/ja/cli/build-and-start) | ビルド成果物を実行（無いときは自動ビルド）。 |
-| [`arkor login`](/ja/cli/auth) | サインイン。フラグなしでは対話ピッカー（初期選択: `Anonymous`）を表示。`--oauth` でループバック上の Auth0 PKCE フロー、`--anonymous` でピッカーをスキップして使い捨てトークン。 |
+| [`arkor login`](/ja/cli/auth) | サインイン。フラグなしでは対話ピッカー（初期選択: `Anonymous`）を表示。`--oauth` でループバック上の Arkor Cloud OAuth（PKCE）フロー、`--anonymous` でピッカーをスキップして使い捨てトークン。 |
 | [`arkor logout`](/ja/cli/auth) | `~/.arkor/credentials.json` を削除。 |
 | [`arkor whoami`](/ja/cli/auth) | 現在の identity と到達できる org を表示。 |
 
@@ -21,7 +21,7 @@ description: "arkor CLI: 全コマンドリファレンス。"
 
 - **`--help` / `-h`** はすべてのコマンドで使えます。`arkor <command> --help` でフラグ一覧と使い方が表示されます。
 - **`arkor --version` / `-V`** はインストール済み SDK バージョン（パッケージがエクスポートしている `SDK_VERSION` と同じ）を表示します。
-- **終了コード。** 成功は 0。ほとんどのコマンドは失敗時（未捕捉の throw、ビルドエラーなど）に非ゼロで終わります。`arkor whoami` は意図的な例外で、失敗を stdout に出しても通常のクラウド API エラー（`Failed to fetch /v1/me (<status>)`）では 0 で終了し、クラウド API が 426（SDK が古すぎる）を返したときだけ `process.exitCode = 1` を立てます。`whoami` の失敗を検知したいラッパースクリプトは終了コードではなく stdout を grep してください。
+- **終了コード。** 成功は 0。ほとんどのコマンドは失敗時（未捕捉の throw、ビルドエラーなど）に非ゼロで終わります。`arkor whoami` は意図的な例外で、失敗を stdout に出しても通常のクラウド API エラー（`Failed to fetch /v1/me (<status>)`、`/v1/me` の取得に失敗しました）では 0 で終了し、クラウド API が 426（SDK が古すぎる）を返したときだけ `process.exitCode = 1` を立てます。`whoami` の失敗を検知したいラッパースクリプトは終了コードではなく stdout を grep してください。
 - **テレメトリ。** すべてのコマンドは小さな計測ラッパー越しに走るので、利用イベントを PostHog に送れます。完全なオプトアウト／デバッグの仕組みは下記の [環境変数](#環境変数) を参照。
 - **非推奨通知。** クラウド API のレスポンスに `Deprecation: true` が付いていると、CLI は実行終了時に推奨アップグレードコマンド付きの 1 行警告を出します。`Warning` と `Sunset` ヘッダ（あれば）はメッセージのフォーマットに使われ、それ単独で警告をトリガーすることはありません。
 

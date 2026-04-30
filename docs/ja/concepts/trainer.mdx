@@ -3,7 +3,7 @@ title: "トレーナー"
 description: "createTrainer: 必須フィールド、データセットソース、LoRA 設定、start / wait / cancel のライフサイクル。"
 ---
 
-`createTrainer` は Arkor プロジェクトの心臓部です。Arkor がファインチューニングのランについて知っているすべて — ベースモデルから LoRA ランクまで — は、ここに渡したオブジェクトに乗っています。
+`createTrainer` は Arkor プロジェクトの心臓部です。Arkor がファインチューニングについて知っているすべて（ベースモデルから LoRA ランクまで）は、ここに渡したオブジェクトに乗っています。
 
 ## 最小例
 
@@ -114,7 +114,7 @@ const trainer = createTrainer({
 controller.abort();
 ```
 
-`abortSignal` はあくまで **ローカルの** `wait()` に関するものです。abort すると `wait()` 内の SSE イベントストリームの fetch と、リトライ／バックオフの遅延が停止されます。現在の実装では abort 時に throw します（バックオフの `delay` が `signal.reason` で reject し、failure handler はシグナルが abort されていれば再 throw する）。なので `wait()` はクリーンに resolve せず reject します。abort するなら `try / catch` で囲んでください:
+`abortSignal` はあくまで **ローカルの** `wait()` に関するものです。abort すると `wait()` 内の SSE イベントストリームの fetch と、リトライ／バックオフの遅延が停止されます。現在の実装では abort 時に例外が発生します（バックオフの `delay` が `signal.reason` で reject し、failure handler はシグナルが abort されていれば再 throw する）。なので `wait()` はクリーンに resolve せず reject します。abort するなら `try / catch` で囲んでください:
 
 ```ts
 try {
@@ -139,4 +139,4 @@ await trainer.cancel();      // バックエンドにジョブ停止を依頼
 
 ## イベントへのリアクション
 
-これを TypeScript でやる目的は、学習に [ライフサイクルコールバック](/ja/concepts/lifecycle) — `onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed` — を仕掛けられることです。次に読むべきコンセプトです。
+これを TypeScript でやる目的は、学習に [ライフサイクルコールバック](/ja/concepts/lifecycle)（`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`）を仕掛けられることです。次に読むべきコンセプトです。

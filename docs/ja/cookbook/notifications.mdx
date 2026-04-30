@@ -59,7 +59,7 @@ export const trainer = createTrainer({
 
 ## なぜ内側の `try / catch` が大事か
 
-webhook リクエストが throw すると（Slack 障害、DNS の不調、コードが non-2xx を再 throw する等）、コールバックは reject します。Arkor ランタイムはその reject を catch して SSE 再接続ループに送ります（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）。`maxReconnectAttempts` がデフォルトの無制限のままだと、不安定な webhook が静かに永遠にリトライされ得て、リトライ間で `Last-Event-ID` が進めば元のイベントが飲み込まれます。
+webhook リクエストが throw すると（Slack 障害、DNS の不調、コードが 200 番台以外を再 throw する等）、コールバックは reject します。Arkor ランタイムはその reject を catch して SSE 再接続ループに送ります（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）。`maxReconnectAttempts` がデフォルトの無制限のままだと、不安定な webhook が静かに永遠にリトライされ得て、リトライ間で `Last-Event-ID` が進めば元のイベントが飲み込まれます。
 
 webhook は学習成功の判定基準ではなく副作用として扱ってください。内側で catch、知りたければログに残す。
 
