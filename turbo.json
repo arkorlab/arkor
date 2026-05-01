@@ -19,6 +19,7 @@
     },
     "test:coverage": {
       "dependsOn": ["^build"],
+      "env": ["ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC", "SKIP_E2E_INSTALL"],
       "cache": false
     },
     "typecheck": {
