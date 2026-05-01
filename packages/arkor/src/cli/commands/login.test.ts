@@ -379,12 +379,14 @@ describe("runLogin", () => {
           { status: 200 },
         );
       }
+      // /callback requests run through ORIG_FETCH (above, in the `open`
+      // mock), so they reach the real loopback server directly. This
+      // branch only catches accidental misconfigs that route them
+      // through the test mock instead — fail loudly to flag the bug.
       if (url.startsWith("http://127.0.0.1") && url.includes("/callback")) {
-        // The test fires this fetch through globalThis.fetch — let it
-        // hit the real loopback server.
-        return globalThis.fetch.constructor === Function
-          ? new Response("forwarded by mock", { status: 200 })
-          : new Response("");
+        throw new Error(
+          `loopback callback hit the mock fetch — should have used ORIG_FETCH: ${url}`,
+        );
       }
       if (url === "https://tenant.auth0.com/oauth/token") {
         return new Response(

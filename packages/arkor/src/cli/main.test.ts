@@ -43,6 +43,11 @@ import { runWhoami } from "./commands/whoami";
 import { shutdownTelemetry } from "../core/telemetry";
 import { main } from "./main";
 
+// Capture once so the after-each can restore — without this, tests that
+// set `npm_config_user_agent` to drive package-manager detection leak the
+// override into later test files when vitest reuses a worker process.
+const ORIG_USER_AGENT = process.env.npm_config_user_agent;
+
 beforeEach(() => {
   vi.mocked(runInit).mockReset();
   vi.mocked(runLogin).mockReset();
@@ -57,25 +62,28 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (ORIG_USER_AGENT !== undefined) {
+    process.env.npm_config_user_agent = ORIG_USER_AGENT;
+  } else {
+    delete process.env.npm_config_user_agent;
+  }
   vi.restoreAllMocks();
 });
 
 describe("main (CLI Commander wiring)", () => {
   it("dispatches `init` with parsed flags + resolved package manager", async () => {
+    // afterEach restores `npm_config_user_agent`, so per-test cleanup
+    // isn't needed here.
     process.env.npm_config_user_agent = "pnpm/10 node/v22 linux x64";
-    try {
-      await main([
-        "init",
-        "--yes",
-        "--name",
-        "my-app",
-        "--template",
-        "triage",
-        "--skip-install",
-      ]);
-    } finally {
-      delete process.env.npm_config_user_agent;
-    }
+    await main([
+      "init",
+      "--yes",
+      "--name",
+      "my-app",
+      "--template",
+      "triage",
+      "--skip-install",
+    ]);
     expect(runInit).toHaveBeenCalledWith({
       yes: true,
       name: "my-app",
@@ -169,12 +177,12 @@ describe("main (CLI Commander wiring)", () => {
       message: "Arkor SDK 1.4.0 is deprecated",
       sunset: "Wed, 01 Jul 2026 00:00:00 GMT",
     };
-    // clack's `ui.log.warn` writes to stdout, not stderr.
-    const stderrChunks: string[] = [];
+    // clack's `ui.log.warn` writes the formatted line to stdout.
+    const stdoutChunks: string[] = [];
     const spy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation(((c: unknown) => {
-        stderrChunks.push(String(c));
+        stdoutChunks.push(String(c));
         return true;
       }) as typeof process.stdout.write);
     try {
@@ -183,9 +191,7 @@ describe("main (CLI Commander wiring)", () => {
       spy.mockRestore();
     }
     expect(shutdownTelemetry).toHaveBeenCalledOnce();
-    // clack writes the warn line through process.stderr; assert it
-    // mentions the deprecation message + sunset.
-    const buf = stderrChunks.join("");
+    const buf = stdoutChunks.join("");
     expect(buf).toMatch(/Arkor SDK 1\.4\.0 is deprecated/);
     expect(buf).toMatch(/Cutoff: Wed, 01 Jul 2026 00:00:00 GMT/);
   });
@@ -203,12 +209,12 @@ describe("main (CLI Commander wiring)", () => {
       message: "Arkor SDK 1.4.0 is deprecated",
       sunset: null,
     };
-    // clack's `ui.log.warn` writes to stdout, not stderr.
-    const stderrChunks: string[] = [];
+    // clack's `ui.log.warn` writes the formatted line to stdout.
+    const stdoutChunks: string[] = [];
     const spy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation(((c: unknown) => {
-        stderrChunks.push(String(c));
+        stdoutChunks.push(String(c));
         return true;
       }) as typeof process.stdout.write);
     try {
@@ -216,7 +222,7 @@ describe("main (CLI Commander wiring)", () => {
     } finally {
       spy.mockRestore();
     }
-    const buf = stderrChunks.join("");
+    const buf = stdoutChunks.join("");
     expect(buf).toMatch(/Arkor SDK 1\.4\.0 is deprecated/);
     expect(buf).not.toMatch(/Cutoff:/);
   });

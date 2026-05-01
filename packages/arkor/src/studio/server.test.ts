@@ -32,7 +32,6 @@ let fakeHome: string;
 let assetsDir: string;
 let trainCwd: string;
 const ORIG_HOME = process.env.HOME;
-const ORIG_CWD = process.cwd();
 
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-studio-test-"));
@@ -47,11 +46,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Some SSE proxy tests chdir into trainCwd so server.ts's readState()
-  // (which uses process.cwd()) lines up with where writeState wrote.
-  // Restore cwd before rm-ing the temp dirs, otherwise vitest's worker
-  // is left chdir'd into a path that no longer exists.
-  process.chdir(ORIG_CWD);
   process.env.HOME = ORIG_HOME;
   rmSync(fakeHome, { recursive: true, force: true });
   rmSync(assetsDir, { recursive: true, force: true });
@@ -862,14 +856,16 @@ process.exit(0);
 
     it("forwards Last-Event-ID through the SSE proxy", async () => {
       await writeCredentials(ANON_CREDS);
-      // server.ts's readState() reads from `process.cwd()` (no override),
-      // so chdir into trainCwd before writing state so they line up.
-      process.chdir(trainCwd);
-      await writeState({
-        orgSlug: "anon-org",
-        projectSlug: "proj",
-        projectId: "p1",
-      });
+      // buildStudioApp passes `trainCwd` to readState(), so write the
+      // state file there explicitly rather than mutating process cwd.
+      await writeState(
+        {
+          orgSlug: "anon-org",
+          projectSlug: "proj",
+          projectId: "p1",
+        },
+        trainCwd,
+      );
       let captured: { url: string; headers: Headers } | null = null;
       const enc = new TextEncoder();
       globalThis.fetch = (async (
@@ -914,12 +910,14 @@ process.exit(0);
     it("omits Last-Event-ID on /api/jobs/:id/events when the client did not supply one", async () => {
       // Branch coverage for the conditional Last-Event-ID forwarding.
       await writeCredentials(ANON_CREDS);
-      process.chdir(trainCwd);
-      await writeState({
-        orgSlug: "anon-org",
-        projectSlug: "proj",
-        projectId: "p1",
-      });
+      await writeState(
+        {
+          orgSlug: "anon-org",
+          projectSlug: "proj",
+          projectId: "p1",
+        },
+        trainCwd,
+      );
       let captured: Headers | null = null;
       globalThis.fetch = (async (_input, init) => {
         captured = new Headers(init?.headers);
@@ -947,12 +945,14 @@ process.exit(0);
       // body avoids that default so the upstream genuinely lacks the
       // header.
       await writeCredentials(ANON_CREDS);
-      process.chdir(trainCwd);
-      await writeState({
-        orgSlug: "anon-org",
-        projectSlug: "proj",
-        projectId: "p1",
-      });
+      await writeState(
+        {
+          orgSlug: "anon-org",
+          projectSlug: "proj",
+          projectId: "p1",
+        },
+        trainCwd,
+      );
       globalThis.fetch = (async () =>
         new Response(null, { status: 200 })) as typeof fetch;
       const app = build();
