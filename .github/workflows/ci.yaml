@@ -260,7 +260,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
-          cache: ${{ !matrix.rolldownIncompat && 'pnpm' || '' }}
+          # Intentionally no `cache: pnpm` — at this point pnpm isn't on
+          # PATH yet (the install-matrix job uses Node's bundled corepack
+          # to provision pnpm in the *next* step instead of running
+          # `pnpm/action-setup` up-front), so setup-node's pnpm-aware
+          # cache lookup fails with `Unable to locate executable file:
+          # pnpm`. Each job re-fetches deps fresh; ~30 s/job extra is
+          # noise next to the 2–3 min setup cost, and skipping the cache
+          # avoids a class of cross-OS pitfalls (e.g. corepack writing
+          # shims into a system-owned bin dir on Windows).
 
       # We deliberately use Node's bundled corepack instead of
       # pnpm/action-setup. action-setup adds its pnpm to PATH in a way
