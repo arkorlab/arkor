@@ -6,11 +6,24 @@ on:
 
 jobs:
   build:
-    name: typecheck · test · build · node ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    name: typecheck · test · build · ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    # Force bash on every OS so `run:` steps that use POSIX redirection (e.g.
+    # `>> "$GITHUB_STEP_SUMMARY"`) work uniformly. windows-latest defaults to
+    # pwsh otherwise. Git Bash ships on the GitHub-hosted Windows image.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
+        # Cross every Node entry below with all three GitHub-hosted OS images.
+        # The Node matrix exists to surface strip-types / transform-types /
+        # amaro behaviour shifts; running it on Linux + Windows + macOS also
+        # catches platform-specific regressions in path handling, child
+        # process spawning, and pnpm hardlink/symlink behaviour.
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
         # This matrix intentionally covers Node.js versions where built-in
         # TypeScript execution was experimental, so we can verify behavioral
         # differences across strip-types / transform-types / amaro changes.
