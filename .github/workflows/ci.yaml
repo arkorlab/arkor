@@ -82,7 +82,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Pin pnpm to the version declared in root package.json's
+      # `packageManager`. action-setup@v6 added support for pnpm v11, and on
+      # some OSes (observed: windows-latest, macos-latest) it can resolve to
+      # v11.x instead of the packageManager-pinned 10.33.2 — pnpm 11 hard-
+      # errors on Node <22.13, which breaks every matrix entry below 22.13.
+      # An explicit version sidesteps the auto-detect path entirely.
       - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
 
       # rolldown-incompatible path: install + tsdown build run here, on a
       # known-compatible Node. The matrix Node below then exercises dist/.
@@ -173,7 +181,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Match the build job: pin pnpm explicitly so action-setup doesn't
+      # surprise us with v11 on a future runner image refresh.
       - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.2
 
       - uses: actions/setup-node@v6
         with:
