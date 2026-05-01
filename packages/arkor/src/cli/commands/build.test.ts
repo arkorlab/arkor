@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -101,12 +102,17 @@ describe("runBuild", () => {
     // temp dir so the build doesn't pollute the test runner's cwd.
     const ORIG = process.cwd();
     const dir = mkdtempSync(join(tmpdir(), "arkor-build-cwd-"));
-    process.chdir(dir);
+    // macOS resolves `/tmp/...` to `/private/tmp/...` via realpath; the
+    // helper's `process.cwd()` then returns the canonicalised form, which
+    // doesn't string-match the raw `mkdtemp` result. Resolve both sides
+    // through realpath so the comparison stays portable.
+    const realDir = realpathSync(dir);
+    process.chdir(realDir);
     try {
-      mkdirSync(join(dir, "src/arkor"), { recursive: true });
-      writeFileSync(join(dir, "src/arkor/index.ts"), FAKE_MANIFEST);
+      mkdirSync(join(realDir, "src/arkor"), { recursive: true });
+      writeFileSync(join(realDir, "src/arkor/index.ts"), FAKE_MANIFEST);
       const result = await runBuild({ quiet: true });
-      expect(result.outFile).toBe(join(dir, ".arkor/build/index.mjs"));
+      expect(result.outFile).toBe(join(realDir, ".arkor/build/index.mjs"));
     } finally {
       process.chdir(ORIG);
       rmSync(dir, { recursive: true, force: true });
@@ -131,8 +137,9 @@ describe("runBuild", () => {
     }
     const out = chunks.join("");
     // clack's success log uses a checkmark glyph; assert on the path arrow
-    // we know runBuild prints.
-    expect(out).toMatch(/src\/arkor\/index\.ts/);
+    // we know runBuild prints. Match either separator so the assertion
+    // doesn't break on Windows where node:path emits `\`.
+    expect(out).toMatch(/src[\\/]arkor[\\/]index\.ts/);
     expect(out).toMatch(/index\.mjs/);
   });
 });

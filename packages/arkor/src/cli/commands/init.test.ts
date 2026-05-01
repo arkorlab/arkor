@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -68,7 +68,12 @@ const ORIG_CI = process.env.CI;
 const ORIG_TTY = process.stdout.isTTY;
 
 beforeEach(() => {
-  cwd = mkdtempSync(join(tmpdir(), "arkor-init-test-"));
+  // macOS resolves `/tmp/...` through realpath to `/private/tmp/...`, so
+  // a chdir into the raw `mkdtemp` result leaves `process.cwd()` (the
+  // value runInit reads internally) and our captured `cwd` mismatched.
+  // Canonicalising up front keeps every assertion that compares against
+  // `cwd` portable across Linux / macOS / Windows.
+  cwd = realpathSync(mkdtempSync(join(tmpdir(), "arkor-init-test-")));
   process.chdir(cwd);
   // Pin non-interactive so promptText/Select fall through to skipWith /
   // initialValue without opening clack.
