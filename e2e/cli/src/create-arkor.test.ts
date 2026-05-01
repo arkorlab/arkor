@@ -30,6 +30,11 @@ async function runCreateArkor(argv: string[]) {
 }
 
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
+// Selects which package manager the install-matrix sub-suite exercises.
+// CI sets one value per runner via the install-matrix job (see
+// .github/workflows/ci.yaml). Locally this is unset and only the
+// `localDefault` cases run.
+const E2E_PM = process.env.ARKOR_E2E_PM;
 
 describe("create-arkor (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -353,21 +358,45 @@ describe("create-arkor (E2E)", () => {
     expect(existsSync(join(target, "package.json"))).toBe(true);
   });
 
-  it.skipIf(SKIP_INSTALL).each([{ pm: "npm" }, { pm: "pnpm" }])(
-    "runs real $pm install + git commit (gated by SKIP_E2E_INSTALL)",
-    async ({ pm }) => {
-      const { result, targetDir } = await runCreateArkor([
-        "-y",
-        `--use-${pm}`,
-        "--git",
-      ]);
-      expect(result.code).toBe(0);
-      expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
-      expect(existsSync(join(targetDir, ".git/HEAD"))).toBe(true);
+  // Mirror of the install-matrix in arkor-init.test.ts. See the comment
+  // there for the gating contract; the assertions here just track the
+  // create-arkor copywriting (commit message, target dir layout).
+  const installCases = [
+    { label: "npm",        flag: "npm",  localDefault: true  },
+    { label: "pnpm",       flag: "pnpm", localDefault: true  },
+    { label: "yarn",       flag: "yarn", localDefault: false },
+    { label: "yarn-berry", flag: "yarn", localDefault: false },
+    { label: "bun",        flag: "bun",  localDefault: false },
+  ] as const;
 
-      const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
-      expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
-    },
-    180_000,
-  );
+  for (const { label, flag, localDefault } of installCases) {
+    const skip =
+      SKIP_INSTALL ||
+      (E2E_PM !== undefined && E2E_PM !== label) ||
+      (E2E_PM === undefined && !localDefault);
+
+    it.skipIf(skip)(
+      `runs real ${label} install + git commit`,
+      async () => {
+        const { result, targetDir } = await runCreateArkor([
+          "-y",
+          `--use-${flag}`,
+          "--git",
+        ]);
+        expect(result.code).toBe(0);
+        // yarn-berry's default Plug'n'Play install doesn't materialise a
+        // node_modules tree — deps live under `.yarn/` instead.
+        if (label === "yarn-berry") {
+          expect(existsSync(join(targetDir, ".yarn"))).toBe(true);
+        } else {
+          expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
+        }
+        expect(existsSync(join(targetDir, ".git/HEAD"))).toBe(true);
+
+        const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
+        expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
+      },
+      180_000,
+    );
+  }
 });

@@ -16,6 +16,7 @@
     "test": {
       "dependsOn": ["^build"],
       "env": [
+        "ARKOR_E2E_PM",
         "ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC",
         "ARKOR_POSTHOG_KEY",
         "ARKOR_POSTHOG_HOST",
@@ -27,6 +28,7 @@
     "test:coverage": {
       "dependsOn": ["^build"],
       "env": [
+        "ARKOR_E2E_PM",
         "ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC",
         "ARKOR_POSTHOG_KEY",
         "ARKOR_POSTHOG_HOST",
