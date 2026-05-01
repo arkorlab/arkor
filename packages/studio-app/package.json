@@ -8,7 +8,8 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "eventsource-parser": "^3.0.0",
@@ -22,6 +23,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "@vitest/coverage-v8": "^4.1.5",
     "tailwindcss": "^4.0.0",
     "typescript": "^5",
     "vite": "^6.0.0",

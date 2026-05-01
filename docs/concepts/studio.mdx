@@ -13,7 +13,7 @@ Three jobs:
 2. **See training happen.** A jobs list with live status, a loss chart that updates as the run streams in, and a tail of training events. You can leave it open in a tab while you work on other things.
 3. **Try a finished model.** A Playground page lets you pick the base model or the final adapter from any completed job and chat with it. The Playground does not load intermediate checkpoints; for mid-run inference, use [`onCheckpoint`](/concepts/lifecycle) callbacks in your trainer.
 
-A note on the dev loop: Studio's `/api/manifest` endpoint rebuilds and re-imports your trainer on every request (with a cache-bust query, see `packages/arkor/src/studio/manifest.ts`), but the UI only fetches it when the Run training page mounts. So if you edit `src/arkor/` and stay on the same Run training page, the next click reuses the existing `.arkor/build/index.mjs` and runs your old code. Refresh the page (or run `arkor build` from the terminal) between edits and clicks to pick up the new code reliably.
+A note on the dev loop: Studio's `/api/manifest` endpoint rebuilds and re-imports your trainer on every request (with a cache-bust query, see `packages/arkor/src/studio/manifest.ts`), but the UI only fetches it when the Run training page mounts. So if you edit `src/arkor/` and stay on the same Run training page, the next click reuses the existing `.arkor/build/index.mjs` and runs your old code. Refresh the page (or run `pnpm exec arkor build` from the terminal) between edits and clicks to pick up the new code reliably.
 
 ## Where Studio runs
 
@@ -41,7 +41,7 @@ Arkor managed backend (training, inference)
 
 That separation is why Studio works without you logging into anything in the browser: the CLI already has your credentials in `~/.arkor/credentials.json`, and Studio inherits them by virtue of running locally.
 
-If `~/.arkor/credentials.json` is missing, the entry point decides what to do. **`arkor dev`** (and `arkor login` itself) checks the cloud-api at launch and runs the interactive Auth0 PKCE flow when the deployment requires Auth0; otherwise it requests an anonymous token. The **Studio server's lazy bootstrap** (when an `/api/*` request arrives before credentials are on disk) only does the anonymous fallback: it never runs the Auth0 flow on its own. So on an Auth0-configured deployment, run `arkor login` (or let `arkor dev` open the browser flow at launch) before clicking around in Studio; the credentials file is shared, so Studio picks up the account session on its next request.
+If `~/.arkor/credentials.json` is missing, the entry point decides what to do. **`arkor dev`** bootstraps an anonymous session at launch and prints a one-line hint pointing at `arkor login --oauth` so you can upgrade to a real account whenever you want; it never auto-launches the OAuth flow. The one outage case where it does not bootstrap is when `/v1/auth/cli/config` itself is unreachable on first run: the same transport error is rethrown and `arkor dev` exits fast (see [`arkor dev`](/cli/dev) for the exact recovery story). The **Studio server's lazy bootstrap** (when an `/api/*` request arrives before credentials are on disk) does the same anonymous fallback. To use an account session, run `arkor login --oauth` separately before (or after) clicking around in Studio; the credentials file is shared, so Studio picks up the account session on its next request.
 
 ## What you actually see
 

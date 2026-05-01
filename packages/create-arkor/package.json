@@ -1,6 +1,6 @@
 {
   "name": "create-arkor",
-  "version": "0.0.1-alpha.4",
+  "version": "0.0.1-alpha.5",
   "description": "Scaffolder for arkor training projects.",
   "private": false,
   "type": "module",
@@ -31,7 +31,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
     "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --passWithNoTests --coverage"
   },
   "dependencies": {
     "@clack/prompts": "^0.8.0",
@@ -40,6 +41,7 @@
   "devDependencies": {
     "@arkor/cli-internal": "workspace:*",
     "@types/node": "^24",
+    "@vitest/coverage-v8": "^4.1.5",
     "tsdown": "^0.21.9",
     "typescript": "^5",
     "vitest": "^4.1.5"

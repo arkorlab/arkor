@@ -1,0 +1,66 @@
+---
+title: "createArkor"
+description: "Trainer を CLI と Studio が発見できる Arkor プロジェクトマニフェストにラップする。"
+---
+
+# `createArkor`
+
+```ts
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+`createArkor` は、`arkor dev`、`arkor start`、Studio の `/api/manifest` エンドポイントが `src/arkor/index.ts` で探すプロジェクトマニフェストを生成します。今のところマニフェストが運ぶのは `Trainer` だけで、型は `deploy` と `eval` のスロットを予約していますがどちらも未実装です。
+
+## シグネチャ
+
+```ts
+function createArkor(input: ArkorInput): Arkor;
+
+interface ArkorInput {
+  trainer?: Trainer;
+  // 将来: deploy?: Deploy;
+  // 将来: eval?: Eval;
+}
+
+interface Arkor {
+  readonly _kind: "arkor";
+  readonly trainer?: Trainer;
+  // 将来: readonly deploy?: Deploy;
+  // 将来: readonly eval?: Eval;
+}
+```
+
+返ってくるオブジェクトは `Object.freeze` 済み。メソッドはありません。フレームワークは `_kind` と `trainer` を直接読みます。
+
+## 今日できること
+
+- `trainer`: [`createTrainer`](/ja/sdk/create-trainer) で作った `Trainer` を渡す。型上はオプショナルですが、`trainer` のないマニフェストは `arkor start` で実行できません（ランナーが ``Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.`` で例外が発生します）。
+
+## まだないもの
+
+- `deploy` と `eval` スロット。`ArkorInput` と `Arkor` ではコメントアウトされた予約フィールドとして現れます。今日それらを渡すと型エラーになり、ランタイムパスもありません。前方互換 API ではなくロードマップマーカーとして扱ってください。
+
+## 認識されるエクスポート形
+
+`arkor start`（経由 `runTrainer`）は `src/arkor/index.ts` を次の 3 つのエクスポートのいずれかについて、優先順位順に検査します:
+
+1. `export const arkor = createArkor({ ... })`（推奨。テンプレートが生成する形）
+2. `export const trainer = createTrainer({ ... })`（パワーユーザー向けショートカット、マニフェストなし）
+3. `export default ...`（`Arkor` マニフェストか、ベアな `Trainer` のいずれか）
+
+どれもマッチしないとランナーは上記メッセージで例外が発生します。テンプレートは常に形 1 を吐きます。他を選ぶ理由が分かっていない限り、これを選んでください。
+
+## `isArkor`
+
+```ts
+import { isArkor } from "arkor";
+
+if (isArkor(value)) {
+  // value: Arkor
+}
+```
+
+マニフェストを動的に消費するコードのために `createArkor` と一緒にエクスポートされている小さな型ガードです。値が null でないオブジェクトで `_kind === "arkor"` であることをチェックします（`Object.isFrozen` は確認 **しません**。`createArkor` 自体は frozen な値を生成するにもかかわらず）。普通に使う場面は限られます。通常のコードでは `index.ts` からの型付きエクスポートが既に正しい形を与えてくれます。

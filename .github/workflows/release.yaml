@@ -148,9 +148,6 @@ jobs:
           ARKOR_POSTHOG_HOST: ${{ secrets.ARKOR_POSTHOG_HOST }}
         run: pnpm run build
 
-      - name: Test
-        run: pnpm run test
-
       - name: Pack and inspect tarballs
         run: |
           PACK_DIR="$RUNNER_TEMP/npm-pack"
@@ -161,9 +158,51 @@ jobs:
             (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
           done
 
+          # Resolve the freshly-packed `arkor` tarball without hard-coding
+          # the filename, then expose it to subsequent steps as a
+          # `file:` spec so the e2e scaffold install tests use *this*
+          # build instead of fetching `arkor` from the registry.
+          shopt -s nullglob
+          ARKOR_TARBALLS=("$PACK_DIR"/arkor-*.tgz)
+          shopt -u nullglob
+          if [[ ${#ARKOR_TARBALLS[@]} -ne 1 ]]; then
+            echo "Expected exactly one arkor-*.tgz in $PACK_DIR, got ${#ARKOR_TARBALLS[@]}"
+            ls -la "$PACK_DIR" || true
+            exit 1
+          fi
+          ARKOR_TARBALL="${ARKOR_TARBALLS[0]}"
+          echo "ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:$ARKOR_TARBALL" >> "$GITHUB_ENV"
+
           for TARBALL in "$PACK_DIR"/*.tgz; do
             echo "## $(basename "$TARBALL")"
             tar -tf "$TARBALL"
+          done
+
+      - name: Test
+        env:
+          ARKOR_POSTHOG_KEY: ${{ secrets.ARKOR_POSTHOG_KEY }}
+          ARKOR_POSTHOG_HOST: ${{ secrets.ARKOR_POSTHOG_HOST }}
+          # Disable runtime telemetry: `pnpm run test` triggers the
+          # e2e-cli pretest, which rebuilds `arkor` with the key baked
+          # in. The tests then spawn that binary, so without this flag
+          # every release run would emit real PostHog events from CI.
+          ARKOR_TELEMETRY_DISABLED: "1"
+        run: pnpm run test
+
+      # Re-pack after Test so the attestation and the GitHub Release
+      # artifacts capture the same dist/ that `npm publish` (from the
+      # package directory, below) will upload — the e2e-cli pretest
+      # rebuilds dist/, so the pre-Test pack that fed
+      # ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC is now stale for that
+      # purpose.
+      - name: Re-pack release tarballs
+        run: |
+          PACK_DIR="$RUNNER_TEMP/npm-pack"
+          rm -rf "$PACK_DIR"
+          mkdir -p "$PACK_DIR"
+
+          for PKG_DIR in packages/arkor packages/create-arkor; do
+            (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
           done
 
       - name: Generate GitHub artifact attestations for release tarballs

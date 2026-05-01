@@ -7,6 +7,7 @@ import open from "open";
 import { fetchCliConfig } from "../../core/auth0";
 import {
   AnonymousTokenRejectedError,
+  credentialsPath,
   defaultArkorCloudApiUrl,
   readCredentials,
   studioTokenPath,
@@ -15,6 +16,7 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 import { buildStudioApp } from "../../studio/server";
+import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
 import { ui } from "../prompts";
 
 export interface DevOptions {
@@ -143,6 +145,13 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     orgSlug: anon.orgSlug,
   };
   await writeCredentials(creds);
+  ui.log.info(
+    `Anonymous id: ${anon.anonymousId} — Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
+  );
+  // see ../anonymous.ts for wording rationale and gating contract.
+  if (oauthAvailable === true) {
+    ui.log.warn(ANON_PERSISTENCE_NUDGE);
+  }
   ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
 }
 

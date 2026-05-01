@@ -129,14 +129,175 @@ jobs:
       # step above is used as-is.
       - name: Test (rolldown-incompatible Node)
         if: ${{ matrix.rolldownIncompat }}
+        env:
+          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: |
           pnpm exec turbo run test --filter='!@arkor/e2e-cli'
           pnpm --filter @arkor/e2e-cli exec vitest run
 
       - name: Test
         if: ${{ !matrix.rolldownIncompat }}
+        env:
+          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: pnpm test
 
       - name: Build
         if: ${{ !matrix.rolldownIncompat }}
         run: pnpm build
+
+  coverage:
+    name: coverage · upload to Codecov
+    runs-on: ubuntu-latest
+    # The matrix above already exercises tests across Node versions; this
+    # job runs once on the newest LTS to keep coverage + Test Analytics
+    # uploads stable. Codecov uploads use OIDC (`use_oidc: true`) — no
+    # CODECOV_TOKEN secret is stored in this repo. `id-token: write` is
+    # required for the runner to mint the OIDC JWT that codecov-action
+    # exchanges for an upload token. See
+    # https://docs.codecov.com/docs/github-tokenless-uploads.
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Cache Turborepo
+        uses: actions/cache@v5
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-coverage-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-coverage-
+
+      - name: Install
+        run: pnpm install
+
+      # Tests must keep going on failure so every package still produces
+      # its lcov.info / junit.xml; turbo's default `--continue=never` would
+      # cancel sibling tasks after the first failure and starve the upload
+      # steps below. Subsequent uploads gate on `!cancelled()` so they run
+      # even when tests fail; the job's final outcome still reflects the
+      # test result.
+      - name: Test with coverage
+        env:
+          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
+        run: pnpm exec turbo run test:coverage --continue
+
+      - name: Upload arkor coverage
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          files: ./packages/arkor/coverage/lcov.info
+          flags: arkor
+          fail_ci_if_error: false
+
+      - name: Upload create-arkor coverage
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          files: ./packages/create-arkor/coverage/lcov.info
+          flags: create-arkor
+          fail_ci_if_error: false
+
+      - name: Upload cli-internal coverage
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          files: ./packages/cli-internal/coverage/lcov.info
+          flags: cli-internal
+          fail_ci_if_error: false
+
+      - name: Upload studio-app coverage
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          files: ./packages/studio-app/coverage/lcov.info
+          flags: studio-app
+          fail_ci_if_error: false
+
+      # E2E coverage is collected via c8 wrapping vitest in e2e/cli; the
+      # spawned CLI children inherit NODE_V8_COVERAGE and their hits are
+      # remapped through tsdown's sourcemaps back into
+      # packages/{arkor,create-arkor}/src/**.
+      - name: Upload e2e-cli coverage
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          files: ./e2e/cli/coverage/lcov.info
+          flags: e2e-cli
+          fail_ci_if_error: false
+
+      # Codecov Test Analytics — uploads JUnit XML produced by the vitest
+      # `junit` reporter. Tracks pass/fail history per test, surfaces flaky
+      # tests, and shows failure trends on the Codecov dashboard. See
+      # https://docs.codecov.com/docs/test-analytics.
+      - name: Upload arkor test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          report_type: test_results
+          files: ./packages/arkor/coverage/junit.xml
+          flags: arkor
+          fail_ci_if_error: false
+
+      - name: Upload create-arkor test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          report_type: test_results
+          files: ./packages/create-arkor/coverage/junit.xml
+          flags: create-arkor
+          fail_ci_if_error: false
+
+      - name: Upload cli-internal test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          report_type: test_results
+          files: ./packages/cli-internal/coverage/junit.xml
+          flags: cli-internal
+          fail_ci_if_error: false
+
+      - name: Upload studio-app test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          report_type: test_results
+          files: ./packages/studio-app/coverage/junit.xml
+          flags: studio-app
+          fail_ci_if_error: false
+
+      - name: Upload e2e-cli test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          disable_search: true
+          report_type: test_results
+          files: ./e2e/cli/coverage/junit.xml
+          flags: e2e-cli
+          fail_ci_if_error: false

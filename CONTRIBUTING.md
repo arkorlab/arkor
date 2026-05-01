@@ -71,14 +71,16 @@ Studio runs at `http://127.0.0.1:4000` with a CSRF token injected per launch.
 
 ## Pull request guidelines
 
-- **One concern per PR.** Smaller diffs land faster.
-- **Tests where the surface is testable.** SDK / CLI / scaffolder logic should have a vitest case. Studio UI changes can be PR'd with a screenshot or short clip.
-- **Breaking changes are fine** during alpha. We don't ship compatibility shims between `0.0.x` versions, so just note them in the PR description and the changelog stays honest.
-- **Don't reintroduce removed verbs.** `arkor train`, `arkor deploy`, `arkor jobs`, and `arkor logs` were removed deliberately. Training and deploying are TS configs that run when the entrypoint executes, not CLI verbs. The CLI surface is `dev` / `build` / `start` plus auth.
+We err on the side of accepting PRs, even rough ones. Tiny contributions — a typo fix, a smoother sentence, a clearer error message — are genuinely welcome and never too small to send. **Please don't let any of the following stop you from opening one:**
+
+- **Size doesn't matter.** Huge diffs are fine — please don't hold back on opening a PR because it grew. We'd much rather read a sprawling PR than have you not send it, and we're happy to split it up on our side if that helps review.
+- **Unclear description is OK.** A messy or sparse PR description is better than no PR. We'll ask follow-ups in review rather than bouncing the patch.
+- **Tests aren't required.** A vitest case for SDK / CLI / scaffolder logic, or a screenshot / short clip for Studio UI changes, is appreciated but not a blocker. We're happy to add tests ourselves as part of merging.
+- **Breaking changes are fine** during alpha. We don't ship compatibility shims between `0.0.x` versions, so just note them in the PR description and the [release notes](https://github.com/arkorlab/arkor/releases) stay honest.
 
 ## Reporting bugs and security issues
 
-- **Bugs**: [GitHub Issues](https://github.com/arkorlab/arkor/issues/new) with steps to reproduce, expected vs actual, and your Node + pnpm versions.
+- **Bugs**: [GitHub Issues](https://github.com/arkorlab/arkor/issues/new). Steps to reproduce, expected vs actual, and your Node + pnpm versions go a long way — but a one-line "this is broken" is still better than not reporting it. If we can't reproduce what you're seeing, we'll ask follow-up questions on the issue; please reply when you can. Most stalled bugs aren't ignored, just stuck waiting on context only the reporter has.
 - **Security**: please email security@arkor.ai instead of filing a public issue. We'll acknowledge within 48 hours.
 
 ## Code of conduct

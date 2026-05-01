@@ -1,0 +1,78 @@
+---
+title: "infer"
+description: "onCheckpoint の中からチェックポイントアダプタに対して推論を走らせる。"
+---
+
+# `infer`
+
+`infer` は `CheckpointContext` 上の [`onCheckpoint`](/ja/sdk/callbacks#oncheckpoint-step-adapter-job-infer-artifacts-) に渡される関数です。今しがた保存されたチェックポイントアダプタに紐づいた推論リクエストを実行し、生の `Response` を返します。トップレベルの `infer` エクスポートはありません: SDK はコールバック引数として露出し、呼び出しが正しいジョブ + チェックポイントステップに自動的にスコープされるようにしています。
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  const res = await infer({
+    messages: [
+      { role: "user", content: "I can't log in." },
+    ],
+  });
+  console.log(`step=${step} sample=`, await res.text());
+}
+```
+
+## 入力
+
+```ts
+interface InferArgs {
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>;
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
+  /** デフォルト: true。SSE ではなく単一 JSON ボディが欲しいなら false に。 */
+  stream?: boolean;
+  signal?: AbortSignal;
+}
+```
+
+| フィールド | 型 | 補足 |
+| --- | --- | --- |
+| `messages` | `{ role, content }` の配列 | チャット履歴。role は OpenAI / HuggingFace の chat-template 慣例に揃えています。 |
+| `temperature` | `number?` | サンプリング温度。省略時はバックエンドのデフォルト。 |
+| `topP` | `number?` | Nucleus サンプリング。省略時はバックエンドのデフォルト。 |
+| `maxTokens` | `number?` | 応答トークンの最大値。省略時はバックエンドのデフォルト。 |
+| `stream` | `boolean?` | デフォルトは **true**（SSE）。単一 JSON ボディが欲しければ `false`。 |
+| `signal` | `AbortSignal?` | ローカル fetch を abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
+
+## 出力
+
+`infer` は `Promise<Response>` を返します: 生の Fetch `Response`。SDK はボディをパースしません。消費の仕方はあなたが決めます:
+
+```ts
+// ストリーミング（デフォルト）
+const res = await infer({ messages });
+for await (const chunk of res.body!) {
+  // chunk: 1 つ以上の SSE フレームの Uint8Array
+}
+
+// あるいはストリームを一気に読む
+const text = await res.text();
+
+// あるいは stream: false にして JSON ボディをパース
+const res = await infer({ messages, stream: false });
+const data = await res.json();
+```
+
+`stream: true`（デフォルト）のときボディは Studio の Playground が消費するのと同じ形の SSE イベントストリームです。SDK はこのストリーム用のフレームパーサを今のところ提供していません。デコードしたテキストデルタが必要なら、`packages/studio-app/src/lib/api.ts` から小さな `extractInferenceDelta` ヘルパーをコピーするか、`eventsource-parser` を使ってパーサを書いてください。
+
+## 制約
+
+- `infer` は `CheckpointContext` 上に **のみ** 存在します。完了済みジョブに対する SDK 側の同等物はありません。そのパスにはクラウド API を直接叩くか、学習をもう一度起こしてください。Studio の Playground は完了済みアダプタとチャットする UI レベルのルートです。
+- 呼び出しは `{ kind: "checkpoint", jobId, step }` にスコープされます。`onCheckpoint` の中から別のチェックポイントや別モデルに向け直すことはできません。
+- 関数はメモ化されていません: 呼ぶたびにバックエンドへ届きます。
+
+## 使いどころ
+
+- **学習中のサニティチェック。** ステップ 50 のチェックポイントとステップ 100 のチェックポイントを固定プロンプトで比較。loss 曲線は問題なく見えても出力が劣化していれば、学習完了前に気付けます。
+- **カスタム early stopping。** 簡単な eval プロンプトと組み合わせて、出力が逸脱したら `controller.abort()`（[`abortSignal`](/ja/sdk/trainer-control#abortsignal) を参照）で学習を止め、`trainer.cancel()` でバックエンドを停止。
+- **自前 UI へのライブプレビュー。** チェックポイントの出力を Slack、社内レビューキュー、自前アプリのプレビューチャネルに送る。

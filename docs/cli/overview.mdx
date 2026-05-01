@@ -1,9 +1,9 @@
 ---
-title: "CLI"
+title: "Command reference"
 description: "The arkor CLI: full command reference."
 ---
 
-The `arkor` CLI is the command surface around an Arkor project. The scaffolder ([`pnpm create arkor`](/quickstart)) installs `arkor` as a local devDependency, so prefer `npx arkor <command>` (or `pnpm exec arkor <command>` / `yarn arkor <command>` / `bun arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally.
+The `arkor` CLI is the command surface around an Arkor project. The scaffolder ([`pnpm create arkor`](/quickstart)) installs `arkor` as a local devDependency, so use your package manager's local-bin runner (e.g. `pnpm exec arkor <command>`, `npx arkor <command>`, `yarn arkor <command>`, or `bunx arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally. Examples in the rest of these docs use the pnpm form; the others work identically.
 
 ## Commands
 
@@ -13,7 +13,7 @@ The `arkor` CLI is the command surface around an Arkor project. The scaffolder (
 | [`arkor dev`](/cli/dev) | Launch [Studio](/concepts/studio) on `http://localhost:4000` (configurable). |
 | [`arkor build`](/cli/build-and-start) | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`. |
 | [`arkor start`](/cli/build-and-start) | Run the build artifact (auto-builds when missing). |
-| [`arkor login`](/cli/auth) | Sign in via Auth0 PKCE on loopback, or `--anonymous` for a throwaway token. |
+| [`arkor login`](/cli/auth) | Sign in. With no flags, prompts interactively (default selection: `Anonymous`). Pass `--oauth` for the loopback Arkor Cloud OAuth (PKCE) flow or `--anonymous` to skip the picker. |
 | [`arkor logout`](/cli/auth) | Delete `~/.arkor/credentials.json`. |
 | [`arkor whoami`](/cli/auth) | Print the current identity and reachable orgs. |
 
@@ -36,7 +36,7 @@ The `arkor` CLI is the command surface around an Arkor project. The scaffolder (
 
 ### On the roadmap
 
-The CLI does read `ARKOR_CLOUD_API_URL` and uses it as the cloud-api endpoint when set (`packages/arkor/src/core/credentials.ts`'s `defaultArkorCloudApiUrl`), but pointing at a non-default endpoint (self-hosted or staging) is **not** yet a stable user-facing knob: the env var is internal-only and may change without notice, and there are no compatibility guarantees on alternate endpoints. First-class support for self-hosted / staging deployments is on the roadmap.
+The CLI does read `ARKOR_CLOUD_API_URL` and uses it as the cloud-api endpoint when set (`packages/arkor/src/core/credentials.ts`'s `defaultArkorCloudApiUrl`), but pointing at a non-default endpoint (self-hosted or staging) is **not** yet a stable user-facing knob: the env var is internal-only and may change without notice, and there are no compatibility guarantees on alternate endpoints. First-class support for self-hosted / staging deployments is [on the roadmap](/roadmap#self-hosted-deployments).
 
 ## Programmatic invocation
 

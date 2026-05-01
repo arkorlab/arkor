@@ -8,11 +8,15 @@ import {
   startLoopbackServer,
 } from "../../core/auth0";
 import {
+  credentialsPath,
   defaultArkorCloudApiUrl,
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
-import { acquireAnonymousTokenResult } from "../anonymous";
+import {
+  ANON_PERSISTENCE_NUDGE,
+  acquireAnonymousTokenResult,
+} from "../anonymous";
 import { promptSelect, ui } from "../prompts";
 
 export interface LoginOptions {
@@ -28,7 +32,16 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
     throw new Error("Pick one of --oauth / --anonymous, not both.");
   }
   if (options.anonymous) {
-    await runAnonymousLogin();
+    // `oauthAvailable` unknown here — we deliberately skip the cfg fetch on
+    // the explicit `--anonymous` shortcut so a partially-degraded cloud-api
+    // doesn't block the only flow that doesn't need it. Per the gating
+    // contract in `../anonymous.ts`, the persistence nudge is suppressed
+    // when OAuth availability is unknown (rather than risking a misleading
+    // `arkor login --oauth` hint on an anon-only deployment). Users who
+    // explicitly typed `--anonymous` already know what they want; losing
+    // the nudge for them is a smaller cost than steering anyone at a
+    // command that fails.
+    await runAnonymousLogin({});
     return;
   }
 
@@ -47,7 +60,7 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
     ui.log.info(
       "OAuth is not configured — continuing with an anonymous session.",
     );
-    await runAnonymousLogin();
+    await runAnonymousLogin({ oauthAvailable: false });
     return;
   }
 
@@ -92,7 +105,7 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
       });
 
   if (mode === "anonymous") {
-    await runAnonymousLogin();
+    await runAnonymousLogin({ oauthAvailable: true });
     return;
   }
 
@@ -107,7 +120,18 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
   );
 }
 
-async function runAnonymousLogin(): Promise<void> {
+async function runAnonymousLogin(opts: {
+  /**
+   * Whether OAuth is *confirmed* available on this deployment. The
+   * persistence nudge fires only when this is `true`. `false` (cfg
+   * fetched, no Auth0 advertised) and `undefined` (cfg not fetched, e.g.
+   * the explicit `--anonymous` shortcut) both suppress the nudge — see
+   * the gating contract in `../anonymous.ts`. We err on suppression for
+   * the unknown case so users on rare anon-only deployments are never
+   * pointed at `arkor login --oauth`, which would fail on those.
+   */
+  oauthAvailable?: boolean;
+}): Promise<void> {
   const baseUrl = defaultArkorCloudApiUrl();
   const spin = ui.spinner();
   spin.start("Requesting anonymous token");
@@ -121,6 +145,13 @@ async function runAnonymousLogin(): Promise<void> {
   };
   await writeCredentials(creds);
   spin.stop(`Anonymous id: ${result.anonymousId}`);
+  ui.log.info(
+    `This id is how Arkor Cloud recognises this client across sessions — keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
+  );
+  // see ../anonymous.ts for wording rationale and gating contract.
+  if (opts.oauthAvailable === true) {
+    ui.log.warn(ANON_PERSISTENCE_NUDGE);
+  }
   ui.log.success(`Signed in anonymously (personal org: ${result.orgSlug}).`);
 }
 

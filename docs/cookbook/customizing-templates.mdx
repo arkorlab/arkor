@@ -179,4 +179,4 @@ export const trainer = createTrainer({
 
 This is still a 30-line file you can read top to bottom. The point of the templates is not the specific code they emit; it is the shape they hand you, with a real run already wired up, so the customization above is an editor session away.
 
-To layer early stopping on top, follow [Early stopping](/cookbook/early-stopping) — it shows the `AbortController` + `trainer.cancel()` pair you need so an aborted run does not keep burning GPU on the backend.
+To layer early stopping on top, follow [Early stopping](/cookbook/early-stopping). It shows the `AbortController` and `trainer.cancel()` pair you need so an aborted run does not keep burning GPU on the backend.
