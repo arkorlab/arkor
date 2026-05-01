@@ -15,7 +15,7 @@ export function ModelToggle({
 }) {
   return (
     <div
-      role="tablist"
+      role="group"
       aria-label="Model source"
       className="inline-flex h-9 items-center rounded-full border border-zinc-200 bg-zinc-50 p-1 text-[13px] dark:border-zinc-800 dark:bg-zinc-900"
     >
@@ -56,8 +56,7 @@ function Segment({
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
+      aria-pressed={active}
       disabled={disabled}
       onClick={onClick}
       title={title}

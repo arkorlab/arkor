@@ -39,6 +39,8 @@ export function BaseModelPicker({
       <button
         type="button"
         disabled={disabled}
+        aria-haspopup="true"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className={cn(
           "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors",
@@ -57,18 +59,14 @@ export function BaseModelPicker({
       </button>
 
       {open ? (
-        <div
-          role="listbox"
-          className="absolute right-0 top-full z-20 mt-2 min-w-[260px] overflow-hidden rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-950"
-        >
+        <div className="absolute right-0 top-full z-20 mt-2 min-w-[260px] overflow-hidden rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
           {SUPPORTED_BASE_MODELS.map((m) => {
             const active = m === value;
             return (
               <button
                 key={m}
                 type="button"
-                role="option"
-                aria-selected={active}
+                aria-pressed={active}
                 onClick={() => {
                   onChange(m);
                   setOpen(false);

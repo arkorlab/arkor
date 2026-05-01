@@ -38,6 +38,8 @@ export function AdapterPicker({
     <div ref={wrapRef} className="relative">
       <button
         type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         className={cn(
           "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors",
@@ -64,10 +66,7 @@ export function AdapterPicker({
       </button>
 
       {open ? (
-        <div
-          role="listbox"
-          className="absolute right-0 top-full z-20 mt-2 max-h-72 min-w-[280px] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-950"
-        >
+        <div className="absolute right-0 top-full z-20 mt-2 max-h-72 min-w-[280px] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
           {jobs.length === 0 ? (
             <div className="px-3 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
               No completed jobs yet.
@@ -79,8 +78,7 @@ export function AdapterPicker({
                 <button
                   key={j.id}
                   type="button"
-                  role="option"
-                  aria-selected={active}
+                  aria-pressed={active}
                   onClick={() => {
                     onSelect(j.id);
                     setOpen(false);

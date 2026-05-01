@@ -55,14 +55,27 @@ export function Playground() {
   async function send() {
     if (!canSend) return;
     const userMsg: ChatMessage = { role: "user", content: input };
-    setMessages((prev) => [
-      ...prev,
-      userMsg,
-      { role: "assistant", content: "" },
-    ]);
+    // Capture the assistant placeholder's index inside the queued
+    // updater so subsequent streaming/error updates target the same
+    // slot regardless of how React batches the queued setMessages
+    // calls.
+    let assistantIndex = -1;
+    setMessages((prev) => {
+      assistantIndex = prev.length + 1;
+      return [...prev, userMsg, { role: "assistant", content: "" }];
+    });
     setInput("");
     setStreaming(true);
     responseRef.current = "";
+
+    function writeAssistant(content: string) {
+      setMessages((prev) => {
+        if (assistantIndex < 0 || assistantIndex >= prev.length) return prev;
+        const out = prev.slice();
+        out[assistantIndex] = { role: "assistant", content };
+        return out;
+      });
+    }
 
     try {
       const stream = streamInferenceContent({
@@ -74,23 +87,11 @@ export function Playground() {
       });
       for await (const fragment of stream) {
         responseRef.current += fragment;
-        const current = responseRef.current;
-        setMessages((prev) => {
-          const out = prev.slice();
-          out[out.length - 1] = { role: "assistant", content: current };
-          return out;
-        });
+        writeAssistant(responseRef.current);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setMessages((prev) => {
-        const out = prev.slice();
-        out[out.length - 1] = {
-          role: "assistant",
-          content: `[error] ${msg}`,
-        };
-        return out;
-      });
+      writeAssistant(`[error] ${msg}`);
     } finally {
       setStreaming(false);
     }

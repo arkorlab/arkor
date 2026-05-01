@@ -34,25 +34,31 @@ export function JobsTable({
         <tbody>
           {jobs.map((j) => {
             const ms = jobDurationMs(j);
+            const open = () => {
+              window.location.hash = `#/jobs/${j.id}`;
+            };
             return (
               <tr
                 key={j.id}
-                onClick={() => {
-                  window.location.hash = `#/jobs/${j.id}`;
+                tabIndex={0}
+                role="link"
+                aria-label={`Open job ${j.name}`}
+                onClick={open}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    open();
+                  }
                 }}
-                className="group cursor-pointer border-t border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-900 dark:hover:bg-zinc-900/60"
+                className="group cursor-pointer border-t border-zinc-100 transition-colors hover:bg-zinc-50 focus-visible:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500/40 dark:border-zinc-900 dark:hover:bg-zinc-900/60 dark:focus-visible:bg-zinc-900/60"
               >
                 <td className="px-6 py-3.5 align-middle">
                   <StatusBadge status={j.status} size="sm" />
                 </td>
                 <td className="px-6 py-3.5 align-middle">
-                  <a
-                    href={`#/jobs/${j.id}`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="font-medium text-zinc-900 group-hover:text-teal-700 dark:text-zinc-100 dark:group-hover:text-teal-300"
-                  >
+                  <span className="font-medium text-zinc-900 group-hover:text-teal-700 dark:text-zinc-100 dark:group-hover:text-teal-300">
                     {j.name}
-                  </a>
+                  </span>
                 </td>
                 {!compact && (
                   <td className="px-6 py-3.5 align-middle text-zinc-500 dark:text-zinc-400 tabular-nums">
