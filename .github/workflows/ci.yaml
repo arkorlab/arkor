@@ -6,11 +6,24 @@ on:
 
 jobs:
   build:
-    name: typecheck · test · build · node ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    name: typecheck · test · build · ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    # Force bash on every OS so `run:` steps that use POSIX redirection (e.g.
+    # `>> "$GITHUB_STEP_SUMMARY"`) work uniformly. windows-latest defaults to
+    # pwsh otherwise. Git Bash ships on the GitHub-hosted Windows image.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
+        # Cross every Node entry below with all three GitHub-hosted OS images.
+        # The Node matrix exists to surface strip-types / transform-types /
+        # amaro behaviour shifts; running it on Linux + Windows + macOS also
+        # catches platform-specific regressions in path handling, child
+        # process spawning, and pnpm hardlink/symlink behaviour.
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
         # This matrix intentionally covers Node.js versions where built-in
         # TypeScript execution was experimental, so we can verify behavioral
         # differences across strip-types / transform-types / amaro changes.
@@ -69,7 +82,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # action-setup@v6 bootstrap-installs pnpm v11 (per its committed lockfile)
+      # and only honours `packageManager` via pnpm's own `manage-package-manager
+      # -versions`. Bootstrap pnpm v11 hard-errors on Node <22.13 unless it's
+      # the @pnpm/exe (Node-bundled) build. The action auto-picks @pnpm/exe
+      # when the *runner's preinstalled* Node is <22.13, which is true for
+      # ubuntu-24.04 (Node 20.x) but NOT windows-2025 / macos-15 (Node 22.22).
+      # Force @pnpm/exe everywhere so bootstrap pnpm runs on its bundled Node
+      # regardless of the matrix Node we switch to next.
+      #
+      # Pinning `version: 10.33.2` instead doesn't work: action-setup compares
+      # it against the full `pnpm@10.33.2+sha512.xxx` packageManager string
+      # and refuses on mismatch (ERR_PNPM_BAD_PM_VERSION-style error).
       - uses: pnpm/action-setup@v6
+        with:
+          standalone: true
 
       # rolldown-incompatible path: install + tsdown build run here, on a
       # known-compatible Node. The matrix Node below then exercises dist/.
@@ -160,7 +187,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Same reason as the build job — see comment there.
       - uses: pnpm/action-setup@v6
+        with:
+          standalone: true
 
       - uses: actions/setup-node@v6
         with:
