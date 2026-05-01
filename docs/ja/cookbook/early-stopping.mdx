@@ -1,17 +1,17 @@
 ---
-title: "loss 発散時の early stopping"
-description: "loss 曲線が悪い方向に進んだら学習を自動 abort し、バックエンドの GPU も止める。"
+title: "Loss が悪化したら学習を自動で打ち切る（Early Stopping）"
+description: "Loss（モデルの誤差）が悪化したら学習を自動 Abort し、バックエンドの GPU も止める。"
 ---
 
-# loss 発散時の early stopping
+# Loss が悪化したら学習を自動で打ち切る（Early Stopping）
 
-loss が上がり始めたり NaN になったりしたら、それ以降の学習は無駄な計算です。Arkor に組み込みの early stopping はありませんが、TypeScript 数行でくっつけるための材料はすべて揃っています。
+「Early Stopping（早期停止）」は、学習の指標が改善しなくなったり悪化し始めたら、最後まで回さず途中で打ち切るパターンです。Loss（学習中のモデルの誤差を表す数値で、低いほどモデルが正解に近づいているサインです）が上がり始めたり `NaN` になったりしたら、それ以降の学習は無駄な計算になります。Arkor に Early Stopping は組み込まれていませんが、TypeScript 数行で組み立てるための材料はすべて揃っています。
 
 このレシピは 3 つのプリミティブを組み合わせます:
 
 - バックエンドからストリームされる loss を見る `onLog`。
 - そのシグナルをトレーナーに配線した `AbortController`。
-- ローカル abort 後にバックエンドの学習も止める `trainer.cancel()`。
+- ローカル Abort 後にバックエンドの学習も止める `trainer.cancel()`。
 
 ## パターン
 
@@ -46,7 +46,7 @@ export function makeTrainer() {
 }
 ```
 
-その後、abort に反応できるよう自分で学習を駆動します:
+その後、Abort に反応できるよう自分で学習を駆動します:
 
 ```ts
 // src/arkor/index.ts
@@ -76,7 +76,7 @@ async function main() {
 }
 ```
 
-`arkor start`（Studio の "Run training" や CLI）を使い続けるなら上のエクスポートだけで十分です: controller は依然として `wait()` を abort しますが、CLI の `await` を自前の `try / catch` で囲むことはできません。バックエンドのキャンセルを保証したいなら上のパターンが安全策です。
+`arkor start`（Studio の "Run training" や CLI）を使い続けるなら上のエクスポートだけで十分です: controller は依然として `wait()` を Abort しますが、CLI の `await` を自前の `try / catch` で囲むことはできません。バックエンドのキャンセルを保証したいなら上のパターンが安全策です。
 
 ## なぜ `abortSignal` と `cancel` の両方？
 
@@ -85,11 +85,11 @@ async function main() {
 - **`abortSignal`** はローカルの `wait()` ループを止めます（[SDK § トレーナー制御](/ja/sdk/trainer-control)）。`cancel` を呼びませんし、バックエンドにも何も送らず、ジョブはマネージド GPU で走り続けます。
 - **`trainer.cancel()`** はバックエンドにジョブの停止を依頼します。ベストエフォート: ジョブが既に終端状態（completed、failed、cancelled）にあるとリクエストは reject されることがあります。投機的に呼ぶなら `try / catch` で囲んでください。
 
-「もう待ちたくない」だけなら `abortSignal` で十分。「もう課金させたくない」なら abort の後に `cancel` も呼ぶこと。
+「もう待ちたくない」だけなら `abortSignal` で十分。「もう課金させたくない」なら Abort の後に `cancel` も呼ぶこと。
 
 ## バリエーション
 
-**スムージングしたしきい値。** 1 ステップだけの悪い値はノイズかもしれません。クロージャ内でローリングウィンドウを保持:
+**スムージングしたしきい値。** 1 ステップだけの悪い値はノイズかもしれません。クロージャー内でローリングウィンドウを保持:
 
 ```ts
 const recent: number[] = [];
@@ -106,7 +106,7 @@ onLog: ({ step, loss }) => {
 }
 ```
 
-**忍耐ベースの early stopping。** これまでの最小 loss と、それから改善のないステップ数を追跡:
+**改善が止まったら止める。** これまでで一番低かった Loss を覚えておき、それを更新できないステップが一定数続いたら打ち切ります（機械学習では「patience（忍耐）」と呼ばれるパターンです）:
 
 ```ts
 let best = Infinity;
@@ -134,4 +134,4 @@ onLog: ({ step, loss }) => {
 
 - **コールバック内で throw しない。** throw は SSE 再接続ループに catch されて学習が進み続けます（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks) 参照）。controller を使うこと。それが決定的なパスです。
 - **`abortSignal` はバックエンドをキャンセルしない。** 一番よくある落とし穴です。コストが問題なら `controller.abort()` と `trainer.cancel()` を必ずペアで。
-- **`loss` フィールドは `number | null`。** バックエンドはメトリクスステップでしか loss を埋めません。非メトリクスフレームは `null` を運びます。`Number.isFinite` チェックは `NaN` も弾き、実用上はこちらの方が発散シグナルとしてよく出てきます。
+- **`loss` フィールドは `number | null`。** バックエンドはメトリックスステップでしか loss を埋めません。非メトリックスフレームは `null` を運びます。`Number.isFinite` チェックは `NaN` も弾き、実用上はこちらの方が発散シグナルとしてよく出てきます。

@@ -70,12 +70,12 @@ const trainer = createTrainer({
 controller.abort();
 ```
 
-`abortSignal` は **あくまでローカルの `wait()` ループ** をコントロールします。シグナルが abort すると:
+`abortSignal` は **あくまでローカルの `wait()` ループ** をコントロールします。シグナルが Abort すると:
 
-1. 進行中の SSE fetch が abort される（`trainer.ts:325-328`）。
+1. 進行中の SSE fetch が Abort される（`trainer.ts:325-328`）。
 2. 動作中の再接続バックオフ `delay` が `signal.reason` で reject される（`trainer.ts:178`）。
-3. シグナルが abort されている場合、`handleFailure` が再 throw する（`trainer.ts:308`）。
-4. 結果として `wait()` は abort 時に resolve ではなく **reject** する。
+3. シグナルが Abort されている場合、`handleFailure` が再 throw する（`trainer.ts:308`）。
+4. 結果として `wait()` は Abort 時に resolve ではなく **reject** する。
 
 これは `cancel()` を呼ばず、バックエンドにも何も送りません。マネージド側ではジョブが GPU 時間を使い続けます。
 
@@ -136,4 +136,4 @@ try {
 }
 ```
 
-これは `runTrainer` のエントリ解決を除けば、`arkor start` がやっているのと機能的に同じです。
+これは `runTrainer` のエントリー解決を除けば、`arkor start` がやっているのと機能的に同じです。

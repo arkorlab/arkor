@@ -42,7 +42,7 @@ interface InferArgs {
 | `topP` | `number?` | Nucleus サンプリング。省略時はバックエンドのデフォルト。 |
 | `maxTokens` | `number?` | 応答トークンの最大値。省略時はバックエンドのデフォルト。 |
 | `stream` | `boolean?` | デフォルトは **true**（SSE）。単一 JSON ボディが欲しければ `false`。 |
-| `signal` | `AbortSignal?` | ローカル fetch を abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
+| `signal` | `AbortSignal?` | ローカル fetch を Abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
 
 ## 出力
 
@@ -73,6 +73,6 @@ const data = await res.json();
 
 ## 使いどころ
 
-- **学習中のサニティチェック。** ステップ 50 のチェックポイントとステップ 100 のチェックポイントを固定プロンプトで比較。loss 曲線は問題なく見えても出力が劣化していれば、学習完了前に気付けます。
-- **カスタム early stopping。** 簡単な eval プロンプトと組み合わせて、出力が逸脱したら `controller.abort()`（[`abortSignal`](/ja/sdk/trainer-control#abortsignal) を参照）で学習を止め、`trainer.cancel()` でバックエンドを停止。
+- **学習中のサニティーチェック。** ステップ 50 のチェックポイントとステップ 100 のチェックポイントを固定プロンプトで比較。Loss（モデルの誤差を表す指標）の曲線は問題なく見えても出力が劣化していれば、学習完了前に気付けます。
+- **カスタム Early Stopping（学習の自動打ち切り）。** 簡単な eval プロンプトと組み合わせて、出力が逸脱したら `controller.abort()`（[`abortSignal`](/ja/sdk/trainer-control#abortsignal) を参照）で学習を止め、`trainer.cancel()` でバックエンドを停止。詳しくは [Early Stopping レシピ](/ja/cookbook/early-stopping) を参照。
 - **自前 UI へのライブプレビュー。** チェックポイントの出力を Slack、社内レビューキュー、自前アプリのプレビューチャネルに送る。

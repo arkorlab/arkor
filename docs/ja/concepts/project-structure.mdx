@@ -3,7 +3,7 @@ title: "プロジェクト構成"
 description: "Arkor がコードを置く場所、そして .arkor/ と ~/.arkor/ に何が入っているか。"
 ---
 
-スキャフォールドされた Arkor プロジェクトはこんな形をしています:
+生成された Arkor プロジェクトはこんな形をしています:
 
 ```
 my-arkor-app/
@@ -15,7 +15,7 @@ my-arkor-app/
 └── package.json        # dev / build / start
 ```
 
-ソース以外に重要なのは 2 層の状態です: `.arkor/`（プロジェクトごと、リポジトリ内）と `~/.arkor/`（ユーザーごと、ホームディレクトリ）。
+ソース以外に重要なのは 2 層の状態です: `.arkor/`（プロジェクトごと、リポジトリ内）と `~/.arkor/`（ユーザーごと、ホームディレクトリー）。
 
 ## `src/arkor/`
 
@@ -65,14 +65,14 @@ export default {};
 
 ## `.arkor/`（プロジェクトごと、gitignore 済み）
 
-このディレクトリはコミットしないでください。
+このディレクトリーはコミットしないでください。
 
 - **`.arkor/state.json`**。プロジェクトのルーティング: `orgSlug`、`projectSlug`、`projectId`。これによってランタイムはローカルリポジトリをマネージドバックエンドのワークスペースにマップします。ファイルは `ensureProjectState()` が作成し、これは初回の学習開始（または初回のベースモデル推論）の際に走ります。**匿名**ワークスペースではこの初回呼び出しで自動作成されます。**OAuth** ワークスペースの場合はランタイムがエラーを返します。今のところ `arkor login` も `arkor init` もこのファイルを populate しないので、`{ orgSlug, projectSlug, projectId }` を手動で書いて作るのが現実的なパスです。一度作られたら手で編集しないでください。
 - **`.arkor/build/index.mjs`**。`arkor build` の出力。`src/arkor/index.ts` を Node 22.6 ターゲットで esbuild した単一バンドルで、bare specifier は外部のままにしてあります。`arkor start` がこれを実行します。
 
 ## `~/.arkor/`（ユーザーごと）
 
-ホームディレクトリにあり、マシン上のすべての Arkor プロジェクト間で共有されます。
+ホームディレクトリーにあり、マシーン上のすべての Arkor プロジェクト間で共有されます。
 
 - **`~/.arkor/credentials.json`**。認証状態。`arkor login --oauth` または対話的な `arkor login` のピッカーで `OAuth (browser)` を選んだ場合に書かれる Arkor Cloud OAuth トークンか、未ログインで初使用時に作られる匿名トークンのいずれか。ファイルは `mode` フィールドが `"auth0"` か `"anon"` でタグ付けされており、CLI はどのパスにいるかを把握します。`arkor login` はこのファイルだけを書きます。`.arkor/state.json` は **作成しません**。
 - **`~/.arkor/studio-token`**（一時的）。`arkor dev` が起動ごとに書く CSRF トークン（モード `0600`）。Studio が CLI のローカルサーバーへの呼び出しを認可するのに使います。`arkor dev` 起動のたびにローテートされます。
@@ -82,7 +82,7 @@ export default {};
 ## CLI が探すもの
 
 - `arkor dev` は Studio の Web サーバーを `127.0.0.1:4000` で起動し、`~/.arkor/studio-token` を書きます。`src/arkor/` をファイル監視はしません。Studio の `/api/manifest` エンドポイントは確かに `runBuild` を呼びキャッシュバストクエリで再 import しますが、それは Studio UI が fetch したときだけです（現状は Run training ページのマウント時）。同じページに留まったまま学習を複数回実行すると、ビルド成果物は再利用されます。編集した後は Run training ページをリロード（あるいはターミナルから `arkor build`）して変更を取り込んでください。`arkor dev` は単独で `.arkor/state.json` を書きません。
-- `arkor build` は `src/arkor/index.ts`（または渡したエントリ）を読んで `.arkor/build/index.mjs` を書きます。Studio の dev ループの外側で直接呼ぶ必要があるのは CI や、スクリプトから `arkor start` の直前に走らせる場合などです。
-- `arkor start` はランナー経由でエントリを解決し、`.arkor/build/index.mjs` がない、もしくは明示的なエントリを渡したときはリビルドして実行します（これが `trainer.start()` と `trainer.wait()` を呼びます）。Studio から学習をトリガーすると内部的に `arkor start` がスポーンされます。
+- `arkor build` は `src/arkor/index.ts`（または渡したエントリー）を読んで `.arkor/build/index.mjs` を書きます。Studio の dev ループの外側で直接呼ぶ必要があるのは CI や、スクリプトから `arkor start` の直前に走らせる場合などです。
+- `arkor start` はランナー経由でエントリーを解決し、`.arkor/build/index.mjs` がない、もしくは明示的なエントリーを渡したときはリビルドして実行します（これが `trainer.start()` と `trainer.wait()` を呼びます）。Studio から学習をトリガーすると内部的に `arkor start` がスポーンされます。
 
 状態がどこに住んでいるかを把握しておくと CLI の挙動が予測しやすくなります。何かおかしいと思ったら、サポートに頼る前に `.arkor/state.json` と `~/.arkor/credentials.json` を覗いてみてください。
