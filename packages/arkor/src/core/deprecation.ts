@@ -17,6 +17,10 @@ export function getRecordedDeprecation(): DeprecationNotice | null {
   return latest;
 }
 
+export function clearRecordedDeprecation(): void {
+  latest = null;
+}
+
 /**
  * Inspect a Response for `Deprecation: true` and record the notice. Use this
  * after raw `fetch()` calls that bypass `createClient`'s wrapped fetch

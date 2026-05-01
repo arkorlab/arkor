@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   existsSync,
   mkdtempSync,
@@ -13,6 +13,10 @@ import { join, resolve } from "node:path";
 import { buildStudioApp } from "./server";
 import { writeCredentials } from "../core/credentials";
 import { writeState } from "../core/state";
+import {
+  clearRecordedDeprecation,
+  getRecordedDeprecation,
+} from "../core/deprecation";
 
 const ANON_CREDS = {
   mode: "anon" as const,
@@ -169,6 +173,31 @@ describe("Studio server", () => {
       { headers: { host: "127.0.0.1:4000" } },
     );
     expect(res.status).toBe(403);
+  });
+
+  it("returns project state from the Studio training cwd", async () => {
+    await writeCredentials(ANON_CREDS);
+    await writeState(
+      {
+        orgSlug: "state-org",
+        projectSlug: "state-project",
+        projectId: "p-state",
+      },
+      trainCwd,
+    );
+    const app = build();
+    const res = await app.request("/api/credentials", {
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      orgSlug: "state-org",
+      projectSlug: "state-project",
+    });
   });
 
   it("accepts the studio token via ?studioToken= for job event streams", async () => {
@@ -368,6 +397,240 @@ process.exit(0);
       expect(text).toMatch(/Cannot find module|MODULE_NOT_FOUND|ENOENT/);
       expect(text).toContain("exit=");
       expect(text).not.toContain("exit=0");
+    });
+  });
+
+  describe("/api/me", () => {
+    const ORIG_FETCH = globalThis.fetch;
+
+    beforeEach(() => {
+      clearRecordedDeprecation();
+    });
+
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("forwards SDK version metadata and deprecation headers without onDeprecation noise", async () => {
+      await writeCredentials(ANON_CREDS);
+
+      let capturedHeaders: Record<string, string> = {};
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const req = input instanceof Request ? input : null;
+        const headers = new Headers(req?.headers);
+        if (init?.headers) {
+          for (const [key, value] of new Headers(init.headers)) {
+            headers.set(key, value);
+          }
+        }
+        capturedHeaders = {};
+        for (const [key, value] of headers) {
+          capturedHeaders[key.toLowerCase()] = value;
+        }
+        return new Response(JSON.stringify({ user: { id: "u1" } }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            Deprecation: "true",
+            Warning: '299 - "me endpoint deprecated"',
+            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+          },
+        });
+      }) as typeof fetch;
+
+      // The cloud-api-client wrapper around `onDeprecation` synchronously
+      // checks `typeof result.then` on the callback's return value; a plain
+      // `void` return throws and gets swallowed with a stderr log. The
+      // wrapper in `createRpc` returns null to short-circuit that check —
+      // assert that no such log fires here.
+      const errorSpy = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      try {
+        const app = build();
+        const res = await app.request("/api/me", {
+          headers: {
+            host: "127.0.0.1:4000",
+            "x-arkor-studio-token": STUDIO_TOKEN,
+          },
+        });
+
+        expect(res.status).toBe(200);
+        expect(capturedHeaders["x-arkor-client"]).toMatch(/^arkor\/\S+$/);
+        expect(res.headers.get("Deprecation")).toBe("true");
+        expect(res.headers.get("Warning")).toContain("me endpoint deprecated");
+        expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
+        expect(getRecordedDeprecation()?.message).toBe("me endpoint deprecated");
+        for (const call of errorSpy.mock.calls) {
+          const first = String(call[0] ?? "");
+          expect(first).not.toContain("onDeprecation handler threw");
+        }
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+  });
+
+  describe("/api/jobs", () => {
+    const ORIG_FETCH = globalThis.fetch;
+
+    beforeEach(() => {
+      // Module-level deprecation state is shared across tests; reset so that
+      // a leftover notice from a prior test can't masquerade as a hit here.
+      clearRecordedDeprecation();
+    });
+
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("forwards SDK version metadata and deprecation headers", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "jobs-project", projectId: "p-jobs" },
+        trainCwd,
+      );
+
+      let captured: {
+        url: string;
+        method: string;
+        headers: Record<string, string>;
+      } | null = null;
+
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const req = input instanceof Request ? input : null;
+        const headers = new Headers(req?.headers);
+        if (init?.headers) {
+          for (const [key, value] of new Headers(init.headers)) {
+            headers.set(key, value);
+          }
+        }
+        const lowerHeaders: Record<string, string> = {};
+        for (const [key, value] of headers) {
+          lowerHeaders[key.toLowerCase()] = value;
+        }
+        captured = {
+          url: req ? req.url : input.toString(),
+          method: init?.method ?? req?.method ?? "GET",
+          headers: lowerHeaders,
+        };
+        return new Response(JSON.stringify({ jobs: [] }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            Deprecation: "true",
+            Warning: '299 - "jobs endpoint deprecated"',
+            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+          },
+        });
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(captured).not.toBeNull();
+      expect(captured!.url).toContain("/v1/jobs");
+      expect(captured!.url).toContain("orgSlug=anon-org");
+      expect(captured!.url).toContain("projectSlug=jobs-project");
+      expect(captured!.method).toBe("GET");
+      expect(captured!.headers.authorization).toBe("Bearer tok");
+      expect(captured!.headers["x-arkor-client"]).toMatch(/^arkor\/\S+$/);
+      expect(res.headers.get("Deprecation")).toBe("true");
+      expect(res.headers.get("Warning")).toContain("jobs endpoint deprecated");
+      expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
+      expect(getRecordedDeprecation()?.message).toBe("jobs endpoint deprecated");
+    });
+
+    it("uses the Studio training cwd for job event streams", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "events-org",
+          projectSlug: "events-project",
+          projectId: "p-events",
+        },
+        trainCwd,
+      );
+
+      let capturedUrl: string | null = null;
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        _init?: RequestInit,
+      ) => {
+        capturedUrl = typeof input === "string" ? input : input.toString();
+        return new Response("event: end\ndata: {}\n\n", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs/job-1/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(capturedUrl).not.toBeNull();
+      expect(capturedUrl!).toContain("/v1/jobs/job-1/events/stream");
+      expect(capturedUrl!).toContain("orgSlug=events-org");
+      expect(capturedUrl!).toContain("projectSlug=events-project");
+    });
+
+    it("forwards deprecation headers and records the notice for job event streams", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "events-org",
+          projectSlug: "events-project",
+          projectId: "p-events",
+        },
+        trainCwd,
+      );
+
+      globalThis.fetch = (async () => {
+        return new Response("event: end\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            Deprecation: "true",
+            Warning: '299 - "events endpoint deprecated"',
+            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+          },
+        });
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs/job-1/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Deprecation")).toBe("true");
+      expect(res.headers.get("Warning")).toContain(
+        "events endpoint deprecated",
+      );
+      expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
+      expect(getRecordedDeprecation()?.message).toBe(
+        "events endpoint deprecated",
+      );
     });
   });
 

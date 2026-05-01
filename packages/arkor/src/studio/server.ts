@@ -11,7 +11,7 @@ import {
   requestAnonymousToken,
   type Credentials,
 } from "../core/credentials";
-import { recordDeprecation } from "../core/deprecation";
+import { recordDeprecation, tapDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
 import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
@@ -172,12 +172,31 @@ export function buildStudioApp(options: StudioServerOptions) {
     return c.mode === "anon" ? c.token : c.accessToken;
   }
 
+  function createRpc() {
+    return createClient({
+      baseUrl,
+      token: getToken,
+      clientVersion: SDK_VERSION,
+      // The wrapper around `recordDeprecation` is a workaround for a
+      // bug in `@arkor/cloud-api-client` where a `void` return is fed
+      // into `typeof result.then === 'function'`, which throws and
+      // logs `[@arkor/cloud-api-client] onDeprecation handler threw;
+      // ignoring:` on every deprecated response. Returning `null`
+      // short-circuits that check (`null !== null` is false) without
+      // changing the recorded-deprecation behavior.
+      onDeprecation: (notice) => {
+        recordDeprecation(notice);
+        return null;
+      },
+    });
+  }
+
   // ---- API routes ---------------------------------------------------------
 
   app.get("/api/credentials", async (c) => {
     const token = await getToken();
     const creds = await getCredentials();
-    const state = await readState();
+    const state = await readState(trainCwd);
     return c.json({
       token,
       mode: creds.mode,
@@ -188,12 +207,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.get("/api/me", async (c) => {
-    const rpc = createClient({
-      baseUrl,
-      token: getToken,
-      clientVersion: SDK_VERSION,
-      onDeprecation: recordDeprecation,
-    });
+    const rpc = createRpc();
     const res = await rpc.v1.me.$get();
     const body = await res.text();
     const headers = new Headers({ "content-type": "application/json" });
@@ -218,22 +232,24 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.get("/api/jobs", async (c) => {
-    const state = await readState();
+    const state = await readState(trainCwd);
     if (!state) return c.json({ jobs: [] });
-    const rpc = createClient({ baseUrl, token: getToken });
+    const rpc = createRpc();
     const res = await rpc.v1.jobs.$get({
       query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
     });
     const body = await res.text();
+    const headers = new Headers({ "content-type": "application/json" });
+    copyDeprecationHeaders(res.headers, headers);
     return new Response(body, {
       status: res.status,
-      headers: { "content-type": "application/json" },
+      headers,
     });
   });
 
   app.get("/api/jobs/:id/events", async (c) => {
     const id = c.req.param("id");
-    const state = await readState();
+    const state = await readState(trainCwd);
     if (!state) return c.json({ error: "No project state" }, 400);
     const token = await getToken();
     const url = `${baseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
@@ -247,12 +263,19 @@ export function buildStudioApp(options: StudioServerOptions) {
           : {}),
       },
     });
+    // This route bypasses `createRpc()` (the SSE body has to be streamed
+    // straight through), so deprecation propagation has to be wired by
+    // hand: record the notice into the SDK's latest-wins store and
+    // forward the Deprecation/Warning/Sunset headers to the browser
+    // alongside the event stream.
+    tapDeprecation(upstream, SDK_VERSION);
     const headers = new Headers();
     headers.set(
       "content-type",
       upstream.headers.get("content-type") ?? "text/event-stream",
     );
     headers.set("cache-control", "no-cache, no-transform");
+    copyDeprecationHeaders(upstream.headers, headers);
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 
