@@ -185,6 +185,8 @@ jobs:
       # even when tests fail; the job's final outcome still reflects the
       # test result.
       - name: Test with coverage
+        env:
+          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: pnpm exec turbo run test:coverage --continue
 
       - name: Upload arkor coverage

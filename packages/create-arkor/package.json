@@ -1,6 +1,6 @@
 {
   "name": "create-arkor",
-  "version": "0.0.1-alpha.4",
+  "version": "0.0.1-alpha.5",
   "description": "Scaffolder for arkor training projects.",
   "private": false,
   "type": "module",
