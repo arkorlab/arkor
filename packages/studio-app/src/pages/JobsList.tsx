@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchJobs, type Job } from "../lib/api";
 import { Inbox, Refresh, Search } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
@@ -24,37 +24,42 @@ export function JobsList() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [refreshing, setRefreshing] = useState(false);
+  // Flipped on unmount so in-flight refreshes (manual or interval) do
+  // not call setState after the component is gone.
+  const aliveRef = useRef(true);
 
   async function load() {
     try {
       setRefreshing(true);
       const { jobs } = await fetchJobs();
+      if (!aliveRef.current) return;
       setJobs(jobs);
       setError(null);
     } catch (err) {
+      if (!aliveRef.current) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setRefreshing(false);
+      if (aliveRef.current) setRefreshing(false);
     }
   }
 
   useEffect(() => {
-    let cancelled = false;
+    aliveRef.current = true;
     async function tick() {
       try {
         const { jobs } = await fetchJobs();
-        if (!cancelled) {
-          setJobs(jobs);
-          setError(null);
-        }
+        if (!aliveRef.current) return;
+        setJobs(jobs);
+        setError(null);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!aliveRef.current) return;
+        setError(err instanceof Error ? err.message : String(err));
       }
     }
     tick();
     const t = setInterval(tick, 5000);
     return () => {
-      cancelled = true;
+      aliveRef.current = false;
       clearInterval(t);
     };
   }, []);

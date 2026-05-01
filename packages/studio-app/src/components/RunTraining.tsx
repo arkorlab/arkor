@@ -15,19 +15,25 @@ export function RunTraining() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchManifest()
-      .then((m) => {
+    async function load() {
+      try {
+        const m = await fetchManifest();
         if (!cancelled) setManifest(m);
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (!cancelled) {
           setManifest({
             error: err instanceof Error ? err.message : String(err),
           });
         }
-      });
+      }
+    }
+    load();
+    // Poll the manifest so trainers added to src/arkor/index.ts mid-
+    // session start the Run-training button without a page reload.
+    const t = setInterval(load, 5000);
     return () => {
       cancelled = true;
+      clearInterval(t);
     };
   }, []);
 

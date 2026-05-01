@@ -29,6 +29,7 @@ export function Playground() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const responseRef = useRef<string>("");
+  const messageIdRef = useRef(0);
 
   useEffect(() => {
     fetchJobs()
@@ -39,9 +40,13 @@ export function Playground() {
           setSelectedJob(completed[0]!.id);
         }
       })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      );
+      .catch((err: unknown) => {
+        // Even on /api/jobs failure, drop into base-model mode so the
+        // composer still works — only the Adapter segment depends on
+        // having completed jobs to enumerate.
+        setJobs([]);
+        setError(err instanceof Error ? err.message : String(err));
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -54,27 +59,28 @@ export function Playground() {
 
   async function send() {
     if (!canSend) return;
-    const userMsg: ChatMessage = { role: "user", content: input };
-    // Capture the assistant placeholder's index inside the queued
-    // updater so subsequent streaming/error updates target the same
-    // slot regardless of how React batches the queued setMessages
-    // calls.
-    let assistantIndex = -1;
-    setMessages((prev) => {
-      assistantIndex = prev.length + 1;
-      return [...prev, userMsg, { role: "assistant", content: "" }];
-    });
+    // Allocate stable ids up front so streaming fragments and the
+    // catch-branch error replacement always target the same assistant
+    // slot, independent of when React flushes the placeholder update.
+    const userMsg: ChatMessage = {
+      id: ++messageIdRef.current,
+      role: "user",
+      content: input,
+    };
+    const assistantId = ++messageIdRef.current;
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
     setInput("");
     setStreaming(true);
     responseRef.current = "";
 
     function writeAssistant(content: string) {
-      setMessages((prev) => {
-        if (assistantIndex < 0 || assistantIndex >= prev.length) return prev;
-        const out = prev.slice();
-        out[assistantIndex] = { role: "assistant", content };
-        return out;
-      });
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, content } : m)),
+      );
     }
 
     try {

@@ -97,6 +97,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
         ...prev.slice(-499),
         { id, ts: Date.now(), event, message },
       ]);
+      // Any received frame means the EventSource is alive again — drop
+      // any stale "stream interrupted" banner from the prior disconnect.
+      setEventErr(null);
     }
 
     const es = openJobEvents(jobId);
