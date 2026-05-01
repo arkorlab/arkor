@@ -280,10 +280,10 @@ describe("detectPackageManager", () => {
     expect(detectPackageManager()).toBe("yarn");
   });
   it("recognises bun via user-agent", () => {
-    // `bunx create-arkor` sets npm_config_user_agent to `bun/<ver> npm/?
-    // …`. Without this branch, scaffolds run under bunx would fall into
-    // the "no detected pm" path and ask the user to install deps manually
-    // even though bun was just used to launch them.
+    // `bunx create-arkor` sets npm_config_user_agent to
+    // `bun/<ver> npm/? …`. Without this branch, scaffolds run under bunx
+    // would fall into the "no detected pm" path and ask the user to
+    // install deps manually even though bun was just used to launch them.
     process.env.npm_config_user_agent = "bun/1.1.0 npm/? node/v22 linux x64";
     expect(detectPackageManager()).toBe("bun");
   });

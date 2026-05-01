@@ -7,7 +7,7 @@ import { gitInitialCommit, isInGitRepo } from "./git";
 
 let cwd: string;
 
-function runGitSync(args: string[], opts: { cwd: string }): Promise<string> {
+function runGit(args: string[], opts: { cwd: string }): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, {
       cwd: opts.cwd,
@@ -52,7 +52,7 @@ describe("isInGitRepo", () => {
   });
 
   it("returns true once `git init` has run", async () => {
-    await runGitSync(["init", "-q"], { cwd });
+    await runGit(["init", "-q"], { cwd });
     expect(await isInGitRepo(cwd)).toBe(true);
   });
 
@@ -95,13 +95,13 @@ describe("gitInitialCommit", () => {
     expect(result.signingFallback).toBe(false);
 
     const subject = (
-      await runGitSync(["log", "-1", "--pretty=%s"], { cwd })
+      await runGit(["log", "-1", "--pretty=%s"], { cwd })
     ).trim();
     expect(subject).toBe("Initial commit from test");
 
     // The README was staged via `git add -A`.
     const tracked = (
-      await runGitSync(["ls-files"], { cwd })
+      await runGit(["ls-files"], { cwd })
     ).trim().split("\n");
     expect(tracked).toContain("README.md");
   });
@@ -113,7 +113,7 @@ describe("gitInitialCommit", () => {
     const message = "Initial commit from `arkor init`";
     await gitInitialCommit(cwd, message);
     const subject = (
-      await runGitSync(["log", "-1", "--pretty=%s"], { cwd })
+      await runGit(["log", "-1", "--pretty=%s"], { cwd })
     ).trim();
     expect(subject).toBe(message);
   });
@@ -136,7 +136,7 @@ describe("gitInitialCommit", () => {
 
     // Commit landed despite the broken signing config.
     const subject = (
-      await runGitSync(["log", "-1", "--pretty=%s"], { cwd })
+      await runGit(["log", "-1", "--pretty=%s"], { cwd })
     ).trim();
     expect(subject).toBe("Initial commit from test");
   });

@@ -196,8 +196,17 @@ describe("createTrainer (credentials defaulting)", () => {
     // in both `getClient` and `resolveProjectState`. We pre-write
     // credentials so ensureCredentials() resolves without hitting fetch.
     const ORIG_HOME = process.env.HOME;
+    // Node's `os.homedir()` reads HOME on POSIX but USERPROFILE (with a
+    // HOMEDRIVE+HOMEPATH fallback) on Windows, so HOME alone doesn't
+    // keep credential file IO inside the temp dir on Windows.
+    const ORIG_USERPROFILE = process.env.USERPROFILE;
+    const ORIG_HOMEDRIVE = process.env.HOMEDRIVE;
+    const ORIG_HOMEPATH = process.env.HOMEPATH;
     const fakeHome = mkdtempSync(join(tmpdir(), "arkor-trainer-home-"));
     process.env.HOME = fakeHome;
+    process.env.USERPROFILE = fakeHome;
+    process.env.HOMEDRIVE = "";
+    process.env.HOMEPATH = fakeHome;
     try {
       const credsMod = await import("./credentials");
       await credsMod.writeCredentials({
@@ -279,6 +288,14 @@ describe("createTrainer (credentials defaulting)", () => {
     } finally {
       if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
       else delete process.env.HOME;
+      if (ORIG_USERPROFILE !== undefined)
+        process.env.USERPROFILE = ORIG_USERPROFILE;
+      else delete process.env.USERPROFILE;
+      if (ORIG_HOMEDRIVE !== undefined)
+        process.env.HOMEDRIVE = ORIG_HOMEDRIVE;
+      else delete process.env.HOMEDRIVE;
+      if (ORIG_HOMEPATH !== undefined) process.env.HOMEPATH = ORIG_HOMEPATH;
+      else delete process.env.HOMEPATH;
       rmSync(fakeHome, { recursive: true, force: true });
     }
   });

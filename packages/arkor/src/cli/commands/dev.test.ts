@@ -32,18 +32,35 @@ import { ensureCredentialsForStudio, runDev } from "./dev";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
+// Node's `os.homedir()` reads HOME on POSIX but USERPROFILE (with a
+// HOMEDRIVE+HOMEPATH fallback) on Windows, so HOME alone doesn't keep
+// credential / studio-token file IO inside the temp dir on Windows.
+const ORIG_USERPROFILE = process.env.USERPROFILE;
+const ORIG_HOMEDRIVE = process.env.HOMEDRIVE;
+const ORIG_HOMEPATH = process.env.HOMEPATH;
 const ORIG_FETCH = globalThis.fetch;
 const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
 
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-dev-test-"));
   process.env.HOME = fakeHome;
+  // Mirror HOME into the Windows home-dir env vars so `os.homedir()`
+  // points at the temp dir on every platform.
+  process.env.USERPROFILE = fakeHome;
+  process.env.HOMEDRIVE = "";
+  process.env.HOMEPATH = fakeHome;
   process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
 });
 
 afterEach(() => {
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
+  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  else delete process.env.USERPROFILE;
+  if (ORIG_HOMEDRIVE !== undefined) process.env.HOMEDRIVE = ORIG_HOMEDRIVE;
+  else delete process.env.HOMEDRIVE;
+  if (ORIG_HOMEPATH !== undefined) process.env.HOMEPATH = ORIG_HOMEPATH;
+  else delete process.env.HOMEPATH;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
   globalThis.fetch = ORIG_FETCH;
