@@ -32,10 +32,16 @@ let fakeHome: string;
 let assetsDir: string;
 let trainCwd: string;
 const ORIG_HOME = process.env.HOME;
+// `os.homedir()` reads USERPROFILE on Windows; HOME-only redirection leaves
+// Windows runs writing test creds to the real user profile and bleeding state
+// (e.g. `mode: "anon", token: "tok", orgSlug: "anon-org"`) into other tests
+// that read `~/.arkor/credentials.json` and expect it to be absent.
+const ORIG_USERPROFILE = process.env.USERPROFILE;
 
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-studio-test-"));
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
   assetsDir = mkdtempSync(join(tmpdir(), "arkor-studio-assets-"));
   mkdirSync(assetsDir, { recursive: true });
   writeFileSync(
@@ -47,6 +53,8 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.HOME = ORIG_HOME;
+  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  else delete process.env.USERPROFILE;
   rmSync(fakeHome, { recursive: true, force: true });
   rmSync(assetsDir, { recursive: true, force: true });
   rmSync(trainCwd, { recursive: true, force: true });

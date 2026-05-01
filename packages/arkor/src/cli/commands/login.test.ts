@@ -8,6 +8,10 @@ import { readCredentials } from "../../core/credentials";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
+// `os.homedir()` reads USERPROFILE on Windows; HOME-only redirection leaves
+// Windows runs reading/writing the real user profile and cross-contaminating
+// tests via `~/.arkor/credentials.json`.
+const ORIG_USERPROFILE = process.env.USERPROFILE;
 const ORIG_CI = process.env.CI;
 const ORIG_FETCH = globalThis.fetch;
 const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
@@ -15,6 +19,7 @@ const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-login-test-"));
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
   process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
   // Force isInteractive() → false so promptSelect returns its initialValue
   // instead of trying to open a real clack prompt.
@@ -24,6 +29,8 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
+  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  else delete process.env.USERPROFILE;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;

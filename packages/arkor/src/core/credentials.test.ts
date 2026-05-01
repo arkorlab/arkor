@@ -16,16 +16,24 @@ import { SDK_VERSION } from "./version";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
+// `os.homedir()` reads HOME on POSIX but USERPROFILE on Windows. Setting only
+// HOME redirects fakeHome on Linux/macOS but leaves Windows pointed at the
+// real user profile, where tests would clobber a developer's actual
+// `~/.arkor/credentials.json` and bleed state into sibling tests.
+const ORIG_USERPROFILE = process.env.USERPROFILE;
 const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
 const ORIG_FETCH = globalThis.fetch;
 
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-creds-test-"));
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
 });
 
 afterEach(() => {
   process.env.HOME = ORIG_HOME;
+  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  else delete process.env.USERPROFILE;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
   globalThis.fetch = ORIG_FETCH;

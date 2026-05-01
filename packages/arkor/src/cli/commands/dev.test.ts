@@ -12,18 +12,25 @@ import {
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
+// `os.homedir()` reads USERPROFILE on Windows; HOME-only redirection leaves
+// Windows runs reading/writing the real user profile and cross-contaminating
+// tests via `~/.arkor/credentials.json`.
+const ORIG_USERPROFILE = process.env.USERPROFILE;
 const ORIG_FETCH = globalThis.fetch;
 const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
 
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-dev-test-"));
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
   process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
 });
 
 afterEach(() => {
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
+  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  else delete process.env.USERPROFILE;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
   globalThis.fetch = ORIG_FETCH;
