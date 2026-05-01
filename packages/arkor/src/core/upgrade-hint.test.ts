@@ -1,6 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   detectPackageManagerFrom,
+  detectedUpgradeCommand,
+  formatSdkUpgradeError,
   upgradeCommandFor,
 } from "./upgrade-hint";
 
@@ -54,6 +56,14 @@ describe("detectPackageManagerFrom (path fallback)", () => {
       }),
     ).toBe("pnpm");
   });
+
+  it("returns the npm fallback when both userAgent and execPath are undefined", () => {
+    // Vitest workers historically launched with `process.argv[1]` set to
+    // a path that doesn't match any pm marker, but a future runner may
+    // not even pass argv[1] (e.g. piped via stdin). The detector must
+    // treat that case the same as "unknown" and fall back to npm.
+    expect(detectPackageManagerFrom({})).toBe("npm");
+  });
 });
 
 describe("upgradeCommandFor", () => {
@@ -65,4 +75,100 @@ describe("upgradeCommandFor", () => {
   ] as const)("returns the install command for %s", (pm, expected) => {
     expect(upgradeCommandFor(pm)).toBe(expected);
   });
+});
+
+describe("detectedUpgradeCommand", () => {
+  const ORIG_UA = process.env.npm_config_user_agent;
+  const ORIG_ARGV1 = process.argv[1];
+
+  beforeEach(() => {
+    delete process.env.npm_config_user_agent;
+    // Replace argv[1] with a path no detector will recognise so the npm
+    // fallback applies — otherwise the test inherits whatever vitest's
+    // worker exec path looked like.
+    process.argv[1] = "/usr/local/bin/arkor";
+  });
+
+  afterEach(() => {
+    if (ORIG_UA === undefined) delete process.env.npm_config_user_agent;
+    else process.env.npm_config_user_agent = ORIG_UA;
+    process.argv[1] = ORIG_ARGV1;
+  });
+
+  it("uses the detected pm when the user-agent reveals it", () => {
+    process.env.npm_config_user_agent = "pnpm/10 node/v22 linux x64";
+    expect(detectedUpgradeCommand()).toBe("pnpm add -g arkor@latest");
+  });
+
+  it("falls back to npm when nothing is detectable", () => {
+    expect(detectedUpgradeCommand()).toBe("npm install -g arkor@latest");
+  });
+});
+
+describe("formatSdkUpgradeError", () => {
+  const ORIG_UA = process.env.npm_config_user_agent;
+  const ORIG_ARGV1 = process.argv[1];
+
+  beforeEach(() => {
+    // Pin the detected pm so the assertions are deterministic regardless of
+    // the developer's local shell. `pnpm` here matches the detection regex
+    // both on path and UA.
+    process.env.npm_config_user_agent = "pnpm/10 node/v22 linux x64";
+    process.argv[1] = "/usr/local/bin/arkor";
+  });
+
+  afterEach(() => {
+    if (ORIG_UA === undefined) delete process.env.npm_config_user_agent;
+    else process.env.npm_config_user_agent = ORIG_UA;
+    process.argv[1] = ORIG_ARGV1;
+  });
+
+  it("returns the rich version-out-of-range message with the pm-aware command", () => {
+    const msg = formatSdkUpgradeError({
+      error: "sdk_version_unsupported",
+      currentVersion: "1.3.5",
+      supportedRange: "^1.4.0 || >=2.1.0",
+      upgrade: "npm install -g arkor@latest",
+    });
+    expect(msg).toContain("1.3.5 is no longer supported");
+    expect(msg).toContain("^1.4.0 || >=2.1.0");
+    // Detected pm overrides the body's `upgrade` field.
+    expect(msg).toContain("pnpm add -g arkor@latest");
+    expect(msg).not.toContain("npm install -g arkor@latest");
+  });
+
+  it("returns the dedicated 'missing header' message when reason=missing", () => {
+    const msg = formatSdkUpgradeError({
+      error: "sdk_version_unsupported",
+      currentVersion: "unknown",
+      supportedRange: "*",
+      upgrade: "npm install -g arkor@latest",
+      reason: "missing",
+    });
+    expect(msg).toMatch(/X-Arkor-Client header was missing/);
+  });
+
+  it("returns the dedicated 'malformed header' message when reason=malformed", () => {
+    const msg = formatSdkUpgradeError({
+      error: "sdk_version_unsupported",
+      currentVersion: "unknown",
+      supportedRange: "*",
+      upgrade: "npm install -g arkor@latest",
+      reason: "malformed",
+    });
+    expect(msg).toMatch(/X-Arkor-Client header was malformed/);
+  });
+
+  it.each([null, undefined, "not json", { wrong: "shape" }, 42] as const)(
+    "falls back to the generic message for unparseable body %p",
+    (body) => {
+      // When the gate's 426 body is missing / non-JSON / wrong shape, callers
+      // must still surface a non-empty actionable message. Without the
+      // fallback in `formatSdkUpgradeError`, the caller would see `null`
+      // and likely fall through to a different (incorrect) code path.
+      const msg = formatSdkUpgradeError(body);
+      expect(msg).toMatch(/Arkor SDK is no longer supported/);
+      expect(msg).toContain("pnpm add -g arkor@latest");
+    },
+  );
 });

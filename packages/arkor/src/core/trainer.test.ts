@@ -70,6 +70,220 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
+describe("createTrainer (config builder branches)", () => {
+  it("propagates every optional input field into the job config payload", async () => {
+    // Branch coverage for the long `if (input.X !== undefined) config.X = ...`
+    // chain in buildJobConfig. We can't observe the resulting config object
+    // directly, but the trainer ships it as-is in the POST /v1/jobs body.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const minimalJobRow = {
+      id: "j-cfg",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    let postedConfig: Record<string, unknown> | null = null;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        const body = JSON.parse(init?.body as string) as {
+          config: Record<string, unknown>;
+        };
+        postedConfig = body.config;
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-cfg/events/stream")) {
+        return new Response(
+          sseStream([
+            `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+              type: "training.completed",
+              jobId: "j-cfg",
+              timestamp: "2026-01-01T00:00:01Z",
+            })}\n\n`,
+          ]),
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        lora: { r: 16, alpha: 32, maxLength: 2048, loadIn4bit: true },
+        maxSteps: 100,
+        numTrainEpochs: 1,
+        learningRate: 0.0002,
+        batchSize: 4,
+        optim: "adamw_8bit",
+        lrSchedulerType: "linear",
+        weightDecay: 0.01,
+        warmupSteps: 10,
+        loggingSteps: 5,
+        saveSteps: 50,
+        evalSteps: 25,
+        trainOnResponsesOnly: true,
+        datasetFormat: "alpaca",
+        datasetSplit: "train",
+        dryRun: false,
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+      },
+    );
+
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.wait();
+    } finally {
+      globalThis.fetch = original;
+    }
+
+    expect(postedConfig).toMatchObject({
+      loraR: 16,
+      loraAlpha: 32,
+      maxLength: 2048,
+      loadIn4bit: true,
+      maxSteps: 100,
+      numTrainEpochs: 1,
+      learningRate: 0.0002,
+      batchSize: 4,
+      optim: "adamw_8bit",
+      lrSchedulerType: "linear",
+      weightDecay: 0.01,
+      warmupSteps: 10,
+      loggingSteps: 5,
+      saveSteps: 50,
+      evalSteps: 25,
+      trainOnResponsesOnly: true,
+      datasetFormat: "alpaca",
+      datasetSplit: "train",
+      dryRun: false,
+    });
+  });
+});
+
+describe("createTrainer (credentials defaulting)", () => {
+  it("falls back to ensureCredentials() when context.credentials is omitted", async () => {
+    // Branch coverage for `context.credentials ?? (await ensureCredentials())`
+    // in both `getClient` and `resolveProjectState`. We pre-write
+    // credentials so ensureCredentials() resolves without hitting fetch.
+    const ORIG_HOME = process.env.HOME;
+    const fakeHome = mkdtempSync(join(tmpdir(), "arkor-trainer-home-"));
+    process.env.HOME = fakeHome;
+    try {
+      const credsMod = await import("./credentials");
+      await credsMod.writeCredentials({
+        mode: "anon",
+        token: "tok",
+        anonymousId: "abc",
+        arkorCloudApiUrl: "http://mock",
+        orgSlug: "anon-abc",
+      });
+      // Use a writable cwd so ensureProjectState writes state.json there.
+      const localCwd = mkdtempSync(join(tmpdir(), "arkor-trainer-cwd-"));
+      try {
+        await writeState(
+          { orgSlug: "anon-abc", projectSlug: "proj", projectId: "p1" },
+          localCwd,
+        );
+
+        const minimalJobRow = {
+          id: "j-default-creds",
+          orgId: "o1",
+          projectId: "p1",
+          name: "run",
+          status: "queued",
+          config: {
+            model: "m",
+            datasetSource: { type: "huggingface", name: "x" },
+          },
+          createdAt: "2026-01-01T00:00:00Z",
+          startedAt: null,
+          completedAt: null,
+        };
+        const sse = [
+          `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+            type: "training.completed",
+            jobId: "j-default-creds",
+            timestamp: "2026-01-01T00:00:01Z",
+          })}\n\n`,
+        ];
+        const fetcher = mockFetch([
+          {
+            method: "POST",
+            path: "/v1/jobs?",
+            body: JSON.stringify({ job: minimalJobRow }),
+            status: 201,
+          },
+          {
+            method: "GET",
+            path: "/v1/jobs/j-default-creds/events/stream",
+            body: sseStream(sse),
+            headers: { "content-type": "text/event-stream" },
+          },
+        ]);
+
+        const trainer = createTrainer(
+          {
+            name: "run",
+            model: "m",
+            dataset: { type: "huggingface", name: "x" },
+          },
+          // Note: NO `credentials` here — trainer must call ensureCredentials.
+          {
+            baseUrl: "http://mock",
+            cwd: localCwd,
+            reconnectDelayMs: 1,
+          },
+        );
+        const original = globalThis.fetch;
+        globalThis.fetch = fetcher;
+        try {
+          await expect(trainer.wait()).resolves.toMatchObject({
+            job: { status: "completed" },
+          });
+        } finally {
+          globalThis.fetch = original;
+        }
+      } finally {
+        rmSync(localCwd, { recursive: true, force: true });
+      }
+    } finally {
+      if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
+      else delete process.env.HOME;
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("createTrainer (SSE event stream)", () => {
   it("dispatches onStarted, onLog, onCheckpoint, onCompleted in order", async () => {
     await writeState(
@@ -591,6 +805,431 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     } finally {
       setTimeoutSpy.mockRestore();
       randomSpy.mockRestore();
+    }
+  });
+
+  it("trainer.cancel() POSTs /v1/jobs/:id/cancel after the job has started", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const minimalJobRow = {
+      id: "j-cancel",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    // The trainer fires `POST /v1/jobs` synchronously inside the start()
+    // path, so cancel() needs the job row to be assigned. We never open the
+    // event stream — cancel() should not depend on it.
+    const sse = [
+      `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j-cancel",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+    ];
+    let cancelCallSeen = false;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-cancel/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (
+        method === "POST" &&
+        url.includes("/v1/jobs/j-cancel/cancel")
+      ) {
+        cancelCallSeen = true;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+      },
+    );
+
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      // Start the run by awaiting wait() — the streamed completion event
+      // closes the loop quickly so cancel() runs against a fully-resolved
+      // startedJob/scope pair.
+      await trainer.wait();
+      await trainer.cancel();
+      expect(cancelCallSeen).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("treats `event: end` as a terminal frame and stops the loop", async () => {
+    // Branch coverage for the `event: end` early-exit. cloud-api sends
+    // this when the SSE channel is shutting down cleanly without a
+    // training.completed event (e.g. session timeout); the trainer must
+    // treat it as terminal so wait() resolves rather than reconnecting.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const minimalJobRow = {
+      id: "j-end",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    const sse = ["id: 1\nevent: end\ndata: \n\n"];
+    const fetcher = mockFetch([
+      {
+        method: "POST",
+        path: "/v1/jobs?",
+        body: JSON.stringify({ job: minimalJobRow }),
+        status: 201,
+      },
+      {
+        method: "GET",
+        path: "/v1/jobs/j-end/events/stream",
+        body: sseStream(sse),
+        headers: { "content-type": "text/event-stream" },
+      },
+    ]);
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await expect(trainer.wait()).resolves.toMatchObject({
+        job: { id: "j-end" },
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("skips malformed event payloads without aborting the stream", async () => {
+    // Branch coverage for the `try/catch` around JSON.parse — a single
+    // malformed `data:` line shouldn't tear down the whole training run.
+    // Send one garbage frame followed by a real terminal event.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const minimalJobRow = {
+      id: "j-bad",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    const sse = [
+      `id: 1\nevent: training.log\ndata: not-json {{{\n\n`,
+      `id: 2\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j-bad",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+    ];
+    const fetcher = mockFetch([
+      {
+        method: "POST",
+        path: "/v1/jobs?",
+        body: JSON.stringify({ job: minimalJobRow }),
+        status: 201,
+      },
+      {
+        method: "GET",
+        path: "/v1/jobs/j-bad/events/stream",
+        body: sseStream(sse),
+        headers: { "content-type": "text/event-stream" },
+      },
+    ]);
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      const result = await trainer.wait();
+      expect(result.job.status).toBe("completed");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("recovers when the SSE body itself errors mid-stream", async () => {
+    // Branch coverage for the catch around the for-await iterator —
+    // covers the case where the stream's underlying body emits an error
+    // (e.g. a network disconnect partway through). The reconnect loop
+    // should treat it as a failure, count it toward the limit, then
+    // recover on a fresh stream.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const minimalJobRow = {
+      id: "j1",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    let streamCount = 0;
+    const enc = new TextEncoder();
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
+        streamCount++;
+        if (streamCount === 1) {
+          // First stream errors mid-flight after one frame.
+          const body = new ReadableStream<Uint8Array>({
+            start(c) {
+              c.enqueue(
+                enc.encode(
+                  `id: 1\nevent: training.log\ndata: ${JSON.stringify({
+                    type: "training.log",
+                    jobId: "j1",
+                    timestamp: "2026-01-01T00:00:01Z",
+                    step: 1,
+                    loss: 1,
+                  })}\n\n`,
+                ),
+              );
+              c.error(new Error("connection reset by peer"));
+            },
+          });
+          return new Response(body, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        // Second stream completes cleanly.
+        return new Response(
+          sseStream([
+            `id: 2\nevent: training.completed\ndata: ${JSON.stringify({
+              type: "training.completed",
+              jobId: "j1",
+              timestamp: "2026-01-01T00:00:02Z",
+            })}\n\n`,
+          ]),
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectAttempts: 3,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      const result = await trainer.wait();
+      expect(result.job.status).toBe("completed");
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCount).toBe(2);
+  });
+
+  it("trainer.cancel() is a no-op before the job has been created", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // No fetch mock at all — if cancel() reached the API we'd see a real
+    // network error. Safety net for callers that wire up cancel() to
+    // SIGINT before kicking off the run.
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd },
+    );
+    await expect(trainer.cancel()).resolves.toBeUndefined();
+  });
+
+  it("propagates AbortSignal aborts mid-reconnect-delay (cancels the timer)", async () => {
+    // Branch coverage for the `onAbort` clearTimeout path inside the
+    // reconnect delay. Long base delay + an abortSignal that aborts after
+    // the first failure → wait() must reject quickly, not after 60s.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const minimalJobRow = {
+      id: "j-abort",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    let streamCount = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (
+        method === "GET" &&
+        url.includes("/v1/jobs/j-abort/events/stream")
+      ) {
+        streamCount++;
+        // Always fail so the trainer enters its delay loop.
+        throw new TypeError("fetch failed");
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const ac = new AbortController();
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        abortSignal: ac.signal,
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        // Big base delay so the delay loop is still pending when we abort.
+        reconnectDelayMs: 60_000,
+        maxReconnectDelayMs: 60_000,
+        maxReconnectAttempts: 5,
+      },
+    );
+
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    // Abort shortly after the first stream-open fails so the helper is
+    // currently inside its setTimeout-based delay.
+    setTimeout(() => ac.abort(new Error("user pressed Ctrl-C")), 30);
+    try {
+      const start = Date.now();
+      await expect(trainer.wait()).rejects.toThrow();
+      const elapsed = Date.now() - start;
+      // Aborted long before the 60 s retry budget would have allowed.
+      expect(elapsed).toBeLessThan(5_000);
+      expect(streamCount).toBeGreaterThanOrEqual(1);
+    } finally {
+      globalThis.fetch = original;
     }
   });
 

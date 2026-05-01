@@ -1,0 +1,93 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  credentialsPath,
+  writeCredentials,
+  type AnonymousCredentials,
+} from "../../core/credentials";
+import { runLogout } from "./logout";
+
+// Module-scoped clack mock so the abort-by-prompt branch is reachable
+// without spinning up a real TUI.
+vi.mock("@clack/prompts", () => ({
+  confirm: vi.fn(),
+  text: vi.fn(),
+  select: vi.fn(),
+  isCancel: vi.fn((v: unknown) => v === Symbol.for("clack:cancel")),
+  intro: vi.fn(),
+  outro: vi.fn(),
+  note: vi.fn(),
+  log: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  spinner: vi.fn(),
+}));
+
+let fakeHome: string;
+const ORIG_HOME = process.env.HOME;
+const ORIG_CI = process.env.CI;
+
+const anonCreds: AnonymousCredentials = {
+  mode: "anon",
+  token: "tok",
+  anonymousId: "abc",
+  arkorCloudApiUrl: "http://mock",
+  orgSlug: "anon-abc",
+};
+
+beforeEach(() => {
+  fakeHome = mkdtempSync(join(tmpdir(), "arkor-logout-test-"));
+  process.env.HOME = fakeHome;
+  // promptConfirm honours skipWith first, but in non-skip paths it falls
+  // through to initialValue when CI=1. Pin CI so the prompt never opens.
+  process.env.CI = "1";
+});
+
+afterEach(() => {
+  if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
+  else delete process.env.HOME;
+  if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
+  else delete process.env.CI;
+  rmSync(fakeHome, { recursive: true, force: true });
+});
+
+describe("runLogout", () => {
+  it("is a no-op when no credentials file exists", async () => {
+    expect(existsSync(credentialsPath())).toBe(false);
+    await expect(runLogout()).resolves.toBeUndefined();
+  });
+
+  it("removes the credentials file when --yes is passed", async () => {
+    await writeCredentials(anonCreds);
+    expect(existsSync(credentialsPath())).toBe(true);
+
+    await runLogout({ yes: true });
+    expect(existsSync(credentialsPath())).toBe(false);
+  });
+
+  it("removes the credentials file in non-interactive mode (initialValue=true)", async () => {
+    // Without `yes`, the helper falls back to promptConfirm which honours
+    // initialValue=true under CI. The behaviour mirrors the user pressing
+    // Enter at the default prompt.
+    await writeCredentials(anonCreds);
+    await runLogout();
+    expect(existsSync(credentialsPath())).toBe(false);
+  });
+
+  it("aborts (and leaves the file in place) when the user answers 'no' interactively", async () => {
+    // Pretend we're in a TTY so promptConfirm enters the clack branch
+    // instead of returning the initialValue. This exercises the
+    // `if (!confirmed)` early-return that's otherwise unreachable.
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.confirm).mockResolvedValueOnce(false as never);
+
+    await writeCredentials(anonCreds);
+    await runLogout();
+    expect(existsSync(credentialsPath())).toBe(true);
+  });
+});

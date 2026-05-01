@@ -77,4 +77,62 @@ describe("runBuild", () => {
     expect(result.entry).toBe(customEntry);
     expect(existsSync(result.outFile)).toBe(true);
   });
+
+  it("accepts an absolute entry path and an absolute outDir", async () => {
+    // Branch coverage for the `isAbsolute(...) ? ... : resolve(cwd, ...)`
+    // checks on both `entry` and `outDir`. With absolute paths the helper
+    // skips the resolve() join, so passing one outside cwd must round-trip.
+    const customEntry = join(cwd, "abs-entry.ts");
+    writeFileSync(customEntry, FAKE_MANIFEST);
+    const absOut = join(cwd, "abs-out");
+    const result = await runBuild({
+      cwd,
+      entry: customEntry,
+      outDir: absOut,
+      quiet: true,
+    });
+    expect(result.entry).toBe(customEntry);
+    expect(result.outFile).toBe(join(absOut, "index.mjs"));
+    expect(existsSync(result.outFile)).toBe(true);
+  });
+
+  it("falls back to process.cwd() when no cwd is provided", async () => {
+    // Branch coverage for `opts.cwd ?? process.cwd()`. Chdir into a fresh
+    // temp dir so the build doesn't pollute the test runner's cwd.
+    const ORIG = process.cwd();
+    const dir = mkdtempSync(join(tmpdir(), "arkor-build-cwd-"));
+    process.chdir(dir);
+    try {
+      mkdirSync(join(dir, "src/arkor"), { recursive: true });
+      writeFileSync(join(dir, "src/arkor/index.ts"), FAKE_MANIFEST);
+      const result = await runBuild({ quiet: true });
+      expect(result.outFile).toBe(join(dir, ".arkor/build/index.mjs"));
+    } finally {
+      process.chdir(ORIG);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("logs a success line when quiet is not set (default)", async () => {
+    // The `quiet` default is false — so the helper writes through ui.log.
+    // Capture stdout to verify the log lands without snooping into clack.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+    const chunks: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((c: unknown) => {
+      chunks.push(String(c));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      await runBuild({ cwd });
+    } finally {
+      process.stdout.write = origWrite;
+    }
+    const out = chunks.join("");
+    // clack's success log uses a checkmark glyph; assert on the path arrow
+    // we know runBuild prints.
+    expect(out).toMatch(/src\/arkor\/index\.ts/);
+    expect(out).toMatch(/index\.mjs/);
+  });
 });

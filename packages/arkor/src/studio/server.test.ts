@@ -32,6 +32,7 @@ let fakeHome: string;
 let assetsDir: string;
 let trainCwd: string;
 const ORIG_HOME = process.env.HOME;
+const ORIG_CWD = process.cwd();
 
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-studio-test-"));
@@ -46,6 +47,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Some SSE proxy tests chdir into trainCwd so server.ts's readState()
+  // (which uses process.cwd()) lines up with where writeState wrote.
+  // Restore cwd before rm-ing the temp dirs, otherwise vitest's worker
+  // is left chdir'd into a path that no longer exists.
+  process.chdir(ORIG_CWD);
   process.env.HOME = ORIG_HOME;
   rmSync(fakeHome, { recursive: true, force: true });
   rmSync(assetsDir, { recursive: true, force: true });
@@ -75,6 +81,35 @@ describe("Studio server", () => {
     ).toThrow(/studioToken/);
   });
 
+  it("HTML-escapes special characters in the studio token before injecting", async () => {
+    // Branch coverage for `htmlAttrEscape` — a defensive guard against
+    // a token that contains `<`, `>`, `&`, `"`, `'`. randomBytes/base64url
+    // never produces these, but the helper must still escape them so a
+    // future token strategy can't break index.html parsing or open a
+    // reflected XSS.
+    const exoticToken = "<>&\"'-1234567890ab";
+    const app = buildStudioApp({
+      baseUrl: "http://mock",
+      assetsDir,
+      autoAnonymous: false,
+      studioToken: exoticToken,
+      cwd: trainCwd,
+    });
+    const res = await app.request("/", {
+      headers: { host: "127.0.0.1:4000" },
+    });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // Each special char round-trips as its HTML entity in the meta tag.
+    expect(html).toContain(
+      '<meta name="arkor-studio-token" content="&lt;&gt;&amp;&quot;&#39;-1234567890ab">',
+    );
+    // The raw exotic token must not leak into HTML — an attacker who
+    // could influence the token (hypothetical) shouldn't be able to
+    // inject markup.
+    expect(html).not.toMatch(/content="<>/);
+  });
+
   it("serves index.html at / with the studio token injected", async () => {
     const app = build();
     const res = await app.request("/", {
@@ -91,6 +126,48 @@ describe("Studio server", () => {
     expect(html.indexOf("arkor-studio-token")).toBeLessThan(
       html.indexOf("</head>"),
     );
+  });
+
+  it("serves non-html assets with the correct content-type", async () => {
+    // Lines 386-391: the static-file path that bypasses HTML token
+    // injection. Drop a JS bundle next to index.html and request it.
+    mkdirSync(join(assetsDir, "assets"), { recursive: true });
+    writeFileSync(
+      join(assetsDir, "assets", "main.js"),
+      "console.log('studio')",
+    );
+    const app = build();
+    const res = await app.request("/assets/main.js", {
+      headers: { host: "127.0.0.1:4000" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("javascript");
+    expect(await res.text()).toBe("console.log('studio')");
+  });
+
+  it("falls back to index.html for unknown extensionless paths (SPA hash router)", async () => {
+    // Lines 404-407: the React app uses a router that produces paths like
+    // /jobs/:id which aren't on disk. The handler must serve index.html so
+    // the SPA boots, then the client takes over.
+    const app = build();
+    const res = await app.request("/jobs/some-uuid", {
+      headers: { host: "127.0.0.1:4000" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("<title>Studio</title>");
+  });
+
+  it("returns 404 for unknown paths that look like asset requests", async () => {
+    // Distinct from the SPA-fallback case: a missing /assets/missing.js
+    // shouldn't silently serve index.html (which the browser would then
+    // try to parse as JS and crash on).
+    const app = build();
+    const res = await app.request("/assets/missing.js", {
+      headers: { host: "127.0.0.1:4000" },
+    });
+    expect(res.status).toBe(404);
   });
 
   it("rejects non-loopback static requests without leaking the studio token", async () => {
@@ -373,6 +450,44 @@ process.exit(0);
       expect(text).not.toMatch(/Cannot find module|MODULE_NOT_FOUND|ENOENT/);
     });
 
+    it("forwards a valid body.file (under trainCwd) to the bin as an extra arg", async () => {
+      // Branch coverage for the `trainFile = abs` assignment after the
+      // realpath containment check passes. Spawn a fake bin that echoes
+      // its argv so we can assert the absolute path was forwarded.
+      await writeCredentials(ANON_CREDS);
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      writeFileSync(
+        fakeBin,
+        `process.stdout.write("[fake-bin] argv=" + JSON.stringify(process.argv.slice(2)) + "\\n");\nprocess.exit(0);\n`,
+      );
+      const targetEntry = join(trainCwd, "src", "arkor", "trainer.ts");
+      mkdirSync(join(trainCwd, "src", "arkor"), { recursive: true });
+      writeFileSync(targetEntry, "// real trainer source\n");
+
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: fakeBin,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ file: "src/arkor/trainer.ts" }),
+      });
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      // The bin saw `start <abs-resolved-trainer.ts>` as argv.
+      expect(text).toContain('argv=["start","' + resolve(targetEntry).replace(/\\/g, "\\\\"));
+      expect(text).toContain("exit=0");
+    });
+
     it("surfaces ENOENT-grade errors when binPath does not exist", async () => {
       await writeCredentials(ANON_CREDS);
       const app = buildStudioApp({
@@ -397,6 +512,86 @@ process.exit(0);
       expect(text).toMatch(/Cannot find module|MODULE_NOT_FOUND|ENOENT/);
       expect(text).toContain("exit=");
       expect(text).not.toContain("exit=0");
+    });
+  });
+
+  describe("auto-anonymous bootstrap", () => {
+    const ORIG_FETCH = globalThis.fetch;
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("acquires + persists an anonymous token on the first /api/credentials hit when autoAnonymous=true", async () => {
+      // No credentials on disk — buildStudioApp's autoAnonymous default
+      // (true) lets the server bootstrap on first hit so a fresh `arkor
+      // dev` works even when the up-front bootstrap in dev.ts skipped due
+      // to a transient network blip.
+      let calls = 0;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/anonymous")) {
+          calls++;
+          return new Response(
+            JSON.stringify({
+              token: "lazy-anon",
+              anonymousId: "lazy-aid",
+              kind: "cli",
+              personalOrg: { id: "o", slug: "lazy-aid", name: "Anon" },
+            }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+
+      // The shared build() pins autoAnonymous=false; for this branch we
+      // need it on (the production default).
+      const app = buildStudioApp({
+        baseUrl: "http://mock-cloud-api",
+        assetsDir,
+        autoAnonymous: true,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+      });
+      const res = await app.request("/api/credentials", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { token: string; mode: string };
+      expect(body).toMatchObject({ token: "lazy-anon", mode: "anon" });
+      expect(calls).toBe(1);
+
+      // Subsequent calls use the persisted credentials — no re-bootstrap.
+      const res2 = await app.request("/api/credentials", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res2.status).toBe(200);
+      expect(calls).toBe(1);
+    });
+
+    it("rejects with a sign-in hint when autoAnonymous=false and no credentials exist", async () => {
+      // Branch coverage for the `if (!autoAnonymous) throw …` path.
+      const app = buildStudioApp({
+        baseUrl: "http://mock-cloud-api",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+      });
+      const res = await app.request("/api/credentials", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      // Hono surfaces the thrown error as a 500 by default.
+      expect(res.status).toBe(500);
     });
   });
 
@@ -632,6 +827,143 @@ process.exit(0);
         "events endpoint deprecated",
       );
     });
+
+    it("returns an empty list when no project state exists", async () => {
+      // Branch coverage for the `if (!state) return c.json({ jobs: [] })`
+      // early-return on /api/jobs.
+      await writeCredentials(ANON_CREDS);
+      const app = build();
+      const res = await app.request("/api/jobs", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { jobs: unknown[] };
+      expect(body.jobs).toEqual([]);
+    });
+
+    it("returns 400 on /api/jobs/:id/events when project state is missing", async () => {
+      // Without `.arkor/state.json` written into trainCwd, the proxy has
+      // no scope to forward.
+      await writeCredentials(ANON_CREDS);
+      const app = build();
+      const res = await app.request("/api/jobs/j-xyz/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toBe("No project state");
+    });
+
+    it("forwards Last-Event-ID through the SSE proxy", async () => {
+      await writeCredentials(ANON_CREDS);
+      // server.ts's readState() reads from `process.cwd()` (no override),
+      // so chdir into trainCwd before writing state so they line up.
+      process.chdir(trainCwd);
+      await writeState({
+        orgSlug: "anon-org",
+        projectSlug: "proj",
+        projectId: "p1",
+      });
+      let captured: { url: string; headers: Headers } | null = null;
+      const enc = new TextEncoder();
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: RequestInit,
+      ) => {
+        captured = {
+          url: String(input),
+          headers: new Headers(init?.headers),
+        };
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              c.enqueue(enc.encode("event: ping\ndata: \n\n"));
+              c.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        );
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs/job-id-1/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "Last-Event-ID": "1700000000-evt-42",
+        },
+      });
+      expect(res.status).toBe(200);
+      const cap = captured as unknown as {
+        url: string;
+        headers: Headers;
+      } | null;
+      expect(cap).not.toBeNull();
+      expect(cap!.headers.get("last-event-id")).toBe("1700000000-evt-42");
+    });
+
+    it("omits Last-Event-ID on /api/jobs/:id/events when the client did not supply one", async () => {
+      // Branch coverage for the conditional Last-Event-ID forwarding.
+      await writeCredentials(ANON_CREDS);
+      process.chdir(trainCwd);
+      await writeState({
+        orgSlug: "anon-org",
+        projectSlug: "proj",
+        projectId: "p1",
+      });
+      let captured: Headers | null = null;
+      globalThis.fetch = (async (_input, init) => {
+        captured = new Headers(init?.headers);
+        return new Response("", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }) as typeof fetch;
+
+      const app = build();
+      await app.request("/api/jobs/job-id-1/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      const cap = captured as unknown as Headers | null;
+      expect(cap).not.toBeNull();
+      expect(cap!.has("last-event-id")).toBe(false);
+    });
+
+    it("falls back to text/event-stream when the upstream omits a content-type", async () => {
+      // Branch coverage for `upstream.headers.get("content-type") ?? "text/event-stream"`.
+      // A Response with a string body auto-sets text/plain; using `null`
+      // body avoids that default so the upstream genuinely lacks the
+      // header.
+      await writeCredentials(ANON_CREDS);
+      process.chdir(trainCwd);
+      await writeState({
+        orgSlug: "anon-org",
+        projectSlug: "proj",
+        projectId: "p1",
+      });
+      globalThis.fetch = (async () =>
+        new Response(null, { status: 200 })) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/jobs/j1/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.headers.get("content-type")).toBe("text/event-stream");
+    });
   });
 
   describe("/api/manifest", () => {
@@ -679,6 +1011,62 @@ process.exit(0);
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error?: string };
       expect(body.error).toMatch(/Build entry not found/);
+    });
+
+    it("falls back to mod.default when there's no `arkor` export", async () => {
+      // Branch coverage for `mod.arkor ?? mod.default` in
+      // studio/manifest.ts. Older sample code default-exports the
+      // manifest object instead of named-exporting it; Studio must still
+      // discover it.
+      await writeCredentials(ANON_CREDS);
+      mkdirSync(join(trainCwd, "src/arkor"), { recursive: true });
+      writeFileSync(
+        join(trainCwd, "src/arkor/index.ts"),
+        `export default Object.freeze({
+          _kind: "arkor",
+          trainer: {
+            name: "default-trainer",
+            start: async () => ({ jobId: "j1" }),
+            wait: async () => ({ job: {}, artifacts: [] }),
+            cancel: async () => {},
+          },
+        });\n`,
+      );
+      const app = build();
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        trainer: { name: string } | null;
+      };
+      expect(body.trainer).toEqual({ name: "default-trainer" });
+    });
+
+    it("returns the EMPTY manifest when neither `arkor` nor a valid default is exported", async () => {
+      // Branch coverage for the `!isArkor(candidate)` early-return.
+      // A user who exports a regular object that lacks `_kind: 'arkor'`
+      // is treated as "no manifest yet" and the SPA can render the empty
+      // state hint instead of crashing.
+      await writeCredentials(ANON_CREDS);
+      mkdirSync(join(trainCwd, "src/arkor"), { recursive: true });
+      writeFileSync(
+        join(trainCwd, "src/arkor/index.ts"),
+        `export default { somethingElse: true };\n`,
+      );
+      const app = build();
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { trainer: unknown };
+      expect(body.trainer).toBeNull();
     });
 
     it("returns trainer:null when the manifest has no trainer slot", async () => {

@@ -3,12 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  readCredentials,
-  writeCredentials,
   credentialsPath,
-  getToken,
   defaultArkorCloudApiUrl,
+  ensureCredentials,
+  getToken,
+  readCredentials,
   requestAnonymousToken,
+  studioTokenPath,
+  writeCredentials,
   type AnonymousCredentials,
   type Auth0Credentials,
 } from "./credentials";
@@ -158,6 +160,25 @@ describe("requestAnonymousToken", () => {
     });
   });
 
+  it("falls back to an empty body snippet when reading the response text throws", async () => {
+    // Branch coverage for the `.catch(() => "")` defensive arm — a
+    // proxied response whose body errors mid-read shouldn't crash the
+    // bootstrap with a confusing TypeError instead of a clean
+    // AnonymousTokenRejectedError.
+    globalThis.fetch = (async () => {
+      const body = new ReadableStream({
+        start(c) {
+          c.error(new Error("body broke mid-flight"));
+        },
+      });
+      return new Response(body, { status: 503 });
+    }) as typeof fetch;
+
+    await expect(
+      requestAnonymousToken("http://mock-cloud-api", "cli"),
+    ).rejects.toThrow(/503/);
+  });
+
   it("throws with status and body snippet on non-2xx", async () => {
     globalThis.fetch = (async () =>
       new Response(
@@ -168,5 +189,80 @@ describe("requestAnonymousToken", () => {
     await expect(
       requestAnonymousToken("http://mock-cloud-api", "cli"),
     ).rejects.toThrow(/426/);
+  });
+});
+
+describe("studioTokenPath", () => {
+  it("resolves under the same directory as credentialsPath()", () => {
+    // The token must live next to credentials.json so the SPA's middleware
+    // can find it via the same `~/.arkor` lookup the CLI uses.
+    expect(studioTokenPath()).toBe(join(fakeHome, ".arkor", "studio-token"));
+  });
+});
+
+describe("ensureCredentials", () => {
+  it("returns the existing credentials without bootstrapping", async () => {
+    const creds: AnonymousCredentials = {
+      mode: "anon",
+      token: "existing",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://mock",
+      orgSlug: "anon-abc",
+    };
+    await writeCredentials(creds);
+
+    // No fetch mock — the function must early-return without calling out.
+    globalThis.fetch = (async () => {
+      throw new Error("fetch should not be called");
+    }) as typeof fetch;
+
+    expect(await ensureCredentials()).toEqual(creds);
+  });
+
+  it("bootstraps a fresh anonymous identity, persists it, and returns the parsed shape", async () => {
+    // No credentials file exists (fakeHome was just mkdtemp'd in beforeEach).
+    process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api/";
+    const seenUrls: string[] = [];
+    globalThis.fetch = (async (
+      input: Parameters<typeof fetch>[0],
+    ) => {
+      seenUrls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          token: "fresh-tok",
+          anonymousId: "fresh-aid",
+          kind: "cli",
+          personalOrg: { id: "o", slug: "fresh-aid", name: "Anon" },
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+
+    const creds = await ensureCredentials();
+
+    // Trailing slash on ARKOR_CLOUD_API_URL is stripped by defaultArkorCloudApiUrl,
+    // so the captured URL has no double slash and the persisted baseUrl
+    // round-trips cleanly.
+    expect(seenUrls).toEqual(["http://mock-cloud-api/v1/auth/anonymous"]);
+
+    expect(creds).toEqual({
+      mode: "anon",
+      token: "fresh-tok",
+      anonymousId: "fresh-aid",
+      arkorCloudApiUrl: "http://mock-cloud-api",
+      orgSlug: "fresh-aid",
+    });
+
+    // The bootstrapped credentials are persisted to disk for reuse.
+    expect(await readCredentials()).toEqual(creds);
+  });
+
+  it("rethrows when the anonymous endpoint refuses to issue a token", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: "anonymous disabled" }), {
+        status: 403,
+      })) as typeof fetch;
+    await expect(ensureCredentials()).rejects.toThrow(/403/);
+    expect(await readCredentials()).toBeNull();
   });
 });
