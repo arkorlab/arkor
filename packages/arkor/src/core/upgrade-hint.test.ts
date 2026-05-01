@@ -92,7 +92,12 @@ describe("detectedUpgradeCommand", () => {
   afterEach(() => {
     if (ORIG_UA === undefined) delete process.env.npm_config_user_agent;
     else process.env.npm_config_user_agent = ORIG_UA;
-    process.argv[1] = ORIG_ARGV1;
+    // Direct assignment of `undefined` would leave the slot as the
+    // literal value `undefined` and break later callers that assume
+    // `process.argv` is `string[]`. Splice the index out instead when
+    // the original was missing.
+    if (ORIG_ARGV1 === undefined) process.argv.splice(1, 1);
+    else process.argv[1] = ORIG_ARGV1;
   });
 
   it("uses the detected pm when the user-agent reveals it", () => {
@@ -120,7 +125,12 @@ describe("formatSdkUpgradeError", () => {
   afterEach(() => {
     if (ORIG_UA === undefined) delete process.env.npm_config_user_agent;
     else process.env.npm_config_user_agent = ORIG_UA;
-    process.argv[1] = ORIG_ARGV1;
+    // Direct assignment of `undefined` would leave the slot as the
+    // literal value `undefined` and break later callers that assume
+    // `process.argv` is `string[]`. Splice the index out instead when
+    // the original was missing.
+    if (ORIG_ARGV1 === undefined) process.argv.splice(1, 1);
+    else process.argv[1] = ORIG_ARGV1;
   });
 
   it("returns the rich version-out-of-range message with the pm-aware command", () => {

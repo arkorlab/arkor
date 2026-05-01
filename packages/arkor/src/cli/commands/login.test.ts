@@ -459,29 +459,33 @@ describe("runLogin", () => {
 
     // Use a process.stdout.write spy to extract the authorize URL the SDK
     // logs — `ui.log.info("Browser: <url>")`. The state value is in there.
+    // Use vi.spyOn so the original method reference is preserved
+    // (assigning `process.stdout.write.bind(...)` and restoring would
+    // permanently rebind the slot to a wrapper for the rest of the
+    // worker, breaking later tests' own write spies / expectations).
     const writes: string[] = [];
-    const origWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = ((c: unknown) => {
-      writes.push(String(c));
-      // As soon as we see the Browser: line, fire the callback fetch.
-      const buf = writes.join("");
-      const m = buf.match(/Browser: (https:\/\/[^\s]+)/);
-      if (m && !firedCallback) {
-        firedCallback = true;
-        const parsed = new URL(m[1] as string);
-        const state = parsed.searchParams.get("state");
-        const redirect = parsed.searchParams.get("redirect_uri");
-        setTimeout(() => {
-          void ORIG_FETCH(`${redirect}?code=c&state=${state}`);
-        }, 0);
-      }
-      return true;
-    }) as typeof process.stdout.write;
+    const writeSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((c: unknown) => {
+        writes.push(String(c));
+        const buf = writes.join("");
+        const m = buf.match(/Browser: (https:\/\/[^\s]+)/);
+        if (m && !firedCallback) {
+          firedCallback = true;
+          const parsed = new URL(m[1] as string);
+          const state = parsed.searchParams.get("state");
+          const redirect = parsed.searchParams.get("redirect_uri");
+          setTimeout(() => {
+            void ORIG_FETCH(`${redirect}?code=c&state=${state}`);
+          }, 0);
+        }
+        return true;
+      }) as typeof process.stdout.write);
 
     try {
       await runLogin({ oauth: true, noBrowser: true });
     } finally {
-      process.stdout.write = origWrite;
+      writeSpy.mockRestore();
     }
 
     expect(open).not.toHaveBeenCalled();

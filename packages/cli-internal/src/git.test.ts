@@ -170,7 +170,12 @@ describe("gitInitialCommit", () => {
     try {
       await expect(gitInitialCommit(cwd, "x")).rejects.toThrow();
     } finally {
-      process.env.PATH = ORIG_PATH;
+      // Node coerces `process.env.X = undefined` to the literal string
+      // "undefined", which would then leak into later tests' spawn
+      // resolution. Delete-on-undefined matches the pattern used in the
+      // `cli-internal/src/install.test.ts` afterEach.
+      if (ORIG_PATH === undefined) delete process.env.PATH;
+      else process.env.PATH = ORIG_PATH;
     }
   });
 });

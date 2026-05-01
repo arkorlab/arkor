@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   existsSync,
   mkdirSync,
@@ -122,18 +122,23 @@ describe("runBuild", () => {
   it("logs a success line when quiet is not set (default)", async () => {
     // The `quiet` default is false — so the helper writes through ui.log.
     // Capture stdout to verify the log lands without snooping into clack.
+    // Use vi.spyOn so the original method reference is preserved
+    // (assigning `process.stdout.write.bind(...)` and restoring would
+    // permanently rebind the slot to a wrapper for the rest of the
+    // worker, breaking later tests that spy on the same slot).
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
     const chunks: string[] = [];
-    const origWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = ((c: unknown) => {
-      chunks.push(String(c));
-      return true;
-    }) as typeof process.stdout.write;
+    const writeSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((c: unknown) => {
+        chunks.push(String(c));
+        return true;
+      }) as typeof process.stdout.write);
     try {
       await runBuild({ cwd });
     } finally {
-      process.stdout.write = origWrite;
+      writeSpy.mockRestore();
     }
     const out = chunks.join("");
     // clack's success log uses a checkmark glyph; assert on the path arrow
