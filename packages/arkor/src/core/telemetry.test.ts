@@ -67,7 +67,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.HOME = ORIG_HOME;
+  // `process.env.X = undefined` writes the literal string "undefined" rather
+  // than removing the entry, which then leaks into `os.homedir()` resolution
+  // for any test that runs later in the same vitest worker. Match the
+  // delete-when-originally-unset pattern used in cli/commands/*.test.ts.
+  if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
+  else delete process.env.HOME;
   if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
   if (ORIG_DO_NOT_TRACK !== undefined) process.env.DO_NOT_TRACK = ORIG_DO_NOT_TRACK;
