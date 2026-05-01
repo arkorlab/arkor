@@ -335,12 +335,21 @@ describe("startLoopbackServer", () => {
   });
 
   it("throws when none of the requested ports can be bound", async () => {
-    // Port 1 is the unprivileged-process equivalent of "always reserved"
-    // on Linux; binding it from a non-root vitest worker reliably fails.
-    // The error message must include all attempted ports so the user can
-    // update the Auth0 Allowed Callback URLs.
-    await expect(startLoopbackServer([1])).rejects.toThrow(
-      /Unable to bind any of the loopback ports 1/,
-    );
+    // Hold an ephemeral port to guarantee an EADDRINUSE on the second
+    // bind attempt — relying on the unprivileged-port (port 1) trick is
+    // not portable (root containers, BSD permission models). The error
+    // message must include all attempted ports so the user can update
+    // the Auth0 Allowed Callback URLs.
+    const busy = await startLoopbackServer([0]);
+    busy.waitForCallback.catch(() => undefined);
+    try {
+      await expect(startLoopbackServer([busy.port])).rejects.toThrow(
+        new RegExp(
+          `Unable to bind any of the loopback ports ${busy.port}`,
+        ),
+      );
+    } finally {
+      busy.server.close();
+    }
   });
 });

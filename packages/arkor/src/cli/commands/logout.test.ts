@@ -26,6 +26,10 @@ vi.mock("@clack/prompts", () => ({
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
 const ORIG_CI = process.env.CI;
+// Capture the original `process.stdout.isTTY` so the interactive test
+// below can flip it without leaking into other test files when vitest
+// reuses a worker process.
+const ORIG_TTY = process.stdout.isTTY;
 
 const anonCreds: AnonymousCredentials = {
   mode: "anon",
@@ -48,6 +52,13 @@ afterEach(() => {
   else delete process.env.HOME;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
+  // Restore the TTY flag in case the interactive test mutated it —
+  // otherwise a later test that unsets CI would unexpectedly enter
+  // interactive prompt paths.
+  Object.defineProperty(process.stdout, "isTTY", {
+    value: ORIG_TTY,
+    configurable: true,
+  });
   rmSync(fakeHome, { recursive: true, force: true });
 });
 

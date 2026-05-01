@@ -60,6 +60,10 @@ import { runInit } from "./init";
 
 let cwd: string;
 const ORIG_CWD = process.cwd();
+// Capture the original `process.stdout.isTTY` so interactive tests below
+// can flip it without leaking into other test files when vitest reuses
+// a worker process.
+const ORIG_TTY = process.stdout.isTTY;
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "arkor-init-test-"));
@@ -80,6 +84,13 @@ afterEach(() => {
   process.chdir(ORIG_CWD);
   rmSync(cwd, { recursive: true, force: true });
   delete process.env.CI;
+  // Restore the TTY flag in case an interactive test mutated it —
+  // otherwise a later test that unsets CI would unexpectedly enter
+  // interactive prompt paths.
+  Object.defineProperty(process.stdout, "isTTY", {
+    value: ORIG_TTY,
+    configurable: true,
+  });
   vi.restoreAllMocks();
 });
 
@@ -138,11 +149,15 @@ describe("runInit", () => {
   });
 
   it("falls back to 'arkor-project' as the default name when basename(cwd) is empty", async () => {
-    // Branch coverage for `basename(cwd) || "arkor-project"`. `basename("/")`
-    // is `""`, so chdir-ing into `/` exercises the `||` fallback. The
-    // scaffold mock absorbs the actual filesystem write so we don't touch
-    // root.
-    process.chdir("/");
+    // Branch coverage for `basename(cwd) || "arkor-project"`. `basename`
+    // of the platform's filesystem root (`/` on POSIX, `C:\` on Windows)
+    // is `""`, so chdir-ing into the root exercises the `||` fallback.
+    // Using `path.parse(...).root` keeps the test portable across
+    // platforms; the scaffold mock absorbs the actual filesystem write
+    // so we don't touch the real root.
+    const { parse } = await import("node:path");
+    const fsRoot = parse(process.cwd()).root;
+    process.chdir(fsRoot);
     await runInit({
       yes: true,
       template: "triage",

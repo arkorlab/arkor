@@ -13,6 +13,13 @@ function runGitSync(args: string[], opts: { cwd: string }): Promise<string> {
       cwd: opts.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    // Without an `error` listener, a spawn failure (git missing, EACCES,
+    // ENOENT on a stale cwd) leaves the promise pending forever, so the
+    // test run hangs until vitest's per-test timeout — diagnose it as a
+    // fast deterministic failure instead.
+    child.on("error", (err) =>
+      reject(new Error(`spawn git ${args.join(" ")} failed: ${err.message}`)),
+    );
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     child.stdout.on("data", (c: Buffer) => out.push(c));
