@@ -38,5 +38,23 @@ if (!hasStripTypesSupport()) {
     else process.exit(code ?? 0);
   });
 } else {
-  await main(process.argv.slice(2));
+  // Catch top-level await rejections explicitly instead of letting Node's
+  // default unhandled-rejection handler print them. Two reasons:
+  //   1. Node's default formatter prints a code-frame with the source line at
+  //      the throw site, and our bundled `dist/bin.mjs` is minified (a single
+  //      line per top-level statement), so the "code frame" is one giant
+  //      blob of JS that drowns the actual `Error: <message>` line.
+  //   2. On macOS Node <22.17 (libuv <1.51.0) the `Error: <message>` tail of
+  //      that output isn't reliably flushed to stderr before the process
+  //      exits — so spawned-CLI test assertions that `toContain` the message
+  //      fail with only the code-frame received. libuv 1.51.0 fixes this,
+  //      but we want CI green across the whole supported Node range.
+  // Setting `process.exitCode` (instead of `process.exit(1)`) lets the event
+  // loop drain naturally so stderr fully flushes before exit.
+  try {
+    await main(process.argv.slice(2));
+  } catch (err) {
+    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+    process.exitCode = 1;
+  }
 }

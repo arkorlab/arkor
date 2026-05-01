@@ -18,12 +18,10 @@ import { readCredentials } from "../../core/credentials";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
-// Node's `os.homedir()` reads HOME on POSIX but USERPROFILE (with a
-// HOMEDRIVE+HOMEPATH fallback) on Windows, so HOME alone doesn't keep
-// credential file IO inside the temp dir on Windows.
+// `os.homedir()` reads USERPROFILE on Windows; HOME-only redirection leaves
+// Windows runs reading/writing the real user profile and cross-contaminating
+// tests via `~/.arkor/credentials.json`.
 const ORIG_USERPROFILE = process.env.USERPROFILE;
-const ORIG_HOMEDRIVE = process.env.HOMEDRIVE;
-const ORIG_HOMEPATH = process.env.HOMEPATH;
 const ORIG_CI = process.env.CI;
 const ORIG_FETCH = globalThis.fetch;
 const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
@@ -31,11 +29,7 @@ const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-login-test-"));
   process.env.HOME = fakeHome;
-  // Mirror HOME into the Windows home-dir env vars so `os.homedir()`
-  // points at the temp dir on every platform.
   process.env.USERPROFILE = fakeHome;
-  process.env.HOMEDRIVE = "";
-  process.env.HOMEPATH = fakeHome;
   process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
   // Force isInteractive() → false so promptSelect returns its initialValue
   // instead of trying to open a real clack prompt.
@@ -48,10 +42,6 @@ afterEach(() => {
   else delete process.env.HOME;
   if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
-  if (ORIG_HOMEDRIVE !== undefined) process.env.HOMEDRIVE = ORIG_HOMEDRIVE;
-  else delete process.env.HOMEDRIVE;
-  if (ORIG_HOMEPATH !== undefined) process.env.HOMEPATH = ORIG_HOMEPATH;
-  else delete process.env.HOMEPATH;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;

@@ -17,15 +17,15 @@ description: "arkor dev / arkor start を介さず、Next.js API ルート、cro
 import { runTrainer } from "arkor";
 
 await runTrainer();                          // src/arkor/index.ts を import
-await runTrainer("src/arkor/alt.ts");        // 明示的なソースエントリ
+await runTrainer("src/arkor/alt.ts");        // 明示的なソースエントリー
 await runTrainer(".arkor/build/index.mjs");  // 明示的なビルド成果物
 ```
 
 トレーナーが既に `src/arkor/` にあって、CLI 以外のコード（GitHub Actions のステップ、ビルドステップ、使い捨てスクリプト）からトリガーしたいだけなら、これが正しい形です。トレーナーのコールバックと `abortSignal` の配線をそのまま継承します。
 
-**`.ts` エントリでの Node バージョン注意。** `arkor` CLI の bin は、走っている Node が TypeScript ストリッピングを有効化していないとき自動で `--experimental-strip-types` で再 exec します。プログラム呼び出し側はその恩恵を受けません。`runTrainer()` を `.ts` のソースエントリに対して呼ぶスクリプトを動かすには、Node 23+（TypeScript ストリッピングがデフォルトで有効）を使うか、Node 22.6+ なら `--experimental-strip-types` を付けてください。実験フラグに依存したくないなら、`runTrainer` をビルド出力（`.arkor/build/index.mjs`）に向ければよいです。成果物は素の ESM で、対応 Node であればフラグなしで動きます。
+**`.ts` エントリーでの Node バージョン注意。** `arkor` CLI の bin は、走っている Node が TypeScript ストリッピングを有効化していないとき、自身を `--experimental-strip-types` フラグ付きで起動し直して TypeScript を実行できる状態にします。プログラム呼び出し側はその恩恵を受けません。`runTrainer()` を `.ts` のソースエントリーに対して呼ぶスクリプトを動かすには、Node 23+（TypeScript ストリッピングがデフォルトで有効）を使うか、Node 22.6+ なら `--experimental-strip-types` を付けてください。実験フラグに依存したくないなら、`runTrainer` をビルド出力（`.arkor/build/index.mjs`）に向ければよいです。成果物は素の ESM で、対応 Node であればフラグなしで動きます。
 
-CI で刺さりがちな細かい点: `runTrainer()`（および `trainer.wait()`）は学習が `completed` で終わっても `failed` で終わっても **resolve します**。SSE ストリームはどちらでも単に終了し、reject するのはトランスポートレベルのエラー（abort、再接続が尽きた等）だけです。`runTrainer()` を素朴に `try / catch` で囲むと、失敗した学習ジョブでも CI は `0` で終わってしまいます。CI を失敗させたいなら、トレーナーを直接駆動して終端ステータスを検査してください:
+CI で刺さりがちな細かい点: `runTrainer()`（および `trainer.wait()`）は学習が `completed` で終わっても `failed` で終わっても **resolve します**。SSE ストリームはどちらでも単に終了し、reject するのはトランスポートレベルのエラー（Abort、再接続が尽きたなど）だけです。`runTrainer()` を素朴に `try / catch` で囲むと、失敗した学習ジョブでも CI は `0` で終わってしまいます。CI を失敗させたいなら、トレーナーを直接駆動して終端ステータスを検査してください:
 
 ```ts
 // scripts/train.ts
@@ -43,7 +43,7 @@ try {
   process.exit(1);
 } catch (err) {
   // wait() が終端ステータスに到達する前に reject（abortSignal abort、
-  // 再接続試行尽き、等）。CI 失敗扱い。
+  // 再接続試行尽き、など）。CI 失敗扱い。
   console.error("wait() threw:", err);
   process.exit(1);
 }
@@ -182,6 +182,6 @@ const [ra2, rb2] = await Promise.all([a.wait(), b.wait()]);
 ## 心に留めておくこと
 
 - **`runTrainer` と直接の `start` / `wait` は同じライフサイクルを共有。** コールバックは `wait()` から発火します。`start()` を呼んで `wait()` をスキップすると、バックエンドで学習が進んでいてもコールバックは動きません。
-- **`abortSignal` と `cancel` は依然として別物。** 二段階パターンは [Early stopping](/ja/cookbook/early-stopping) を参照。
+- **`abortSignal` と `cancel` は依然として別物。** 二段階パターンは [Early Stopping](/ja/cookbook/early-stopping) を参照。
 - **[SDK § overview](/ja/sdk/overview) の補助ヘルパーはこれらのワークフローのためにエクスポートされている。** `readCredentials`、`writeCredentials`、`ensureCredentials`、`requestAnonymousToken`、`state.json` ヘルパーは、CLI を介さずに認証やルーティングをブートストラップする必要があるコード向けです。
-- **`runBuild` / `runStart` / `runDev` はエクスポートされない。** CLI コマンドランナーは `cli/commands/` 以下にあり、意図的に CLI 専用です。`arkor start` が使うのと同じフローへの公開エントリは `runTrainer` だけです。
+- **`runBuild` / `runStart` / `runDev` はエクスポートされない。** CLI コマンドランナーは `cli/commands/` 以下にあり、意図的に CLI 専用です。`arkor start` が使うのと同じフローへの公開エントリーは `runTrainer` だけです。

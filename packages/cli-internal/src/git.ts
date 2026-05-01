@@ -1,5 +1,18 @@
 import { spawn } from "node:child_process";
 
+// IMPORTANT: do NOT pass `shell: process.platform === "win32"` to these
+// `spawn("git", ...)` calls. `git` ships as `git.exe` on Windows so libuv
+// resolves it through PATHEXT without a shell, and routing through cmd.exe
+// instead corrupts the `git commit -m "<message>"` argument: the message
+// includes spaces and backticks (e.g. ``Initial commit from `arkor init` ``),
+// and Node's Windows shell-mode quoting wraps the whole arg in double quotes
+// while the surrounding cmd.exe `/c "<cmd>"` framing turns the resulting
+// nested quotes into a malformed command line. Git then sees a shorter or
+// empty message and either silently no-ops or commits unexpected content,
+// reporting exit 0 — leaving the scaffolded directory with a `.git/HEAD` but
+// no commit. Only `pnpm`/`yarn`/`bun`-style `.cmd` shims need shell:true
+// (see `install.ts`); plain `.exe` binaries do not.
+
 /**
  * Whether `cwd` is already inside a Git working tree. We check so we don't
  * clobber an existing repo by running `git init` on top of it.
@@ -9,7 +22,6 @@ export async function isInGitRepo(cwd: string): Promise<boolean> {
     const child = spawn("git", ["rev-parse", "--is-inside-work-tree"], {
       cwd,
       stdio: "ignore",
-      shell: process.platform === "win32",
     });
     child.on("error", () => resolve(false));
     child.on("close", (code) => resolve(code === 0));
@@ -73,7 +85,6 @@ function runGit(cwd: string, args: string[]): Promise<void> {
     const child = spawn("git", args, {
       cwd,
       stdio: "ignore",
-      shell: process.platform === "win32",
     });
     child.on("error", reject);
     child.on("close", (code) => {
@@ -94,7 +105,6 @@ function tryGit(
     const child = spawn("git", args, {
       cwd,
       stdio: ["ignore", "ignore", "pipe"],
-      shell: process.platform === "win32",
     });
     const chunks: Buffer[] = [];
     child.stderr?.on("data", (c: Buffer) => chunks.push(c));

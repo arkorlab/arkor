@@ -22,6 +22,10 @@ vi.mock("open", () => ({
 
 import { serve } from "@hono/node-server";
 import open from "open";
+// Re-import the credentials module as a namespace so individual tests can
+// `vi.spyOn` on `writeCredentials` to inject deterministic fs failures
+// regardless of host OS / filesystem semantics.
+import * as credentialsModule from "../../core/credentials";
 import {
   readCredentials,
   studioTokenPath,
@@ -32,23 +36,17 @@ import { ensureCredentialsForStudio, runDev } from "./dev";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
-// Node's `os.homedir()` reads HOME on POSIX but USERPROFILE (with a
-// HOMEDRIVE+HOMEPATH fallback) on Windows, so HOME alone doesn't keep
-// credential / studio-token file IO inside the temp dir on Windows.
+// `os.homedir()` reads USERPROFILE on Windows; HOME-only redirection leaves
+// Windows runs reading/writing the real user profile and cross-contaminating
+// tests via `~/.arkor/credentials.json`.
 const ORIG_USERPROFILE = process.env.USERPROFILE;
-const ORIG_HOMEDRIVE = process.env.HOMEDRIVE;
-const ORIG_HOMEPATH = process.env.HOMEPATH;
 const ORIG_FETCH = globalThis.fetch;
 const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
 
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-dev-test-"));
   process.env.HOME = fakeHome;
-  // Mirror HOME into the Windows home-dir env vars so `os.homedir()`
-  // points at the temp dir on every platform.
   process.env.USERPROFILE = fakeHome;
-  process.env.HOMEDRIVE = "";
-  process.env.HOMEPATH = fakeHome;
   process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
 });
 
@@ -57,10 +55,6 @@ afterEach(() => {
   else delete process.env.HOME;
   if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
-  if (ORIG_HOMEDRIVE !== undefined) process.env.HOMEDRIVE = ORIG_HOMEDRIVE;
-  else delete process.env.HOMEDRIVE;
-  if (ORIG_HOMEPATH !== undefined) process.env.HOMEPATH = ORIG_HOMEPATH;
-  else delete process.env.HOMEPATH;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
   globalThis.fetch = ORIG_FETCH;
@@ -331,27 +325,24 @@ describe("ensureCredentialsForStudio", () => {
   // anon bootstrap, so fs errors from `writeCredentials` were also rewritten
   // as "deployment may require sign-in", hiding the actionable fs cause.
   //
-  // Setup: pre-create `~/.arkor` and chmod 0o555 (read+exec, no write) so
-  // `readCredentials()` cleanly returns null (credentials.json doesn't
-  // exist) but `writeCredentials()`'s `writeFile` raises EACCES on the
-  // locked-down parent dir. An earlier draft of this test pre-created
-  // `~/.arkor/credentials.json` *as a directory*, but that made
-  // `readCredentials()` blow up first with EISDIR before the bootstrap
-  // logic ever ran — so the assertion accidentally passed for the wrong
-  // reason (Copilot review on PR #65).
-  //
-  // Skipped under UID 0: root bypasses chmod permission checks on Linux,
-  // so `writeFile` would succeed and the assertion would never trigger
-  // (Codex review on PR #65). Most CI runners are non-root; container-
-  // based root CI just loses this one assertion, the wrap-narrowing
-  // logic itself is still covered by the schema-validation and 5xx
-  // tests above.
-  const isRoot =
-    typeof process.getuid === "function" && process.getuid() === 0;
-  it.skipIf(isRoot)("does not rewrite fs errors from writeCredentials as OAuth hints", async () => {
-    const arkorDir = join(fakeHome, ".arkor");
-    mkdirSync(arkorDir, { recursive: true });
-    chmodSync(arkorDir, 0o555);
+  // We inject EACCES at the `writeCredentials` boundary directly via
+  // `vi.spyOn` rather than fabricating it from filesystem state. The
+  // earlier approach (pre-create `~/.arkor` and `chmod 0o555` so
+  // `writeFile` would raise EACCES under the bootstrap) only works on
+  // POSIX as a non-root user: root bypasses chmod (Codex on PR #65), and
+  // on Windows POSIX permission bits don't durably block writes inside a
+  // directory at all — Node maps `chmod` to the legacy read-only
+  // attribute, which NTFS only enforces on files. Both edges silently
+  // turned the test green for the wrong reason. Mocking lifts the
+  // "produce an EACCES" half of the test out of the host filesystem
+  // entirely so every CI matrix entry exercises the wrap-narrowing
+  // branch.
+  it("does not rewrite fs errors from writeCredentials as OAuth hints", async () => {
+    const eacces = Object.assign(
+      new Error("EACCES: permission denied, open '~/.arkor/credentials.json'"),
+      { code: "EACCES" },
+    );
+    vi.spyOn(credentialsModule, "writeCredentials").mockRejectedValue(eacces);
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
@@ -379,15 +370,10 @@ describe("ensureCredentialsForStudio", () => {
       throw new Error(`unexpected fetch: ${url}`);
     }) as typeof fetch;
 
-    try {
-      await expect(ensureCredentialsForStudio()).rejects.toThrow(/EACCES/);
-      await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
-        /arkor login --oauth/,
-      );
-    } finally {
-      // Restore writable so the afterEach `rmSync` can clean up.
-      chmodSync(arkorDir, 0o755);
-    }
+    await expect(ensureCredentialsForStudio()).rejects.toThrow(/EACCES/);
+    await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
+      /arkor login --oauth/,
+    );
   });
 
   // Copilot review on PR #65 (round 3) flagged that the OAuth-only wrap

@@ -1,5 +1,5 @@
 ---
-title: "CLI"
+title: "Command reference"
 description: "The arkor CLI: full command reference."
 ---
 
@@ -36,7 +36,7 @@ The `arkor` CLI is the command surface around an Arkor project. The scaffolder (
 
 ### On the roadmap
 
-The CLI does read `ARKOR_CLOUD_API_URL` and uses it as the cloud-api endpoint when set (`packages/arkor/src/core/credentials.ts`'s `defaultArkorCloudApiUrl`), but pointing at a non-default endpoint (self-hosted or staging) is **not** yet a stable user-facing knob: the env var is internal-only and may change without notice, and there are no compatibility guarantees on alternate endpoints. First-class support for self-hosted / staging deployments is on the roadmap.
+The CLI does read `ARKOR_CLOUD_API_URL` and uses it as the cloud-api endpoint when set (`packages/arkor/src/core/credentials.ts`'s `defaultArkorCloudApiUrl`), but pointing at a non-default endpoint (self-hosted or staging) is **not** yet a stable user-facing knob: the env var is internal-only and may change without notice, and there are no compatibility guarantees on alternate endpoints. First-class support for self-hosted / staging deployments is [on the roadmap](/roadmap#self-hosted-deployments).
 
 ## Programmatic invocation
 

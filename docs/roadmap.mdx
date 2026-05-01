@@ -1,0 +1,73 @@
+---
+title: "Roadmap"
+description: "What we're building next in Arkor."
+---
+
+Arkor is in alpha, so this page is intentionally sparse. Items are grouped by what state they're in: actively being built, scoped and waiting their turn, or under consideration. We don't commit to dates yet.
+
+## In progress
+
+Nothing actively in development on the public surface this cycle. Current effort is on stabilizing what's already shipped (CLI, Studio, scaffolder).
+
+## Up next
+
+<CardGroup cols={2}>
+  <Card title="Auth0 token auto-refresh" icon="key" href="/cli/auth">
+    <div id="auth0-token-auto-refresh" />
+    Silent refresh on expiry, so long-running sessions stop getting interrupted by re-login.
+  </Card>
+
+  <Card title="Bring your own dataset (JSONL)" icon="file-lines" href="/sdk/dataset">
+    <div id="jsonl-dataset" />
+    Upload a local JSONL file as the training dataset, alongside the existing HuggingFace name and blob URL paths.
+  </Card>
+
+  <Card title="Train on a local GPU" icon="microchip" href="/sdk/create-trainer">
+    <div id="local-gpu-training" />
+    Run training on your own GPU instead of routing every job through Arkor's managed GPUs.
+  </Card>
+
+  <Card title="Dry-run from Studio" icon="flask" href="/concepts/studio">
+    <div id="studio-dry-run" />
+    Surface the existing dry-run option in the Studio UI for fast smoke tests before kicking off a full training run.
+  </Card>
+</CardGroup>
+
+## Backlog
+
+<CardGroup cols={2}>
+  <Card title="Self-hosted training backend" icon="server" href="/cli/overview">
+    <div id="self-hosted-deployments" />
+    Run the training backend on your own infrastructure, with a documented `ARKOR_CLOUD_API_URL` knob and versioned API guarantees.
+  </Card>
+
+  <Card title="deploy and eval slots" icon="rocket" href="/sdk/create-arkor">
+    <div id="deploy-and-eval-slots" />
+    Grow `createArkor` into an umbrella for shipping and evaluating models, not only training.
+  </Card>
+
+  <Card title="More base models" icon="cubes" href="/sdk/create-trainer">
+    <div id="more-base-models" />
+    Expand support beyond Gemma to additional open-weight model families.
+  </Card>
+
+  <Card title="Download trained models" icon="download">
+    <div id="download-trained-models" />
+    Export a trained model as a file you can run on your own machine or deploy target, instead of staying on Arkor's managed inference.
+  </Card>
+
+  <Card title="Synthetic data from a seed set" icon="flask-vial">
+    <div id="synthetic-data" />
+    Generate training data from a small seed set, for cases where you don't already have a labeled dataset.
+  </Card>
+
+  <Card title="Distillation templates" icon="link">
+    <div id="distillation-templates" />
+    Templates that pair compatible teacher and student models so distillation runs work out of the box.
+  </Card>
+
+  <Card title="On-device model templates" icon="mobile-screen">
+    <div id="on-device-templates" />
+    Templates aimed at small models suitable for WebGPU and mobile targets.
+  </Card>
+</CardGroup>

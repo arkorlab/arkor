@@ -20,6 +20,9 @@ vi.mock("posthog-node", () => ({
 }));
 
 const ORIG_HOME = process.env.HOME;
+// `os.homedir()` reads USERPROFILE on Windows; HOME-only redirection leaves
+// Windows runs writing the telemetry-id under the real user profile.
+const ORIG_USERPROFILE = process.env.USERPROFILE;
 const ORIG_DO_NOT_TRACK = process.env.DO_NOT_TRACK;
 const ORIG_DISABLED = process.env.ARKOR_TELEMETRY_DISABLED;
 
@@ -55,6 +58,7 @@ async function loadTelemetry(opts: {
 beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-telemetry-test-"));
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
   delete process.env.DO_NOT_TRACK;
   delete process.env.ARKOR_TELEMETRY_DISABLED;
   captureMock.mockClear();
@@ -63,7 +67,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.HOME = ORIG_HOME;
+  // `process.env.X = undefined` writes the literal string "undefined" rather
+  // than removing the entry, which then leaks into `os.homedir()` resolution
+  // for any test that runs later in the same vitest worker. Match the
+  // delete-when-originally-unset pattern used in cli/commands/*.test.ts.
+  if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
+  else delete process.env.HOME;
+  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  else delete process.env.USERPROFILE;
   if (ORIG_DO_NOT_TRACK !== undefined) process.env.DO_NOT_TRACK = ORIG_DO_NOT_TRACK;
   else delete process.env.DO_NOT_TRACK;
   if (ORIG_DISABLED !== undefined) process.env.ARKOR_TELEMETRY_DISABLED = ORIG_DISABLED;
