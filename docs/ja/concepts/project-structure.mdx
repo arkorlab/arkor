@@ -74,7 +74,7 @@ export default {};
 
 ホームディレクトリにあり、マシン上のすべての Arkor プロジェクト間で共有されます。
 
-- **`~/.arkor/credentials.json`**。認証状態。`arkor login --oauth` 後の Arkor Cloud OAuth トークンか、未ログインで初使用時に作られる匿名トークンのいずれか。ファイルは `mode` フィールドが `"auth0"` か `"anon"` でタグ付けされており、CLI はどのパスにいるかを把握します。`arkor login` はこのファイルだけを書きます。`.arkor/state.json` は **作成しません**。
+- **`~/.arkor/credentials.json`**。認証状態。`arkor login --oauth` または対話的な `arkor login` のピッカーで `OAuth (browser)` を選んだ場合に書かれる Arkor Cloud OAuth トークンか、未ログインで初使用時に作られる匿名トークンのいずれか。ファイルは `mode` フィールドが `"auth0"` か `"anon"` でタグ付けされており、CLI はどのパスにいるかを把握します。`arkor login` はこのファイルだけを書きます。`.arkor/state.json` は **作成しません**。
 - **`~/.arkor/studio-token`**（一時的）。`arkor dev` が起動ごとに書く CSRF トークン（モード `0600`）。Studio が CLI のローカルサーバーへの呼び出しを認可するのに使います。`arkor dev` 起動のたびにローテートされます。
 
 `arkor logout` は `credentials.json` を削除します。Studio トークンはプロセス終了時にベストエフォートで削除され（`arkor dev` がクラッシュすると残る場合あり）、次回起動時にローテートされます。
