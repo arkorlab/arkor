@@ -284,22 +284,41 @@ describe("Studio server", () => {
   // link inside the project directory pointing outside it would previously
   // pass the containment check and be handed to `arkor start` (which would
   // then dlopen the link's target).
+  //
+  // The link target must be a real existing file: the SDK does
+  // `realpath` first and rejects with "file does not exist" if the link
+  // dangles, which would short-circuit before the containment check can
+  // fire. Earlier this test pointed at `/etc/passwd` and worked on POSIX
+  // by coincidence, but Windows has no such path and the dangling-link
+  // branch took over. Pointing at a real outside-cwd file keeps both
+  // POSIX and Windows runners exercising the containment branch.
   it("rejects /api/train when body.file is a symlink to a path outside cwd", async () => {
     await writeCredentials(ANON_CREDS);
-    symlinkSync("/etc/passwd", join(trainCwd, "evil.ts"));
-    const app = build();
-    const res = await app.request("/api/train", {
-      method: "POST",
-      headers: {
-        host: "127.0.0.1:4000",
-        "x-arkor-studio-token": STUDIO_TOKEN,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ file: "evil.ts" }),
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toMatch(/inside the project directory/);
+    // Note: GitHub-hosted Windows runners ship with Developer Mode on, so
+    // `symlinkSync` works for non-elevated users. If a future image
+    // regresses that, we'd rather see the test go red here than silently
+    // no-op.
+    const outsideDir = mkdtempSync(join(tmpdir(), "arkor-studio-outside-"));
+    try {
+      const outsideFile = join(outsideDir, "secret.txt");
+      writeFileSync(outsideFile, "secret");
+      symlinkSync(outsideFile, join(trainCwd, "evil.ts"));
+      const app = build();
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ file: "evil.ts" }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/inside the project directory/);
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 
   it("rejects /api/train when body.file does not exist", async () => {
