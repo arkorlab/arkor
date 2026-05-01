@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as clack from "@clack/prompts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +29,11 @@ afterEach(() => {
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
   globalThis.fetch = ORIG_FETCH;
+  // `vi.spyOn` does not auto-restore between tests in this project's
+  // vitest config (no `restoreMocks: true`), so spies on `clack.log.*`
+  // would otherwise leak — accumulating call records across tests and
+  // causing later assertions to see calls from earlier ones.
+  vi.restoreAllMocks();
   rmSync(fakeHome, { recursive: true, force: true });
 });
 
@@ -143,6 +149,115 @@ describe("runLogin", () => {
       mode: "anon",
       token: "anon-tok",
       anonymousId: "anon-aid",
+    });
+  });
+
+  // The persistence-nudge gating contract is documented in
+  // `cli/anonymous.ts`: warn fires only when `oauthAvailable === true`.
+  // Lock that down with output spies so the gating doesn't silently
+  // regress to "always show" or "never show" on either of the three
+  // anon-issuance paths through `runAnonymousLogin`.
+  describe("anon-issuance output (ANON_PERSISTENCE_NUDGE gating)", () => {
+    const okConfigResponse = () =>
+      new Response(
+        JSON.stringify({
+          auth0Domain: "tenant.auth0.com",
+          clientId: "client-id",
+          audience: "https://api.arkor.ai",
+          callbackPorts: [4000],
+        }),
+        { status: 200 },
+      );
+    const noOauthConfigResponse = () =>
+      new Response(
+        JSON.stringify({
+          auth0Domain: null,
+          clientId: null,
+          audience: null,
+          callbackPorts: [],
+        }),
+        { status: 200 },
+      );
+    const okAnonResponse = () =>
+      new Response(
+        JSON.stringify({
+          token: "anon-tok",
+          anonymousId: "anon-aid",
+          kind: "cli",
+          personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
+        }),
+        { status: 200 },
+      );
+
+    it("fires the warn on picker → Anonymous when OAuth is configured", async () => {
+      globalThis.fetch = vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/cli/config")) return okConfigResponse();
+        if (url.endsWith("/v1/auth/anonymous")) return okAnonResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+      const infoSpy = vi.spyOn(clack.log, "info");
+      const warnSpy = vi.spyOn(clack.log, "warn");
+
+      await runLogin();
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Arkor Cloud recognises this client"),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Anonymous sessions aren't guaranteed to persist",
+        ),
+      );
+    });
+
+    // The `--anonymous` shortcut deliberately skips the cfg fetch (so a
+    // partially-degraded cloud-api can't block the only flow that doesn't
+    // need it). Per the contract in `cli/anonymous.ts`, that means
+    // `oauthAvailable` is undefined and the warn must be suppressed —
+    // erring on suppression keeps users on rare anon-only deployments
+    // from being pointed at `arkor login --oauth`, which would fail.
+    it("suppresses the warn on the explicit --anonymous shortcut", async () => {
+      globalThis.fetch = vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/anonymous")) return okAnonResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+      const infoSpy = vi.spyOn(clack.log, "info");
+      const warnSpy = vi.spyOn(clack.log, "warn");
+
+      await runLogin({ anonymous: true });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Arkor Cloud recognises this client"),
+      );
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Anonymous sessions aren't guaranteed to persist",
+        ),
+      );
+    });
+
+    it("suppresses the warn when OAuth is not configured", async () => {
+      globalThis.fetch = vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/cli/config")) return noOauthConfigResponse();
+        if (url.endsWith("/v1/auth/anonymous")) return okAnonResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+      const infoSpy = vi.spyOn(clack.log, "info");
+      const warnSpy = vi.spyOn(clack.log, "warn");
+
+      await runLogin();
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Arkor Cloud recognises this client"),
+      );
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Anonymous sessions aren't guaranteed to persist",
+        ),
+      );
     });
   });
 });
