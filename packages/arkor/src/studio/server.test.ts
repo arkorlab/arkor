@@ -477,8 +477,17 @@ process.exit(0);
       });
       expect(res.status).toBe(200);
       const text = await res.text();
-      // The bin saw `start <abs-resolved-trainer.ts>` as argv.
-      expect(text).toContain('argv=["start","' + resolve(targetEntry).replace(/\\/g, "\\\\"));
+      // The bin saw `start <abs-resolved-trainer.ts>` as argv. We assert
+      // on a path suffix instead of the full absolute path because the
+      // server canonicalises through `fs.promises.realpath`, which on
+      // macOS / certain Linux temp setups rewrites prefixes (e.g.
+      // `/tmp/...` → `/private/tmp/...`); building the expected string
+      // with `resolve()` here would mismatch on those hosts.
+      const argvMatch = text.match(/argv=(\[[^\]]+\])/);
+      expect(argvMatch).not.toBeNull();
+      const argv = JSON.parse(argvMatch![1] as string) as string[];
+      expect(argv[0]).toBe("start");
+      expect(argv[1]).toMatch(/[\\/]src[\\/]arkor[\\/]trainer\.ts$/);
       expect(text).toContain("exit=0");
     });
 
