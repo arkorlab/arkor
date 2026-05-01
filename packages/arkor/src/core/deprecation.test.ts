@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  clearRecordedDeprecation,
   getRecordedDeprecation,
   recordDeprecation,
   tapDeprecation,
 } from "./deprecation";
 
 afterEach(() => {
-  // Module-level state persists across tests; reset to a known baseline so
-  // assertions on `getRecordedDeprecation()` aren't order-dependent.
-  recordDeprecation({ sdkVersion: "0.0.0", message: "", sunset: null });
-  // Re-set to null is not exposed; instead overwrite with a sentinel and
-  // verify each test reads its own write rather than relying on null.
+  // Module-level state persists across tests; reset to the production
+  // baseline (`null`) so assertions on `getRecordedDeprecation()`
+  // aren't order-dependent and a leftover sentinel can't leak into
+  // other test files in the same vitest worker.
+  clearRecordedDeprecation();
 });
 
 describe("recordDeprecation / getRecordedDeprecation", () => {

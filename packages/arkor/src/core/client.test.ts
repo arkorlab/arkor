@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudApiClient, CloudApiError } from "./client";
 import type { AnonymousCredentials } from "./credentials";
-import { getRecordedDeprecation, recordDeprecation } from "./deprecation";
+import {
+  clearRecordedDeprecation,
+  getRecordedDeprecation,
+} from "./deprecation";
 
 const anonCreds: AnonymousCredentials = {
   mode: "anon",
@@ -40,11 +43,15 @@ function recorder(
 }
 
 beforeEach(() => {
-  // Reset deprecation latch with a sentinel so each test sees its own writes.
-  recordDeprecation({ sdkVersion: "sentinel", message: "", sunset: null });
+  // Reset the module-scoped deprecation latch to its production
+  // baseline (`null`) so each test sees its own writes — and so a
+  // leftover sentinel can't leak into other test files in the same
+  // vitest worker.
+  clearRecordedDeprecation();
 });
 
 afterEach(() => {
+  clearRecordedDeprecation();
   vi.restoreAllMocks();
 });
 
