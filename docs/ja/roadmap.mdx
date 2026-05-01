@@ -1,0 +1,73 @@
+---
+title: "ロードマップ"
+description: "Arkor で次に取り組む項目。"
+---
+
+Arkor はアルファ段階なので、このページは意図的に最小限の構成です。各項目は、現在実装中・スコープが固まり順番待ち・検討中、のいずれの状態にあるかでセクション分けしています。日付へのコミットはまだしません。
+
+## 進行中
+
+公開対象として現在進行中のものはありません。今サイクルは既にリリース済みのもの (CLI、Studio、プロジェクト生成ツール) の安定化に注力しています。
+
+## 次に着手
+
+<CardGroup cols={2}>
+  <Card title="Auth0 トークンの自動リフレッシュ" icon="key" href="/ja/cli/auth">
+    <div id="auth0-token-auto-refresh" />
+    アクセストークンの期限切れ時に自動でリフレッシュし、長時間のセッションが再ログインで中断されないようにする。
+  </Card>
+
+  <Card title="JSONL データセットの持ち込み" icon="file-lines" href="/ja/sdk/dataset">
+    <div id="jsonl-dataset" />
+    既存の HuggingFace 名と blob URL に加えて、ローカルの JSONL ファイルを学習データセットとしてアップロードできるようにする。
+  </Card>
+
+  <Card title="ローカル GPU での学習" icon="microchip" href="/ja/sdk/create-trainer">
+    <div id="local-gpu-training" />
+    全ジョブを Arkor のマネージド GPU に流す代わりに、自前の GPU で学習を走らせる。
+  </Card>
+
+  <Card title="Studio からのドライラン" icon="flask" href="/ja/concepts/studio">
+    <div id="studio-dry-run" />
+    本番の学習を回す前にスモークテストを打てるよう、既存のドライランオプションを Studio UI に露出する。
+  </Card>
+</CardGroup>
+
+## バックログ
+
+<CardGroup cols={2}>
+  <Card title="学習バックエンドのセルフホスト" icon="server" href="/ja/cli/overview">
+    <div id="self-hosted-deployments" />
+    学習バックエンドを自前のインフラで動かす。`ARKOR_CLOUD_API_URL` のドキュメント化されたノブとバージョン管理された API 保証を含む。
+  </Card>
+
+  <Card title="deploy と eval スロット" icon="rocket" href="/ja/sdk/create-arkor">
+    <div id="deploy-and-eval-slots" />
+    `createArkor` を学習だけでなく、モデルのデプロイと評価まで含む包括的なエントリーポイントへ拡張する。
+  </Card>
+
+  <Card title="対応ベースモデルの拡充" icon="cubes" href="/ja/sdk/create-trainer">
+    <div id="more-base-models" />
+    Gemma 以外のオープンウェイトモデルファミリーへサポートを広げる。
+  </Card>
+
+  <Card title="学習済みモデルのダウンロード" icon="download">
+    <div id="download-trained-models" />
+    Arkor のマネージド推論に留めずに、自前のマシーンやデプロイ先で動かせるファイルとして学習済みモデルを書き出す。
+  </Card>
+
+  <Card title="シードセットからの合成データ生成" icon="flask-vial">
+    <div id="synthetic-data" />
+    ラベル付きデータセットがまだ無いケース向けに、小さなシードセットから学習データを合成する。
+  </Card>
+
+  <Card title="蒸留テンプレート" icon="link">
+    <div id="distillation-templates" />
+    互換性のある teacher / student モデルをペアにして、蒸留ジョブがそのまま走るテンプレートを提供する。
+  </Card>
+
+  <Card title="オンデバイスモデルのテンプレート" icon="mobile-screen">
+    <div id="on-device-templates" />
+    WebGPU やモバイルなど、小さめのモデルが必要な環境向けのテンプレートを用意する。
+  </Card>
+</CardGroup>

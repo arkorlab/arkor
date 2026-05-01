@@ -74,7 +74,7 @@ You should not commit this directory.
 
 Lives in your home directory, shared across all Arkor projects on the machine.
 
-- **`~/.arkor/credentials.json`**. Auth state. Either an Arkor Cloud OAuth token (after `arkor login --oauth`) or an anonymous token (created on first use if you never logged in). The file is tagged with a `mode` field of `"auth0"` or `"anon"` so the CLI knows which path you are on. `arkor login` writes only this file; it does **not** create `.arkor/state.json`.
+- **`~/.arkor/credentials.json`**. Auth state. Either an Arkor Cloud OAuth token (written by `arkor login --oauth`, or by choosing `OAuth (browser)` in the interactive `arkor login` picker) or an anonymous token (created on first use if you never logged in). The file is tagged with a `mode` field of `"auth0"` or `"anon"` so the CLI knows which path you are on. `arkor login` writes only this file; it does **not** create `.arkor/state.json`.
 - **`~/.arkor/studio-token`** (transient). A per-launch CSRF token written by `arkor dev` (mode `0600`). Used by Studio to authorize calls back into the CLI's local server. Rotated on every `arkor dev` run.
 
 `arkor logout` deletes `credentials.json`. The studio token is removed on process exit on a best-effort basis (it may linger if `arkor dev` crashes) and is rotated on the next launch.

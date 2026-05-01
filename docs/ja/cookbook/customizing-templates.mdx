@@ -1,6 +1,6 @@
 ---
 title: "スターターテンプレートのカスタマイズ"
-description: "スキャフォールドされたテンプレートを起点として扱う。データセット、ハイパラ、コールバック、ベースモデルを変える。"
+description: "生成されたテンプレートを起点として扱う。データセット、ハイパーパラメーター、コールバック、ベースモデルを変える。"
 ---
 
 # スターターテンプレートのカスタマイズ
@@ -49,7 +49,7 @@ dataset: {
 
 今のところ `{ type: "file" }` オプションはありません。ローカルファイルはバックエンドが到達できる場所にホストしてください。[SDK § DatasetSource](/ja/sdk/dataset) を参照。
 
-## 2. ハイパーパラメータを調整する
+## 2. ハイパーパラメーターを調整する
 
 `TrainerInput` 上の型付きオプションは安全なツマミです。省略すれば各々クラウド API のデフォルトを取ります:
 
@@ -85,7 +85,7 @@ createTrainer({
 
 ## 3. ライフサイクルコールバックを追加する
 
-このセクションの他のレシピは、いずれもコールバックで噛み合います。スキャフォールド済みのトレーナーでも、コールバックを 1 つずつ足していけます:
+このセクションの他のレシピは、いずれもコールバックで噛み合います。生成済みのトレーナーでも、コールバックを 1 つずつ足していけます:
 
 ```ts
 import { createTrainer } from "arkor";
@@ -116,7 +116,7 @@ export const trainer = createTrainer({
 このセクションのレシピは、最もよくある組み合わせです:
 
 - [学習中の評価](/ja/cookbook/mid-run-eval) は `onCheckpoint` に挿し込みます。
-- [Early stopping](/ja/cookbook/early-stopping) は `onLog` とトレーナーの `abortSignal` に挿し込みます。
+- [Early Stopping](/ja/cookbook/early-stopping) は `onLog` とトレーナーの `abortSignal` に挿し込みます。
 - [Slack / Discord 通知](/ja/cookbook/notifications) は `onCompleted` と `onFailed` に挿し込みます。
 
 学習に合うものを選んでください。トレーナーファイルはただの TypeScript なので、自由に合成できます。
@@ -179,4 +179,4 @@ export const trainer = createTrainer({
 
 これでもまだ 30 行のファイルで、上から下まで読めます。テンプレートの要点はそれが吐く具体的なコードではなく、実際の学習がすでに配線された状態の形を渡してくれること。上のカスタマイズはエディタセッション 1 つで届く距離です。
 
-Early stopping を上に重ねるなら、[Early stopping](/ja/cookbook/early-stopping) を参照してください。abort された学習がバックエンドの GPU を回し続けないようにする `AbortController` + `trainer.cancel()` のペアを示しています。
+Early Stopping を上に重ねるなら、[Early Stopping](/ja/cookbook/early-stopping) を参照してください。Abort された学習がバックエンドの GPU を回し続けないようにする `AbortController` + `trainer.cancel()` のペアを示しています。

@@ -1,24 +1,22 @@
 ---
-title: "Studio"
+title: "Studio とは"
 description: "arkor dev で得られるローカル Web UI: 学習を開始し、ストリームを眺め、完了アダプタとチャットする。"
 ---
 
-# Studio
-
-Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するローカル Web UI です。あなたのマシン上で動き、同じ CLI プロセスとループバック越しに話し、dev サーバーを止めれば消えます。サインアップも公開 URL もありません。
+Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するローカル Web UI です。あなたのマシーン上で動き、同じ CLI プロセスとループバック越しに話し、dev サーバーを止めれば消えます。サインアップも公開 URL もありません。
 
 `http://localhost:4000`（`arkor dev --port` で変更可）で開いてください。
 
 ## レイアウト
 
-ヘッダには現在の identity が `<mode> · <org>[ / <project>][ · <baseUrl-host>]` の形で表示されます。`mode` は `anonymous` か `auth0`。クラウド API ホスト suffix は CLI が本番エンドポイントを指しているときは隠され、それ以外で表示されます。
+ヘッダーには現在の identity が `<mode> · <org>[ / <project>][ · <baseUrl-host>]` の形で表示されます。`mode` は `anonymous` か `auth0`。クラウド API ホスト suffix は CLI が本番エンドポイントを指しているときは隠され、それ以外で表示されます。
 
 3 ページ、アプリ内ナビで切り替えます:
 
 | ルート | ページ | やること |
 | --- | --- | --- |
 | `#/` | [Home](/ja/studio/jobs) | 学習をトリガーしてジョブ一覧を眺める。 |
-| `#/jobs/:id` | [Job 詳細](/ja/studio/jobs#job-詳細) | 1 つのジョブのライブステータス、loss チャート、イベントログ。 |
+| `#/jobs/:id` | [Job 詳細](/ja/studio/jobs#job-詳細) | 1 つのジョブのライブステータス、Loss チャート、イベントログ。 |
 | `#/playground` | [Playground](/ja/studio/playground) | 完了アダプタやベースモデルとチャット。 |
 
 ## アーキテクチャ
@@ -27,7 +25,7 @@ Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するロー
 Studio（ブラウザータブ、http://localhost:4000）
    │  ループバック上の /api/*、CSRF トークン必須
    ▼
-arkor CLI（あなたのマシン）
+arkor CLI（あなたのマシーン）
    │  認証付き HTTPS
    ▼
 Arkor マネージドバックエンド
@@ -35,8 +33,8 @@ Arkor マネージドバックエンド
 
 `/api/*` リクエストごとに 3 つのチェックが走ります:
 
-1. **Host ヘッダのガード。** `127.0.0.1` と `localhost` のみ受理。`127.0.0.1` に DNS リバインディングされる悪意あるサイトに誘導された被害者でも、送信されるのは `Host: evil.com` で、ミドルウェアは HTTP 403 で拒否します。
-2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダ `X-Arkor-Studio-Token`、または `EventSource` リクエスト用に `?studioToken=`）。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較は `timingSafeEqual`。
+1. **Host ヘッダーのガード。** `127.0.0.1` と `localhost` のみ受理。`127.0.0.1` に DNS リバインディングされる悪意あるサイトに誘導された被害者でも、送信されるのは `Host: evil.com` で、ミドルウェアは HTTP 403 で拒否します。
+2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダー `X-Arkor-Studio-Token`、または `EventSource` リクエスト用に `?studioToken=`）。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較は `timingSafeEqual`。
 3. **CORS なし。** SPA は同一オリジンなので CORS は価値を加えません。`*` を反射すると「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまうので、トークンチェックがそれを拒否します。
 
 トークンは `arkor dev` 起動のたびにローテートされるので、前回起動時の古いタブはリロードするまで HTTP 403 で失敗します。
@@ -47,7 +45,7 @@ Arkor マネージドバックエンド
 | --- | --- |
 | **Run training** | Home ページのボタン。`POST /api/train` を呼ぶと `arkor start` がスポーンされ、stdout/stderr が生のテキストとしてページにストリームされます。 |
 | **Jobs リスト** | Home ページ。固定 5 秒間隔でポーリング。列: Status、Name（詳細へリンク）、Created、ID。 |
-| **Job 詳細** | ライブステータスバッジ、SVG の loss チャート、生イベントログ（直近 50 行）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
+| **Job 詳細** | ライブステータスバッジ、SVG の Loss チャート、生イベントログ（直近 50 行）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
 | **Playground** | `#/playground` のチャット UI。2 モード: 1 つの対応ベースモデル、または任意の完了ジョブの最終アダプタ。 |
 
 ## まだないもの
@@ -61,7 +59,7 @@ Arkor マネージドバックエンド
 | Jobs リストのフィルタ／検索／ページング | 今日のポーリング一覧ビューでは対象外。 |
 | プロジェクトごとの複数トレーナー | `/api/manifest` が単一の `trainer` を返す。SDK の [`createArkor`](/ja/sdk/create-arkor) も 1 つしか受け付けない。 |
 | Playground から `temperature` / `topP` / `maxTokens` を調整 | HTTP API（[`InferArgs`](/ja/sdk/infer)）はこれらを受け付ける。SDK から `infer` を呼ぶ際に渡してください。 |
-| loss チャートのズーム、エクスポート、ツールチップ | チャートは静的な SVG パス。 |
+| Loss チャートのズーム、エクスポート、ツールチップ | チャートは静的な SVG パス。 |
 | ライトモード切替 | Studio CSS は `color-scheme: dark` に固定。 |
 
 ## Studio を使うべきでない場面

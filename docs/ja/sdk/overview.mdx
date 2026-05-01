@@ -1,5 +1,5 @@
 ---
-title: "SDK"
+title: "API リファレンス"
 description: "Arkor SDK: createArkor、createTrainer、ライフサイクルコールバック、infer、その周辺ヘルパー。"
 ---
 
@@ -35,7 +35,7 @@ export const arkor = createArkor({ trainer });
 | シンボル | ページ |
 | --- | --- |
 | [`createArkor(input)`](/ja/sdk/create-arkor) | プロジェクトマニフェスト。CLI / Studio が見つけられるよう `Trainer` をラップ。 |
-| [`createTrainer(input)`](/ja/sdk/create-trainer) | ファインチューニング学習の定義: モデル、データセット、LoRA、ハイパラ、コールバック。 |
+| [`createTrainer(input)`](/ja/sdk/create-trainer) | ファインチューニング学習の定義: モデル、データセット、LoRA、ハイパーパラメーター、コールバック。 |
 | [`Trainer.start / wait / cancel`](/ja/sdk/trainer-control) | 学習制御メソッド。`wait()` がライフサイクルコールバックを発火する場所。 |
 | [`TrainerCallbacks`](/ja/sdk/callbacks) | 5 つのライフサイクルコールバック（`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`）。 |
 | [`InferArgs` / `infer`](/ja/sdk/infer) | `onCheckpoint` 内での推論。生の `Response` を返す。 |
@@ -43,11 +43,11 @@ export const arkor = createArkor({ trainer });
 
 ## 補助ヘルパー（上級者向け）
 
-CLI フローの外で Arkor を駆動するコード（自前のサーバーやスクリプトから学習を走らせる等）のためにエクスポートされています。ほとんどのプロジェクトでは不要です。
+CLI フローの外で Arkor を駆動するコード（自前のサーバーやスクリプトから学習を走らせるなど）のためにエクスポートされています。ほとんどのプロジェクトでは不要です。
 
 | シンボル | ソース | 目的 |
 | --- | --- | --- |
-| `runTrainer(file?)` | `core/runner.ts` | `arkor start` が裏で呼んでいるもの。エントリを解決し、トレーナーを選び（`arkor` を最優先、次に `trainer`、最後に default export）、`start()` + `wait()` を実行。 |
+| `runTrainer(file?)` | `core/runner.ts` | `arkor start` が裏で呼んでいるもの。エントリーを解決し、トレーナーを選び（`arkor` を最優先、次に `trainer`、最後に default export）、`start()` + `wait()` を実行。 |
 | `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | `~/.arkor/credentials.json` の読み書き。`ensureCredentials` は既存レコードがあれば返し、無ければ **新規の匿名 identity をブートストラップ**（`requestAnonymousToken` を呼んで永続化）。次のパスで throw する場合あり: 認証情報ファイルが存在するが読めない／不正な JSON（`readCredentials` は素の `JSON.parse`）、匿名トークンのブートストラップ自体の失敗（ネットワーク／トークンエンドポイントエラー）。ファイルは SDK が書いている前提。 |
 | `requestAnonymousToken(baseUrl, kind?)` | `core/credentials.ts` | 新しい匿名トークンを直接発行。CLI は `arkor login --anonymous` と初回 `arkor dev` でこれを使う。 |
 | `credentialsPath()` | `core/credentials.ts` | `~/.arkor/credentials.json` の絶対パス。 |

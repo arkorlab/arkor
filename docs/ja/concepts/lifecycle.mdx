@@ -28,7 +28,7 @@ createTrainer({
 onStarted ─── 1 回。ストリームが `training.started` を報告したとき
    │
    ▼
-onLog     ─── 多数回。学習ステップのメトリクスバッチごとに 1 回
+onLog     ─── 多数回。学習ステップのメトリックスバッチごとに 1 回
    │
    ▼
 onCheckpoint ── 数回。アダプタチェックポイントが保存されたとき
@@ -41,7 +41,7 @@ onFailed     ── 1 回。バックエンドが失敗を報告したとき
 
 5 つすべてのコールバックは `wait()` 内からディスパッチされます。`start()` を呼んで `wait()` を呼ばないと、学習はバックエンドで進行していてもコールバックは **一切発火しません**。`arkor start` はあなたの代わりに `wait()` を呼びます。CLI の外側で学習を自分のコードに組み込む場合は、自分でも呼ぶようにしてください。
 
-`onCompleted` と `onFailed` は排他で、学習 1 回あたり最大 1 つしか発火しません。終端イベント到達前に `wait()` が throw した場合（例えば `abortSignal` が abort された、再接続試行が尽きた）、どちらも発火しないことがあります。
+`onCompleted` と `onFailed` は排他で、学習 1 回あたり最大 1 つしか発火しません。終端イベント到達前に `wait()` が throw した場合（例えば `abortSignal` が Abort された、再接続試行が尽きた）、どちらも発火しないことがあります。
 
 どのコールバックも Promise を返して構いません。Arkor は次に進む前に await するので、非同期処理（DB への書き込み、Slack への投稿、`infer` の呼び出し）を競合なくこなせます。
 
@@ -55,11 +55,11 @@ onStarted: ({ job }) => {
 },
 ```
 
-ログ行、メトリクスカウンタ、「学習開始しました」の通知に使ってください。
+ログ行、メトリックスカウンター、「学習開始しました」の通知に使ってください。
 
 ## `onLog({ step, loss, evalLoss, learningRate, epoch, samplesPerSecond, job })`
 
-学習が進むにつれて繰り返し発火します。各数値フィールドはバックエンドがまだそのメトリクスを出していなければ `null` になり得ます（例えば `evalLoss` は eval ステップのときだけ）。
+学習が進むにつれて繰り返し発火します。各数値フィールドはバックエンドがまだそのメトリックスを出していなければ `null` になり得ます（例えば `evalLoss` は eval ステップのときだけ）。
 
 ```ts
 onLog: ({ step, loss, evalLoss }) => {
@@ -71,9 +71,9 @@ onLog: ({ step, loss, evalLoss }) => {
 
 よくある用途:
 
-- 自前のメトリクスパイプライン（PostHog、Datadog など）に転送。
-- 早期発散の検知: `loss` が増えていれば、`abortSignal` で `wait()` を abort し、`trainer.cancel()` でバックエンドの GPU を止める。
-- カスタム early stopping を実装。
+- 自前のメトリックスパイプライン（PostHog、Datadog など）に転送。
+- 早期発散の検知: `loss` が増えていれば、`abortSignal` で `wait()` を Abort し、`trainer.cancel()` でバックエンドの GPU を止める。
+- カスタム Early Stopping（指標が悪化したら学習を自動で打ち切るパターン。詳しくは [Early Stopping レシピ](/ja/cookbook/early-stopping) を参照）を実装。
 
 ## `onCheckpoint({ step, adapter, job, infer, artifacts })`
 
@@ -116,7 +116,7 @@ onFailed: ({ job, error }) => {
 },
 ```
 
-`onFailed` はバックエンド報告の失敗専用です。あなたのコールバック内で throw した例外は `onFailed` を経由しませんし、`wait()` をクリーンに失敗させる保証もありません。現行のランタイムはイベントディスパッチ中に throw されたエラーを catch し、SSE 失敗として扱って再接続ループに送ります。元の例外は予想外の場所でリトライされたりスキップされたりすることがあります。決定的な振る舞いが必要なら、コールバック内で catch して、エスケープする前に何をするか（ログ、abort、永続化）を決めてください。
+`onFailed` はバックエンド報告の失敗専用です。あなたのコールバック内で throw した例外は `onFailed` を経由しませんし、`wait()` をクリーンに失敗させる保証もありません。現行のランタイムはイベントディスパッチ中に throw されたエラーを catch し、SSE 失敗として扱って再接続ループに送ります。元の例外は予想外の場所でリトライされたりスキップされたりすることがあります。決定的な振る舞いが必要なら、コールバック内で catch して、エスケープする前に何をするか（ログ、Abort、永続化）を決めてください。
 
 ## 完成例
 

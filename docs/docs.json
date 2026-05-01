@@ -98,6 +98,10 @@
         },
         "groups": [
           {
+            "group": "ロードマップ",
+            "pages": ["ja/roadmap"]
+          },
+          {
             "group": "はじめに",
             "pages": ["ja/introduction", "ja/quickstart"]
           },

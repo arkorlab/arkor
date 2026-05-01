@@ -39,7 +39,7 @@ trainer.wait()     SSE ストリームを開く。コールバックはここか
    │
    ▼
 onStarted          1 回。`training.started` イベント時
-onLog              多数回。メトリクスフレームごとに 1 回
+onLog              多数回。メトリックスフレームごとに 1 回
 onCheckpoint       数回。チェックポイントアップロードごとに 1 回
 onCompleted        1 回。`training.completed` 時
         ── または ──
@@ -60,7 +60,7 @@ onStarted: ({ job }) => {
 
 ## `onLog({ step, loss, evalLoss, learningRate, epoch, samplesPerSecond, job })`
 
-学習が進むにつれて繰り返し発火します。各数値フィールドは `number | null`: バックエンドはあるステップで持っているフィールドだけ埋めます（なので `evalLoss` は eval 以外のステップで null、`learningRate` は LR スケジューラ更新の合間に null、等）。
+学習が進むにつれて繰り返し発火します。各数値フィールドは `number | null`: バックエンドはあるステップで持っているフィールドだけ埋めます（なので `evalLoss` は eval 以外のステップで null、`learningRate` は LR スケジューラ更新の合間に null、など）。
 
 ```ts
 onLog: ({ step, loss, evalLoss }) => {
@@ -70,7 +70,7 @@ onLog: ({ step, loss, evalLoss }) => {
 }
 ```
 
-よくある用途は次のとおりです。自前のパイプライン（PostHog、Datadog）へのメトリクス転送、早期発散の検知、カスタム early stopping の実装。early stopping については、[`abortSignal`](/ja/sdk/trainer-control#abortsignal) の abort はあなたのローカル `wait()` を止めるだけだと忘れずに。バックエンドの GPU を実際に止めるには、その後 [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。
+よくある用途は次のとおりです。自前のパイプライン（PostHog、Datadog）へのメトリックス転送、早期発散の検知、カスタム Early Stopping（指標が悪化したら学習を自動で打ち切るパターン。詳しくは [Early Stopping レシピ](/ja/cookbook/early-stopping) を参照）の実装。Early Stopping については、[`abortSignal`](/ja/sdk/trainer-control#abortsignal) の Abort はあなたのローカル `wait()` を止めるだけだと忘れずに。バックエンドの GPU を実際に止めるには、その後 [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。
 
 ## `onCheckpoint({ step, adapter, job, infer, artifacts })`
 
@@ -112,14 +112,14 @@ onFailed: ({ job, error }) => {
 
 ## 順序
 
-各コールバックは次のイベントがディスパッチされる前に await されます。Promise を返してよく（DB への書き込み、Slack への投稿、`infer` の呼び出し等）、SDK は次のフレーム処理前にそれを待ちます。同一トレーナーに対する並行ディスパッチはありません。
+各コールバックは次のイベントがディスパッチされる前に await されます。Promise を返してよく（DB への書き込み、Slack への投稿、`infer` の呼び出しなど）、SDK は次のフレーム処理前にそれを待ちます。同一トレーナーに対する並行ディスパッチはありません。
 
 ## 例外ハンドリング（よく読んでください）
 
 コールバック内で throw しても通常の Promise reject のようには **振る舞いません**。SDK のイベントループは dispatch を try/catch で包み、throw を SSE 再接続ハンドラ（`packages/arkor/src/core/trainer.ts:335-364`、続いて `:307-320` の `handleFailure`）にルートします:
 
 1. `abortSignal.aborted` が立っていれば、エラーは再 throw され `wait()` は reject。
-2. それ以外で `maxReconnectAttempts` が設定されカウンタ超過なら、`wait()` はラップされたエラーで reject。
+2. それ以外で `maxReconnectAttempts` が設定されカウンター超過なら、`wait()` はラップされたエラーで reject。
 3. それ以外なら、SDK は遅延を入れて SSE ストリームを再オープン。
 
 `maxReconnectAttempts` のデフォルトは `undefined`（無制限）です。`TrainerInput` から設定はできず、`createTrainer` の第 2 引数 `context`（`@internal` 注釈付きで予告なく変わり得る）でしか設定できません。実用上、デフォルト設定では throw されたコールバックは **catch されてリトライ** され、無期限に続く可能性があります。`Last-Event-ID` がリトライ間で進めば、元の失敗イベント自体もスキップされます。
@@ -131,7 +131,7 @@ onCheckpoint: async ({ step, infer }) => {
   try {
     await sendToReview({ step, sample: await (await infer({ ... })).text() });
   } catch (err) {
-    // ログ／メトリクス／コールバックの外側で trainer.cancel() を呼んで自分で学習を失敗させるか判断
+    // ログ／メトリックス／コールバックの外側で trainer.cancel() を呼んで自分で学習を失敗させるか判断
   }
 }
 ```
