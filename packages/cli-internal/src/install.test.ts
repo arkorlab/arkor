@@ -28,11 +28,19 @@ beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "cli-internal-install-test-"));
   fakeBin = mkdtempSync(join(tmpdir(), "cli-internal-install-bin-"));
   // Prepend the fake-bin dir so spawn("npm"…) resolves to our shim.
-  process.env.PATH = `${fakeBin}${delimiter}${process.env.PATH ?? ""}`;
+  // Use `ORIG_PATH ?? ""` (not `process.env.PATH`) so a `beforeEach` that
+  // runs after a previously-overwritten test still sees the original
+  // PATH, not the shim from a sibling test.
+  process.env.PATH = `${fakeBin}${delimiter}${ORIG_PATH ?? ""}`;
 });
 
 afterEach(() => {
-  process.env.PATH = ORIG_PATH;
+  // Node coerces `process.env.X = undefined` to the literal string
+  // "undefined", so a plain assignment would pollute later tests when
+  // PATH was originally unset. Delete-on-undefined mirrors the env-var
+  // restore pattern used elsewhere in the test suite.
+  if (ORIG_PATH === undefined) delete process.env.PATH;
+  else process.env.PATH = ORIG_PATH;
   rmSync(cwd, { recursive: true, force: true });
   rmSync(fakeBin, { recursive: true, force: true });
 });

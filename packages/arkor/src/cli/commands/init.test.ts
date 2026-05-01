@@ -60,9 +60,11 @@ import { runInit } from "./init";
 
 let cwd: string;
 const ORIG_CWD = process.cwd();
-// Capture the original `process.stdout.isTTY` so interactive tests below
-// can flip it without leaking into other test files when vitest reuses
-// a worker process.
+// Capture the original env / TTY state so the after-each can restore
+// conditionally. CI runners typically have CI already set, and an
+// unconditional `delete` would leak a different environment to later
+// test files when vitest reuses a worker.
+const ORIG_CI = process.env.CI;
 const ORIG_TTY = process.stdout.isTTY;
 
 beforeEach(() => {
@@ -83,7 +85,8 @@ beforeEach(() => {
 afterEach(() => {
   process.chdir(ORIG_CWD);
   rmSync(cwd, { recursive: true, force: true });
-  delete process.env.CI;
+  if (ORIG_CI === undefined) delete process.env.CI;
+  else process.env.CI = ORIG_CI;
   // Restore the TTY flag in case an interactive test mutated it —
   // otherwise a later test that unsets CI would unexpectedly enter
   // interactive prompt paths.
