@@ -82,15 +82,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Pin pnpm to the version declared in root package.json's
-      # `packageManager`. action-setup@v6 added support for pnpm v11, and on
-      # some OSes (observed: windows-latest, macos-latest) it can resolve to
-      # v11.x instead of the packageManager-pinned 10.33.2 — pnpm 11 hard-
-      # errors on Node <22.13, which breaks every matrix entry below 22.13.
-      # An explicit version sidesteps the auto-detect path entirely.
+      # action-setup@v6 bootstrap-installs pnpm v11 (per its committed lockfile)
+      # and only honours `packageManager` via pnpm's own `manage-package-manager
+      # -versions`. Bootstrap pnpm v11 hard-errors on Node <22.13 unless it's
+      # the @pnpm/exe (Node-bundled) build. The action auto-picks @pnpm/exe
+      # when the *runner's preinstalled* Node is <22.13, which is true for
+      # ubuntu-24.04 (Node 20.x) but NOT windows-2025 / macos-15 (Node 22.22).
+      # Force @pnpm/exe everywhere so bootstrap pnpm runs on its bundled Node
+      # regardless of the matrix Node we switch to next.
+      #
+      # Pinning `version: 10.33.2` instead doesn't work: action-setup compares
+      # it against the full `pnpm@10.33.2+sha512.xxx` packageManager string
+      # and refuses on mismatch (ERR_PNPM_BAD_PM_VERSION-style error).
       - uses: pnpm/action-setup@v6
         with:
-          version: 10.33.2
+          standalone: true
 
       # rolldown-incompatible path: install + tsdown build run here, on a
       # known-compatible Node. The matrix Node below then exercises dist/.
@@ -181,11 +187,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Match the build job: pin pnpm explicitly so action-setup doesn't
-      # surprise us with v11 on a future runner image refresh.
+      # Same reason as the build job — see comment there.
       - uses: pnpm/action-setup@v6
         with:
-          version: 10.33.2
+          standalone: true
 
       - uses: actions/setup-node@v6
         with:
