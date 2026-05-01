@@ -22,6 +22,8 @@ import {
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { formatDuration, truncateMiddle } from "../lib/format";
 
+const MAX_LOSS_POINTS = 2000;
+
 export function JobDetail({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [points, setPoints] = useState<LossPoint[]>([]);
@@ -35,6 +37,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
   const [eventErr, setEventErr] = useState<string | null>(null);
 
   useEffect(() => {
+    setJob(null);
     let cancelled = false;
     async function load() {
       try {
@@ -55,6 +58,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
   }, [jobId]);
 
   useEffect(() => {
+    // Clear per-job state when navigating between jobs so events, loss
+    // points, terminal status, and event-id counter don't leak across
+    // routes.
+    setEvents([]);
+    setPoints([]);
+    setTerminal(null);
+    setEventErr(null);
+
     let counter = 0;
     function pushEvent(event: string, data: string) {
       const id = counter++;
@@ -91,15 +102,37 @@ export function JobDetail({ jobId }: { jobId: string }) {
     const es = openJobEvents(jobId);
     es.addEventListener("training.started", (ev: MessageEvent) => {
       pushEvent("training.started", ev.data);
+      // SSE is the source of truth for live status — reflect "running"
+      // immediately so the page doesn't sit on `queued` until the next
+      // /api/jobs poll (or forever, if polling fails).
+      try {
+        const d = JSON.parse(ev.data) as { timestamp?: string };
+        setJob((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: "running",
+                startedAt: prev.startedAt ?? d.timestamp,
+              }
+            : prev,
+        );
+      } catch {
+        setJob((prev) => (prev ? { ...prev, status: "running" } : prev));
+      }
     });
     es.addEventListener("training.log", (ev: MessageEvent) => {
       pushEvent("training.log", ev.data);
       try {
         const d = JSON.parse(ev.data) as { step: number; loss?: number | null };
-        setPoints((prev) => [
-          ...prev,
-          { step: d.step, loss: d.loss ?? null },
-        ]);
+        // Cap retained points so long/high-step runs don't grow without
+        // bound and slow LossChart re-renders. 2000 is well above the
+        // chart's visual resolution at any reasonable width.
+        setPoints((prev) => {
+          const next = [...prev, { step: d.step, loss: d.loss ?? null }];
+          return next.length > MAX_LOSS_POINTS
+            ? next.slice(next.length - MAX_LOSS_POINTS)
+            : next;
+        });
       } catch {
         // ignore parse failures
       }
@@ -294,7 +327,9 @@ function computeDuration(
   const start = Date.parse(job.startedAt);
   if (Number.isNaN(start)) return null;
   if (job.completedAt) {
-    return Math.max(0, Date.parse(job.completedAt) - start);
+    const end = Date.parse(job.completedAt);
+    if (Number.isNaN(end)) return Math.max(0, now - start);
+    return Math.max(0, end - start);
   }
   if (terminal) return Math.max(0, now - start);
   if (job.status === "running") return Math.max(0, now - start);

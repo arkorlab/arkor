@@ -7,7 +7,7 @@ export type Route =
   | { kind: "playground" };
 
 export function parseRoute(): Route {
-  const hash = window.location.hash.replace(/^#\/?/, "");
+  const hash = window.location.hash.replace(/^#\/?/, "").replace(/\/+$/, "");
   if (hash === "jobs") return { kind: "jobs" };
   if (hash.startsWith("jobs/")) {
     const id = hash.slice("jobs/".length);

@@ -25,9 +25,12 @@ export function IdentityChip({
 }) {
   if (error) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300">
+      <span
+        title={error}
+        className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300"
+      >
         <Dot className="bg-red-500" />
-        offline
+        error
       </span>
     );
   }

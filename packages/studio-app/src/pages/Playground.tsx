@@ -179,7 +179,7 @@ export function Playground() {
             value={input}
             onChange={setInput}
             onSubmit={send}
-            disabled={!canSend && !input.trim().length}
+            disabled={streaming}
           />
         </div>
       ) : (
