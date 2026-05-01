@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState } from "react";
 import type { Job } from "../../lib/api";
 import { ChevronDown } from "../icons";
-import { cn } from "../ui/cn";
 import { truncateMiddle } from "../../lib/format";
 
 export function AdapterPicker({
@@ -13,93 +11,43 @@ export function AdapterPicker({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
   const selected = jobs.find((j) => j.id === selectedId) ?? null;
 
   return (
-    <div ref={wrapRef} className="relative">
-      <button
-        type="button"
-        aria-haspopup="true"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className={cn(
-          "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-colors",
-          "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-          "dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40",
-        )}
+    <label className="relative inline-flex h-9 items-center gap-2 rounded-full border border-zinc-200 bg-white pl-3 pr-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-50 focus-within:ring-2 focus-within:ring-teal-500/40 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900">
+      <span className="text-zinc-500 dark:text-zinc-400">Adapter</span>
+      <span className="font-mono text-[12px] text-zinc-400 dark:text-zinc-600">
+        ·
+      </span>
+      {selected ? (
+        <>
+          <span className="max-w-[200px] truncate">{selected.name}</span>
+          <span className="font-mono text-[11px] text-zinc-400 dark:text-zinc-500">
+            {truncateMiddle(selected.id, 4, 4)}
+          </span>
+        </>
+      ) : (
+        <span className="text-zinc-400 dark:text-zinc-600">Select…</span>
+      )}
+      <ChevronDown className="text-zinc-400 dark:text-zinc-500" />
+      <select
+        aria-label="Adapter"
+        value={selectedId ?? ""}
+        disabled={jobs.length === 0}
+        onChange={(e) => onSelect(e.target.value)}
+        className="absolute inset-0 cursor-pointer appearance-none bg-transparent text-transparent opacity-0 disabled:cursor-not-allowed"
       >
-        <span className="text-zinc-500 dark:text-zinc-400">Adapter</span>
-        <span className="font-mono text-[12px] text-zinc-400 dark:text-zinc-600">
-          ·
-        </span>
-        {selected ? (
-          <>
-            <span className="max-w-[200px] truncate">{selected.name}</span>
-            <span className="font-mono text-[11px] text-zinc-400 dark:text-zinc-500">
-              {truncateMiddle(selected.id, 4, 4)}
-            </span>
-          </>
-        ) : (
-          <span className="text-zinc-400 dark:text-zinc-600">Select…</span>
-        )}
-        <ChevronDown className="text-zinc-400 dark:text-zinc-500" />
-      </button>
-
-      {open ? (
-        <div className="absolute right-0 top-full z-20 mt-2 max-h-72 min-w-[280px] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
-          {jobs.length === 0 ? (
-            <div className="px-3 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-              No completed jobs yet.
-            </div>
-          ) : (
-            jobs.map((j) => {
-              const active = j.id === selectedId;
-              return (
-                <button
-                  key={j.id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => {
-                    onSelect(j.id);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm",
-                    active
-                      ? "bg-teal-50 text-teal-900 dark:bg-teal-400/10 dark:text-teal-100"
-                      : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
-                  )}
-                >
-                  <span className="min-w-0 truncate">{j.name}</span>
-                  <span className="font-mono text-[11px] text-zinc-400 dark:text-zinc-500">
-                    {truncateMiddle(j.id, 4, 4)}
-                  </span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      ) : null}
-    </div>
+        {selectedId === null ? (
+          <option value="" disabled>
+            Select…
+          </option>
+        ) : null}
+        {jobs.map((j) => (
+          <option key={j.id} value={j.id} className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+            {j.name} ({truncateMiddle(j.id, 4, 4)})
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

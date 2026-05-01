@@ -36,8 +36,11 @@ export function Playground() {
       .then(({ jobs }) => {
         const completed = jobs.filter((j) => j.status === "completed");
         setJobs(completed);
-        if (completed.length > 0 && !selectedJob) {
-          setSelectedJob(completed[0]!.id);
+        if (completed.length > 0) {
+          // Functional update so we don't capture a stale `selectedJob`
+          // from the mount-time closure (the effect runs once with
+          // `[]` deps).
+          setSelectedJob((prev) => prev ?? completed[0]!.id);
         }
       })
       .catch((err: unknown) => {
@@ -47,7 +50,6 @@ export function Playground() {
         setJobs([]);
         setError(err instanceof Error ? err.message : String(err));
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const adapterDisabled = !jobs || jobs.length === 0;

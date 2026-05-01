@@ -35,6 +35,11 @@ export function JobDetail({ jobId }: { jobId: string }) {
   } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [eventErr, setEventErr] = useState<string | null>(null);
+  // SSE-driven status / startedAt held independently of `job` so that
+  // `training.started` events arriving before /api/jobs returns can
+  // still drive the visible status.
+  const [liveStatus, setLiveStatus] = useState<Job["status"] | null>(null);
+  const [liveStartedAt, setLiveStartedAt] = useState<string | null>(null);
 
   useEffect(() => {
     setJob(null);
@@ -65,6 +70,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
     setPoints([]);
     setTerminal(null);
     setEventErr(null);
+    setLiveStatus(null);
+    setLiveStartedAt(null);
 
     let counter = 0;
     function pushEvent(event: string, data: string) {
@@ -105,22 +112,16 @@ export function JobDetail({ jobId }: { jobId: string }) {
     const es = openJobEvents(jobId);
     es.addEventListener("training.started", (ev: MessageEvent) => {
       pushEvent("training.started", ev.data);
-      // SSE is the source of truth for live status — reflect "running"
-      // immediately so the page doesn't sit on `queued` until the next
-      // /api/jobs poll (or forever, if polling fails).
+      // SSE is the source of truth for live status. Drive `liveStatus`
+      // / `liveStartedAt` independently of `job` so the page reflects
+      // "running" even when the SSE event lands before /api/jobs has
+      // populated `job` (or when polling fails entirely).
+      setLiveStatus("running");
       try {
         const d = JSON.parse(ev.data) as { timestamp?: string };
-        setJob((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: "running",
-                startedAt: prev.startedAt ?? d.timestamp,
-              }
-            : prev,
-        );
+        if (d.timestamp) setLiveStartedAt((prev) => prev ?? d.timestamp!);
       } catch {
-        setJob((prev) => (prev ? { ...prev, status: "running" } : prev));
+        // ignore parse failures
       }
     });
     es.addEventListener("training.log", (ev: MessageEvent) => {
@@ -169,16 +170,17 @@ export function JobDetail({ jobId }: { jobId: string }) {
     return () => es.close();
   }, [jobId]);
 
+  const status = terminal?.status ?? liveStatus ?? job?.status ?? "queued";
+
   // Live duration ticker while the job is running.
-  const isRunning = job?.status === "running" && !terminal;
+  const isRunning = status === "running" && !terminal;
   useEffect(() => {
     if (!isRunning) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [isRunning]);
 
-  const status = terminal?.status ?? job?.status ?? "queued";
-  const duration = computeDuration(job, terminal, now);
+  const duration = computeDuration(job, liveStartedAt, terminal, now);
 
   const meta: JobMetaItem[] = [
     { label: "Status", value: <StatusBadge status={status} size="sm" /> },
@@ -194,7 +196,10 @@ export function JobDetail({ jobId }: { jobId: string }) {
     },
     {
       label: "Started",
-      value: job?.startedAt ? formatAbsoluteTime(job.startedAt) : "—",
+      value: (() => {
+        const at = job?.startedAt ?? liveStartedAt;
+        return at ? formatAbsoluteTime(at) : "—";
+      })(),
       mono: true,
     },
     {
@@ -323,19 +328,24 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
 function computeDuration(
   job: Job | null,
+  liveStartedAt: string | null,
   terminal: { status: string } | null,
   now: number,
 ): number | null {
-  if (!job?.startedAt) return null;
-  const start = Date.parse(job.startedAt);
+  // Prefer the polled startedAt, fall back to the SSE-derived timestamp
+  // so the timer still ticks when /api/jobs hasn't returned yet.
+  const startedAt = job?.startedAt ?? liveStartedAt;
+  if (!startedAt) return null;
+  const start = Date.parse(startedAt);
   if (Number.isNaN(start)) return null;
-  if (job.completedAt) {
+  if (job?.completedAt) {
     const end = Date.parse(job.completedAt);
     if (Number.isNaN(end)) return Math.max(0, now - start);
     return Math.max(0, end - start);
   }
   if (terminal) return Math.max(0, now - start);
-  if (job.status === "running") return Math.max(0, now - start);
+  if (job?.status === "running") return Math.max(0, now - start);
+  if (liveStartedAt) return Math.max(0, now - start);
   return null;
 }
 

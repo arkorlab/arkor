@@ -34,31 +34,29 @@ export function JobsTable({
         <tbody>
           {jobs.map((j) => {
             const ms = jobDurationMs(j);
-            const open = () => {
-              window.location.hash = `#/jobs/${j.id}`;
-            };
             return (
               <tr
                 key={j.id}
-                tabIndex={0}
-                role="link"
-                aria-label={`Open job ${j.name}`}
-                onClick={open}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    open();
-                  }
-                }}
-                className="group cursor-pointer border-t border-zinc-100 transition-colors hover:bg-zinc-50 focus-visible:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500/40 dark:border-zinc-900 dark:hover:bg-zinc-900/60 dark:focus-visible:bg-zinc-900/60"
+                className="group relative border-t border-zinc-100 transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50 dark:border-zinc-900 dark:hover:bg-zinc-900/60 dark:focus-within:bg-zinc-900/60"
               >
                 <td className="px-6 py-3.5 align-middle">
                   <StatusBadge status={j.status} size="sm" />
                 </td>
                 <td className="px-6 py-3.5 align-middle">
-                  <span className="font-medium text-zinc-900 group-hover:text-teal-700 dark:text-zinc-100 dark:group-hover:text-teal-300">
+                  {/*
+                   * Stretched link: a single accessible <a> per row
+                   * carries the navigation and the keyboard focus stop;
+                   * its ::before is positioned absolute, which (because
+                   * the <a> is static) resolves against the closest
+                   * positioned ancestor — the <tr> with `relative` —
+                   * extending the click target across the whole row.
+                   */}
+                  <a
+                    href={`#/jobs/${j.id}`}
+                    className="font-medium text-zinc-900 group-hover:text-teal-700 before:absolute before:inset-0 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500/40 dark:text-zinc-100 dark:group-hover:text-teal-300"
+                  >
                     {j.name}
-                  </span>
+                  </a>
                 </td>
                 {!compact && (
                   <td className="px-6 py-3.5 align-middle text-zinc-500 dark:text-zinc-400 tabular-nums">
