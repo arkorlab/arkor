@@ -47,14 +47,36 @@ export function runCli(
   // brand-new tree — most painfully, freshly-published `arkor` versions
   // get blocked by minimumReleaseAge. Strip them so the spawned CLI sees
   // a clean user shell.
+  //
+  // The match is case-insensitive on purpose: Windows env-var names are
+  // case-insensitive (CreateProcessW deduplicates by uppercased key), so
+  // the parent can hand us `NPM_CONFIG_USER_AGENT` while we expect
+  // `npm_config_user_agent`. A case-sensitive prefix check would let the
+  // upper-case variant leak through, which on Windows then collides with
+  // our explicit `npm_config_user_agent: ""` override below — Windows
+  // picks one of the duplicates non-deterministically and the spawned
+  // CLI has historically seen pnpm's UA, defeating the hermetic
+  // `detectPackageManager()` path.
   const cleanEnv: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith("npm_config_") || key.startsWith("pnpm_config_")) {
+    const lower = key.toLowerCase();
+    if (lower.startsWith("npm_config_") || lower.startsWith("pnpm_config_")) {
       continue;
     }
     cleanEnv[key] = value;
   }
   return new Promise((resolve, reject) => {
+    // Mirror an extraEnv-provided HOME onto USERPROFILE so the spawned
+    // CLI's `os.homedir()` resolves to the test temp dir on every OS:
+    // POSIX consults HOME, Windows consults USERPROFILE (with HOMEDRIVE
+    // + HOMEPATH as a tertiary fallback). Without this, tests that seed
+    // a fake `~/.arkor/credentials.json` under HOME are silently bypassed
+    // on Windows — the CLI keeps reading the real runner profile and
+    // reports "Not signed in", causing assertions to fail in confusing
+    // ways. Tests that genuinely need divergent HOME / USERPROFILE values
+    // can still set USERPROFILE explicitly: extraEnv is spread last.
+    const homeMirror: NodeJS.ProcessEnv =
+      extraEnv.HOME !== undefined ? { USERPROFILE: extraEnv.HOME } : {};
     const child = spawn(process.execPath, [binPath, ...argv], {
       cwd,
       env: {
@@ -65,6 +87,7 @@ export function runCli(
         GIT_AUTHOR_EMAIL: "e2e@arkor.test",
         GIT_COMMITTER_NAME: "Arkor E2E",
         GIT_COMMITTER_EMAIL: "e2e@arkor.test",
+        ...homeMirror,
         ...extraEnv,
       },
       stdio: ["ignore", "pipe", "pipe"],
