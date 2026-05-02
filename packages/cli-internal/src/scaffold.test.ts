@@ -345,10 +345,21 @@ describe("scaffold", () => {
   // file isn't mutated (round-5 policy stands), but a single
   // caveat advisory now covers both fixups so the user has a
   // chance to act before they hit the breakage.
-  it("warns about the yarn-berry caveat in undefined-pm + existing-project when no .yarnrc.yml exists", async () => {
+  //
+  // Round 10 (Copilot, scaffold.ts:489): the caveat used to fire
+  // for *every* undefined-pm + existing-project scaffold (e.g.
+  // CLI invoked via `node`/`tsx`, which doesn't set
+  // `npm_config_user_agent`), even on pure npm/pnpm/bun projects.
+  // It's now gated on the `package.json#packageManager` field
+  // declaring yarn 2+, so the test fixture has to set it.
+  it("warns about the yarn-berry caveat in undefined-pm + existing-project when no .yarnrc.yml exists and packageManager declares yarn 2+", async () => {
     writeFileSync(
       join(cwd, "package.json"),
-      JSON.stringify({ name: "existing", private: true }, null, 2),
+      JSON.stringify(
+        { name: "existing", private: true, packageManager: "yarn@4.6.0" },
+        null,
+        2,
+      ),
     );
     const result = await scaffold({
       cwd,
@@ -376,11 +387,15 @@ describe("scaffold", () => {
   // to PnP just like the no-file case, so the runtime hazard is
   // identical. (The patch path appends in this case; the
   // inspect-only branch can't, so it surfaces the caveat
-  // instead.)
-  it("warns about the yarn-berry caveat in undefined-pm + existing-project when .yarnrc.yml exists without a nodeLinker key", async () => {
+  // instead.) Same packageManager gating as the previous case.
+  it("warns about the yarn-berry caveat in undefined-pm + existing-project when .yarnrc.yml exists without a nodeLinker key and packageManager declares yarn 2+", async () => {
     writeFileSync(
       join(cwd, "package.json"),
-      JSON.stringify({ name: "existing", private: true }, null, 2),
+      JSON.stringify(
+        { name: "existing", private: true, packageManager: "yarn@2.4.3" },
+        null,
+        2,
+      ),
     );
     writeFileSync(
       join(cwd, ".yarnrc.yml"),
@@ -398,6 +413,80 @@ describe("scaffold", () => {
     expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(
       "yarnPath: .yarn/releases/yarn-4.x.cjs\n",
     );
+  });
+
+  // Round 10 noise-suppression cases: with no `package.json#
+  // packageManager` declaration (or one that names a non-yarn-berry
+  // pm), the inspect branch must NOT emit the caveat. These mirror
+  // the realistic invocation patterns Copilot called out — `node`/
+  // `tsx` invocation with no UA, npm/pnpm/bun projects that have
+  // declared their pm via corepack, and yarn 1 (which ignores
+  // `.yarnrc.yml` entirely so the caveat is irrelevant there too).
+  it.each([
+    {
+      label: "no packageManager declaration",
+      pkg: { name: "existing", private: true },
+    },
+    {
+      label: "packageManager declares pnpm",
+      pkg: {
+        name: "existing",
+        private: true,
+        packageManager: "pnpm@10.33.2",
+      },
+    },
+    {
+      label: "packageManager declares npm",
+      pkg: { name: "existing", private: true, packageManager: "npm@10" },
+    },
+    {
+      label: "packageManager declares bun",
+      pkg: { name: "existing", private: true, packageManager: "bun@1.3.13" },
+    },
+    {
+      label: "packageManager declares yarn 1.x",
+      pkg: {
+        name: "existing",
+        private: true,
+        packageManager: "yarn@1.22.22",
+      },
+    },
+  ])(
+    "stays silent in undefined-pm + existing-project when $label",
+    async ({ pkg }) => {
+      writeFileSync(
+        join(cwd, "package.json"),
+        JSON.stringify(pkg, null, 2),
+      );
+      const result = await scaffold({
+        cwd,
+        name: "n",
+        template: "triage",
+      });
+      expect(result.warnings).toEqual([]);
+    },
+  );
+
+  // Conflict still wins regardless of the packageManager field —
+  // an existing `.yarnrc.yml` pinned to a non-`node-modules` value
+  // is unambiguous evidence the project is using yarn-berry, so
+  // the corepack declaration filter shouldn't gate the conflict
+  // warning. (Otherwise an undeclared yarn-berry user with
+  // `nodeLinker: pnp` would silently break.)
+  it("emits the conflict warning even without a packageManager declaration when an existing .yarnrc.yml pins a non-node-modules linker", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    writeFileSync(join(cwd, ".yarnrc.yml"), "nodeLinker: pnp\n");
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("nodeLinker: pnp");
+    expect(result.warnings[0]).toMatch(/arkor dev/);
   });
 
   // And: an existing `.yarnrc.yml` that's already on

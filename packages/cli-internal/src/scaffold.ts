@@ -297,6 +297,52 @@ async function inspectYarnConfig(cwd: string): Promise<YarnConfigStatus> {
   return { kind: "conflict", value };
 }
 
+/**
+ * Best-effort check: does the existing `package.json` declare
+ * yarn-berry (yarn 2+) via the corepack-style `packageManager` field?
+ * Used to gate the `needs-setup` advisory in the
+ * `pm === undefined && isExistingProject` flow — without this filter
+ * the caveat fires on every undefined-pm scaffold (e.g. CLI invoked
+ * via `node`/`tsx`, which doesn't set `npm_config_user_agent`),
+ * including pure npm/pnpm/bun projects where it'd just be noise.
+ * (PR #99 round-10 review.)
+ *
+ * Returns `false` (i.e. don't warn) on:
+ *   - missing/unreadable/malformed `package.json`
+ *   - missing or non-string `packageManager` field
+ *   - `packageManager` declaring yarn 1 (it ignores `.yarnrc.yml`),
+ *     pnpm, npm, or bun
+ *
+ * Returns `true` only when the field unambiguously declares yarn 2+
+ * (e.g. `yarn@4.6.0`, `yarn@2.4.3`). yarn-berry users who haven't
+ * declared the field are silently missed here, but the existing
+ * `conflict` advisory still catches them when they have a `.yarnrc.yml`
+ * pinned to a non-`node-modules` linker — the gap is just users who
+ * are on yarn-berry, haven't declared it via corepack, and have no
+ * `.yarnrc.yml` at all. They get the same silence the CLI gave them
+ * before round 9; the round-10 noise reduction is the bigger win.
+ */
+async function existingProjectDeclaresYarnBerry(
+  cwd: string,
+): Promise<boolean> {
+  const pkgPath = join(cwd, PACKAGE_JSON_PATH);
+  if (!existsSync(pkgPath)) return false;
+  try {
+    const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as {
+      packageManager?: unknown;
+    };
+    const declared = pkg.packageManager;
+    if (typeof declared !== "string") return false;
+    const m = /^yarn@(\d+)/.exec(declared.trim());
+    if (!m) return false;
+    const major = Number.parseInt(m[1] ?? "", 10);
+    return Number.isFinite(major) && major >= 2;
+  } catch {
+    // Invalid JSON / read error — be conservative and don't warn.
+    return false;
+  }
+}
+
 async function patchYarnConfig(cwd: string): Promise<YarnConfigPatchResult> {
   const path = join(cwd, YARNRC_YML_PATH);
   if (!existsSync(path)) {
@@ -475,17 +521,27 @@ export async function scaffold(
     // in the patch path. Read the existing config and surface the
     // appropriate advisory without touching the file:
     //   - explicit conflict (e.g. `nodeLinker: pnp`) — round 8.
+    //     ALWAYS surface; an existing yarnrc with a non-default
+    //     linker is unambiguous evidence the project uses
+    //     yarn-berry, regardless of corepack declaration.
     //   - no usable yarn config — yarn-berry would default to PnP
     //     and the `.gitignore` we wrote here doesn't cover the
     //     `.yarn/` artifacts it'd generate either. Surface the
     //     yarn-berry caveat covering both the yarnrc and gitignore
-    //     fixups the user would need (round 9, addressing both the
-    //     scaffold.ts:142 `.gitignore` and scaffold.ts:439 `.yarnrc.yml`
-    //     review comments).
+    //     fixups the user would need (round 9). But ONLY when the
+    //     existing `package.json#packageManager` field declares
+    //     yarn 2+ — without that filter the caveat fires for every
+    //     undefined-pm scaffold (e.g. CLI invoked via `node`/`tsx`,
+    //     which doesn't set `npm_config_user_agent`), spamming
+    //     pure npm/pnpm/bun projects with irrelevant noise
+    //     (round 10, scaffold.ts:489 review comment).
     const status = await inspectYarnConfig(cwd);
     if (status.kind === "conflict") {
       warnings.push(buildYarnLinkerConflictWarning(status.value));
-    } else if (status.kind === "needs-setup") {
+    } else if (
+      status.kind === "needs-setup" &&
+      (await existingProjectDeclaresYarnBerry(cwd))
+    ) {
       warnings.push(buildYarnBerryCaveatAdvisory());
     }
   }

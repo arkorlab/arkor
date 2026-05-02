@@ -299,7 +299,14 @@ jobs:
           # Without --force npm bails with `EEXIST: ... C:\npm\prefix\
           # yarn.cmd`. POSIX runners don't have the colliding shim so
           # --force is just a no-op there.
-          npm install -g --force corepack@latest
+          # Pinned (not `@latest`) so an upstream corepack release can't
+          # change resolution behaviour or raise its supported-Node floor
+          # and start failing this matrix without any repository change —
+          # mirrors the same pinning policy applied to pnpm/yarn/bun
+          # below. 0.34.7 was published 2026-04-17 with the post-rotation
+          # signing keys; engines `^20.10.0 || ^22.11.0 || >=24.0.0`
+          # cover every Node minor in this matrix.
+          npm install -g --force corepack@0.34.7
           corepack enable
           echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
 
@@ -343,7 +350,14 @@ jobs:
           # in `verifySignature`. Upgrade first.
           # `--force` is required on Windows to clobber the runner image's
           # pre-seeded `C:\npm\prefix\yarn.cmd` (see bootstrap step).
-          npm install -g --force corepack@latest
+          # Pinned (not `@latest`) so an upstream corepack release can't
+          # change resolution behaviour or raise its supported-Node floor
+          # and start failing this matrix without any repository change —
+          # mirrors the same pinning policy applied to pnpm/yarn/bun
+          # below. 0.34.7 was published 2026-04-17 with the post-rotation
+          # signing keys; engines `^20.10.0 || ^22.11.0 || >=24.0.0`
+          # cover every Node minor in this matrix.
+          npm install -g --force corepack@0.34.7
           corepack enable
           echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
 
