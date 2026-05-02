@@ -35,6 +35,7 @@ vi.mock("@arkor/cli-internal", () => {
         .slice(0, 60) || "arkor-project",
     scaffold: vi.fn(async () => ({
       files: [{ action: "created", path: "package.json" }],
+      warnings: [],
     })),
     TEMPLATES: {
       triage: {},

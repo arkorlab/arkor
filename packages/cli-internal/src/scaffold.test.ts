@@ -222,7 +222,7 @@ describe("scaffold", () => {
   // file alone — the user's explicit choice wins, and the runtime
   // mismatch is a problem they get to reconcile (or arkor's
   // runtime grows PnP support).
-  it("keeps an existing .yarnrc.yml that explicitly pins a non-node-modules linker", async () => {
+  it("keeps an existing .yarnrc.yml that explicitly pins a non-node-modules linker and surfaces a warning", async () => {
     writeFileSync(join(cwd, ".yarnrc.yml"), "nodeLinker: pnp\nfoo: bar\n");
     const result = await scaffold({
       cwd,
@@ -234,10 +234,17 @@ describe("scaffold", () => {
     expect(yarnrc?.action).toBe("kept");
     const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
     expect(contents).toBe("nodeLinker: pnp\nfoo: bar\n");
+    // Without a warning the user wouldn't know `arkor dev` is going
+    // to fail later — Copilot's follow-up review on PR #99 pushed
+    // back on the silent `kept`, so the scaffolder now surfaces the
+    // conflict to the CLI for it to render.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("nodeLinker: pnp");
+    expect(result.warnings[0]).toMatch(/arkor dev/);
   });
 
   // Existing `.yarnrc.yml` that already pins the right linker — no
-  // mutation, no fake "patched" log entry.
+  // mutation, no fake "patched" log entry, no warning.
   it("reports ok when existing .yarnrc.yml already pins nodeLinker:node-modules", async () => {
     writeFileSync(
       join(cwd, ".yarnrc.yml"),
@@ -251,6 +258,7 @@ describe("scaffold", () => {
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc?.action).toBe("ok");
+    expect(result.warnings).toEqual([]);
   });
 
   // packageManager === undefined fires when neither `--use-*` was

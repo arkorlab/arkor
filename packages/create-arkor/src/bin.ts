@@ -218,13 +218,18 @@ async function run(options: RunOptions): Promise<void> {
   spin.start(`Scaffolding in ${cwd}`);
   // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
   // yarn-berry's PnP default which the arkor runtime can't load through).
-  const { files } = await scaffold({ cwd, name, template, packageManager: pm });
+  const { files, warnings } = await scaffold({ cwd, name, template, packageManager: pm });
   spin.stop("Done");
 
   clack.note(
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
+  // Surface non-fatal scaffolder advisories (see arkor init for the
+  // mirror of this loop and the rationale).
+  for (const warning of warnings) {
+    clack.log.warn(warning);
+  }
 
   let installed = false;
   if (!options.skipInstall && pm) {

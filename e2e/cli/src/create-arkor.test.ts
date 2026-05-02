@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { CREATE_ARKOR_BIN } from "./bins";
+import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
 
 let parentDir: string;
@@ -28,13 +29,6 @@ async function runCreateArkor(argv: string[]) {
   );
   return { result, targetDir };
 }
-
-const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
-// Selects which package manager the install-matrix sub-suite exercises.
-// CI sets one value per runner via the install-matrix job (see
-// .github/workflows/ci.yaml). Locally this is unset and only the
-// `localDefault` cases run.
-const E2E_PM = process.env.ARKOR_E2E_PM;
 
 describe("create-arkor (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -334,24 +328,11 @@ describe("create-arkor (E2E)", () => {
     expect(existsSync(join(target, "package.json"))).toBe(true);
   });
 
-  // Mirror of the install-matrix in arkor-init.test.ts. See the comment
-  // there for the gating contract; the assertions here just track the
-  // create-arkor copywriting (commit message, target dir layout).
-  const installCases = [
-    { label: "npm",        flag: "npm",  localDefault: true  },
-    { label: "pnpm",       flag: "pnpm", localDefault: true  },
-    { label: "yarn",       flag: "yarn", localDefault: false },
-    { label: "yarn-berry", flag: "yarn", localDefault: false },
-    { label: "bun",        flag: "bun",  localDefault: false },
-  ] as const;
-
-  for (const { label, flag, localDefault } of installCases) {
-    const skip =
-      SKIP_INSTALL ||
-      (E2E_PM !== undefined && E2E_PM !== label) ||
-      (E2E_PM === undefined && !localDefault);
-
-    it.skipIf(skip)(
+  // Mirror of the install-matrix in arkor-init.test.ts. See
+  // ./install-matrix.ts for the case list and gating rules — both
+  // test files share that source so the matrix can't drift.
+  for (const { label, flag } of INSTALL_CASES) {
+    it.skipIf(shouldSkipInstallCase(label))(
       `runs real ${label} install + git commit`,
       async () => {
         const { result, targetDir } = await runCreateArkor([

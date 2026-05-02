@@ -448,10 +448,16 @@ jobs:
           # test` runs work without extra env-var threading.
         run: |
           # Derive the e2e install-test gate label from the matrix id.
-          # yarn-berry and the pnpm-N entries share a common label across
-          # versions because the test only cares about which
+          # yarn-berry and the pnpm-N entries share a common label
+          # across versions because the test only cares about which
           # `--use-<flag>` to pass — the binary version is selected by
-          # corepack/setup-bun above.
+          # corepack / setup-bun above.
+          #
+          # The label vocabulary lives in
+          # `e2e/cli/src/install-matrix.ts` (`InstallCaseLabel` /
+          # `INSTALL_CASES`). When adding or removing a matrix `id`
+          # here, update that file in lockstep — the e2e suite's gate
+          # function reads `ARKOR_E2E_PM` against the same label set.
           case "${{ matrix.id }}" in
             pnpm-*)     PM_LABEL=pnpm ;;
             yarn-berry) PM_LABEL=yarn-berry ;;

@@ -46,6 +46,18 @@ export interface ScaffoldOptions {
 export interface ScaffoldResult {
   files: Array<{ path: string; action: FileAction }>;
   cwd: string;
+  /**
+   * Non-fatal advisories the scaffolder couldn't fix on its own.
+   * Currently the only emitter is the `.yarnrc.yml` patch path: when
+   * the existing file pins `nodeLinker:` to a value the arkor runtime
+   * can't load through (e.g. `pnp`), we leave the file `kept` (per
+   * Copilot's PR #99 review — silently rewriting would change install
+   * mode for the whole pre-existing yarn-berry workspace) and surface
+   * a warning here so the CLI can tell the user the project will
+   * install but not run until the linker is fixed. Empty when there
+   * is nothing to flag.
+   */
+  warnings: string[];
 }
 
 const INDEX_PATH = "src/arkor/index.ts";
@@ -141,11 +153,23 @@ async function patchGitignore(
   return "patched";
 }
 
-async function patchYarnConfig(cwd: string): Promise<FileAction> {
+interface YarnConfigPatchResult {
+  action: FileAction;
+  /**
+   * Set when the existing `.yarnrc.yml` had `nodeLinker:` pinned to
+   * a value other than `node-modules` and we elected to keep it.
+   * `scaffold()` turns this into a user-facing warning — the project
+   * will install but `arkor dev` / `arkor train` will fail until the
+   * linker is changed.
+   */
+  conflictingNodeLinker?: string;
+}
+
+async function patchYarnConfig(cwd: string): Promise<YarnConfigPatchResult> {
   const path = join(cwd, YARNRC_YML_PATH);
   if (!existsSync(path)) {
     await writeFile(path, YARNRC_YML_CONTENT);
-    return "created";
+    return { action: "created" };
   }
   // Three sub-cases for an existing `.yarnrc.yml`:
   //
@@ -160,31 +184,33 @@ async function patchYarnConfig(cwd: string): Promise<FileAction> {
   //      directories, so silently rewriting `pnp` → `node-modules`
   //      would flip the install mode for the entire repo and could
   //      break unrelated packages (Copilot review on PR #99). Leave
-  //      the file untouched and surface `kept`; the user gets to
-  //      reconcile arkor's runtime expectations with their existing
-  //      yarn configuration themselves.
+  //      the file untouched and surface a warning via
+  //      `conflictingNodeLinker`; the CLI shows it to the user so a
+  //      `kept` doesn't silently set them up for an `arkor dev`
+  //      failure (Copilot follow-up review).
   const current = await readFile(path, "utf8");
   const lines = current.split(/\r?\n/);
   // Match `nodeLinker:` at line start (yarnrc.yml is YAML, top-level
-  // keys live at column 0).
-  const nodeLinkerRe = /^nodeLinker\s*:/;
-  let existingValueIsCorrect = false;
-  let hasExplicitNodeLinker = false;
+  // keys live at column 0). Capture the value (rest of the line,
+  // trimmed) so the warning can quote it back to the user.
+  const nodeLinkerRe = /^nodeLinker\s*:\s*(.*)$/;
+  let existingValue: string | undefined;
   for (const line of lines) {
-    if (nodeLinkerRe.test(line)) {
-      hasExplicitNodeLinker = true;
-      existingValueIsCorrect = line === "nodeLinker: node-modules";
+    const m = nodeLinkerRe.exec(line);
+    if (m) {
+      existingValue = m[1]?.trim() ?? "";
       break;
     }
   }
-  if (hasExplicitNodeLinker) {
-    return existingValueIsCorrect ? "ok" : "kept";
+  if (existingValue !== undefined) {
+    if (existingValue === "node-modules") return { action: "ok" };
+    return { action: "kept", conflictingNodeLinker: existingValue };
   }
   // No `nodeLinker:` line at all — append. Keep the existing
   // trailing-newline shape (mirrors patchGitignore).
   const separator = current.endsWith("\n") ? "" : "\n";
   await writeFile(path, `${current}${separator}${YARNRC_YML_CONTENT}`);
-  return "patched";
+  return { action: "patched" };
 }
 
 async function patchPackageJson(
@@ -243,6 +269,7 @@ export async function scaffold(
   await ensureEmptyEnough(cwd);
 
   const files: ScaffoldResult["files"] = [];
+  const warnings: string[] = [];
   files.push({
     path: INDEX_PATH,
     action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),
@@ -290,12 +317,25 @@ export async function scaffold(
     options.packageManager === "yarn" ||
     options.packageManager === undefined
   ) {
-    files.push({
-      path: YARNRC_YML_PATH,
-      action: await patchYarnConfig(cwd),
-    });
+    const yarn = await patchYarnConfig(cwd);
+    files.push({ path: YARNRC_YML_PATH, action: yarn.action });
+    if (yarn.conflictingNodeLinker !== undefined) {
+      // The user's existing `.yarnrc.yml` pins `nodeLinker:` to a
+      // value the arkor runtime can't load through. Scaffold
+      // succeeds (we don't want to corrupt their pre-existing yarn
+      // workspace by silently rewriting it — see patchYarnConfig
+      // for the rationale) but the project won't actually run
+      // until the linker is changed. Surface it loud.
+      warnings.push(
+        `Existing .yarnrc.yml pins \`nodeLinker: ${yarn.conflictingNodeLinker}\`. ` +
+          `arkor's runtime requires \`nodeLinker: node-modules\` to resolve ` +
+          `dependencies — \`arkor dev\` and \`arkor train\` will fail until ` +
+          `you change it (or remove the line so yarn uses the scaffolded ` +
+          `\`.yarnrc.yml\` default).`,
+      );
+    }
   }
-  return { files, cwd };
+  return { files, cwd, warnings };
 }
 
 export function templateChoices(): Array<{

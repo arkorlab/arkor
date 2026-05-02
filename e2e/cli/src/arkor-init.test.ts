@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARKOR_BIN } from "./bins";
+import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
 
 let cwd: string;
@@ -13,13 +14,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup(cwd);
 });
-
-const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
-// Selects which package manager the install-matrix sub-suite exercises.
-// CI sets one value per runner via the install-matrix job (see
-// .github/workflows/ci.yaml). Locally this is unset and only the
-// `localDefault` cases run.
-const E2E_PM = process.env.ARKOR_E2E_PM;
 
 describe("arkor init (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -174,37 +168,13 @@ describe("arkor init (E2E)", () => {
   });
 
   // Real `<pm> install` exercise across every package manager the SDK
-  // accepts. Each case scaffolds a project, runs `<pm> install` through the
-  // SDK, and verifies the deps tree + the git commit step landed.
-  //
-  // Gating:
-  //   - `SKIP_E2E_INSTALL=1`: opt out globally (fast-iteration CI lanes).
-  //   - `ARKOR_E2E_PM=<label>`: run exactly one case. The CI install-matrix
-  //     job uses this so each runner exercises one pm with the right
-  //     binary version on PATH (e.g. `pnpm-9` vs `pnpm-11`, `yarn`
-  //     classic vs berry).
-  //   - When `ARKOR_E2E_PM` is unset, only `localDefault` cases run.
-  //     yarn / yarn-berry / bun aren't local prerequisites for working on
-  //     arkor, so they only run on the CI matrix where the runtime is
-  //     installed beforehand. npm + pnpm stay locally runnable to keep
-  //     the existing dev loop working.
-  const installCases = [
-    { label: "npm",        flag: "npm",  localDefault: true  },
-    { label: "pnpm",       flag: "pnpm", localDefault: true  },
-    { label: "yarn",       flag: "yarn", localDefault: false },
-    // yarn-berry shares the SDK's `--use-yarn` flag; the CI matrix swaps
-    // the `yarn` binary in PATH between 1.x (classic) and 4.x (berry).
-    { label: "yarn-berry", flag: "yarn", localDefault: false },
-    { label: "bun",        flag: "bun",  localDefault: false },
-  ] as const;
-
-  for (const { label, flag, localDefault } of installCases) {
-    const skip =
-      SKIP_INSTALL ||
-      (E2E_PM !== undefined && E2E_PM !== label) ||
-      (E2E_PM === undefined && !localDefault);
-
-    it.skipIf(skip)(
+  // accepts. Each case scaffolds a project, runs `<pm> install` through
+  // the SDK, and verifies the deps tree + the git commit step landed.
+  // The case list and skip rules live in `./install-matrix.ts` so the
+  // CI yaml's `PM_LABEL` mapping and create-arkor.test.ts stay in sync
+  // with one source of truth (Copilot review on PR #99).
+  for (const { label, flag } of INSTALL_CASES) {
+    it.skipIf(shouldSkipInstallCase(label))(
       `runs real ${label} install + git commit`,
       async () => {
         const result = await runCli(

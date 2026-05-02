@@ -128,7 +128,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
   // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
   // yarn-berry's PnP default which the arkor runtime can't load through).
-  const { files } = await scaffold({
+  const { files, warnings } = await scaffold({
     cwd,
     name: sanitise(projectName),
     template,
@@ -139,6 +139,13 @@ export async function runInit(options: InitOptions): Promise<void> {
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
+  // Surface non-fatal scaffolder advisories (currently: existing
+  // `.yarnrc.yml` with `nodeLinker:` set to a value the arkor runtime
+  // can't load through). Loud but non-blocking — install/git steps
+  // still run.
+  for (const warning of warnings) {
+    ui.log.warn(warning);
+  }
 
   const pm = options.packageManager;
 
