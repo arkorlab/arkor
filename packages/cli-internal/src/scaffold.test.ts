@@ -335,11 +335,17 @@ describe("scaffold", () => {
     expect(result.warnings[0]).toMatch(/arkor dev/);
   });
 
-  // Negative case: no `.yarnrc.yml` at all in the
-  // undefined-pm + existing-project flow stays silent. The skip
-  // path must not invent a warning out of thin air just because
-  // there's a `package.json` present.
-  it("does not warn in the undefined-pm + existing-project flow when no .yarnrc.yml exists", async () => {
+  // Round 9 (Copilot): when undefined-pm merges into an existing
+  // project that has NO usable yarn config (no `.yarnrc.yml` at
+  // all here), the round-5 policy stripped both the defensive
+  // `.yarnrc.yml` write AND the yarn-cache `.gitignore` lines —
+  // but the manual install hint still says "yarn / bun install".
+  // A yarn-berry user following it would land on PnP (no yarnrc)
+  // and pollute the repo with `.yarn/cache` (no gitignore). The
+  // file isn't mutated (round-5 policy stands), but a single
+  // caveat advisory now covers both fixups so the user has a
+  // chance to act before they hit the breakage.
+  it("warns about the yarn-berry caveat in undefined-pm + existing-project when no .yarnrc.yml exists", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
@@ -349,7 +355,49 @@ describe("scaffold", () => {
       name: "n",
       template: "triage",
     });
-    expect(result.warnings).toEqual([]);
+    // Still NOT mutating the repo: no `.yarnrc.yml`, no yarn
+    // gitignore lines.
+    expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
+    expect(readFileSync(join(cwd, ".gitignore"), "utf8")).not.toContain(
+      ".yarn/",
+    );
+    // But the caveat IS surfaced — and it mentions both fixups
+    // (yarnrc nodeLinker, gitignore yarn-cache entries) so a user
+    // who reads it can address both before running `yarn install`.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    expect(result.warnings[0]).toContain("nodeLinker: node-modules");
+    expect(result.warnings[0]).toContain(".yarn/cache");
+    expect(result.warnings[0]).toContain(".yarn/install-state.gz");
+  });
+
+  // Same caveat fires when an existing `.yarnrc.yml` is present
+  // but has no `nodeLinker:` key — yarn 4 would silently default
+  // to PnP just like the no-file case, so the runtime hazard is
+  // identical. (The patch path appends in this case; the
+  // inspect-only branch can't, so it surfaces the caveat
+  // instead.)
+  it("warns about the yarn-berry caveat in undefined-pm + existing-project when .yarnrc.yml exists without a nodeLinker key", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\n",
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    expect(result.warnings[0]).toContain("nodeLinker: node-modules");
+    // File is unchanged.
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\n",
+    );
   });
 
   // And: an existing `.yarnrc.yml` that's already on

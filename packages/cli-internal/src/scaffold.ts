@@ -238,24 +238,63 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
   );
 }
 
+// Caveat shown in the `pm === undefined && isExistingProject` branch
+// when no usable yarn config is present (no `.yarnrc.yml`, OR a
+// `.yarnrc.yml` that has no `nodeLinker:` key — both leave yarn 4 on
+// its PnP default). The branch deliberately doesn't mutate the
+// surrounding repo (round-5 policy: an unknown-pm merge mustn't flip
+// the install mode of someone else's workspace). But the manual
+// install hint still mentions `yarn install` (see init.ts /
+// create-arkor's bin.ts: "npm i / pnpm install / yarn / bun
+// install"), so a yarn-berry user following it lands on PnP and
+// `arkor dev` fails — and yarn would also generate `.yarn/cache` /
+// `.yarn/install-state.gz` that aren't covered by the
+// non-yarn `.gitignore` we wrote here. Bundle both fixups into one
+// advisory; clearly scope it to yarn-berry so npm/pnpm/yarn-1/bun
+// users immediately know they can ignore. (PR #99 round-9 review,
+// covering both flagged sites: scaffold.ts:142 and scaffold.ts:439.)
+function buildYarnBerryCaveatAdvisory(): string {
+  return (
+    `Scaffolded into an existing project without an explicit package ` +
+    `manager. If you'll install with yarn 4+ (yarn-berry), arkor's ` +
+    `runtime requires \`nodeLinker: node-modules\` (its Plug'n'Play ` +
+    `default is unsupported) — add \`nodeLinker: node-modules\` to a ` +
+    `\`.yarnrc.yml\` and add \`.yarn/cache\` + ` +
+    `\`.yarn/install-state.gz\` to \`.gitignore\` before running ` +
+    `\`yarn install\`. Skip this if you're using npm, pnpm, yarn 1.x, ` +
+    `or bun.`
+  );
+}
+
+type YarnConfigStatus =
+  | { kind: "ok" } // file exists & nodeLinker:node-modules
+  | { kind: "needs-setup" } // no file, OR file with no nodeLinker key
+  | { kind: "conflict"; value: string }; // file exists & nodeLinker:<other>
+
 /**
- * Read-only counterpart to `patchYarnConfig`: returns the conflicting
- * `nodeLinker:` value when an existing `.yarnrc.yml` pins something
- * other than `node-modules`, and `undefined` otherwise. Used by
- * `scaffold()` in the `pm === undefined && isExistingProject` case,
- * where we deliberately don't touch yarn config (so a yarn-berry
- * workspace's deliberate PnP setup stays intact) but still want to
- * surface the runtime hazard if the user later runs `yarn install`
- * via the manual install hint. (PR #99 round-8 review.)
+ * Read-only counterpart to `patchYarnConfig`: classifies the existing
+ * yarn config without mutating it. Used by `scaffold()` in the
+ * `pm === undefined && isExistingProject` case, where we deliberately
+ * don't touch yarn config (so a yarn-berry workspace's deliberate
+ * PnP setup stays intact) but still want to surface the runtime
+ * hazard if the user later runs `yarn install` via the manual install
+ * hint.
+ *
+ * Three outcomes:
+ *   - `ok`           — `nodeLinker: node-modules` already pinned; nothing to flag
+ *   - `conflict`     — pinned to a non-`node-modules` value (e.g. `pnp`);
+ *                      surface the conflict warning (PR #99 round-8)
+ *   - `needs-setup`  — no `.yarnrc.yml`, OR a `.yarnrc.yml` without a
+ *                      `nodeLinker:` key (yarn 4 silently defaults to PnP);
+ *                      surface the yarn-berry caveat advisory (PR #99 round-9)
  */
-async function inspectYarnConfigConflict(
-  cwd: string,
-): Promise<string | undefined> {
+async function inspectYarnConfig(cwd: string): Promise<YarnConfigStatus> {
   const path = join(cwd, YARNRC_YML_PATH);
-  if (!existsSync(path)) return undefined;
+  if (!existsSync(path)) return { kind: "needs-setup" };
   const value = readNodeLinkerValue(await readFile(path, "utf8"));
-  if (value === undefined || value === "node-modules") return undefined;
-  return value;
+  if (value === undefined) return { kind: "needs-setup" };
+  if (value === "node-modules") return { kind: "ok" };
+  return { kind: "conflict", value };
 }
 
 async function patchYarnConfig(cwd: string): Promise<YarnConfigPatchResult> {
@@ -434,11 +473,20 @@ export async function scaffold(
     // install" — so if they're on yarn-berry with `nodeLinker:
     // pnp` already pinned, `arkor dev` will fail just the same as
     // in the patch path. Read the existing config and surface the
-    // identical advisory without touching the file. (PR #99
-    // round-8 review.)
-    const conflict = await inspectYarnConfigConflict(cwd);
-    if (conflict !== undefined) {
-      warnings.push(buildYarnLinkerConflictWarning(conflict));
+    // appropriate advisory without touching the file:
+    //   - explicit conflict (e.g. `nodeLinker: pnp`) — round 8.
+    //   - no usable yarn config — yarn-berry would default to PnP
+    //     and the `.gitignore` we wrote here doesn't cover the
+    //     `.yarn/` artifacts it'd generate either. Surface the
+    //     yarn-berry caveat covering both the yarnrc and gitignore
+    //     fixups the user would need (round 9, addressing both the
+    //     scaffold.ts:142 `.gitignore` and scaffold.ts:439 `.yarnrc.yml`
+    //     review comments).
+    const status = await inspectYarnConfig(cwd);
+    if (status.kind === "conflict") {
+      warnings.push(buildYarnLinkerConflictWarning(status.value));
+    } else if (status.kind === "needs-setup") {
+      warnings.push(buildYarnBerryCaveatAdvisory());
     }
   }
   return { files, cwd, warnings };
