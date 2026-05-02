@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CloudApiError } from "../../core/client";
 import { writeCredentials } from "../../core/credentials";
 import { runWhoami } from "./whoami";
 
@@ -264,7 +265,13 @@ describe("runWhoami", () => {
     expect(out).toMatch(/Orgs: o-without-slug, named/);
   });
 
-  it("prints a 'token may be expired' hint on other non-2xx without setting exitCode", async () => {
+  it("throws CloudApiError on other non-2xx so cli/main.ts can format auth-state codes", async () => {
+    // Previously the command swallowed non-426 failures with a generic
+    // "Token may be expired" hint. The new contract is to throw a
+    // `CloudApiError` (with the upstream `code` if present) so the
+    // top-level handler in `cli/main.ts` can surface
+    // `anonymous_token_single_device` / `anonymous_account_not_found`
+    // with actionable guidance instead of a vague hint.
     await writeCredentials({
       mode: "anon",
       token: "anon-tok",
@@ -273,15 +280,31 @@ describe("runWhoami", () => {
       orgSlug: "anon-abc",
     });
     globalThis.fetch = vi.fn(
-      async () => new Response("{}", { status: 401 }),
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "Anonymous token revoked",
+            code: "anonymous_token_single_device",
+          }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        ),
     ) as typeof fetch;
 
-    await runWhoami();
+    let caught: unknown;
+    try {
+      await runWhoami();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(CloudApiError);
+    const err = caught as CloudApiError;
+    expect(err.status).toBe(401);
+    expect(err.code).toBe("anonymous_token_single_device");
+    expect(err.message).toMatch(/revoked/);
+    // No print-and-return: the previous "Token may be expired" hint is
+    // intentionally gone so callers can't accidentally degrade structured
+    // codes into a vague string.
     const out = stdoutChunks.join("");
-    expect(out).toMatch(/Failed to fetch \/v1\/me \(401\)/);
-    expect(out).toMatch(/Token may be expired/);
-    // Distinct from the 426 path: no hard block on auth failures, just a
-    // hint, so the deprecation flush in main.ts can still run.
-    expect(process.exitCode).not.toBe(1);
+    expect(out).not.toMatch(/Token may be expired/);
   });
 });

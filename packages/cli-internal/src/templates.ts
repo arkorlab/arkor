@@ -137,10 +137,13 @@ npm install && npm run dev
 
 \`arkor dev\` opens the local Studio GUI (most workflows live there).
 
-Optional — log in to your own org instead of using anonymous tokens:
+Anonymous tokens are tied to this machine. Copying
+\`~/.arkor/credentials.json\` to another device will be rejected as a
+single-device policy violation. Sign up for a real account to keep your
+work and use it across machines:
 
 \`\`\`
-npx arkor login
+npx arkor login --oauth
 \`\`\`
 
 CLI-only flow (no GUI):

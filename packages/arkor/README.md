@@ -87,6 +87,7 @@ login` / `arkor logout`.
 |---|---|
 | `arkor init` | Scaffold a project in the current directory |
 | `arkor login` / `logout` / `whoami` | Auth0 PKCE / anonymous tokens |
+| `arkor login --anonymous` | Throwaway single-device token (see below) |
 | `arkor dev` | Launch the local Studio (hot reload + GUI) |
 | `arkor build [entry]` | Bundle `src/arkor/index.ts` (or `entry`) to `.arkor/build/index.mjs` |
 | `arkor start [entry]` | Run the build artifact; rebuilds when an entry is supplied |
@@ -94,6 +95,22 @@ login` / `arkor logout`.
 `arkor build` uses esbuild with `packages: "external"`, so bare specifiers
 (`arkor`, anything from `node_modules`) resolve at runtime against the
 project's installed copy. Relative imports get inlined.
+
+### Anonymous accounts are single-device
+
+`arkor login --anonymous` (and the auto-bootstrap on first `arkor dev`)
+issues a throwaway token tied to a brand-new personal org. **It only
+works on the machine where it was issued.** Copying
+`~/.arkor/credentials.json` to a second machine and using it from both
+will trip the server's single-device guard, and one of the two will be
+locked out with `anonymous_token_single_device`. The CLI surfaces this
+as a hint to run `arkor login --oauth` for a real account that supports
+multiple devices.
+
+Anonymous data isn't recoverable across re-issuance: deleting the
+credentials file or losing the single-device race means the org and
+everything in it become unreachable. Treat anonymous mode as a quick
+trial path; sign up before you store anything you'd want to keep.
 
 ## Studio
 

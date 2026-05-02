@@ -153,6 +153,12 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     ui.log.warn(ANON_PERSISTENCE_NUDGE);
   }
   ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
+  // Match the `arkor login --anonymous` outro: anonymous accounts are
+  // single-device on purpose, so discovering that on a second machine
+  // via a 401 is a worse UX than being told here.
+  ui.log.info(
+    "Note: anonymous accounts work on this machine only. Run `arkor login --oauth` to sign up for multi-device access.",
+  );
 }
 
 /**

@@ -1,4 +1,4 @@
-import { CloudApiClient } from "../../core/client";
+import { buildCloudApiError, CloudApiClient } from "../../core/client";
 import {
   defaultArkorCloudApiUrl,
   readCredentials,
@@ -44,19 +44,35 @@ export async function runWhoami(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    process.stdout.write(
-      `Failed to fetch /v1/me (${status}). Token may be expired.\n`,
-    );
-    return;
+    // Throw a `CloudApiError` carrying the structured `code` so the
+    // top-level handler in `cli/main.ts` can format anonymous auth-state
+    // failures (`anonymous_token_single_device`,
+    // `anonymous_account_not_found`) into actionable guidance instead of
+    // a generic "Token may be expired" line.
+    throw await buildCloudApiError(res);
   }
   const body = (await res.json()) as {
     user: Record<string, unknown>;
     orgs: Record<string, unknown>[];
   };
+  const isAnonymous =
+    typeof body.user === "object" &&
+    body.user !== null &&
+    (body.user as { kind?: unknown }).kind === "anonymous";
   process.stdout.write(`${JSON.stringify(body.user, null, 2)}\n`);
   if (body.orgs.length > 0) {
     process.stdout.write(
       `Orgs: ${body.orgs.map((o) => String(o.slug ?? o.id)).join(", ")}\n`,
+    );
+  }
+  if (isAnonymous) {
+    // Anonymous accounts are single-device on purpose, so surface the
+    // limitation here so users discover it before hitting a 401 on a
+    // second machine. `arkor login --oauth` is the explicit upgrade
+    // path; phrasing matches the auth-error formatter so users see the
+    // same advice from both surfaces.
+    process.stdout.write(
+      "\nNote: anonymous accounts work on this machine only. Run `arkor login --oauth` to sign up for multi-device access.\n",
     );
   }
   // Avoid "unused import" noise by referencing CloudApiClient in an assertion.

@@ -7,6 +7,7 @@ import { runDev } from "./commands/dev";
 import { runBuild } from "./commands/build";
 import { runStart } from "./commands/start";
 import { resolvePackageManager, type TemplateId } from "@arkor/cli-internal";
+import { formatAnonymousAuthError } from "../core/anonymous-auth-error";
 import { getRecordedDeprecation } from "../core/deprecation";
 import { shutdownTelemetry, withTelemetry } from "../core/telemetry";
 import { detectedUpgradeCommand } from "../core/upgrade-hint";
@@ -149,6 +150,22 @@ export async function main(argv: string[]): Promise<void> {
 
   try {
     await program.parseAsync(argv, { from: "user" });
+  } catch (err) {
+    // Intercept the structured anonymous-auth-state errors before
+    // commander's default handler converts them into a noisy stack
+    // trace. The helper returns a CLI-shaped string for the two known
+    // dead-end codes (`anonymous_token_single_device`,
+    // `anonymous_account_not_found`); everything else rethrows so
+    // commander still surfaces it. Setting `process.exitCode` (rather
+    // than calling `process.exit` directly) keeps the deprecation +
+    // telemetry-shutdown step in the `finally` block reachable.
+    const friendly = formatAnonymousAuthError(err);
+    if (friendly !== null) {
+      process.stderr.write(`${friendly}\n`);
+      process.exitCode = 1;
+    } else {
+      throw err;
+    }
   } finally {
     const notice = getRecordedDeprecation();
     if (notice) {

@@ -153,6 +153,13 @@ async function runAnonymousLogin(opts: {
     ui.log.warn(ANON_PERSISTENCE_NUDGE);
   }
   ui.log.success(`Signed in anonymously (personal org: ${result.orgSlug}).`);
+  // Surface the single-device constraint immediately so users don't
+  // discover it the hard way when copying credentials.json to a second
+  // machine. The wording aligns with `formatAnonymousAuthError` so the
+  // hint they see now matches the error they'd see later.
+  ui.log.info(
+    "Note: anonymous accounts work on this machine only. Run `arkor login --oauth` to sign up for multi-device access.",
+  );
 }
 
 interface ResolvedCliConfig {
