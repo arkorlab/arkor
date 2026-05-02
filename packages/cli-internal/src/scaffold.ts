@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import type { PackageManager } from "./package-manager";
 import {
   STARTER_CONFIG,
   STARTER_INDEX,
@@ -17,6 +18,21 @@ export interface ScaffoldOptions {
   /** Project name used in package.json + README. */
   name: string;
   template: TemplateId;
+  /**
+   * Package manager the user picked. Drives pm-specific scaffolding —
+   * currently used to emit a `.yarnrc.yml` that pins
+   * `nodeLinker: node-modules` so yarn-berry doesn't fall back to its
+   * Plug'n'Play default. PnP omits `node_modules/` and requires a
+   * runtime loader to resolve modules; the arkor runtime (esbuild →
+   * `node ./.arkor/build/index.mjs`) doesn't load PnP, so a vanilla
+   * yarn-4 install would leave `arkor dev` / `arkor train` unable to
+   * find their dependencies. yarn 1.x ignores `.yarnrc.yml` (it reads
+   * `.yarnrc`), so the file is harmless on the classic line.
+   *
+   * `undefined` when the caller didn't / couldn't determine a pm: no
+   * pm-specific files are written in that case.
+   */
+  packageManager?: PackageManager;
 }
 
 export interface ScaffoldResult {
@@ -30,7 +46,20 @@ const CONFIG_PATH = "arkor.config.ts";
 const README_PATH = "README.md";
 const GITIGNORE_PATH = ".gitignore";
 const PACKAGE_JSON_PATH = "package.json";
+const YARNRC_YML_PATH = ".yarnrc.yml";
 const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.5";
+
+// Single-key config: `nodeLinker: node-modules` forces yarn-berry to
+// materialise a real node_modules tree instead of its Plug'n'Play default.
+// See ScaffoldOptions.packageManager for the why.
+const YARNRC_YML_CONTENT = "nodeLinker: node-modules\n";
+
+// .gitignore entries that yarn-berry generates inside `.yarn/` regardless
+// of nodeLinker. `.yarn/cache/` holds zipped tarballs of every dependency
+// (typically tens of MB) and `.yarn/install-state.gz` is a per-install
+// state file — neither belongs in git. yarn classic (1.x) doesn't create
+// `.yarn/` at all so these entries are harmless on that line.
+const YARN_GITIGNORE_LINES = [".yarn/cache", ".yarn/install-state.gz"];
 
 function resolveArkorScaffoldSpec(): string {
   // Treat unset, empty, and whitespace-only values the same: fall back to
@@ -70,19 +99,47 @@ async function ensureFile(
   return "created";
 }
 
-async function patchGitignore(cwd: string): Promise<FileAction> {
+async function patchGitignore(
+  cwd: string,
+  packageManager: PackageManager | undefined,
+): Promise<FileAction> {
   const path = join(cwd, GITIGNORE_PATH);
+  // Required entries — every pm gets these.
+  const required = ["node_modules/", "dist/", ".arkor/"];
+  // Yarn-specific entries are appended only when the user picked yarn so
+  // npm / pnpm / bun trees stay free of unrelated yarn-berry chatter in
+  // their gitignore.
+  if (packageManager === "yarn") {
+    required.push(...YARN_GITIGNORE_LINES);
+  }
+
   if (!existsSync(path)) {
-    await writeFile(path, "node_modules/\ndist/\n.arkor/\n");
+    await writeFile(path, required.map((line) => `${line}\n`).join(""));
     return "created";
   }
   const current = await readFile(path, "utf8");
-  if (current.split(/\r?\n/).some((line) => line.trim() === ".arkor/")) {
-    return "ok";
-  }
+  const present = new Set(
+    current.split(/\r?\n/).map((line) => line.trim()),
+  );
+  const missing = required.filter((line) => !present.has(line));
+  if (missing.length === 0) return "ok";
   const separator = current.endsWith("\n") ? "" : "\n";
-  await writeFile(path, `${current}${separator}.arkor/\n`);
+  await writeFile(
+    path,
+    `${current}${separator}${missing.map((line) => `${line}\n`).join("")}`,
+  );
   return "patched";
+}
+
+async function patchYarnConfig(cwd: string): Promise<FileAction> {
+  // Don't clobber an existing `.yarnrc.yml`. The user might already have
+  // PnP intentionally configured, or be pinning a different `nodeLinker`
+  // (`pnp-loose`, `pnpm`, …) — leaving theirs alone is safer than racing
+  // a default in.
+  const path = join(cwd, YARNRC_YML_PATH);
+  if (existsSync(path)) return "kept";
+  await writeFile(path, YARNRC_YML_CONTENT);
+  return "created";
 }
 
 async function patchPackageJson(
@@ -165,12 +222,20 @@ export async function scaffold(
   });
   files.push({
     path: GITIGNORE_PATH,
-    action: await patchGitignore(cwd),
+    action: await patchGitignore(cwd, options.packageManager),
   });
   files.push({
     path: PACKAGE_JSON_PATH,
     action: await patchPackageJson(cwd, options.name),
   });
+  // yarn-only: write `.yarnrc.yml` so yarn-berry uses node_modules
+  // instead of PnP. See ScaffoldOptions.packageManager for the why.
+  if (options.packageManager === "yarn") {
+    files.push({
+      path: YARNRC_YML_PATH,
+      action: await patchYarnConfig(cwd),
+    });
+  }
   return { files, cwd };
 }
 

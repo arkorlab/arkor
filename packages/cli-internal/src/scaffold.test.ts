@@ -146,6 +146,89 @@ describe("scaffold", () => {
     expect(secondEntry?.action).toBe("ok");
   });
 
+  // yarn-berry defaults to Plug'n'Play, which doesn't materialise
+  // node_modules — and the arkor runtime (esbuild → `node ./.arkor/build/
+  // index.mjs`) doesn't load PnP, so a vanilla yarn-4 install would leave
+  // `arkor dev` unable to resolve dependencies. The scaffold writes a
+  // `.yarnrc.yml` pinning `nodeLinker: node-modules` whenever the user
+  // picked yarn; yarn 1.x ignores `.yarnrc.yml` (it reads `.yarnrc`), so
+  // the file is harmless on the classic line.
+  it("emits .yarnrc.yml with nodeLinker:node-modules when packageManager is yarn", async () => {
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "minimal",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("created");
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toContain(
+      "nodeLinker: node-modules",
+    );
+  });
+
+  // The scaffold should not race a default `nodeLinker` in if the user
+  // already configured yarn intentionally (e.g. they want PnP and have
+  // committed to working around the runtime side themselves).
+  it("keeps an existing .yarnrc.yml untouched", async () => {
+    writeFileSync(join(cwd, ".yarnrc.yml"), "nodeLinker: pnp\nfoo: bar\n");
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "minimal",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("kept");
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(
+      "nodeLinker: pnp\nfoo: bar\n",
+    );
+  });
+
+  it("does not emit .yarnrc.yml for non-yarn package managers", async () => {
+    for (const pm of ["pnpm", "npm", "bun"] as const) {
+      rmSync(cwd, { recursive: true, force: true });
+      const fresh = mkdtempSync(join(tmpdir(), `cli-internal-test-${pm}-`));
+      try {
+        const result = await scaffold({
+          cwd: fresh,
+          name: "n",
+          template: "minimal",
+          packageManager: pm,
+        });
+        expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
+      } finally {
+        rmSync(fresh, { recursive: true, force: true });
+      }
+    }
+    cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
+  });
+
+  it("adds yarn-cache lines to .gitignore only when packageManager is yarn", async () => {
+    await scaffold({
+      cwd,
+      name: "n",
+      template: "minimal",
+      packageManager: "yarn",
+    });
+    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
+    // `.yarn/cache` accumulates zip tarballs of every dependency
+    // (~tens of MB); committing it would balloon the initial commit.
+    expect(gi).toContain(".yarn/cache");
+    expect(gi).toContain(".yarn/install-state.gz");
+  });
+
+  it("does not add yarn-cache lines to .gitignore for non-yarn package managers", async () => {
+    await scaffold({
+      cwd,
+      name: "n",
+      template: "minimal",
+      packageManager: "pnpm",
+    });
+    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
+    expect(gi).not.toContain(".yarn/");
+  });
+
   it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when set", async () => {
     // The value is opaque to scaffold — only that it's faithfully
     // round-tripped into package.json matters, so use a relative

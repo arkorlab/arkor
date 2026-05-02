@@ -128,7 +128,14 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
   // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
-  const { files } = await scaffold({ cwd, name: sanitise(projectName), template });
+  // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
+  // yarn-berry's PnP default which the arkor runtime can't load through).
+  const { files } = await scaffold({
+    cwd,
+    name: sanitise(projectName),
+    template,
+    packageManager: options.packageManager,
+  });
 
   ui.note(
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),

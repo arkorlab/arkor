@@ -214,17 +214,19 @@ async function run(options: RunOptions): Promise<void> {
     process.exit(1);
   }
 
+  const pm = options.packageManager;
+
   const spin = clack.spinner();
   spin.start(`Scaffolding in ${cwd}`);
-  const { files } = await scaffold({ cwd, name, template });
+  // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
+  // yarn-berry's PnP default which the arkor runtime can't load through).
+  const { files } = await scaffold({ cwd, name, template, packageManager: pm });
   spin.stop("Done");
 
   clack.note(
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
-
-  const pm = options.packageManager;
 
   let installed = false;
   if (!options.skipInstall && pm) {
