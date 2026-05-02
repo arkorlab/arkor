@@ -80,9 +80,17 @@ export function LossChart({ points }: { points: LossPoint[] }) {
   });
 
   function onMouseMove(e: React.MouseEvent<SVGRectElement>) {
+    // The `<rect>` is already positioned at `x={PADDING.left}`, so its
+    // bounding box origin in viewport coordinates already accounts for
+    // the chart's left padding. `e.clientX - rect.left` gives a value
+    // in [0, rect.width] = [0, innerW], so we divide by `rect.width`
+    // directly. Subtracting PADDING.left here would double-shift and
+    // make the right edge of the chart unreachable.
     const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const fraction = (x - PADDING.left) / innerW;
+    const fraction = Math.max(
+      0,
+      Math.min(1, (e.clientX - rect.left) / rect.width),
+    );
     const targetStep = Math.round(fraction * lastStep);
     // training.log events arrive in step order, so `numeric` is sorted
     // by `.step` — binary search for the insertion point and then pick

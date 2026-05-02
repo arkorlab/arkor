@@ -18,12 +18,24 @@ import {
 import { Composer } from "../components/playground/Composer";
 import { EmptyState } from "../components/ui/EmptyState";
 
-export function Playground() {
+export function Playground({
+  initialAdapterId,
+}: {
+  /** Pre-select this completed-job id when the page mounts, e.g. when
+   * navigating from a JobDetail page's "Open in Playground" button. The
+   * route layer parses it from `#/playground?adapter=<id>`. */
+  initialAdapterId?: string;
+} = {}) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
-  const [mode, setMode] = useState<Mode>("base");
+  // If the caller pre-selected an adapter, start in adapter mode so
+  // the user lands directly on the picker for that job rather than on
+  // base-model chat.
+  const [mode, setMode] = useState<Mode>(initialAdapterId ? "adapter" : "base");
   const [baseModel, setBaseModel] =
     useState<SupportedBaseModel>(DEFAULT_BASE_MODEL);
-  const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  const [selectedJob, setSelectedJob] = useState<string | null>(
+    initialAdapterId ?? null,
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);

@@ -4,16 +4,23 @@ export type Route =
   | { kind: "home" }
   | { kind: "jobs" }
   | { kind: "job"; id: string }
-  | { kind: "playground" };
+  | { kind: "playground"; adapterJobId?: string };
 
 export function parseRoute(): Route {
-  const hash = window.location.hash.replace(/^#\/?/, "").replace(/\/+$/, "");
-  if (hash === "jobs") return { kind: "jobs" };
-  if (hash.startsWith("jobs/")) {
-    const id = hash.slice("jobs/".length);
+  const raw = window.location.hash.replace(/^#\/?/, "").replace(/\/+$/, "");
+  const queryStart = raw.indexOf("?");
+  const path = queryStart === -1 ? raw : raw.slice(0, queryStart);
+  const query = queryStart === -1 ? "" : raw.slice(queryStart + 1);
+  if (path === "jobs") return { kind: "jobs" };
+  if (path.startsWith("jobs/")) {
+    const id = path.slice("jobs/".length);
     if (id) return { kind: "job", id };
   }
-  if (hash === "playground") return { kind: "playground" };
+  if (path === "playground") {
+    const params = new URLSearchParams(query);
+    const adapterJobId = params.get("adapter") ?? undefined;
+    return { kind: "playground", adapterJobId };
+  }
   return { kind: "home" };
 }
 

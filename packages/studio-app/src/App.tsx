@@ -25,7 +25,9 @@ export function App() {
       {route.kind === "home" && <Overview />}
       {route.kind === "jobs" && <JobsList />}
       {route.kind === "job" && <JobDetail jobId={route.id} />}
-      {route.kind === "playground" && <Playground />}
+      {route.kind === "playground" && (
+        <Playground initialAdapterId={route.adapterJobId} />
+      )}
     </AppShell>
   );
 }

@@ -19,6 +19,10 @@ export function getInitialTheme(): Theme {
 export function setTheme(theme: Theme): void {
   if (typeof document === "undefined") return;
   document.documentElement.dataset.theme = theme;
+  // Some test / SSR environments expose `document` without `window`;
+  // guard explicitly so we don't ReferenceError before reaching the
+  // try/catch below.
+  if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(STORAGE_KEY, theme);
   } catch {

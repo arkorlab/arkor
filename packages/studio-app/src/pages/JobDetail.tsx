@@ -303,7 +303,11 @@ export function JobDetail({ jobId }: { jobId: string }) {
               size="sm"
               leadingIcon={<Sparkles />}
               onClick={() => {
-                window.location.hash = "#/playground";
+                // Pre-select this job's adapter so the Playground opens
+                // on the run the user was inspecting, not whichever
+                // completed job happens to be first in the list.
+                const params = new URLSearchParams({ adapter: jobId });
+                window.location.hash = `#/playground?${params.toString()}`;
               }}
             >
               Open in Playground
