@@ -51,12 +51,16 @@ export function Playground({
       .then(({ jobs }) => {
         const completed = jobs.filter((j) => j.status === "completed");
         setJobs(completed);
-        if (completed.length > 0) {
-          // Functional update so we don't capture a stale `selectedJob`
-          // from the mount-time closure (the effect runs once with
-          // `[]` deps).
-          setSelectedJob((prev) => prev ?? completed[0]!.id);
-        }
+        // Reconcile the current selection (which may have been seeded
+        // from `initialAdapterId` via the URL) against what the server
+        // actually has. If the URL pointed at a since-deleted run we'd
+        // otherwise keep firing inference requests with that stale id;
+        // fall back to the first completed job (or null if there are
+        // none) so the AdapterPicker reflects reality.
+        setSelectedJob((prev) => {
+          if (prev && completed.some((j) => j.id === prev)) return prev;
+          return completed[0]?.id ?? null;
+        });
       })
       .catch((err: unknown) => {
         // Even on /api/jobs failure, drop into base-model mode so the

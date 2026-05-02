@@ -381,6 +381,7 @@ function computeDuration(
   if (!startedAt) return null;
   const start = Date.parse(startedAt);
   if (Number.isNaN(start)) return null;
+
   // Prefer terminal end-times (polled `completedAt` first, then the
   // SSE-supplied one) so duration freezes the moment the job finishes
   // even if /api/jobs is lagging — otherwise the ticker would keep
@@ -388,12 +389,27 @@ function computeDuration(
   const completedAt = job?.completedAt ?? terminal?.completedAt;
   if (completedAt) {
     const end = Date.parse(completedAt);
-    if (Number.isNaN(end)) return Math.max(0, now - start);
+    if (Number.isNaN(end)) return null;
     return Math.max(0, end - start);
   }
-  if (terminal) return Math.max(0, now - start);
-  if (job?.status === "running") return Math.max(0, now - start);
-  if (liveStartedAt) return Math.max(0, now - start);
+
+  // If we know the job is terminal (SSE terminal frame OR polled
+  // status reached completed/failed/cancelled) but we don't have a
+  // `completedAt` to anchor against, render `—` rather than tick `now`
+  // — otherwise a cancelled/failed job whose backend never recorded a
+  // completion timestamp would show an ever-growing duration as if it
+  // were still running.
+  const polledIsTerminal =
+    job?.status === "completed" ||
+    job?.status === "failed" ||
+    job?.status === "cancelled";
+  if (terminal || polledIsTerminal) return null;
+
+  // Running phase — tick `now`. Either the polled status is already
+  // "running", or SSE flipped us live before /api/jobs caught up.
+  if (job?.status === "running" || liveStartedAt) {
+    return Math.max(0, now - start);
+  }
   return null;
 }
 
