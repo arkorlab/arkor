@@ -102,7 +102,8 @@ When signed in, the command prints the JSON `user` object pretty-printed, then a
 - `0`: signed in, identity printed.
 - `0`: not signed in; the message is informational only.
 - `1`: the cloud-api returned `426 Upgrade Required`. The CLI prints the upgrade hint (and the upgrade command for your detected package manager) and sets `process.exitCode = 1` so the deprecation-warning flush in `arkor`'s shutdown hook still runs before the process exits.
-- Other 4xx / 5xx are reported as `Failed to fetch /v1/me (<status>). Token may be expired.` and exit `0`.
+- `1`: the cloud-api returned a structured anonymous-auth dead-end (`code: "anonymous_token_single_device"` or `code: "anonymous_account_not_found"`). `cli/main.ts` formats the deployment-aware recovery hint to stderr; see [Token expiry](#token-expiry) for the exact wording.
+- `1`: any other non-2xx (transient 5xx, an unmapped 4xx, etc.). The previous "exit `0` with a `Failed to fetch /v1/me (<status>). Token may be expired.` line on stdout" behaviour was removed in this release: `arkor whoami` now raises a `CloudApiError`, and `bin.ts` renders it to stderr as `err.stack ?? err.message` before exiting non-zero.
 
 ## Where the credentials live
 

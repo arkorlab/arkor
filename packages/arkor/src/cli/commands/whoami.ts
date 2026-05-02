@@ -17,7 +17,19 @@ export async function runWhoami(): Promise<void> {
     );
     return;
   }
-  const baseUrl = defaultArkorCloudApiUrl();
+  // Anonymous credentials carry the cloud-api URL they were issued
+  // against; honour that over `ARKOR_CLOUD_API_URL` so a user whose env
+  // changed since login (or who ran a previous command against a non-
+  // default endpoint) still hits the deployment that issued the token.
+  // Without this, `whoami` would query the wrong cloud-api and the
+  // top-level handler in `cli/main.ts` could surface dead-end auth-state
+  // guidance for a token that's actually valid on its original
+  // deployment. Auth0 credentials don't pin a cloud-api URL, so they
+  // fall through to the env-derived default.
+  const baseUrl =
+    creds.mode === "anon" && creds.arkorCloudApiUrl
+      ? creds.arkorCloudApiUrl
+      : defaultArkorCloudApiUrl();
   // Use the RPC client directly for /v1/me rather than CloudApiClient so we
   // hit the typed surface and avoid duplicating the plumbing.
   const rpc = createClient({
@@ -79,7 +91,12 @@ export async function runWhoami(): Promise<void> {
     // them at a command that fails immediately. The matching login/dev
     // surfaces, which already know `oauthAvailable`, do append the
     // upgrade hint when warranted.
-    process.stdout.write(`\n${ANON_SINGLE_DEVICE_NOTE}\n`);
+    //
+    // The note goes to stderr so wrapper scripts piping `arkor whoami`
+    // through `jq` (or grepping the JSON / `Orgs:` line on stdout)
+    // aren't broken by human-oriented prose appearing in their data
+    // stream. stdout stays a stable, machine-parseable shape.
+    process.stderr.write(`\n${ANON_SINGLE_DEVICE_NOTE}\n`);
   }
   // Avoid "unused import" noise by referencing CloudApiClient in an assertion.
   void CloudApiClient;

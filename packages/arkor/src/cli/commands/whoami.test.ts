@@ -238,6 +238,34 @@ describe("runWhoami", () => {
     expect(capturedAuth).toBe("Bearer auth0-at");
   });
 
+  it("targets the credentials' arkorCloudApiUrl, not ARKOR_CLOUD_API_URL", async () => {
+    // Anonymous credentials pin the cloud-api they were issued against.
+    // If the env-derived default has changed since login (or this command
+    // is run against a non-default endpoint), `whoami` must follow the
+    // credentials, otherwise the dead-end formatter in `cli/main.ts`
+    // could surface single-device guidance for a token that's actually
+    // valid on its original deployment.
+    await writeCredentials({
+      mode: "anon",
+      token: "anon-tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "https://custom.cloud.example",
+      orgSlug: "anon-abc",
+    });
+    process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
+    let seenUrl = "";
+    globalThis.fetch = vi.fn(async (input) => {
+      seenUrl = String(input);
+      return new Response(
+        JSON.stringify({ user: { id: "u-anon" }, orgs: [] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    await runWhoami();
+    expect(seenUrl).toBe("https://custom.cloud.example/v1/me");
+  });
+
   it("falls back to org id when an org has no slug", async () => {
     // Branch coverage for `o.slug ?? o.id` — historic data may have orgs
     // without a slug column populated; the helper must still render
@@ -291,14 +319,20 @@ describe("runWhoami", () => {
     ) as typeof fetch;
 
     await runWhoami();
+    // The note goes to stderr so wrapper scripts piping `arkor whoami`
+    // through `jq` (or grepping the JSON / `Orgs:` line on stdout)
+    // aren't broken by human-oriented prose appearing in their data
+    // stream. stdout must stay machine-parseable.
     const out = stdoutChunks.join("");
-    expect(out).toMatch(
+    const err = stderrChunks.join("");
+    expect(err).toMatch(
       /Note: anonymous accounts work on this machine only\./,
     );
+    expect(out).not.toMatch(/this machine only/);
     // The OAuth-flavoured upgrade hint is suppressed here because
     // whoami does not know whether OAuth is configured on the
     // deployment.
-    expect(out).not.toMatch(/arkor login --oauth/);
+    expect(err).not.toMatch(/arkor login --oauth/);
   });
 
   it("does not append the single-device note for non-anonymous users", async () => {
@@ -326,7 +360,9 @@ describe("runWhoami", () => {
 
     await runWhoami();
     const out = stdoutChunks.join("");
+    const err = stderrChunks.join("");
     expect(out).not.toMatch(/this machine only/);
+    expect(err).not.toMatch(/this machine only/);
   });
 
   it("throws CloudApiError on other non-2xx so cli/main.ts can format auth-state codes", async () => {

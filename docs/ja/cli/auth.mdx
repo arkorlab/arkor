@@ -102,8 +102,8 @@ arkor whoami
 - `0`: サインイン中、identity を表示。
 - `0`: 未サインイン、メッセージは情報用のみ。
 - `1`: クラウド API が `426 Upgrade Required` を返した。CLI はアップグレードのヒント（と検出したパッケージマネージャ用のアップグレードコマンド）を表示し、`process.exitCode = 1` を立てて、`arkor` のシャットダウンフックの非推奨警告フラッシュが終了前に走るようにします。
-- `1`: クラウド API が認証状態系の構造化 `code`（`anonymous_token_single_device` または `anonymous_account_not_found`）を返した。`cli/main.ts` のトップレベルハンドラがそれを実行可能なメッセージへ整形し、`process.exitCode = 1` を立てます。
-- それ以外の 4xx / 5xx は `CloudApiError` として再 throw され、commander のデフォルトハンドラが上流の `error` 本文をそのまま表示して非ゼロで終了します（旧来の `Token may be expired` ヒントは削除されました。構造化 `code` の方が誤解を生まずに済むためです）。
+- `1`: クラウド API が認証状態系の構造化 `code`（`anonymous_token_single_device` または `anonymous_account_not_found`）を返した。`cli/main.ts` のトップレベルハンドラがそれを stderr 上の実行可能なメッセージへ整形します。具体的な文言は [トークンの有効期限](#トークンの有効期限) を参照。
+- `1`: それ以外の非 2xx（一過性の 5xx、未マップの 4xx など）。以前は「`Failed to fetch /v1/me (<status>). Token may be expired.` を stdout に出して終了コード `0`」でしたが、本リリースで撤廃しました。`arkor whoami` は `CloudApiError` を投げ、`bin.ts` が `err.stack ?? err.message` を stderr に出してから非ゼロで終了します。
 
 ## 認証情報の保存場所
 
