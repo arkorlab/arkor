@@ -383,14 +383,28 @@ describe("create-arkor (E2E)", () => {
           `--use-${flag}`,
           "--git",
         ]);
-        expect(result.code).toBe(0);
-        // yarn-berry's default Plug'n'Play install doesn't materialise a
-        // node_modules tree — deps live under `.yarn/` instead.
-        if (label === "yarn-berry") {
-          expect(existsSync(join(targetDir, ".yarn"))).toBe(true);
-        } else {
-          expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
+        // create-arkor swallows `<pm> install` failures into a warning
+        // (so the user can retry manually) — same gotcha as
+        // arkor-init.test.ts. Surface the captured output eagerly when
+        // the install-matrix run is about to fail an assertion, so the
+        // CI logs aren't bare `expected false to be true` lines.
+        if (
+          result.code !== 0 ||
+          !existsSync(join(targetDir, "node_modules"))
+        ) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[install-matrix:${label}] create-arkor failed to produce node_modules:\n` +
+              `  exit: ${result.code}\n` +
+              `  --- stdout ---\n${result.stdout}\n` +
+              `  --- stderr ---\n${result.stderr}`,
+          );
         }
+        expect(result.code).toBe(0);
+        // See arkor-init.test.ts for the node_modules invariant — the
+        // scaffold pins `nodeLinker: node-modules` for yarn so PnP can't
+        // hide deps from the arkor runtime.
+        expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
         expect(existsSync(join(targetDir, ".git/HEAD"))).toBe(true);
 
         const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);

@@ -212,15 +212,33 @@ describe("arkor init (E2E)", () => {
           ["init", "-y", `--use-${flag}`, "--git"],
           cwd,
         );
-        expect(result.code).toBe(0);
-        // yarn-berry's default Plug'n'Play install doesn't materialise a
-        // node_modules tree — deps live under `.yarn/` instead. Every
-        // other pm produces real node_modules.
-        if (label === "yarn-berry") {
-          expect(existsSync(join(cwd, ".yarn"))).toBe(true);
-        } else {
-          expect(existsSync(join(cwd, "node_modules"))).toBe(true);
+        // arkor init swallows `<pm> install` failures into a one-line
+        // warning so the user can retry manually — that means a broken
+        // pm setup leaves us with `result.code === 0` but no
+        // node_modules and only a warn buried in stderr. Surface the
+        // captured stdout/stderr eagerly when an assertion is about to
+        // fail so the install-matrix CI logs are diagnostic rather than
+        // a bare `expected false to be true`.
+        if (
+          result.code !== 0 ||
+          !existsSync(join(cwd, "node_modules"))
+        ) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[install-matrix:${label}] arkor init failed to produce node_modules:\n` +
+              `  exit: ${result.code}\n` +
+              `  --- stdout ---\n${result.stdout}\n` +
+              `  --- stderr ---\n${result.stderr}`,
+          );
         }
+        expect(result.code).toBe(0);
+        // Every pm — including yarn-berry — produces a real node_modules
+        // tree because the scaffold writes `.yarnrc.yml` with
+        // `nodeLinker: node-modules` whenever the user picked yarn (see
+        // packages/cli-internal/src/scaffold.ts). Without that pin
+        // yarn-berry would default to Plug'n'Play and the arkor runtime
+        // would fail to resolve modules.
+        expect(existsSync(join(cwd, "node_modules"))).toBe(true);
         expect(existsSync(join(cwd, ".git/HEAD"))).toBe(true);
 
         const log = await runGit(cwd, ["log", "-1", "--format=%s"]);
