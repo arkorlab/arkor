@@ -37,8 +37,14 @@ afterEach(() => {
 describe("scaffold", () => {
   it("writes all starter files in an empty directory", async () => {
     const result = await scaffold({ cwd, name: "my-app", template: "minimal" });
-    // index.ts, trainer.ts, arkor.config.ts, README.md, .gitignore, package.json
+    // index.ts, trainer.ts, arkor.config.ts, README.md, .gitignore,
+    // package.json, .yarnrc.yml — the trailing `.yarnrc.yml` fires
+    // because `packageManager` is undefined here (no `--use-*` was
+    // simulated), and the manual-install-hint flow defensively emits
+    // the file so a yarn-berry user reading the hint and running
+    // `yarn install` doesn't land on PnP.
     expect(result.files.map((f) => f.action)).toEqual([
+      "created",
       "created",
       "created",
       "created",
@@ -147,16 +153,20 @@ describe("scaffold", () => {
   });
 
   it("inserts a separating newline when the existing .gitignore lacks a trailing newline", async () => {
-    // Without the `endsWith("\n") ? "" : "\n"` separator, the patched file
-    // would smash the previous last line into the first appended entry —
-    // e.g. `node_modules/dist/`, which git would interpret as a single
-    // path pattern. Existing entries that already match (here:
-    // `node_modules/`) are deduped; missing required entries (`dist/`,
-    // `.arkor/`) are appended one-per-line under the separator.
+    // Without the `endsWith("\n") ? "" : "\n"` separator, the patched
+    // file would smash the previous last line into the first appended
+    // entry — e.g. `node_modules/dist/`, which git would interpret as
+    // a single path pattern. Existing entries that already match
+    // (here: `node_modules/`) are deduped; missing required entries
+    // (`dist/`, `.arkor/`) are appended one-per-line under the
+    // separator. The yarn-cache lines also fire because the
+    // packageManager is undefined here (manual install hint flow).
     writeFileSync(join(cwd, ".gitignore"), "node_modules/");
     await scaffold({ cwd, name: "n", template: "minimal" });
     const contents = readFileSync(join(cwd, ".gitignore"), "utf8");
-    expect(contents).toBe("node_modules/\ndist/\n.arkor/\n");
+    expect(contents).toBe(
+      "node_modules/\ndist/\n.arkor/\n.yarn/cache\n.yarn/install-state.gz\n",
+    );
   });
 
   // yarn-berry defaults to Plug'n'Play, which doesn't materialise
@@ -180,10 +190,34 @@ describe("scaffold", () => {
     );
   });
 
-  // The scaffold should not race a default `nodeLinker` in if the user
-  // already configured yarn intentionally (e.g. they want PnP and have
-  // committed to working around the runtime side themselves).
-  it("keeps an existing .yarnrc.yml untouched", async () => {
+  // Existing `.yarnrc.yml` with no `nodeLinker:` line — yarn 4 would
+  // silently fall back to PnP, breaking the arkor runtime. Scaffold
+  // must append `nodeLinker: node-modules` while preserving the
+  // user's other settings (Copilot review on PR #99).
+  it("appends nodeLinker:node-modules when existing .yarnrc.yml lacks it", async () => {
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\n",
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "minimal",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("patched");
+    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
+    expect(contents).toContain("yarnPath: .yarn/releases/yarn-4.x.cjs");
+    expect(contents).toContain("nodeLinker: node-modules");
+  });
+
+  // Existing `.yarnrc.yml` that explicitly pins PnP — both CLIs
+  // intentionally support merging into existing directories, so
+  // leaving an explicit `nodeLinker: pnp` alone would scaffold a
+  // project the arkor runtime can't load. Override the value while
+  // keeping other settings intact (Copilot review on PR #99).
+  it("rewrites an existing nodeLinker:pnp to node-modules", async () => {
     writeFileSync(join(cwd, ".yarnrc.yml"), "nodeLinker: pnp\nfoo: bar\n");
     const result = await scaffold({
       cwd,
@@ -192,13 +226,50 @@ describe("scaffold", () => {
       packageManager: "yarn",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    expect(yarnrc?.action).toBe("kept");
-    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(
-      "nodeLinker: pnp\nfoo: bar\n",
+    expect(yarnrc?.action).toBe("patched");
+    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
+    expect(contents).toContain("nodeLinker: node-modules");
+    expect(contents).not.toContain("nodeLinker: pnp");
+    // Unrelated settings survive.
+    expect(contents).toContain("foo: bar");
+  });
+
+  // Existing `.yarnrc.yml` that already pins the right linker — no
+  // mutation, no fake "patched" log entry.
+  it("reports ok when existing .yarnrc.yml already pins nodeLinker:node-modules", async () => {
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "nodeLinker: node-modules\nfoo: bar\n",
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "minimal",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("ok");
+  });
+
+  // packageManager === undefined fires when neither `--use-*` was
+  // passed nor `npm_config_user_agent` told us anything (the manual
+  // install hint flow). The hint says "yarn / bun install", so a
+  // yarn-berry user lands here — without a `.yarnrc.yml` they'd hit
+  // PnP and break the arkor runtime (Copilot review on PR #99).
+  it("emits .yarnrc.yml even when packageManager is undefined (manual install hint flow)", async () => {
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "minimal",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("created");
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toContain(
+      "nodeLinker: node-modules",
     );
   });
 
-  it("does not emit .yarnrc.yml for non-yarn package managers", async () => {
+  it("does not emit .yarnrc.yml when the user explicitly picked a non-yarn pm", async () => {
     for (const pm of ["pnpm", "npm", "bun"] as const) {
       rmSync(cwd, { recursive: true, force: true });
       const fresh = mkdtempSync(join(tmpdir(), `cli-internal-test-${pm}-`));
@@ -217,21 +288,30 @@ describe("scaffold", () => {
     cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
   });
 
-  it("adds yarn-cache lines to .gitignore only when packageManager is yarn", async () => {
-    await scaffold({
-      cwd,
-      name: "n",
-      template: "minimal",
-      packageManager: "yarn",
-    });
-    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
-    // `.yarn/cache` accumulates zip tarballs of every dependency
-    // (~tens of MB); committing it would balloon the initial commit.
-    expect(gi).toContain(".yarn/cache");
-    expect(gi).toContain(".yarn/install-state.gz");
+  it("adds yarn-cache lines to .gitignore for yarn or undetected pm", async () => {
+    for (const pm of ["yarn", undefined] as const) {
+      rmSync(cwd, { recursive: true, force: true });
+      const fresh = mkdtempSync(join(tmpdir(), `cli-internal-test-${pm ?? "undef"}-`));
+      try {
+        await scaffold({
+          cwd: fresh,
+          name: "n",
+          template: "minimal",
+          packageManager: pm,
+        });
+        const gi = readFileSync(join(fresh, ".gitignore"), "utf8");
+        // `.yarn/cache` accumulates zip tarballs of every dependency
+        // (~tens of MB); committing it would balloon the initial commit.
+        expect(gi).toContain(".yarn/cache");
+        expect(gi).toContain(".yarn/install-state.gz");
+      } finally {
+        rmSync(fresh, { recursive: true, force: true });
+      }
+    }
+    cwd = mkdtempSync(join(tmpdir(), "cli-internal-test-"));
   });
 
-  it("does not add yarn-cache lines to .gitignore for non-yarn package managers", async () => {
+  it("does not add yarn-cache lines to .gitignore when the user explicitly picked a non-yarn pm", async () => {
     await scaffold({
       cwd,
       name: "n",

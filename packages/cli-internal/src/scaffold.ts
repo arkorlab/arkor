@@ -106,10 +106,12 @@ async function patchGitignore(
   const path = join(cwd, GITIGNORE_PATH);
   // Required entries — every pm gets these.
   const required = ["node_modules/", "dist/", ".arkor/"];
-  // Yarn-specific entries are appended only when the user picked yarn so
-  // npm / pnpm / bun trees stay free of unrelated yarn-berry chatter in
-  // their gitignore.
-  if (packageManager === "yarn") {
+  // Yarn-specific entries fire when the user picked yarn or hasn't
+  // picked anything yet (the manual install hint flow). Same defensive
+  // logic as the .yarnrc.yml emission in `scaffold()` — protect the
+  // user who reads "yarn / bun install" in the hint and picks yarn,
+  // without polluting an explicit npm / pnpm / bun tree.
+  if (packageManager === "yarn" || packageManager === undefined) {
     required.push(...YARN_GITIGNORE_LINES);
   }
 
@@ -132,14 +134,63 @@ async function patchGitignore(
 }
 
 async function patchYarnConfig(cwd: string): Promise<FileAction> {
-  // Don't clobber an existing `.yarnrc.yml`. The user might already have
-  // PnP intentionally configured, or be pinning a different `nodeLinker`
-  // (`pnp-loose`, `pnpm`, …) — leaving theirs alone is safer than racing
-  // a default in.
   const path = join(cwd, YARNRC_YML_PATH);
-  if (existsSync(path)) return "kept";
-  await writeFile(path, YARNRC_YML_CONTENT);
-  return "created";
+  if (!existsSync(path)) {
+    await writeFile(path, YARNRC_YML_CONTENT);
+    return "created";
+  }
+  // The file already exists — but we still need `nodeLinker:
+  // node-modules` to be set. Two failure modes the previous "always
+  // kept" branch left wide open:
+  //   1. Existing `.yarnrc.yml` carries unrelated yarn settings but no
+  //      `nodeLinker` key, so yarn 4 silently defaults to PnP and the
+  //      arkor runtime can't resolve modules.
+  //   2. Existing `.yarnrc.yml` explicitly pins `nodeLinker: pnp` (the
+  //      user committed to PnP for an existing repo). arkor can't
+  //      load through PnP, so leaving that alone produces a broken
+  //      project after `arkor init` merges into the repo.
+  //
+  // Policy: always insist on `nodeLinker: node-modules` when arkor is
+  // scaffolding into a yarn project. If the file already has a
+  // matching key (any value), patch it to `node-modules`; otherwise
+  // append the line. Other settings are preserved verbatim — we only
+  // touch the `nodeLinker:` key.
+  const current = await readFile(path, "utf8");
+  const lines = current.split(/\r?\n/);
+  // Match `nodeLinker:` at line start (yarnrc.yml is YAML, top-level
+  // keys live at column 0). Match in any-value form so an explicit
+  // `nodeLinker: pnp` gets rewritten — the reviewer flagged that
+  // case as a real footgun for users merging arkor into an existing
+  // PnP repo.
+  const nodeLinkerRe = /^nodeLinker\s*:/;
+  let mutated = false;
+  let alreadyCorrect = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (nodeLinkerRe.test(lines[i] ?? "")) {
+      if (lines[i] === "nodeLinker: node-modules") {
+        alreadyCorrect = true;
+      } else {
+        lines[i] = "nodeLinker: node-modules";
+        mutated = true;
+      }
+      break;
+    }
+  }
+  if (alreadyCorrect && !mutated) return "ok";
+  if (!mutated) {
+    // No `nodeLinker:` line at all — append. Keep the existing
+    // trailing-newline shape (mirrors patchGitignore).
+    const separator = current.endsWith("\n") ? "" : "\n";
+    await writeFile(path, `${current}${separator}${YARNRC_YML_CONTENT}`);
+    return "patched";
+  }
+  // Replaced an existing non-matching `nodeLinker:` value.
+  const trailing = current.endsWith("\n") ? "\n" : "";
+  await writeFile(
+    path,
+    lines.join("\n").replace(/\n+$/, "") + trailing,
+  );
+  return "patched";
 }
 
 async function patchPackageJson(
@@ -228,9 +279,23 @@ export async function scaffold(
     path: PACKAGE_JSON_PATH,
     action: await patchPackageJson(cwd, options.name),
   });
-  // yarn-only: write `.yarnrc.yml` so yarn-berry uses node_modules
-  // instead of PnP. See ScaffoldOptions.packageManager for the why.
-  if (options.packageManager === "yarn") {
+  // Defensive yarn config emission: also fires when pm is undefined.
+  // Both `arkor init` and `create-arkor` have a real "we couldn't
+  // detect a pm" path that prints the manual install hint (`install
+  // dependencies (npm i / pnpm install / yarn / bun install)`) and
+  // hands off — at that point a yarn-berry user reading the hint and
+  // running `yarn install` would otherwise hit the PnP default and
+  // get a project the arkor runtime can't load. yarn 1.x and yarn-
+  // berry both ignore `.yarnrc.yml` when not in use (yarn 1 reads
+  // `.yarnrc`; berry only consults it if you're actually invoking
+  // yarn), and npm / pnpm / bun don't read it at all, so emitting
+  // for the undefined-pm case is harmless for non-yarn flows. Only
+  // skip when the user *explicitly* picked another pm (npm / pnpm /
+  // bun) — that's a clear signal they aren't going to switch.
+  if (
+    options.packageManager === "yarn" ||
+    options.packageManager === undefined
+  ) {
     files.push({
       path: YARNRC_YML_PATH,
       action: await patchYarnConfig(cwd),
