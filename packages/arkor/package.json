@@ -55,10 +55,10 @@
     "@clack/prompts": "^0.8.0",
     "@hono/node-server": "^1.14.0",
     "commander": "^13.0.0",
-    "esbuild": "^0.28.0",
     "hono": "^4.7.0",
     "open": "^10.0.0",
     "posthog-node": "^5.30.6",
+    "rolldown": "^1.0.0-rc.17",
     "zod": "^4.3.6"
   },
   "devDependencies": {

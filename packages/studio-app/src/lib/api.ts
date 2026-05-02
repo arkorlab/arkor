@@ -106,6 +106,26 @@ export function openJobEvents(jobId: string): EventSource {
   );
 }
 
+/**
+ * HMR rebuild notifications from `arkor dev`. Server pushes a `ready`
+ * event on first bundle, `rebuild` on each subsequent change, and `error`
+ * when the bundle fails to compile. `restart: true` indicates a training
+ * subprocess was signalled to early-stop and the SPA should re-spawn it
+ * after the current `streamTraining` resolves.
+ */
+export interface DevEvent {
+  type: "ready" | "rebuild" | "error";
+  outFile?: string;
+  hash?: string;
+  message?: string;
+  restart?: boolean;
+  restartTargets?: Array<{ pid: number; trainFile?: string }>;
+}
+
+export function openDevEvents(): EventSource {
+  return new EventSource(withStudioToken("/api/dev/events"));
+}
+
 export interface ChatRequestBody {
   messages: Array<{
     role: "system" | "user" | "assistant";

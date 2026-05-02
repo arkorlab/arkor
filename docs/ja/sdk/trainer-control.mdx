@@ -5,7 +5,7 @@ description: "start、wait、cancel、abortSignal、再接続の仕組み。"
 
 # トレーナー制御
 
-`createTrainer` は次の 3 メソッドを持つ `Trainer` オブジェクトを返します:
+`createTrainer` は次の 4 メソッドを持つ `Trainer` オブジェクトを返します:
 
 ```ts
 interface Trainer {
@@ -13,6 +13,7 @@ interface Trainer {
   start(): Promise<{ jobId: string }>;
   wait(): Promise<TrainingResult>;
   cancel(): Promise<void>;
+  requestEarlyStop(opts?: { timeoutMs?: number }): Promise<void>;
 }
 
 interface TrainingResult {
@@ -53,6 +54,25 @@ await trainer.cancel();
 - `start()` がまだ呼ばれていなければ `cancel()` は何もしません（`:388-389` で早期 return）。
 - そうでなければバックエンドにキャンセルリクエストを送ります。
 - **ベストエフォート。** SDK は終端ステータスでショートサーキットしません。学習が既に completed / failed / cancelled なら、バックエンドは non-2xx を返すことがあり `cancel()` は reject します。投機的に呼ぶなら `try / catch` で囲んでください。
+
+## `requestEarlyStop()`
+
+```ts
+await trainer.requestEarlyStop();
+// もしくはチェックポイント待ちのデッドラインを指定:
+await trainer.requestEarlyStop({ timeoutMs: 60_000 });
+```
+
+「直近のチェックポイントを保全する」 `cancel()` の兄弟版です。
+
+- ラッチを armed にします。トレーナーは **次の** `checkpoint.saved` イベントが来るまで実行を続けます。チェックポイントが永続化された時点で SDK が代わりに `cancel()` を呼び、戻り値の Promise を resolve します。
+- `timeoutMs`（デフォルト: 5 分）以内にチェックポイントが来なかった場合は即時 `cancel()` にフォールバックします。`saveSteps` の間隔がそれより長い場合はこの値を調整してください。
+- 冪等: 連続して呼んでも同じ in-flight Promise を共有し、`cancel()` は 1 度しか発火しません。
+- `start()` 前、もしくはジョブが既に終端ステータスに達している場合は何もしません。
+
+これは `arkor dev` の HMR パイプラインが内部で使っている API です。実行中にソースファイルを保存すると Studio が spawn 済みの `arkor start` プロセスに `SIGTERM` を送り、シグナルハンドラが `requestEarlyStop()` を呼んでチェックポイントのアップロード完了後にクリーンに終了します。Cloud 側のジョブは `cancelled` ステータスで完了します。
+
+自前のコード（プログラム的な two-process パターンなど）から `requestEarlyStop()` を直接呼ぶこともできます。Cookbook の [Early Stopping](/ja/cookbook/early-stopping) レシピが `onCheckpoint` + `abortSignal` + `cancel()` で組み立てているのと同じ「実行中ステップを捨てずに止める」セマンティクスを、ワンショットで提供します。レシピ版の方が柔軟（メトリクス次第で abort のタイミングを決めるなど）ですが、こちらは「次のチェックポイントで止める」という典型ケースの便利フックです。
 
 ## `abortSignal`
 

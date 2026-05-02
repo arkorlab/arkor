@@ -139,6 +139,18 @@ export function createTrainer(
   let scope: { orgSlug: string; projectSlug: string } | null = null;
   let clientPromise: Promise<CloudApiClient> | null = null;
 
+  // Early-stop state. `requestEarlyStop()` arms the latch; the next
+  // `checkpoint.saved` dispatch (or the timeout, whichever fires first)
+  // calls cancel() and resolves the deferred. Idempotent across repeat
+  // calls — they share the same deferred.
+  const DEFAULT_EARLY_STOP_TIMEOUT_MS = 5 * 60 * 1000;
+  let earlyStopDeferred: {
+    promise: Promise<void>;
+    resolve: () => void;
+    timer: NodeJS.Timeout | null;
+  } | null = null;
+  let earlyStopRequested = false;
+
   async function getClient(): Promise<CloudApiClient> {
     if (!clientPromise) {
       clientPromise = (async () => {
@@ -244,6 +256,15 @@ export function createTrainer(
           artifacts: event.artifacts,
         };
         await callbacks.onCheckpoint?.(ctx);
+        // Early-stop latch: a checkpoint just landed, so the in-flight work
+        // is durable. Cancel the cloud job and end `wait()` cleanly.
+        if (earlyStopRequested && earlyStopDeferred) {
+          await trainer.cancel();
+          if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
+          earlyStopDeferred.resolve();
+          earlyStopDeferred = null;
+          return { terminal: true, artifacts: terminalResult?.artifacts ?? [] };
+        }
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
       }
       case "training.completed": {
@@ -389,6 +410,47 @@ export function createTrainer(
       if (!startedJob || !scope) return;
       const client = await getClient();
       await client.cancelJob(startedJob.id, scope);
+    },
+
+    async requestEarlyStop(opts: { timeoutMs?: number } = {}): Promise<void> {
+      // Nothing in flight: cleanup any prior latch and resolve.
+      if (!startedJob || !scope || TERMINAL_STATUSES.has(startedJob.status)) {
+        if (earlyStopDeferred) {
+          if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
+          earlyStopDeferred.resolve();
+          earlyStopDeferred = null;
+        }
+        earlyStopRequested = false;
+        return;
+      }
+      // Idempotent: a second call piggybacks on the first.
+      if (earlyStopDeferred) return earlyStopDeferred.promise;
+
+      earlyStopRequested = true;
+      let resolveFn!: () => void;
+      const promise = new Promise<void>((resolve) => {
+        resolveFn = resolve;
+      });
+      const timeoutMs = opts.timeoutMs ?? DEFAULT_EARLY_STOP_TIMEOUT_MS;
+      const timer = setTimeout(() => {
+        // Timed out waiting for a checkpoint — fall back to immediate cancel.
+        // Capture the active deferred reference: by the time the cancel POST
+        // resolves, the checkpoint branch may have nulled out the shared
+        // slot, but this fallback path still owns the deferred it created.
+        const active = earlyStopDeferred;
+        trainer
+          .cancel()
+          .catch(() => {})
+          .finally(() => {
+            if (active) active.resolve();
+            if (earlyStopDeferred === active) earlyStopDeferred = null;
+          });
+      }, timeoutMs);
+      // `Timer.unref` keeps the early-stop timer from blocking process exit
+      // when the host runtime finishes for unrelated reasons.
+      timer.unref?.();
+      earlyStopDeferred = { promise, resolve: resolveFn, timer };
+      return promise;
     },
   };
 

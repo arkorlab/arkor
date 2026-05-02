@@ -63,7 +63,7 @@ cd my-arkor-app && pnpm dev                            # Studio at http://127.0.
 
 `arkor dev` generates a 32-byte base64url token per launch ([packages/arkor/src/cli/commands/dev.ts](packages/arkor/src/cli/commands/dev.ts)) and:
 
-1. Passes it to `buildStudioApp({ studioToken })`. The Hono server validates every `/api/*` request via `X-Arkor-Studio-Token` header (or `?studioToken=` query for `EventSource`, which can't set headers). Comparison uses `timingSafeEqual`.
+1. Passes it to `buildStudioApp({ studioToken })`. The Hono server validates every `/api/*` request via `X-Arkor-Studio-Token` header (or `?studioToken=` query for `EventSource`, which can't set headers). Comparison uses `timingSafeEqual`. The query-token allow-list lives in `eventStreamPathPattern` in [packages/arkor/src/studio/server.ts](packages/arkor/src/studio/server.ts) — currently `/api/jobs/:id/events` and `/api/dev/events`. **Adding to that regex is CSRF-sensitive: each entry must be a GET stream-only route, never a mutation endpoint.**
 2. Persists it to `~/.arkor/studio-token` (mode 0600) so the SPA dev workflow (`pnpm --filter @arkor/studio-app dev`) can read it via the `arkor-studio-token` Vite plugin in [packages/studio-app/vite.config.ts](packages/studio-app/vite.config.ts), which injects `<meta name="arkor-studio-token">` into `index.html` on each request. Persistence failure must NOT block server start (read-only `$HOME` on Docker, etc.) — just warn.
 3. Cleans up on `exit`/SIGINT/SIGTERM/SIGHUP via `unlinkSync`.
 
@@ -73,11 +73,19 @@ The whole point: prevents another browser tab on the same machine from POSTing `
 
 When touching the Studio server or SPA fetch layer, preserve: token via header for `fetch`, query param for `EventSource`, host-header guard, no CORS, timing-safe compare. The Vite plugin is dev-only (`apply: "serve"`) — running it during `vite build` would bake a stale per-launch token into the production `index.html` and shadow the runtime tag, causing every `/api/*` call to 403.
 
+### HMR + graceful early-stop
+
+`arkor dev` keeps a [Rolldown](https://rolldown.rs) watcher over `src/arkor/` ([packages/arkor/src/studio/hmr.ts](packages/arkor/src/studio/hmr.ts)) and pushes rebuild events over `/api/dev/events` (SSE). The SPA re-fetches `/api/manifest` on each event so the Run Training button stays in sync without a browser refresh.
+
+When a rebuild lands while a `/api/train`-spawned subprocess is in flight, the server SIGTERM's the child. The child's signal handler in `runTrainer` calls `Trainer.requestEarlyStop()`, which lets the next `checkpoint.saved` event finish (work preserved) before issuing `cancel()` and exiting cleanly. The SPA then auto-restarts the run with the rebuilt artifact via the `restart: true` flag on the SSE event. A second SIGTERM bypasses the early-stop and exits 143 immediately — emergency escape hatch for a hung cancel.
+
+Don't replace the SIGTERM-and-let-the-child-handle-it pattern with a SIGKILL escalation in the server: that would orphan Cloud-side jobs (no `cancel()` POST goes out) and waste GPU budget. The hard kill timer in `requestEarlyStopOnActive` exists only as a stuck-process fallback.
+
 ### Project entry-point discovery
 
 The CLI/Studio look at `src/arkor/index.ts` in user projects. Discovery in [packages/arkor/src/core/runner.ts](packages/arkor/src/core/runner.ts) accepts (in order): a named `arkor` export from `createArkor({...})`, a bare `trainer` export, a default export holding either an Arkor manifest or a Trainer, or a `default.trainer` nested shape. `createArkor` returns a frozen, opaque manifest tagged with `_kind: "arkor"`; treat it as a value to hand to tooling, not a programmable client.
 
-`arkor build` ([packages/arkor/src/cli/commands/build.ts](packages/arkor/src/cli/commands/build.ts)) bundles to `.arkor/build/index.mjs` with esbuild; bare specifiers (e.g. `arkor`, anything in `node_modules`) stay external so the artifact resolves the runtime SDK from the project's installed copy.
+`arkor build` ([packages/arkor/src/cli/commands/build.ts](packages/arkor/src/cli/commands/build.ts)) bundles to `.arkor/build/index.mjs` with [Rolldown](https://rolldown.rs); bare specifiers (e.g. `arkor`, anything in `node_modules`) stay external so the artifact resolves the runtime SDK from the project's installed copy. The `transform.target` is derived from `process.versions.node` at build time so the bundle targets the same Node binary that will execute it.
 
 ### E2E suite specifics
 
@@ -101,4 +109,4 @@ Don't split these into "docs in a follow-up PR" or "tests later" — land them i
 - **Don't call a HuggingFace model name "non-existent"** based on training-data alone. Templates reference real models (e.g. `unsloth/gemma-4-E4B-it`) that may post-date Claude's knowledge cutoff. Verify (e.g. `WebFetch`) before flagging in issues or PR comments. If unverifiable, hedge ("could not confirm") rather than asserting absence.
 - **Generated files** copied into package dirs are gitignored: `packages/*/CONTRIBUTING.md` (from root), `packages/arkor/docs/` (from root `docs/`). Edit the source under repo root, not the copies.
 - **Node version**: published packages declare `engines.node >=22.6`. Use Node 24 (latest preferred) for development per [CONTRIBUTING.md](CONTRIBUTING.md).
-- **pnpm policy** ([pnpm-workspace.yaml](pnpm-workspace.yaml)): `minimumReleaseAge: 1440` (24 h) and `trustPolicy: no-downgrade` are intentional supply-chain guards. `allowBuilds` is the explicit allow-list for postinstall scripts (rolldown, unrs-resolver, esbuild).
+- **pnpm policy** ([pnpm-workspace.yaml](pnpm-workspace.yaml)): `minimumReleaseAge: 1440` (24 h) and `trustPolicy: no-downgrade` are intentional supply-chain guards. `allowBuilds` is the explicit allow-list for postinstall scripts (rolldown for `arkor build`, esbuild for Vite's dependency optimization, unrs-resolver).

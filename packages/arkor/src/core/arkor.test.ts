@@ -23,6 +23,7 @@ function fakeTrainer(name = "run"): Trainer {
       };
     },
     async cancel() {},
+    async requestEarlyStop() {},
   };
 }
 

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
-import { build as esbuild } from "esbuild";
+import { rolldown } from "rolldown";
 import { ui } from "../prompts";
 
 export interface BuildOptions {
@@ -26,6 +26,16 @@ const DEFAULT_ENTRY = "src/arkor/index.ts";
 const DEFAULT_OUT_DIR = ".arkor/build";
 
 /**
+ * `node<major>.<minor>` derived from the running Node binary. Build host and run
+ * host are effectively the same process: Studio spawns `arkor start` with
+ * `process.execPath`, so the bundle can target precisely what will execute it.
+ */
+function resolveNodeTarget(): string {
+  const [major = "22", minor = "6"] = process.versions.node.split(".");
+  return `node${major}.${minor}`;
+}
+
+/**
  * Bundle the user's `src/arkor/index.ts` into a single ESM artifact at
  * `.arkor/build/index.mjs`.
  *
@@ -48,16 +58,28 @@ export async function runBuild(opts: BuildOptions = {}): Promise<BuildResult> {
   await mkdir(outDir, { recursive: true });
   const outFile = resolve(outDir, "index.mjs");
 
-  await esbuild({
-    entryPoints: [entry],
-    bundle: true,
+  const bundle = await rolldown({
+    input: entry,
+    cwd,
     platform: "node",
-    format: "esm",
-    target: "node22.6",
-    outfile: outFile,
-    packages: "external",
-    logLevel: "error",
+    logLevel: "warn",
+    transform: { target: resolveNodeTarget() },
+    // Mirror esbuild's `packages: "external"`: any specifier that isn't a
+    // relative or absolute path stays external. `node:`-prefixed builtins are
+    // already handled by `platform: "node"` but we keep the explicit allow as
+    // a safety net in case the builtin set drifts.
+    external: (id, _importer, isResolved) => {
+      if (isResolved) return false;
+      if (id.startsWith(".")) return false;
+      if (isAbsolute(id)) return false;
+      return true;
+    },
   });
+  try {
+    await bundle.write({ file: outFile, format: "esm" });
+  } finally {
+    await bundle.close();
+  }
 
   if (!opts.quiet) {
     ui.log.success(

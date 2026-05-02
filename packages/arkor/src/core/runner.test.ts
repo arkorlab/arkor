@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +33,7 @@ function fakeTrainer(onStart?: () => void, onWait?: () => void): Trainer {
       };
     },
     async cancel() {},
+    async requestEarlyStop() {},
   };
 }
 
@@ -205,5 +206,89 @@ describe("runTrainer — entry extraction", () => {
     const t = fakeTrainer();
     expect(typeof t.start).toBe("function");
     expect(typeof t.wait).toBe("function");
+  });
+});
+
+describe("runTrainer — shutdown signal handling", () => {
+  it("first SIGTERM calls trainer.requestEarlyStop and exits 0; second SIGTERM exits 143", async () => {
+    // Fake trainer whose `wait()` hangs until the test manually resolves it
+    // (via a global helper). This lets us hold the run in flight long
+    // enough to assert both signal-handling branches without racing the
+    // `finally` block that removes the listeners.
+    const trainerSrc = `
+      let earlyStopCalls = 0;
+      let resolveWait;
+      const waitPromise = new Promise((r) => { resolveWait = r; });
+      globalThis.__test_signalProbe = {
+        get earlyStopCalls() { return earlyStopCalls; },
+        finishWait: () => resolveWait({
+          job: {
+            id: "j1", orgId: "o", projectId: "p", name: "n",
+            status: "completed",
+            config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+            createdAt: "2026",
+          },
+          artifacts: [],
+        }),
+      };
+      export const trainer = {
+        name: "n",
+        start: async () => ({ jobId: "j1" }),
+        wait: () => waitPromise,
+        cancel: async () => {},
+        requestEarlyStop: async () => { earlyStopCalls++; },
+      };
+    `;
+    const entry = join(cwd, "src/arkor/index.mjs");
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(entry, trainerSrc);
+
+    const exitCalls: number[] = [];
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((code?: number) => {
+        exitCalls.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit);
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      const runPromise = runTrainer("src/arkor/index.mjs");
+      // Wait for import + start() to settle so the handler is registered
+      // before we synthesise SIGTERM. The fake's `wait()` hangs forever, so
+      // the run remains in flight throughout the assertions.
+      await new Promise((r) => setTimeout(r, 25));
+
+      const probe = (globalThis as unknown as {
+        __test_signalProbe: {
+          earlyStopCalls: number;
+          finishWait: () => void;
+        };
+      }).__test_signalProbe;
+
+      // 1st SIGTERM → requestEarlyStop is called, exit(0) scheduled in the
+      // promise's `.finally`.
+      process.emit("SIGTERM", "SIGTERM");
+      await new Promise((r) => setTimeout(r, 25));
+      expect(probe.earlyStopCalls).toBe(1);
+      expect(exitCalls).toContain(0);
+
+      // 2nd SIGTERM (still in-flight, listeners not yet removed) →
+      // exit(143) immediately, no second requestEarlyStop call.
+      process.emit("SIGTERM", "SIGTERM");
+      await new Promise((r) => setTimeout(r, 25));
+      expect(probe.earlyStopCalls).toBe(1);
+      expect(exitCalls).toContain(143);
+
+      // Release the hung wait() so runPromise can complete and the
+      // shutdown handlers detach via the finally block.
+      probe.finishWait();
+      await runPromise;
+    } finally {
+      exitSpy.mockRestore();
+      stdoutSpy.mockRestore();
+      delete (globalThis as Record<string, unknown>).__test_signalProbe;
+    }
   });
 });

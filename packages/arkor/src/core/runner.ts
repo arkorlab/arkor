@@ -42,6 +42,51 @@ function extractTrainer(mod: Record<string, unknown>): Trainer {
   );
 }
 
+const SHUTDOWN_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
+
+/**
+ * Two-stage signal handling so HMR rebuilds (Studio sends SIGTERM) preserve
+ * the in-flight checkpoint work:
+ *
+ *   - 1st signal → `trainer.requestEarlyStop()`. The trainer keeps running,
+ *     lets the next `checkpoint.saved` event land, then issues `cancel()`.
+ *   - 2nd signal → immediate `process.exit(143)`. Escape hatch for an
+ *     impatient operator or a hung early-stop.
+ *
+ * The handlers are removed in `finally` so a normal `wait()` completion
+ * doesn't leave stale listeners behind — important because `runTrainer` can
+ * be called multiple times in tests within a single Node process.
+ */
+function installShutdownHandlers(trainer: Trainer): () => void {
+  let signalCount = 0;
+  const handler = (signal: NodeJS.Signals): void => {
+    signalCount += 1;
+    if (signalCount > 1) {
+      process.stdout.write(
+        `Received second ${signal}; exiting without waiting for checkpoint.\n`,
+      );
+      process.exit(143);
+      // Explicit return so test mocks of process.exit (which don't actually
+      // terminate the worker) don't fall through into the early-stop path.
+      return;
+    }
+    process.stdout.write(
+      `Received ${signal}; early-stopping at next checkpoint…\n`,
+    );
+    trainer
+      .requestEarlyStop()
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`requestEarlyStop failed: ${msg}\n`);
+      })
+      .finally(() => process.exit(0));
+  };
+  for (const sig of SHUTDOWN_SIGNALS) process.on(sig, handler);
+  return () => {
+    for (const sig of SHUTDOWN_SIGNALS) process.off(sig, handler);
+  };
+}
+
 export async function runTrainer(file?: string): Promise<void> {
   const relative = file ?? DEFAULT_ENTRY;
   const abs = isAbsolute(relative) ? relative : resolve(process.cwd(), relative);
@@ -53,8 +98,15 @@ export async function runTrainer(file?: string): Promise<void> {
   const mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
   const trainer = extractTrainer(mod);
 
-  const { jobId } = await trainer.start();
-  process.stdout.write(`Started job ${jobId}\n`);
-  const result = await trainer.wait();
-  process.stdout.write(`Job ${result.job.id} finished with status=${result.job.status}\n`);
+  const removeShutdownHandlers = installShutdownHandlers(trainer);
+  try {
+    const { jobId } = await trainer.start();
+    process.stdout.write(`Started job ${jobId}\n`);
+    const result = await trainer.wait();
+    process.stdout.write(
+      `Job ${result.job.id} finished with status=${result.job.status}\n`,
+    );
+  } finally {
+    removeShutdownHandlers();
+  }
 }
