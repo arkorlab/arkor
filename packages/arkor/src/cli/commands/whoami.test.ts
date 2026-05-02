@@ -265,14 +265,13 @@ describe("runWhoami", () => {
     expect(out).toMatch(/Orgs: o-without-slug, named/);
   });
 
-  it("appends the bare single-device note when /v1/me reports an anonymous identity", async () => {
-    // Anonymous accounts are bound to the issuing machine on the
-    // server side (jti rotation). Surface that fact at whoami time so
-    // users discover it before hitting a 401 on a second machine. The
-    // note here is intentionally the *bare* fact — whoami doesn't fetch
-    // /v1/auth/cli/config, so it can't tell whether `arkor login --oauth`
-    // would actually work, and recommending it on anon-only deployments
-    // would point users at a command that fails.
+  it("appends the bare single-device note when credentials are anonymous", async () => {
+    // The note is keyed on the local `creds.mode === "anon"` rather
+    // than the cloud-api's `/v1/me` body shape, because the response
+    // schema doesn't guarantee a discriminator field. The fixture
+    // here mirrors what the existing E2E tests assume the server
+    // returns (a plain user object, no `kind`) so a regression that
+    // re-introduces a body-shape dependency is caught here.
     await writeCredentials({
       mode: "anon",
       token: "anon-tok",
@@ -284,7 +283,7 @@ describe("runWhoami", () => {
       async () =>
         new Response(
           JSON.stringify({
-            user: { kind: "anonymous", anonymousId: "abc" },
+            user: { id: "u-anon", email: null },
             orgs: [],
           }),
           { status: 200, headers: { "content-type": "application/json" } },

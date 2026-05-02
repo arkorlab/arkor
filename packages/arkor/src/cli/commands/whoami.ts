@@ -56,26 +56,29 @@ export async function runWhoami(): Promise<void> {
     user: Record<string, unknown>;
     orgs: Record<string, unknown>[];
   };
-  const isAnonymous =
-    typeof body.user === "object" &&
-    body.user !== null &&
-    (body.user as { kind?: unknown }).kind === "anonymous";
   process.stdout.write(`${JSON.stringify(body.user, null, 2)}\n`);
   if (body.orgs.length > 0) {
     process.stdout.write(
       `Orgs: ${body.orgs.map((o) => String(o.slug ?? o.id)).join(", ")}\n`,
     );
   }
-  if (isAnonymous) {
+  if (creds.mode === "anon") {
     // Anonymous accounts are single-device on purpose, so surface the
     // limitation here so users discover it before hitting a 401 on a
-    // second machine. We deliberately emit the *bare* fact rather than
-    // the OAuth-flavoured variant: `whoami` doesn't know whether the
-    // current deployment advertises OAuth (that would require a second
-    // network call to `/v1/auth/cli/config`), and steering anon-only
-    // users at `arkor login --oauth` would point them at a command that
-    // fails immediately. The matching login/dev surfaces, which already
-    // know `oauthAvailable`, do append the upgrade hint when warranted.
+    // second machine. We key off `creds.mode` (already in scope from
+    // `readCredentials()`) rather than `body.user.kind` because the
+    // cloud-api's `/v1/me` schema doesn't guarantee a `kind` field on
+    // the response — relying on it would silently skip the note for
+    // anonymous users on every deployment that doesn't surface the
+    // discriminator.
+    //
+    // We deliberately emit the *bare* fact rather than the
+    // OAuth-flavoured variant: `whoami` doesn't fetch
+    // `/v1/auth/cli/config`, so it can't tell whether OAuth is offered,
+    // and steering anon-only users at `arkor login --oauth` would point
+    // them at a command that fails immediately. The matching login/dev
+    // surfaces, which already know `oauthAvailable`, do append the
+    // upgrade hint when warranted.
     process.stdout.write(`\n${ANON_SINGLE_DEVICE_NOTE}\n`);
   }
   // Avoid "unused import" noise by referencing CloudApiClient in an assertion.
