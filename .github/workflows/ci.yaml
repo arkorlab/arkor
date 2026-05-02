@@ -419,6 +419,20 @@ jobs:
           # its npm/pnpm flow already skips file: devDeps and we want a
           # canary that the in-workspace package.json itself is sane.
           ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ runner.temp }}/arkor-scaffold-source
+          # yarn-berry only: yarn 4 detects CI=1 (set by spawn-cli) and
+          # flips `enableImmutableInstalls` on by default, refusing to
+          # create a lockfile (which freshly scaffolded projects don't
+          # have yet) — `YN0028: The lockfile would have been created
+          # by this install, which is explicitly forbidden`. Override
+          # so yarn-berry can write the initial lockfile.
+          YARN_ENABLE_IMMUTABLE_INSTALLS: 'false'
+          # yarn classic only: yarn 1 has a long-standing race extracting
+          # esbuild-style platform-specific optionalDependencies — the
+          # parent `node_modules/@esbuild/linux-x64/` dir gets created
+          # racily and the tarball write fails with ENOENT. Serialising
+          # network operations sidesteps it. Harmless for yarn-berry
+          # (it reads `networkConcurrency` from `.yarnrc.yml` instead).
+          YARN_NETWORK_CONCURRENCY: '1'
         run: |
           # Derive the e2e install-test gate label from the matrix id.
           # yarn-berry and the pnpm-N entries share a common label across
