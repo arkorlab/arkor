@@ -246,6 +246,13 @@ jobs:
       - name: Enable corepack (bootstrap)
         if: ${{ matrix.rolldownIncompat }}
         run: |
+          # Older Node minors (notably 22.13.x) ship a corepack with stale
+          # npm-registry signing keys that fail `verifySignature` on every
+          # `pnpm install` after the upstream key rotation. Upgrade
+          # corepack itself to latest before enabling so keys match.
+          # Latest Node 24 already includes a fresh corepack but the
+          # upgrade is cheap and a no-op when already current.
+          npm install -g corepack@latest
           corepack enable
           echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
 
@@ -282,6 +289,12 @@ jobs:
       # activated default.
       - name: Enable corepack (matrix)
         run: |
+          # Same signing-key story as the bootstrap step above — Node
+          # 22.13.x (and likely a few other minors in this matrix) ships
+          # a corepack predating the npm-registry key rotation, so a
+          # plain `corepack enable` followed by `pnpm install` blows up
+          # in `verifySignature`. Upgrade first.
+          npm install -g corepack@latest
           corepack enable
           echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
 
