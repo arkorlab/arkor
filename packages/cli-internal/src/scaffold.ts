@@ -193,6 +193,21 @@ function readNodeLinkerValue(yarnrc: string): string | undefined {
   let rootIndent: number | undefined;
   for (const line of yarnrc.split(/\r?\n/)) {
     if (!line.trim() || /^\s*#/.test(line)) continue;
+    // Skip YAML structural markers — directives (`%YAML 1.2`,
+    // `%TAG …`) and document boundaries (`---`, `...`). They aren't
+    // mapping entries, so anchoring `rootIndent` at their column
+    // would misclassify legitimately top-level keys at the
+    // document's actual indent as "nested" (e.g. an explicit
+    // `---\n  nodeLinker: node-modules\n` would be read as
+    // missing). PR #99 round-11 review.
+    const trimmed = line.trim();
+    if (
+      trimmed === "---" ||
+      trimmed === "..." ||
+      trimmed.startsWith("%")
+    ) {
+      continue;
+    }
     const indent = /^(\s*)/.exec(line)?.[1].length ?? 0;
     if (rootIndent === undefined) rootIndent = indent;
     if (indent !== rootIndent) continue; // nested — skip
@@ -267,9 +282,19 @@ function buildYarnBerryCaveatAdvisory(): string {
 }
 
 type YarnConfigStatus =
-  | { kind: "ok" } // file exists & nodeLinker:node-modules
-  | { kind: "needs-setup" } // no file, OR file with no nodeLinker key
-  | { kind: "conflict"; value: string }; // file exists & nodeLinker:<other>
+  // file exists & nodeLinker:node-modules — nothing to flag
+  | { kind: "ok" }
+  // no .yarnrc.yml at all — can't tell if project is yarn-berry
+  // from this signal alone; caller must consult corepack
+  // declaration (round 10 noise reduction)
+  | { kind: "no-config" }
+  // .yarnrc.yml exists but has no nodeLinker key — file's mere
+  // existence is yarn-berry evidence (yarn 1 reads `.yarnrc`,
+  // not `.yarnrc.yml`), so caller can warn unconditionally
+  // (round 11 review)
+  | { kind: "berry-without-linker" }
+  // file exists & nodeLinker pinned to a non-node-modules value
+  | { kind: "conflict"; value: string };
 
 /**
  * Read-only counterpart to `patchYarnConfig`: classifies the existing
@@ -280,19 +305,19 @@ type YarnConfigStatus =
  * hazard if the user later runs `yarn install` via the manual install
  * hint.
  *
- * Three outcomes:
- *   - `ok`           — `nodeLinker: node-modules` already pinned; nothing to flag
- *   - `conflict`     — pinned to a non-`node-modules` value (e.g. `pnp`);
- *                      surface the conflict warning (PR #99 round-8)
- *   - `needs-setup`  — no `.yarnrc.yml`, OR a `.yarnrc.yml` without a
- *                      `nodeLinker:` key (yarn 4 silently defaults to PnP);
- *                      surface the yarn-berry caveat advisory (PR #99 round-9)
+ * Four outcomes — see the union above for the meaning of each.
+ * Round 11 split the prior `needs-setup` outcome into `no-config`
+ * vs `berry-without-linker` because they need different gating in
+ * the caller: `.yarnrc.yml` is a yarn 2+ artifact (yarn 1 uses
+ * `.yarnrc` without the `.yml`), so its mere presence is unambiguous
+ * yarn-berry evidence even when `package.json#packageManager` is
+ * absent.
  */
 async function inspectYarnConfig(cwd: string): Promise<YarnConfigStatus> {
   const path = join(cwd, YARNRC_YML_PATH);
-  if (!existsSync(path)) return { kind: "needs-setup" };
+  if (!existsSync(path)) return { kind: "no-config" };
   const value = readNodeLinkerValue(await readFile(path, "utf8"));
-  if (value === undefined) return { kind: "needs-setup" };
+  if (value === undefined) return { kind: "berry-without-linker" };
   if (value === "node-modules") return { kind: "ok" };
   return { kind: "conflict", value };
 }
@@ -520,26 +545,32 @@ export async function scaffold(
     // pnp` already pinned, `arkor dev` will fail just the same as
     // in the patch path. Read the existing config and surface the
     // appropriate advisory without touching the file:
-    //   - explicit conflict (e.g. `nodeLinker: pnp`) — round 8.
-    //     ALWAYS surface; an existing yarnrc with a non-default
-    //     linker is unambiguous evidence the project uses
-    //     yarn-berry, regardless of corepack declaration.
-    //   - no usable yarn config — yarn-berry would default to PnP
-    //     and the `.gitignore` we wrote here doesn't cover the
-    //     `.yarn/` artifacts it'd generate either. Surface the
-    //     yarn-berry caveat covering both the yarnrc and gitignore
-    //     fixups the user would need (round 9). But ONLY when the
-    //     existing `package.json#packageManager` field declares
-    //     yarn 2+ — without that filter the caveat fires for every
-    //     undefined-pm scaffold (e.g. CLI invoked via `node`/`tsx`,
-    //     which doesn't set `npm_config_user_agent`), spamming
-    //     pure npm/pnpm/bun projects with irrelevant noise
-    //     (round 10, scaffold.ts:489 review comment).
+    //
+    //   - `conflict` (`nodeLinker: pnp` etc) — round 8. ALWAYS
+    //     surface; an existing yarnrc with a non-default linker is
+    //     unambiguous evidence the project uses yarn-berry,
+    //     regardless of corepack declaration.
+    //   - `berry-without-linker` (`.yarnrc.yml` exists but has no
+    //     `nodeLinker:` key) — round 11. ALSO unconditional: yarn 1
+    //     reads `.yarnrc` (no `.yml`), so the file's mere existence
+    //     is yarn-berry evidence even when `package.json#packageManager`
+    //     is absent. yarn 4 would silently default to PnP here, so
+    //     the user needs the same caveat as the no-file case.
+    //   - `no-config` (no `.yarnrc.yml` at all) — round 9 hazard,
+    //     gated by round 10 noise reduction. yarn-berry would
+    //     default to PnP and the `.gitignore` we wrote doesn't
+    //     cover the `.yarn/` artifacts. Only warn when the existing
+    //     `package.json#packageManager` field declares yarn 2+;
+    //     otherwise we'd spam pure npm/pnpm/bun projects with
+    //     irrelevant noise (the CLI gets invoked via `node`/`tsx`
+    //     a lot, which doesn't set `npm_config_user_agent`).
     const status = await inspectYarnConfig(cwd);
     if (status.kind === "conflict") {
       warnings.push(buildYarnLinkerConflictWarning(status.value));
+    } else if (status.kind === "berry-without-linker") {
+      warnings.push(buildYarnBerryCaveatAdvisory());
     } else if (
-      status.kind === "needs-setup" &&
+      status.kind === "no-config" &&
       (await existingProjectDeclaresYarnBerry(cwd))
     ) {
       warnings.push(buildYarnBerryCaveatAdvisory());

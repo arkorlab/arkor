@@ -382,20 +382,19 @@ describe("scaffold", () => {
     expect(result.warnings[0]).toContain(".yarn/install-state.gz");
   });
 
-  // Same caveat fires when an existing `.yarnrc.yml` is present
-  // but has no `nodeLinker:` key — yarn 4 would silently default
-  // to PnP just like the no-file case, so the runtime hazard is
-  // identical. (The patch path appends in this case; the
-  // inspect-only branch can't, so it surfaces the caveat
-  // instead.) Same packageManager gating as the previous case.
-  it("warns about the yarn-berry caveat in undefined-pm + existing-project when .yarnrc.yml exists without a nodeLinker key and packageManager declares yarn 2+", async () => {
+  // Round 11 (Copilot): when `.yarnrc.yml` exists but lacks a
+  // `nodeLinker:` key, the file's mere existence is yarn-berry
+  // evidence (yarn 1 reads `.yarnrc` without the `.yml` suffix),
+  // so the caveat must fire even when `package.json#packageManager`
+  // is absent — the round-10 corepack-declaration gate would
+  // otherwise silence a real hazard. yarn 4 will silently default
+  // to PnP here, breaking the runtime just like the patch-path
+  // case (which appends `nodeLinker: node-modules`; the inspect
+  // branch can't mutate, so it surfaces the caveat instead).
+  it("warns about the yarn-berry caveat when .yarnrc.yml exists without a nodeLinker key — even without a packageManager declaration", async () => {
     writeFileSync(
       join(cwd, "package.json"),
-      JSON.stringify(
-        { name: "existing", private: true, packageManager: "yarn@2.4.3" },
-        null,
-        2,
-      ),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
     );
     writeFileSync(
       join(cwd, ".yarnrc.yml"),
@@ -558,6 +557,50 @@ describe("scaffold", () => {
     expect(yarnrc?.action).toBe("ok");
     expect(result.warnings).toEqual([]);
   });
+
+  // Round 11 (Copilot): YAML structural markers (`---`, `...`,
+  // `%YAML 1.2`, `%TAG ...`) aren't mapping entries. Earlier
+  // rounds anchored `rootIndent` on the FIRST non-blank,
+  // non-comment line, so a perfectly valid `---\n  nodeLinker:
+  // node-modules\n` would set rootIndent=0 (from `---`) and then
+  // skip the indented `nodeLinker:` as nested — misclassifying an
+  // already-correct file as needs-setup and (in the patch path)
+  // appending a duplicate `nodeLinker:`. The reader now skips
+  // those markers.
+  it.each([
+    {
+      label: "leading document marker",
+      content: "---\nnodeLinker: node-modules\n",
+    },
+    {
+      label: "leading document marker with indented body",
+      content: "---\n  nodeLinker: node-modules\n  yarnPath: foo\n",
+    },
+    {
+      label: "leading YAML directive",
+      content: "%YAML 1.2\n---\nnodeLinker: node-modules\n",
+    },
+    {
+      label: "trailing document end marker",
+      content: "nodeLinker: node-modules\n...\n",
+    },
+  ])(
+    "treats `$label` as already correct (no warning, action=ok)",
+    async ({ content }) => {
+      writeFileSync(join(cwd, ".yarnrc.yml"), content);
+      const result = await scaffold({
+        cwd,
+        name: "n",
+        template: "triage",
+        packageManager: "yarn",
+      });
+      const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+      expect(yarnrc?.action).toBe("ok");
+      expect(result.warnings).toEqual([]);
+      // No duplicate append — file content is unchanged.
+      expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(content);
+    },
+  );
 
   // Counterpart of the above: a `nodeLinker:` nested under another
   // key isn't a top-level setting and yarn would never honour it.
