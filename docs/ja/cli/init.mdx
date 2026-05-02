@@ -84,7 +84,7 @@ pnpm exec arkor init --yes --template triage --use-pnpm --skip-git
 | --- | --- | --- |
 | `Pick one of --git / --skip-git, not both.`（`--git` と `--skip-git` のどちらか一方だけ指定してください） | git 関連の両フラグを渡した。 | どちらか一方にする。 |
 | `Unknown template "<id>". Available: triage, translate, redaction, minimal, alpaca, chatml`（未知のテンプレート `<id>`。利用可能: triage, translate, redaction, minimal, alpaca, chatml） | `--template` の値がどの登録テンプレート ID にも一致しなかった。 | 一覧の ID を使う。隠し ID（`minimal`、`alpaca`、`chatml`）は明示指定時のみ有効。 |
-| `Commit signing failed — created an unsigned commit.`（コミット署名に失敗したため、署名なしコミットを作成しました） | `git init` は成功したが初回コミットを GPG 署名できなかった。 | 署名のセットアップを直したら `git commit --amend -S` で再署名。リポジトリ自体は問題なし。 |
+| `Commit signing failed; created an unsigned commit.`（コミット署名に失敗したため、署名なしコミットを作成しました） | `git init` は成功したが初回コミットを GPG 署名できなかった。 | 署名のセットアップを直したら `git commit --amend -S` で再署名。リポジトリ自体は問題なし。 |
 
 ## 例
 

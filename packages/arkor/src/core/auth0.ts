@@ -100,10 +100,11 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
       const errorDescription = url.searchParams.get("error_description");
       if (error) {
         res.statusCode = 400;
-        res.end(`Authentication failed: ${error} — ${errorDescription ?? ""}`);
-        rejectCallback(
-          new Error(`Authentication failed: ${error} ${errorDescription ?? ""}`),
-        );
+        const message = errorDescription
+          ? `Authentication failed: ${error}: ${errorDescription}`
+          : `Authentication failed: ${error}`;
+        res.end(message);
+        rejectCallback(new Error(message));
         return;
       }
       if (!code || !state) {

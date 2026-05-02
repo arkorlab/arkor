@@ -29,4 +29,4 @@ export async function acquireAnonymousTokenResult(baseUrl: string) {
 //      that fails immediately, so erring on suppression is safer than
 //      defaulting to show.
 export const ANON_PERSISTENCE_NUDGE =
-  "Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to tie future work to your Arkor Cloud account.";
+  "Anonymous sessions aren't guaranteed to persist. Sign in with `arkor login --oauth` to tie future work to your Arkor Cloud account.";

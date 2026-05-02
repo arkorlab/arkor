@@ -77,7 +77,7 @@ async function maybeGitInit(
   if (options.skipGit) return;
 
   if (await isInGitRepo(cwd)) {
-    clack.log.info("Directory is already inside a git repository — skipping git init.");
+    clack.log.info("Directory is already inside a git repository; skipping git init.");
     return;
   }
 
@@ -108,7 +108,7 @@ async function maybeGitInit(
     );
     if (result.signingFallback) {
       clack.log.warn(
-        "Commit signing failed — created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
+        "Commit signing failed; created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
       );
     }
   } catch (err) {

@@ -54,7 +54,7 @@ async function maybeGitInit(
 
   if (await isInGitRepo(cwd)) {
     ui.log.info(
-      "Directory is already inside a git repository — skipping git init.",
+      "Directory is already inside a git repository; skipping git init.",
     );
     return;
   }
@@ -81,7 +81,7 @@ async function maybeGitInit(
     );
     if (result.signingFallback) {
       ui.log.warn(
-        "Commit signing failed — created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
+        "Commit signing failed; created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
       );
     }
   } catch (err) {
