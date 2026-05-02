@@ -21,12 +21,12 @@
         "default": true,
         "groups": [
           {
-            "group": "Roadmap",
-            "pages": ["roadmap"]
-          },
-          {
             "group": "Get started",
             "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Roadmap",
+            "pages": ["roadmap"]
           },
           {
             "group": "Concepts",
@@ -98,12 +98,12 @@
         },
         "groups": [
           {
-            "group": "ロードマップ",
-            "pages": ["ja/roadmap"]
-          },
-          {
             "group": "はじめに",
             "pages": ["ja/introduction", "ja/quickstart"]
+          },
+          {
+            "group": "ロードマップ",
+            "pages": ["ja/roadmap"]
           },
           {
             "group": "コンセプト",
