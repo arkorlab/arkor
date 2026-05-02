@@ -77,6 +77,17 @@ export function runCli(
     // can still set USERPROFILE explicitly: extraEnv is spread last.
     const homeMirror: NodeJS.ProcessEnv =
       extraEnv.HOME !== undefined ? { USERPROFILE: extraEnv.HOME } : {};
+    // Per-spawn yarn cache. Vitest runs test files in parallel workers;
+    // when two workers each call `arkor init --use-yarn`, both yarn 1
+    // processes hammer the shared `~/.cache/yarn/v6/` and race during
+    // tarball extraction — the inner mkdir-then-write sequence collides
+    // and the second loser dies with `ENOENT: ... open
+    // '...integrity/node_modules/<pkg>/.yarn-tarball.tgz'`. yarn 1's
+    // `--mutex network` would also work, but it's a flag (we'd need
+    // pm-aware install args in the SDK); a per-spawn `YARN_CACHE_FOLDER`
+    // sidesteps the issue at the env layer for free, and yarn-berry /
+    // npm / pnpm / bun all ignore the variable.
+    const yarnCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-yarn-cache-"));
     const child = spawn(process.execPath, [binPath, ...argv], {
       cwd,
       env: {
@@ -87,6 +98,7 @@ export function runCli(
         GIT_AUTHOR_EMAIL: "e2e@arkor.test",
         GIT_COMMITTER_NAME: "Arkor E2E",
         GIT_COMMITTER_EMAIL: "e2e@arkor.test",
+        YARN_CACHE_FOLDER: yarnCacheDir,
         ...homeMirror,
         ...extraEnv,
       },
@@ -96,15 +108,25 @@ export function runCli(
     const err: Buffer[] = [];
     child.stdout.on("data", (c: Buffer) => out.push(c));
     child.stderr.on("data", (c: Buffer) => err.push(c));
-    child.on("error", reject);
-    child.on("close", (code) =>
+    const cleanup = () => {
+      // Per-spawn yarn cache is single-use; remove it on either close
+      // or error so we don't leak `arkor-e2e-yarn-cache-*` dirs into
+      // tmpdir on long CI runs.
+      rmSync(yarnCacheDir, { recursive: true, force: true });
+    };
+    child.on("error", (err) => {
+      cleanup();
+      reject(err);
+    });
+    child.on("close", (code) => {
+      cleanup();
       resolve({
         code: code ?? -1,
         stdout: Buffer.concat(out).toString("utf8"),
         stderr: Buffer.concat(err).toString("utf8"),
         dir: cwd,
-      }),
-    );
+      });
+    });
   });
 }
 
