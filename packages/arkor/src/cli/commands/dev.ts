@@ -16,7 +16,11 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 import { buildStudioApp } from "../../studio/server";
-import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
+import {
+  ANON_PERSISTENCE_NUDGE,
+  ANON_SINGLE_DEVICE_NOTE,
+  ANON_SINGLE_DEVICE_NOTE_WITH_OAUTH,
+} from "../anonymous";
 import { ui } from "../prompts";
 
 export interface DevOptions {
@@ -155,9 +159,15 @@ export async function ensureCredentialsForStudio(): Promise<void> {
   ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);
   // Match the `arkor login --anonymous` outro: anonymous accounts are
   // single-device on purpose, so discovering that on a second machine
-  // via a 401 is a worse UX than being told here.
+  // via a 401 is a worse UX than being told here. Same gating contract
+  // as the persistence nudge above — the OAuth-flavoured variant fires
+  // only when OAuth is confirmed available, otherwise we surface the
+  // bare fact so anon-only deployments aren't pointed at a command that
+  // cannot succeed.
   ui.log.info(
-    "Note: anonymous accounts work on this machine only. Run `arkor login --oauth` to sign up for multi-device access.",
+    oauthAvailable
+      ? ANON_SINGLE_DEVICE_NOTE_WITH_OAUTH
+      : ANON_SINGLE_DEVICE_NOTE,
   );
 }
 

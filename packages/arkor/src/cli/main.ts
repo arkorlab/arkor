@@ -7,12 +7,35 @@ import { runDev } from "./commands/dev";
 import { runBuild } from "./commands/build";
 import { runStart } from "./commands/start";
 import { resolvePackageManager, type TemplateId } from "@arkor/cli-internal";
-import { formatAnonymousAuthError } from "../core/anonymous-auth-error";
+import {
+  formatAnonymousAuthError,
+  isAnonymousAuthDeadEnd,
+} from "../core/anonymous-auth-error";
+import { fetchCliConfig } from "../core/auth0";
+import { defaultArkorCloudApiUrl } from "../core/credentials";
 import { getRecordedDeprecation } from "../core/deprecation";
 import { shutdownTelemetry, withTelemetry } from "../core/telemetry";
 import { detectedUpgradeCommand } from "../core/upgrade-hint";
 import { SDK_VERSION } from "../core/version";
 import { ui } from "./prompts";
+
+/**
+ * Resolve `oauthAvailable` for the current deployment so anonymous-auth
+ * dead-end errors recommend a recovery path that actually works on
+ * anon-only deployments. Best-effort: any failure (network, malformed
+ * cfg) collapses to `false`, which makes the formatter point at
+ * `arkor login --anonymous` rather than `--oauth` — i.e. the only
+ * recovery that's universally available. Cheap, but worth pre-fetching
+ * so the formatter stays synchronous.
+ */
+async function probeOauthAvailability(): Promise<boolean> {
+  try {
+    const cfg = await fetchCliConfig(defaultArkorCloudApiUrl());
+    return Boolean(cfg.auth0Domain && cfg.clientId && cfg.audience);
+  } catch {
+    return false;
+  }
+}
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();
@@ -151,18 +174,27 @@ export async function main(argv: string[]): Promise<void> {
   try {
     await program.parseAsync(argv, { from: "user" });
   } catch (err) {
-    // Intercept the structured anonymous-auth-state errors before
-    // commander's default handler converts them into a noisy stack
-    // trace. The helper returns a CLI-shaped string for the two known
-    // dead-end codes (`anonymous_token_single_device`,
-    // `anonymous_account_not_found`); everything else rethrows so
-    // commander still surfaces it. Setting `process.exitCode` (rather
-    // than calling `process.exit` directly) keeps the deprecation +
-    // telemetry-shutdown step in the `finally` block reachable.
-    const friendly = formatAnonymousAuthError(err);
-    if (friendly !== null) {
-      process.stderr.write(`${friendly}\n`);
-      process.exitCode = 1;
+    // Intercept the structured anonymous-auth-state errors before they
+    // propagate to bin.ts and get rendered with a stack trace. Only the
+    // two known dead-end codes (`anonymous_token_single_device`,
+    // `anonymous_account_not_found`) are formatted here; everything
+    // else rethrows so the existing fallback in bin.ts surfaces it.
+    // Setting `process.exitCode` (rather than calling `process.exit`
+    // directly) keeps the deprecation + telemetry-shutdown step in the
+    // `finally` block reachable.
+    if (isAnonymousAuthDeadEnd(err)) {
+      // Probe deployment OAuth status only on the dead-end path so we
+      // don't add a network round-trip to every successful command.
+      // Failure collapses to "no OAuth", which steers the formatter at
+      // the universally-available `arkor login --anonymous` recovery.
+      const oauthAvailable = await probeOauthAvailability();
+      const friendly = formatAnonymousAuthError(err, { oauthAvailable });
+      if (friendly !== null) {
+        process.stderr.write(`${friendly}\n`);
+        process.exitCode = 1;
+      } else {
+        throw err;
+      }
     } else {
       throw err;
     }

@@ -139,12 +139,16 @@ npm install && npm run dev
 
 Anonymous tokens are tied to this machine. Copying
 \`~/.arkor/credentials.json\` to another device will be rejected as a
-single-device policy violation. Sign up for a real account to keep your
-work and use it across machines:
+single-device policy violation. When you're ready for an account-backed
+workspace that follows you across devices, run:
 
 \`\`\`
 npx arkor login --oauth
 \`\`\`
+
+The OAuth flow starts a *new* identity — existing anonymous work cannot
+be migrated, so future work created after sign-in is what ends up under
+the account.
 
 CLI-only flow (no GUI):
 

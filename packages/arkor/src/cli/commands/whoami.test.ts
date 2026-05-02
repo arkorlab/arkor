@@ -265,6 +265,71 @@ describe("runWhoami", () => {
     expect(out).toMatch(/Orgs: o-without-slug, named/);
   });
 
+  it("appends the bare single-device note when /v1/me reports an anonymous identity", async () => {
+    // Anonymous accounts are bound to the issuing machine on the
+    // server side (jti rotation). Surface that fact at whoami time so
+    // users discover it before hitting a 401 on a second machine. The
+    // note here is intentionally the *bare* fact — whoami doesn't fetch
+    // /v1/auth/cli/config, so it can't tell whether `arkor login --oauth`
+    // would actually work, and recommending it on anon-only deployments
+    // would point users at a command that fails.
+    await writeCredentials({
+      mode: "anon",
+      token: "anon-tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://mock-cloud-api",
+      orgSlug: "anon-abc",
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            user: { kind: "anonymous", anonymousId: "abc" },
+            orgs: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof fetch;
+
+    await runWhoami();
+    const out = stdoutChunks.join("");
+    expect(out).toMatch(
+      /Note: anonymous accounts work on this machine only\./,
+    );
+    // The OAuth-flavoured upgrade hint is suppressed here because
+    // whoami does not know whether OAuth is configured on the
+    // deployment.
+    expect(out).not.toMatch(/arkor login --oauth/);
+  });
+
+  it("does not append the single-device note for non-anonymous users", async () => {
+    // Auth0 sessions are unaffected by the anonymous single-device
+    // guard, so the note should not surface there.
+    await writeCredentials({
+      mode: "auth0",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "tenant.auth0.com",
+      audience: "https://api.arkor.ai",
+      clientId: "cid",
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            user: { kind: "auth0", auth0Id: "auth0|sub" },
+            orgs: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof fetch;
+
+    await runWhoami();
+    const out = stdoutChunks.join("");
+    expect(out).not.toMatch(/this machine only/);
+  });
+
   it("throws CloudApiError on other non-2xx so cli/main.ts can format auth-state codes", async () => {
     // Previously the command swallowed non-426 failures with a generic
     // "Token may be expired" hint. The new contract is to throw a

@@ -26,25 +26,69 @@ describe("formatAnonymousAuthError", () => {
     ).toBeNull();
   });
 
-  it("formats anonymous_token_single_device with multi-device guidance", () => {
-    const out = formatAnonymousAuthError(
-      new CloudApiError(409, "...", ANONYMOUS_TOKEN_SINGLE_DEVICE),
-    );
-    expect(out).not.toBeNull();
-    expect(out!).toMatch(/single-device/);
-    // Must direct at the OAuth flow specifically, not the bare `arkor
-    // login` (whose interactive picker defaults to Anonymous and would
-    // just re-issue another single-device token).
-    expect(out!).toMatch(/arkor login --oauth/);
+  describe("anonymous_token_single_device", () => {
+    it("recommends `arkor login --oauth` when OAuth is confirmed available", () => {
+      const out = formatAnonymousAuthError(
+        new CloudApiError(409, "...", ANONYMOUS_TOKEN_SINGLE_DEVICE),
+        { oauthAvailable: true },
+      );
+      expect(out).not.toBeNull();
+      expect(out!).toMatch(/single-device/);
+      // Must direct at the OAuth flow specifically — `arkor login`
+      // alone would launch an interactive picker that defaults to
+      // Anonymous and would just re-issue another single-device token.
+      expect(out!).toMatch(/arkor login --oauth/);
+    });
+
+    it("falls back to `arkor login --anonymous` when OAuth is not available", () => {
+      // Anon-only deployments don't have OAuth configured. Pointing
+      // users at `--oauth` there would surface a command that fails
+      // immediately, so the formatter recommends the only recovery
+      // that always works (mint a new anon identity).
+      const out = formatAnonymousAuthError(
+        new CloudApiError(409, "...", ANONYMOUS_TOKEN_SINGLE_DEVICE),
+        { oauthAvailable: false },
+      );
+      expect(out).not.toBeNull();
+      expect(out!).toMatch(/single-device/);
+      expect(out!).toMatch(/arkor login --anonymous/);
+      expect(out!).not.toMatch(/arkor login --oauth/);
+    });
+
+    it("treats `oauthAvailable: undefined` as anon-only (errs on suppression)", () => {
+      // Same gating contract as ANON_PERSISTENCE_NUDGE in anonymous.ts:
+      // `undefined` (cfg fetch skipped or failed) is treated like
+      // `false` so we never dead-end users on `--oauth` we can't
+      // confirm works.
+      const out = formatAnonymousAuthError(
+        new CloudApiError(409, "...", ANONYMOUS_TOKEN_SINGLE_DEVICE),
+      );
+      expect(out!).toMatch(/arkor login --anonymous/);
+      expect(out!).not.toMatch(/arkor login --oauth/);
+    });
   });
 
-  it("formats anonymous_account_not_found with re-login guidance", () => {
-    const out = formatAnonymousAuthError(
-      new CloudApiError(401, "...", ANONYMOUS_ACCOUNT_NOT_FOUND),
-    );
-    expect(out).not.toBeNull();
-    expect(out!).toMatch(/no longer valid/);
-    expect(out!).toMatch(/arkor login --oauth/);
+  describe("anonymous_account_not_found", () => {
+    it("recommends `arkor login --oauth` when OAuth is confirmed available", () => {
+      const out = formatAnonymousAuthError(
+        new CloudApiError(401, "...", ANONYMOUS_ACCOUNT_NOT_FOUND),
+        { oauthAvailable: true },
+      );
+      expect(out).not.toBeNull();
+      expect(out!).toMatch(/no longer valid/);
+      expect(out!).toMatch(/arkor login --oauth/);
+    });
+
+    it("falls back to `arkor login --anonymous` when OAuth is not available", () => {
+      const out = formatAnonymousAuthError(
+        new CloudApiError(401, "...", ANONYMOUS_ACCOUNT_NOT_FOUND),
+        { oauthAvailable: false },
+      );
+      expect(out).not.toBeNull();
+      expect(out!).toMatch(/no longer valid/);
+      expect(out!).toMatch(/arkor login --anonymous/);
+      expect(out!).not.toMatch(/arkor login --oauth/);
+    });
   });
 });
 

@@ -103,9 +103,12 @@ issues a throwaway token tied to a brand-new personal org. **It only
 works on the machine where it was issued.** Copying
 `~/.arkor/credentials.json` to a second machine and using it from both
 will trip the server's single-device guard, and one of the two will be
-locked out with `anonymous_token_single_device`. The CLI surfaces this
-as a hint to run `arkor login --oauth` for a real account that supports
-multiple devices.
+locked out with `anonymous_token_single_device`. On OAuth-supporting
+deployments the CLI directs the user at `arkor login --oauth` to start
+a real account; on anon-only deployments it points at `arkor login
+--anonymous` instead, since `--oauth` would fail there. Either path is
+a *new* identity — there is no migration of the existing anonymous
+workspace today.
 
 Anonymous data isn't recoverable across re-issuance: deleting the
 credentials file or losing the single-device race means the org and

@@ -6,6 +6,7 @@ import {
 import { recordDeprecation } from "../../core/deprecation";
 import { formatSdkUpgradeError } from "../../core/upgrade-hint";
 import { SDK_VERSION } from "../../core/version";
+import { ANON_SINGLE_DEVICE_NOTE } from "../anonymous";
 import { createClient } from "@arkor/cloud-api-client";
 
 export async function runWhoami(): Promise<void> {
@@ -68,12 +69,14 @@ export async function runWhoami(): Promise<void> {
   if (isAnonymous) {
     // Anonymous accounts are single-device on purpose, so surface the
     // limitation here so users discover it before hitting a 401 on a
-    // second machine. `arkor login --oauth` is the explicit upgrade
-    // path; phrasing matches the auth-error formatter so users see the
-    // same advice from both surfaces.
-    process.stdout.write(
-      "\nNote: anonymous accounts work on this machine only. Run `arkor login --oauth` to sign up for multi-device access.\n",
-    );
+    // second machine. We deliberately emit the *bare* fact rather than
+    // the OAuth-flavoured variant: `whoami` doesn't know whether the
+    // current deployment advertises OAuth (that would require a second
+    // network call to `/v1/auth/cli/config`), and steering anon-only
+    // users at `arkor login --oauth` would point them at a command that
+    // fails immediately. The matching login/dev surfaces, which already
+    // know `oauthAvailable`, do append the upgrade hint when warranted.
+    process.stdout.write(`\n${ANON_SINGLE_DEVICE_NOTE}\n`);
   }
   // Avoid "unused import" noise by referencing CloudApiClient in an assertion.
   void CloudApiClient;

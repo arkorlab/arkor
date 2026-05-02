@@ -12,6 +12,15 @@ vi.mock("./commands/build", () => ({ runBuild: vi.fn() }));
 vi.mock("./commands/start", () => ({ runStart: vi.fn() }));
 vi.mock("./commands/dev", () => ({ runDev: vi.fn() }));
 
+// `auth0.fetchCliConfig` is consulted by main()'s anonymous-auth-error
+// branch to decide whether to recommend `--oauth` (OAuth-supporting
+// deployment) or `--anonymous` (anon-only deployment) in the friendly
+// error message. Mock it so tests can pin the deployment shape without
+// going to the network.
+vi.mock("../core/auth0", () => ({
+  fetchCliConfig: vi.fn(),
+}));
+
 // Telemetry: the wrapper just delegates to the inner handler in tests
 // so we don't have to thread PostHog state through every assertion.
 vi.mock("../core/telemetry", () => ({
@@ -40,6 +49,8 @@ import { runLogin } from "./commands/login";
 import { runLogout } from "./commands/logout";
 import { runStart } from "./commands/start";
 import { runWhoami } from "./commands/whoami";
+import { fetchCliConfig } from "../core/auth0";
+import { CloudApiError } from "../core/client";
 import { shutdownTelemetry } from "../core/telemetry";
 import { main } from "./main";
 
@@ -58,6 +69,7 @@ beforeEach(() => {
   vi.mocked(runDev).mockReset();
   vi.mocked(shutdownTelemetry).mockReset();
   vi.mocked(shutdownTelemetry).mockResolvedValue(undefined);
+  vi.mocked(fetchCliConfig).mockReset();
   mockDeprecation.value = null;
 });
 
@@ -200,6 +212,159 @@ describe("main (CLI Commander wiring)", () => {
     vi.mocked(runWhoami).mockRejectedValueOnce(new Error("boom"));
     await expect(main(["whoami"])).rejects.toThrow(/boom/);
     expect(shutdownTelemetry).toHaveBeenCalledOnce();
+  });
+
+  describe("anonymous auth-state error formatting", () => {
+    // Helper: spy on stderr so we can assert the friendly message landed,
+    // and snapshot/restore process.exitCode so the assertions for one test
+    // don't leak into the next.
+    function captureStderr(): {
+      chunks: string[];
+      restore: () => void;
+    } {
+      const chunks: string[] = [];
+      const spy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(((c: unknown) => {
+          chunks.push(String(c));
+          return true;
+        }) as typeof process.stderr.write);
+      return { chunks, restore: () => spy.mockRestore() };
+    }
+
+    const ORIG_EXIT_CODE = process.exitCode;
+    afterEach(() => {
+      process.exitCode = ORIG_EXIT_CODE;
+    });
+
+    it("formats anonymous_token_single_device with --oauth hint when OAuth is configured", async () => {
+      vi.mocked(fetchCliConfig).mockResolvedValueOnce({
+        auth0Domain: "tenant.auth0.com",
+        clientId: "cid",
+        audience: "https://api.arkor.ai",
+        callbackPorts: [52521],
+      });
+      vi.mocked(runWhoami).mockRejectedValueOnce(
+        new CloudApiError(
+          409,
+          "Anonymous token is no longer current.",
+          "anonymous_token_single_device",
+        ),
+      );
+
+      const { chunks, restore } = captureStderr();
+      try {
+        await main(["whoami"]);
+      } finally {
+        restore();
+      }
+      const buf = chunks.join("");
+      expect(buf).toMatch(/Anonymous credentials were rejected as single-device/);
+      expect(buf).toMatch(/arkor login --oauth/);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("formats anonymous_token_single_device with --anonymous hint on anon-only deployments", async () => {
+      // No Auth0 advertised → probeOauthAvailability returns false →
+      // formatter falls back to the universally-available recovery.
+      vi.mocked(fetchCliConfig).mockResolvedValueOnce({
+        auth0Domain: null,
+        clientId: null,
+        audience: null,
+        callbackPorts: [52521],
+      });
+      vi.mocked(runWhoami).mockRejectedValueOnce(
+        new CloudApiError(
+          409,
+          "...",
+          "anonymous_token_single_device",
+        ),
+      );
+
+      const { chunks, restore } = captureStderr();
+      try {
+        await main(["whoami"]);
+      } finally {
+        restore();
+      }
+      const buf = chunks.join("");
+      expect(buf).toMatch(/arkor login --anonymous/);
+      expect(buf).not.toMatch(/arkor login --oauth/);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("formats anonymous_account_not_found with the right hint", async () => {
+      vi.mocked(fetchCliConfig).mockResolvedValueOnce({
+        auth0Domain: "tenant.auth0.com",
+        clientId: "cid",
+        audience: "https://api.arkor.ai",
+        callbackPorts: [52521],
+      });
+      vi.mocked(runWhoami).mockRejectedValueOnce(
+        new CloudApiError(
+          401,
+          "Anonymous credentials are no longer valid.",
+          "anonymous_account_not_found",
+        ),
+      );
+
+      const { chunks, restore } = captureStderr();
+      try {
+        await main(["whoami"]);
+      } finally {
+        restore();
+      }
+      const buf = chunks.join("");
+      expect(buf).toMatch(/no longer valid/);
+      expect(buf).toMatch(/arkor login --oauth/);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it("rethrows CloudApiErrors without a known anonymous-auth code", async () => {
+      // Generic non-2xx without the structured code goes through the
+      // existing bin.ts/Node default handling, not the friendly formatter.
+      // The probe should NOT fire for these — it's only useful for the
+      // dead-end codes — so this test also asserts fetchCliConfig stayed
+      // un-called.
+      vi.mocked(runWhoami).mockRejectedValueOnce(
+        new CloudApiError(500, "boom"),
+      );
+      await expect(main(["whoami"])).rejects.toThrow(/boom/);
+      expect(fetchCliConfig).not.toHaveBeenCalled();
+    });
+
+    it("rethrows non-CloudApiError exceptions unchanged", async () => {
+      vi.mocked(runWhoami).mockRejectedValueOnce(new Error("not an api error"));
+      await expect(main(["whoami"])).rejects.toThrow(/not an api error/);
+      expect(fetchCliConfig).not.toHaveBeenCalled();
+    });
+
+    it("treats fetchCliConfig failure as anon-only (probe falls back to false)", async () => {
+      // Network blip → probeOauthAvailability returns false → users
+      // get the universally-available recovery rather than a `--oauth`
+      // hint that might fail on this deployment.
+      vi.mocked(fetchCliConfig).mockRejectedValueOnce(
+        new TypeError("fetch failed"),
+      );
+      vi.mocked(runWhoami).mockRejectedValueOnce(
+        new CloudApiError(
+          409,
+          "...",
+          "anonymous_token_single_device",
+        ),
+      );
+
+      const { chunks, restore } = captureStderr();
+      try {
+        await main(["whoami"]);
+      } finally {
+        restore();
+      }
+      const buf = chunks.join("");
+      expect(buf).toMatch(/arkor login --anonymous/);
+      expect(buf).not.toMatch(/arkor login --oauth/);
+      expect(process.exitCode).toBe(1);
+    });
   });
 
   it("omits the Cutoff suffix when the deprecation has no sunset value", async () => {
