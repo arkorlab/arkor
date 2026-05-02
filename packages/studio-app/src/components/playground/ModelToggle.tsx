@@ -57,8 +57,12 @@ function Segment({
     <button
       type="button"
       aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
+      // Use aria-disabled (not the native `disabled` attribute) so the
+      // browser still fires hover events on the element and the `title`
+      // tooltip explaining *why* it's disabled is reachable. We block
+      // activation manually below.
+      aria-disabled={disabled || undefined}
+      onClick={disabled ? undefined : onClick}
       title={title}
       className={cn(
         "inline-flex h-7 items-center rounded-full px-3 font-medium transition-colors",

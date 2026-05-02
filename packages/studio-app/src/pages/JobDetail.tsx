@@ -32,6 +32,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
     status: "completed" | "failed";
     error?: string;
     artifacts: number;
+    completedAt?: string;
   } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [eventErr, setEventErr] = useState<string | null>(null);
@@ -146,11 +147,18 @@ export function JobDetail({ jobId }: { jobId: string }) {
     });
     es.addEventListener("training.completed", (ev: MessageEvent) => {
       pushEvent("training.completed", ev.data);
+      // SSE payload carries the trainer-side completion timestamp; use
+      // it so duration / "Completed" stay correct without depending on
+      // the next /api/jobs poll.
       try {
-        const d = JSON.parse(ev.data) as { artifacts?: unknown[] };
+        const d = JSON.parse(ev.data) as {
+          artifacts?: unknown[];
+          timestamp?: string;
+        };
         setTerminal({
           status: "completed",
           artifacts: Array.isArray(d.artifacts) ? d.artifacts.length : 0,
+          completedAt: d.timestamp,
         });
       } catch {
         setTerminal({ status: "completed", artifacts: 0 });
@@ -159,8 +167,13 @@ export function JobDetail({ jobId }: { jobId: string }) {
     es.addEventListener("training.failed", (ev: MessageEvent) => {
       pushEvent("training.failed", ev.data);
       try {
-        const d = JSON.parse(ev.data) as { error: string };
-        setTerminal({ status: "failed", error: d.error, artifacts: 0 });
+        const d = JSON.parse(ev.data) as { error: string; timestamp?: string };
+        setTerminal({
+          status: "failed",
+          error: d.error,
+          artifacts: 0,
+          completedAt: d.timestamp,
+        });
       } catch {
         setTerminal({ status: "failed", artifacts: 0 });
       }
@@ -204,7 +217,10 @@ export function JobDetail({ jobId }: { jobId: string }) {
     },
     {
       label: "Completed",
-      value: job?.completedAt ? formatAbsoluteTime(job.completedAt) : "—",
+      value: (() => {
+        const at = job?.completedAt ?? terminal?.completedAt;
+        return at ? formatAbsoluteTime(at) : "—";
+      })(),
       mono: true,
     },
     {
@@ -329,7 +345,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
 function computeDuration(
   job: Job | null,
   liveStartedAt: string | null,
-  terminal: { status: string } | null,
+  terminal: { status: string; completedAt?: string } | null,
   now: number,
 ): number | null {
   // Prefer the polled startedAt, fall back to the SSE-derived timestamp
@@ -338,8 +354,13 @@ function computeDuration(
   if (!startedAt) return null;
   const start = Date.parse(startedAt);
   if (Number.isNaN(start)) return null;
-  if (job?.completedAt) {
-    const end = Date.parse(job.completedAt);
+  // Prefer terminal end-times (polled `completedAt` first, then the
+  // SSE-supplied one) so duration freezes the moment the job finishes
+  // even if /api/jobs is lagging — otherwise the ticker would keep
+  // climbing past completion until the next poll succeeds.
+  const completedAt = job?.completedAt ?? terminal?.completedAt;
+  if (completedAt) {
+    const end = Date.parse(completedAt);
     if (Number.isNaN(end)) return Math.max(0, now - start);
     return Math.max(0, end - start);
   }

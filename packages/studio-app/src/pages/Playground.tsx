@@ -159,9 +159,9 @@ export function Playground() {
         </div>
       ) : null}
 
-      {jobs === null ? (
+      {mode === "adapter" && jobs === null ? (
         <div className="flex flex-1 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
-          Loading…
+          Loading jobs…
         </div>
       ) : mode === "adapter" && adapterDisabled ? (
         <div className="flex flex-1 items-center justify-center">
