@@ -1,4 +1,4 @@
-import type { JobConfig, TrainerCallbacks } from "./types";
+import type { JobConfig, Trainer, TrainerCallbacks } from "./types";
 
 /**
  * Snapshot of a trainer's identity and cloud-side config that the Studio
@@ -112,26 +112,20 @@ export function attachTrainerCallbackReplacer(
 }
 
 /**
- * Replace the trainer's lifecycle callbacks atomically. Returns `true`
- * when the call landed (the trainer carried the brand), `false`
- * otherwise — callers (the SIGUSR2 hot-swap path in `runnerSignals`)
- * use the return value to decide whether to log a skip warning.
+ * Replace the trainer's lifecycle callbacks atomically. The brand is
+ * unconditionally attached by `createTrainer` in this same SDK package,
+ * so this can assume the brand is present — there's no documented
+ * public path that produces a brand-less trainer, and the helper itself
+ * is never called on user-controlled values.
  */
 export function replaceTrainerCallbacks(
-  trainer: unknown,
+  trainer: Trainer,
   callbacks: Partial<TrainerCallbacks>,
-): boolean {
-  if (!trainer || typeof trainer !== "object") return false;
-  const fn = (trainer as Record<symbol, unknown>)[
+): void {
+  const fn = (trainer as unknown as Record<symbol, unknown>)[
     TRAINER_REPLACE_CALLBACKS_KEY
-  ];
-  if (typeof fn !== "function") return false;
-  try {
-    (fn as (cbs: Partial<TrainerCallbacks>) => void).call(trainer, callbacks);
-    return true;
-  } catch {
-    return false;
-  }
+  ] as (cbs: Partial<TrainerCallbacks>) => void;
+  fn.call(trainer, callbacks);
 }
 
 /**
@@ -156,29 +150,19 @@ export function attachTrainerEarlyStopper(
 
 /**
  * Request that the trainer stop after the next saved checkpoint.
- * Returns the same promise the underlying implementation hands out —
- * resolves once `cancel()` has been accepted by the cloud API, or
+ * Resolves once `cancel()` has been accepted by the cloud API, or
  * after `timeoutMs` if no checkpoint arrived in time.
  *
- * Returns `null` when the trainer doesn't carry the early-stop brand
- * (third-party wrapper / pre-SDK shape) so callers can decide whether
- * to fall back to a hard kill.
+ * The brand is unconditionally attached by `createTrainer` and the
+ * runner only ever calls this on a discovered SDK trainer — there's no
+ * branch for "brand missing".
  */
 export function requestTrainerEarlyStop(
-  trainer: unknown,
+  trainer: Trainer,
   opts?: RequestEarlyStopOptions,
-): Promise<void> | null {
-  if (!trainer || typeof trainer !== "object") return null;
-  const fn = (trainer as Record<symbol, unknown>)[
+): Promise<void> {
+  const fn = (trainer as unknown as Record<symbol, unknown>)[
     TRAINER_REQUEST_EARLY_STOP_KEY
-  ];
-  if (typeof fn !== "function") return null;
-  try {
-    const result = (
-      fn as (opts?: RequestEarlyStopOptions) => Promise<void>
-    ).call(trainer, opts);
-    return Promise.resolve(result);
-  } catch (err) {
-    return Promise.reject(err);
-  }
+  ] as (opts?: RequestEarlyStopOptions) => Promise<void>;
+  return fn.call(trainer, opts);
 }

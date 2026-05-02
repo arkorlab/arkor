@@ -1485,9 +1485,7 @@ describe("createTrainer (early stop)", () => {
     try {
       await trainer.start();
       // Tiny timeout so the test doesn't actually wait 5 minutes.
-      const stopPromise = requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
-      expect(stopPromise).not.toBeNull();
-      await stopPromise!;
+      await requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
       expect(cancelCalls).toBe(1);
     } finally {
       globalThis.fetch = original;
@@ -1573,10 +1571,9 @@ describe("createTrainer (early stop)", () => {
             // brand — the same brand `arkor dev`'s SIGUSR2 handler
             // uses. The next event must dispatch via the new object.
             if (step === 1) {
-              const swapped = replaceTrainerCallbacks(trainer, {
+              replaceTrainerCallbacks(trainer, {
                 onLog: ({ step: s }) => void calls.push(`v2:onLog(${s})`),
               });
-              expect(swapped).toBe(true);
             }
           },
         },
@@ -1635,9 +1632,7 @@ describe("createTrainer (early stop)", () => {
       await trainer.start();
       const a = requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
       const b = requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
-      expect(a).not.toBeNull();
-      expect(b).not.toBeNull();
-      await Promise.all([a!, b!]);
+      await Promise.all([a, b]);
       // The fallback timer fires once, so cancel is called once even though
       // the early-stop brand was invoked twice.
       expect(cancelCalls).toBe(1);

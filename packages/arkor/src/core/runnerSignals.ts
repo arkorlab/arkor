@@ -43,17 +43,10 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
       `Received ${signal}; early-stopping at next checkpoint…\n`,
     );
     // Drive the trainer's internal early-stop entry point via the
-    // `Symbol.for("arkor.trainer.requestEarlyStop")` brand. A trainer
-    // that doesn't carry the brand (third-party shape, pre-SDK trainer)
-    // returns `null`; fall back to `cancel()` directly so we still
-    // close out the cloud-side job before exiting.
-    const stop =
-      requestTrainerEarlyStop(trainer) ??
-      trainer.cancel().catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`cancel failed: ${msg}\n`);
-      });
-    Promise.resolve(stop)
+    // `Symbol.for("arkor.trainer.requestEarlyStop")` brand attached by
+    // `createTrainer`. The runner only reaches this handler with a
+    // discovered SDK trainer, so the brand is guaranteed to be present.
+    requestTrainerEarlyStop(trainer)
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         process.stderr.write(`requestEarlyStop failed: ${msg}\n`);
@@ -93,13 +86,7 @@ export function installCallbackReloadHandler(
           );
           return;
         }
-        const swapped = replaceTrainerCallbacks(trainer, callbacks);
-        if (!swapped) {
-          process.stderr.write(
-            "Callback reload skipped: running trainer doesn't carry the callback-replacer brand.\n",
-          );
-          return;
-        }
+        replaceTrainerCallbacks(trainer, callbacks);
         process.stdout.write(
           "Callbacks hot-reloaded; training run continues.\n",
         );
