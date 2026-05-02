@@ -25,7 +25,7 @@ arkor init [options]
 | --- | --- |
 | `-y, --yes` | プロンプトの代わりにデフォルトを採用（プロジェクト名はディレクトリー名、テンプレートは `triage`）。 |
 | `--name <name>` | プロジェクト名。デフォルトはカレントディレクトリー名（パスに basename がない場合 `arkor-project`、例えば `/`）。`package.json` に書く前にサニタイズされます。 |
-| `--template <id>` | スターターテンプレート。表示される選択肢: `triage`、`translate`、`redaction`。バリデータは明示的に渡したときに限り隠し ID（`minimal`、`alpaca`、`chatml`）も受け付けます。未知の ID はファイル操作前に例外が発生します。 |
+| `--template <id>` | スターターテンプレート。選択肢: `triage`、`translate`、`redaction`。未知の ID はファイル操作前に例外が発生します。 |
 | `--skip-install` | 生成後のパッケージマネージャの `install` をスキップ。 |
 | `--use-npm` | パッケージマネージャに npm を強制。 |
 | `--use-pnpm` | パッケージマネージャに pnpm を強制。 |
@@ -45,8 +45,6 @@ arkor init [options]
 | `redaction` | 個人情報のマスク | `{ redactedText, redactedCount, tags }` |
 
 3 つとも同じ小型のオープンウェイトベース（`unsloth/gemma-4-E4B-it`）と HuggingFace 上の厳選公開データセットを組み合わせています。
-
-隠しテンプレート（`minimal`、`alpaca`、`chatml`）は意図的にミニマルで、参照用として存在します。対話ピッカーには出てきません。
 
 ## パッケージマネージャ検出
 
@@ -83,7 +81,7 @@ pnpm exec arkor init --yes --template triage --use-pnpm --skip-git
 | メッセージ | 意味 | 対処 |
 | --- | --- | --- |
 | `Pick one of --git / --skip-git, not both.`（`--git` と `--skip-git` のどちらか一方だけ指定してください） | git 関連の両フラグを渡した。 | どちらか一方にする。 |
-| `Unknown template "<id>". Available: triage, translate, redaction, minimal, alpaca, chatml`（未知のテンプレート `<id>`。利用可能: triage, translate, redaction, minimal, alpaca, chatml） | `--template` の値がどの登録テンプレート ID にも一致しなかった。 | 一覧の ID を使う。隠し ID（`minimal`、`alpaca`、`chatml`）は明示指定時のみ有効。 |
+| `Unknown template "<id>". Available: triage, translate, redaction`（未知のテンプレート `<id>`。利用可能: triage, translate, redaction） | `--template` の値がどの登録テンプレート ID にも一致しなかった。 | 一覧の ID を使う。 |
 | `Commit signing failed — created an unsigned commit.`（コミット署名に失敗したため、署名なしコミットを作成しました） | `git init` は成功したが初回コミットを GPG 署名できなかった。 | 署名のセットアップを直したら `git commit --amend -S` で再署名。リポジトリ自体は問題なし。 |
 
 ## 例
