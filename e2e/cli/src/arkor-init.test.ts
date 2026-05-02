@@ -114,14 +114,14 @@ describe("arkor init (E2E)", () => {
         "--name",
         "no-prompt-app",
         "--template",
-        "chatml",
+        "redaction",
       ],
       cwd,
     );
     expect(result.code).toBe(0);
 
     const trainer = readFileSync(join(cwd, "src/arkor/trainer.ts"), "utf8");
-    expect(trainer).toContain('"chatml-run"');
+    expect(trainer).toContain('"redaction-run"');
 
     const pkg = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),

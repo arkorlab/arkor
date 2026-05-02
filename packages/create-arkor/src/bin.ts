@@ -177,9 +177,7 @@ async function run(options: RunOptions): Promise<void> {
       break;
     }
 
-    // An explicit `--template <id>` is treated as authoritative — skip the
-    // prompt so a hidden-but-valid template (e.g. `minimal`) can't be
-    // overwritten by the visible-only options list.
+    // An explicit `--template <id>` is authoritative: skip the prompt and use it as-is.
     if (options.template === undefined) {
       const chosenTemplate = await clack.select<TemplateId>({
         message: "Starter template?",
@@ -315,12 +313,10 @@ program
       if (opts.git && opts.skipGit) {
         throw new Error("Pick one of --git / --skip-git, not both.");
       }
-      // Accept any TEMPLATES key — including hidden ones — so passing
-      // `--template minimal` still scaffolds correctly (per the Template.hidden
-      // JSDoc). Use `Object.hasOwn` (not `in`) so prototype keys like
-      // `toString` / `__proto__` can't pass validation and crash later inside
-      // scaffold(). Reject typos / removed names with an explicit error rather
-      // than silently coercing them to the default.
+      // Use `Object.hasOwn` (not `in`) so prototype keys like `toString` /
+      // `__proto__` can't pass validation and crash later inside scaffold().
+      // Reject typos with an explicit error rather than silently coercing them
+      // to the default.
       let template: TemplateId | undefined;
       if (opts.template !== undefined) {
         if (!Object.hasOwn(TEMPLATES, opts.template)) {

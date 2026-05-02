@@ -25,7 +25,7 @@ arkor init [options]
 | --- | --- |
 | `-y, --yes` | Accept defaults instead of prompting (project name from the directory name, template `triage`). |
 | `--name <name>` | Project name. Defaults to the current directory's name (`arkor-project` if the path has no basename, e.g. `/`). The value is sanitised before it lands in `package.json`. |
-| `--template <id>` | Starter template. Visible options: `triage`, `translate`, `redaction`. The validator also accepts hidden ids (`minimal`, `alpaca`, `chatml`) when passed explicitly. Unknown ids throw before any filesystem work. |
+| `--template <id>` | Starter template. Options: `triage`, `translate`, `redaction`. Unknown ids throw before any filesystem work. |
 | `--skip-install` | Skip running the package manager's `install` step after scaffolding. |
 | `--use-npm` | Force npm as the package manager. |
 | `--use-pnpm` | Force pnpm as the package manager. |
@@ -45,8 +45,6 @@ arkor init [options]
 | `redaction` | PII redaction | `{ redactedText, redactedCount, tags }` |
 
 All three pair the same small open-weight base (`unsloth/gemma-4-E4B-it`) with a curated public dataset on HuggingFace.
-
-The hidden templates (`minimal`, `alpaca`, `chatml`) are intentionally bare and exist as references. They do not appear in the interactive picker.
 
 ## Package manager detection
 
@@ -83,7 +81,7 @@ If you forget `--yes` in a non-interactive shell, the command still completes (p
 | Message | What it means | Fix |
 | --- | --- | --- |
 | `Pick one of --git / --skip-git, not both.` | Both git flags were passed. | Pass at most one. |
-| `Unknown template "<id>". Available: triage, translate, redaction, minimal, alpaca, chatml` | `--template` value did not match any registered template id. | Use one of the listed ids. The hidden ids (`minimal`, `alpaca`, `chatml`) only work when passed explicitly. |
+| `Unknown template "<id>". Available: triage, translate, redaction` | `--template` value did not match any registered template id. | Use one of the listed ids. |
 | `Commit signing failed — created an unsigned commit.` | `git init` succeeded but the initial commit could not be GPG-signed. | Re-sign with `git commit --amend -S` once your signing setup is fixed. The repo is otherwise fine. |
 
 ## Examples

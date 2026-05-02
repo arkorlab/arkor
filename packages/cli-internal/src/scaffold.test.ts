@@ -36,7 +36,7 @@ afterEach(() => {
 
 describe("scaffold", () => {
   it("writes all starter files in an empty directory", async () => {
-    const result = await scaffold({ cwd, name: "my-app", template: "minimal" });
+    const result = await scaffold({ cwd, name: "my-app", template: "triage" });
     // index.ts, trainer.ts, arkor.config.ts, README.md, .gitignore,
     // package.json, .yarnrc.yml — the trailing `.yarnrc.yml` fires
     // because `packageManager` is undefined here (no `--use-*` was
@@ -60,7 +60,7 @@ describe("scaffold", () => {
     const trainer = readFileSync(join(cwd, "src/arkor/trainer.ts"), "utf8");
     expect(trainer).toContain("createTrainer");
     expect(trainer).toContain("unsloth/gemma-4-E4B-it");
-    expect(trainer).toContain('"my-first-run"');
+    expect(trainer).toContain('"triage-run"');
 
     const pkg = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),
@@ -86,7 +86,7 @@ describe("scaffold", () => {
     writeFileSync(join(cwd, "src/arkor/index.ts"), existingIndex);
     writeFileSync(join(cwd, "src/arkor/trainer.ts"), existingTrainer);
 
-    const result = await scaffold({ cwd, name: "foo", template: "minimal" });
+    const result = await scaffold({ cwd, name: "foo", template: "triage" });
     const indexEntry = result.files.find(
       (f) => f.path === "src/arkor/index.ts",
     );
@@ -121,7 +121,7 @@ describe("scaffold", () => {
     const { files } = await scaffold({
       cwd,
       name: "ignored",
-      template: "minimal",
+      template: "triage",
     });
     const patched = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),
@@ -142,12 +142,12 @@ describe("scaffold", () => {
 
   it("appends to an existing .gitignore only if the entry is missing", async () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
-    const first = await scaffold({ cwd, name: "n", template: "minimal" });
+    const first = await scaffold({ cwd, name: "n", template: "triage" });
     const firstEntry = first.files.find((f) => f.path === ".gitignore");
     expect(firstEntry?.action).toBe("patched");
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).toContain(".arkor/");
 
-    const second = await scaffold({ cwd, name: "n", template: "minimal" });
+    const second = await scaffold({ cwd, name: "n", template: "triage" });
     const secondEntry = second.files.find((f) => f.path === ".gitignore");
     expect(secondEntry?.action).toBe("ok");
   });
@@ -162,7 +162,7 @@ describe("scaffold", () => {
     // separator. The yarn-cache lines also fire because the
     // packageManager is undefined here (manual install hint flow).
     writeFileSync(join(cwd, ".gitignore"), "node_modules/");
-    await scaffold({ cwd, name: "n", template: "minimal" });
+    await scaffold({ cwd, name: "n", template: "triage" });
     const contents = readFileSync(join(cwd, ".gitignore"), "utf8");
     expect(contents).toBe(
       "node_modules/\ndist/\n.arkor/\n.yarn/cache\n.yarn/install-state.gz\n",
@@ -180,7 +180,7 @@ describe("scaffold", () => {
     const result = await scaffold({
       cwd,
       name: "n",
-      template: "minimal",
+      template: "triage",
       packageManager: "yarn",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
@@ -202,7 +202,7 @@ describe("scaffold", () => {
     const result = await scaffold({
       cwd,
       name: "n",
-      template: "minimal",
+      template: "triage",
       packageManager: "yarn",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
@@ -222,7 +222,7 @@ describe("scaffold", () => {
     const result = await scaffold({
       cwd,
       name: "n",
-      template: "minimal",
+      template: "triage",
       packageManager: "yarn",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
@@ -244,7 +244,7 @@ describe("scaffold", () => {
     const result = await scaffold({
       cwd,
       name: "n",
-      template: "minimal",
+      template: "triage",
       packageManager: "yarn",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
@@ -260,7 +260,7 @@ describe("scaffold", () => {
     const result = await scaffold({
       cwd,
       name: "n",
-      template: "minimal",
+      template: "triage",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc?.action).toBe("created");
@@ -277,7 +277,7 @@ describe("scaffold", () => {
         const result = await scaffold({
           cwd: fresh,
           name: "n",
-          template: "minimal",
+          template: "triage",
           packageManager: pm,
         });
         expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
@@ -296,7 +296,7 @@ describe("scaffold", () => {
         await scaffold({
           cwd: fresh,
           name: "n",
-          template: "minimal",
+          template: "triage",
           packageManager: pm,
         });
         const gi = readFileSync(join(fresh, ".gitignore"), "utf8");
@@ -315,7 +315,7 @@ describe("scaffold", () => {
     await scaffold({
       cwd,
       name: "n",
-      template: "minimal",
+      template: "triage",
       packageManager: "pnpm",
     });
     const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
@@ -331,7 +331,7 @@ describe("scaffold", () => {
     const { files } = await scaffold({
       cwd,
       name: "override-app",
-      template: "minimal",
+      template: "triage",
     });
     const pkg = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),
@@ -355,7 +355,7 @@ describe("scaffold", () => {
       await scaffold({
         cwd,
         name: "blank-override",
-        template: "minimal",
+        template: "triage",
       });
       const pkg = JSON.parse(
         readFileSync(join(cwd, "package.json"), "utf8"),
@@ -388,7 +388,7 @@ describe("scaffold", () => {
     const { files } = await scaffold({
       cwd,
       name: "existing-app",
-      template: "minimal",
+      template: "triage",
     });
     const pkg = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),
@@ -407,7 +407,7 @@ describe("scaffold", () => {
     const parent = mkdtempSync(join(tmpdir(), "scaffold-fresh-"));
     const fresh = join(parent, "brand-new");
     try {
-      await scaffold({ cwd: fresh, name: "brand-new", template: "minimal" });
+      await scaffold({ cwd: fresh, name: "brand-new", template: "triage" });
       expect(readFileSync(join(fresh, "package.json"), "utf8")).toContain(
         '"brand-new"',
       );
@@ -417,12 +417,12 @@ describe("scaffold", () => {
   });
 
   it("renders each template with a distinct trainer body", async () => {
-    const expectations: Record<"minimal" | "alpaca" | "chatml", string> = {
-      minimal: `"my-first-run"`,
-      alpaca: `"alpaca-run"`,
-      chatml: `"chatml-run"`,
+    const expectations: Record<"triage" | "translate" | "redaction", string> = {
+      triage: `"triage-run"`,
+      translate: `"translate-run"`,
+      redaction: `"redaction-run"`,
     };
-    for (const template of ["minimal", "alpaca", "chatml"] as const) {
+    for (const template of ["triage", "translate", "redaction"] as const) {
       const dir = mkdtempSync(join(tmpdir(), `scaffold-${template}-`));
       await scaffold({ cwd: dir, name: template, template });
       const trainer = readFileSync(join(dir, "src/arkor/trainer.ts"), "utf8");
@@ -489,7 +489,7 @@ describe("resolvePackageManager", () => {
 });
 
 describe("templateChoices", () => {
-  it("exposes only the non-hidden templates with a hint", () => {
+  it("exposes every registered template with a hint", () => {
     const list = templateChoices();
     expect(list.map((t) => t.value).sort()).toEqual([
       "redaction",

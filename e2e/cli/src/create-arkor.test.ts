@@ -146,7 +146,7 @@ describe("create-arkor (E2E)", () => {
       "--name",
       "no-prompt-app",
       "--template",
-      "chatml",
+      "redaction",
     ]);
     expect(result.code).toBe(0);
 
@@ -159,7 +159,7 @@ describe("create-arkor (E2E)", () => {
       join(targetDir, "src/arkor/trainer.ts"),
       "utf8",
     );
-    expect(trainer).toContain('"chatml-run"');
+    expect(trainer).toContain('"redaction-run"');
   });
 
   // Regression for ENG-357 — `--name "Foo Bar"` previously fell through to
@@ -199,30 +199,6 @@ describe("create-arkor (E2E)", () => {
     // Before the fix this would have been "arkor-project" (the sanitise
     // fallback for empty input).
     expect(pkg.name).toBe("trail");
-  });
-
-  it("honours --name --template alpaca", async () => {
-    const { result, targetDir } = await runCreateArkor([
-      "-y",
-      "--skip-install",
-      "--skip-git",
-      "--name",
-      "custom-app",
-      "--template",
-      "alpaca",
-    ]);
-    expect(result.code).toBe(0);
-
-    const pkg = JSON.parse(
-      readFileSync(join(targetDir, "package.json"), "utf8"),
-    ) as { name?: string };
-    expect(pkg.name).toBe("custom-app");
-
-    const trainer = readFileSync(
-      join(targetDir, "src/arkor/trainer.ts"),
-      "utf8",
-    );
-    expect(trainer).toContain('"alpaca-run"');
   });
 
   // Regression for ENG-426 — without an explicit `[dir]` the CLI used to

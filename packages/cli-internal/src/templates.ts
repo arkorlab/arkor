@@ -9,90 +9,14 @@
  *
  * `index.ts` is identical across templates — only the trainer body differs.
  */
-export type TemplateId =
-  | "minimal"
-  | "alpaca"
-  | "chatml"
-  | "redaction"
-  | "translate"
-  | "triage";
+export type TemplateId = "redaction" | "translate" | "triage";
 
 export interface Template {
   label: string;
   hint: string;
   /** Body of `src/arkor/trainer.ts` for this template. */
   trainer: string;
-  /**
-   * When true, the template is excluded from the CLI's interactive prompt and
-   * `templateChoices()` listing. The entry stays in `TEMPLATES` so direct
-   * `scaffold({ template })` calls (e.g. tests) still work, and re-enabling
-   * is a one-line change.
-   */
-  hidden?: boolean;
 }
-
-const MINIMAL_TRAINER = `import { createTrainer } from "arkor";
-
-export const trainer = createTrainer({
-  name: "my-first-run",
-  model: "unsloth/gemma-4-E4B-it",
-  dataset: {
-    type: "huggingface",
-    name: "yahma/alpaca-cleaned",
-    split: "train[:500]",
-  },
-  maxSteps: 50,
-  lora: { r: 16, alpha: 16 },
-  callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
-  },
-});
-`;
-
-const ALPACA_TRAINER = `import { createTrainer } from "arkor";
-
-export const trainer = createTrainer({
-  name: "alpaca-run",
-  model: "unsloth/gemma-4-E4B-it",
-  dataset: {
-    type: "huggingface",
-    name: "yahma/alpaca-cleaned",
-    split: "train[:1000]",
-  },
-  datasetFormat: { type: "alpaca" },
-  maxSteps: 100,
-  lora: { r: 16, alpha: 16 },
-  callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
-    onCheckpoint: async ({ step, infer }) => {
-      const res = await infer({
-        messages: [{ role: "user", content: "Hello!" }],
-        stream: false,
-      });
-      console.log(\`ckpt @ \${step}:\`, await res.text());
-    },
-  },
-});
-`;
-
-const CHATML_TRAINER = `import { createTrainer } from "arkor";
-
-export const trainer = createTrainer({
-  name: "chatml-run",
-  model: "unsloth/gemma-4-E4B-it",
-  dataset: {
-    type: "huggingface",
-    name: "stingning/ultrachat",
-    split: "train[:500]",
-  },
-  datasetFormat: { type: "chatml" },
-  maxSteps: 100,
-  lora: { r: 16, alpha: 16 },
-  callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
-  },
-});
-`;
 
 // The three demo templates below pair `unsloth/gemma-4-E4B-it` with curated
 // HuggingFace datasets published under the `arkorlab` org. Each dataset is in
@@ -173,26 +97,6 @@ export const TEMPLATES: Record<TemplateId, Template> = {
     label: "Redaction",
     hint: "PII redaction → structured JSON (estimated training: ~12 min)",
     trainer: REDACTION_TRAINER,
-  },
-  // The starter templates below are kept in source for reference but excluded
-  // from the CLI prompt for now. To re-enable, drop the `hidden: true` flag.
-  minimal: {
-    label: "Minimal",
-    hint: "bare createTrainer call",
-    trainer: MINIMAL_TRAINER,
-    hidden: true,
-  },
-  alpaca: {
-    label: "Alpaca",
-    hint: "instruction-tuning + mid-training eval",
-    trainer: ALPACA_TRAINER,
-    hidden: true,
-  },
-  chatml: {
-    label: "ChatML",
-    hint: "multi-turn chat fine-tuning",
-    trainer: CHATML_TRAINER,
-    hidden: true,
   },
 };
 
