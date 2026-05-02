@@ -278,6 +278,36 @@ describe("startLoopbackServer", () => {
     }
   });
 
+  it("serves the error page as text/plain with nosniff so reflected query params can't be rendered as HTML", async () => {
+    // Reflected-XSS guard: `error` and `error_description` are pulled
+    // straight off the query string into the response body. Without an
+    // explicit Content-Type browsers MIME-sniff and would render any
+    // HTML payload, giving an attacker who can lure a user to a crafted
+    // /callback URL during `arkor login` script execution against the
+    // loopback origin. The server must commit to text/plain and disable
+    // sniffing so the payload round-trips as literal text.
+    const result = await startLoopbackServer([0]);
+    const callback = result.waitForCallback.catch((e: unknown) => e);
+    try {
+      const payload = "<script>alert(1)</script>";
+      const res = await fetch(
+        `http://127.0.0.1:${result.port}/callback?error=server_error&error_description=${encodeURIComponent(payload)}`,
+      );
+      expect(res.status).toBe(400);
+      expect(res.headers.get("content-type")).toMatch(
+        /^text\/plain;\s*charset=utf-8$/i,
+      );
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      const body = await res.text();
+      // Payload must round-trip literally — not HTML-escaped (text/plain
+      // already neutralises it) and not stripped.
+      expect(body).toContain(payload);
+      await callback;
+    } finally {
+      result.server.close();
+    }
+  });
+
   it("rejects the callback promise when code or state is missing", async () => {
     const result = await startLoopbackServer([0]);
     const callback = result.waitForCallback.catch((e: unknown) => e);

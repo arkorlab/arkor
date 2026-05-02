@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Auth0Credentials } from "./credentials";
 
@@ -87,11 +87,24 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
       },
     );
 
+    const sendPlain = (
+      res: ServerResponse,
+      status: number,
+      body: string,
+    ) => {
+      res.statusCode = status;
+      // text/plain + nosniff: the error path reflects user-controlled
+      // `error` / `error_description` query params, so we must defeat
+      // browser MIME sniffing to prevent reflected XSS on the loopback origin.
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.end(body);
+    };
+
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
       if (url.pathname !== "/callback") {
-        res.statusCode = 404;
-        res.end("Not found");
+        sendPlain(res, 404, "Not found");
         return;
       }
       const code = url.searchParams.get("code");
@@ -99,16 +112,18 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
       const error = url.searchParams.get("error");
       const errorDescription = url.searchParams.get("error_description");
       if (error) {
-        res.statusCode = 400;
-        res.end(`Authentication failed: ${error} — ${errorDescription ?? ""}`);
+        sendPlain(
+          res,
+          400,
+          `Authentication failed: ${error} — ${errorDescription ?? ""}`,
+        );
         rejectCallback(
           new Error(`Authentication failed: ${error} ${errorDescription ?? ""}`),
         );
         return;
       }
       if (!code || !state) {
-        res.statusCode = 400;
-        res.end("Missing code/state");
+        sendPlain(res, 400, "Missing code/state");
         rejectCallback(new Error("Missing code/state in callback"));
         return;
       }
