@@ -326,6 +326,76 @@ describe("scaffold", () => {
     expect(result.warnings).toEqual([]);
   });
 
+  // YAML allows the root mapping to be indented. An existing
+  // `.yarnrc.yml` like `  nodeLinker: node-modules` (every key at
+  // 2-space indent) is still valid and yarn reads it normally.
+  // Earlier rounds anchored the regex to column 0, so this kind of
+  // file was misread as "missing nodeLinker" and a SECOND
+  // `nodeLinker` got appended (Copilot follow-up review on PR #99).
+  // The reader now snapshots the indent of the first content line
+  // and treats keys at that indent as top-level.
+  it("recognises an indented top-level nodeLinker as already correct", async () => {
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "  yarnPath: .yarn/releases/yarn-4.x.cjs\n  nodeLinker: node-modules\n",
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("ok");
+    expect(result.warnings).toEqual([]);
+  });
+
+  // Counterpart of the above: a `nodeLinker:` nested under another
+  // key isn't a top-level setting and yarn would never honour it.
+  // The reader rejects deeper-indented matches so we don't conflate
+  // `parent.nodeLinker` with the root key.
+  it("ignores a nested nodeLinker key and appends the missing top-level one", async () => {
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\nparent:\n  nodeLinker: pnp\n",
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("patched");
+    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
+    expect(contents).toContain("nodeLinker: node-modules");
+    // The original nested entry survives untouched.
+    expect(contents).toContain("parent:\n  nodeLinker: pnp");
+    // No spurious warning — the nested key wasn't a real conflict.
+    expect(result.warnings).toEqual([]);
+  });
+
+  // Mirror of the `.yarnrc.yml` policy on `.gitignore`: when
+  // packageManager is undefined and we're scaffolding into an
+  // existing project, don't sprinkle `.yarn/cache` etc into a
+  // non-yarn repo's gitignore (Copilot follow-up review on PR #99
+  // flagged the inconsistency where the yarnrc emission was
+  // already gated this way).
+  it("does NOT add yarn-cache lines to .gitignore when undefined-pm scaffolds into an existing project", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
+    expect(gi).toContain(".arkor/");
+    expect(gi).not.toContain(".yarn/");
+  });
+
   it("does not emit .yarnrc.yml when the user explicitly picked a non-yarn pm", async () => {
     for (const pm of ["pnpm", "npm", "bun"] as const) {
       rmSync(cwd, { recursive: true, force: true });

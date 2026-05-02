@@ -122,16 +122,25 @@ async function ensureFile(
 async function patchGitignore(
   cwd: string,
   packageManager: PackageManager | undefined,
+  isExistingProject: boolean,
 ): Promise<FileAction> {
   const path = join(cwd, GITIGNORE_PATH);
   // Required entries — every pm gets these.
   const required = ["node_modules/", "dist/", ".arkor/"];
-  // Yarn-specific entries fire when the user picked yarn or hasn't
-  // picked anything yet (the manual install hint flow). Same defensive
-  // logic as the .yarnrc.yml emission in `scaffold()` — protect the
-  // user who reads "yarn / bun install" in the hint and picks yarn,
-  // without polluting an explicit npm / pnpm / bun tree.
-  if (packageManager === "yarn" || packageManager === undefined) {
+  // Yarn-specific entries follow the same emission policy as
+  // `.yarnrc.yml` in `scaffold()` (Copilot review on PR #99 round 5
+  // pushed back on the inconsistency where gitignore added yarn
+  // lines while yarnrc didn't):
+  //   - explicit `pm === "yarn"` always adds them
+  //   - undefined pm + fresh dir adds them defensively (yarn-berry
+  //     user reading the manual install hint may run `yarn install`)
+  //   - undefined pm + pre-existing project DOES NOT touch them —
+  //     a merge into an npm/pnpm/bun repo shouldn't sprinkle yarn
+  //     residue into their `.gitignore`
+  const shouldEmitYarnEntries =
+    packageManager === "yarn" ||
+    (packageManager === undefined && !isExistingProject);
+  if (shouldEmitYarnEntries) {
     required.push(...YARN_GITIGNORE_LINES);
   }
 
@@ -156,42 +165,46 @@ async function patchGitignore(
 /**
  * Pull the value of the top-level `nodeLinker:` key out of a
  * `.yarnrc.yml`-shaped string, normalised to what yarn would actually
- * see at runtime. Returns `undefined` when no such key is set.
+ * see at runtime. Returns `undefined` when no such key is set at the
+ * root level.
  *
  * `.yarnrc.yml` is YAML; we don't pull in a full parser for one key,
  * but we do need to handle the realistic spelling variants the
- * Copilot review on PR #99 flagged (raw scalar with optional
- * trailing comment, single- or double-quoted string). A regex that
- * does string-equality on the rest of the line gets fooled by:
+ * Copilot / Codex reviews on PR #99 flagged:
  *
- *   nodeLinker: "node-modules"        # quoted
- *   nodeLinker: node-modules # comment
- *   nodeLinker:    node-modules       # extra whitespace
+ *   nodeLinker: "node-modules"          # double-quoted
+ *   nodeLinker: 'node-modules'          # single-quoted
+ *   nodeLinker: node-modules # comment  # trailing comment
+ *   nodeLinker:    node-modules         # extra whitespace
+ *     nodeLinker: node-modules          # indented root mapping
+ *   parent:                             # NESTED — must NOT match
+ *     nodeLinker: pnp                   #   (this is parent.nodeLinker)
  *
- * Strip the trailing `# …` comment first (only when preceded by
- * whitespace, so a `#` inside a quoted value isn't mistaken for one),
- * trim, then strip a single matched pair of surrounding quotes.
- * That covers every form yarn itself accepts for a simple scalar
- * value while staying small enough to inline.
+ * Strategy: find the indentation of the first content (non-blank,
+ * non-comment) line in the document — that establishes the root
+ * indent. Then accept `nodeLinker:` only when it appears at exactly
+ * that indent (so a deeper-indented `nodeLinker:` nested under
+ * another key isn't mistaken for the root value). Within the value
+ * itself, strip a trailing `# …` comment (only when preceded by
+ * whitespace, so a `#` inside a quoted scalar still survives), trim,
+ * then strip a single matched pair of surrounding quotes.
  */
 function readNodeLinkerValue(yarnrc: string): string | undefined {
-  // Top-level keys in `.yarnrc.yml` live at column 0. `^nodeLinker`
-  // anchored on a multiline match keeps an indented `nodeLinker:`
-  // (e.g. nested under another key) from being misread as the
-  // top-level value.
-  const lineMatch = /^nodeLinker\s*:\s*(.*)$/m.exec(yarnrc);
-  if (!lineMatch) return undefined;
-  let value = lineMatch[1] ?? "";
-  // Strip a `# comment` tail. The leading whitespace requirement
-  // protects values that legitimately contain `#` inside quotes —
-  // YAML's comment syntax mandates whitespace before `#`.
-  value = value.replace(/\s+#.*$/, "").trim();
-  // Strip one pair of surrounding quotes (single or double). Yarn
-  // doesn't escape further inside the scalar, so peeling one layer
-  // is enough.
-  const quoted = /^(["'])(.*)\1$/.exec(value);
-  if (quoted) value = quoted[2] ?? "";
-  return value;
+  let rootIndent: number | undefined;
+  for (const line of yarnrc.split(/\r?\n/)) {
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    const indent = /^(\s*)/.exec(line)?.[1].length ?? 0;
+    if (rootIndent === undefined) rootIndent = indent;
+    if (indent !== rootIndent) continue; // nested — skip
+    const m = /^\s*nodeLinker\s*:\s*(.*)$/.exec(line);
+    if (!m) continue;
+    let value = m[1] ?? "";
+    value = value.replace(/\s+#.*$/, "").trim();
+    const quoted = /^(["'])(.*)\1$/.exec(value);
+    if (quoted) value = quoted[2] ?? "";
+    return value;
+  }
+  return undefined;
 }
 
 interface YarnConfigPatchResult {
@@ -328,7 +341,11 @@ export async function scaffold(
   });
   files.push({
     path: GITIGNORE_PATH,
-    action: await patchGitignore(cwd, options.packageManager),
+    action: await patchGitignore(
+      cwd,
+      options.packageManager,
+      isExistingProject,
+    ),
   });
   files.push({
     path: PACKAGE_JSON_PATH,
