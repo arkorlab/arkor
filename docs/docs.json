@@ -92,7 +92,7 @@
           ],
           "primary": {
             "type": "button",
-            "label": "Get started",
+            "label": "はじめに",
             "href": "/ja/quickstart"
           }
         },

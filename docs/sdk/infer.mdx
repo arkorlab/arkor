@@ -74,5 +74,5 @@ When `stream: true` (the default), the body is an SSE event stream in the same s
 ## When you would use it
 
 - **Sanity check during a run.** Compare a checkpoint at step 50 to one at step 100 against a fixed prompt. If the loss curve looks fine but outputs are degraded, you find out before the run finishes.
-- **Custom early-stopping.** Combine with a simple eval prompt: if outputs diverge, abort the run via `controller.abort()` (see [`abortSignal`](/sdk/trainer-control#abortsignal)) and call `trainer.cancel()` to stop the backend.
+- **Custom early-stopping.** Combine with a simple eval prompt: if outputs diverge, abort the run via `controller.abort()` (see [`abortSignal`](/sdk/trainer-control#abortsignal)) and call `trainer.cancel()` to stop the backend. See the [Early stopping recipe](/cookbook/early-stopping) for the full pattern.
 - **Live preview into your own UI.** Send the checkpoint output to Slack, an internal review queue, or your own app's preview channel.
