@@ -21,6 +21,21 @@ vi.mock("../core/auth0", () => ({
   fetchCliConfig: vi.fn(),
 }));
 
+// `readCredentials` is read by `probeOauthAvailability` so the probe can
+// hit the credentials' *own* cloud-api URL (the one that produced the
+// auth error) rather than the global default. Partial-mock the module so
+// `defaultArkorCloudApiUrl` keeps its real implementation while
+// `readCredentials` becomes controllable per-test.
+vi.mock("../core/credentials", async () => {
+  const actual = await vi.importActual<
+    typeof import("../core/credentials")
+  >("../core/credentials");
+  return {
+    ...actual,
+    readCredentials: vi.fn(async () => null),
+  };
+});
+
 // Telemetry: the wrapper just delegates to the inner handler in tests
 // so we don't have to thread PostHog state through every assertion.
 vi.mock("../core/telemetry", () => ({
@@ -51,6 +66,7 @@ import { runStart } from "./commands/start";
 import { runWhoami } from "./commands/whoami";
 import { fetchCliConfig } from "../core/auth0";
 import { CloudApiError } from "../core/client";
+import { readCredentials } from "../core/credentials";
 import { shutdownTelemetry } from "../core/telemetry";
 import { main } from "./main";
 
@@ -70,6 +86,8 @@ beforeEach(() => {
   vi.mocked(shutdownTelemetry).mockReset();
   vi.mocked(shutdownTelemetry).mockResolvedValue(undefined);
   vi.mocked(fetchCliConfig).mockReset();
+  vi.mocked(readCredentials).mockReset();
+  vi.mocked(readCredentials).mockResolvedValue(null);
   mockDeprecation.value = null;
 });
 
@@ -337,6 +355,44 @@ describe("main (CLI Commander wiring)", () => {
       vi.mocked(runWhoami).mockRejectedValueOnce(new Error("not an api error"));
       await expect(main(["whoami"])).rejects.toThrow(/not an api error/);
       expect(fetchCliConfig).not.toHaveBeenCalled();
+    });
+
+    it("probes OAuth against the credentials' arkorCloudApiUrl, not the global default", async () => {
+      // Anonymous credentials carry the cloud-api URL they were issued
+      // against. The probe must hit *that* URL rather than
+      // `defaultArkorCloudApiUrl()` so we don't inspect the wrong
+      // deployment when `ARKOR_CLOUD_API_URL` differs from the URL the
+      // failing token is bound to.
+      vi.mocked(readCredentials).mockResolvedValueOnce({
+        mode: "anon",
+        token: "anon-token",
+        anonymousId: "anon_abc",
+        arkorCloudApiUrl: "https://custom.cloud.example",
+        orgSlug: "custom-personal",
+      });
+      vi.mocked(fetchCliConfig).mockResolvedValueOnce({
+        auth0Domain: "tenant.auth0.com",
+        clientId: "cid",
+        audience: "https://api.arkor.ai",
+        callbackPorts: [52521],
+      });
+      vi.mocked(runWhoami).mockRejectedValueOnce(
+        new CloudApiError(
+          409,
+          "...",
+          "anonymous_token_single_device",
+        ),
+      );
+
+      const { restore } = captureStderr();
+      try {
+        await main(["whoami"]);
+      } finally {
+        restore();
+      }
+      expect(fetchCliConfig).toHaveBeenCalledWith(
+        "https://custom.cloud.example",
+      );
     });
 
     it("treats fetchCliConfig failure as anon-only (probe falls back to false)", async () => {

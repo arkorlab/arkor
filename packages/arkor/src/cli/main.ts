@@ -12,7 +12,10 @@ import {
   isAnonymousAuthDeadEnd,
 } from "../core/anonymous-auth-error";
 import { fetchCliConfig } from "../core/auth0";
-import { defaultArkorCloudApiUrl } from "../core/credentials";
+import {
+  defaultArkorCloudApiUrl,
+  readCredentials,
+} from "../core/credentials";
 import { getRecordedDeprecation } from "../core/deprecation";
 import { shutdownTelemetry, withTelemetry } from "../core/telemetry";
 import { detectedUpgradeCommand } from "../core/upgrade-hint";
@@ -22,15 +25,31 @@ import { ui } from "./prompts";
 /**
  * Resolve `oauthAvailable` for the current deployment so anonymous-auth
  * dead-end errors recommend a recovery path that actually works on
- * anon-only deployments. Best-effort: any failure (network, malformed
- * cfg) collapses to `false`, which makes the formatter point at
- * `arkor login --anonymous` rather than `--oauth` — i.e. the only
- * recovery that's universally available. Cheap, but worth pre-fetching
- * so the formatter stays synchronous.
+ * anon-only deployments. Probes the *credentials' own* cloud-api URL
+ * (the one that just produced the auth error), not the global default
+ * — `ARKOR_CLOUD_API_URL` may have changed since the credentials were
+ * issued, or a command may have run against a non-default endpoint, in
+ * which case probing `defaultArkorCloudApiUrl()` would inspect the
+ * wrong deployment and recommend the opposite recovery path.
+ *
+ * Best-effort: missing credentials, network failure, or malformed cfg
+ * all collapse to `false`, which makes the formatter point at
+ * `arkor login --anonymous` rather than `--oauth`. That's the only
+ * recovery that's universally available, so erring on the
+ * suppression-of-`--oauth` side is safe.
  */
 async function probeOauthAvailability(): Promise<boolean> {
   try {
-    const cfg = await fetchCliConfig(defaultArkorCloudApiUrl());
+    const creds = await readCredentials().catch(() => null);
+    // Only `AnonymousCredentials` carries `arkorCloudApiUrl`; the
+    // anon-auth-error path only fires for anonymous tokens anyway, but
+    // we defensively fall through to the global default for any other
+    // shape rather than throwing on a `Auth0Credentials` narrowing.
+    const baseUrl =
+      creds?.mode === "anon" && creds.arkorCloudApiUrl
+        ? creds.arkorCloudApiUrl
+        : defaultArkorCloudApiUrl();
+    const cfg = await fetchCliConfig(baseUrl);
     return Boolean(cfg.auth0Domain && cfg.clientId && cfg.audience);
   } catch {
     return false;
