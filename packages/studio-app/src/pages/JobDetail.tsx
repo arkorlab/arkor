@@ -189,7 +189,24 @@ export function JobDetail({ jobId }: { jobId: string }) {
     return () => es.close();
   }, [jobId]);
 
-  const status = terminal?.status ?? liveStatus ?? job?.status ?? "queued";
+  // Status precedence:
+  //   1. SSE terminal frame (training.completed / training.failed) we
+  //      observed in this session — most authoritative.
+  //   2. Polled terminal status from /api/jobs — also authoritative,
+  //      and crucially it preempts a stale `liveStatus = "running"`
+  //      that can linger if the SSE stream dropped before the
+  //      terminal frame arrived.
+  //   3. SSE-derived `liveStatus` for the running phase, which lets
+  //      us flip the UI to "running" before /api/jobs catches up.
+  //   4. The polled non-terminal status, if anything.
+  //   5. Default "queued".
+  const polledIsTerminal =
+    job?.status === "completed" ||
+    job?.status === "failed" ||
+    job?.status === "cancelled";
+  const status: Job["status"] =
+    terminal?.status ??
+    (polledIsTerminal ? job!.status : (liveStatus ?? job?.status ?? "queued"));
 
   // Live duration ticker while the job is running.
   const isRunning = status === "running" && !terminal;

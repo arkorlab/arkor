@@ -171,6 +171,7 @@ export function Playground() {
                 setSelectedJob(id);
                 setMessages([]);
               }}
+              disabled={streaming}
             />
           ) : null}
         </div>

@@ -6,10 +6,12 @@ export function AdapterPicker({
   jobs,
   selectedId,
   onSelect,
+  disabled,
 }: {
   jobs: Job[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  disabled?: boolean;
 }) {
   const selected = jobs.find((j) => j.id === selectedId) ?? null;
 
@@ -33,7 +35,7 @@ export function AdapterPicker({
       <select
         aria-label="Adapter"
         value={selectedId ?? ""}
-        disabled={jobs.length === 0}
+        disabled={disabled || jobs.length === 0}
         onChange={(e) => onSelect(e.target.value)}
         className="absolute inset-0 cursor-pointer appearance-none bg-transparent text-transparent opacity-0 disabled:cursor-not-allowed"
       >
