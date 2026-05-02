@@ -7,9 +7,15 @@ export type Route =
   | { kind: "playground"; adapterJobId?: string };
 
 export function parseRoute(): Route {
-  const raw = window.location.hash.replace(/^#\/?/, "").replace(/\/+$/, "");
+  // Split into path / query first; trimming trailing slashes from the
+  // raw hash up front would leave them on the path when a query is
+  // present (e.g. `#/playground/?adapter=foo` → `playground/?adapter=foo`,
+  // since the `/` is no longer at the end of the string), and the
+  // route would fall through to `home`. Trim the path-only segment.
+  const raw = window.location.hash.replace(/^#\/?/, "");
   const queryStart = raw.indexOf("?");
-  const path = queryStart === -1 ? raw : raw.slice(0, queryStart);
+  const rawPath = queryStart === -1 ? raw : raw.slice(0, queryStart);
+  const path = rawPath.replace(/\/+$/, "");
   const query = queryStart === -1 ? "" : raw.slice(queryStart + 1);
   if (path === "jobs") return { kind: "jobs" };
   if (path.startsWith("jobs/")) {

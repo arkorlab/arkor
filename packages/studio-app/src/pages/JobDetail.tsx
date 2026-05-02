@@ -81,31 +81,37 @@ export function JobDetail({ jobId }: { jobId: string }) {
     setLiveStartedAt(null);
 
     let counter = 0;
-    function pushEvent(event: string, data: string) {
+
+    // Each SSE frame's `data` is JSON; the listeners below all need
+    // both the formatted message (for the events stream) and a typed
+    // view of the payload (for chart points / status / completedAt /
+    // etc). Parse once per frame and pass the result to `pushEvent`
+    // so the formatter doesn't have to re-parse.
+    function safeParse(data: string): unknown {
+      try {
+        return JSON.parse(data);
+      } catch {
+        return null;
+      }
+    }
+
+    function pushEvent(event: string, data: string, parsed: unknown) {
       const id = counter++;
       let message = data;
-      try {
-        const parsed = JSON.parse(data);
-        if (typeof parsed === "object" && parsed !== null) {
-          if (event === "training.log") {
-            message = `step=${parsed.step ?? "—"} loss=${
-              typeof parsed.loss === "number" ? parsed.loss.toFixed(4) : "—"
-            }`;
-          } else if (event === "training.failed") {
-            message = String(parsed.error ?? "failed");
-          } else if (event === "training.completed") {
-            const n = Array.isArray(parsed.artifacts)
-              ? parsed.artifacts.length
-              : 0;
-            message = `${n} artifact${n === 1 ? "" : "s"}`;
-          } else if (event === "checkpoint.saved") {
-            message = `step=${parsed.step ?? "—"}`;
-          } else {
-            message = data;
-          }
+      if (parsed && typeof parsed === "object") {
+        const p = parsed as Record<string, unknown>;
+        if (event === "training.log") {
+          message = `step=${p.step ?? "—"} loss=${
+            typeof p.loss === "number" ? p.loss.toFixed(4) : "—"
+          }`;
+        } else if (event === "training.failed") {
+          message = String(p.error ?? "failed");
+        } else if (event === "training.completed") {
+          const n = Array.isArray(p.artifacts) ? p.artifacts.length : 0;
+          message = `${n} artifact${n === 1 ? "" : "s"}`;
+        } else if (event === "checkpoint.saved") {
+          message = `step=${p.step ?? "—"}`;
         }
-      } catch {
-        // leave raw
       }
       setEvents((prev) => [
         ...prev.slice(-499),
@@ -118,69 +124,70 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
     const es = openJobEvents(jobId);
     es.addEventListener("training.started", (ev: MessageEvent) => {
-      pushEvent("training.started", ev.data);
+      const parsed = safeParse(ev.data);
+      pushEvent("training.started", ev.data, parsed);
       // SSE is the source of truth for live status. Drive `liveStatus`
       // / `liveStartedAt` independently of `job` so the page reflects
       // "running" even when the SSE event lands before /api/jobs has
       // populated `job` (or when polling fails entirely).
       setLiveStatus("running");
-      try {
-        const d = JSON.parse(ev.data) as { timestamp?: string };
+      if (parsed && typeof parsed === "object") {
+        const d = parsed as { timestamp?: string };
         if (d.timestamp) setLiveStartedAt((prev) => prev ?? d.timestamp!);
-      } catch {
-        // ignore parse failures
       }
     });
     es.addEventListener("training.log", (ev: MessageEvent) => {
-      pushEvent("training.log", ev.data);
-      try {
-        const d = JSON.parse(ev.data) as { step: number; loss?: number | null };
+      const parsed = safeParse(ev.data);
+      pushEvent("training.log", ev.data, parsed);
+      if (parsed && typeof parsed === "object") {
+        const d = parsed as { step?: number; loss?: number | null };
+        if (typeof d.step !== "number") return;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
         // chart's visual resolution at any reasonable width.
         setPoints((prev) => {
-          const next = [...prev, { step: d.step, loss: d.loss ?? null }];
+          const next = [
+            ...prev,
+            { step: d.step!, loss: d.loss ?? null },
+          ];
           return next.length > MAX_LOSS_POINTS
             ? next.slice(next.length - MAX_LOSS_POINTS)
             : next;
         });
-      } catch {
-        // ignore parse failures
       }
     });
     es.addEventListener("checkpoint.saved", (ev: MessageEvent) => {
-      pushEvent("checkpoint.saved", ev.data);
+      pushEvent("checkpoint.saved", ev.data, safeParse(ev.data));
     });
     es.addEventListener("training.completed", (ev: MessageEvent) => {
-      pushEvent("training.completed", ev.data);
+      const parsed = safeParse(ev.data);
+      pushEvent("training.completed", ev.data, parsed);
       // SSE payload carries the trainer-side completion timestamp; use
       // it so duration / "Completed" stay correct without depending on
       // the next /api/jobs poll.
-      try {
-        const d = JSON.parse(ev.data) as {
-          artifacts?: unknown[];
-          timestamp?: string;
-        };
+      if (parsed && typeof parsed === "object") {
+        const d = parsed as { artifacts?: unknown[]; timestamp?: string };
         setTerminal({
           status: "completed",
           artifacts: Array.isArray(d.artifacts) ? d.artifacts.length : 0,
           completedAt: d.timestamp,
         });
-      } catch {
+      } else {
         setTerminal({ status: "completed", artifacts: 0 });
       }
     });
     es.addEventListener("training.failed", (ev: MessageEvent) => {
-      pushEvent("training.failed", ev.data);
-      try {
-        const d = JSON.parse(ev.data) as { error: string; timestamp?: string };
+      const parsed = safeParse(ev.data);
+      pushEvent("training.failed", ev.data, parsed);
+      if (parsed && typeof parsed === "object") {
+        const d = parsed as { error?: string; timestamp?: string };
         setTerminal({
           status: "failed",
           error: d.error,
           artifacts: 0,
           completedAt: d.timestamp,
         });
-      } catch {
+      } else {
         setTerminal({ status: "failed", artifacts: 0 });
       }
     });
