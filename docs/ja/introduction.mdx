@@ -35,7 +35,7 @@ Arkor はアルファ版です。設計が固まるまで API は予告なく変
 - 1 ファイルからオープンウェイト LLM（現状は Gemma ベース）をファインチューニング。
 - 数分で完了するエンドツーエンドのテンプレートを 3 種から選択。`triage`（サポートの分類）、`translate`（9 言語）、`redaction`（個人情報のマスク）。
 - ダッシュボードではなく、ライフサイクルコールバックでコードから学習に反応する。
-- インフラの追加セットアップなしで、Arkor のマネージド GPU 上で学習を実行。アカウントなしで試せます。学習をアカウントに紐づけたい場合は、学習を始める前に `pnpm exec arkor login --oauth` を実行してください。匿名で先に始めた作業をあとからアカウントへ統合する機能は将来的にサポート予定です。
+- インフラの追加セットアップなしで、Arkor のマネージド GPU 上で学習を実行。アカウントなしで試せます。学習をアカウントに紐づけたい場合は、学習を始める前に `arkor login --oauth` を実行してください。匿名で先に始めた作業をあとからアカウントへ統合する機能は将来的にサポート予定です。
 - ローカル Studio で学習をライブ確認。完了後は Playground で学習済みモデルとチャット。
 
 まだ入っていないもの:
@@ -49,11 +49,33 @@ Arkor はアルファ版です。設計が固まるまで API は予告なく変
 
 ## 試してみる
 
-```bash
+<CodeGroup>
+
+```bash pnpm
 pnpm create arkor my-arkor-app
 cd my-arkor-app
 pnpm dev
 ```
+
+```bash npm
+npm create arkor my-arkor-app
+cd my-arkor-app
+npm run dev
+```
+
+```bash yarn
+yarn create arkor my-arkor-app
+cd my-arkor-app
+yarn dev
+```
+
+```bash bun
+bun create arkor my-arkor-app
+cd my-arkor-app
+bun dev
+```
+
+</CodeGroup>
 
 最初の実行は、テンプレートにもよりますがおおよそ 7〜12 分で終わります。
 

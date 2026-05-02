@@ -5,9 +5,25 @@ description: "Launch Arkor Studio locally."
 
 # `arkor dev`
 
-```bash
+<CodeGroup>
+
+```bash pnpm
 pnpm exec arkor dev
 ```
+
+```bash npm
+npx arkor dev
+```
+
+```bash yarn
+yarn arkor dev
+```
+
+```bash bun
+bunx arkor dev
+```
+
+</CodeGroup>
 
 Boots [Studio](/concepts/studio), the local web UI, on `http://localhost:4000`. Studio is where you click **Run training** to spawn `arkor start` against your `src/arkor/index.ts`, watch the run stream in, and chat with the resulting adapter in the Playground.
 
@@ -68,11 +84,45 @@ This means `arkor dev` is safe on a shared dev machine: another tab cannot read 
 ## Examples
 
 Default port:
-```bash
+
+<CodeGroup>
+
+```bash pnpm
 pnpm exec arkor dev
 ```
 
+```bash npm
+npx arkor dev
+```
+
+```bash yarn
+yarn arkor dev
+```
+
+```bash bun
+bunx arkor dev
+```
+
+</CodeGroup>
+
 Custom port plus auto-open:
-```bash
+
+<CodeGroup>
+
+```bash pnpm
 pnpm exec arkor dev --port 5000 --open
 ```
+
+```bash npm
+npx arkor dev --port 5000 --open
+```
+
+```bash yarn
+yarn arkor dev --port 5000 --open
+```
+
+```bash bun
+bunx arkor dev --port 5000 --open
+```
+
+</CodeGroup>
