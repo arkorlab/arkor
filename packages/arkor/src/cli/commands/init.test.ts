@@ -78,10 +78,11 @@ beforeEach(() => {
   // Pin non-interactive so promptText/Select fall through to skipWith /
   // initialValue without opening clack.
   process.env.CI = "1";
-  vi.mocked(scaffold).mockClear();
-  vi.mocked(install).mockClear();
-  vi.mocked(gitInitialCommit).mockClear();
-  vi.mocked(isInGitRepo).mockClear();
+  // `vi.mock()`-created mocks (`@clack/prompts.log.warn`, etc.) aren't
+  // reset by `restoreAllMocks` in afterEach — that only undoes
+  // `vi.spyOn` patches. Without `clearAllMocks` here, call lists from
+  // earlier tests leak into the new warning-surface assertions.
+  vi.clearAllMocks();
   vi.mocked(isInGitRepo).mockResolvedValue(false);
   vi.mocked(gitInitialCommit).mockResolvedValue({ signingFallback: false });
   vi.mocked(install).mockResolvedValue(undefined);
@@ -380,5 +381,53 @@ describe("runInit", () => {
       skipInstall: true,
     });
     expect(gitInitialCommit).not.toHaveBeenCalled();
+  });
+
+  // The `warnings` loop in `runInit` is the only place the
+  // scaffold's non-fatal advisories (currently the conflicting-
+  // `nodeLinker:` notice) reach the user. A regression that drops
+  // it would silently swallow important guidance — Copilot's
+  // round-6 review on PR #99 flagged the missing coverage.
+  it("surfaces every scaffold warning via ui.log.warn", async () => {
+    const advisories = [
+      "Existing .yarnrc.yml pins `nodeLinker: pnp`. ...",
+      "Some other future advisory the scaffolder might add.",
+    ];
+    vi.mocked(scaffold).mockResolvedValueOnce({
+      cwd,
+      files: [{ action: "created", path: "package.json" }],
+      warnings: advisories,
+    });
+    const clack = await import("@clack/prompts");
+    await runInit({
+      yes: true,
+      packageManager: "yarn",
+      skipInstall: true,
+      skipGit: true,
+    });
+    // Each warning surfaces verbatim, in order, via the mocked
+    // ui.log (which is just clack.log under the hood — see
+    // ../prompts.ts).
+    expect(vi.mocked(clack.log.warn).mock.calls.map((c) => c[0])).toEqual(
+      advisories,
+    );
+  });
+
+  // Counterpart: when the scaffold returns `warnings: []`, runInit
+  // must NOT emit a stray empty `ui.log.warn` (e.g. from a refactor
+  // that loops the wrong array or forgets the empty-guard). Locking
+  // this down makes the warnings path quiet by default.
+  it("emits no ui.log.warn when scaffold returns no warnings", async () => {
+    // The default scaffold mock at the top of the file already
+    // returns `warnings: []`; this test just asserts the absence of
+    // calls to be explicit about the contract.
+    const clack = await import("@clack/prompts");
+    await runInit({
+      yes: true,
+      packageManager: "pnpm",
+      skipInstall: true,
+      skipGit: true,
+    });
+    expect(vi.mocked(clack.log.warn)).not.toHaveBeenCalled();
   });
 });

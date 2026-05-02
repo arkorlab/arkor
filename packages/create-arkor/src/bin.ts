@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
@@ -117,7 +118,11 @@ async function maybeGitInit(
   }
 }
 
-async function run(options: RunOptions): Promise<void> {
+// Exported so the focused unit test in `bin.test.ts` can call `run()`
+// directly without spawning the bundled binary. Commander still owns
+// argv parsing in production — `run()` is the side-effecting kernel
+// the parser hands off to.
+export async function run(options: RunOptions): Promise<void> {
   clack.intro("create-arkor");
 
   // When `dir` is explicit, derive the project name from its basename so
@@ -350,9 +355,18 @@ program
     },
   );
 
-program.parseAsync(process.argv).catch((err) => {
-  process.stderr.write(
-    `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,
-  );
-  process.exit(1);
-});
+// Only parse argv when this module is the entrypoint. Tests
+// (`bin.test.ts`) import `run` directly to exercise the side-effect
+// kernel without commander spinning up on vitest's argv. The
+// canonical ESM check is `import.meta.url` against the resolved
+// argv[1] file URL — `pathToFileURL` handles Windows backslashes
+// correctly where a hand-rolled `file://${argv[1]}` would not.
+const argv1 = process.argv[1];
+if (argv1 && import.meta.url === pathToFileURL(argv1).href) {
+  program.parseAsync(process.argv).catch((err) => {
+    process.stderr.write(
+      `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(1);
+  });
+}
