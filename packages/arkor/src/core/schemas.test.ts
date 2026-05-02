@@ -55,6 +55,21 @@ describe("trainingJobSchema", () => {
     const { id: _omit, ...rest } = valid;
     expect(() => trainingJobSchema.parse(rest)).toThrow();
   });
+
+  it("normalises non-null startedAt/completedAt strings via the truthy branch", () => {
+    // Branch coverage for the `v ? String(v) : null` transforms — the
+    // `null` branch is exercised by every other test in this file
+    // (the `valid` fixture has both fields null), but the `String(v)`
+    // branch only fires when the field carries an actual timestamp.
+    const parsed = trainingJobSchema.parse({
+      ...valid,
+      startedAt: "2026-01-01T00:00:01Z",
+      completedAt: new Date("2026-01-01T00:00:02Z"),
+    });
+    expect(typeof parsed.startedAt).toBe("string");
+    expect(parsed.startedAt).toBe("2026-01-01T00:00:01Z");
+    expect(typeof parsed.completedAt).toBe("string");
+  });
 });
 
 describe("anonymousTokenResponseSchema", () => {

@@ -75,6 +75,74 @@ describe("runStart", () => {
     expect(stdout).toContain("status=completed");
   });
 
+  it("skips the build step when the artifact already exists and no entry override is given", async () => {
+    // Branch coverage for `Boolean(opts.entry) || !existsSync(outFile)` —
+    // the path where both halves are false. Pre-build the artifact, then
+    // confirm runStart imports it without triggering esbuild again.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+    // First call builds normally.
+    await runStart({ cwd });
+    // Damage the source so a rebuild would crash if it ran. With the
+    // skip-build branch, the helper imports the cached artifact and the
+    // bad source is never re-bundled.
+    writeFileSync(join(cwd, "src/arkor/index.ts"), "syntax error <<<");
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: unknown) => {
+        writes.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      }) as unknown as typeof process.stdout.write);
+    try {
+      await expect(runStart({ cwd })).resolves.toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(writes.join("")).toContain("Started job j1");
+  });
+
+  it("accepts an absolute outDir without joining it under cwd", async () => {
+    // Branch coverage for `isAbsolute(outDirRel) ? outDirRel : resolve(...)`.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+    const absOut = join(cwd, "abs-out");
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: unknown) => {
+        writes.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      }) as unknown as typeof process.stdout.write);
+    try {
+      await runStart({ cwd, outDir: absOut });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(existsSync(join(absOut, "index.mjs"))).toBe(true);
+  });
+
+  it("falls back to process.cwd() when no cwd is provided", async () => {
+    // Branch coverage for the cwd default. process.chdir is already pinned
+    // to the test's temp dir in beforeEach, so omitting the option lets
+    // the helper read it from there.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+    const writes: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: unknown) => {
+        writes.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      }) as unknown as typeof process.stdout.write);
+    try {
+      await runStart({});
+    } finally {
+      spy.mockRestore();
+    }
+    expect(existsSync(join(cwd, ".arkor/build/index.mjs"))).toBe(true);
+  });
+
   it("rebuilds when an explicit entry is provided", async () => {
     const altEntry = join(cwd, "alt-entry.ts");
     writeFileSync(

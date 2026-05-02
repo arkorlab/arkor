@@ -1,0 +1,381 @@
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Stub @clack/prompts so the interactive-prompt branch in maybeGitInit
+// can be exercised without opening a real TUI. The default mock implementation
+// returns the prompt's resolved value (configured per-test via mockResolvedValueOnce).
+vi.mock("@clack/prompts", () => ({
+  confirm: vi.fn(),
+  text: vi.fn(),
+  select: vi.fn(),
+  isCancel: vi.fn((v: unknown) => v === Symbol.for("clack:cancel")),
+  intro: vi.fn(),
+  outro: vi.fn(),
+  note: vi.fn(),
+  log: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn(), step: vi.fn() },
+  spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
+}));
+
+// Mock the cli-internal helpers so we don't actually scaffold files,
+// run install, or hit git on disk for every branch — the helpers have
+// their own tests in @arkor/cli-internal. We only verify the
+// orchestration logic in init.ts itself.
+vi.mock("@arkor/cli-internal", () => {
+  return {
+    gitInitialCommit: vi.fn(async () => ({ signingFallback: false })),
+    install: vi.fn(async () => undefined),
+    isInGitRepo: vi.fn(async () => false),
+    sanitise: (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || "arkor-project",
+    scaffold: vi.fn(async () => ({
+      files: [{ action: "created", path: "package.json" }],
+    })),
+    TEMPLATES: {
+      triage: { hidden: false },
+      translate: { hidden: false },
+      redaction: { hidden: false },
+      minimal: { hidden: true },
+    },
+    templateChoices: () => [
+      { value: "triage", label: "Triage", hint: "fast" },
+      { value: "translate", label: "Translate", hint: "translate" },
+      { value: "redaction", label: "Redaction", hint: "redaction" },
+    ],
+  };
+});
+
+import {
+  gitInitialCommit,
+  install,
+  isInGitRepo,
+  scaffold,
+} from "@arkor/cli-internal";
+import { runInit } from "./init";
+
+let cwd: string;
+const ORIG_CWD = process.cwd();
+// Capture the original env / TTY state so the after-each can restore
+// conditionally. CI runners typically have CI already set, and an
+// unconditional `delete` would leak a different environment to later
+// test files when vitest reuses a worker.
+const ORIG_CI = process.env.CI;
+const ORIG_TTY = process.stdout.isTTY;
+
+beforeEach(() => {
+  // macOS resolves `/tmp/...` through realpath to `/private/tmp/...`, so
+  // a chdir into the raw `mkdtemp` result leaves `process.cwd()` (the
+  // value runInit reads internally) and our captured `cwd` mismatched.
+  // Canonicalising up front keeps every assertion that compares against
+  // `cwd` portable across Linux / macOS / Windows.
+  cwd = realpathSync(mkdtempSync(join(tmpdir(), "arkor-init-test-")));
+  process.chdir(cwd);
+  // Pin non-interactive so promptText/Select fall through to skipWith /
+  // initialValue without opening clack.
+  process.env.CI = "1";
+  vi.mocked(scaffold).mockClear();
+  vi.mocked(install).mockClear();
+  vi.mocked(gitInitialCommit).mockClear();
+  vi.mocked(isInGitRepo).mockClear();
+  vi.mocked(isInGitRepo).mockResolvedValue(false);
+  vi.mocked(gitInitialCommit).mockResolvedValue({ signingFallback: false });
+  vi.mocked(install).mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  process.chdir(ORIG_CWD);
+  rmSync(cwd, { recursive: true, force: true });
+  if (ORIG_CI === undefined) delete process.env.CI;
+  else process.env.CI = ORIG_CI;
+  // Restore the TTY flag in case an interactive test mutated it —
+  // otherwise a later test that unsets CI would unexpectedly enter
+  // interactive prompt paths.
+  Object.defineProperty(process.stdout, "isTTY", {
+    value: ORIG_TTY,
+    configurable: true,
+  });
+  vi.restoreAllMocks();
+});
+
+describe("runInit", () => {
+  it("happy path: scaffolds with --yes, runs install, runs git init", async () => {
+    await runInit({
+      yes: true,
+      name: "My App",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    // sanitise() mock lowercases + dashes the explicit name.
+    expect(scaffold).toHaveBeenCalledWith({
+      cwd,
+      name: "my-app",
+      template: "triage",
+    });
+    expect(install).toHaveBeenCalledWith("pnpm", cwd);
+    expect(gitInitialCommit).toHaveBeenCalledWith(
+      cwd,
+      "Initial commit from `arkor init`",
+    );
+  });
+
+  it("rejects an unknown template before any side effect", async () => {
+    await expect(
+      runInit({
+        template: "nonexistent" as never,
+        packageManager: undefined,
+      }),
+    ).rejects.toThrow(/Unknown template/);
+    expect(scaffold).not.toHaveBeenCalled();
+  });
+
+  it("rejects template ids that resolve via the prototype chain (toString, __proto__)", async () => {
+    // The validator uses Object.hasOwn so prototype-chain entries don't
+    // pass. Without that guard, `--template toString` would crash later
+    // inside scaffold() with a confusing error.
+    await expect(
+      runInit({
+        template: "toString" as never,
+        packageManager: undefined,
+      }),
+    ).rejects.toThrow(/Unknown template "toString"/);
+  });
+
+  it("falls back to the cwd basename when --name is not provided (with --yes)", async () => {
+    await runInit({
+      yes: true,
+      template: "triage",
+      packageManager: "npm",
+    });
+    // basename of the temp dir starts with "arkor-init-test-".
+    const callArg = vi.mocked(scaffold).mock.calls[0]?.[0];
+    expect(callArg?.name).toMatch(/^arkor-init-test-/);
+  });
+
+  it("falls back to 'arkor-project' as the default name when basename(cwd) is empty", async () => {
+    // Branch coverage for `basename(cwd) || "arkor-project"`. `basename`
+    // of the platform's filesystem root (`/` on POSIX, `C:\` on Windows)
+    // is `""`, so chdir-ing into the root exercises the `||` fallback.
+    // Using `path.parse(...).root` keeps the test portable across
+    // platforms; the scaffold mock absorbs the actual filesystem write
+    // so we don't touch the real root.
+    const { parse } = await import("node:path");
+    const fsRoot = parse(process.cwd()).root;
+    process.chdir(fsRoot);
+    await runInit({
+      yes: true,
+      template: "triage",
+      packageManager: "npm",
+    });
+    const callArg = vi.mocked(scaffold).mock.calls[0]?.[0];
+    expect(callArg?.name).toBe("arkor-project");
+  });
+
+  it("uses 'triage' as the implicit template skipWith with --yes alone (no --template)", async () => {
+    // Branch coverage for the inner ternary in
+    // `options.template ?? (options.yes ? "triage" : undefined)`.
+    await runInit({
+      yes: true,
+      packageManager: "pnpm",
+      skipInstall: true,
+    });
+    expect(scaffold).toHaveBeenCalledWith(
+      expect.objectContaining({ template: "triage" }),
+    );
+  });
+
+  it("falls back to undefined skipWith for template when not --yes and no --template", async () => {
+    // Branch coverage for the `options.template ?? (options.yes ? "triage" : undefined)`
+    // chain — the `undefined` arm fires when neither flag is set. The
+    // promptSelect helper falls back to `initialValue: "triage"` under
+    // CI=1, so the resolved template still lands on triage even though
+    // skipWith is undefined.
+    await runInit({
+      packageManager: "pnpm",
+      skipInstall: true,
+    });
+    expect(scaffold).toHaveBeenCalledWith(
+      expect.objectContaining({ template: "triage" }),
+    );
+  });
+
+  it("skips install when --skip-install is set", async () => {
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      skipInstall: true,
+      packageManager: "pnpm",
+    });
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("skips install when no packageManager could be detected", async () => {
+    // Branch coverage for `pm` undefined — the user gets the manual-install
+    // hint in the outro instead of a silent guess.
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      packageManager: undefined,
+    });
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("warns but continues when install throws (so the user keeps a scaffolded tree)", async () => {
+    vi.mocked(install).mockRejectedValueOnce(new Error("network down"));
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    // git init still runs even if install failed.
+    expect(gitInitialCommit).toHaveBeenCalled();
+  });
+
+  it("forwards a non-Error install rejection through String() coercion", async () => {
+    // Branch coverage for `err instanceof Error ? err.message : String(err)`
+    // around install. The CLI's warn line must still render even when a
+    // dependency throws a plain string/object.
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    vi.mocked(install).mockRejectedValueOnce("rate-limited" as unknown as Error);
+    await expect(
+      runInit({
+        yes: true,
+        name: "x",
+        template: "triage",
+        packageManager: "pnpm",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("forwards a non-Error gitInitialCommit rejection through String() coercion", async () => {
+    // Branch coverage for the symmetric String() coercion in maybeGitInit.
+    vi.mocked(gitInitialCommit).mockRejectedValueOnce(
+      "git binary missing" as unknown as Error,
+    );
+    await expect(
+      runInit({
+        yes: true,
+        name: "x",
+        template: "triage",
+        packageManager: "pnpm",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("skips git init when --skip-git is set", async () => {
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      packageManager: "pnpm",
+      skipGit: true,
+    });
+    expect(gitInitialCommit).not.toHaveBeenCalled();
+  });
+
+  it("skips git init when the directory is already inside a repo", async () => {
+    vi.mocked(isInGitRepo).mockResolvedValueOnce(true);
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    expect(gitInitialCommit).not.toHaveBeenCalled();
+  });
+
+  it("warns about an unsigned fallback commit when signingFallback is true", async () => {
+    vi.mocked(gitInitialCommit).mockResolvedValueOnce({
+      signingFallback: true,
+    });
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    expect(gitInitialCommit).toHaveBeenCalledOnce();
+  });
+
+  it("absorbs gitInitialCommit failures so the scaffold still completes", async () => {
+    vi.mocked(gitInitialCommit).mockRejectedValueOnce(
+      new Error("git binary missing"),
+    );
+    await expect(
+      runInit({
+        yes: true,
+        name: "x",
+        template: "triage",
+        packageManager: "pnpm",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("skips git init in a non-interactive environment without explicit flags", async () => {
+    // CI=1 from beforeEach already pins non-interactive. With neither
+    // --git nor --skip-git nor --yes, the helper must skip rather than
+    // silently auto-init (which would feel unexpected in CI scripts).
+    await runInit({
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    expect(gitInitialCommit).not.toHaveBeenCalled();
+  });
+
+  it("forces git init when --git is set even without --yes", async () => {
+    await runInit({
+      template: "triage",
+      packageManager: "pnpm",
+      git: true,
+    });
+    expect(gitInitialCommit).toHaveBeenCalled();
+  });
+
+  it("interactive: runs git init when promptConfirm resolves true", async () => {
+    // Branch coverage for the `else if (isInteractive())` arm of
+    // maybeGitInit. Pretend we're in a TTY and arm the clack confirm
+    // mock to return `true`.
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.confirm).mockResolvedValueOnce(true as never);
+    // promptText/Select also fall through to the interactive branch with
+    // CI unset, so arm them with sensible defaults too.
+    vi.mocked(clack.text).mockResolvedValueOnce("interactive-app" as never);
+    vi.mocked(clack.select).mockResolvedValueOnce("triage" as never);
+
+    await runInit({
+      packageManager: "pnpm",
+      skipInstall: true,
+    });
+    expect(gitInitialCommit).toHaveBeenCalledOnce();
+  });
+
+  it("interactive: skips git init when promptConfirm resolves false", async () => {
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.text).mockResolvedValueOnce("interactive-app" as never);
+    vi.mocked(clack.select).mockResolvedValueOnce("triage" as never);
+    vi.mocked(clack.confirm).mockResolvedValueOnce(false as never);
+
+    await runInit({
+      packageManager: "pnpm",
+      skipInstall: true,
+    });
+    expect(gitInitialCommit).not.toHaveBeenCalled();
+  });
+});

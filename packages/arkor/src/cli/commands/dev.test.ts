@@ -1,18 +1,37 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import * as clack from "@clack/prompts";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureCredentialsForStudio } from "./dev";
+import * as clack from "@clack/prompts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Module-level mocks for the libraries that would otherwise bind a port
+// or open a browser when runDev() is exercised end-to-end below.
+vi.mock("@hono/node-server", () => ({
+  serve: vi.fn(),
+}));
+vi.mock("open", () => ({
+  default: vi.fn(async () => undefined),
+}));
+
+import { serve } from "@hono/node-server";
+import open from "open";
 // Re-import the credentials module as a namespace so individual tests can
 // `vi.spyOn` on `writeCredentials` to inject deterministic fs failures
 // regardless of host OS / filesystem semantics.
 import * as credentialsModule from "../../core/credentials";
 import {
   readCredentials,
+  studioTokenPath,
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
+import { ensureCredentialsForStudio, runDev } from "./dev";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
@@ -391,6 +410,30 @@ describe("ensureCredentialsForStudio", () => {
     expect(await readCredentials()).toBeNull();
   });
 
+  it("forwards a non-Error throwable from requestAnonymousToken (String() coercion)", async () => {
+    // Defensive coverage of the `err instanceof Error ? err.message : String(err)`
+    // helper inside the warn branch isn't exercised here because the
+    // helper is in the dev.ts catch — but the symmetrical path inside
+    // the schema-error case rethrows with the original value preserved.
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/auth/cli/config")) {
+        return new Response(
+          JSON.stringify({
+            auth0Domain: null,
+            clientId: null,
+            audience: null,
+            callbackPorts: [],
+          }),
+          { status: 200 },
+        );
+      }
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw "string-thrown";
+    }) as typeof fetch;
+    await expect(ensureCredentialsForStudio()).rejects.toBe("string-thrown");
+  });
+
   it("re-throws when the cloud-api responds with a body that fails schema validation", async () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
@@ -498,5 +541,189 @@ describe("ensureCredentialsForStudio", () => {
         ),
       );
     });
+  });
+});
+
+describe("runDev", () => {
+  // Track exit/signal listeners we add via scheduleStudioTokenCleanup so
+  // we can remove them between tests; otherwise vitest's worker would
+  // accumulate listeners and Node's MaxListenersExceededWarning would
+  // fire by the third test.
+  const ORIG_EXIT_LISTENERS = process.listeners("exit").length;
+  const ORIG_SIGINT_LISTENERS = process.listeners("SIGINT").length;
+  const ORIG_SIGTERM_LISTENERS = process.listeners("SIGTERM").length;
+  const ORIG_SIGHUP_LISTENERS = process.listeners("SIGHUP").length;
+
+  beforeEach(async () => {
+    vi.mocked(serve).mockClear();
+    vi.mocked(open).mockClear();
+    // Pre-stash credentials so ensureCredentialsForStudio early-returns
+    // and we don't need to mock fetch for runDev tests.
+    const creds: AnonymousCredentials = {
+      mode: "anon",
+      token: "tok",
+      anonymousId: "aid",
+      arkorCloudApiUrl: "http://mock-cloud-api",
+      orgSlug: "anon-aid",
+    };
+    await writeCredentials(creds);
+  });
+
+  afterEach(() => {
+    // Trim the exit/signal listeners runDev installed each iteration to
+    // keep vitest's worker tidy across tests.
+    const trim = (ev: string, keep: number) => {
+      const all = process.listeners(ev as never);
+      for (let i = keep; i < all.length; i++) {
+        process.removeListener(ev as never, all[i] as never);
+      }
+    };
+    trim("exit", ORIG_EXIT_LISTENERS);
+    trim("SIGINT", ORIG_SIGINT_LISTENERS);
+    trim("SIGTERM", ORIG_SIGTERM_LISTENERS);
+    trim("SIGHUP", ORIG_SIGHUP_LISTENERS);
+  });
+
+  it("persists the studio token and starts the server on the requested port", async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4200 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    // Token file lives under the same directory as credentials.json.
+    expect(existsSync(studioTokenPath())).toBe(true);
+    const contents = readFileSync(studioTokenPath(), "utf8");
+    expect(contents).toMatch(/^[A-Za-z0-9_-]+$/);
+
+    expect(serve).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(serve).mock.calls[0]?.[0] as {
+      fetch: unknown;
+      port: number;
+      hostname: string;
+    };
+    expect(arg.port).toBe(4200);
+    expect(arg.hostname).toBe("127.0.0.1");
+  });
+
+  it("defaults to port 4000 when --port is omitted", async () => {
+    // Branch coverage for `options.port ?? 4000`. serve is mocked so no
+    // real bind happens.
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    const arg = vi.mocked(serve).mock.calls[0]?.[0] as { port: number };
+    expect(arg.port).toBe(4000);
+  });
+
+  it("opens the browser when --open is passed", async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4201, open: true });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    expect(open).toHaveBeenCalledWith("http://localhost:4201");
+  });
+
+  it("swallows a failure from `open` so the server stays up if the browser is missing", async () => {
+    vi.mocked(open).mockRejectedValueOnce(new Error("xdg-open not found"));
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await expect(
+        runDev({ port: 4202, open: true }),
+      ).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it("warns but still starts when persisting the studio token fails (read-only HOME)", async () => {
+    // Branch coverage for the writeCredentials/persist try/catch. Make
+    // ~/.arkor read-only after writeCredentials (so readCredentials still
+    // works) so the per-launch token write hits EACCES.
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      // Root bypasses chmod permission checks — skip on root containers.
+      return;
+    }
+    chmodSync(join(fakeHome, ".arkor"), 0o555);
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await expect(runDev({ port: 4203 })).resolves.toBeUndefined();
+      expect(serve).toHaveBeenCalledTimes(1);
+    } finally {
+      stdoutSpy.mockRestore();
+      // Restore writable for afterEach rmSync.
+      chmodSync(join(fakeHome, ".arkor"), 0o755);
+    }
+  });
+
+  it("registers SIGINT/SIGTERM/SIGHUP handlers that clean up the token + exit", async () => {
+    // Branch coverage for scheduleStudioTokenCleanup's signal-handler
+    // body (`cleanup(); process.exit(0)`). We invoke each handler
+    // synthetically and verify the token file is removed; process.exit
+    // is stubbed so the test runner survives.
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4205 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    expect(existsSync(studioTokenPath())).toBe(true);
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => {
+        // Don't actually exit the worker.
+        return undefined as never;
+      }) as typeof process.exit);
+    try {
+      // Pull and fire the most-recently-registered SIGINT handler.
+      const sigintListeners = process.listeners("SIGINT");
+      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      handler();
+      expect(existsSync(studioTokenPath())).toBe(false);
+      expect(exitSpy).toHaveBeenCalledWith(0);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("registers a cleanup listener that removes the studio-token file on exit", async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4204 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    expect(existsSync(studioTokenPath())).toBe(true);
+
+    // Pull the most-recently-registered exit listener and invoke it; that
+    // exercises the unlinkSync(path) branch of scheduleStudioTokenCleanup.
+    const exitListeners = process.listeners("exit");
+    const cleanup = exitListeners[exitListeners.length - 1] as () => void;
+    cleanup();
+    expect(existsSync(studioTokenPath())).toBe(false);
+
+    // A second invocation must short-circuit (the `cleaned` guard) so it
+    // doesn't throw on the now-missing file.
+    expect(() => cleanup()).not.toThrow();
   });
 });
