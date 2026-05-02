@@ -21,7 +21,11 @@ export function Overview() {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Chained setTimeout instead of setInterval so a slow /api/jobs
+    // (>5s) can't pile up overlapping in-flight requests; we only
+    // schedule the next tick after the previous settle.
+    async function tick() {
       try {
         const { jobs } = await fetchJobs();
         if (!cancelled) {
@@ -30,13 +34,14 @@ export function Overview() {
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) timer = setTimeout(tick, 5000);
       }
     }
-    load();
-    const t = setInterval(load, 5000);
+    tick();
     return () => {
       cancelled = true;
-      clearInterval(t);
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, []);
 

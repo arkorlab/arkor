@@ -7,6 +7,17 @@ import {
 import { Play, StopCircle } from "./icons";
 import { Button } from "./ui/Button";
 
+// Cap retained log so a long-running job's stdout can't grow the
+// in-memory buffer indefinitely. ~100 KB is roughly several thousand
+// lines of trainer output, more than enough for the recent context
+// the user actually wants to see while the job runs.
+const MAX_LOG_LENGTH = 100_000;
+
+function appendCapped(prev: string, chunk: string): string {
+  const next = prev + chunk;
+  return next.length > MAX_LOG_LENGTH ? next.slice(-MAX_LOG_LENGTH) : next;
+}
+
 export function RunTraining() {
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState("");
@@ -15,7 +26,12 @@ export function RunTraining() {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Poll the manifest so trainers added to src/arkor/index.ts mid-
+    // session start the Run-training button without a page reload.
+    // Chained setTimeout (not setInterval) so a slow /api/manifest
+    // can't pile up overlapping in-flight calls.
+    async function tick() {
       try {
         const m = await fetchManifest();
         if (!cancelled) setManifest(m);
@@ -25,15 +41,14 @@ export function RunTraining() {
             error: err instanceof Error ? err.message : String(err),
           });
         }
+      } finally {
+        if (!cancelled) timer = setTimeout(tick, 5000);
       }
     }
-    load();
-    // Poll the manifest so trainers added to src/arkor/index.ts mid-
-    // session start the Run-training button without a page reload.
-    const t = setInterval(load, 5000);
+    tick();
     return () => {
       cancelled = true;
-      clearInterval(t);
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, []);
 
@@ -46,13 +61,14 @@ export function RunTraining() {
     setLog("");
     try {
       await streamTraining((chunk) => {
-        setLog((prev) => prev + chunk);
+        setLog((prev) => appendCapped(prev, chunk));
       });
     } catch (err) {
-      setLog(
-        (prev) =>
-          prev +
+      setLog((prev) =>
+        appendCapped(
+          prev,
           `\n[error] ${err instanceof Error ? err.message : String(err)}\n`,
+        ),
       );
     } finally {
       setRunning(false);

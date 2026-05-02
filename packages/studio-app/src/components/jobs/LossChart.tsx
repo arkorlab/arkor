@@ -14,8 +14,16 @@ export function LossChart({ points }: { points: LossPoint[] }) {
   const [hover, setHover] = useState<LossPoint | null>(null);
 
   useEffect(() => {
-    if (!wrapperRef.current) return;
     const el = wrapperRef.current;
+    if (!el) return;
+    // ResizeObserver is missing on older WebViews and on the SSR
+    // pre-paint pass — degrade to a one-shot width read instead of
+    // throwing on construction. The chart won't follow viewport
+    // resizes there, but it still renders.
+    if (typeof ResizeObserver === "undefined") {
+      setWidth(Math.max(320, Math.floor(el.clientWidth || 640)));
+      return;
+    }
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) {
         setWidth(Math.max(320, Math.floor(e.contentRect.width)));

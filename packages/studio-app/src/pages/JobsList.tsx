@@ -45,23 +45,22 @@ export function JobsList() {
 
   useEffect(() => {
     aliveRef.current = true;
-    async function tick() {
-      try {
-        const { jobs } = await fetchJobs();
-        if (!aliveRef.current) return;
-        setJobs(jobs);
-        setError(null);
-      } catch (err) {
-        if (!aliveRef.current) return;
-        setError(err instanceof Error ? err.message : String(err));
-      }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Chained setTimeout (not setInterval) so a slow /api/jobs request
+    // can't accumulate overlapping in-flight calls. The manual refresh
+    // button calls the same `load()` directly.
+    async function schedule() {
+      await load();
+      if (aliveRef.current) timer = setTimeout(schedule, 5000);
     }
-    tick();
-    const t = setInterval(tick, 5000);
+    schedule();
     return () => {
       aliveRef.current = false;
-      clearInterval(t);
+      if (timer !== undefined) clearTimeout(timer);
     };
+    // `load` is stable (defined in component scope, no captured deps),
+    // intentionally omitted to avoid re-scheduling on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const visible = useMemo(() => {

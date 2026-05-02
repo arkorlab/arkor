@@ -45,7 +45,12 @@ export function JobDetail({ jobId }: { jobId: string }) {
   useEffect(() => {
     setJob(null);
     let cancelled = false;
-    async function load() {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Chained setTimeout instead of setInterval so a slow /api/jobs
+    // request can't pile up overlapping calls. SSE remains the source
+    // of truth for live status; polling is just for completedAt /
+    // config / etc that the SSE stream doesn't carry.
+    async function tick() {
       try {
         const { jobs } = await fetchJobs();
         if (!cancelled) {
@@ -53,13 +58,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
         }
       } catch {
         // ignore — events stream is the source of truth for live status
+      } finally {
+        if (!cancelled) timer = setTimeout(tick, 5000);
       }
     }
-    load();
-    const t = setInterval(load, 5000);
+    tick();
     return () => {
       cancelled = true;
-      clearInterval(t);
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [jobId]);
 
@@ -225,7 +231,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
     },
     {
       label: "Base model",
-      value: getConfigString(job?.config, ["model", "baseModel"]) ?? "—",
+      value: getConfigString(job?.config, ["model"]) ?? "—",
       mono: true,
     },
     {
