@@ -200,17 +200,6 @@ export interface Trainer {
   wait(): Promise<TrainingResult>;
   /** Best-effort cancel; resolves once the cloud API accepts the request. */
   cancel(): Promise<void>;
-  /**
-   * Stop after the next saved checkpoint. The trainer keeps running, lets the
-   * in-flight step finish + checkpoint upload complete, then issues `cancel()`.
-   * Resolves once the cancel POST has been accepted. Falls back to immediate
-   * cancel if no checkpoint arrives within `timeoutMs` (default: 5 min).
-   *
-   * Idempotent: repeat calls return the same in-flight promise. If the job
-   * has not been `start()`ed or has already reached a terminal status, this
-   * resolves immediately without contacting the cloud API.
-   */
-  requestEarlyStop(opts?: { timeoutMs?: number }): Promise<void>;
 }
 
 /**

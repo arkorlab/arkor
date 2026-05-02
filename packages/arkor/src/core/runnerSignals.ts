@@ -3,6 +3,7 @@ import { isArkor } from "./arkor";
 import {
   getTrainerInspection,
   replaceTrainerCallbacks,
+  requestTrainerEarlyStop,
 } from "./trainerInspection";
 import type { Trainer, TrainerCallbacks } from "./types";
 
@@ -41,8 +42,18 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
     process.stdout.write(
       `Received ${signal}; early-stopping at next checkpoint…\n`,
     );
-    trainer
-      .requestEarlyStop()
+    // Drive the trainer's internal early-stop entry point via the
+    // `Symbol.for("arkor.trainer.requestEarlyStop")` brand. A trainer
+    // that doesn't carry the brand (third-party shape, pre-SDK trainer)
+    // returns `null`; fall back to `cancel()` directly so we still
+    // close out the cloud-side job before exiting.
+    const stop =
+      requestTrainerEarlyStop(trainer) ??
+      trainer.cancel().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`cancel failed: ${msg}\n`);
+      });
+    Promise.resolve(stop)
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         process.stderr.write(`requestEarlyStop failed: ${msg}\n`);

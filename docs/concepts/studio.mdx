@@ -16,7 +16,9 @@ Three jobs:
 A note on the dev loop: Studio runs a [Rolldown](https://rolldown.rs) watcher over `src/arkor/` and pushes rebuild notifications to the SPA over a Server-Sent Events stream (`/api/dev/events`). Edit a file, save, and the Run training button updates with the new trainer name without a refresh. If a training run is in flight, the Studio compares the new bundle's cloud-side `JobConfig` hash to the one captured when the run was spawned:
 
 - **Same hash (only callbacks changed).** The runner is signalled with SIGUSR2; it re-imports the rebuilt artifact and rotates the trainer's callback cell in place via an internal HMR brand. The cloud-side training run is untouched, no GPU time is wasted, and the SPA shows a brief "Callbacks hot-swapped" indicator.
-- **Different hash (model / dataset / hyperparameters changed).** The runner is signalled with SIGTERM; `Trainer.requestEarlyStop` lets the next checkpoint upload finish before issuing `cancel()`, then the SPA re-spawns the run with the rebuilt artifact. The previous Cloud-side job reaches `cancelled` after the checkpoint is uploaded, so the partial work is preserved as an artifact.
+- **Different hash (model / dataset / hyperparameters changed).** The runner is signalled with SIGTERM; the trainer's internal early-stop entry point lets the next checkpoint upload finish before issuing `cancel()`, then the SPA re-spawns the run with the rebuilt artifact. The previous Cloud-side job reaches `cancelled` after the checkpoint is uploaded, so the partial work is preserved as an artifact.
+
+If you want this "stop after the next checkpoint" behaviour from your own code (rather than from the dev loop), build it on top of the public [`abortSignal` + `cancel()`](/sdk/trainer-control#abortsignal) pair — the [Early stopping recipe](/cookbook/early-stopping) walks through it. The HMR pipeline uses an internal SDK primitive of the same name, but it isn't part of the public `Trainer` surface.
 
 ## Where Studio runs
 

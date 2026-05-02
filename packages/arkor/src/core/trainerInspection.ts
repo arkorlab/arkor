@@ -39,6 +39,14 @@ const TRAINER_INSPECTION_KEY = Symbol.for("arkor.trainer.inspect");
 const TRAINER_REPLACE_CALLBACKS_KEY = Symbol.for(
   "arkor.trainer.replaceCallbacks",
 );
+const TRAINER_REQUEST_EARLY_STOP_KEY = Symbol.for(
+  "arkor.trainer.requestEarlyStop",
+);
+
+export interface RequestEarlyStopOptions {
+  /** Default: 5 min. Falls back to immediate cancel if no checkpoint arrives. */
+  timeoutMs?: number;
+}
 
 /**
  * Stamp the inspection snapshot onto a freshly-built `Trainer` instance.
@@ -123,5 +131,54 @@ export function replaceTrainerCallbacks(
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Wire an early-stop entry point onto a `Trainer` so the SIGTERM handler
+ * in the runner subprocess can request a graceful "stop after the next
+ * checkpoint" without us exposing the operation on the public `Trainer`
+ * interface. User code that wants the same semantics should compose
+ * the cookbook's `abortSignal` + `cancel()` recipe instead — see
+ * `docs/cookbook/early-stopping.mdx`.
+ */
+export function attachTrainerEarlyStopper(
+  trainer: object,
+  requestStop: (opts?: RequestEarlyStopOptions) => Promise<void>,
+): void {
+  Object.defineProperty(trainer, TRAINER_REQUEST_EARLY_STOP_KEY, {
+    value: requestStop,
+    configurable: true,
+    enumerable: false,
+    writable: false,
+  });
+}
+
+/**
+ * Request that the trainer stop after the next saved checkpoint.
+ * Returns the same promise the underlying implementation hands out —
+ * resolves once `cancel()` has been accepted by the cloud API, or
+ * after `timeoutMs` if no checkpoint arrived in time.
+ *
+ * Returns `null` when the trainer doesn't carry the early-stop brand
+ * (third-party wrapper / pre-SDK shape) so callers can decide whether
+ * to fall back to a hard kill.
+ */
+export function requestTrainerEarlyStop(
+  trainer: unknown,
+  opts?: RequestEarlyStopOptions,
+): Promise<void> | null {
+  if (!trainer || typeof trainer !== "object") return null;
+  const fn = (trainer as Record<symbol, unknown>)[
+    TRAINER_REQUEST_EARLY_STOP_KEY
+  ];
+  if (typeof fn !== "function") return null;
+  try {
+    const result = (
+      fn as (opts?: RequestEarlyStopOptions) => Promise<void>
+    ).call(trainer, opts);
+    return Promise.resolve(result);
+  } catch (err) {
+    return Promise.reject(err);
   }
 }

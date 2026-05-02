@@ -5,7 +5,7 @@ description: "start, wait, cancel, abortSignal, and how reconnects work."
 
 # Trainer control
 
-`createTrainer` returns a `Trainer` object with four methods:
+`createTrainer` returns a `Trainer` object with three methods:
 
 ```ts
 interface Trainer {
@@ -13,7 +13,6 @@ interface Trainer {
   start(): Promise<{ jobId: string }>;
   wait(): Promise<TrainingResult>;
   cancel(): Promise<void>;
-  requestEarlyStop(opts?: { timeoutMs?: number }): Promise<void>;
 }
 
 interface TrainingResult {
@@ -54,25 +53,6 @@ await trainer.cancel();
 - If `start()` has not been called yet, `cancel()` is a no-op (early return at `:388-389`).
 - Otherwise it sends a cancel request to the backend.
 - **Best-effort.** The SDK does not short-circuit on terminal status; if the run already completed, failed, or was cancelled, the backend may return a non-2xx and `cancel()` rejects. Wrap in `try / catch` if you call it speculatively.
-
-## `requestEarlyStop()`
-
-```ts
-await trainer.requestEarlyStop();
-// or with a custom checkpoint deadline:
-await trainer.requestEarlyStop({ timeoutMs: 60_000 });
-```
-
-The "preserve the latest checkpoint" sibling of `cancel()`:
-
-- Arms a latch. The trainer keeps running until the **next** `checkpoint.saved` event lands. Once the checkpoint is durable, the SDK calls `cancel()` for you and resolves the returned promise.
-- If no checkpoint arrives within `timeoutMs` (default: 5 minutes), falls back to `cancel()` immediately. Tune this if your `saveSteps` cadence is longer than 5 min.
-- Idempotent — repeat calls share the same in-flight promise and only fire `cancel()` once.
-- A no-op when called before `start()` or after the job has already reached a terminal status.
-
-This is what `arkor dev`'s HMR pipeline uses internally: when you save a source file mid-run, Studio sends `SIGTERM` to the spawned `arkor start` process; that process catches the signal, calls `requestEarlyStop()`, and exits cleanly once the checkpoint is uploaded. The Cloud-side job ends in the `cancelled` status.
-
-You can use `requestEarlyStop()` directly from your own code (e.g. in a programmatic two-process pattern) if you want the same "stop, but don't throw away the in-flight step" semantics that the cookbook's [Early stopping](/cookbook/early-stopping) recipe builds out of `onCheckpoint` + `abortSignal` + `cancel()`. The recipe is more flexible (you decide when to abort based on metrics); this method is the convenience hook for the common "stop after the next checkpoint" case.
 
 ## `abortSignal`
 

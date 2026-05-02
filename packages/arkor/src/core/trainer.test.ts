@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTrainer } from "./trainer";
-import { replaceTrainerCallbacks } from "./trainerInspection";
+import {
+  replaceTrainerCallbacks,
+  requestTrainerEarlyStop,
+} from "./trainerInspection";
 import { writeState } from "./state";
 import type { AnonymousCredentials } from "./credentials";
 
@@ -1394,7 +1397,7 @@ describe("createTrainer (early stop)", () => {
           // dispatch loop isn't blocked waiting for the latch's own
           // checkpoint trigger to arrive.
           onLog: () => {
-            void trainer.requestEarlyStop({ timeoutMs: 60_000 });
+            void requestTrainerEarlyStop(trainer, { timeoutMs: 60_000 });
           },
         },
       },
@@ -1482,8 +1485,9 @@ describe("createTrainer (early stop)", () => {
     try {
       await trainer.start();
       // Tiny timeout so the test doesn't actually wait 5 minutes.
-      const stopPromise = trainer.requestEarlyStop({ timeoutMs: 5 });
-      await stopPromise;
+      const stopPromise = requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
+      expect(stopPromise).not.toBeNull();
+      await stopPromise!;
       expect(cancelCalls).toBe(1);
     } finally {
       globalThis.fetch = original;
@@ -1500,7 +1504,7 @@ describe("createTrainer (early stop)", () => {
       { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
     );
     // Should resolve without contacting cloud-api at all.
-    await trainer.requestEarlyStop({ timeoutMs: 1 });
+    await requestTrainerEarlyStop(trainer, { timeoutMs: 1 });
   });
 
   it("replaceTrainerCallbacks (internal HMR brand) swaps the dispatched callbacks on the next event", async () => {
@@ -1629,11 +1633,13 @@ describe("createTrainer (early stop)", () => {
     globalThis.fetch = fetcher;
     try {
       await trainer.start();
-      const a = trainer.requestEarlyStop({ timeoutMs: 5 });
-      const b = trainer.requestEarlyStop({ timeoutMs: 5 });
-      await Promise.all([a, b]);
+      const a = requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
+      const b = requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
+      expect(a).not.toBeNull();
+      expect(b).not.toBeNull();
+      await Promise.all([a!, b!]);
       // The fallback timer fires once, so cancel is called once even though
-      // requestEarlyStop was called twice.
+      // the early-stop brand was invoked twice.
       expect(cancelCalls).toBe(1);
     } finally {
       globalThis.fetch = original;

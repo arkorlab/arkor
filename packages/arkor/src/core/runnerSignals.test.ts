@@ -9,6 +9,7 @@ import {
 import type { Trainer, TrainerCallbacks } from "./types";
 import {
   attachTrainerCallbackReplacer,
+  attachTrainerEarlyStopper,
   attachTrainerInspection,
 } from "./trainerInspection";
 
@@ -37,15 +38,16 @@ function makeTrainer(): Trainer & {
       throw new Error("not used");
     },
     async cancel() {},
-    async requestEarlyStop() {
-      earlyStop.calls += 1;
-    },
   };
-  // Wire the internal callback-replacer brand the same way `createTrainer`
-  // does. The SIGUSR2 path looks the brand up via `replaceTrainerCallbacks`
-  // — there's no public method on `Trainer` for this any more.
+  // Wire the internal callback-replacer + early-stop brands the same
+  // way `createTrainer` does. SIGUSR2 looks them up via
+  // `replaceTrainerCallbacks` and SIGTERM via `requestTrainerEarlyStop`
+  // — there are no public methods on `Trainer` for either any more.
   attachTrainerCallbackReplacer(trainer, (cbs) => {
     replace.lastCallbacks = cbs;
+  });
+  attachTrainerEarlyStopper(trainer, async () => {
+    earlyStop.calls += 1;
   });
   return Object.assign(trainer, {
     __earlyStop: earlyStop,
@@ -118,7 +120,6 @@ describe("installCallbackReloadHandler", () => {
         start: async () => ({ jobId: "j" }),
         wait: async () => ({ job: {}, artifacts: [] }),
         cancel: async () => {},
-        requestEarlyStop: async () => {},
       };
       Object.defineProperty(trainer, KEY, {
         value: () => ({ name: "t", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, callbacks }),

@@ -33,7 +33,6 @@ function fakeTrainer(onStart?: () => void, onWait?: () => void): Trainer {
       };
     },
     async cancel() {},
-    async requestEarlyStop() {},
   };
 }
 
@@ -215,7 +214,12 @@ describe("runTrainer — shutdown signal handling", () => {
     // (via a global helper). This lets us hold the run in flight long
     // enough to assert both signal-handling branches without racing the
     // `finally` block that removes the listeners.
+    // The fake trainer wears the early-stop brand
+    // (`Symbol.for("arkor.trainer.requestEarlyStop")`) so the runner's
+    // SIGTERM handler invokes it the same way the SDK-provided trainer
+    // does. No public `requestEarlyStop` method exists any more.
     const trainerSrc = `
+      const KEY = Symbol.for("arkor.trainer.requestEarlyStop");
       let earlyStopCalls = 0;
       let resolveWait;
       const waitPromise = new Promise((r) => { resolveWait = r; });
@@ -231,13 +235,17 @@ describe("runTrainer — shutdown signal handling", () => {
           artifacts: [],
         }),
       };
-      export const trainer = {
+      const trainer = {
         name: "n",
         start: async () => ({ jobId: "j1" }),
         wait: () => waitPromise,
         cancel: async () => {},
-        requestEarlyStop: async () => { earlyStopCalls++; },
       };
+      Object.defineProperty(trainer, KEY, {
+        value: async () => { earlyStopCalls++; },
+        enumerable: false,
+      });
+      export { trainer };
     `;
     const entry = join(cwd, "src/arkor/index.mjs");
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
