@@ -6,6 +6,7 @@ dist/
 
 # Generated copies of root files (see packages/*/scripts/copy-root-files.mjs)
 packages/*/CONTRIBUTING.md
+packages/*/README.ja.md
 
 # Generated copy of docs/ (see packages/arkor/scripts/copy-docs.mjs)
 packages/arkor/docs/

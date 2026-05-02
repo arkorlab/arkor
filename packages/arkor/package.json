@@ -35,7 +35,8 @@
   "files": [
     "dist",
     "docs",
-    "CONTRIBUTING.md"
+    "CONTRIBUTING.md",
+    "README.ja.md"
   ],
   "engines": {
     "node": ">=22.6"
