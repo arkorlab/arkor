@@ -301,6 +301,78 @@ describe("scaffold", () => {
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
   });
 
+  // Counterpart-of-the-counterpart (PR #99 round 8): the
+  // undefined-pm + existing-project skip path was eating the
+  // conflict warning entirely. The file is still NOT mutated (the
+  // round-5 policy stands — we won't flip the install mode of an
+  // unknown surrounding workspace), but if the user later acts on
+  // the manual-install hint and runs `yarn install` against an
+  // existing `nodeLinker: pnp` setup, `arkor dev` will fail the
+  // same way as in the explicit-yarn path. The advisory now
+  // surfaces here too so the user gets a heads-up before they hit
+  // the runtime mismatch.
+  it("surfaces the nodeLinker conflict warning even when not mutating an existing .yarnrc.yml in the undefined-pm + existing-project flow", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    writeFileSync(join(cwd, ".yarnrc.yml"), "nodeLinker: pnp\nfoo: bar\n");
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    // Policy: still NOT in the files list (we deliberately don't
+    // touch yarn config in this branch).
+    expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
+    // And the file on disk is unchanged.
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(
+      "nodeLinker: pnp\nfoo: bar\n",
+    );
+    // But the advisory still reaches the CLI for it to render.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("nodeLinker: pnp");
+    expect(result.warnings[0]).toMatch(/arkor dev/);
+  });
+
+  // Negative case: no `.yarnrc.yml` at all in the
+  // undefined-pm + existing-project flow stays silent. The skip
+  // path must not invent a warning out of thin air just because
+  // there's a `package.json` present.
+  it("does not warn in the undefined-pm + existing-project flow when no .yarnrc.yml exists", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  // And: an existing `.yarnrc.yml` that's already on
+  // `nodeLinker: node-modules` is not a conflict, so no warning
+  // either. Same skip path, same parser as the patch path —
+  // covers the indented / quoted / comment forms transitively.
+  it("does not warn in the undefined-pm + existing-project flow when the existing .yarnrc.yml already pins node-modules", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "nodeLinker: node-modules\nfoo: bar\n",
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
   // patchYarnConfig parses the `nodeLinker:` value out of YAML
   // through a small normaliser (strip trailing comment, strip a
   // single matched quote pair, trim). The Codex P2 / Copilot

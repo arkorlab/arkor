@@ -219,6 +219,45 @@ interface YarnConfigPatchResult {
   conflictingNodeLinker?: string;
 }
 
+// User-facing copy for the "existing `.yarnrc.yml` pins a non-`node-modules`
+// linker" advisory. Centralised so the patch path (which discovers the
+// conflict while attempting to write) and the inspect-only path (which
+// runs when scaffold has elected NOT to mutate yarn config but still
+// wants to flag the same hazard — see scaffold() comment for the
+// undefined-pm + existing-project case) emit identical wording.
+// Remediation says "change to node-modules" rather than "remove the
+// line": yarn 4 falls back to PnP when `nodeLinker:` is absent, which
+// would reproduce the same runtime failure.
+function buildYarnLinkerConflictWarning(existingValue: string): string {
+  return (
+    `Existing .yarnrc.yml pins \`nodeLinker: ${existingValue}\`. ` +
+    `arkor's runtime can't resolve dependencies through anything ` +
+    `other than \`nodeLinker: node-modules\` — \`arkor dev\` and ` +
+    `\`arkor train\` will fail until you change the value to ` +
+    `\`node-modules\`.`
+  );
+}
+
+/**
+ * Read-only counterpart to `patchYarnConfig`: returns the conflicting
+ * `nodeLinker:` value when an existing `.yarnrc.yml` pins something
+ * other than `node-modules`, and `undefined` otherwise. Used by
+ * `scaffold()` in the `pm === undefined && isExistingProject` case,
+ * where we deliberately don't touch yarn config (so a yarn-berry
+ * workspace's deliberate PnP setup stays intact) but still want to
+ * surface the runtime hazard if the user later runs `yarn install`
+ * via the manual install hint. (PR #99 round-8 review.)
+ */
+async function inspectYarnConfigConflict(
+  cwd: string,
+): Promise<string | undefined> {
+  const path = join(cwd, YARNRC_YML_PATH);
+  if (!existsSync(path)) return undefined;
+  const value = readNodeLinkerValue(await readFile(path, "utf8"));
+  if (value === undefined || value === "node-modules") return undefined;
+  return value;
+}
+
 async function patchYarnConfig(cwd: string): Promise<YarnConfigPatchResult> {
   const path = join(cwd, YARNRC_YML_PATH);
   if (!existsSync(path)) {
@@ -381,26 +420,25 @@ export async function scaffold(
     const yarn = await patchYarnConfig(cwd);
     files.push({ path: YARNRC_YML_PATH, action: yarn.action });
     if (yarn.conflictingNodeLinker !== undefined) {
-      // The user's existing `.yarnrc.yml` pins `nodeLinker:` to a
-      // value the arkor runtime can't load through. Scaffold
-      // succeeds (we don't want to corrupt their pre-existing yarn
-      // workspace by silently rewriting it — see patchYarnConfig
-      // for the rationale) but the project won't actually run
-      // until the linker is changed. Surface it loud.
-      // Remediation says "change to node-modules" rather than
-      // "remove the line": when patchYarnConfig keeps an existing
-      // file we leave it on disk verbatim, so removing the
-      // `nodeLinker:` line would just put yarn back on its PnP
-      // default and reproduce the same runtime failure. The fix the
-      // user actually needs is to set `nodeLinker: node-modules`
-      // explicitly. (Copilot follow-up review on PR #99.)
-      warnings.push(
-        `Existing .yarnrc.yml pins \`nodeLinker: ${yarn.conflictingNodeLinker}\`. ` +
-          `arkor's runtime can't resolve dependencies through anything ` +
-          `other than \`nodeLinker: node-modules\` — \`arkor dev\` and ` +
-          `\`arkor train\` will fail until you change the value to ` +
-          `\`node-modules\`.`,
-      );
+      warnings.push(buildYarnLinkerConflictWarning(yarn.conflictingNodeLinker));
+    }
+  } else if (
+    options.packageManager === undefined &&
+    isExistingProject
+  ) {
+    // Inspect-only counterpart to the patch path above. The
+    // emission rules elected NOT to write `.yarnrc.yml` here (an
+    // unknown-pm merge into a pre-existing project mustn't flip
+    // the install mode of a surrounding yarn-berry workspace), but
+    // the manual install hint still tells the user "yarn / bun
+    // install" — so if they're on yarn-berry with `nodeLinker:
+    // pnp` already pinned, `arkor dev` will fail just the same as
+    // in the patch path. Read the existing config and surface the
+    // identical advisory without touching the file. (PR #99
+    // round-8 review.)
+    const conflict = await inspectYarnConfigConflict(cwd);
+    if (conflict !== undefined) {
+      warnings.push(buildYarnLinkerConflictWarning(conflict));
     }
   }
   return { files, cwd, warnings };
