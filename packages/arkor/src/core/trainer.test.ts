@@ -1502,6 +1502,89 @@ describe("createTrainer (early stop)", () => {
     await trainer.requestEarlyStop({ timeoutMs: 1 });
   });
 
+  it("replaceCallbacks swaps the dispatched callbacks on the next event", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 1,
+      })}\n\n`,
+      `id: 3\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        step: 2,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 4\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:04Z",
+      })}\n\n`,
+    ];
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const calls: string[] = [];
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: ({ step }) => {
+            calls.push(`v1:onLog(${step})`);
+            // After the first onLog call, swap to v2 callbacks. The next
+            // event must dispatch via the new callbacks object.
+            if (step === 1) {
+              trainer.replaceCallbacks({
+                onLog: ({ step: s }) => void calls.push(`v2:onLog(${s})`),
+              });
+            }
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.wait();
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(calls).toEqual(["v1:onLog(1)", "v2:onLog(2)"]);
+  });
+
   it("is idempotent — repeated calls share the same in-flight promise", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },

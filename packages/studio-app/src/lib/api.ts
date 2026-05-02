@@ -32,6 +32,8 @@ export interface Job {
  */
 export interface ManifestSummary {
   trainer: { name: string } | null;
+  /** Present when an inspectable trainer is loaded; otherwise null. */
+  configHash?: string | null;
 }
 
 export interface ManifestError {
@@ -117,9 +119,18 @@ export interface DevEvent {
   type: "ready" | "rebuild" | "error";
   outFile?: string;
   hash?: string;
+  /** Cloud-side `JobConfig` hash; null when the bundle has no inspectable trainer. */
+  configHash?: string | null;
+  /** Run name pulled from the rebuilt manifest. */
+  trainerName?: string | null;
   message?: string;
+  /** True when the rebuild changed cloud-side config and a child was SIGTERM'd. */
   restart?: boolean;
   restartTargets?: Array<{ pid: number; trainFile?: string }>;
+  /** True when the rebuild only changed callbacks and one or more children
+   *  were SIGUSR2'd to hot-swap their callback closures in place. */
+  hotSwap?: boolean;
+  hotSwapTargets?: Array<{ pid: number; trainFile?: string }>;
 }
 
 export function openDevEvents(): EventSource {

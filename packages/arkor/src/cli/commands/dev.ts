@@ -18,6 +18,7 @@ import {
 import { buildStudioApp } from "../../studio/server";
 import { createHmrCoordinator } from "../../studio/hmr";
 import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
+import { registerCleanupHook } from "../cleanupHooks";
 import { ui } from "../prompts";
 
 export interface DevOptions {
@@ -172,42 +173,26 @@ async function persistStudioToken(token: string): Promise<string> {
 }
 
 function scheduleStudioTokenCleanup(path: string): void {
-  let cleaned = false;
-  const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    try {
-      unlinkSync(path);
-    } catch {
-      // best-effort
-    }
-  };
-  process.on("exit", cleanup);
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(sig, () => {
-      cleanup();
-      process.exit(0);
-    });
-  }
+  registerCleanupHook({
+    cleanup: () => {
+      try {
+        unlinkSync(path);
+      } catch {
+        // best-effort
+      }
+    },
+    // Outermost cleanup: responsible for terminating the process after
+    // all earlier-registered hooks (e.g. HMR dispose) have run.
+    exitOnSignal: true,
+  });
 }
 
 function scheduleHmrCleanup(hmr: { dispose: () => Promise<void> }): void {
-  let disposed = false;
-  const dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    hmr.dispose().catch(() => {
-      // best-effort: shutdown is racing other cleanup paths
-    });
-  };
-  // Mirror `scheduleStudioTokenCleanup` exit hooks. Note that those handlers
-  // already call `process.exit(0)` for the same signals; this listener fires
-  // first because Node invokes signal handlers in registration order, so the
-  // dispose call lands before exit.
-  process.on("exit", dispose);
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(sig, dispose);
-  }
+  // Registered before the studio-token cleanup so it runs first on
+  // shutdown — Node fires signal handlers in registration order, and we
+  // want the watcher to release file handles before the outermost
+  // process.exit.
+  registerCleanupHook({ cleanup: () => hmr.dispose() });
 }
 
 export async function runDev(options: DevOptions = {}): Promise<void> {

@@ -6,11 +6,13 @@ import {
   type Credentials,
 } from "./credentials";
 import { ensureProjectState } from "./projectState";
+import { attachTrainerInspection } from "./trainerInspection";
 import type {
   CheckpointContext,
   InferArgs,
   JobConfig,
   Trainer,
+  TrainerCallbacks,
   TrainerInput,
   TrainingJob,
   TrainingLogContext,
@@ -139,6 +141,13 @@ export function createTrainer(
   let scope: { orgSlug: string; projectSlug: string } | null = null;
   let clientPromise: Promise<CloudApiClient> | null = null;
 
+  // Mutable callbacks slot. Each `dispatch()` invocation reads this fresh,
+  // so `replaceCallbacks(...)` takes effect on the next event. Events
+  // already mid-await keep their old reference until they resolve, which
+  // matches the "replace, don't interrupt" contract documented on
+  // `Trainer.replaceCallbacks`.
+  let currentCallbacks: Partial<TrainerCallbacks> = input.callbacks ?? {};
+
   // Early-stop state. `requestEarlyStop()` arms the latch; the next
   // `checkpoint.saved` dispatch (or the timeout, whichever fires first)
   // calls cancel() and resolves the deferred. Idempotent across repeat
@@ -208,7 +217,10 @@ export function createTrainer(
       throw new Error("Trainer is in an inconsistent state");
     }
     const client = await getClient();
-    const callbacks = input.callbacks ?? {};
+    // Read once per dispatch so a `replaceCallbacks` between events takes
+    // effect on the next dispatch, but doesn't change identity inside a
+    // single in-flight handler.
+    const callbacks = currentCallbacks;
 
     switch (event.type) {
       case "training.started": {
@@ -412,6 +424,10 @@ export function createTrainer(
       await client.cancelJob(startedJob.id, scope);
     },
 
+    replaceCallbacks(callbacks: Partial<TrainerCallbacks>): void {
+      currentCallbacks = callbacks ?? {};
+    },
+
     async requestEarlyStop(opts: { timeoutMs?: number } = {}): Promise<void> {
       // Nothing in flight: cleanup any prior latch and resolve.
       if (!startedJob || !scope || TERMINAL_STATUSES.has(startedJob.status)) {
@@ -453,6 +469,16 @@ export function createTrainer(
       return promise;
     },
   };
+
+  // Brand the trainer with an inspection accessor so the Studio server can
+  // (a) hash the cloud-side config to decide HMR strategy and (b) read the
+  // current callbacks reference when hot-swapping. See `trainerInspection.ts`
+  // for why this uses `Symbol.for` instead of a module-local WeakMap.
+  attachTrainerInspection(trainer, () => ({
+    name: input.name,
+    config,
+    callbacks: currentCallbacks,
+  }));
 
   return trainer;
 }

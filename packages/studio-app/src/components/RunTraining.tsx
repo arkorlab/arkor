@@ -12,7 +12,7 @@ export function RunTraining() {
   const [log, setLog] = useState("");
   const [manifest, setManifest] = useState<ManifestResult | null>(null);
   const [hmrStatus, setHmrStatus] = useState<
-    "idle" | "rebuilding" | "early-stopping" | "restarting"
+    "idle" | "rebuilding" | "early-stopping" | "restarting" | "hot-swapped"
   >("idle");
   const boxRef = useRef<HTMLPreElement>(null);
   const lastTrainFileRef = useRef<string | undefined>(undefined);
@@ -70,6 +70,14 @@ export function RunTraining() {
         // re-spawns with the same args.
         restartPendingRef.current = true;
         setHmrStatus(runningRef.current ? "early-stopping" : "idle");
+      } else if (payload.hotSwap) {
+        // Callbacks were swapped in place — the cloud-side run is
+        // unaffected. Flash a brief "hot-swapped" indicator so users
+        // know the new code is live.
+        setHmrStatus("hot-swapped");
+        window.setTimeout(() => {
+          setHmrStatus((s) => (s === "hot-swapped" ? "idle" : s));
+        }, 1500);
       } else {
         setHmrStatus("idle");
       }
@@ -150,6 +158,9 @@ export function RunTraining() {
       )}
       {hmrStatus === "restarting" && (
         <span className="hmr-status">Restarting with updated code…</span>
+      )}
+      {hmrStatus === "hot-swapped" && (
+        <span className="hmr-status">Callbacks hot-swapped — run continues.</span>
       )}
       <pre ref={boxRef} className="log">
         {log || "Output will appear here."}

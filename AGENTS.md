@@ -73,13 +73,16 @@ The whole point: prevents another browser tab on the same machine from POSTing `
 
 When touching the Studio server or SPA fetch layer, preserve: token via header for `fetch`, query param for `EventSource`, host-header guard, no CORS, timing-safe compare. The Vite plugin is dev-only (`apply: "serve"`) — running it during `vite build` would bake a stale per-launch token into the production `index.html` and shadow the runtime tag, causing every `/api/*` call to 403.
 
-### HMR + graceful early-stop
+### HMR + graceful early-stop + callback hot-swap
 
-`arkor dev` keeps a [Rolldown](https://rolldown.rs) watcher over `src/arkor/` ([packages/arkor/src/studio/hmr.ts](packages/arkor/src/studio/hmr.ts)) and pushes rebuild events over `/api/dev/events` (SSE). The SPA re-fetches `/api/manifest` on each event so the Run Training button stays in sync without a browser refresh.
+`arkor dev` keeps a [Rolldown](https://rolldown.rs) watcher over `src/arkor/` ([packages/arkor/src/studio/hmr.ts](packages/arkor/src/studio/hmr.ts)) and pushes rebuild events over `/api/dev/events` (SSE). On each successful build the watcher dynamic-imports the artifact, pulls a `TrainerInspection` snapshot off the discovered trainer (via the cross-realm `Symbol.for("arkor.trainer.inspect")` brand attached in [packages/arkor/src/core/trainerInspection.ts](packages/arkor/src/core/trainerInspection.ts)), and computes a stable `configHash` from the cloud-side `JobConfig`. The SPA re-fetches `/api/manifest` on each event so the Run Training button stays in sync without a browser refresh.
 
-When a rebuild lands while a `/api/train`-spawned subprocess is in flight, the server SIGTERM's the child. The child's signal handler in `runTrainer` calls `Trainer.requestEarlyStop()`, which lets the next `checkpoint.saved` event finish (work preserved) before issuing `cancel()` and exiting cleanly. The SPA then auto-restarts the run with the rebuilt artifact via the `restart: true` flag on the SSE event. A second SIGTERM bypasses the early-stop and exits 143 immediately — emergency escape hatch for a hung cancel.
+When a rebuild lands while a `/api/train`-spawned subprocess is in flight, the server makes a per-child decision in [packages/arkor/src/studio/trainRegistry.ts](packages/arkor/src/studio/trainRegistry.ts):
 
-Don't replace the SIGTERM-and-let-the-child-handle-it pattern with a SIGKILL escalation in the server: that would orphan Cloud-side jobs (no `cancel()` POST goes out) and waste GPU budget. The hard kill timer in `requestEarlyStopOnActive` exists only as a stuck-process fallback.
+- **`configHash` matches the spawn-time hash** → SIGUSR2. The child's `installCallbackReloadHandler` re-imports the artifact and calls `Trainer.replaceCallbacks` in place. The cloud-side run is untouched. Use this whenever a code change is contained inside the `callbacks: { ... }` object.
+- **`configHash` differs (or is null because the new bundle didn't inspect)** → SIGTERM. `installShutdownHandlers` calls `Trainer.requestEarlyStop()`, which lets the next `checkpoint.saved` event finish (work preserved) before issuing `cancel()` and exiting cleanly. The SPA auto-restarts the run with the rebuilt artifact via the `restart: true` flag on the SSE event. A second SIGTERM bypasses the early-stop and exits 143 immediately — emergency escape hatch for a hung cancel.
+
+Don't replace the SIGTERM-and-let-the-child-handle-it pattern with a SIGKILL escalation in the server: that would orphan Cloud-side jobs (no `cancel()` POST goes out) and waste GPU budget. Don't widen the SIGUSR2 path to "always hot-swap, server-side": the `configHash` check is what guarantees a hot-swap can't silently leave a child running with a stale `JobConfig`.
 
 ### Project entry-point discovery
 

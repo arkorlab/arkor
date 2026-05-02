@@ -5,7 +5,7 @@ description: "start, wait, cancel, abortSignal, and how reconnects work."
 
 # Trainer control
 
-`createTrainer` returns a `Trainer` object with four methods:
+`createTrainer` returns a `Trainer` object with five methods:
 
 ```ts
 interface Trainer {
@@ -14,6 +14,7 @@ interface Trainer {
   wait(): Promise<TrainingResult>;
   cancel(): Promise<void>;
   requestEarlyStop(opts?: { timeoutMs?: number }): Promise<void>;
+  replaceCallbacks(callbacks: Partial<TrainerCallbacks>): void;
 }
 
 interface TrainingResult {
@@ -73,6 +74,18 @@ The "preserve the latest checkpoint" sibling of `cancel()`:
 This is what `arkor dev`'s HMR pipeline uses internally: when you save a source file mid-run, Studio sends `SIGTERM` to the spawned `arkor start` process; that process catches the signal, calls `requestEarlyStop()`, and exits cleanly once the checkpoint is uploaded. The Cloud-side job ends in the `cancelled` status.
 
 You can use `requestEarlyStop()` directly from your own code (e.g. in a programmatic two-process pattern) if you want the same "stop, but don't throw away the in-flight step" semantics that the cookbook's [Early stopping](/cookbook/early-stopping) recipe builds out of `onCheckpoint` + `abortSignal` + `cancel()`. The recipe is more flexible (you decide when to abort based on metrics); this method is the convenience hook for the common "stop after the next checkpoint" case.
+
+## `replaceCallbacks()`
+
+```ts
+trainer.replaceCallbacks({
+  onLog: ({ step, loss }) => myMetrics.record(step, loss),
+});
+```
+
+Atomically swap the lifecycle callbacks while a run is in flight. The next dispatched event (`onLog`, `onCheckpoint`, ...) reads from the new object; events already mid-`await` keep their old reference until they resolve. Cloud-side config (model, dataset, hyperparameters) is fixed at `start()` time and **cannot** be changed via this method — for those, use `requestEarlyStop()` and re-spawn.
+
+This is the SDK primitive `arkor dev` uses for the "callback-only HMR" path: when you save a source file mid-run, Studio diffs the rebuilt `JobConfig` against the spawn-time hash. Equal hashes → SIGUSR2, the runner re-imports and calls `replaceCallbacks()`, the cloud-side training run is untouched. Different hashes → SIGTERM, the existing `requestEarlyStop()` flow takes over and the SPA re-spawns with the new bundle.
 
 ## `abortSignal`
 

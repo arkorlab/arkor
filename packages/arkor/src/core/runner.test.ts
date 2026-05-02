@@ -34,6 +34,7 @@ function fakeTrainer(onStart?: () => void, onWait?: () => void): Trainer {
     },
     async cancel() {},
     async requestEarlyStop() {},
+    replaceCallbacks() {},
   };
 }
 

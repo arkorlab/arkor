@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
@@ -15,8 +15,9 @@ import { recordDeprecation, tapDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
 import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
-import { readManifestSummary } from "./manifest";
+import { readManifestSummary, summariseBuiltManifest } from "./manifest";
 import type { HmrCoordinator, HmrEvent } from "./hmr";
+import { TrainRegistry, type RestartTarget } from "./trainRegistry";
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
 function copyDeprecationHeaders(from: Headers, to: Headers): void {
@@ -294,31 +295,9 @@ export function buildStudioApp(options: StudioServerOptions) {
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 
-  // Active `/api/train` subprocesses. HMR rebuilds iterate this map and
-  // SIGTERM each entry so its in-process signal handler (see
-  // `runTrainer`) can call `trainer.requestEarlyStop()`. Keyed by pid so
-  // tests can introspect.
-  interface ActiveTrain {
-    child: ChildProcess;
-    trainFile?: string;
-  }
-  const activeTrains = new Map<number, ActiveTrain>();
-
-  function requestEarlyStopOnActive(): Array<{
-    pid: number;
-    trainFile?: string;
-  }> {
-    const targets: Array<{ pid: number; trainFile?: string }> = [];
-    for (const [pid, entry] of activeTrains) {
-      try {
-        entry.child.kill("SIGTERM");
-      } catch {
-        // child may have already exited between the iterator and the kill
-      }
-      targets.push({ pid, trainFile: entry.trainFile });
-    }
-    return targets;
-  }
+  // Active `/api/train` subprocesses. The registry encapsulates the
+  // signal-dispatch policy — see `studio/trainRegistry.ts`.
+  const activeTrains = new TrainRegistry();
 
   app.post("/api/train", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
@@ -347,28 +326,40 @@ export function buildStudioApp(options: StudioServerOptions) {
       }
       trainFile = abs;
     }
+    // Read the current manifest before spawn so the configHash is on
+    // hand for HMR's "hot-swap vs restart" decision later. Building the
+    // manifest also pre-warms `.arkor/build/index.mjs` for the
+    // subprocess's `runStart`. A failure here is non-fatal — the spawn
+    // proceeds with `configHash: null`, which forces SIGTERM (full
+    // restart) on the next rebuild.
+    let configHash: string | null = null;
+    try {
+      const manifest = await readManifestSummary(trainCwd);
+      configHash = manifest.configHash;
+    } catch {
+      // ignore — `arkor start` will surface its own build error to the
+      // SPA via stderr; we only needed configHash for HMR routing.
+    }
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
     const child = spawn(process.execPath, args, {
       stdio: "pipe",
       cwd: trainCwd,
     });
-    if (typeof child.pid === "number") {
-      activeTrains.set(child.pid, { child, trainFile });
-    }
+    activeTrains.register(child, { trainFile, configHash });
     const stream = new ReadableStream({
       start(controller) {
         const enc = new TextEncoder();
         child.stdout.on("data", (d) => controller.enqueue(enc.encode(d)));
         child.stderr.on("data", (d) => controller.enqueue(enc.encode(d)));
         child.on("close", (code) => {
-          if (typeof child.pid === "number") activeTrains.delete(child.pid);
+          activeTrains.unregister(child.pid);
           controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
           controller.close();
         });
       },
       cancel() {
-        if (typeof child.pid === "number") activeTrains.delete(child.pid);
+        activeTrains.unregister(child.pid);
         child.kill();
       },
     });
@@ -400,7 +391,9 @@ export function buildStudioApp(options: StudioServerOptions) {
           const send = (
             event: HmrEvent & {
               restart?: boolean;
-              restartTargets?: Array<{ pid: number; trainFile?: string }>;
+              hotSwap?: boolean;
+              restartTargets?: RestartTarget[];
+              hotSwapTargets?: RestartTarget[];
             },
           ) => {
             const payload = JSON.stringify(event);
@@ -414,12 +407,27 @@ export function buildStudioApp(options: StudioServerOptions) {
             }
           };
           unsubscribe = hmr.subscribe((event) => {
-            if (event.type === "rebuild" && activeTrains.size > 0) {
-              const restartTargets = requestEarlyStopOnActive();
-              send({ ...event, restart: true, restartTargets });
-            } else {
+            if (event.type !== "rebuild" || activeTrains.size === 0) {
               send(event);
+              return;
             }
+            // Per-child decision: if the rebuilt bundle's `configHash`
+            // matches the child's spawn-time hash, the cloud-side run
+            // is unaffected — SIGUSR2 lets the runner re-import and
+            // call `Trainer.replaceCallbacks`. Otherwise SIGTERM
+            // triggers `Trainer.requestEarlyStop` so the next
+            // checkpoint lands before the SPA re-spawns.
+            const nextHash = event.configHash ?? null;
+            const hotSwapTargets = activeTrains.notifyCallbackReload(nextHash);
+            const restartTargets =
+              activeTrains.requestEarlyStopOnMismatch(nextHash);
+            send({
+              ...event,
+              hotSwap: hotSwapTargets.length > 0,
+              hotSwapTargets,
+              restart: restartTargets.length > 0,
+              restartTargets,
+            });
           });
         },
         cancel() {
