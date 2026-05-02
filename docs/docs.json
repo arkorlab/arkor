@@ -21,12 +21,12 @@
         "default": true,
         "groups": [
           {
-            "group": "Roadmap",
-            "pages": ["roadmap"]
-          },
-          {
             "group": "Get started",
             "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Roadmap",
+            "pages": ["roadmap"]
           },
           {
             "group": "Concepts",
@@ -92,18 +92,18 @@
           ],
           "primary": {
             "type": "button",
-            "label": "Get started",
+            "label": "はじめに",
             "href": "/ja/quickstart"
           }
         },
         "groups": [
           {
-            "group": "ロードマップ",
-            "pages": ["ja/roadmap"]
-          },
-          {
             "group": "はじめに",
             "pages": ["ja/introduction", "ja/quickstart"]
+          },
+          {
+            "group": "ロードマップ",
+            "pages": ["ja/roadmap"]
           },
           {
             "group": "コンセプト",

@@ -519,7 +519,7 @@ jobs:
 
       - name: Upload arkor coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -529,7 +529,7 @@ jobs:
 
       - name: Upload create-arkor coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -539,7 +539,7 @@ jobs:
 
       - name: Upload cli-internal coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -549,7 +549,7 @@ jobs:
 
       - name: Upload studio-app coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -563,7 +563,7 @@ jobs:
       # packages/{arkor,create-arkor}/src/**.
       - name: Upload e2e-cli coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -577,7 +577,7 @@ jobs:
       # https://docs.codecov.com/docs/test-analytics.
       - name: Upload arkor test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -588,7 +588,7 @@ jobs:
 
       - name: Upload create-arkor test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -599,7 +599,7 @@ jobs:
 
       - name: Upload cli-internal test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -610,7 +610,7 @@ jobs:
 
       - name: Upload studio-app test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true
@@ -621,7 +621,7 @@ jobs:
 
       - name: Upload e2e-cli test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           use_oidc: true
           disable_search: true

@@ -128,7 +128,7 @@ describe("scaffold", () => {
     expect(scripts.dev).toBe("arkor dev");
     expect(scripts.start).toBe("arkor start");
     const devDeps = patched.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("^0.0.1-alpha.5");
+    expect(devDeps.arkor).toBe("^0.0.1-alpha.6");
 
     const pkgEntry = files.find((f) => f.path === "package.json");
     expect(pkgEntry?.action).toBe("patched");
@@ -144,6 +144,19 @@ describe("scaffold", () => {
     const second = await scaffold({ cwd, name: "n", template: "minimal" });
     const secondEntry = second.files.find((f) => f.path === ".gitignore");
     expect(secondEntry?.action).toBe("ok");
+  });
+
+  it("inserts a separating newline when the existing .gitignore lacks a trailing newline", async () => {
+    // Without the `endsWith("\n") ? "" : "\n"` separator, the patched file
+    // would smash the previous last line into the first appended entry —
+    // e.g. `node_modules/dist/`, which git would interpret as a single
+    // path pattern. Existing entries that already match (here:
+    // `node_modules/`) are deduped; missing required entries (`dist/`,
+    // `.arkor/`) are appended one-per-line under the separator.
+    writeFileSync(join(cwd, ".gitignore"), "node_modules/");
+    await scaffold({ cwd, name: "n", template: "minimal" });
+    const contents = readFileSync(join(cwd, ".gitignore"), "utf8");
+    expect(contents).toBe("node_modules/\ndist/\n.arkor/\n");
   });
 
   // yarn-berry defaults to Plug'n'Play, which doesn't materialise
@@ -233,7 +246,7 @@ describe("scaffold", () => {
     // The value is opaque to scaffold — only that it's faithfully
     // round-tripped into package.json matters, so use a relative
     // `file:` spec that is platform-neutral (no Unix-only `/tmp`).
-    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.5.tgz";
+    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.6.tgz";
     process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = overrideSpec;
     const { files } = await scaffold({
       cwd,
@@ -268,7 +281,7 @@ describe("scaffold", () => {
         readFileSync(join(cwd, "package.json"), "utf8"),
       ) as Record<string, unknown>;
       const devDeps = pkg.devDependencies as Record<string, string>;
-      expect(devDeps.arkor).toBe("^0.0.1-alpha.5");
+      expect(devDeps.arkor).toBe("^0.0.1-alpha.6");
     },
   );
 
@@ -277,7 +290,7 @@ describe("scaffold", () => {
     // and the patch path that runs when `package.json` already exists
     // but has no `devDependencies.arkor`. Cover the patch path too so
     // the override doesn't silently regress to the default there.
-    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.5.tgz";
+    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.6.tgz";
     process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = overrideSpec;
     writeFileSync(
       join(cwd, "package.json"),
@@ -307,6 +320,22 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("patched");
   });
 
+  it("creates the target directory when it does not exist yet", async () => {
+    // The fresh-scaffold path used by `npm create arkor my-new-app` runs
+    // before the directory exists on disk. ensureDirExists's mkdir branch
+    // only fires there — once the directory exists, scaffold reuses it.
+    const parent = mkdtempSync(join(tmpdir(), "scaffold-fresh-"));
+    const fresh = join(parent, "brand-new");
+    try {
+      await scaffold({ cwd: fresh, name: "brand-new", template: "minimal" });
+      expect(readFileSync(join(fresh, "package.json"), "utf8")).toContain(
+        '"brand-new"',
+      );
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   it("renders each template with a distinct trainer body", async () => {
     const expectations: Record<"minimal" | "alpaca" | "chatml", string> = {
       minimal: `"my-first-run"`,
@@ -334,6 +363,14 @@ describe("detectPackageManager", () => {
   it("recognises yarn", () => {
     process.env.npm_config_user_agent = "yarn/1.22.19 node/v20";
     expect(detectPackageManager()).toBe("yarn");
+  });
+  it("recognises bun via user-agent", () => {
+    // `bunx create-arkor` sets npm_config_user_agent to
+    // `bun/<ver> npm/? …`. Without this branch, scaffolds run under bunx
+    // would fall into the "no detected pm" path and ask the user to
+    // install deps manually even though bun was just used to launch them.
+    process.env.npm_config_user_agent = "bun/1.1.0 npm/? node/v22 linux x64";
+    expect(detectPackageManager()).toBe("bun");
   });
   it("recognises npm via user-agent", () => {
     process.env.npm_config_user_agent = "npm/10.2.4 node/v20.10.0 linux x64";
