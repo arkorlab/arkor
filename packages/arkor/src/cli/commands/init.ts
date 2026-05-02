@@ -116,9 +116,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     initialValue: options.name ?? defaultName,
     skipWith: options.yes ? options.name ?? defaultName : undefined,
   });
-  // An explicit `--template <id>` is treated as authoritative — skip the
-  // prompt entirely so a hidden-but-valid template (e.g. `minimal`) can't be
-  // overwritten by the visible-only options list.
+  // An explicit `--template <id>` is authoritative: skip the prompt and use it as-is.
   const template = await promptSelect<TemplateId>({
     message: "Starter template?",
     initialValue: options.template ?? "triage",
