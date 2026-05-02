@@ -112,6 +112,95 @@ describe("runTrainer — entry extraction", () => {
     );
   });
 
+  it("throws when the module has no default export at all (skips the nested-trainer probe)", async () => {
+    // Without the falsy short-circuit on `mod.default`, the helper would
+    // attempt `(undefined as Record).trainer` and crash with a
+    // TypeError instead of the actionable "must export …" message.
+    const entry = join(cwd, "no-default.mjs");
+    writeFileSync(entry, `export const random = "value";`);
+    await expect(runTrainer(entry)).rejects.toThrow(
+      /must export `arkor`/,
+    );
+  });
+
+  it("throws when default export is a primitive (typeof !== 'object' branch)", async () => {
+    // The second half of `mod.default && typeof mod.default === "object"` —
+    // a primitive default like `42` or `"foo"` must short-circuit out of
+    // the nested-trainer probe.
+    const entry = join(cwd, "primitive-default.mjs");
+    writeFileSync(entry, `export default 42;`);
+    await expect(runTrainer(entry)).rejects.toThrow(
+      /must export `arkor`/,
+    );
+  });
+
+  it("accepts a default export wrapping a `trainer` field (legacy power-user shape)", async () => {
+    // Hits the `if (isTrainer(nested)) return nested` branch — the only
+    // place line 38 is reachable.
+    const entry = join(cwd, "default-with-trainer.mjs");
+    writeFileSync(
+      entry,
+      `export default {
+        trainer: {
+          name: "n",
+          start: async () => ({ jobId: "j1" }),
+          wait: async () => ({ job: { id: "j1", orgId: "o", projectId: "p", name: "n", status: "completed", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, createdAt: "2026-01-01", startedAt: null, completedAt: null }, artifacts: [] }),
+          cancel: async () => {},
+        },
+      };`,
+    );
+    await expect(runTrainer(entry)).resolves.toBeUndefined();
+  });
+
+  it("falls back to DEFAULT_ENTRY (src/arkor/index.ts) when called with no argument", async () => {
+    // Branch coverage for `file ?? DEFAULT_ENTRY`. Place the entry at
+    // `<cwd>/src/arkor/index.ts` and invoke runTrainer() — the default
+    // path is what `arkor start` and Studio's "Run training" button use.
+    const arkorDir = join(cwd, "src", "arkor");
+    mkdirSync(arkorDir, { recursive: true });
+    writeFileSync(
+      join(arkorDir, "index.mjs"),
+      `export const trainer = {
+        name: "n",
+        start: async () => ({ jobId: "j1" }),
+        wait: async () => ({ job: { id: "j1", orgId: "o", projectId: "p", name: "n", status: "completed", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, createdAt: "2026-01-01", startedAt: null, completedAt: null }, artifacts: [] }),
+        cancel: async () => {},
+      };`,
+    );
+    // The runner uses `src/arkor/index.ts`, but Node's loader resolves
+    // index.mjs in tests where TS isn't stripped. Emulate by writing a
+    // re-export at the .ts path that points at the .mjs sibling.
+    writeFileSync(
+      join(arkorDir, "index.ts"),
+      `export * from "./index.mjs";\n`,
+    );
+    // Pass undefined explicitly to exercise the `?? DEFAULT_ENTRY` branch
+    // — Node's experimental-strip-types handles the .ts extension at
+    // runtime. (vitest also strips TS so this works under test too.)
+    await expect(runTrainer()).resolves.toBeUndefined();
+  });
+
+  it("resolves a relative path against process.cwd()", async () => {
+    // `runTrainer(undefined)` falls back to the DEFAULT_ENTRY constant
+    // ("src/arkor/index.ts"), which is then resolved against cwd. We
+    // exercise the relative-resolve branch by writing the entry into the
+    // expected location.
+    const arkorDir = join(cwd, "src", "arkor");
+    mkdirSync(arkorDir, { recursive: true });
+    writeFileSync(
+      join(arkorDir, "index.mjs"),
+      `export const trainer = {
+        name: "n",
+        start: async () => ({ jobId: "j1" }),
+        wait: async () => ({ job: { id: "j1", orgId: "o", projectId: "p", name: "n", status: "completed", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, createdAt: "2026-01-01", startedAt: null, completedAt: null }, artifacts: [] }),
+        cancel: async () => {},
+      };`,
+    );
+    // Pass a relative path; runTrainer should resolve against process.cwd
+    // (which beforeEach set to the temp dir).
+    await expect(runTrainer("src/arkor/index.mjs")).resolves.toBeUndefined();
+  });
+
   it("accepts a fake Trainer via direct invocation (sanity)", async () => {
     const t = fakeTrainer();
     expect(typeof t.start).toBe("function");

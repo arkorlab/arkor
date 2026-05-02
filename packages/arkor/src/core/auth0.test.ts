@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   buildAuthorizeUrl,
   credentialsFromExchange,
+  exchangeCode,
   generatePkce,
   fetchCliConfig,
+  startLoopbackServer,
 } from "./auth0";
 
 describe("generatePkce", () => {
@@ -102,5 +104,252 @@ describe("fetchCliConfig", () => {
     await expect(
       fetchCliConfig("http://localhost:3003", fetchImpl),
     ).rejects.toThrow(/Failed to fetch CLI config/);
+  });
+
+  it("strips a trailing slash from baseUrl", async () => {
+    let captured = "";
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      captured = String(input);
+      return new Response(
+        JSON.stringify({
+          auth0Domain: null,
+          clientId: null,
+          audience: null,
+          callbackPorts: [],
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    await fetchCliConfig("http://localhost:3003/", fetchImpl);
+    expect(captured).toBe("http://localhost:3003/v1/auth/cli/config");
+  });
+});
+
+describe("exchangeCode", () => {
+  it("POSTs the PKCE code to Auth0 and returns the parsed token shape", async () => {
+    let captured: { url: string; body: string } = { url: "", body: "" };
+    const fetchImpl = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      captured = {
+        url: String(input),
+        body: typeof init?.body === "string" ? init.body : "",
+      };
+      return new Response(
+        JSON.stringify({
+          access_token: "at-token",
+          refresh_token: "rt-token",
+          id_token: "id-token",
+          expires_in: 7200,
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+
+    const res = await exchangeCode(
+      { auth0Domain: "tenant.auth0.com", clientId: "client-id" },
+      {
+        code: "auth-code",
+        codeVerifier: "verifier",
+        redirectUri: "http://127.0.0.1:52521/callback",
+      },
+      fetchImpl,
+    );
+
+    expect(captured.url).toBe("https://tenant.auth0.com/oauth/token");
+    const body = JSON.parse(captured.body) as Record<string, string>;
+    expect(body.grant_type).toBe("authorization_code");
+    expect(body.code).toBe("auth-code");
+    expect(body.code_verifier).toBe("verifier");
+    expect(body.client_id).toBe("client-id");
+    expect(body.redirect_uri).toBe("http://127.0.0.1:52521/callback");
+
+    expect(res).toEqual({
+      accessToken: "at-token",
+      refreshToken: "rt-token",
+      idToken: "id-token",
+      expiresIn: 7200,
+    });
+  });
+
+  it("throws with the upstream body when Auth0 rejects the exchange", async () => {
+    const fetchImpl = (async () =>
+      new Response("invalid_grant", { status: 400 })) as typeof fetch;
+    await expect(
+      exchangeCode(
+        { auth0Domain: "tenant.auth0.com", clientId: "c" },
+        {
+          code: "bad",
+          codeVerifier: "v",
+          redirectUri: "http://127.0.0.1/callback",
+        },
+        fetchImpl,
+      ),
+    ).rejects.toThrow(/token exchange failed.*400.*invalid_grant/);
+  });
+
+  it("throws when Auth0 omits the refresh token (offline_access scope missing)", async () => {
+    // The offline_access scope is what causes Auth0 to issue a refresh
+    // token. Forgetting it on the Application registration is a common
+    // setup mistake — surface the actionable hint loudly rather than
+    // limping along with no refresh capability.
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({
+          access_token: "at",
+          expires_in: 3600,
+        }),
+        { status: 200 },
+      )) as typeof fetch;
+    await expect(
+      exchangeCode(
+        { auth0Domain: "tenant.auth0.com", clientId: "c" },
+        {
+          code: "x",
+          codeVerifier: "v",
+          redirectUri: "http://127.0.0.1/callback",
+        },
+        fetchImpl,
+      ),
+    ).rejects.toThrow(/offline_access/);
+  });
+});
+
+describe("startLoopbackServer", () => {
+  // Each subtest closes the server in a finally so a stray bind doesn't
+  // hold up vitest's worker shutdown on Linux.
+
+  it("resolves the callback promise with code + state when the redirect lands", async () => {
+    const result = await startLoopbackServer([0]);
+    // Mirror the unhandled-rejection guard used by the negative tests so
+    // this case can't fall over if a future regression turns the success
+    // path into a reject.
+    const callback = result.waitForCallback;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${result.port}/callback?code=auth-code&state=state-val`,
+      );
+      expect(res.status).toBe(200);
+      expect(await callback).toEqual({ code: "auth-code", state: "state-val" });
+    } finally {
+      result.server.close();
+    }
+  });
+
+  it("rejects the callback promise when the redirect carries an OAuth error", async () => {
+    const result = await startLoopbackServer([0]);
+    // Attach the rejection handler BEFORE triggering the fetch so the
+    // promise rejection inside the request handler is never seen as
+    // unhandled by vitest's worker.
+    const callback = result.waitForCallback.catch((e: unknown) => e);
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${result.port}/callback?error=access_denied&error_description=user%20cancelled`,
+      );
+      expect(res.status).toBe(400);
+      const err = await callback;
+      expect((err as Error).message).toMatch(/access_denied/);
+    } finally {
+      result.server.close();
+    }
+  });
+
+  it("falls back to an empty error_description when the param is omitted", async () => {
+    // Branch coverage for `errorDescription ?? ""` (twice on the error
+    // path). Auth0 always sends a description for known errors but we've
+    // seen custom proxies strip query params; the fallback keeps the
+    // response well-formed.
+    const result = await startLoopbackServer([0]);
+    const callback = result.waitForCallback.catch((e: unknown) => e);
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${result.port}/callback?error=server_error`,
+      );
+      expect(res.status).toBe(400);
+      const body = await res.text();
+      // The trailing ` — ` is preserved before the empty description so
+      // a regression that drops the separator surfaces here.
+      expect(body).toContain("Authentication failed: server_error — ");
+      const err = await callback;
+      expect((err as Error).message).toMatch(/server_error/);
+    } finally {
+      result.server.close();
+    }
+  });
+
+  it("rejects the callback promise when code or state is missing", async () => {
+    const result = await startLoopbackServer([0]);
+    const callback = result.waitForCallback.catch((e: unknown) => e);
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${result.port}/callback?code=only`,
+      );
+      expect(res.status).toBe(400);
+      const err = await callback;
+      expect((err as Error).message).toMatch(/Missing code\/state/);
+    } finally {
+      result.server.close();
+    }
+  });
+
+  it("returns 404 for paths other than /callback (and does not resolve the callback)", async () => {
+    const result = await startLoopbackServer([0]);
+    // Pre-attach a no-op handler so the still-pending promise doesn't
+    // turn into a stray unhandled rejection on test shutdown.
+    result.waitForCallback.catch(() => undefined);
+    try {
+      const res = await fetch(`http://127.0.0.1:${result.port}/`);
+      expect(res.status).toBe(404);
+
+      // The callback promise is still pending — `waitForCallback` only
+      // resolves on a real /callback hit.
+      const sentinel = Symbol("pending");
+      const winner = await Promise.race([
+        result.waitForCallback,
+        new Promise((r) => setTimeout(() => r(sentinel), 30)),
+      ]);
+      expect(winner).toBe(sentinel);
+    } finally {
+      result.server.close();
+    }
+  });
+
+  it("falls through to the next port when the first is busy", async () => {
+    // Hold port 0-bound first to capture an actual port number, then start
+    // a second loopback that's told to try (busyPort, 0). It must skip the
+    // busy one and bind on the fallback.
+    const busy = await startLoopbackServer([0]);
+    busy.waitForCallback.catch(() => undefined);
+    try {
+      const fallback = await startLoopbackServer([busy.port, 0]);
+      fallback.waitForCallback.catch(() => undefined);
+      try {
+        expect(fallback.port).not.toBe(busy.port);
+      } finally {
+        fallback.server.close();
+      }
+    } finally {
+      busy.server.close();
+    }
+  });
+
+  it("throws when none of the requested ports can be bound", async () => {
+    // Hold an ephemeral port to guarantee an EADDRINUSE on the second
+    // bind attempt — relying on the unprivileged-port (port 1) trick is
+    // not portable (root containers, BSD permission models). The error
+    // message must include all attempted ports so the user can update
+    // the Auth0 Allowed Callback URLs.
+    const busy = await startLoopbackServer([0]);
+    busy.waitForCallback.catch(() => undefined);
+    try {
+      await expect(startLoopbackServer([busy.port])).rejects.toThrow(
+        new RegExp(
+          `Unable to bind any of the loopback ports ${busy.port}`,
+        ),
+      );
+    } finally {
+      busy.server.close();
+    }
   });
 });
