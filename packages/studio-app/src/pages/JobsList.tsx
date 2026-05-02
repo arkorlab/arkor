@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJobs, type Job } from "../lib/api";
 import { Inbox, Refresh, Search } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
@@ -28,7 +28,12 @@ export function JobsList() {
   // not call setState after the component is gone.
   const aliveRef = useRef(true);
 
-  async function load() {
+  // useCallback (with `[]` deps) makes this referentially stable across
+  // renders so the polling effect below can list it as a dependency
+  // without re-scheduling on every render. The body only touches
+  // setters (which React guarantees stable) and `aliveRef`, so an
+  // empty dep array is genuinely safe.
+  const load = useCallback(async () => {
     try {
       setRefreshing(true);
       const { jobs } = await fetchJobs();
@@ -41,14 +46,14 @@ export function JobsList() {
     } finally {
       if (aliveRef.current) setRefreshing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     aliveRef.current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Chained setTimeout (not setInterval) so a slow /api/jobs request
-    // can't accumulate overlapping in-flight calls. The manual refresh
-    // button calls the same `load()` directly.
+    // can't accumulate overlapping in-flight calls. The same `load` is
+    // wired to the manual refresh button.
     async function schedule() {
       await load();
       if (aliveRef.current) timer = setTimeout(schedule, 5000);
@@ -58,10 +63,7 @@ export function JobsList() {
       aliveRef.current = false;
       if (timer !== undefined) clearTimeout(timer);
     };
-    // `load` is stable (defined in component scope, no captured deps),
-    // intentionally omitted to avoid re-scheduling on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
 
   const visible = useMemo(() => {
     if (!jobs) return null;
