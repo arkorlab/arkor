@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
@@ -357,12 +357,43 @@ program
 
 // Only parse argv when this module is the entrypoint. Tests
 // (`bin.test.ts`) import `run` directly to exercise the side-effect
-// kernel without commander spinning up on vitest's argv. The
-// canonical ESM check is `import.meta.url` against the resolved
-// argv[1] file URL — `pathToFileURL` handles Windows backslashes
-// correctly where a hand-rolled `file://${argv[1]}` would not.
-const argv1 = process.argv[1];
-if (argv1 && import.meta.url === pathToFileURL(argv1).href) {
+// kernel without commander spinning up on vitest's argv.
+//
+// `process.argv[1]` is the path Node was invoked with — under
+// `npm create arkor` / `pnpm create arkor` / `npx create-arkor` it's
+// the symlink/shim at `node_modules/.bin/create-arkor`, while
+// `import.meta.url` is the *resolved* path Node loaded the module
+// from (`--preserve-symlinks-main` defaults to false). A naïve
+// equality check between the two skips `program.parseAsync` for
+// every package-manager invocation and the CLI silently exits doing
+// nothing — Codex P1 / Copilot review on PR #99 round 7 flagged
+// the regression I introduced in round 6. Realpath both sides
+// before comparing so the symlink and its target collapse.
+// Exported so `bin.test.ts` can drive the comparison with a synthetic
+// symlink/target pair without spawning the real binary.
+export function shouldRunAsCli(
+  argv1: string | undefined,
+  moduleUrl: string,
+): boolean {
+  if (!argv1) return false;
+  const resolveSafe = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  let modulePath: string;
+  try {
+    modulePath = fileURLToPath(moduleUrl);
+  } catch {
+    // Non-file URL (e.g. data:, vitest's transform URL) — never CLI.
+    return false;
+  }
+  return resolveSafe(argv1) === resolveSafe(modulePath);
+}
+
+if (shouldRunAsCli(process.argv[1], import.meta.url)) {
   program.parseAsync(process.argv).catch((err) => {
     process.stderr.write(
       `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,

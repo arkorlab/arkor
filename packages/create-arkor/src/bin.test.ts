@@ -1,6 +1,7 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mirror the @arkor/cli-internal mock from `arkor`'s init.test.ts —
@@ -50,7 +51,7 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 import { scaffold } from "@arkor/cli-internal";
-import { run } from "./bin";
+import { run, shouldRunAsCli } from "./bin";
 
 let parentDir: string;
 const ORIG_CWD = process.cwd();
@@ -160,5 +161,52 @@ describe("create-arkor run()", () => {
       skipGit: true,
     });
     expect(vi.mocked(clack.log.warn)).not.toHaveBeenCalled();
+  });
+});
+
+// PR #99 round 7 (Codex P1 + Copilot): the entrypoint guard a
+// previous round added to make `bin.ts` safe to import under
+// vitest broke `npm create arkor` / `pnpm create arkor` / `npx`.
+// Those launchers run the bin via a `node_modules/.bin/<name>`
+// shim, so `process.argv[1]` is the symlink while `import.meta.url`
+// is the resolved real file — a verbatim equality check returned
+// `false` and `program.parseAsync` never ran. Lock the
+// symlink-tolerant comparison down so the regression can't
+// resurface; the fixture creates a real symlink with `symlinkSync`
+// and asserts the helper still recognises it as the entrypoint.
+describe("shouldRunAsCli", () => {
+  let tmp: string;
+  let realFile: string;
+  let realFileUrl: string;
+
+  beforeEach(() => {
+    tmp = realpathSync(mkdtempSync(join(tmpdir(), "create-arkor-cli-check-")));
+    realFile = join(tmp, "bin.mjs");
+    writeFileSync(realFile, "// test fixture\n");
+    realFileUrl = pathToFileURL(realFile).href;
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("returns true for direct invocation (argv[1] == module file)", () => {
+    expect(shouldRunAsCli(realFile, realFileUrl)).toBe(true);
+  });
+
+  it("returns true when argv[1] is a symlink resolving to the module file (npm/pnpm/npx bin shim)", () => {
+    const link = join(tmp, "shim.mjs");
+    symlinkSync(realFile, link);
+    expect(shouldRunAsCli(link, realFileUrl)).toBe(true);
+  });
+
+  it("returns false when argv[1] points to an unrelated script (vitest worker)", () => {
+    const other = join(tmp, "other.mjs");
+    writeFileSync(other, "// not us\n");
+    expect(shouldRunAsCli(other, realFileUrl)).toBe(false);
+  });
+
+  it("returns false when argv[1] is missing", () => {
+    expect(shouldRunAsCli(undefined, realFileUrl)).toBe(false);
   });
 });
