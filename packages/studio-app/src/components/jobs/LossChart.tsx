@@ -76,12 +76,24 @@ export function LossChart({ points }: { points: LossPoint[] }) {
     const x = e.clientX - rect.left;
     const fraction = (x - PADDING.left) / innerW;
     const targetStep = Math.round(fraction * lastStep);
-    let nearest = numeric[0]!;
-    for (const p of numeric) {
-      if (Math.abs(p.step - targetStep) < Math.abs(nearest.step - targetStep)) {
-        nearest = p;
-      }
+    // training.log events arrive in step order, so `numeric` is sorted
+    // by `.step` — binary search for the insertion point and then pick
+    // whichever neighbour is closer (O(log n) vs the previous O(n)
+    // sweep that was running on every mousemove against up to
+    // MAX_LOSS_POINTS=2000 entries).
+    let lo = 0;
+    let hi = numeric.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (numeric[mid]!.step < targetStep) lo = mid + 1;
+      else hi = mid;
     }
+    const candidate = numeric[lo]!;
+    const before = lo > 0 ? numeric[lo - 1]! : candidate;
+    const nearest =
+      Math.abs(before.step - targetStep) <= Math.abs(candidate.step - targetStep)
+        ? before
+        : candidate;
     setHover(nearest);
   }
 

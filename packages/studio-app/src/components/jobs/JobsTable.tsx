@@ -5,11 +5,19 @@ import { StatusBadge } from "../ui/StatusBadge";
 
 function jobDurationMs(job: Job): number | null {
   if (!job.startedAt) return null;
-  const end = job.completedAt ?? new Date().toISOString();
   const start = Date.parse(job.startedAt);
-  const finish = Date.parse(end);
-  if (Number.isNaN(start) || Number.isNaN(finish)) return null;
-  return Math.max(0, finish - start);
+  if (Number.isNaN(start)) return null;
+  if (job.completedAt) {
+    const finish = Date.parse(job.completedAt);
+    if (Number.isNaN(finish)) return null;
+    return Math.max(0, finish - start);
+  }
+  // Only tick "now" against running jobs. Terminal statuses without a
+  // completedAt (e.g. failed / cancelled where the server didn't
+  // record the timestamp) shouldn't keep climbing on every render —
+  // that would mislead the table reader.
+  if (job.status !== "running") return null;
+  return Math.max(0, Date.now() - start);
 }
 
 export function JobsTable({

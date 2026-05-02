@@ -397,14 +397,31 @@ function getDatasetLabel(
   config: Record<string, unknown> | undefined,
 ): string | null {
   if (!config) return null;
-  const ds = config.dataset;
-  if (!ds || typeof ds !== "object") return null;
-  const obj = ds as Record<string, unknown>;
-  const source = obj.source as Record<string, unknown> | undefined;
-  if (source) {
-    if (typeof source.name === "string") return source.name;
-    if (typeof source.url === "string") return source.url;
+  // The SDK / cloud-api wire shape is `config.datasetSource` (see
+  // packages/arkor/src/core/types.ts: HuggingfaceDatasetSource |
+  // BlobDatasetSource). Older or hand-rolled configs may use
+  // `config.dataset`, so fall through to that for backward compat.
+  const candidates: unknown[] = [config.datasetSource, config.dataset];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const obj = candidate as Record<string, unknown>;
+    if (obj.type === "huggingface") {
+      const name = typeof obj.name === "string" ? obj.name : null;
+      if (!name) continue;
+      const subset = typeof obj.subset === "string" ? obj.subset : null;
+      const split = typeof obj.split === "string" ? obj.split : null;
+      const suffix = [subset, split].filter(Boolean).join("/");
+      return suffix ? `${name} (${suffix})` : name;
+    }
+    if (obj.type === "blob" && typeof obj.url === "string") return obj.url;
+    // Best-effort fallback for older `config.dataset.source.{name,url}`.
+    const source = obj.source as Record<string, unknown> | undefined;
+    if (source) {
+      if (typeof source.name === "string") return source.name;
+      if (typeof source.url === "string") return source.url;
+    }
+    if (typeof obj.name === "string") return obj.name;
+    if (typeof obj.url === "string") return obj.url;
   }
-  if (typeof obj.name === "string") return obj.name;
   return null;
 }
