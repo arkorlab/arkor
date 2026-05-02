@@ -30,6 +30,9 @@ export function Playground() {
   const [error, setError] = useState<string | null>(null);
   const responseRef = useRef<string>("");
   const messageIdRef = useRef(0);
+  // Holds the AbortController for the in-flight inference stream so
+  // unmount (or a manual mode/model switch) can tear it down.
+  const inferenceAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetchJobs()
@@ -50,6 +53,13 @@ export function Playground() {
         setJobs([]);
         setError(err instanceof Error ? err.message : String(err));
       });
+  }, []);
+
+  // Tear the inference stream down on unmount so navigating away
+  // mid-stream doesn't leave the async loop running and writing into
+  // an unmounted component.
+  useEffect(() => {
+    return () => inferenceAbortRef.current?.abort();
   }, []);
 
   const adapterDisabled = !jobs || jobs.length === 0;
@@ -85,28 +95,41 @@ export function Playground() {
       );
     }
 
+    const ac = new AbortController();
+    inferenceAbortRef.current?.abort();
+    inferenceAbortRef.current = ac;
+
     try {
-      const stream = streamInferenceContent({
-        ...(mode === "base"
-          ? { baseModel }
-          : { adapter: { kind: "final", jobId: selectedJob! } }),
-        messages: [...messages, userMsg],
-        stream: true,
-      });
+      const stream = streamInferenceContent(
+        {
+          ...(mode === "base"
+            ? { baseModel }
+            : { adapter: { kind: "final", jobId: selectedJob! } }),
+          messages: [...messages, userMsg],
+          stream: true,
+        },
+        ac.signal,
+      );
       for await (const fragment of stream) {
         responseRef.current += fragment;
         writeAssistant(responseRef.current);
       }
     } catch (err) {
+      // Aborts are expected when the user navigates away or switches
+      // mode mid-stream; don't surface them as errors in the bubble.
+      if (ac.signal.aborted) return;
       const msg = err instanceof Error ? err.message : String(err);
       writeAssistant(`[error] ${msg}`);
     } finally {
-      setStreaming(false);
+      if (inferenceAbortRef.current === ac) inferenceAbortRef.current = null;
+      if (!ac.signal.aborted) setStreaming(false);
     }
   }
 
   function changeMode(next: Mode) {
     if (next === mode) return;
+    inferenceAbortRef.current?.abort();
+    setStreaming(false);
     setMode(next);
     setMessages([]);
   }
@@ -159,11 +182,13 @@ export function Playground() {
         </div>
       ) : null}
 
-      {mode === "adapter" && jobs === null ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
-          Loading jobs…
-        </div>
-      ) : mode === "adapter" && adapterDisabled ? (
+      {/* `mode === "adapter" && jobs === null` is unreachable: the
+          Adapter segment of ModelToggle stays disabled while jobs is
+          null, so the user can't switch into Adapter mode until jobs
+          has resolved. The next branch below covers the case where
+          jobs has resolved but the user is in Adapter mode without
+          completed jobs. */}
+      {mode === "adapter" && adapterDisabled ? (
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
             icon={<Sparkles />}

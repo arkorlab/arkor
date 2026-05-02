@@ -10,18 +10,23 @@
       // React mounts so we don't flash the wrong palette. Mirrors the
       // marketing site's `theme-init.js`.
       (function () {
+        var stored = null;
         try {
-          var stored = localStorage.getItem("arkor-studio-theme");
-          var theme =
-            stored === "light" || stored === "dark"
-              ? stored
-              : window.matchMedia("(prefers-color-scheme: dark)").matches
-                ? "dark"
-                : "light";
-          document.documentElement.dataset.theme = theme;
+          stored = localStorage.getItem("arkor-studio-theme");
         } catch (_) {
-          document.documentElement.dataset.theme = "light";
+          // localStorage may throw under privacy modes / sandboxed
+          // iframes — fall through to prefers-color-scheme rather than
+          // hardcoding light, which would override an explicit OS-level
+          // dark preference.
         }
+        var theme =
+          stored === "light" || stored === "dark"
+            ? stored
+            : window.matchMedia &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+        document.documentElement.dataset.theme = theme;
       })();
     </script>
   </head>

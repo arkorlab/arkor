@@ -53,17 +53,12 @@ function Segment({
   label: string;
   title?: string;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       aria-pressed={active}
-      // Use aria-disabled (not the native `disabled` attribute) so the
-      // browser still fires hover events on the element and the `title`
-      // tooltip explaining *why* it's disabled is reachable. We block
-      // activation manually below.
-      aria-disabled={disabled || undefined}
-      onClick={disabled ? undefined : onClick}
-      title={title}
+      disabled={disabled}
+      onClick={onClick}
       className={cn(
         "inline-flex h-7 items-center rounded-full px-3 font-medium transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30",
@@ -76,4 +71,17 @@ function Segment({
       {label}
     </button>
   );
+  // Wrap a real `disabled` button (which keeps it out of the tab order
+  // and properly inert) in a tooltip-carrying span — most browsers
+  // suppress hover events on the disabled button itself, but they
+  // still bubble up to the wrapper, so the `title` hint stays
+  // reachable.
+  if (disabled && title) {
+    return (
+      <span title={title} className="inline-flex">
+        {button}
+      </span>
+    );
+  }
+  return button;
 }

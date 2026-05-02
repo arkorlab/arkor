@@ -18,30 +18,40 @@ const RTF =
     ? new Intl.RelativeTimeFormat("en", { numeric: "auto" })
     : null;
 
+// Phrase the manual fallback explicitly so older runtimes without
+// `Intl.RelativeTimeFormat` still produce human-readable output instead
+// of leaking the raw signed delta (e.g. "-5m" for a past timestamp).
+function fallbackRelative(value: number, unit: string): string {
+  const abs = Math.abs(value);
+  return value < 0 ? `${abs}${unit} ago` : `in ${abs}${unit}`;
+}
+
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "—";
   const diffSec = Math.round((t - now) / 1000);
   const abs = Math.abs(diffSec);
-  if (abs < 45) return RTF ? RTF.format(diffSec, "second") : `${diffSec}s`;
+  if (abs < 45) {
+    return RTF ? RTF.format(diffSec, "second") : fallbackRelative(diffSec, "s");
+  }
   if (abs < 60 * 45) {
     const v = Math.round(diffSec / 60);
-    return RTF ? RTF.format(v, "minute") : `${v}m`;
+    return RTF ? RTF.format(v, "minute") : fallbackRelative(v, "m");
   }
   if (abs < 3600 * 22) {
     const v = Math.round(diffSec / 3600);
-    return RTF ? RTF.format(v, "hour") : `${v}h`;
+    return RTF ? RTF.format(v, "hour") : fallbackRelative(v, "h");
   }
   if (abs < 86400 * 26) {
     const v = Math.round(diffSec / 86400);
-    return RTF ? RTF.format(v, "day") : `${v}d`;
+    return RTF ? RTF.format(v, "day") : fallbackRelative(v, "d");
   }
   if (abs < 86400 * 320) {
     const v = Math.round(diffSec / (86400 * 30));
-    return RTF ? RTF.format(v, "month") : `${v}mo`;
+    return RTF ? RTF.format(v, "month") : fallbackRelative(v, "mo");
   }
   const v = Math.round(diffSec / (86400 * 365));
-  return RTF ? RTF.format(v, "year") : `${v}y`;
+  return RTF ? RTF.format(v, "year") : fallbackRelative(v, "y");
 }
 
 export function truncateMiddle(s: string, head = 6, tail = 4): string {
