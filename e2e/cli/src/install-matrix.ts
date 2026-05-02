@@ -46,6 +46,10 @@ export const INSTALL_CASES: readonly InstallCase[] = [
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
 const E2E_PM = process.env.ARKOR_E2E_PM;
 
+const KNOWN_LABELS: ReadonlySet<string> = new Set(
+  INSTALL_CASES.map((c) => c.label),
+);
+
 /**
  * Decide whether a given install case should be skipped under the
  * current env. Three layers (in priority order):
@@ -54,10 +58,28 @@ const E2E_PM = process.env.ARKOR_E2E_PM;
  *   - `ARKOR_E2E_PM=<label>` runs exactly that case — used by the CI
  *     install-matrix job to provision one pm per runner.
  *   - When `ARKOR_E2E_PM` is unset, only `localDefault` cases run.
+ *
+ * Throws when `ARKOR_E2E_PM` is set to a label that isn't in
+ * `INSTALL_CASES`. Without that guard a typo or a CI-yaml drift (the
+ * workflow's `PM_LABEL` mapping is the other half of this contract)
+ * would make every case answer `true`, silently turning the
+ * install-matrix into a false green — Copilot review on PR #99
+ * flagged that as the worst failure mode here.
  */
 export function shouldSkipInstallCase(label: InstallCaseLabel): boolean {
   if (SKIP_INSTALL) return true;
-  if (E2E_PM !== undefined) return E2E_PM !== label;
+  if (E2E_PM !== undefined) {
+    if (!KNOWN_LABELS.has(E2E_PM)) {
+      throw new Error(
+        `ARKOR_E2E_PM="${E2E_PM}" is not one of the install-matrix ` +
+          `labels (${[...KNOWN_LABELS].join(", ")}). The CI workflow's ` +
+          `PM_LABEL mapping in .github/workflows/ci.yaml has likely ` +
+          `drifted from INSTALL_CASES — bring them back in sync ` +
+          `before re-running.`,
+      );
+    }
+    return E2E_PM !== label;
+  }
   const c = INSTALL_CASES.find((c) => c.label === label);
   return !c?.localDefault;
 }

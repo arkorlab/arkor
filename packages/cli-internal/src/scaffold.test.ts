@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scaffold, templateChoices } from "./scaffold";
@@ -261,12 +261,13 @@ describe("scaffold", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  // packageManager === undefined fires when neither `--use-*` was
-  // passed nor `npm_config_user_agent` told us anything (the manual
-  // install hint flow). The hint says "yarn / bun install", so a
-  // yarn-berry user lands here — without a `.yarnrc.yml` they'd hit
-  // PnP and break the arkor runtime (Copilot review on PR #99).
-  it("emits .yarnrc.yml even when packageManager is undefined (manual install hint flow)", async () => {
+  // packageManager === undefined + fresh dir (no pre-existing
+  // `package.json`) fires when neither `--use-*` was passed nor
+  // `npm_config_user_agent` told us anything. The manual install
+  // hint says "yarn / bun install", so a yarn-berry user lands here
+  // — without a `.yarnrc.yml` they'd hit PnP and break the arkor
+  // runtime (Copilot review on PR #99).
+  it("emits .yarnrc.yml when packageManager is undefined and the project is fresh", async () => {
     const result = await scaffold({
       cwd,
       name: "n",
@@ -277,6 +278,52 @@ describe("scaffold", () => {
     expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toContain(
       "nodeLinker: node-modules",
     );
+  });
+
+  // Counterpart of the above: when scaffolding into a directory that
+  // already has a `package.json`, the surrounding repo could be a
+  // yarn-berry workspace deliberately on the PnP default. Without
+  // an explicit `--use-yarn` we can't tell, so silently dropping a
+  // `.yarnrc.yml` would flip the install mode for the entire repo
+  // — Copilot's follow-up review on PR #99 flagged exactly this
+  // foot-gun. Defer to the user instead.
+  it("does NOT emit .yarnrc.yml when packageManager is undefined and the project already exists", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
+    expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
+  });
+
+  // patchYarnConfig parses the `nodeLinker:` value out of YAML
+  // through a small normaliser (strip trailing comment, strip a
+  // single matched quote pair, trim). The Codex P2 / Copilot
+  // reviews on PR #99 flagged that an exact-string equality check
+  // misreads valid YAML forms — `node-modules` quoted, with a
+  // trailing comment, with extra whitespace. Lock the normaliser
+  // down so those forms are recognised as already-correct.
+  it.each([
+    { label: "double-quoted",   line: 'nodeLinker: "node-modules"' },
+    { label: "single-quoted",   line: "nodeLinker: 'node-modules'" },
+    { label: "trailing comment", line: "nodeLinker: node-modules # default" },
+    { label: "extra whitespace", line: "nodeLinker:    node-modules" },
+  ])("treats `$label` as already correct (no warning, action=ok)", async ({ line }) => {
+    writeFileSync(join(cwd, ".yarnrc.yml"), `${line}\nfoo: bar\n`);
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("ok");
+    expect(result.warnings).toEqual([]);
   });
 
   it("does not emit .yarnrc.yml when the user explicitly picked a non-yarn pm", async () => {

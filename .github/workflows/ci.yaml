@@ -407,11 +407,18 @@ jobs:
       # bash` installer is POSIX-only, so on Windows it'd silently no-op.
       # `oven-sh/setup-bun` handles all three OSes uniformly and adds
       # bun to PATH via $GITHUB_PATH for us.
+      #
+      # Pinning the version (rather than `latest`) keeps the matrix
+      # reproducible in lockstep with the corepack-prepared
+      # pnpm-*/yarn versions above — Copilot review on PR #99 flagged
+      # `bun-version: latest` as a way for an upstream bun release to
+      # silently flip CI green/red without a repo change. Bump in a
+      # dedicated commit when intentionally rolling forward.
       - name: Setup bun
         if: ${{ matrix.id == 'bun' }}
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: '1.3.13'
 
       - name: Confirm pm version
         run: |

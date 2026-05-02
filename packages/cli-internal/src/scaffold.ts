@@ -153,6 +153,47 @@ async function patchGitignore(
   return "patched";
 }
 
+/**
+ * Pull the value of the top-level `nodeLinker:` key out of a
+ * `.yarnrc.yml`-shaped string, normalised to what yarn would actually
+ * see at runtime. Returns `undefined` when no such key is set.
+ *
+ * `.yarnrc.yml` is YAML; we don't pull in a full parser for one key,
+ * but we do need to handle the realistic spelling variants the
+ * Copilot review on PR #99 flagged (raw scalar with optional
+ * trailing comment, single- or double-quoted string). A regex that
+ * does string-equality on the rest of the line gets fooled by:
+ *
+ *   nodeLinker: "node-modules"        # quoted
+ *   nodeLinker: node-modules # comment
+ *   nodeLinker:    node-modules       # extra whitespace
+ *
+ * Strip the trailing `# …` comment first (only when preceded by
+ * whitespace, so a `#` inside a quoted value isn't mistaken for one),
+ * trim, then strip a single matched pair of surrounding quotes.
+ * That covers every form yarn itself accepts for a simple scalar
+ * value while staying small enough to inline.
+ */
+function readNodeLinkerValue(yarnrc: string): string | undefined {
+  // Top-level keys in `.yarnrc.yml` live at column 0. `^nodeLinker`
+  // anchored on a multiline match keeps an indented `nodeLinker:`
+  // (e.g. nested under another key) from being misread as the
+  // top-level value.
+  const lineMatch = /^nodeLinker\s*:\s*(.*)$/m.exec(yarnrc);
+  if (!lineMatch) return undefined;
+  let value = lineMatch[1] ?? "";
+  // Strip a `# comment` tail. The leading whitespace requirement
+  // protects values that legitimately contain `#` inside quotes —
+  // YAML's comment syntax mandates whitespace before `#`.
+  value = value.replace(/\s+#.*$/, "").trim();
+  // Strip one pair of surrounding quotes (single or double). Yarn
+  // doesn't escape further inside the scalar, so peeling one layer
+  // is enough.
+  const quoted = /^(["'])(.*)\1$/.exec(value);
+  if (quoted) value = quoted[2] ?? "";
+  return value;
+}
+
 interface YarnConfigPatchResult {
   action: FileAction;
   /**
@@ -189,19 +230,7 @@ async function patchYarnConfig(cwd: string): Promise<YarnConfigPatchResult> {
   //      `kept` doesn't silently set them up for an `arkor dev`
   //      failure (Copilot follow-up review).
   const current = await readFile(path, "utf8");
-  const lines = current.split(/\r?\n/);
-  // Match `nodeLinker:` at line start (yarnrc.yml is YAML, top-level
-  // keys live at column 0). Capture the value (rest of the line,
-  // trimmed) so the warning can quote it back to the user.
-  const nodeLinkerRe = /^nodeLinker\s*:\s*(.*)$/;
-  let existingValue: string | undefined;
-  for (const line of lines) {
-    const m = nodeLinkerRe.exec(line);
-    if (m) {
-      existingValue = m[1]?.trim() ?? "";
-      break;
-    }
-  }
+  const existingValue = readNodeLinkerValue(current);
   if (existingValue !== undefined) {
     if (existingValue === "node-modules") return { action: "ok" };
     return { action: "kept", conflictingNodeLinker: existingValue };
@@ -270,6 +299,11 @@ export async function scaffold(
 
   const files: ScaffoldResult["files"] = [];
   const warnings: string[] = [];
+  // Snapshot whether this is a merge into an already-bootstrapped
+  // project BEFORE patchPackageJson runs (which would always make
+  // `package.json` exist by the time we read it later). Used by the
+  // yarn-config emission rules below.
+  const isExistingProject = existsSync(join(cwd, PACKAGE_JSON_PATH));
   files.push({
     path: INDEX_PATH,
     action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),
@@ -300,23 +334,33 @@ export async function scaffold(
     path: PACKAGE_JSON_PATH,
     action: await patchPackageJson(cwd, options.name),
   });
-  // Defensive yarn config emission: also fires when pm is undefined.
-  // Both `arkor init` and `create-arkor` have a real "we couldn't
-  // detect a pm" path that prints the manual install hint (`install
-  // dependencies (npm i / pnpm install / yarn / bun install)`) and
-  // hands off — at that point a yarn-berry user reading the hint and
-  // running `yarn install` would otherwise hit the PnP default and
-  // get a project the arkor runtime can't load. yarn 1.x and yarn-
-  // berry both ignore `.yarnrc.yml` when not in use (yarn 1 reads
-  // `.yarnrc`; berry only consults it if you're actually invoking
-  // yarn), and npm / pnpm / bun don't read it at all, so emitting
-  // for the undefined-pm case is harmless for non-yarn flows. Only
-  // skip when the user *explicitly* picked another pm (npm / pnpm /
-  // bun) — that's a clear signal they aren't going to switch.
-  if (
+  // Yarn-config emission rules:
+  //
+  //   - `pm === "yarn"` — the user explicitly opted into yarn. Always
+  //     write/patch `.yarnrc.yml`, even when scaffolding into an
+  //     existing project (the conflict warning above handles the
+  //     case where they've already pinned a non-`node-modules` linker).
+  //   - `pm === undefined` and there's NO existing `package.json` —
+  //     this is a fresh scaffold where we don't yet know which pm
+  //     the user will pick. The manual-install hint says "yarn /
+  //     bun install", so a yarn-berry user reading it and running
+  //     `yarn install` would otherwise hit the PnP default. Emit
+  //     defensively. yarn 1 / npm / pnpm / bun all ignore
+  //     `.yarnrc.yml`, so it's harmless for non-yarn flows.
+  //   - `pm === undefined` and a `package.json` already exists —
+  //     this is a merge into a pre-existing project. We can't tell
+  //     whether the surrounding workspace is a yarn-berry repo
+  //     deliberately on the PnP default, so silently writing
+  //     `.yarnrc.yml` would flip the install mode for the whole
+  //     repo. Don't touch yarn config — defer to the user (Copilot
+  //     review on PR #99). Same skip applies when the user
+  //     *explicitly* picked a non-yarn pm. `isExistingProject` was
+  //     captured at the top of `scaffold()` before patchPackageJson
+  //     overwrote that signal.
+  const shouldEmitYarnConfig =
     options.packageManager === "yarn" ||
-    options.packageManager === undefined
-  ) {
+    (options.packageManager === undefined && !isExistingProject);
+  if (shouldEmitYarnConfig) {
     const yarn = await patchYarnConfig(cwd);
     files.push({ path: YARNRC_YML_PATH, action: yarn.action });
     if (yarn.conflictingNodeLinker !== undefined) {
@@ -326,12 +370,19 @@ export async function scaffold(
       // workspace by silently rewriting it — see patchYarnConfig
       // for the rationale) but the project won't actually run
       // until the linker is changed. Surface it loud.
+      // Remediation says "change to node-modules" rather than
+      // "remove the line": when patchYarnConfig keeps an existing
+      // file we leave it on disk verbatim, so removing the
+      // `nodeLinker:` line would just put yarn back on its PnP
+      // default and reproduce the same runtime failure. The fix the
+      // user actually needs is to set `nodeLinker: node-modules`
+      // explicitly. (Copilot follow-up review on PR #99.)
       warnings.push(
         `Existing .yarnrc.yml pins \`nodeLinker: ${yarn.conflictingNodeLinker}\`. ` +
-          `arkor's runtime requires \`nodeLinker: node-modules\` to resolve ` +
-          `dependencies — \`arkor dev\` and \`arkor train\` will fail until ` +
-          `you change it (or remove the line so yarn uses the scaffolded ` +
-          `\`.yarnrc.yml\` default).`,
+          `arkor's runtime can't resolve dependencies through anything ` +
+          `other than \`nodeLinker: node-modules\` — \`arkor dev\` and ` +
+          `\`arkor train\` will fail until you change the value to ` +
+          `\`node-modules\`.`,
       );
     }
   }
