@@ -23,6 +23,14 @@ export function RunTraining() {
   const [log, setLog] = useState("");
   const [manifest, setManifest] = useState<ManifestResult | null>(null);
   const boxRef = useRef<HTMLPreElement>(null);
+  // Tracked separately from the manifest poll so navigating away
+  // from Overview mid-stream tears the training stream down without
+  // touching the (always-running) manifest poll.
+  const trainingAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => trainingAbortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,11 +67,22 @@ export function RunTraining() {
   async function run() {
     setRunning(true);
     setLog("");
+    const ac = new AbortController();
+    trainingAbortRef.current?.abort();
+    trainingAbortRef.current = ac;
     try {
-      await streamTraining((chunk) => {
-        setLog((prev) => appendCapped(prev, chunk));
-      });
+      await streamTraining(
+        (chunk) => {
+          if (ac.signal.aborted) return;
+          setLog((prev) => appendCapped(prev, chunk));
+        },
+        undefined,
+        ac.signal,
+      );
     } catch (err) {
+      // Aborts are expected when the user navigates away mid-stream;
+      // don't surface them as errors in the log.
+      if (ac.signal.aborted) return;
       setLog((prev) =>
         appendCapped(
           prev,
@@ -71,7 +90,8 @@ export function RunTraining() {
         ),
       );
     } finally {
-      setRunning(false);
+      if (trainingAbortRef.current === ac) trainingAbortRef.current = null;
+      if (!ac.signal.aborted) setRunning(false);
     }
   }
 

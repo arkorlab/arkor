@@ -229,18 +229,29 @@ export function extractInferenceDelta(data: string): string | null {
 export async function streamTraining(
   onChunk: (text: string) => void,
   file?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const res = await apiFetch("/api/train", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...(file ? { file } : {}) }),
+    signal,
   });
   if (!res.body) return;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    onChunk(decoder.decode(value, { stream: true }));
+  // Cancel the underlying body when the caller aborts so we don't
+  // hang on `reader.read()` after the page (and the AbortController
+  // cleanup) have moved on.
+  const onAbort = () => void reader.cancel().catch(() => {});
+  signal?.addEventListener("abort", onAbort);
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      onChunk(decoder.decode(value, { stream: true }));
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
 }

@@ -199,13 +199,17 @@ export function Playground({
         </div>
       ) : null}
 
-      {/* `mode === "adapter" && jobs === null` is unreachable: the
-          Adapter segment of ModelToggle stays disabled while jobs is
-          null, so the user can't switch into Adapter mode until jobs
-          has resolved. The next branch below covers the case where
-          jobs has resolved but the user is in Adapter mode without
-          completed jobs. */}
-      {mode === "adapter" && adapterDisabled ? (
+      {/* Adapter mode while jobs is still loading is reachable when
+          we mount with `initialAdapterId` (e.g. via "Open in
+          Playground" from JobDetail). Show a loading state in that
+          case rather than the misleading "No completed jobs yet"
+          empty state, which only applies once we know the list is
+          really empty. */}
+      {mode === "adapter" && jobs === null ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
+          Loading jobs…
+        </div>
+      ) : mode === "adapter" && jobs?.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
             icon={<Sparkles />}

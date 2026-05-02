@@ -18,7 +18,9 @@ export function parseRoute(): Route {
   }
   if (path === "playground") {
     const params = new URLSearchParams(query);
-    const adapterJobId = params.get("adapter") ?? undefined;
+    // Treat blank/whitespace-only `?adapter=` as absent so callers
+    // never see an empty string masquerading as a real adapter id.
+    const adapterJobId = params.get("adapter")?.trim() || undefined;
     return { kind: "playground", adapterJobId };
   }
   return { kind: "home" };
