@@ -2,6 +2,10 @@ import { existsSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isArkor } from "./arkor";
+import {
+  installCallbackReloadHandler,
+  installShutdownHandlers,
+} from "./runnerSignals";
 import type { Trainer } from "./types";
 
 const DEFAULT_ENTRY = "src/arkor/index.ts";
@@ -53,8 +57,17 @@ export async function runTrainer(file?: string): Promise<void> {
   const mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
   const trainer = extractTrainer(mod);
 
-  const { jobId } = await trainer.start();
-  process.stdout.write(`Started job ${jobId}\n`);
-  const result = await trainer.wait();
-  process.stdout.write(`Job ${result.job.id} finished with status=${result.job.status}\n`);
+  const removeShutdown = installShutdownHandlers(trainer);
+  const removeCallbackReload = installCallbackReloadHandler(trainer, abs);
+  try {
+    const { jobId } = await trainer.start();
+    process.stdout.write(`Started job ${jobId}\n`);
+    const result = await trainer.wait();
+    process.stdout.write(
+      `Job ${result.job.id} finished with status=${result.job.status}\n`,
+    );
+  } finally {
+    removeShutdown();
+    removeCallbackReload();
+  }
 }

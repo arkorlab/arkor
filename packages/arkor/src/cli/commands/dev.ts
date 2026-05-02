@@ -16,7 +16,9 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 import { buildStudioApp } from "../../studio/server";
+import { createHmrCoordinator } from "../../studio/hmr";
 import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
+import { registerCleanupHook } from "../cleanupHooks";
 import { ui } from "../prompts";
 
 export interface DevOptions {
@@ -171,23 +173,26 @@ async function persistStudioToken(token: string): Promise<string> {
 }
 
 function scheduleStudioTokenCleanup(path: string): void {
-  let cleaned = false;
-  const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    try {
-      unlinkSync(path);
-    } catch {
-      // best-effort
-    }
-  };
-  process.on("exit", cleanup);
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(sig, () => {
-      cleanup();
-      process.exit(0);
-    });
-  }
+  registerCleanupHook({
+    cleanup: () => {
+      try {
+        unlinkSync(path);
+      } catch {
+        // best-effort
+      }
+    },
+    // Outermost cleanup: responsible for terminating the process after
+    // all earlier-registered hooks (e.g. HMR dispose) have run.
+    exitOnSignal: true,
+  });
+}
+
+function scheduleHmrCleanup(hmr: { dispose: () => Promise<void> }): void {
+  // Registered before the studio-token cleanup so it runs first on
+  // shutdown — Node fires signal handlers in registration order, and we
+  // want the watcher to release file handles before the outermost
+  // process.exit.
+  registerCleanupHook({ cleanup: () => hmr.dispose() });
 }
 
 export async function runDev(options: DevOptions = {}): Promise<void> {
@@ -198,6 +203,15 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // every /api/* request. Prevents another tab on the same machine from
   // hitting `arkor start` (and therefore RCE via dynamic import).
   const studioToken = randomBytes(32).toString("base64url");
+
+  // HMR coordinator: a long-lived rolldown watcher over the user's
+  // `src/arkor` graph. Lazy-started on first `/api/dev/events` connection so
+  // an `arkor dev` launched in an unbuilt project doesn't immediately fail.
+  // Registered before the studio-token cleanup so the latter remains the
+  // most-recently-attached signal listener (existing tests rely on this
+  // ordering to find the token-removal handler).
+  const hmr = createHmrCoordinator({ cwd: process.cwd() });
+  scheduleHmrCleanup(hmr);
 
   // Persisting the token to disk is *only* needed for the Vite SPA dev
   // workflow. The bundled `:port` flow injects the meta tag at request time
@@ -217,7 +231,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // `autoAnonymous: true` (the default) lets the Hono server retry the
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
   // attempt above failed (e.g. cloud-api was unreachable at launch).
-  const app = buildStudioApp({ studioToken });
+  const app = buildStudioApp({ studioToken, hmr });
   // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
   // only — `@hono/node-server` passes hostname to `net.Server.listen`, which
   // calls `dns.lookup`. On hosts where `/etc/hosts` orders `::1 localhost`
@@ -229,6 +243,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   const url = `http://localhost:${port}`;
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   process.stdout.write(`Arkor Studio running on ${url}\n`);
+  process.stdout.write(`HMR enabled (watching src/arkor)\n`);
   if (options.open) {
     try {
       await open(url);

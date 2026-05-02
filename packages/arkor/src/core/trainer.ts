@@ -6,11 +6,18 @@ import {
   type Credentials,
 } from "./credentials";
 import { ensureProjectState } from "./projectState";
+import {
+  attachTrainerCallbackReplacer,
+  attachTrainerEarlyStopper,
+  attachTrainerInspection,
+  type RequestEarlyStopOptions,
+} from "./trainerInspection";
 import type {
   CheckpointContext,
   InferArgs,
   JobConfig,
   Trainer,
+  TrainerCallbacks,
   TrainerInput,
   TrainingJob,
   TrainingLogContext,
@@ -139,6 +146,25 @@ export function createTrainer(
   let scope: { orgSlug: string; projectSlug: string } | null = null;
   let clientPromise: Promise<CloudApiClient> | null = null;
 
+  // Mutable callbacks slot. Each `dispatch()` invocation reads this fresh,
+  // so `replaceCallbacks(...)` takes effect on the next event. Events
+  // already mid-await keep their old reference until they resolve, which
+  // matches the "replace, don't interrupt" contract documented on
+  // `Trainer.replaceCallbacks`.
+  let currentCallbacks: Partial<TrainerCallbacks> = input.callbacks ?? {};
+
+  // Early-stop state. `requestEarlyStop()` arms the latch; the next
+  // `checkpoint.saved` dispatch (or the timeout, whichever fires first)
+  // calls cancel() and resolves the deferred. Idempotent across repeat
+  // calls — they share the same deferred.
+  const DEFAULT_EARLY_STOP_TIMEOUT_MS = 5 * 60 * 1000;
+  let earlyStopDeferred: {
+    promise: Promise<void>;
+    resolve: () => void;
+    timer: NodeJS.Timeout | null;
+  } | null = null;
+  let earlyStopRequested = false;
+
   async function getClient(): Promise<CloudApiClient> {
     if (!clientPromise) {
       clientPromise = (async () => {
@@ -196,7 +222,10 @@ export function createTrainer(
       throw new Error("Trainer is in an inconsistent state");
     }
     const client = await getClient();
-    const callbacks = input.callbacks ?? {};
+    // Read once per dispatch so a `replaceCallbacks` between events takes
+    // effect on the next dispatch, but doesn't change identity inside a
+    // single in-flight handler.
+    const callbacks = currentCallbacks;
 
     switch (event.type) {
       case "training.started": {
@@ -244,6 +273,15 @@ export function createTrainer(
           artifacts: event.artifacts,
         };
         await callbacks.onCheckpoint?.(ctx);
+        // Early-stop latch: a checkpoint just landed, so the in-flight work
+        // is durable. Cancel the cloud job and end `wait()` cleanly.
+        if (earlyStopRequested && earlyStopDeferred) {
+          await trainer.cancel();
+          if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
+          earlyStopDeferred.resolve();
+          earlyStopDeferred = null;
+          return { terminal: true, artifacts: terminalResult?.artifacts ?? [] };
+        }
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
       }
       case "training.completed": {
@@ -391,6 +429,74 @@ export function createTrainer(
       await client.cancelJob(startedJob.id, scope);
     },
   };
+
+  /**
+   * Internal "stop after next checkpoint" entry point. Hidden behind a
+   * `Symbol.for` brand so the runner subprocess's SIGTERM handler (in
+   * `runnerSignals.ts`) can drive a graceful early-stop without us
+   * exposing the operation on the public `Trainer` interface. User code
+   * that wants the same semantics should compose `abortSignal` +
+   * `cancel()` per `docs/cookbook/early-stopping.mdx`.
+   */
+  async function requestEarlyStop(
+    opts: RequestEarlyStopOptions = {},
+  ): Promise<void> {
+    // Nothing in flight: cleanup any prior latch and resolve.
+    if (!startedJob || !scope || TERMINAL_STATUSES.has(startedJob.status)) {
+      if (earlyStopDeferred) {
+        if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
+        earlyStopDeferred.resolve();
+        earlyStopDeferred = null;
+      }
+      earlyStopRequested = false;
+      return;
+    }
+    // Idempotent: a second call piggybacks on the first.
+    if (earlyStopDeferred) return earlyStopDeferred.promise;
+
+    earlyStopRequested = true;
+    let resolveFn!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      resolveFn = resolve;
+    });
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_EARLY_STOP_TIMEOUT_MS;
+    const timer = setTimeout(() => {
+      // Timed out waiting for a checkpoint — fall back to immediate cancel.
+      // Capture the active deferred reference: by the time the cancel POST
+      // resolves, the checkpoint branch may have nulled out the shared
+      // slot, but this fallback path still owns the deferred it created.
+      const active = earlyStopDeferred;
+      trainer
+        .cancel()
+        .catch(() => {})
+        .finally(() => {
+          if (active) active.resolve();
+          if (earlyStopDeferred === active) earlyStopDeferred = null;
+        });
+    }, timeoutMs);
+    // `Timer.unref` keeps the early-stop timer from blocking process exit
+    // when the host runtime finishes for unrelated reasons.
+    timer.unref?.();
+    earlyStopDeferred = { promise, resolve: resolveFn, timer };
+    return promise;
+  }
+
+  // Brand the trainer with the HMR control surface so the Studio server
+  // can (a) hash the cloud-side config to decide between hot-swap and
+  // restart, (b) atomically swap the callbacks cell from the runner
+  // subprocess on SIGUSR2, and (c) drive a graceful "stop after the
+  // next checkpoint" on SIGTERM. All three brands live behind
+  // `Symbol.for` keys so they don't appear on the public `Trainer`
+  // interface — see `trainerInspection.ts` for the rationale.
+  attachTrainerInspection(trainer, () => ({
+    name: input.name,
+    config,
+    callbacks: currentCallbacks,
+  }));
+  attachTrainerCallbackReplacer(trainer, (callbacks) => {
+    currentCallbacks = callbacks ?? {};
+  });
+  attachTrainerEarlyStopper(trainer, requestEarlyStop);
 
   return trainer;
 }

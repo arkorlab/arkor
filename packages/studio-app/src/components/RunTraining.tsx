@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
   fetchManifest,
+  openDevEvents,
   streamTraining,
+  type DevEvent,
   type ManifestResult,
 } from "../lib/api";
 
@@ -9,7 +11,13 @@ export function RunTraining() {
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState("");
   const [manifest, setManifest] = useState<ManifestResult | null>(null);
+  const [hmrStatus, setHmrStatus] = useState<
+    "idle" | "rebuilding" | "early-stopping" | "restarting" | "hot-swapped"
+  >("idle");
   const boxRef = useRef<HTMLPreElement>(null);
+  const lastTrainFileRef = useRef<string | undefined>(undefined);
+  const restartPendingRef = useRef(false);
+  const runningRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,7 +37,62 @@ export function RunTraining() {
     };
   }, []);
 
-  async function run() {
+  // HMR: listen for rebuild notifications from `arkor dev` and refresh the
+  // manifest. When a rebuild also early-stopped a running training run, the
+  // server flags `restart: true`; defer the actual re-invocation until the
+  // current `streamTraining` resolves so we don't run two cloud jobs at once.
+  useEffect(() => {
+    const es = openDevEvents();
+    const onMessage = (raw: MessageEvent) => {
+      let payload: DevEvent;
+      try {
+        payload = JSON.parse(raw.data) as DevEvent;
+      } catch {
+        return;
+      }
+      if (payload.type === "error") {
+        setManifest({ error: payload.message ?? "Build failed" });
+        setHmrStatus("idle");
+        return;
+      }
+      // Always refresh the manifest on ready/rebuild.
+      void fetchManifest()
+        .then(setManifest)
+        .catch((err: unknown) => {
+          setManifest({
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      if (payload.restart) {
+        // Training run is early-stopping; the active stream will resolve
+        // once the next checkpoint lands and the subprocess exits cleanly.
+        // The `finally` block of `run()` picks up the pending flag and
+        // re-spawns with the same args.
+        restartPendingRef.current = true;
+        setHmrStatus(runningRef.current ? "early-stopping" : "idle");
+      } else if (payload.hotSwap) {
+        // Callbacks were swapped in place — the cloud-side run is
+        // unaffected. Flash a brief "hot-swapped" indicator so users
+        // know the new code is live.
+        setHmrStatus("hot-swapped");
+        window.setTimeout(() => {
+          setHmrStatus((s) => (s === "hot-swapped" ? "idle" : s));
+        }, 1500);
+      } else {
+        setHmrStatus("idle");
+      }
+    };
+    es.addEventListener("ready", onMessage);
+    es.addEventListener("rebuild", onMessage);
+    es.addEventListener("error", onMessage);
+    return () => {
+      es.close();
+    };
+  }, []);
+
+  async function run(file?: string): Promise<void> {
+    runningRef.current = true;
+    lastTrainFileRef.current = file;
     setRunning(true);
     setLog("");
     try {
@@ -41,11 +104,23 @@ export function RunTraining() {
           });
           return next;
         });
-      });
+      }, file);
     } catch (err) {
       setLog((prev) => prev + `\n[error] ${err instanceof Error ? err.message : String(err)}\n`);
     } finally {
+      runningRef.current = false;
       setRunning(false);
+      if (restartPendingRef.current) {
+        restartPendingRef.current = false;
+        setHmrStatus("restarting");
+        // Re-spawn with the same args after a microtask so React commits the
+        // `running=false` state first (otherwise the re-entry overlaps).
+        queueMicrotask(() => {
+          void run(lastTrainFileRef.current);
+        });
+      } else {
+        setHmrStatus("idle");
+      }
     }
   }
 
@@ -75,9 +150,18 @@ export function RunTraining() {
           <code>createArkor</code>.
         </p>
       )}
-      <button onClick={run} disabled={running || !hasTrainer}>
+      <button onClick={() => run(lastTrainFileRef.current)} disabled={running || !hasTrainer}>
         {buttonLabel}
       </button>
+      {hmrStatus === "early-stopping" && (
+        <span className="hmr-status">Stopping at next checkpoint…</span>
+      )}
+      {hmrStatus === "restarting" && (
+        <span className="hmr-status">Restarting with updated code…</span>
+      )}
+      {hmrStatus === "hot-swapped" && (
+        <span className="hmr-status">Callbacks hot-swapped — run continues.</span>
+      )}
       <pre ref={boxRef} className="log">
         {log || "Output will appear here."}
       </pre>

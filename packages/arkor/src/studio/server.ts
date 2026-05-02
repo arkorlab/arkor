@@ -15,7 +15,9 @@ import { recordDeprecation, tapDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
 import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
-import { readManifestSummary } from "./manifest";
+import { readManifestSummary, summariseBuiltManifest } from "./manifest";
+import type { HmrCoordinator, HmrEvent } from "./hmr";
+import { TrainRegistry, type RestartTarget } from "./trainRegistry";
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
 function copyDeprecationHeaders(from: Headers, to: Headers): void {
@@ -59,6 +61,15 @@ export interface StudioServerOptions {
    * here points at the bin itself). Override in tests.
    */
   binPath?: string;
+  /**
+   * Optional HMR coordinator. When provided, the server registers
+   * `/api/dev/events` as an SSE stream that pushes rebuild / error events to
+   * the SPA, and rebuilds also signal SIGTERM to active `/api/train`
+   * subprocesses so they early-stop at the next checkpoint and the SPA can
+   * restart them with the new bundle. Wired in by `arkor dev`; left
+   * undefined for any non-dev consumer of `buildStudioApp`.
+   */
+  hmr?: HmrCoordinator;
 }
 
 function tokensMatch(provided: string, expected: string): boolean {
@@ -111,7 +122,12 @@ export function buildStudioApp(options: StudioServerOptions) {
   const app = new Hono();
 
   const loopbackHostPattern = /^(127\.0\.0\.1|localhost)(:\d+)?$/;
-  const jobEventsPathPattern = /^\/api\/jobs\/[^/]+\/events$/;
+  // Routes where `?studioToken=` is accepted instead of the
+  // `X-Arkor-Studio-Token` header. Used only for `EventSource` streams,
+  // which cannot send custom headers. Adding to this list is CSRF-sensitive:
+  // it must always be a GET stream-only route, never a mutation endpoint.
+  const eventStreamPathPattern =
+    /^\/api\/jobs\/[^/]+\/events$|^\/api\/dev\/events$/;
 
   // Host-header guard for every route, including static HTML that carries the
   // per-launch Studio token. This is the DNS-rebinding boundary: a victim
@@ -138,7 +154,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   //      require the header so a leaked token in a URL is not enough to POST.
   app.use("/api/*", async (c, next) => {
     const queryTokenAllowed =
-      c.req.method === "GET" && jobEventsPathPattern.test(c.req.path);
+      c.req.method === "GET" && eventStreamPathPattern.test(c.req.path);
     const provided =
       c.req.header("x-arkor-studio-token") ??
       (queryTokenAllowed ? c.req.query("studioToken") : undefined) ??
@@ -279,6 +295,10 @@ export function buildStudioApp(options: StudioServerOptions) {
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 
+  // Active `/api/train` subprocesses. The registry encapsulates the
+  // signal-dispatch policy — see `studio/trainRegistry.ts`.
+  const activeTrains = new TrainRegistry();
+
   app.post("/api/train", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
     let trainFile: string | undefined;
@@ -306,23 +326,40 @@ export function buildStudioApp(options: StudioServerOptions) {
       }
       trainFile = abs;
     }
+    // Read the current manifest before spawn so the configHash is on
+    // hand for HMR's "hot-swap vs restart" decision later. Building the
+    // manifest also pre-warms `.arkor/build/index.mjs` for the
+    // subprocess's `runStart`. A failure here is non-fatal — the spawn
+    // proceeds with `configHash: null`, which forces SIGTERM (full
+    // restart) on the next rebuild.
+    let configHash: string | null = null;
+    try {
+      const manifest = await readManifestSummary(trainCwd);
+      configHash = manifest.configHash;
+    } catch {
+      // ignore — `arkor start` will surface its own build error to the
+      // SPA via stderr; we only needed configHash for HMR routing.
+    }
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
     const child = spawn(process.execPath, args, {
       stdio: "pipe",
       cwd: trainCwd,
     });
+    activeTrains.register(child, { trainFile, configHash });
     const stream = new ReadableStream({
       start(controller) {
         const enc = new TextEncoder();
         child.stdout.on("data", (d) => controller.enqueue(enc.encode(d)));
         child.stderr.on("data", (d) => controller.enqueue(enc.encode(d)));
         child.on("close", (code) => {
+          activeTrains.unregister(child.pid);
           controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
           controller.close();
         });
       },
       cancel() {
+        activeTrains.unregister(child.pid);
         child.kill();
       },
     });
@@ -331,6 +368,82 @@ export function buildStudioApp(options: StudioServerOptions) {
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   });
+
+  // `/api/dev/events` — SSE stream of HMR rebuild / error notifications.
+  // Only active when `arkor dev` passed an HMR coordinator. The CSRF model
+  // accepts `?studioToken=` here (whitelisted in `eventStreamPathPattern`)
+  // because `EventSource` cannot send headers. When HMR is not configured
+  // the route still has an explicit 404 so the request doesn't fall through
+  // to the SPA index.html (which would mislead the SPA into thinking the
+  // EventSource connected successfully).
+  if (!options.hmr) {
+    app.get("/api/dev/events", (c) =>
+      c.json({ error: "HMR not enabled" }, 404),
+    );
+  }
+  if (options.hmr) {
+    const hmr = options.hmr;
+    app.get("/api/dev/events", (c) => {
+      let unsubscribe: (() => void) | null = null;
+      const stream = new ReadableStream({
+        start(controller) {
+          const enc = new TextEncoder();
+          const send = (
+            event: HmrEvent & {
+              restart?: boolean;
+              hotSwap?: boolean;
+              restartTargets?: RestartTarget[];
+              hotSwapTargets?: RestartTarget[];
+            },
+          ) => {
+            const payload = JSON.stringify(event);
+            try {
+              controller.enqueue(
+                enc.encode(`event: ${event.type}\ndata: ${payload}\n\n`),
+              );
+            } catch {
+              // controller closed mid-write; the unsubscribe path below
+              // takes care of the rest.
+            }
+          };
+          unsubscribe = hmr.subscribe((event) => {
+            if (event.type !== "rebuild" || activeTrains.size === 0) {
+              send(event);
+              return;
+            }
+            // Per-child decision: if the rebuilt bundle's `configHash`
+            // matches the child's spawn-time hash, the cloud-side run
+            // is unaffected — SIGUSR2 lets the runner re-import and
+            // call `Trainer.replaceCallbacks`. Otherwise SIGTERM
+            // triggers `Trainer.requestEarlyStop` so the next
+            // checkpoint lands before the SPA re-spawns.
+            const nextHash = event.configHash ?? null;
+            const hotSwapTargets = activeTrains.notifyCallbackReload(nextHash);
+            const restartTargets =
+              activeTrains.requestEarlyStopOnMismatch(nextHash);
+            send({
+              ...event,
+              hotSwap: hotSwapTargets.length > 0,
+              hotSwapTargets,
+              restart: restartTargets.length > 0,
+              restartTargets,
+            });
+          });
+        },
+        cancel() {
+          unsubscribe?.();
+          unsubscribe = null;
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache, no-transform",
+        },
+      });
+    });
+  }
 
   // Playground hits this so mid-training inference from Studio has the same
   // auth path as the rest of /api/*. State is auto-bootstrapped (anon only)

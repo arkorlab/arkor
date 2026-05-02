@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTrainer } from "./trainer";
+import {
+  replaceTrainerCallbacks,
+  requestTrainerEarlyStop,
+} from "./trainerInspection";
 import { writeState } from "./state";
 import type { AnonymousCredentials } from "./credentials";
 
@@ -1301,6 +1305,339 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     } finally {
       setTimeoutSpy.mockRestore();
       randomSpy.mockRestore();
+    }
+  });
+});
+
+describe("createTrainer (early stop)", () => {
+  const minimalJobRow = {
+    id: "j-stop",
+    orgId: "o1",
+    projectId: "p1",
+    name: "run",
+    status: "queued",
+    config: {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+    },
+    createdAt: "2026-01-01T00:00:00Z",
+    startedAt: null,
+    completedAt: null,
+  };
+
+  it("calls cancel after the next checkpoint when early-stop is requested mid-run", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // SSE stream: training.started → training.log → checkpoint.saved.
+    // The checkpoint event is the trigger for the early-stop branch in
+    // dispatch(); after that, the loop should treat the run as terminal
+    // (we asserted this by ending the wait() promise without sending
+    // training.completed).
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 3\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+        type: "checkpoint.saved",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        step: 10,
+      })}\n\n`,
+    ];
+
+    let cancelCalls = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        cancelCalls += 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          // Arm the early-stop latch from inside the on-log callback so it
+          // fires before the checkpoint dispatch — mirrors the real CLI
+          // path where SIGTERM arrives mid-run. Fire-and-forget so the
+          // dispatch loop isn't blocked waiting for the latch's own
+          // checkpoint trigger to arrive.
+          onLog: () => {
+            void requestTrainerEarlyStop(trainer, { timeoutMs: 60_000 });
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.wait();
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(cancelCalls).toBe(1);
+  });
+
+  it("falls back to immediate cancel when no checkpoint arrives within timeoutMs", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // No checkpoint in the stream — only training.completed, which would
+    // normally finish the run. We hand-roll a stream that never ends so
+    // the timeout fallback is what actually triggers cancel.
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null =
+      null;
+    const stallingStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+        const enc = new TextEncoder();
+        controller.enqueue(
+          enc.encode(
+            `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+              type: "training.started",
+              jobId: "j-stop",
+              timestamp: "2026-01-01T00:00:01Z",
+            })}\n\n`,
+          ),
+        );
+      },
+    });
+
+    let cancelCalls = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(stallingStream, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        cancelCalls += 1;
+        // Closing the stream now mimics cloud-api's response to a cancel:
+        // the SSE channel ends and wait() exits its loop.
+        streamController?.close();
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.start();
+      // Tiny timeout so the test doesn't actually wait 5 minutes.
+      await requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
+      expect(cancelCalls).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("is a no-op before start() and resolves immediately", async () => {
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    // Should resolve without contacting cloud-api at all.
+    await requestTrainerEarlyStop(trainer, { timeoutMs: 1 });
+  });
+
+  it("replaceTrainerCallbacks (internal HMR brand) swaps the dispatched callbacks on the next event", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 1,
+      })}\n\n`,
+      `id: 3\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        step: 2,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 4\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:04Z",
+      })}\n\n`,
+    ];
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const calls: string[] = [];
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: ({ step }) => {
+            calls.push(`v1:onLog(${step})`);
+            // After the first onLog call, swap to v2 callbacks via the
+            // internal `Symbol.for("arkor.trainer.replaceCallbacks")`
+            // brand — the same brand `arkor dev`'s SIGUSR2 handler
+            // uses. The next event must dispatch via the new object.
+            if (step === 1) {
+              replaceTrainerCallbacks(trainer, {
+                onLog: ({ step: s }) => void calls.push(`v2:onLog(${s})`),
+              });
+            }
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.wait();
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(calls).toEqual(["v1:onLog(1)", "v2:onLog(2)"]);
+  });
+
+  it("is idempotent — repeated calls share the same in-flight promise", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    let cancelCalls = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        cancelCalls += 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.start();
+      const a = requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
+      const b = requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
+      await Promise.all([a, b]);
+      // The fallback timer fires once, so cancel is called once even though
+      // the early-stop brand was invoked twice.
+      expect(cancelCalls).toBe(1);
+    } finally {
+      globalThis.fetch = original;
     }
   });
 });

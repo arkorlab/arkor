@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildStudioApp } from "./server";
+import type { HmrCoordinator, HmrEvent } from "./hmr";
 import { writeCredentials } from "../core/credentials";
 import { writeState } from "../core/state";
 import {
@@ -1335,6 +1336,131 @@ process.exit(0);
       expect(res.status).toBe(500);
       const body = (await res.json()) as { error?: string };
       expect(body.error).toMatch(/credentials|login/i);
+    });
+  });
+
+  describe("/api/dev/events (HMR)", () => {
+    function fakeHmr() {
+      // Mirror the real HmrCoordinator surface but stay synchronous so the
+      // test doesn't depend on rolldown.watch starting up. `emit` is a test
+      // hook for pushing events into the SSE stream from the test body.
+      const subs = new Set<(e: HmrEvent) => void>();
+      const coordinator: HmrCoordinator = {
+        subscribe(fn) {
+          subs.add(fn);
+          return () => {
+            subs.delete(fn);
+          };
+        },
+        async dispose() {
+          subs.clear();
+        },
+      };
+      return {
+        coordinator,
+        emit(event: HmrEvent) {
+          for (const fn of subs) fn(event);
+        },
+        get subscriberCount() {
+          return subs.size;
+        },
+      };
+    }
+
+    it("is unregistered when no hmr coordinator is supplied", async () => {
+      const app = build();
+      const res = await app.request("/api/dev/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("rejects /api/dev/events without a token", async () => {
+      const fake = fakeHmr();
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fake.coordinator,
+      });
+      const res = await app.request("/api/dev/events", {
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("accepts the studio token via ?studioToken= for the dev event stream", async () => {
+      const fake = fakeHmr();
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fake.coordinator,
+      });
+      const res = await app.request(
+        `/api/dev/events?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+        { headers: { host: "127.0.0.1:4000" } },
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("text/event-stream");
+      // Cancelling the body's reader should release the subscriber.
+      const reader = res.body!.getReader();
+      await reader.cancel();
+      expect(fake.subscriberCount).toBe(0);
+    });
+
+    it("rejects /api/dev/events when host header is non-loopback", async () => {
+      const fake = fakeHmr();
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fake.coordinator,
+      });
+      const res = await app.request(
+        `/api/dev/events?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+        { headers: { host: "evil.example.com" } },
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("forwards rebuild events as SSE frames", async () => {
+      const fake = fakeHmr();
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fake.coordinator,
+      });
+      const res = await app.request(
+        `/api/dev/events?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+        { headers: { host: "127.0.0.1:4000" } },
+      );
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+
+      fake.emit({ type: "ready", outFile: "/tmp/x", hash: "abc" });
+      // Read chunks until we have at least one full SSE frame.
+      let received = "";
+      while (!received.includes("\n\n")) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        received += decoder.decode(value, { stream: true });
+      }
+      expect(received).toContain("event: ready");
+      expect(received).toContain('"outFile":"/tmp/x"');
+      await reader.cancel();
     });
   });
 });
