@@ -37,10 +37,9 @@ vi.mock("@arkor/cli-internal", () => {
       files: [{ action: "created", path: "package.json" }],
     })),
     TEMPLATES: {
-      triage: { hidden: false },
-      translate: { hidden: false },
-      redaction: { hidden: false },
-      minimal: { hidden: true },
+      triage: {},
+      translate: {},
+      redaction: {},
     },
     templateChoices: () => [
       { value: "triage", label: "Triage", hint: "fast" },
