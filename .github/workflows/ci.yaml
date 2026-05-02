@@ -232,6 +232,20 @@ jobs:
           # exercised at 22.17 / 22.21 / 24.12, and the corepack-keys
           # bug isn't pm-version-specific.
           - { os: windows-latest, node: '>=22.13.0 <22.14.0' }
+          # arkor pulls in `posthog-node@^5.30.6`, whose engines field
+          # is `^20.20.0 || >=22.22.0`. yarn classic is strict-engines
+          # by default and refuses to extract on any Node in the gap
+          # (22.6–22.21); npm / pnpm / bun warn-and-continue, and
+          # yarn-berry's engine check is opt-in. The real fix is on
+          # the arkor side (either tighten `engines.node` or pin
+          # posthog-node to a Node-22.x-friendly version), but until
+          # then exclude the yarn × pre-22.22 entries instead of
+          # masking them with `--ignore-engines`. yarn × 22.21 happens
+          # to pass today (yarn picked an older posthog-node copy in
+          # cache) but is on the same theoretical failure cliff —
+          # leaving it in keeps a canary for when behaviour changes.
+          - { id: yarn, node: '>=22.13.0 <22.14.0' }
+          - { id: yarn, node: '>=22.17.0 <22.18.0' }
         include:
           # Oldest-supported Node sanity, ubuntu only — the OS-specific
           # install bugs the matrix is designed to catch are independent
@@ -246,7 +260,9 @@ jobs:
           - { os: ubuntu-latest, node: '>=22.6.0 <22.7.0', id: pnpm-9,     rolldownIncompat: true }
           - { os: ubuntu-latest, node: '>=22.6.0 <22.7.0', id: pnpm-10,    rolldownIncompat: true }
           - { os: ubuntu-latest, node: '>=22.6.0 <22.7.0', id: npm,        rolldownIncompat: true }
-          - { os: ubuntu-latest, node: '>=22.6.0 <22.7.0', id: yarn,       rolldownIncompat: true }
+          # yarn classic is omitted from the 22.6 sanity for the same
+          # posthog-node engines reason as the main matrix exclude
+          # above — strict-engines yarn won't extract on Node 22.6.
           - { os: ubuntu-latest, node: '>=22.6.0 <22.7.0', id: yarn-berry, rolldownIncompat: true }
           - { os: ubuntu-latest, node: '>=22.6.0 <22.7.0', id: bun,        rolldownIncompat: true }
     steps:
