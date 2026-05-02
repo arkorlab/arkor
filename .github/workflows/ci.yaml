@@ -252,7 +252,15 @@ jobs:
           # corepack itself to latest before enabling so keys match.
           # Latest Node 24 already includes a fresh corepack but the
           # upgrade is cheap and a no-op when already current.
-          npm install -g corepack@latest
+          #
+          # `--force` is required on the windows-latest image: corepack
+          # creates yarn / pnpm shims under the global npm prefix
+          # (`C:\npm\prefix\`), but that directory is pre-seeded by the
+          # runner image with a `yarn.cmd` from the bundled yarn classic.
+          # Without --force npm bails with `EEXIST: ... C:\npm\prefix\
+          # yarn.cmd`. POSIX runners don't have the colliding shim so
+          # --force is just a no-op there.
+          npm install -g --force corepack@latest
           corepack enable
           echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
 
@@ -294,7 +302,9 @@ jobs:
           # a corepack predating the npm-registry key rotation, so a
           # plain `corepack enable` followed by `pnpm install` blows up
           # in `verifySignature`. Upgrade first.
-          npm install -g corepack@latest
+          # `--force` is required on Windows to clobber the runner image's
+          # pre-seeded `C:\npm\prefix\yarn.cmd` (see bootstrap step).
+          npm install -g --force corepack@latest
           corepack enable
           echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
 
@@ -331,6 +341,16 @@ jobs:
 
       - name: Confirm pm version
         run: |
+          # Run from $RUNNER_TEMP, not the workspace cwd. corepack
+          # enforces the workspace's `packageManager: pnpm@10.33.2` and
+          # rejects `yarn --version` / `bun --version` with "This project
+          # is configured to use pnpm". Stepping out into a directory
+          # without a packageManager field lets corepack fall back to the
+          # version we just `--activate`d for the matrix pm — which is
+          # also more useful diagnostically (it prints the matrix
+          # version, not the workspace's pinned 10.33.2 for pnpm-N
+          # entries).
+          cd "$RUNNER_TEMP"
           case "${{ matrix.id }}" in
             pnpm-*)         pnpm --version ;;
             npm)            npm --version ;;
