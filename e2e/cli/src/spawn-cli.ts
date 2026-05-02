@@ -99,6 +99,28 @@ export function runCli(
         GIT_COMMITTER_NAME: "Arkor E2E",
         GIT_COMMITTER_EMAIL: "e2e@arkor.test",
         YARN_CACHE_FOLDER: yarnCacheDir,
+        // yarn 4 detects `CI=1` (which we force above) and turns on
+        // `enableImmutableInstalls` by default — that refuses to write
+        // the lockfile a freshly scaffolded project doesn't have yet
+        // and exits with `YN0028: The lockfile would have been created
+        // by this install, which is explicitly forbidden`. Set the
+        // override here so the install-matrix yarn-berry case works
+        // both in CI (where this used to live in ci.yaml) and via a
+        // local `ARKOR_E2E_PM=yarn-berry pnpm --filter @arkor/e2e-cli
+        // test` run, which previously needed the env var threaded
+        // through manually. yarn 1 / npm / pnpm / bun all ignore it.
+        YARN_ENABLE_IMMUTABLE_INSTALLS: "false",
+        // yarn 1 has a long-standing race extracting esbuild-style
+        // platform-specific optionalDependencies inside a single
+        // process — the parent `node_modules/@<scope>/<arch>/` dir
+        // gets created racily and the tarball write fails with ENOENT.
+        // The per-spawn YARN_CACHE_FOLDER above already prevents
+        // *inter*-process races (different test workers don't share a
+        // cache); this serialises *intra*-process resolution as a
+        // belt-and-braces measure. yarn-berry reads
+        // `networkConcurrency` from `.yarnrc.yml` instead, so the env
+        // is a no-op for it.
+        YARN_NETWORK_CONCURRENCY: "1",
         ...homeMirror,
         ...extraEnv,
       },

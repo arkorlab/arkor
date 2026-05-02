@@ -212,12 +212,17 @@ describe("scaffold", () => {
     expect(contents).toContain("nodeLinker: node-modules");
   });
 
-  // Existing `.yarnrc.yml` that explicitly pins PnP — both CLIs
-  // intentionally support merging into existing directories, so
-  // leaving an explicit `nodeLinker: pnp` alone would scaffold a
-  // project the arkor runtime can't load. Override the value while
-  // keeping other settings intact (Copilot review on PR #99).
-  it("rewrites an existing nodeLinker:pnp to node-modules", async () => {
+  // Existing `.yarnrc.yml` that explicitly pins a non-`node-modules`
+  // linker (here PnP). Earlier rounds of this PR auto-rewrote `pnp`
+  // → `node-modules`, but Copilot's PR #99 review pushed back: both
+  // CLIs intentionally support scaffolding into existing
+  // directories, so silently flipping the install mode would
+  // change repo-wide behaviour and could break unrelated packages
+  // in a yarn-berry workspace. Policy: report `kept` and leave the
+  // file alone — the user's explicit choice wins, and the runtime
+  // mismatch is a problem they get to reconcile (or arkor's
+  // runtime grows PnP support).
+  it("keeps an existing .yarnrc.yml that explicitly pins a non-node-modules linker", async () => {
     writeFileSync(join(cwd, ".yarnrc.yml"), "nodeLinker: pnp\nfoo: bar\n");
     const result = await scaffold({
       cwd,
@@ -226,12 +231,9 @@ describe("scaffold", () => {
       packageManager: "yarn",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    expect(yarnrc?.action).toBe("patched");
+    expect(yarnrc?.action).toBe("kept");
     const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
-    expect(contents).toContain("nodeLinker: node-modules");
-    expect(contents).not.toContain("nodeLinker: pnp");
-    // Unrelated settings survive.
-    expect(contents).toContain("foo: bar");
+    expect(contents).toBe("nodeLinker: pnp\nfoo: bar\n");
   });
 
   // Existing `.yarnrc.yml` that already pins the right linker — no

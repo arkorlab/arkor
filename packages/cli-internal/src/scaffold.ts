@@ -29,8 +29,16 @@ export interface ScaffoldOptions {
    * find their dependencies. yarn 1.x ignores `.yarnrc.yml` (it reads
    * `.yarnrc`), so the file is harmless on the classic line.
    *
-   * `undefined` when the caller didn't / couldn't determine a pm: no
-   * pm-specific files are written in that case.
+   * `undefined` is treated as "could be yarn" rather than "skip yarn
+   * config" — both `arkor init` and `create-arkor` have a real
+   * undetected-pm path that prints the manual install hint
+   * (`install dependencies (npm i / pnpm install / yarn / bun
+   * install)`), so a yarn-berry user reading the hint and running
+   * `yarn install` would otherwise hit the PnP default. The
+   * `.yarnrc.yml` and yarn-cache `.gitignore` lines are emitted in
+   * the undefined case too. Only an explicit non-yarn pm
+   * (`"npm" | "pnpm" | "bun"`) opts the project out — those signal
+   * the user committed to a different package manager.
    */
   packageManager?: PackageManager;
 }
@@ -139,57 +147,43 @@ async function patchYarnConfig(cwd: string): Promise<FileAction> {
     await writeFile(path, YARNRC_YML_CONTENT);
     return "created";
   }
-  // The file already exists — but we still need `nodeLinker:
-  // node-modules` to be set. Two failure modes the previous "always
-  // kept" branch left wide open:
-  //   1. Existing `.yarnrc.yml` carries unrelated yarn settings but no
-  //      `nodeLinker` key, so yarn 4 silently defaults to PnP and the
-  //      arkor runtime can't resolve modules.
-  //   2. Existing `.yarnrc.yml` explicitly pins `nodeLinker: pnp` (the
-  //      user committed to PnP for an existing repo). arkor can't
-  //      load through PnP, so leaving that alone produces a broken
-  //      project after `arkor init` merges into the repo.
+  // Three sub-cases for an existing `.yarnrc.yml`:
   //
-  // Policy: always insist on `nodeLinker: node-modules` when arkor is
-  // scaffolding into a yarn project. If the file already has a
-  // matching key (any value), patch it to `node-modules`; otherwise
-  // append the line. Other settings are preserved verbatim — we only
-  // touch the `nodeLinker:` key.
+  //   1. No `nodeLinker:` key at all — yarn 4 silently defaults to
+  //      PnP. The user clearly didn't make a deliberate linker
+  //      choice, so it's safe to APPEND `nodeLinker: node-modules`;
+  //      other settings are preserved verbatim.
+  //   2. `nodeLinker: node-modules` already pinned — no-op.
+  //   3. Some other explicit value (e.g. `nodeLinker: pnp`) — the
+  //      user MADE a deliberate choice. `arkor init` /
+  //      `create-arkor .` both support merging into existing
+  //      directories, so silently rewriting `pnp` → `node-modules`
+  //      would flip the install mode for the entire repo and could
+  //      break unrelated packages (Copilot review on PR #99). Leave
+  //      the file untouched and surface `kept`; the user gets to
+  //      reconcile arkor's runtime expectations with their existing
+  //      yarn configuration themselves.
   const current = await readFile(path, "utf8");
   const lines = current.split(/\r?\n/);
   // Match `nodeLinker:` at line start (yarnrc.yml is YAML, top-level
-  // keys live at column 0). Match in any-value form so an explicit
-  // `nodeLinker: pnp` gets rewritten — the reviewer flagged that
-  // case as a real footgun for users merging arkor into an existing
-  // PnP repo.
+  // keys live at column 0).
   const nodeLinkerRe = /^nodeLinker\s*:/;
-  let mutated = false;
-  let alreadyCorrect = false;
-  for (let i = 0; i < lines.length; i++) {
-    if (nodeLinkerRe.test(lines[i] ?? "")) {
-      if (lines[i] === "nodeLinker: node-modules") {
-        alreadyCorrect = true;
-      } else {
-        lines[i] = "nodeLinker: node-modules";
-        mutated = true;
-      }
+  let existingValueIsCorrect = false;
+  let hasExplicitNodeLinker = false;
+  for (const line of lines) {
+    if (nodeLinkerRe.test(line)) {
+      hasExplicitNodeLinker = true;
+      existingValueIsCorrect = line === "nodeLinker: node-modules";
       break;
     }
   }
-  if (alreadyCorrect && !mutated) return "ok";
-  if (!mutated) {
-    // No `nodeLinker:` line at all — append. Keep the existing
-    // trailing-newline shape (mirrors patchGitignore).
-    const separator = current.endsWith("\n") ? "" : "\n";
-    await writeFile(path, `${current}${separator}${YARNRC_YML_CONTENT}`);
-    return "patched";
+  if (hasExplicitNodeLinker) {
+    return existingValueIsCorrect ? "ok" : "kept";
   }
-  // Replaced an existing non-matching `nodeLinker:` value.
-  const trailing = current.endsWith("\n") ? "\n" : "";
-  await writeFile(
-    path,
-    lines.join("\n").replace(/\n+$/, "") + trailing,
-  );
+  // No `nodeLinker:` line at all — append. Keep the existing
+  // trailing-newline shape (mirrors patchGitignore).
+  const separator = current.endsWith("\n") ? "" : "\n";
+  await writeFile(path, `${current}${separator}${YARNRC_YML_CONTENT}`);
   return "patched";
 }
 
