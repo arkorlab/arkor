@@ -5,7 +5,7 @@ description: "start、wait、cancel、abortSignal、再接続の仕組み。"
 
 # トレーナー制御
 
-`createTrainer` は次の 5 メソッドを持つ `Trainer` オブジェクトを返します:
+`createTrainer` は次の 4 メソッドを持つ `Trainer` オブジェクトを返します:
 
 ```ts
 interface Trainer {
@@ -14,7 +14,6 @@ interface Trainer {
   wait(): Promise<TrainingResult>;
   cancel(): Promise<void>;
   requestEarlyStop(opts?: { timeoutMs?: number }): Promise<void>;
-  replaceCallbacks(callbacks: Partial<TrainerCallbacks>): void;
 }
 
 interface TrainingResult {
@@ -74,18 +73,6 @@ await trainer.requestEarlyStop({ timeoutMs: 60_000 });
 これは `arkor dev` の HMR パイプラインが内部で使っている API です。実行中にソースファイルを保存すると Studio が spawn 済みの `arkor start` プロセスに `SIGTERM` を送り、シグナルハンドラが `requestEarlyStop()` を呼んでチェックポイントのアップロード完了後にクリーンに終了します。Cloud 側のジョブは `cancelled` ステータスで完了します。
 
 自前のコード（プログラム的な two-process パターンなど）から `requestEarlyStop()` を直接呼ぶこともできます。Cookbook の [Early Stopping](/ja/cookbook/early-stopping) レシピが `onCheckpoint` + `abortSignal` + `cancel()` で組み立てているのと同じ「実行中ステップを捨てずに止める」セマンティクスを、ワンショットで提供します。レシピ版の方が柔軟（メトリクス次第で abort のタイミングを決めるなど）ですが、こちらは「次のチェックポイントで止める」という典型ケースの便利フックです。
-
-## `replaceCallbacks()`
-
-```ts
-trainer.replaceCallbacks({
-  onLog: ({ step, loss }) => myMetrics.record(step, loss),
-});
-```
-
-実行中の run のままライフサイクルコールバックを atomic に差し替えます。次にディスパッチされるイベント（`onLog` / `onCheckpoint` …）は新しいオブジェクトから読みます。すでに `await` 中のハンドラは resolve するまで古い参照を保持します。Cloud 側の config（モデル、データセット、ハイパーパラメータ）は `start()` 時点で確定しており、このメソッド経由では **変更できません** — それらを変えたい場合は `requestEarlyStop()` を呼んで再投入してください。
-
-これは `arkor dev` の「コールバックのみ HMR」パスで使われている SDK プリミティブです。実行中にソースを保存すると Studio は再ビルドした `JobConfig` のハッシュを spawn 時に保存したハッシュと比較します。一致 → SIGUSR2 → ランナーが再 import して `replaceCallbacks()` を呼ぶ（Cloud 側の学習は無傷）。不一致 → SIGTERM → 既存の `requestEarlyStop()` 経路に切り替わって、新しいバンドルで SPA が再投入します。
 
 ## `abortSignal`
 

@@ -6,7 +6,10 @@ import {
   type Credentials,
 } from "./credentials";
 import { ensureProjectState } from "./projectState";
-import { attachTrainerInspection } from "./trainerInspection";
+import {
+  attachTrainerCallbackReplacer,
+  attachTrainerInspection,
+} from "./trainerInspection";
 import type {
   CheckpointContext,
   InferArgs,
@@ -424,10 +427,6 @@ export function createTrainer(
       await client.cancelJob(startedJob.id, scope);
     },
 
-    replaceCallbacks(callbacks: Partial<TrainerCallbacks>): void {
-      currentCallbacks = callbacks ?? {};
-    },
-
     async requestEarlyStop(opts: { timeoutMs?: number } = {}): Promise<void> {
       // Nothing in flight: cleanup any prior latch and resolve.
       if (!startedJob || !scope || TERMINAL_STATUSES.has(startedJob.status)) {
@@ -470,15 +469,20 @@ export function createTrainer(
     },
   };
 
-  // Brand the trainer with an inspection accessor so the Studio server can
-  // (a) hash the cloud-side config to decide HMR strategy and (b) read the
-  // current callbacks reference when hot-swapping. See `trainerInspection.ts`
-  // for why this uses `Symbol.for` instead of a module-local WeakMap.
+  // Brand the trainer with the HMR control surface so the Studio server
+  // can (a) hash the cloud-side config to decide between hot-swap and
+  // restart and (b) atomically swap the callbacks cell from the runner
+  // subprocess. Both brands live behind `Symbol.for` keys so they don't
+  // appear on the public `Trainer` interface — see
+  // `trainerInspection.ts` for the rationale.
   attachTrainerInspection(trainer, () => ({
     name: input.name,
     config,
     callbacks: currentCallbacks,
   }));
+  attachTrainerCallbackReplacer(trainer, (callbacks) => {
+    currentCallbacks = callbacks ?? {};
+  });
 
   return trainer;
 }

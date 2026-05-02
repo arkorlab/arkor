@@ -1,6 +1,9 @@
 import { pathToFileURL } from "node:url";
 import { isArkor } from "./arkor";
-import { getTrainerInspection } from "./trainerInspection";
+import {
+  getTrainerInspection,
+  replaceTrainerCallbacks,
+} from "./trainerInspection";
 import type { Trainer, TrainerCallbacks } from "./types";
 
 const SHUTDOWN_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
@@ -53,9 +56,10 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
 }
 
 /**
- * SIGUSR2 handler: re-import the freshly-rebuilt artefact and call
- * `Trainer.replaceCallbacks` with the new callbacks. The cloud-side
- * training run is untouched — only the in-process callbacks rotate.
+ * SIGUSR2 handler: re-import the freshly-rebuilt artefact and rotate
+ * the trainer's callback cell via the internal
+ * `Symbol.for("arkor.trainer.replaceCallbacks")` brand. The cloud-side
+ * training run is untouched — only the in-process callbacks change.
  *
  * Studio sends SIGUSR2 from the `/api/dev/events` HMR pipeline when
  * (and only when) the rebuilt bundle's `JobConfig` hash matches the
@@ -78,7 +82,13 @@ export function installCallbackReloadHandler(
           );
           return;
         }
-        trainer.replaceCallbacks(callbacks);
+        const swapped = replaceTrainerCallbacks(trainer, callbacks);
+        if (!swapped) {
+          process.stderr.write(
+            "Callback reload skipped: running trainer doesn't carry the callback-replacer brand.\n",
+          );
+          return;
+        }
         process.stdout.write(
           "Callbacks hot-reloaded; training run continues.\n",
         );

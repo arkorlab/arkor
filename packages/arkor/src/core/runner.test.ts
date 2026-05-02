@@ -34,7 +34,6 @@ function fakeTrainer(onStart?: () => void, onWait?: () => void): Trainer {
     },
     async cancel() {},
     async requestEarlyStop() {},
-    replaceCallbacks() {},
   };
 }
 
@@ -257,16 +256,19 @@ describe("runTrainer — shutdown signal handling", () => {
     try {
       const runPromise = runTrainer("src/arkor/index.mjs");
       // Wait for import + start() to settle so the handler is registered
-      // before we synthesise SIGTERM. The fake's `wait()` hangs forever, so
-      // the run remains in flight throughout the assertions.
-      await new Promise((r) => setTimeout(r, 25));
-
-      const probe = (globalThis as unknown as {
-        __test_signalProbe: {
-          earlyStopCalls: number;
-          finishWait: () => void;
-        };
-      }).__test_signalProbe;
+      // before we synthesise SIGTERM. Poll for the probe rather than
+      // relying on a fixed timer — under load (e.g. running alongside
+      // sibling test files in turbo) the dynamic import + top-level
+      // body can take longer than a hardcoded 25 ms window.
+      type Probe = { earlyStopCalls: number; finishWait: () => void };
+      let probe: Probe | undefined;
+      for (let i = 0; i < 40; i++) {
+        probe = (globalThis as unknown as { __test_signalProbe?: Probe })
+          .__test_signalProbe;
+        if (probe) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      if (!probe) throw new Error("Probe not installed by user bundle");
 
       // 1st SIGTERM → requestEarlyStop is called, exit(0) scheduled in the
       // promise's `.finally`.

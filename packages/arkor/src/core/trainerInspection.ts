@@ -5,6 +5,14 @@ import type { JobConfig, TrainerCallbacks } from "./types";
  * server reads in order to (a) compute a stable hash for HMR's
  * "callbacks-only vs full restart" decision and (b) extract the new
  * callbacks reference when hot-swapping.
+ *
+ * **Internal API — not part of the user-facing SDK surface.** Both this
+ * snapshot and the companion `replaceTrainerCallbacks` mutator are
+ * exposed only via `Symbol.for(...)`-keyed properties on the trainer
+ * object so they don't appear on the public `Trainer` type. They exist
+ * to let `arkor dev`'s HMR pipeline hot-swap callbacks without
+ * restarting cloud-side training; user code shouldn't call them
+ * directly.
  */
 export interface TrainerInspection {
   /** Run name (mirror of `Trainer.name`, copied for forward compatibility). */
@@ -28,6 +36,9 @@ export interface TrainerInspection {
  * property the Studio process reads.
  */
 const TRAINER_INSPECTION_KEY = Symbol.for("arkor.trainer.inspect");
+const TRAINER_REPLACE_CALLBACKS_KEY = Symbol.for(
+  "arkor.trainer.replaceCallbacks",
+);
 
 /**
  * Stamp the inspection snapshot onto a freshly-built `Trainer` instance.
@@ -72,4 +83,45 @@ export function getTrainerInspection(
     // Inspection is best-effort; a thrown user callback shouldn't crash HMR.
   }
   return null;
+}
+
+/**
+ * Wire the trainer's mutable callbacks slot to a `Symbol.for`-keyed
+ * brand so the runner subprocess can hot-swap callbacks without us
+ * exposing the operation on the public `Trainer` interface. Called once
+ * from `createTrainer`.
+ */
+export function attachTrainerCallbackReplacer(
+  trainer: object,
+  replace: (callbacks: Partial<TrainerCallbacks>) => void,
+): void {
+  Object.defineProperty(trainer, TRAINER_REPLACE_CALLBACKS_KEY, {
+    value: replace,
+    configurable: true,
+    enumerable: false,
+    writable: false,
+  });
+}
+
+/**
+ * Replace the trainer's lifecycle callbacks atomically. Returns `true`
+ * when the call landed (the trainer carried the brand), `false`
+ * otherwise — callers (the SIGUSR2 hot-swap path in `runnerSignals`)
+ * use the return value to decide whether to log a skip warning.
+ */
+export function replaceTrainerCallbacks(
+  trainer: unknown,
+  callbacks: Partial<TrainerCallbacks>,
+): boolean {
+  if (!trainer || typeof trainer !== "object") return false;
+  const fn = (trainer as Record<symbol, unknown>)[
+    TRAINER_REPLACE_CALLBACKS_KEY
+  ];
+  if (typeof fn !== "function") return false;
+  try {
+    (fn as (cbs: Partial<TrainerCallbacks>) => void).call(trainer, callbacks);
+    return true;
+  } catch {
+    return false;
+  }
 }

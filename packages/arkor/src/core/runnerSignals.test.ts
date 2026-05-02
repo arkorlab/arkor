@@ -7,7 +7,10 @@ import {
   installShutdownHandlers,
 } from "./runnerSignals";
 import type { Trainer, TrainerCallbacks } from "./types";
-import { attachTrainerInspection } from "./trainerInspection";
+import {
+  attachTrainerCallbackReplacer,
+  attachTrainerInspection,
+} from "./trainerInspection";
 
 let cwd: string;
 
@@ -37,10 +40,13 @@ function makeTrainer(): Trainer & {
     async requestEarlyStop() {
       earlyStop.calls += 1;
     },
-    replaceCallbacks(callbacks) {
-      replace.lastCallbacks = callbacks;
-    },
   };
+  // Wire the internal callback-replacer brand the same way `createTrainer`
+  // does. The SIGUSR2 path looks the brand up via `replaceTrainerCallbacks`
+  // — there's no public method on `Trainer` for this any more.
+  attachTrainerCallbackReplacer(trainer, (cbs) => {
+    replace.lastCallbacks = cbs;
+  });
   return Object.assign(trainer, {
     __earlyStop: earlyStop,
     __replace: replace,
@@ -113,7 +119,6 @@ describe("installCallbackReloadHandler", () => {
         wait: async () => ({ job: {}, artifacts: [] }),
         cancel: async () => {},
         requestEarlyStop: async () => {},
-        replaceCallbacks: () => {},
       };
       Object.defineProperty(trainer, KEY, {
         value: () => ({ name: "t", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, callbacks }),

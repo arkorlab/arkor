@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTrainer } from "./trainer";
+import { replaceTrainerCallbacks } from "./trainerInspection";
 import { writeState } from "./state";
 import type { AnonymousCredentials } from "./credentials";
 
@@ -1502,7 +1503,7 @@ describe("createTrainer (early stop)", () => {
     await trainer.requestEarlyStop({ timeoutMs: 1 });
   });
 
-  it("replaceCallbacks swaps the dispatched callbacks on the next event", async () => {
+  it("replaceTrainerCallbacks (internal HMR brand) swaps the dispatched callbacks on the next event", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,
@@ -1563,12 +1564,15 @@ describe("createTrainer (early stop)", () => {
         callbacks: {
           onLog: ({ step }) => {
             calls.push(`v1:onLog(${step})`);
-            // After the first onLog call, swap to v2 callbacks. The next
-            // event must dispatch via the new callbacks object.
+            // After the first onLog call, swap to v2 callbacks via the
+            // internal `Symbol.for("arkor.trainer.replaceCallbacks")`
+            // brand — the same brand `arkor dev`'s SIGUSR2 handler
+            // uses. The next event must dispatch via the new object.
             if (step === 1) {
-              trainer.replaceCallbacks({
+              const swapped = replaceTrainerCallbacks(trainer, {
                 onLog: ({ step: s }) => void calls.push(`v2:onLog(${s})`),
               });
+              expect(swapped).toBe(true);
             }
           },
         },

@@ -211,18 +211,6 @@ export interface Trainer {
    * resolves immediately without contacting the cloud API.
    */
   requestEarlyStop(opts?: { timeoutMs?: number }): Promise<void>;
-  /**
-   * Atomically swap the lifecycle callbacks while the run is in flight. The
-   * next dispatched event (`onLog`, `onCheckpoint`, ...) reads from the new
-   * object; events already mid-await keep their old reference until they
-   * resolve. Used by `arkor dev`'s HMR pipeline to hot-swap callback code
-   * without restarting the cloud-side training.
-   *
-   * Cloud-side config (model, dataset, hyperparameters) is fixed at
-   * `start()` time and **cannot** be changed via this method — for those
-   * use `requestEarlyStop()` and let HMR re-spawn the run.
-   */
-  replaceCallbacks(callbacks: Partial<TrainerCallbacks>): void;
 }
 
 /**
