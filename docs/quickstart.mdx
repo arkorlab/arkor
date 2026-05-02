@@ -23,7 +23,7 @@ cd my-arkor-app
 ```
 
 ```bash npm
-npm create arkor my-arkor-app
+npm create arkor@latest my-arkor-app
 cd my-arkor-app
 ```
 
@@ -58,7 +58,7 @@ pnpm create arkor my-arkor-app --template triage
 ```
 
 ```bash npm
-npm create arkor my-arkor-app --template triage
+npm create arkor@latest my-arkor-app -- --template triage
 ```
 
 ```bash yarn
@@ -122,7 +122,7 @@ Once a run is in flight, three views matter:
 - **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
 - **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Use the mode toggle to switch between the base model and the adapter. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
 
-If you edit `src/arkor/` between runs, refresh the Run training page (or run `arkor build`) before the next click so the new code is what runs.
+If you edit `src/arkor/` between runs, refresh the Run training page (or run the build script: `pnpm build` / `npm run build` / `yarn build` / `bun run build`) before the next click so the new code is what runs.
 
 ## 4. Tie runs to an account (optional)
 
@@ -152,10 +152,10 @@ This runs the Arkor Cloud OAuth (PKCE) flow on a loopback port and links your lo
 
 The scaffolded project installs `arkor` as a local devDependency, so use your package manager's local-bin runner over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README walks through the equivalent setup for pnpm, npm, yarn, and bun.
 
-A few caveats. Running `arkor login` without a flag opens an interactive picker that defaults to `Anonymous`; accepting the default mints a brand-new anonymous token (a new `anonymousId`) and overwrites `~/.arkor/credentials.json`, so it lands you in a different workspace from the previous anonymous session, not a refresh of it. Switching to OAuth overwrites the same file and does not migrate prior anonymous workspaces or jobs into the account. Merging anonymous work into an OAuth account once you sign in is on the roadmap; until that lands, sign in before the runs you want associated with the account.
+A few caveats. Running `arkor login` (`pnpm exec arkor login` / `npx arkor login` / `yarn arkor login` / `bunx arkor login`) without a flag opens an interactive picker that defaults to `Anonymous`; accepting the default mints a brand-new anonymous token (a new `anonymousId`) and overwrites `~/.arkor/credentials.json`, so it lands you in a different workspace from the previous anonymous session, not a refresh of it. Switching to OAuth overwrites the same file and does not migrate prior anonymous workspaces or jobs into the account. Merging anonymous work into an OAuth account once you sign in is on the roadmap; until that lands, sign in before the runs you want associated with the account.
 
 ## 5. Where to go next
 
 - **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
-- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Refresh the Run training page (or run `arkor build`) before the next click so your edits land.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Refresh the Run training page (or run the build script: `pnpm build` / `npm run build` / `yarn build` / `bun run build`) before the next click so your edits land.
 - **Try another template.** Re-run the scaffolder with a different `--template` to compare.
