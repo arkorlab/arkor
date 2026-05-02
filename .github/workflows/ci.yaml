@@ -214,6 +214,24 @@ jobs:
           - '>=22.21.0 <23'       # 22 LTS latest
           - '>=24.12.0 <25'       # 24 LTS, type stripping marked Stable
         id: [pnpm-9, pnpm-10, pnpm-11, npm, yarn, yarn-berry, bun]
+        exclude:
+          # Node 22.13.x bundles a pre-rotation corepack whose hardcoded
+          # npm-registry signing keys mismatch the current keys, so any
+          # `pnpm install` going through corepack fails in
+          # `verifySignature`. We work around this with `npm install -g
+          # --force corepack@latest` BEFORE `corepack enable`, which
+          # works on POSIX runners (the new corepack lands in
+          # `/opt/hostedtoolcache/.../bin/` and PATH-shadows the
+          # bundled one). On Windows the npm global prefix is
+          # `C:\npm\prefix\`, *not* the tool-cache dir setup-node
+          # prepends to PATH — so the bundled stale corepack keeps
+          # winning resolution and the upgrade is effectively ignored.
+          # Skip these combinations until either Node 22.13 ships a new
+          # patch with fresh corepack keys, or we add a full
+          # tool-cache copy step. pnpm-N coverage on Windows is still
+          # exercised at 22.17 / 22.21 / 24.12, and the corepack-keys
+          # bug isn't pm-version-specific.
+          - { os: windows-latest, node: '>=22.13.0 <22.14.0' }
         include:
           # Oldest-supported Node sanity, ubuntu only — the OS-specific
           # install bugs the matrix is designed to catch are independent
@@ -315,6 +333,41 @@ jobs:
           pnpm --filter create-arkor build
           pnpm --filter arkor build
 
+      # Stage a scaffold-friendly copy of packages/arkor that the
+      # install-matrix tests can point `file:` at. The published-on-npm
+      # arkor wouldn't have `@arkor/cli-internal: workspace:*` in its
+      # devDependencies (pnpm publish substitutes / removes workspace
+      # protocols, and cli-internal is bundled into dist via tsdown's
+      # `deps.alwaysBundle` so it's not a real runtime dep). The
+      # in-workspace package.json keeps that entry so pnpm links it for
+      # the build, but consumers using `file:packages/arkor` pick up the
+      # workspace declaration verbatim.
+      #
+      # npm and pnpm skip a file: dep's devDependencies, so the build
+      # job's e2e tests pass without intervention. bun and yarn (both
+      # classic and berry) DO try to resolve them — bun fails loudly
+      # with "Workspace dependency '@arkor/cli-internal' not found" /
+      # "@arkor/cli-internal@workspace:* failed to resolve", yarn 1
+      # exits 1 silently at the fetch stage with the same root cause.
+      # Strip the entry from a temp copy and aim the test env var there
+      # so every pm sees a publication-shaped package.json.
+      - name: Stage scaffold-friendly arkor (strip workspace devDeps)
+        run: |
+          SCAFFOLD_DIR="$RUNNER_TEMP/arkor-scaffold-source"
+          rm -rf "$SCAFFOLD_DIR"
+          # Copy the full built tree (dist + scripts + assets + docs).
+          cp -r packages/arkor "$SCAFFOLD_DIR"
+          node -e "
+            const fs = require('node:fs');
+            const path = process.argv[1] + '/package.json';
+            const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+            if (pkg.devDependencies && pkg.devDependencies['@arkor/cli-internal']) {
+              delete pkg.devDependencies['@arkor/cli-internal'];
+            }
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+          " "$SCAFFOLD_DIR"
+          echo "Scaffold source: $SCAFFOLD_DIR"
+
       - name: Setup pm under test (${{ matrix.id }})
         if: ${{ matrix.id != 'bun' }}
         run: |
@@ -360,7 +413,12 @@ jobs:
 
       - name: Run e2e suite under matrix pm
         env:
-          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
+          # Point at the stripped copy so bun / yarn / yarn-berry don't
+          # trip on `@arkor/cli-internal: workspace:*` in devDeps. The
+          # build matrix keeps using `packages/arkor` directly because
+          # its npm/pnpm flow already skips file: devDeps and we want a
+          # canary that the in-workspace package.json itself is sane.
+          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ runner.temp }}/arkor-scaffold-source
         run: |
           # Derive the e2e install-test gate label from the matrix id.
           # yarn-berry and the pnpm-N entries share a common label across
