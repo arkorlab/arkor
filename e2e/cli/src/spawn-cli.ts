@@ -4,7 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export interface RunResult {
+  /**
+   * The child's final exit code, or `-1` if the child was terminated by a
+   * signal (close event with `code === null`). Use `signal` to disambiguate
+   * those two cases — see ENG-632 retry policy in `runCli`.
+   */
   code: number;
+  /**
+   * The signal name (e.g. `"SIGKILL"`, `"SIGTERM"`, `"SIGSEGV"`) when the
+   * child was terminated by a signal, otherwise `null`. Mirrors the
+   * `signal` argument of Node's `ChildProcess` close event.
+   */
+  signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
   dir: string;
@@ -33,15 +44,30 @@ export function cleanup(dir: string): void {
  *   `git commit` succeeds even when the host (CI runners, fresh containers)
  *   has no `user.name` / `user.email` configured.
  *
- * ENG-632: macOS GitHub runners occasionally signal-kill the spawned child
+ * ENG-632: macOS GitHub runners occasionally SIGKILL the spawned child
  * during startup under load — the `close` event then fires with
- * `code === null`, which surfaces as `result.code === -1` here. Same
- * invocation passes on rerun and on every other matrix slot, so it's a
- * runner artefact rather than a regression. We retry exactly once and
- * only when (a) we're on macOS, (b) the previous attempt returned the
- * `-1` signal-kill marker. A real non-zero exit (CLI bug, broken pm,
- * assertion-driven failure) is *not* retried, so deterministic
- * regressions still surface on the first run.
+ * `code === null` and `signal === "SIGKILL"`. Same invocation passes on
+ * rerun and on every other matrix slot, so it's a runner artefact
+ * rather than a regression. We retry exactly once and only when:
+ *
+ *   (a) we're on macOS (only platform observed),
+ *   (b) the previous attempt's `signal === "SIGKILL"`.
+ *
+ * SIGTERM / SIGABRT / SIGSEGV / SIGBUS — i.e. the CLI itself crashed —
+ * are NOT retried; same for any non-zero exit code (assertion-driven
+ * failures, broken pm, real CLI bugs). Those still surface on the first
+ * run on every platform.
+ *
+ * Caveat: the retry runs in the same `cwd`. Whatever the first attempt
+ * wrote (scaffolded files, `git init`, partial `node_modules/`) carries
+ * over into attempt 2. In practice the observed flake fires under 150 ms
+ * — before scaffold completes — so side effects are minimal, and our
+ * scaffolders are idempotent (existing files become `kept` rather than
+ * `created`). We accept this best-effort behaviour rather than
+ * snapshotting / restoring `cwd` between attempts: the caller would
+ * reasonably expect their pre-seeded state (e.g. tests that
+ * `git init` before calling `runCli`) to survive, which makes a
+ * one-size-fits-all reset incorrect.
  */
 export async function runCli(
   binPath: string,
@@ -50,7 +76,7 @@ export async function runCli(
   extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<RunResult> {
   let result = await runCliOnce(binPath, argv, cwd, extraEnv);
-  if (result.code === -1 && process.platform === "darwin") {
+  if (result.signal === "SIGKILL" && process.platform === "darwin") {
     result = await runCliOnce(binPath, argv, cwd, extraEnv);
   }
   return result;
@@ -120,9 +146,10 @@ function runCliOnce(
     child.stdout.on("data", (c: Buffer) => out.push(c));
     child.stderr.on("data", (c: Buffer) => err.push(c));
     child.on("error", reject);
-    child.on("close", (code) =>
+    child.on("close", (code, signal) =>
       resolve({
         code: code ?? -1,
+        signal,
         stdout: Buffer.concat(out).toString("utf8"),
         stderr: Buffer.concat(err).toString("utf8"),
         dir: cwd,
@@ -146,9 +173,10 @@ export function runGit(cwd: string, args: string[]): Promise<RunResult> {
     child.stdout.on("data", (c: Buffer) => out.push(c));
     child.stderr.on("data", (c: Buffer) => err.push(c));
     child.on("error", reject);
-    child.on("close", (code) =>
+    child.on("close", (code, signal) =>
       resolve({
         code: code ?? -1,
+        signal,
         stdout: Buffer.concat(out).toString("utf8"),
         stderr: Buffer.concat(err).toString("utf8"),
         dir: cwd,
