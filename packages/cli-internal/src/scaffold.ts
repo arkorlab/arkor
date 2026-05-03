@@ -74,7 +74,7 @@ Before writing or changing any arkor code, consult one of these sources of truth
 
 1. \`node_modules/arkor/docs/\` — installed copy of the docs, present after \`npm install\` / \`pnpm install\` / \`yarn\` / \`bun install\`.
 2. \`node_modules/arkor/dist/index.d.mts\` — installed type definitions for the public SDK exports.
-3. <https://docs.arkor.ai> — public docs site, identical content to (1). Use this when dependencies are not installed (e.g. fresh scaffold without \`install\`, install failure, Yarn PnP) or when the installed copy is older than what is published.
+3. <https://docs.arkor.ai> — public docs site. Use **only** when no installed copy is available locally (fresh scaffold without \`install\`, install failure, Yarn PnP). When \`node_modules/arkor/\` exists, prefer it: this project may be pinned to an older SDK version and the public site can document APIs that aren't in the installed release yet — code written against the public site can fail to compile against the pinned SDK.
 4. <https://github.com/arkorlab/arkor> — source repository.
 
 If the docs and your assumptions disagree, the docs win.
@@ -399,10 +399,24 @@ export async function scaffold(
     const agents = await writeAgentsMd(cwd);
     files.push({ path: AGENTS_MD_PATH, action: agents.action });
     if (agents.warning) warnings.push(agents.warning);
-    files.push({
-      path: CLAUDE_MD_PATH,
-      action: await writeClaudeMd(cwd),
-    });
+    // When AGENTS.md was left untouched because it contains duplicate
+    // canonical blocks, skip CLAUDE.md too. CLAUDE.md is a one-line
+    // `@AGENTS.md` shim that auto-imports AGENTS.md into Claude Code's
+    // context — creating it now would feed the duplicate / stale rules
+    // straight to the agent. Wait for the user to dedupe and re-run.
+    if (agents.warning) {
+      files.push({ path: CLAUDE_MD_PATH, action: "kept" });
+      if (!existsSync(join(cwd, CLAUDE_MD_PATH))) {
+        warnings.push(
+          `${CLAUDE_MD_PATH} not created because ${AGENTS_MD_PATH} has duplicate managed blocks (would auto-import the unresolved rules into Claude Code). Dedupe ${AGENTS_MD_PATH} and re-run.`,
+        );
+      }
+    } else {
+      files.push({
+        path: CLAUDE_MD_PATH,
+        action: await writeClaudeMd(cwd),
+      });
+    }
   }
   return { files, cwd, warnings };
 }

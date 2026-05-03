@@ -177,12 +177,15 @@ npm run start    # runs the build artifact on the cloud
     options.agentsMd
       ? `
 - \`AGENTS.md\` / \`CLAUDE.md\` — instructions for AI coding agents,
-  briefing them that arkor post-dates their training data. \`CLAUDE.md\`
-  is a one-liner that imports \`AGENTS.md\` via the Claude Code
-  \`@<path>\` directive. To opt out of these files in **future**
-  scaffolds, pass \`--no-agents-md\` to \`create-arkor\` / \`arkor init\`;
-  the flag does not delete files that are already on disk, so remove
-  them by hand if you no longer want them.`
+  briefing them that arkor post-dates their training data. When the
+  scaffolder creates \`CLAUDE.md\` itself it is a one-liner that imports
+  \`AGENTS.md\` via the Claude Code \`@<path>\` directive; if you already
+  had a project-specific \`CLAUDE.md\`, the scaffolder leaves it alone
+  and your existing instructions stay authoritative. To opt out of
+  these files in **future** scaffolds, pass \`--no-agents-md\` to
+  \`create-arkor\` / \`arkor init\`; the flag does not delete files that
+  are already on disk, so remove them by hand if you no longer want
+  them.`
       : ""
   }
 
