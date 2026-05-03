@@ -334,10 +334,18 @@ program
       // option (last-wins), so it will not surface a conflict on its own.
       // Mirror the explicit `--git` / `--skip-git` check by inspecting raw
       // argv: passing both is almost always a mistake — refuse early
-      // instead of silently honouring whichever came last.
+      // instead of silently honouring whichever came last. Stop scanning
+      // at the POSIX `--` end-of-options sentinel so a positional `[dir]`
+      // that happens to start with `--` (e.g. `create-arkor --agents-md
+      // -- --no-agents-md`) is not misclassified as a conflicting flag.
+      const sentinelIdx = process.argv.indexOf("--");
+      const flagsArgv =
+        sentinelIdx === -1
+          ? process.argv
+          : process.argv.slice(0, sentinelIdx);
       if (
-        process.argv.includes("--agents-md") &&
-        process.argv.includes("--no-agents-md")
+        flagsArgv.includes("--agents-md") &&
+        flagsArgv.includes("--no-agents-md")
       ) {
         throw new Error(
           "Pick one of --agents-md / --no-agents-md, not both.",

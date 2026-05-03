@@ -212,6 +212,29 @@ describe("create-arkor (E2E)", () => {
     );
   });
 
+  it("does not treat tokens after the POSIX `--` sentinel as flags for the mutex check", async () => {
+    // Regression: a previous mutex check scanned the whole argv with
+    // `process.argv.includes(...)`, so a positional `[dir]` that happens
+    // to start with `--` (passed after `--` to disambiguate from a flag)
+    // wrongly tripped the conflict error even though `--no-agents-md`
+    // here is the *directory name*, not the negated flag. The fixed
+    // check stops scanning at the POSIX `--` sentinel.
+    const dirName = "--no-agents-md";
+    const targetDir = join(parentDir, dirName);
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["-y", "--skip-install", "--skip-git", "--agents-md", "--", dirName],
+      parentDir,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stderr).not.toContain("--agents-md / --no-agents-md");
+    // The scaffold completed in a directory literally named `--no-agents-md`
+    // and AGENTS.md was generated (because --agents-md is the only effective
+    // agent flag — the post-sentinel token was a positional, not a flag).
+    expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(targetDir, "CLAUDE.md"))).toBe(true);
+  });
+
   it("does not prompt when --name + --template are provided without -y", async () => {
     // No `-y`, but every prompted value is supplied as a flag. The run
     // should complete without hanging and apply the flag values.

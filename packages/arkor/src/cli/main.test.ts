@@ -125,6 +125,7 @@ describe("main (CLI Commander wiring)", () => {
     expect(runInit).not.toHaveBeenCalled();
   });
 
+
   it("dispatches `login` with parsed --oauth / --no-browser flags", async () => {
     await main(["login", "--oauth", "--no-browser"]);
     expect(runLogin).toHaveBeenCalledWith({

@@ -36,6 +36,11 @@ afterEach(() => {
 
 const AGENTS_BEGIN = "<!-- BEGIN:arkor-agent-rules -->";
 const AGENTS_END = "<!-- END:arkor-agent-rules -->";
+// Mirror of the signature line that scaffold.ts looks for as a secondary
+// guard against false-positive marker matches (e.g. user-authored docs
+// inside fenced code blocks). Test fixtures that want their block to be
+// recognised as the managed one must include this line right after BEGIN.
+const AGENTS_SIGNATURE_LINE = "# arkor is newer than your training data";
 
 describe("scaffold", () => {
   it("writes all starter files in an empty directory", async () => {
@@ -313,7 +318,10 @@ describe("scaffold", () => {
   it("replaces only the block contents when AGENTS.md already has the markers", async () => {
     const before = "# Project\n\n";
     const after = "\n\n## Manual notes outside the block\n";
-    const stale = `${before}${AGENTS_BEGIN}\nstale content\n${AGENTS_END}${after}`;
+    // The fixture must include the signature line to be recognised as
+    // the managed block (otherwise the patch path treats it as user
+    // content and falls through to append).
+    const stale = `${before}${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nstale content\n${AGENTS_END}${after}`;
     writeFileSync(join(cwd, "AGENTS.md"), stale);
     const result = await scaffold({
       cwd,
@@ -349,7 +357,9 @@ describe("scaffold", () => {
       "\n";
     // Real managed block sits *after* the prose mentions above. The END
     // string in the prose appears earlier in the file than the real END.
-    const realBlock = `${AGENTS_BEGIN}\noriginal canonical body\n${AGENTS_END}`;
+    // Signature line distinguishes the real managed block from any
+    // line-anchored marker pair the user might paste in their notes.
+    const realBlock = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\noriginal canonical body\n${AGENTS_END}`;
     writeFileSync(join(cwd, "AGENTS.md"), `${userNotes}${realBlock}\n`);
 
     // Counting helper: only line-anchored markers (start of file or
@@ -454,6 +464,84 @@ describe("scaffold", () => {
     // must be LF, not CRLF.
     expect(body).toContain(`${AGENTS_BEGIN}\n`);
     expect(body).not.toContain(`${AGENTS_BEGIN}\r\n`);
+  });
+
+  it("preserves the user's trailing-newline pattern when appending the block", async () => {
+    // Regression: previously the append path called
+    // `current.replace(/(\r?\n)+$/, "")` which collapsed any trailing
+    // run of newlines, destroying intentional formatting (a user's file
+    // ending in two blank lines would silently lose them on first
+    // re-scaffold). The non-destructive guarantee requires the user's
+    // own bytes outside the managed block to be byte-identical.
+    const existing = "# Project\n\nNotes.\n\n\n\n"; // four trailing newlines
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+    await scaffold({
+      cwd,
+      name: "trailing-newlines",
+      template: "triage",
+      agentsMd: true,
+    });
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // The original tail (including all four trailing newlines) survives
+    // intact ahead of the appended block.
+    expect(body.startsWith(existing)).toBe(true);
+    // And the canonical block follows.
+    expect(body).toContain(AGENTS_BEGIN);
+    expect(body).toContain(AGENTS_END);
+  });
+
+  it("ignores a fenced-code-block marker example earlier in AGENTS.md (canonical block is the trailing one)", async () => {
+    // Coverage for the lastIndexOf-style block discovery. A user can
+    // legitimately document the marker syntax inside a fenced code
+    // block, putting the markers on their own lines. Earlier passes
+    // would treat the example as the managed block and overwrite it on
+    // re-scaffold. The fix is to pick the *trailing* line-anchored
+    // BEGIN..END pair: the canonical block is always written at the
+    // end of the file, so any earlier line-anchored pair must be user-
+    // authored prose / examples and must be preserved verbatim.
+    const docExample =
+      "# AGENTS.md primer\n" +
+      "\n" +
+      "Tools that follow the AGENTS.md spec emit a managed block like this:\n" +
+      "\n" +
+      "```md\n" +
+      `${AGENTS_BEGIN}\n` +
+      "<!-- canonical content from a tool would go here -->\n" +
+      `${AGENTS_END}\n` +
+      "```\n" +
+      "\n" +
+      "End of primer.\n";
+    writeFileSync(join(cwd, "AGENTS.md"), docExample);
+
+    await scaffold({
+      cwd,
+      name: "fenced-example",
+      template: "triage",
+      agentsMd: true,
+    });
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+
+    // The fenced documentation example survives byte-for-byte at the
+    // top of the file (we only verify the example's distinctive line —
+    // the surrounding fence + markers stay because they are not the
+    // trailing line-anchored pair).
+    expect(body).toContain(
+      "<!-- canonical content from a tool would go here -->",
+    );
+    expect(body).toContain("End of primer.");
+    // A real canonical block was appended after the example.
+    expect(body).toContain("arkor is newer than your training data");
+
+    // Re-scaffold must be idempotent: only the trailing pair gets
+    // patched, so file content is byte-stable across runs and the
+    // documentation example is never touched.
+    await scaffold({
+      cwd,
+      name: "fenced-example",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(body);
   });
 
   it("never overwrites an existing CLAUDE.md", async () => {

@@ -66,10 +66,15 @@ export async function main(argv: string[]): Promise<void> {
         // raw argv passed to `main()` — using `process.argv` directly
         // would miss the conflict when called from tests via
         // `main([...])` and could false-positive on the parent process's
-        // own arguments.
+        // own arguments. Stop scanning at the POSIX `--` end-of-options
+        // sentinel so a positional that happens to start with `--` is
+        // not misclassified as a conflicting flag.
+        const sentinelIdx = argv.indexOf("--");
+        const flagsArgv =
+          sentinelIdx === -1 ? argv : argv.slice(0, sentinelIdx);
         if (
-          argv.includes("--agents-md") &&
-          argv.includes("--no-agents-md")
+          flagsArgv.includes("--agents-md") &&
+          flagsArgv.includes("--no-agents-md")
         ) {
           throw new Error(
             "Pick one of --agents-md / --no-agents-md, not both.",

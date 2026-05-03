@@ -46,10 +46,19 @@ const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.7";
 const AGENTS_BLOCK_BEGIN = "<!-- BEGIN:arkor-agent-rules -->";
 const AGENTS_BLOCK_END = "<!-- END:arkor-agent-rules -->";
 
+// Distinctive first content line of the canonical body. Used as a
+// secondary signature when locating the managed block — see
+// `findManagedBlock`. Treat as part of the on-wire contract: changing
+// this string is a breaking change that orphans every existing
+// AGENTS.md (the old block will no longer be detected and a fresh one
+// will be appended on re-scaffold).
+const AGENTS_BLOCK_SIGNATURE_LINE =
+  "# arkor is newer than your training data";
+
 // Authored with LF; `withEol` re-targets line endings when patching a CRLF
 // host file so the surrounding content stays uniform.
 const AGENTS_BLOCK_BODY = `${AGENTS_BLOCK_BEGIN}
-# arkor is newer than your training data
+${AGENTS_BLOCK_SIGNATURE_LINE}
 
 arkor was released recently and is likely not present in your model training data. Do not infer APIs, file structure, or CLI behavior from prior knowledge.
 
@@ -143,27 +152,40 @@ function escapeRegExp(s: string): string {
 }
 
 /**
- * Locate the arkor-managed block via **line-anchored** markers — both
- * BEGIN and END must sit at the start of a line (optionally after a CR).
- * Inline mentions inside backticks or prose
- * (e.g. "delimited by `<!-- BEGIN:arkor-agent-rules -->`") therefore do
- * not register as markers, which keeps the patch idempotent for files
- * where the user documented the marker syntax. Non-greedy `[\s\S]*?`
- * pairs the first line-anchored BEGIN with its next line-anchored END.
+ * Locate the arkor-managed block in `s`.
+ *
+ * Three layered guards keep this from misclassifying user-authored prose
+ * (or pasted documentation) as the managed block:
+ *
+ *   1. **Line-anchored markers.** BEGIN and END must each sit at the
+ *      start of a line (optionally after a CR). Inline mentions inside
+ *      backticks (e.g. "delimited by `<!-- BEGIN:arkor-agent-rules -->`")
+ *      therefore do not register.
+ *   2. **Signature line.** The line immediately after BEGIN must equal
+ *      `AGENTS_BLOCK_SIGNATURE_LINE` ("# arkor is newer than your
+ *      training data"). A user documenting the marker syntax inside a
+ *      fenced code block almost certainly will not also reproduce that
+ *      exact heading. If they do (or if the user wholesale rewrote the
+ *      managed block to remove the heading) we deliberately fall through
+ *      to the append path, which preserves their bytes and adds a fresh
+ *      canonical block at the end.
+ *   3. **Trailing pair.** When several signature-matching pairs exist
+ *      (rare — e.g. an aggregator README that pastes the canonical block
+ *      multiple times), pick the trailing one because the canonical block
+ *      is always written at the end of the file by the append path.
  */
 function findManagedBlock(
   s: string,
 ): { begin: number; end: number } | null {
   const re = new RegExp(
-    `(?:^|\\n)${escapeRegExp(AGENTS_BLOCK_BEGIN)}[\\s\\S]*?\\n${escapeRegExp(
-      AGENTS_BLOCK_END,
-    )}`,
-    "m",
+    `(?:^|\\n)${escapeRegExp(AGENTS_BLOCK_BEGIN)}\\n${escapeRegExp(
+      AGENTS_BLOCK_SIGNATURE_LINE,
+    )}\\n[\\s\\S]*?\\n${escapeRegExp(AGENTS_BLOCK_END)}`,
+    "gm",
   );
-  const m = re.exec(s);
-  if (!m) return null;
-  // Trim the leading-newline anchor (so we replace the marker itself,
-  // not the newline ahead of it).
+  const matches = [...s.matchAll(re)];
+  if (matches.length === 0) return null;
+  const m = matches[matches.length - 1]!;
   const beginOffset = m[0].startsWith("\n") ? 1 : 0;
   return { begin: m.index + beginOffset, end: m.index + m[0].length };
 }
@@ -188,14 +210,27 @@ async function writeAgentsMd(cwd: string): Promise<FileAction> {
     await writeFile(path, next);
     return "patched";
   }
-  // No markers yet — append the block at the end with one blank line of
-  // separation, preserving any content the user already had.
-  const trimmed = current.replace(/(\r?\n)+$/, "");
-  const next =
-    trimmed.length === 0
-      ? `${block}${eol}`
-      : `${trimmed}${eol}${eol}${block}${eol}`;
-  await writeFile(path, next);
+  // No markers yet — append the block at the end. Preserve the user's
+  // existing trailing-newline pattern verbatim (a previous version
+  // collapsed any trailing run of newlines, which destroyed the user's
+  // intentional formatting and broke the non-destructive guarantee).
+  // We only need to *guarantee* there's at least one blank line of
+  // separation between the existing tail and the inserted block, then
+  // a single trailing newline at the end.
+  let separator: string;
+  if (current.length === 0) {
+    separator = "";
+  } else if (current.endsWith(`${eol}${eol}`)) {
+    // Already ends with at least one blank line — no separator needed.
+    separator = "";
+  } else if (current.endsWith(eol)) {
+    // Single trailing newline → one more makes the blank line.
+    separator = eol;
+  } else {
+    // No trailing newline → newline + blank line.
+    separator = `${eol}${eol}`;
+  }
+  await writeFile(path, `${current}${separator}${block}${eol}`);
   return "patched";
 }
 
