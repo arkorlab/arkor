@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, type Dirent } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -113,28 +113,29 @@ export function cleanup(dir: string): void {
  * run on every platform.
  *
  * `cwd` handling: even with a tight elapsed-ms gate, the bin can reach
- * `scaffold()` and start writing `package.json` / `src/arkor/*` before
- * the SIGKILL lands — so attempt 2 in the same `cwd` could pass
- * spuriously against partial scaffold state or fail for the wrong
- * reason. We dodge that with a path-set snapshot:
+ * `scaffold()` and start writing `package.json` / `src/arkor/*` (or
+ * overwriting a pre-existing `.arkor/build/index.mjs` etc.) before the
+ * SIGKILL lands. Attempt 2 in the same `cwd` could then pass spuriously
+ * against partial scaffold state, or worse, run against an existing
+ * file the killed attempt clobbered halfway through. We dodge that with
+ * a full content snapshot:
  *
- *   1. Walk `cwd` recursively before attempt 1 and remember every
- *      relative path that already exists (test pre-seeded state, e.g.
- *      `arkor-init.test.ts`'s `git init` setup or `arkor-whoami.test.ts`'s
- *      seeded credentials).
- *   2. If we decide to retry, walk `cwd` again and `rmSync` everything
- *      *not* in the snapshot. Pre-seeded state survives intact;
- *      partially-written scaffold artefacts get cleared so attempt 2
- *      starts from the same baseline as attempt 1.
+ *   1. Before attempt 1, recursively copy `cwd`'s contents into a
+ *      sibling temp dir.
+ *   2. If we decide to retry, wipe `cwd`'s contents and copy the
+ *      snapshot back. Whatever attempt 1 wrote (new files, modified
+ *      pre-existing files, deleted pre-existing files) is undone, so
+ *      attempt 2 starts from byte-for-byte the same state as attempt 1.
+ *   3. The snapshot dir is cleaned up regardless of whether the retry
+ *      fired.
  *
- * Limitation: if attempt 1 *modified* a pre-seeded file in place
- * (rather than adding new ones), the modification persists into attempt
- * 2. The CLI's own scaffolders are idempotent — `package.json` patches
- * are no-ops on already-patched state, every other writer either creates
- * (`fs.writeFile` on a path that wasn't there) or keeps (`fs.existsSync`
- * short-circuit) — so this is acceptable in practice. A full
- * snapshot/restore (copying contents to a sibling temp dir) would handle
- * that edge case but at much higher cost on every run.
+ * The cost is bounded: the retry only fires on SIGKILL within
+ * `SIGKILL_RETRY_MAX_MS` (300 ms), which is well before any test runs
+ * `pnpm install` or `arkor build`, so the snapshotted tree is always
+ * the small pre-seed fixture (a few KB at most) — never a populated
+ * `node_modules/` or build artefact. The pre-attempt-1 copy itself
+ * happens on every `runCli` call, but for the dominant case of an empty
+ * `cwd` it's a no-op `cpSync` of an empty directory.
  *
  * Successful retries are logged to stderr so the runner-flake rate is
  * inspectable in CI logs (otherwise a steadily worsening environment
@@ -147,76 +148,66 @@ export async function runCli(
   cwd: string,
   extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<RunResult> {
-  const cwdSnapshot = snapshotCwdPaths(cwd);
-  let result = await runCliOnce(binPath, argv, cwd, extraEnv);
-  if (
-    shouldRetryAfterSigkill(result, process.platform, Boolean(process.env.CI))
-  ) {
-    process.stderr.write(
-      `[runCli] retrying after SIGKILL at ${result.elapsedMs}ms (${binPath} ${argv.join(" ")})\n`,
-    );
-    removeNewlyAddedPaths(cwd, cwdSnapshot);
-    result = await runCliOnce(binPath, argv, cwd, extraEnv);
+  const snapshotDir = snapshotCwd(cwd);
+  try {
+    let result = await runCliOnce(binPath, argv, cwd, extraEnv);
+    if (
+      shouldRetryAfterSigkill(result, process.platform, Boolean(process.env.CI))
+    ) {
+      process.stderr.write(
+        `[runCli] retrying after SIGKILL at ${result.elapsedMs}ms (${binPath} ${argv.join(" ")})\n`,
+      );
+      restoreFromSnapshot(cwd, snapshotDir);
+      result = await runCliOnce(binPath, argv, cwd, extraEnv);
+    }
+    return result;
+  } finally {
+    rmSync(snapshotDir, { recursive: true, force: true });
   }
-  return result;
 }
 
 /**
- * Recursively list every path inside `cwd` (one entry per file *and*
- * directory), keyed by `cwd`-relative path with forward-slash separators
- * for cross-platform comparability. Used by `runCli` to remember the
- * pre-attempt-1 baseline so a retry can selectively undo whatever the
- * killed first attempt added without clobbering pre-seeded test state.
+ * Copy every entry under `cwd` into a fresh sibling temp dir and return
+ * its path. The snapshot is returned even when `cwd` is empty so the
+ * caller can unconditionally `restoreFromSnapshot` (as a no-op) and
+ * `rmSync` the snapshot in `finally`.
  *
- * Errors are swallowed: a non-existent or unreadable `cwd` returns an
- * empty set, which makes the subsequent `removeNewlyAddedPaths` walk a
- * no-op. A real spawn failure in `runCliOnce` surfaces to the caller.
+ * We `mkdtempSync` a parent and copy each top-level entry into it
+ * individually rather than `cpSync(cwd, snapshotDir)` so the
+ * source-vs-destination semantics stay unambiguous: each per-entry
+ * `cpSync` writes into a path that doesn't exist yet under the snapshot
+ * root, regardless of which Node version's `fs.cpSync` directory-merge
+ * behaviour is in play.
  */
-function snapshotCwdPaths(cwd: string): Set<string> {
-  const paths = new Set<string>();
-  const walk = (dir: string, prefix: string): void => {
-    let entries: Dirent[];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-      paths.add(rel);
-      if (entry.isDirectory()) walk(join(dir, entry.name), rel);
-    }
-  };
-  walk(cwd, "");
-  return paths;
+function snapshotCwd(cwd: string): string {
+  const snapshotDir = mkdtempSync(join(tmpdir(), "spawn-cli-snapshot-"));
+  let entries: string[];
+  try {
+    entries = readdirSync(cwd);
+  } catch {
+    // `cwd` doesn't exist or isn't readable — return an empty snapshot.
+    // `runCliOnce` will surface the real spawn failure if `cwd` truly
+    // can't be used.
+    return snapshotDir;
+  }
+  for (const name of entries) {
+    cpSync(join(cwd, name), join(snapshotDir, name), { recursive: true });
+  }
+  return snapshotDir;
 }
 
 /**
- * Walk `cwd` and `rmSync` anything whose relative path isn't in
- * `baseline`. Children of a baseline directory are recursed into so a
- * pre-existing `cwd/.git/` keeps its `HEAD` etc. while `cwd/package.json`
- * (newly written by the killed attempt) gets removed. Mirrors the
- * forward-slash relpath format `snapshotCwdPaths` produces.
+ * Wipe `cwd`'s contents and copy the snapshot back. The directory
+ * itself is preserved so the caller's path handle (and any test-side
+ * `cwd` variable) stays valid across the retry.
  */
-function removeNewlyAddedPaths(cwd: string, baseline: Set<string>): void {
-  const walk = (dir: string, prefix: string): void => {
-    let entries: Dirent[];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-      const abs = join(dir, entry.name);
-      if (!baseline.has(rel)) {
-        rmSync(abs, { recursive: true, force: true });
-        continue;
-      }
-      if (entry.isDirectory()) walk(abs, rel);
-    }
-  };
-  walk(cwd, "");
+function restoreFromSnapshot(cwd: string, snapshotDir: string): void {
+  for (const name of readdirSync(cwd)) {
+    rmSync(join(cwd, name), { recursive: true, force: true });
+  }
+  for (const name of readdirSync(snapshotDir)) {
+    cpSync(join(snapshotDir, name), join(cwd, name), { recursive: true });
+  }
 }
 
 function runCliOnce(

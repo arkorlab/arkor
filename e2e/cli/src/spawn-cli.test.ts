@@ -322,13 +322,13 @@ describe("runCli orchestration", () => {
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
-  it("preserves pre-seeded `cwd` state across the retry while clearing scaffold leftovers", async () => {
+  it("restores pre-seeded `cwd` state across the retry while clearing scaffold leftovers", async () => {
     // Tests that pre-seed `cwd` (e.g. `arkor-init.test.ts`'s
     // `git init` setup, `arkor-whoami.test.ts`'s seeded credentials,
-    // build fixtures) used to be excluded from the retry path under the
-    // earlier "cwd must be empty" gate. The path-set snapshot lifts that
-    // restriction: pre-existing entries survive, but anything attempt 1
-    // newly added gets removed before attempt 2 spawns.
+    // build fixtures) need the retry to leave their pre-seed state
+    // exactly as they wrote it. The full content snapshot guarantees
+    // that: pre-existing files survive, anything attempt 1 added gets
+    // removed before attempt 2 spawns.
     //
     // Setup: pre-seed `cwd/.git/HEAD` (a small file inside an existing
     // dir, mirroring `git init`'s output) plus a sibling marker file.
@@ -375,10 +375,52 @@ describe("runCli orchestration", () => {
     );
   });
 
+  it("restores pre-existing files that attempt 1 modified in place", async () => {
+    // The harder snapshot case: attempt 1 doesn't add a new file, it
+    // *overwrites* a pre-existing one (e.g. `arkor build` rewriting an
+    // already-present `.arkor/build/index.mjs`). A path-set snapshot
+    // would carry the mutated baseline file into attempt 2 and let a
+    // failure pass spuriously; the full content snapshot puts the
+    // original bytes back so attempt 2 sees the same input attempt 1
+    // had.
+    mkdirSync(join(cwd, ".arkor", "build"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".arkor", "build", "index.mjs"),
+      "// pre-existing build output\n",
+    );
+
+    dateNowSpy
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1100)
+      .mockReturnValueOnce(2000)
+      .mockReturnValueOnce(2050);
+    spawnMock
+      .mockImplementationOnce(() => {
+        // Fake an in-place rewrite (no new path, just changed content).
+        writeFileSync(
+          join(cwd, ".arkor", "build", "index.mjs"),
+          "// truncated rewrite from attempt 1\n",
+        );
+        return makeFakeChild({ code: null, signal: "SIGKILL" });
+      })
+      .mockImplementationOnce(() => {
+        // Attempt 2 sees the original bytes, not the truncated rewrite.
+        expect(
+          readFileSync(join(cwd, ".arkor", "build", "index.mjs"), "utf8"),
+        ).toBe("// pre-existing build output\n");
+        return makeFakeChild({ code: 0, signal: null });
+      });
+
+    const result = await runCli("/fake/bin", [], cwd);
+
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(result.code).toBe(0);
+  });
+
   it("wipes leftover scaffold artefacts when `cwd` started empty", async () => {
-    // Simpler case of the same path-diff cleanup: empty cwd at attempt
-    // 1 start, partial scaffold from the SIGKILL'd attempt, attempt 2
-    // sees an empty cwd again. This is the canonical PR #104 pattern.
+    // Simpler case of the same restore: empty cwd at attempt 1 start,
+    // partial scaffold from the SIGKILL'd attempt, attempt 2 sees an
+    // empty cwd again. This is the canonical PR #104 pattern.
     dateNowSpy
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1100)
