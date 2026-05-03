@@ -5,7 +5,9 @@ description: "start、wait、cancel、abortSignal、再接続の仕組み。"
 
 # トレーナー制御
 
-`createTrainer` は次の 3 メソッドを持つ `Trainer` オブジェクトを返します:
+`createTrainer` は 3 メソッドを持つ `Trainer` オブジェクトを返します。`arkor start` と Studio の "Run training" ボタンはどちらも `start()` の後に `wait()` を呼びます。これらを自分で呼ぶのは、学習を自前のコード（サーバー、スクリプト、独自 CLI）に組み込むときだけです。
+
+## シグネチャ
 
 ```ts
 interface Trainer {
@@ -20,8 +22,6 @@ interface TrainingResult {
   artifacts: unknown[];
 }
 ```
-
-`arkor start` と Studio の "Run training" ボタンはどちらも `start()` の後に `wait()` を呼びます。これらを自分で呼ぶのは、学習を自前のコード（サーバー、スクリプト、独自 CLI）に組み込むときだけです。
 
 ## `start()`
 
@@ -137,3 +137,10 @@ try {
 ```
 
 これは `runTrainer` のエントリー解決を除けば、`arkor start` がやっているのと機能的に同じです。
+
+## 関連項目
+
+- [`createTrainer`](/ja/sdk/create-trainer): この `Trainer` を生む入力形
+- [ライフサイクルコールバック](/ja/sdk/callbacks): `wait()` 内から発火するもの
+- [`runTrainer`](/ja/sdk/overview#補助ヘルパー上級者向け): `start()` + `wait()` を包むエントリー解決ヘルパー
+- [プログラム実行レシピ](/ja/cookbook/programmatic-runs): サーバーやスクリプトに組み込む完全な配線

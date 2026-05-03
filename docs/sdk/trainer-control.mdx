@@ -5,7 +5,9 @@ description: "start, wait, cancel, abortSignal, and how reconnects work."
 
 # Trainer control
 
-`createTrainer` returns a `Trainer` object with three methods:
+`createTrainer` returns a `Trainer` object with three methods. `arkor start` and Studio's "Run training" button both call `start()` followed by `wait()`. You only call them yourself when you wire training into your own code (a server, a script, a custom CLI).
+
+## Signature
 
 ```ts
 interface Trainer {
@@ -20,8 +22,6 @@ interface TrainingResult {
   artifacts: unknown[];
 }
 ```
-
-`arkor start` and Studio's "Run training" button both call `start()` followed by `wait()`. You only call them yourself when you wire training into your own code (a server, a script, a custom CLI).
 
 ## `start()`
 
@@ -137,3 +137,10 @@ try {
 ```
 
 This is functionally what `arkor start` does, minus the entry resolution from `runTrainer`.
+
+## See also
+
+- [`createTrainer`](/sdk/create-trainer) for the input shape that produces this `Trainer`
+- [Lifecycle callbacks](/sdk/callbacks) for what fires from inside `wait()`
+- [`runTrainer`](/sdk/overview#auxiliary-helpers-advanced) for the entry-resolution helper that wraps `start()` + `wait()`
+- [Programmatic runs recipe](/cookbook/programmatic-runs) for a full server / script wiring
