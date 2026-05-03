@@ -354,10 +354,13 @@ describe("create-arkor (E2E)", () => {
       const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
       // === DIAG eng-625 START — REMOVE BEFORE MERGE ===================
       // Surface the install.ts DIAG block to CI logs regardless of whether
-      // the assertion below passes. Look for `[DIAG eng-625]` lines.
+      // the assertion below passes. Look for `[DIAG eng-625]` lines. We
+      // dump *both* streams because pnpm writes its progress + ERR_PNPM_*
+      // to stdout, not stderr — that's why the previous round saw an
+      // empty stderr and no error context.
       // eslint-disable-next-line no-console
       console.log(
-        `[DIAG eng-625] STDERR for pm=${pm}:\n${result.stderr}\n[DIAG eng-625] tracked HEAD entries:\n${tracked.stdout}`,
+        `[DIAG eng-625] code=${result.code} pm=${pm}\n[DIAG eng-625] STDOUT for pm=${pm}:\n${result.stdout}\n[DIAG eng-625] STDERR for pm=${pm}:\n${result.stderr}\n[DIAG eng-625] tracked HEAD entries:\n${tracked.stdout}`,
       );
       // === DIAG eng-625 END ==========================================
       expect(tracked.stdout).toContain(lockfile);
