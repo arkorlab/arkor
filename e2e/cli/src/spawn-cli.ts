@@ -16,9 +16,48 @@ export interface RunResult {
    * `signal` argument of Node's `ChildProcess` close event.
    */
   signal: NodeJS.Signals | null;
+  /**
+   * Wall-clock milliseconds from spawn to the `close` event. Used by the
+   * ENG-632 SIGKILL retry guard to distinguish a startup-time runner kill
+   * (observed at ~104 ms) from a kill that arrived after the CLI had
+   * already done meaningful filesystem work — the latter would leave a
+   * dirty `cwd` that retrying over could turn into a false positive.
+   */
+  elapsedMs: number;
   stdout: string;
   stderr: string;
   dir: string;
+}
+
+/**
+ * Upper bound on the elapsed time (in milliseconds) for a SIGKILL'd run
+ * to still qualify for retry. Calibrated from the observed PR #104 flake,
+ * which fired at ~104 ms during the bin's startup re-exec, well before
+ * scaffold/install/git work begins. A SIGKILL after this point most
+ * likely landed mid-run (during pnpm install, after `git init`, etc.),
+ * by which time the `cwd` is no longer pristine and a retry could mask
+ * the real failure or pass spuriously.
+ */
+const SIGKILL_RETRY_MAX_MS = 1500;
+
+/**
+ * Pure decision function for the ENG-632 retry gate, factored out so it
+ * can be exercised by `spawn-cli.test.ts` without mocking
+ * `node:child_process` or `process.platform`. All inputs are explicit so
+ * a future refactor that accidentally widens or narrows the gate fails
+ * the matrix tests rather than silently changing behaviour.
+ */
+export function shouldRetryAfterSigkill(
+  result: RunResult,
+  platform: NodeJS.Platform,
+  isCI: boolean,
+): boolean {
+  return (
+    result.signal === "SIGKILL" &&
+    result.elapsedMs < SIGKILL_RETRY_MAX_MS &&
+    platform === "darwin" &&
+    isCI
+  );
 }
 
 export function makeTempDir(prefix: string): string {
@@ -44,30 +83,39 @@ export function cleanup(dir: string): void {
  *   `git commit` succeeds even when the host (CI runners, fresh containers)
  *   has no `user.name` / `user.email` configured.
  *
- * ENG-632: macOS GitHub runners occasionally SIGKILL the spawned child
- * during startup under load — the `close` event then fires with
- * `code === null` and `signal === "SIGKILL"`. Same invocation passes on
- * rerun and on every other matrix slot, so it's a runner artefact
- * rather than a regression. We retry exactly once and only when:
+ * ENG-632: macOS GitHub Actions runners occasionally SIGKILL the spawned
+ * child during startup under load — the `close` event then fires with
+ * `code === null` and `signal === "SIGKILL"` at ~100 ms, well before
+ * scaffold/install/git work begins. Same invocation passes on rerun and
+ * on every other matrix slot, so it's a runner artefact rather than a
+ * regression. We retry exactly once and only when ALL of the following
+ * hold (see `shouldRetryAfterSigkill`):
  *
- *   (a) we're on macOS (only platform observed),
- *   (b) the previous attempt's `signal === "SIGKILL"`.
+ *   (a) we're on macOS — only platform that has produced the symptom,
+ *   (b) the previous attempt's `signal === "SIGKILL"`,
+ *   (c) the previous attempt's `elapsedMs < SIGKILL_RETRY_MAX_MS` —
+ *       distinguishes a startup-time runner kill from a SIGKILL that
+ *       arrived after the CLI had already started writing files (e.g.
+ *       OOM mid-`pnpm install`), where retrying in the dirty `cwd`
+ *       could mask the real failure or pass spuriously,
+ *   (d) `process.env.CI` is set — local Mac developers debugging
+ *       intermittent crashes get one-shot failures rather than silent
+ *       retries that would hide the bug they're chasing.
  *
  * SIGTERM / SIGABRT / SIGSEGV / SIGBUS — i.e. the CLI itself crashed —
  * are NOT retried; same for any non-zero exit code (assertion-driven
  * failures, broken pm, real CLI bugs). Those still surface on the first
  * run on every platform.
  *
- * Caveat: the retry runs in the same `cwd`. Whatever the first attempt
- * wrote (scaffolded files, `git init`, partial `node_modules/`) carries
- * over into attempt 2. In practice the observed flake fires under 150 ms
- * — before scaffold completes — so side effects are minimal, and our
- * scaffolders are idempotent (existing files become `kept` rather than
- * `created`). We accept this best-effort behaviour rather than
- * snapshotting / restoring `cwd` between attempts: the caller would
- * reasonably expect their pre-seeded state (e.g. tests that
- * `git init` before calling `runCli`) to survive, which makes a
- * one-size-fits-all reset incorrect.
+ * Caveat (`cwd` carryover): the retry runs in the same `cwd`. Whatever
+ * the first attempt wrote (scaffolded files, `git init`, partial
+ * `node_modules/`) carries over into attempt 2. The (c) elapsed-ms gate
+ * keeps that risk tightly scoped — only sub-`SIGKILL_RETRY_MAX_MS` runs
+ * qualify, and the observed flake fires at ~100 ms before scaffold
+ * completes, so side effects are minimal in practice. A blanket reset
+ * of `cwd` would clobber legitimately pre-seeded state (e.g. tests that
+ * `git init` before calling `runCli`), so we accept the best-effort
+ * behaviour rather than introducing a snapshot/restore.
  */
 export async function runCli(
   binPath: string,
@@ -76,7 +124,9 @@ export async function runCli(
   extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<RunResult> {
   let result = await runCliOnce(binPath, argv, cwd, extraEnv);
-  if (result.signal === "SIGKILL" && process.platform === "darwin") {
+  if (
+    shouldRetryAfterSigkill(result, process.platform, Boolean(process.env.CI))
+  ) {
     result = await runCliOnce(binPath, argv, cwd, extraEnv);
   }
   return result;
@@ -126,6 +176,7 @@ function runCliOnce(
     // can still set USERPROFILE explicitly: extraEnv is spread last.
     const homeMirror: NodeJS.ProcessEnv =
       extraEnv.HOME !== undefined ? { USERPROFILE: extraEnv.HOME } : {};
+    const start = Date.now();
     const child = spawn(process.execPath, [binPath, ...argv], {
       cwd,
       env: {
@@ -150,6 +201,7 @@ function runCliOnce(
       resolve({
         code: code ?? -1,
         signal,
+        elapsedMs: Date.now() - start,
         stdout: Buffer.concat(out).toString("utf8"),
         stderr: Buffer.concat(err).toString("utf8"),
         dir: cwd,
@@ -164,6 +216,7 @@ function runCliOnce(
  */
 export function runGit(cwd: string, args: string[]): Promise<RunResult> {
   return new Promise((resolve, reject) => {
+    const start = Date.now();
     const child = spawn("git", args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
@@ -177,6 +230,7 @@ export function runGit(cwd: string, args: string[]): Promise<RunResult> {
       resolve({
         code: code ?? -1,
         signal,
+        elapsedMs: Date.now() - start,
         stdout: Buffer.concat(out).toString("utf8"),
         stderr: Buffer.concat(err).toString("utf8"),
         dir: cwd,
