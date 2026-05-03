@@ -5,13 +5,20 @@ export interface LossPoint {
   loss: number | null;
 }
 
+// Narrowed view of `LossPoint` once a missing-loss point has been
+// filtered out. Used as the hover state's type so the chart's render
+// path doesn't have to repeatedly assert `loss as number` — `setHover`
+// is only ever called with elements of `numeric`, which already has
+// this shape.
+type NumericLossPoint = { step: number; loss: number };
+
 const HEIGHT = 240;
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
 
 export function LossChart({ points }: { points: LossPoint[] }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
-  const [hover, setHover] = useState<LossPoint | null>(null);
+  const [hover, setHover] = useState<NumericLossPoint | null>(null);
 
   useEffect(() => {
     const el = wrapperRef.current;
@@ -34,7 +41,7 @@ export function LossChart({ points }: { points: LossPoint[] }) {
   }, []);
 
   const numeric = points.filter(
-    (p): p is { step: number; loss: number } => typeof p.loss === "number",
+    (p): p is NumericLossPoint => typeof p.loss === "number",
   );
 
   if (numeric.length === 0) {
@@ -184,7 +191,7 @@ export function LossChart({ points }: { points: LossPoint[] }) {
             />
             <circle
               cx={xFor(hover.step)}
-              cy={yFor(hover.loss as number)}
+              cy={yFor(hover.loss)}
               r={3.5}
               fill="white"
               stroke="rgb(20 184 166)"
@@ -209,7 +216,7 @@ export function LossChart({ points }: { points: LossPoint[] }) {
           className="pointer-events-none absolute -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] font-mono shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
           style={{
             left: xFor(hover.step),
-            top: Math.max(0, yFor(hover.loss as number) - 36),
+            top: Math.max(0, yFor(hover.loss) - 36),
           }}
         >
           <span className="text-zinc-500 dark:text-zinc-400">step </span>
@@ -217,7 +224,7 @@ export function LossChart({ points }: { points: LossPoint[] }) {
           <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
           <span className="text-zinc-500 dark:text-zinc-400">loss </span>
           <span className="text-teal-600 dark:text-teal-300">
-            {(hover.loss as number).toFixed(4)}
+            {hover.loss.toFixed(4)}
           </span>
         </div>
       ) : null}
