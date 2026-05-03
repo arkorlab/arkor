@@ -1,0 +1,66 @@
+---
+title: "arkor build / start"
+description: "Studio を立ち上げずにトレーナーを実行する。"
+---
+
+# `arkor build` と `arkor start`
+
+`arkor build` はプロジェクトを単一の ESM 成果物にバンドルします。`arkor start` がそれを実行します。組み合わせると Studio の **Run training** ボタンのヘッドレス相当になります。CI、サーバー、UI なしでトレーナーを駆動したいスクリプトに使ってください。
+
+## 実行
+
+<CodeGroup>
+
+```bash pnpm
+pnpm build
+pnpm start
+```
+
+```bash npm
+npm run build
+npm start
+```
+
+```bash yarn
+yarn build
+yarn start
+```
+
+```bash bun
+bun run build
+bun start
+```
+
+</CodeGroup>
+
+`arkor build` は `src/arkor/index.ts` から `.arkor/build/index.mjs` を書きます。`arkor start` はそのバンドルを import し、トレーナーを見つけ、`start()` + `wait()` を呼びます（Studio のボタンと同じペア）。
+
+明示的な `build` をスキップしても `arkor start` が初回に自動ビルドします。スクリプトからは両ステップを明示する方が、ビルド失敗が学習開始前に表に出るのでおすすめです。
+
+## 別エントリーで一度だけ走らせる
+
+<CodeGroup>
+
+```bash pnpm
+pnpm start src/arkor/experiment.ts
+```
+
+```bash npm
+npm start -- src/arkor/experiment.ts
+```
+
+```bash yarn
+yarn start src/arkor/experiment.ts
+```
+
+```bash bun
+bun start src/arkor/experiment.ts
+```
+
+</CodeGroup>
+
+`arkor start` にエントリーを渡すと、まずそのエントリーでリビルドしてから走ります。
+
+## リファレンス
+
+引数行列、自動ビルドのルール、ランナーが受け付けるエクスポート形、各エラーメッセージは [`arkor build` / `arkor start` リファレンス](/ja/cli/build-and-start) を参照してください。

@@ -39,7 +39,13 @@
               },
               {
                 "group": "CLI",
-                "pages": ["guides/cli/init"]
+                "pages": [
+                  "guides/cli/overview",
+                  "guides/cli/init",
+                  "guides/cli/dev",
+                  "guides/cli/build-and-start",
+                  "guides/cli/auth"
+                ]
               },
               {
                 "group": "SDK",
@@ -134,7 +140,13 @@
               },
               {
                 "group": "CLI",
-                "pages": ["ja/guides/cli/init"]
+                "pages": [
+                  "ja/guides/cli/overview",
+                  "ja/guides/cli/init",
+                  "ja/guides/cli/dev",
+                  "ja/guides/cli/build-and-start",
+                  "ja/guides/cli/auth"
+                ]
               },
               {
                 "group": "SDK",
