@@ -12,7 +12,7 @@ export interface EnsureProjectStateOptions {
 /**
  * Resolve the project scope (`orgSlug` / `projectSlug`) used to address
  * cloud-api endpoints. Returns existing `.arkor/state.json` if present;
- * otherwise: for anonymous credentials only: derives a slug from the cwd
+ * otherwise, for anonymous credentials only, derives a slug from the cwd
  * basename, creates (or reuses on 409) the project, persists state, and
  * returns it. Auth0 callers without state must run `arkor init` first.
  *

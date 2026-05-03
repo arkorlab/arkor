@@ -723,8 +723,8 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   // saturated `exp` could still wait up to 1.25 × the documented cap
   // when `Math.random()` lands near 1.
   // Codex review on PR #13 (round 3) flagged that a 200-OK stream that
-  // EOFs without emitting any frame would loop forever at the base delay
-  //: `maxReconnectAttempts` was bypassed because clean closes never
+  // EOFs without emitting any frame would loop forever at the base delay.
+  // `maxReconnectAttempts` was bypassed because clean closes never
   // touched the failure counter. Misconfigured proxies / load-balancers
   // that accept the connection and immediately drop it would hang
   // `wait()` indefinitely.

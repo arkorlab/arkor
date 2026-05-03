@@ -28,7 +28,7 @@ beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-whoami-test-"));
   process.env.HOME = fakeHome;
   // Mirror HOME into the Windows home-dir env vars so `os.homedir()`
-  //, and therefore the credential helpers: point at the temp dir on
+  // (and therefore the credential helpers) points at the temp dir on
   // every platform.
   process.env.USERPROFILE = fakeHome;
   process.env.HOMEDRIVE = "";

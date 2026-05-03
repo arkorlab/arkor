@@ -343,8 +343,8 @@ describe("CloudApiClient.chat", () => {
   it("propagates an AbortSignal so callers can cancel mid-stream", async () => {
     const ac = new AbortController();
     const { fetch: f, calls } = recorder((call) => {
-      // The implementation passes signal through `fetchImpl(url, { signal })`
-      //: verifying its presence on the captured init mirrors that contract.
+      // The implementation passes signal through `fetchImpl(url, { signal })`.
+      // Verifying its presence on the captured init mirrors that contract.
       expect(call.method).toBe("POST");
       return new Response("ok", { status: 200 });
     });

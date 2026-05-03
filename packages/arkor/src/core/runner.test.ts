@@ -174,8 +174,8 @@ describe("runTrainer: entry extraction", () => {
       join(arkorDir, "index.ts"),
       `export * from "./index.mjs";\n`,
     );
-    // Pass undefined explicitly to exercise the `?? DEFAULT_ENTRY` branch
-    //: Node's experimental-strip-types handles the .ts extension at
+    // Pass undefined explicitly to exercise the `?? DEFAULT_ENTRY` branch.
+    // Node's experimental-strip-types handles the .ts extension at
     // runtime. (vitest also strips TS so this works under test too.)
     await expect(runTrainer()).resolves.toBeUndefined();
   });
