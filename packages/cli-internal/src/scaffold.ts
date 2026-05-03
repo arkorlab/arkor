@@ -39,19 +39,24 @@ function resolveArkorScaffoldSpec(): string {
   // package.json, which is not a valid dependency spec.
   const override = process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC?.trim();
   if (!override || override.length === 0) return DEFAULT_ARKOR_SPEC;
-  // Normalize backslashes to forward slashes for `file:` specs. CI sets
+  // Canonicalize Windows paths in `file:` specs to RFC 8089 form. CI sets
   // this env to `file:${{ github.workspace }}/...` and `github.workspace`
   // is `D:\a\repo\repo` on Windows runners, so the literal value lands as
-  // `file:D:\a\repo\repo/packages/arkor` (mixed slashes). npm tolerates
-  // that, but pnpm 10's URL parser treats the leading `D:\...` as a
-  // relative path and joins it onto the install cwd, producing
+  // `file:D:\a\repo\repo/packages/arkor`. npm tolerates that, but pnpm
+  // 10's URL parser does not recognize `file:D:/...` as absolute even
+  // after slash normalization — it treats the leading `D:` as a relative
+  // path component and joins it onto the install cwd, producing
   // `<tmp>\D:\a\repo\repo\...` — pnpm aborts mid-install with
-  // `ENOENT: scandir '...'` and never writes pnpm-lock.yaml. Forward
-  // slashes are the canonical form for `file:` URIs and parse as absolute
-  // on every OS, so flip them at scaffold time. Only `file:` specs are
-  // touched — npm registry / git / http(s) specs never contain real
-  // backslashes.
-  if (override.startsWith("file:")) return override.replace(/\\/g, "/");
+  // `ENOENT: scandir '...'` and never writes pnpm-lock.yaml. The
+  // canonical Windows file URI is `file:///D:/...` (three slashes), so
+  // promote any `file:<drive>:` prefix and flip backslashes to forward
+  // slashes. Only `file:` specs are touched — registry / git / http(s)
+  // specs never contain real backslashes.
+  if (override.startsWith("file:")) {
+    return override
+      .replace(/^file:([A-Za-z]):/, "file:///$1:")
+      .replace(/\\/g, "/");
+  }
   return override;
 }
 

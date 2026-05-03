@@ -177,16 +177,17 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("created");
   });
 
-  it("normalizes backslashes to forward slashes in `file:` specs", async () => {
+  it("canonicalizes Windows `file:<drive>:` specs to RFC 8089 form", async () => {
     // CI sets ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:${{ github.workspace }}/...
     // and `github.workspace` is `D:\a\repo\repo` on Windows runners, so the
     // literal value lands as `file:D:\a\repo\repo/packages/arkor` (mixed
-    // slashes). pnpm 10's URL parser treats the `D:\...` portion as a
-    // relative path and joins it onto the install cwd, producing
-    // `<tmp>\D:\a\repo\repo\...` — pnpm aborts with `ENOENT: scandir '...'`
-    // mid-install and never writes pnpm-lock.yaml. Forward slashes are the
-    // canonical form for `file:` URIs and parse as absolute on every OS,
-    // so we flip them at scaffold time.
+    // slashes, no triple slash). pnpm 10's URL parser treats the leading
+    // `D:` as a relative path component and joins it onto the install cwd,
+    // producing `<tmp>\D:\a\repo\repo\...` — pnpm aborts with
+    // `ENOENT: scandir '...'` mid-install and never writes pnpm-lock.yaml.
+    // The canonical Windows file URI is `file:///D:/...` (three slashes),
+    // which pnpm parses as absolute, so we promote any `file:<drive>:`
+    // prefix and flip backslashes to forward slashes at scaffold time.
     process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC =
       "file:D:\\a\\arkor\\arkor/packages/arkor";
     await scaffold({
@@ -198,7 +199,26 @@ describe("scaffold", () => {
       readFileSync(join(cwd, "package.json"), "utf8"),
     ) as Record<string, unknown>;
     const devDeps = pkg.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("file:D:/a/arkor/arkor/packages/arkor");
+    expect(devDeps.arkor).toBe("file:///D:/a/arkor/arkor/packages/arkor");
+  });
+
+  it("leaves an already-canonical `file:///<drive>:/...` spec untouched", async () => {
+    // The drive-letter promotion regex is anchored at `^file:<letter>:`,
+    // so a spec that already contains `file:///` (where the char after
+    // `file:` is `/`, not a drive letter) is preserved as-is. Backslash
+    // normalization is still applied for safety.
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC =
+      "file:///D:/a/arkor/arkor/packages/arkor";
+    await scaffold({
+      cwd,
+      name: "canonical-windows-spec",
+      template: "triage",
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const devDeps = pkg.devDependencies as Record<string, string>;
+    expect(devDeps.arkor).toBe("file:///D:/a/arkor/arkor/packages/arkor");
   });
 
   it("does not touch backslashes in non-`file:` specs", async () => {
