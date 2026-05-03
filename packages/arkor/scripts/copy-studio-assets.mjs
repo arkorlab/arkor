@@ -16,7 +16,7 @@ const dst = join(pkgRoot, "dist/assets");
 
 if (!existsSync(src)) {
   console.error(
-    `[copy-studio-assets] expected ${src} to exist: run \`pnpm --filter @arkor/studio-app bundle\` first.`,
+    `[copy-studio-assets] expected ${src} to exist — run \`pnpm --filter @arkor/studio-app bundle\` first.`,
   );
   process.exit(1);
 }

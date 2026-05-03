@@ -57,7 +57,7 @@ async function decideGitInit(
 
   if (await isInGitRepo(cwd)) {
     ui.log.info(
-      "Directory is already inside a git repository: skipping git init.",
+      "Directory is already inside a git repository — skipping git init.",
     );
     return false;
   }
@@ -79,7 +79,7 @@ async function runGitInit(cwd: string): Promise<void> {
   // "already inside a git repo → skip" rule.
   if (await isInGitRepo(cwd)) {
     ui.log.info(
-      "Directory became a git repository during install: skipping git init.",
+      "Directory became a git repository during install — skipping git init.",
     );
     return;
   }
@@ -91,7 +91,7 @@ async function runGitInit(cwd: string): Promise<void> {
     );
     if (result.signingFallback) {
       ui.log.warn(
-        "Commit signing failed: created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
+        "Commit signing failed — created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
       );
     }
   } catch (err) {

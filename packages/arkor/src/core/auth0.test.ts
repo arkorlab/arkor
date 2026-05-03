@@ -268,9 +268,9 @@ describe("startLoopbackServer", () => {
       );
       expect(res.status).toBe(400);
       const body = await res.text();
-      // The trailing `: ` is preserved before the empty description so
+      // The trailing ` — ` is preserved before the empty description so
       // a regression that drops the separator surfaces here.
-      expect(body).toContain("Authentication failed: server_error: ");
+      expect(body).toContain("Authentication failed: server_error — ");
       const err = await callback;
       expect((err as Error).message).toMatch(/server_error/);
     } finally {

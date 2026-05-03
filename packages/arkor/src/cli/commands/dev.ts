@@ -62,11 +62,11 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     // to follow up is to upgrade to OAuth, so the interactive picker
     // would just add friction. Surface the fast path directly.
     ui.log.info(
-      "No credentials on file: bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
+      "No credentials on file — bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
     );
   } else {
     ui.log.info(
-      "No credentials on file: requesting an anonymous token.",
+      "No credentials on file — requesting an anonymous token.",
     );
   }
   // Scoped to just `requestAnonymousToken` on purpose: this is where we
@@ -130,7 +130,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       // wrap and risk leaking noisy HTML/JSON error pages. The full
       // detail is preserved on `cause` for debugging.
       throw new Error(
-        `Failed to bootstrap an anonymous session (HTTP ${err.status}). This deployment may require sign-in: run \`arkor login --oauth\` and try again.`,
+        `Failed to bootstrap an anonymous session (HTTP ${err.status}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
         { cause: err },
       );
     }
@@ -146,7 +146,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
   };
   await writeCredentials(creds);
   ui.log.info(
-    `Anonymous id: ${anon.anonymousId}. Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
+    `Anonymous id: ${anon.anonymousId} — Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
   );
   // see ../anonymous.ts for wording rationale and gating contract.
   if (oauthAvailable === true) {
