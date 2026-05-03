@@ -93,8 +93,7 @@ export function Playground({
   // Push picker / mode changes back into the hash so a reload or
   // copy-paste of the URL lands on the same view. `replaceState`
   // (not pushState) keeps the back/forward stack clean when the user
-  // is just toggling the picker; it also doesn't fire `hashchange`,
-  // so the sync-from-prop effect below won't loop.
+  // is just toggling the picker.
   function syncHash(args: { mode: Mode; adapterId: string | null }) {
     const params = new URLSearchParams();
     if (args.mode === "adapter" && args.adapterId) {
@@ -102,13 +101,23 @@ export function Playground({
     }
     const query = params.toString();
     const next = query ? `#/playground?${query}` : "#/playground";
-    if (window.location.hash !== next) {
-      window.history.replaceState(null, "", next);
-      // appliedAdapterRef tracks "the last URL value we honoured" so
-      // the sync effect below doesn't try to re-apply our own write.
-      appliedAdapterRef.current =
-        args.mode === "adapter" && args.adapterId ? args.adapterId : undefined;
-    }
+    if (window.location.hash === next) return;
+    // appliedAdapterRef tracks "the last URL value we honoured" — set
+    // it BEFORE the hashchange dispatch below so the sync-from-prop
+    // effect's first equality check sees both sides matching and
+    // returns early. Otherwise the effect would treat the new prop
+    // value as an external change, run its setMessages([]) reset, and
+    // wipe the conversation when streaming flips back to false.
+    appliedAdapterRef.current =
+      args.mode === "adapter" && args.adapterId ? args.adapterId : undefined;
+    window.history.replaceState(null, "", next);
+    // `replaceState` doesn't fire hashchange on its own, so
+    // `useHashRoute` would otherwise stay on the mount-time value
+    // and feed a stale `initialAdapterId` back in — the sync effect
+    // below would then snap us back to that stale value at the next
+    // re-render. Dispatch the event manually so `useHashRoute` re-
+    // parses against the URL we just wrote.
+    window.dispatchEvent(new Event("hashchange"));
   }
 
   // Re-seed `mode` / `selectedJob` when the URL's adapter param

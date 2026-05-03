@@ -56,6 +56,7 @@ export function Composer({
             onKeyDown={onKey}
             rows={1}
             placeholder={placeholder}
+            aria-label="Message"
             disabled={disabled}
             className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:outline-none disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-600"
           />

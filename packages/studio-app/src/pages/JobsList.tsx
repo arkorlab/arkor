@@ -141,16 +141,22 @@ export function JobsList() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name or ID…"
+              aria-label="Search jobs by name or ID"
               className="h-9 w-full rounded-lg border border-zinc-200 bg-white pl-9 pr-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:border-teal-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600"
             />
           </div>
-          <div className="flex flex-wrap items-center gap-1">
+          <div
+            role="group"
+            aria-label="Filter by status"
+            className="flex flex-wrap items-center gap-1"
+          >
             {STATUS_FILTERS.map((f) => {
               const active = filter === f.value;
               return (
                 <button
                   key={f.value}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => setFilter(f.value)}
                   className={
                     active
