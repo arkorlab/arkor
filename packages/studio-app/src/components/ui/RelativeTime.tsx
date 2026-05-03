@@ -26,6 +26,20 @@ function subscribe(fn: () => void): () => void {
   };
 }
 
+// Vite HMR replaces the module without unloading the previous one's
+// closures, so without an explicit dispose the old `setInterval` keeps
+// firing in dev and every hot reload doubles the tick rate. Production
+// bundles strip `import.meta.hot`, so this is a no-op there.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    if (ticker !== undefined) {
+      clearInterval(ticker);
+      ticker = undefined;
+    }
+    subscribers.clear();
+  });
+}
+
 export function RelativeTime({
   iso,
   className,

@@ -45,6 +45,13 @@ export function Playground({
   // Holds the AbortController for the in-flight inference stream so
   // unmount (or a manual mode/model switch) can tear it down.
   const inferenceAbortRef = useRef<AbortController | null>(null);
+  // Synchronous guard against rapid double-submits (Enter twice, double
+  // click) that fire `send()` before the `setStreaming(true)` from the
+  // first call has re-rendered. `canSend` is derived from render-time
+  // state and would still read truthy for the second invocation,
+  // letting it duplicate the user message and orphan the first
+  // assistant placeholder when the new stream aborts the old.
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,7 +162,9 @@ export function Playground({
     (mode === "base" || (mode === "adapter" && selectedJob !== null));
 
   async function send() {
+    if (sendingRef.current) return;
     if (!canSend) return;
+    sendingRef.current = true;
     // Allocate stable ids up front so streaming fragments and the
     // catch-branch error replacement always target the same assistant
     // slot, independent of when React flushes the placeholder update.
@@ -206,6 +215,7 @@ export function Playground({
       const msg = err instanceof Error ? err.message : String(err);
       writeAssistant(`[error] ${msg}`);
     } finally {
+      sendingRef.current = false;
       if (inferenceAbortRef.current === ac) inferenceAbortRef.current = null;
       if (!ac.signal.aborted) setStreaming(false);
     }
