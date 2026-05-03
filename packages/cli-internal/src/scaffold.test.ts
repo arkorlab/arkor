@@ -202,24 +202,33 @@ describe("scaffold", () => {
     expect(devDeps.arkor).toBe("file:///D:/a/arkor/arkor/packages/arkor");
   });
 
-  it("leaves an already-canonical `file:///<drive>:/...` spec untouched", async () => {
-    // The drive-letter promotion regex is anchored at `^file:<letter>:`,
-    // so a spec that already contains `file:///` (where the char after
-    // `file:` is `/`, not a drive letter) is preserved as-is. Backslash
-    // normalization is still applied for safety.
-    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC =
-      "file:///D:/a/arkor/arkor/packages/arkor";
-    await scaffold({
-      cwd,
-      name: "canonical-windows-spec",
-      template: "triage",
-    });
-    const pkg = JSON.parse(
-      readFileSync(join(cwd, "package.json"), "utf8"),
-    ) as Record<string, unknown>;
-    const devDeps = pkg.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("file:///D:/a/arkor/arkor/packages/arkor");
-  });
+  it(
+    "leaves an already-canonical `file:///<drive>:/...` spec untouched",
+    async () => {
+      // The drive-letter promotion regex is anchored at `^file:<letter>:`,
+      // so a spec that already contains `file:///` (where the char after
+      // `file:` is `/`, not a drive letter) is preserved as-is. Backslash
+      // normalization is still applied for safety.
+      process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC =
+        "file:///D:/a/arkor/arkor/packages/arkor";
+      await scaffold({
+        cwd,
+        name: "canonical-windows-spec",
+        template: "triage",
+      });
+      const pkg = JSON.parse(
+        readFileSync(join(cwd, "package.json"), "utf8"),
+      ) as Record<string, unknown>;
+      const devDeps = pkg.devDependencies as Record<string, string>;
+      expect(devDeps.arkor).toBe("file:///D:/a/arkor/arkor/packages/arkor");
+    },
+    // Vitest's 5s default is too tight for GitHub Windows runners under
+    // I/O pressure: the same scaffold() call sometimes lands a single test
+    // at 5s+ even though sibling tests in the same file finish in <30ms.
+    // Defender / file-locking flake, not a real regression — the assertion
+    // is otherwise straight string round-trip.
+    30_000,
+  );
 
   it("does not touch backslashes in non-`file:` specs", async () => {
     // The normalization is scoped to `file:` specs because npm registry,
