@@ -34,6 +34,9 @@ export interface InitOptions {
 const MANUAL_INSTALL_HINT =
   "install dependencies (npm i / pnpm install / yarn / bun install)";
 
+const MANUAL_DEV_HINT =
+  "run dev (npm run dev / pnpm dev / yarn dev / bun dev)";
+
 /**
  * Decide whether to run `git init` + initial commit, surfacing the prompt
  * upfront so the user doesn't sit at an interactive question after the long
@@ -167,13 +170,16 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   if (shouldInitGit) await runGitInit(cwd);
 
-  const devCmd =
-    pm && pm !== "npm" ? `${pm} dev` : "npm run dev";
+  const devHint = pm
+    ? pm === "npm"
+      ? "`npm run dev`"
+      : `\`${pm} dev\``
+    : MANUAL_DEV_HINT;
   ui.outro(
     installed
-      ? `Next: \`${devCmd}\``
+      ? `Next: ${devHint}`
       : pm
-        ? `Next: \`${pm} install\`, then \`${devCmd}\``
-        : `Next: ${MANUAL_INSTALL_HINT}, then \`${devCmd}\``,
+        ? `Next: \`${pm} install\`, then ${devHint}`
+        : `Next: ${MANUAL_INSTALL_HINT}, then ${devHint}`,
   );
 }

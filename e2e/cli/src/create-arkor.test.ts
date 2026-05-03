@@ -103,10 +103,12 @@ describe("create-arkor (E2E)", () => {
     );
     expect(trainer).toContain("createTrainer");
 
-    // No `--use-*` and CI=1 → pm undefined → manual install hint + `npm run dev` fallback.
-    expect(result.stdout).toContain("npm run dev");
+    // No `--use-*` and CI=1 → pm undefined → both manual install + manual dev hints fire.
     expect(result.stdout).toContain(
       "install dependencies (npm i / pnpm install / yarn / bun install)",
+    );
+    expect(result.stdout).toContain(
+      "run dev (npm run dev / pnpm dev / yarn dev / bun dev)",
     );
   });
 

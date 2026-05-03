@@ -71,9 +71,12 @@ describe("arkor init (E2E)", () => {
     expect(existsSync(join(cwd, "arkor.config.ts"))).toBe(true);
 
     expect(result.stdout).toContain("Next:");
-    // pm undefined → manual install hint surfaces in the outro.
+    // pm undefined → both manual install + manual dev hints surface in the outro.
     expect(result.stdout).toContain(
       "install dependencies (npm i / pnpm install / yarn / bun install)",
+    );
+    expect(result.stdout).toContain(
+      "run dev (npm run dev / pnpm dev / yarn dev / bun dev)",
     );
   });
 

@@ -35,6 +35,9 @@ interface RunOptions {
 const MANUAL_INSTALL_HINT =
   "install dependencies (npm i / pnpm install / yarn / bun install)";
 
+const MANUAL_DEV_HINT =
+  "run dev (npm run dev / pnpm dev / yarn dev / bun dev)";
+
 function isInteractive(): boolean {
   return Boolean(process.stdout.isTTY) && !process.env.CI;
 }
@@ -265,8 +268,11 @@ async function run(options: RunOptions): Promise<void> {
     : pm
       ? `  ${pm} install`
       : `  ${MANUAL_INSTALL_HINT}`;
-  const devLine =
-    pm && pm !== "npm" ? `  ${pm} dev` : `  npm run dev`;
+  const devLine = pm
+    ? pm === "npm"
+      ? `  npm run dev`
+      : `  ${pm} dev`
+    : `  ${MANUAL_DEV_HINT}`;
 
   clack.outro(
     [
