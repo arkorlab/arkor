@@ -9,7 +9,22 @@ import {
   type TemplateId,
 } from "./templates";
 
-export type FileAction = "created" | "kept" | "patched" | "ok";
+/**
+ * - `created` — file was missing; the scaffolder wrote a new one.
+ * - `kept` — file existed; the scaffolder left it untouched on disk.
+ * - `patched` — file existed; the scaffolder modified it in place.
+ * - `ok` — file existed and already matched the desired state; no write.
+ * - `skipped` — the scaffolder declined to create or modify the file
+ *   because some upstream guard tripped (currently: `CLAUDE.md` when
+ *   `AGENTS.md` contains duplicate managed blocks). The file is **not**
+ *   on disk afterwards, distinguishing this from `kept`.
+ */
+export type FileAction =
+  | "created"
+  | "kept"
+  | "patched"
+  | "ok"
+  | "skipped";
 
 export interface ScaffoldOptions {
   /** Destination directory — created if it does not already exist. */
@@ -376,14 +391,56 @@ export async function scaffold(
     path: CONFIG_PATH,
     action: await ensureFile(join(cwd, CONFIG_PATH), STARTER_CONFIG),
   });
+  // Determine the AGENTS.md / CLAUDE.md outcome *before* writing README.
+  // STARTER_README documents whichever agent files actually land on
+  // disk, so generating the README earlier locks in the wrong content
+  // when `writeAgentsMd` later refuses to patch (duplicate-block case)
+  // and `CLAUDE.md` is consequently skipped.
+  const warnings: string[] = [];
+  type AgentEntry = { path: string; action: FileAction };
+  const agentEntries: AgentEntry[] = [];
+  let claudeWritten = false;
+  if (options.agentsMd) {
+    const agents = await writeAgentsMd(cwd);
+    agentEntries.push({ path: AGENTS_MD_PATH, action: agents.action });
+    if (agents.warning) warnings.push(agents.warning);
+    if (agents.warning) {
+      // AGENTS.md was kept untouched because it contains duplicate
+      // canonical blocks. Skip CLAUDE.md too: it's a one-line
+      // `@AGENTS.md` shim that auto-imports AGENTS.md into Claude
+      // Code's context, so creating it now would feed the unresolved
+      // duplicate rules straight to the agent. Wait for the user to
+      // dedupe and re-run. Action `skipped` (not `kept`) so the CLI
+      // line doesn't lie about the file being on disk.
+      const claudeAlreadyOnDisk = existsSync(join(cwd, CLAUDE_MD_PATH));
+      if (claudeAlreadyOnDisk) {
+        agentEntries.push({ path: CLAUDE_MD_PATH, action: "kept" });
+        claudeWritten = true; // user's existing CLAUDE.md still references AGENTS.md
+      } else {
+        agentEntries.push({ path: CLAUDE_MD_PATH, action: "skipped" });
+        warnings.push(
+          `${CLAUDE_MD_PATH} not created because ${AGENTS_MD_PATH} has duplicate managed blocks (would auto-import the unresolved rules into Claude Code). Dedupe ${AGENTS_MD_PATH} and re-run.`,
+        );
+      }
+    } else {
+      const claudeAction = await writeClaudeMd(cwd);
+      agentEntries.push({ path: CLAUDE_MD_PATH, action: claudeAction });
+      claudeWritten = true;
+    }
+  }
+
   files.push({
     path: README_PATH,
     action: await ensureFile(
       join(cwd, README_PATH),
-      // Mirror what we actually emit on disk so a `--no-agents-md` run
-      // doesn't ship a README that documents AGENTS.md / CLAUDE.md as
-      // existing files.
-      STARTER_README(options.name, { agentsMd: options.agentsMd === true }),
+      // Document the AGENTS.md / CLAUDE.md bullet only when both files
+      // are present on disk after this run. Skipped CLAUDE.md (duplicate
+      // AGENTS.md case) means the README would describe a file that
+      // isn't there; the bullet is suppressed to keep the README
+      // truthful.
+      STARTER_README(options.name, {
+        agentsMd: options.agentsMd === true && claudeWritten,
+      }),
     ),
   });
   files.push({
@@ -394,30 +451,7 @@ export async function scaffold(
     path: PACKAGE_JSON_PATH,
     action: await patchPackageJson(cwd, options.name),
   });
-  const warnings: string[] = [];
-  if (options.agentsMd) {
-    const agents = await writeAgentsMd(cwd);
-    files.push({ path: AGENTS_MD_PATH, action: agents.action });
-    if (agents.warning) warnings.push(agents.warning);
-    // When AGENTS.md was left untouched because it contains duplicate
-    // canonical blocks, skip CLAUDE.md too. CLAUDE.md is a one-line
-    // `@AGENTS.md` shim that auto-imports AGENTS.md into Claude Code's
-    // context — creating it now would feed the duplicate / stale rules
-    // straight to the agent. Wait for the user to dedupe and re-run.
-    if (agents.warning) {
-      files.push({ path: CLAUDE_MD_PATH, action: "kept" });
-      if (!existsSync(join(cwd, CLAUDE_MD_PATH))) {
-        warnings.push(
-          `${CLAUDE_MD_PATH} not created because ${AGENTS_MD_PATH} has duplicate managed blocks (would auto-import the unresolved rules into Claude Code). Dedupe ${AGENTS_MD_PATH} and re-run.`,
-        );
-      }
-    } else {
-      files.push({
-        path: CLAUDE_MD_PATH,
-        action: await writeClaudeMd(cwd),
-      });
-    }
-  }
+  for (const entry of agentEntries) files.push(entry);
   return { files, cwd, warnings };
 }
 

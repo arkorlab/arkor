@@ -77,8 +77,12 @@ in place. As a safety net, when an existing `AGENTS.md` already contains more
 than one canonical managed block the scaffolder refuses to guess which copy
 is current — the file is kept untouched and a warning is printed so you can
 dedupe before the next re-scaffold patches in place.
-`CLAUDE.md` is created with `@AGENTS.md` only if it does not already
-exist.
+`CLAUDE.md` is created with `@AGENTS.md` only when it does not already
+exist *and* `AGENTS.md` does not contain duplicate managed blocks. In
+the duplicate-block case the scaffolder skips `CLAUDE.md` too, since it
+would otherwise auto-import the unresolved rules into Claude Code via
+the `@<path>` directive — the next re-scaffold creates the file once
+`AGENTS.md` is deduped.
 
 Claude Code auto-loads `CLAUDE.md` from the project root, and the
 `@<path>` directive is a built-in import — writing `@AGENTS.md` inlines

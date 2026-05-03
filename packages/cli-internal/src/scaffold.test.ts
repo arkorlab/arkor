@@ -548,10 +548,18 @@ describe("scaffold", () => {
     // File must be byte-identical — no auto-patch happened.
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(original);
 
-    // CLAUDE.md was skipped (kept) and not written to disk.
+    // CLAUDE.md was skipped — action `skipped`, not `kept` (which would
+    // imply an existing file we left alone). Nothing on disk.
     const claude = result.files.find((f) => f.path === "CLAUDE.md");
-    expect(claude?.action).toBe("kept");
+    expect(claude?.action).toBe("skipped");
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+
+    // The README must not advertise AGENTS.md / CLAUDE.md as present
+    // when CLAUDE.md was actually skipped — otherwise the fresh README
+    // documents files that aren't on disk.
+    const readme = readFileSync(join(cwd, "README.md"), "utf8");
+    expect(readme).not.toContain("CLAUDE.md");
+    expect(readme).not.toContain("--no-agents-md");
 
     // Two warnings: AGENTS.md ambiguity + CLAUDE.md skip explanation.
     expect(result.warnings).toHaveLength(2);
