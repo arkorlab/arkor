@@ -33,8 +33,10 @@ arkor init [options]
 | `--use-bun` | パッケージマネージャに bun を強制。 |
 | `--git` | 確認なしで git リポジトリを初期化し、初回コミットを作成。 |
 | `--skip-git` | git init を黙ってスキップ。 |
+| `--agents-md` | AI コーディングエージェントに「arkor は学習データより新しい」ことを伝える `AGENTS.md` と `CLAUDE.md` を書き出す。デフォルト。 |
+| `--no-agents-md` | `AGENTS.md` / `CLAUDE.md` の生成をスキップ。既存のユーザー記述の `AGENTS.md` は常に保持され、arkor 管理の block（`<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->` で区切られる）は初回は末尾追記、再 scaffold 時はその場で置換されます。 |
 
-`--git` と `--skip-git` は排他です。両方渡すと例外が発生します。
+`--git` と `--skip-git` は排他です。両方渡すと例外が発生します。`--agents-md` と `--no-agents-md` も同様です。
 
 ## テンプレート
 

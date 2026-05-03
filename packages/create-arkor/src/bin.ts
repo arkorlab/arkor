@@ -330,6 +330,19 @@ program
       if (opts.git && opts.skipGit) {
         throw new Error("Pick one of --git / --skip-git, not both.");
       }
+      // Commander treats `--agents-md` and `--no-agents-md` as the same
+      // option (last-wins), so it will not surface a conflict on its own.
+      // Mirror the explicit `--git` / `--skip-git` check by inspecting raw
+      // argv: passing both is almost always a mistake — refuse early
+      // instead of silently honouring whichever came last.
+      if (
+        process.argv.includes("--agents-md") &&
+        process.argv.includes("--no-agents-md")
+      ) {
+        throw new Error(
+          "Pick one of --agents-md / --no-agents-md, not both.",
+        );
+      }
       // Use `Object.hasOwn` (not `in`) so prototype keys like `toString` /
       // `__proto__` can't pass validation and crash later inside scaffold().
       // Reject typos with an explicit error rather than silently coercing them

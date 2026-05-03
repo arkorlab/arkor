@@ -92,6 +92,9 @@ describe("main (CLI Commander wiring)", () => {
       packageManager: "pnpm",
       git: undefined,
       skipGit: undefined,
+      // No --agents-md / --no-agents-md passed → main.ts resolves the
+      // CLI default-on (`opts.agentsMd !== false`).
+      agentsMd: true,
     });
   });
 

@@ -33,8 +33,10 @@ arkor init [options]
 | `--use-bun` | Force bun as the package manager. |
 | `--git` | Initialise a git repo and create an initial commit, without asking. |
 | `--skip-git` | Skip git init silently. |
+| `--agents-md` | Write `AGENTS.md` and `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data. Default. |
+| `--no-agents-md` | Skip generating `AGENTS.md` / `CLAUDE.md`. An existing user-authored `AGENTS.md` is always preserved; the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->`) is appended on first run and replaced in place on re-scaffold. |
 
-`--git` and `--skip-git` are mutually exclusive; passing both throws.
+`--git` and `--skip-git` are mutually exclusive; passing both throws. The same goes for `--agents-md` and `--no-agents-md`.
 
 ## Templates
 

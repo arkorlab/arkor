@@ -57,8 +57,8 @@ Before writing or changing any arkor code, read the installed project docs in \`
 
 Key project files:
 - \`src/arkor/index.ts\` registers arkor primitives.
-- \`src/arkor/trainer.ts\` defines the trainer.
-- \`arkor.config.ts\` stores training defaults.
+- \`src/arkor/trainer.ts\` defines the trainer; training settings (\`maxSteps\`, \`lora\`, etc.) live on the Trainer itself.
+- \`arkor.config.ts\` is currently a placeholder — the runtime does not read it yet.
 ${AGENTS_BLOCK_END}`;
 
 function resolveArkorScaffoldSpec(): string {

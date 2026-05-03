@@ -181,6 +181,20 @@ describe("create-arkor (E2E)", () => {
     );
   });
 
+  it("rejects --agents-md --no-agents-md with a clear error", async () => {
+    const { result } = await runCreateArkor([
+      "-y",
+      "--skip-install",
+      "--skip-git",
+      "--agents-md",
+      "--no-agents-md",
+    ]);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain(
+      "create-arkor failed: Pick one of --agents-md / --no-agents-md, not both.",
+    );
+  });
+
   it("does not prompt when --name + --template are provided without -y", async () => {
     // No `-y`, but every prompted value is supplied as a flag. The run
     // should complete without hanging and apply the flag values.
