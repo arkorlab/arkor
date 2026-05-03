@@ -31,14 +31,19 @@ export interface RunResult {
 
 /**
  * Upper bound on the elapsed time (in milliseconds) for a SIGKILL'd run
- * to still qualify for retry. Calibrated from the observed PR #104 flake,
- * which fired at ~104 ms during the bin's startup re-exec, well before
- * scaffold/install/git work begins. A SIGKILL after this point most
- * likely landed mid-run (during pnpm install, after `git init`, etc.),
- * by which time the `cwd` is no longer pristine and a retry could mask
- * the real failure or pass spuriously.
+ * to still qualify for retry. Calibrated from the observed PR #104 flake
+ * (~104 ms, during the bin's `--experimental-strip-types` self-re-exec)
+ * with ~3× headroom, and held well under the ~600–1200 ms a clean
+ * `arkor init --skip-install --skip-git` takes to scaffold (see
+ * `vitest.config.ts`'s `testTimeout` rationale). A SIGKILL past this
+ * cutoff most likely landed *after* scaffold started writing files
+ * (or much later, e.g. mid-`pnpm install`), at which point the `cwd`
+ * is no longer pristine and a retry could mask the real failure, pass
+ * spuriously against the merged-in-place tree, or fail with a different
+ * error — all of which are worse than letting the original failure
+ * surface.
  */
-const SIGKILL_RETRY_MAX_MS = 1500;
+const SIGKILL_RETRY_MAX_MS = 300;
 
 /**
  * Pure decision function for the ENG-632 retry gate, factored out so it
@@ -110,11 +115,11 @@ export function cleanup(dir: string): void {
  * Caveat (`cwd` carryover): the retry runs in the same `cwd`. Whatever
  * the first attempt wrote (scaffolded files, `git init`, partial
  * `node_modules/`) carries over into attempt 2. The (c) elapsed-ms gate
- * keeps that risk tightly scoped — only sub-`SIGKILL_RETRY_MAX_MS` runs
- * qualify, and the observed flake fires at ~100 ms before scaffold
- * completes, so side effects are minimal in practice. A blanket reset
- * of `cwd` would clobber legitimately pre-seeded state (e.g. tests that
- * `git init` before calling `runCli`), so we accept the best-effort
+ * keeps that risk tightly scoped — `SIGKILL_RETRY_MAX_MS` is held below
+ * the time scaffold needs to start writing files, so a qualifying run
+ * means the bin almost certainly never reached the filesystem. A blanket
+ * reset of `cwd` would clobber legitimately pre-seeded state (e.g. tests
+ * that `git init` before calling `runCli`), so we accept the best-effort
  * behaviour rather than introducing a snapshot/restore.
  */
 export async function runCli(
