@@ -38,6 +38,10 @@
                 ]
               },
               {
+                "group": "CLI",
+                "pages": ["guides/cli/init"]
+              },
+              {
                 "group": "Studio",
                 "pages": [
                   "studio/overview",
@@ -123,6 +127,10 @@
                   "ja/concepts/lifecycle",
                   "ja/concepts/studio"
                 ]
+              },
+              {
+                "group": "CLI",
+                "pages": ["ja/guides/cli/init"]
               },
               {
                 "group": "Studio",

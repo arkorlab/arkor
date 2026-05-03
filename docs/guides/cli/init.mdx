@@ -1,0 +1,68 @@
+---
+title: "arkor init"
+description: "Add Arkor to an existing project."
+---
+
+# `arkor init`
+
+Drops Arkor's starter files into your current directory: a [Trainer](/concepts/trainer) under `src/arkor/`, an `arkor.config.ts`, and a `dev` / `build` / `start` script trio in your `package.json`.
+
+Use it from inside a directory you already own. For greenfield projects, use `<pm> create arkor` instead. See [Quickstart](/quickstart).
+
+## Run it
+
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor init
+```
+
+```bash npm
+npm arkor init
+```
+
+```bash yarn
+yarn arkor init
+```
+
+```bash yarn-berry
+yarn run arkor init
+```
+
+```bash bun
+bun arkor init
+```
+
+</CodeGroup>
+
+The command asks for a project name, picks a starter template, optionally runs `git init`, then installs dependencies. Take the defaults to get something working fast; come back later to customize.
+
+## Then what
+
+Once init finishes, the next step is:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm dev
+```
+
+```bash npm
+npm run dev
+```
+
+```bash yarn
+yarn dev
+```
+
+```bash bun
+bun dev
+```
+
+</CodeGroup>
+
+Studio boots at <http://127.0.0.1:4000>. From there you can trigger a training run.
+
+## Reference
+
+For all flags, error messages, package-manager detection rules, and the exact list of files written, see the [`arkor init` reference](/cli/init).
