@@ -55,10 +55,6 @@ cd my-arkor-app && pnpm dev                            # Studio at http://127.0.
 
 `tsdown` also defines `__SDK_VERSION__`, `__ARKOR_POSTHOG_KEY__`, and `__ARKOR_POSTHOG_HOST__` at build time. The fallback in `core/version.ts` only fires under vitest where the transform doesn't run.
 
-### Self-re-exec for TS strip-types
-
-[packages/arkor/src/bin.ts](packages/arkor/src/bin.ts) re-execs Node with `--experimental-strip-types` if the current invocation lacks built-in TypeScript stripping. User training entries are TypeScript and are imported dynamically by `runTrainer`, so Node ≥22.6 must have stripping available. The CI matrix in [.github/workflows/ci.yaml](.github/workflows/ci.yaml) deliberately spans every minor Node version where strip-types semantics shifted.
-
 ### Studio CSRF token (security-critical)
 
 `arkor dev` generates a 32-byte base64url token per launch ([packages/arkor/src/cli/commands/dev.ts](packages/arkor/src/cli/commands/dev.ts)) and:
@@ -81,7 +77,7 @@ The CLI/Studio look at `src/arkor/index.ts` in user projects. Discovery in [pack
 
 ### E2E suite specifics
 
-[e2e/cli](e2e/cli) has a `pretest` hook that rebuilds `create-arkor` and `arkor` before vitest runs. CI's `rolldownIncompat` matrix entries (Nodes <22.12) bypass this hook because rolldown's native binding doesn't load there — the CI builds the dist on a bootstrap Node 24 and then exercises it on the matrix Node directly (`pnpm exec turbo run test --filter='!@arkor/e2e-cli'` followed by `pnpm --filter @arkor/e2e-cli exec vitest run`).
+[e2e/cli](e2e/cli) has a `pretest` hook that rebuilds `create-arkor` and `arkor` before vitest runs. Every supported Node (≥22.22.0) is in rolldown's compatible range (^20.19 || >=22.12), so the previous "rolldown-incompatible" CI bypass path was removed.
 
 Tests rely on `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:.../packages/arkor` so the scaffolded fixtures install the workspace `arkor` instead of the npm-published one. Both this var and `SKIP_E2E_INSTALL` are declared in [turbo.json](turbo.json) so they pass through Turbo's hash.
 
@@ -100,5 +96,5 @@ Don't split these into "docs in a follow-up PR" or "tests later" — land them i
 
 - **Don't call a HuggingFace model name "non-existent"** based on training-data alone. Templates reference real models (e.g. `unsloth/gemma-4-E4B-it`) that may post-date Claude's knowledge cutoff. Verify (e.g. `WebFetch`) before flagging in issues or PR comments. If unverifiable, hedge ("could not confirm") rather than asserting absence.
 - **Generated files** copied into package dirs are gitignored: `packages/*/CONTRIBUTING.md` (from root), `packages/arkor/docs/` (from root `docs/`). Edit the source under repo root, not the copies.
-- **Node version**: published packages declare `engines.node >=22.6`. Use Node 24 (latest preferred) for development per [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Node version**: published packages declare `engines.node >=22.22.0` (raised from 22.6 to dodge the [Jan 2026 async-hooks DoS CVE](https://nodejs.org/en/blog/vulnerability/january-2026-dos-mitigation-async-hooks)). Use Node 24 (latest preferred) for development per [CONTRIBUTING.md](CONTRIBUTING.md).
 - **pnpm policy** ([pnpm-workspace.yaml](pnpm-workspace.yaml)): `minimumReleaseAge: 1440` (24 h) and `trustPolicy: no-downgrade` are intentional supply-chain guards. `allowBuilds` is the explicit allow-list for postinstall scripts (rolldown, unrs-resolver, esbuild).

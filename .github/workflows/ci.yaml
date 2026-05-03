@@ -24,33 +24,14 @@ jobs:
         # process spawning, and pnpm hardlink/symlink behaviour.
         os: [ubuntu-latest, windows-latest, macos-latest]
 
-        # This matrix intentionally covers Node.js versions where built-in
-        # TypeScript execution was experimental, so we can verify behavioral
-        # differences across strip-types / transform-types / amaro changes.
+        # The 22.x line is pinned to the DoS-patched range (22.22.0+, see
+        # https://nodejs.org/en/blog/vulnerability/january-2026-dos-mitigation-async-hooks);
+        # earlier 22.x are out of support. The 24.x entries still cover
+        # strip-types / transform-types / amaro behaviour shifts.
         node:
-          # Major: introduced --experimental-strip-types
-          - '>=22.6.0 <22.7.0'     # .ts type stripping becomes available
-
-          # Major: introduced --experimental-transform-types
-          - '>=22.7.0 <22.8.0'     # supports TS syntax that requires transforms, such as enum
-
-          - '>=22.8.0 <22.9.0'     # sourceURL / transform-related changes
-          - '>=22.9.0 <22.10.0'    # amaro made externalizable
-          - '>=22.10.0 <22.12.0'   # process.features.typescript / TS test runner changes
-          - '>=22.12.0 <22.13.0'   # amaro updates
-          - '>=22.13.0 <22.14.0'   # added module.stripTypeScriptTypes
-
-          # Major: TypeScript support for eval / worker input and error classification
-          - '>=22.14.0 <22.15.0'   # STDIN eval / worker eval TS input / ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
-
-          - '>=22.15.0 <22.17.0'   # amaro update series
-          - '>=22.17.0 <22.18.0'   # TS module mocking sourcemap fix
-
-          # Major: strip-types enabled by default in Node 22 LTS
-          - '>=22.18.0 <22.20.0'   # unflagged / warning removed / amaro 1.1.0
-
-          - '>=22.20.0 <22.21.0'   # amaro updates
-          - '>=22.21.0 <23'        # amaro updates
+          # Node 22 LTS DoS-patched range
+          - '22.22.0'              # exact minimum supported version (DoS-patched)
+          - '>=22.22.0 <23'        # latest 22.x range
 
           - '>=24.0.0 <24.1.0'     # Node 24 initial state; strip-types default-on / Stability: RC
           - '>=24.1.0 <24.3.0'     # amaro updates
@@ -66,46 +47,22 @@ jobs:
           - '24.12.0'              # exact boundary version where type stripping became stable
           - '>=24.12.0 <25'        # stable Node 24 range after 24.12.0
 
-        # rolldown's native binding requires Node ^20.19 || >=22.12. For matrix
-        # entries below that range, install + tsdown build run on a bootstrap
-        # Node, and the matrix Node below exercises the resulting dist/ at
-        # runtime (with e2e-cli's pretest hook bypassed). All other entries
-        # use the simple flow: install / typecheck / test / build on the
-        # matrix Node directly.
-        include:
-          - { node: '>=22.6.0 <22.7.0',  rolldownIncompat: true }
-          - { node: '>=22.7.0 <22.8.0',  rolldownIncompat: true }
-          - { node: '>=22.8.0 <22.9.0',  rolldownIncompat: true }
-          - { node: '>=22.9.0 <22.10.0', rolldownIncompat: true }
-          - { node: '>=22.10.0 <22.12.0', rolldownIncompat: true }
-
     steps:
       - uses: actions/checkout@v6
 
-      # action-setup@v6 bootstrap-installs pnpm v11 (per its committed lockfile)
-      # and only honours `packageManager` via pnpm's own `manage-package-manager
-      # -versions`. Bootstrap pnpm v11 hard-errors on Node <22.13 unless it's
-      # the @pnpm/exe (Node-bundled) build. The action auto-picks @pnpm/exe
-      # when the *runner's preinstalled* Node is <22.13, which is true for
-      # ubuntu-24.04 (Node 20.x) but NOT windows-2025 / macos-15 (Node 22.22).
-      # Force @pnpm/exe everywhere so bootstrap pnpm runs on its bundled Node
-      # regardless of the matrix Node we switch to next.
+      # action-setup@v6 bootstrap-installs pnpm v11 (per its committed
+      # lockfile) and only honours `packageManager` via pnpm's own
+      # `manage-package-manager-versions`. Force @pnpm/exe so bootstrap
+      # pnpm runs on its bundled Node regardless of which matrix Node
+      # we switch to next.
       #
-      # Pinning `version: 10.33.2` instead doesn't work: action-setup compares
-      # it against the full `pnpm@10.33.2+sha512.xxx` packageManager string
-      # and refuses on mismatch (ERR_PNPM_BAD_PM_VERSION-style error).
+      # Pinning `version: 10.33.2` instead doesn't work: action-setup
+      # compares it against the full `pnpm@10.33.2+sha512.xxx`
+      # packageManager string and refuses on mismatch
+      # (ERR_PNPM_BAD_PM_VERSION-style error).
       - uses: pnpm/action-setup@v6
         with:
           standalone: true
-
-      # rolldown-incompatible path: install + tsdown build run here, on a
-      # known-compatible Node. The matrix Node below then exercises dist/.
-      - name: Setup bootstrap Node
-        if: ${{ matrix.rolldownIncompat }}
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: pnpm
 
       # Turbo's local cache is at .turbo/cache. Keying on the commit SHA
       # always writes a fresh entry; restore-keys falls back to the most
@@ -121,22 +78,11 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-node${{ matrix.node }}-
 
-      - name: Install (bootstrap Node)
-        if: ${{ matrix.rolldownIncompat }}
-        run: pnpm install
-
-      - name: Build CLI dist (bootstrap Node)
-        if: ${{ matrix.rolldownIncompat }}
-        run: pnpm --filter create-arkor build && pnpm --filter arkor build
-
       - name: Setup matrix Node
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
-          # On the rolldown-incompatible path the bootstrap setup above
-          # already restored the pnpm store, so skip cache here to avoid
-          # a redundant post-job save.
-          cache: ${{ !matrix.rolldownIncompat && 'pnpm' || '' }}
+          cache: pnpm
 
       - name: Print resolved Node version
         run: |
@@ -144,32 +90,17 @@ jobs:
           echo "**Resolved Node:** \`$(node --version)\` (matrix: \`${{ matrix.node }}\`)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install
-        if: ${{ !matrix.rolldownIncompat }}
         run: pnpm install
 
       - name: Typecheck
         run: pnpm typecheck
 
-      # e2e-cli's pretest hook rebuilds create-arkor with tsdown, which fails
-      # on matrix Nodes below rolldown's supported range. Skip it in the turbo
-      # run and invoke vitest directly so the dist/ produced by the bootstrap
-      # step above is used as-is.
-      - name: Test (rolldown-incompatible Node)
-        if: ${{ matrix.rolldownIncompat }}
-        env:
-          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
-        run: |
-          pnpm exec turbo run test --filter='!@arkor/e2e-cli'
-          pnpm --filter @arkor/e2e-cli exec vitest run
-
       - name: Test
-        if: ${{ !matrix.rolldownIncompat }}
         env:
           ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: pnpm test
 
       - name: Build
-        if: ${{ !matrix.rolldownIncompat }}
         run: pnpm build
 
   coverage:

@@ -47,7 +47,7 @@ arkor build [entry]
 
 ### Output
 
-`.arkor/build/index.mjs` (`outDir` defaults to `.arkor/build`). The output is a single ESM file targeting Node 22.6, with `packages: "external"` so bare specifiers (`arkor`, anything from `node_modules`) stay external and the artifact resolves the runtime SDK from your installed `node_modules`. Only relative imports are bundled inline.
+`.arkor/build/index.mjs` (`outDir` defaults to `.arkor/build`). The output is a single ESM file targeting Node 22.22, with `packages: "external"` so bare specifiers (`arkor`, anything from `node_modules`) stay external and the artifact resolves the runtime SDK from your installed `node_modules`. Only relative imports are bundled inline.
 
 If the entry does not exist, `arkor build` throws with a hint to either create `src/arkor/index.ts` or pass an explicit entry.
 
