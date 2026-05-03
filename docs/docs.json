@@ -19,64 +19,74 @@
       {
         "language": "en",
         "default": true,
-        "groups": [
+        "tabs": [
           {
-            "group": "Get started",
-            "pages": ["introduction", "quickstart"]
-          },
-          {
-            "group": "Roadmap",
-            "pages": ["roadmap"]
-          },
-          {
-            "group": "Concepts",
-            "pages": [
-              "concepts/overview",
-              "concepts/project-structure",
-              "concepts/trainer",
-              "concepts/lifecycle",
-              "concepts/studio"
+            "tab": "Documentation",
+            "groups": [
+              {
+                "group": "Get started",
+                "pages": ["introduction", "quickstart"]
+              },
+              {
+                "group": "Concepts",
+                "pages": [
+                  "concepts/overview",
+                  "concepts/project-structure",
+                  "concepts/trainer",
+                  "concepts/lifecycle",
+                  "concepts/studio"
+                ]
+              },
+              {
+                "group": "Studio",
+                "pages": [
+                  "studio/overview",
+                  "studio/jobs",
+                  "studio/playground"
+                ]
+              },
+              {
+                "group": "Cookbook",
+                "pages": [
+                  "cookbook/overview",
+                  "cookbook/mid-run-eval",
+                  "cookbook/early-stopping",
+                  "cookbook/notifications",
+                  "cookbook/programmatic-runs",
+                  "cookbook/customizing-templates"
+                ]
+              },
+              {
+                "group": "Roadmap",
+                "pages": ["roadmap"]
+              }
             ]
           },
           {
-            "group": "CLI",
-            "pages": [
-              "cli/overview",
-              "cli/init",
-              "cli/dev",
-              "cli/build-and-start",
-              "cli/auth"
-            ]
-          },
-          {
-            "group": "SDK",
-            "pages": [
-              "sdk/overview",
-              "sdk/create-arkor",
-              "sdk/create-trainer",
-              "sdk/dataset",
-              "sdk/callbacks",
-              "sdk/infer",
-              "sdk/trainer-control"
-            ]
-          },
-          {
-            "group": "Studio",
-            "pages": [
-              "studio/overview",
-              "studio/jobs",
-              "studio/playground"
-            ]
-          },
-          {
-            "group": "Cookbook",
-            "pages": [
-              "cookbook/overview",
-              "cookbook/mid-run-eval",
-              "cookbook/early-stopping",
-              "cookbook/notifications",
-              "cookbook/programmatic-runs",
-              "cookbook/customizing-templates"
+            "tab": "API Reference",
+            "groups": [
+              {
+                "group": "CLI",
+                "pages": [
+                  "cli/overview",
+                  "cli/init",
+                  "cli/dev",
+                  "cli/build-and-start",
+                  "cli/auth"
+                ]
+              },
+              {
+                "group": "SDK",
+                "pages": [
+                  "sdk/overview",
+                  "sdk/create-arkor",
+                  "sdk/create-trainer",
+                  "sdk/dataset",
+                  "sdk/callbacks",
+                  "sdk/infer",
+                  "sdk/trainer-control"
+                ]
+              }
             ]
           }
         ]
@@ -96,64 +106,74 @@
             "href": "/ja/quickstart"
           }
         },
-        "groups": [
+        "tabs": [
           {
-            "group": "はじめに",
-            "pages": ["ja/introduction", "ja/quickstart"]
-          },
-          {
-            "group": "ロードマップ",
-            "pages": ["ja/roadmap"]
-          },
-          {
-            "group": "コンセプト",
-            "pages": [
-              "ja/concepts/overview",
-              "ja/concepts/project-structure",
-              "ja/concepts/trainer",
-              "ja/concepts/lifecycle",
-              "ja/concepts/studio"
+            "tab": "ドキュメント",
+            "groups": [
+              {
+                "group": "はじめに",
+                "pages": ["ja/introduction", "ja/quickstart"]
+              },
+              {
+                "group": "コンセプト",
+                "pages": [
+                  "ja/concepts/overview",
+                  "ja/concepts/project-structure",
+                  "ja/concepts/trainer",
+                  "ja/concepts/lifecycle",
+                  "ja/concepts/studio"
+                ]
+              },
+              {
+                "group": "Studio",
+                "pages": [
+                  "ja/studio/overview",
+                  "ja/studio/jobs",
+                  "ja/studio/playground"
+                ]
+              },
+              {
+                "group": "Cookbook",
+                "pages": [
+                  "ja/cookbook/overview",
+                  "ja/cookbook/mid-run-eval",
+                  "ja/cookbook/early-stopping",
+                  "ja/cookbook/notifications",
+                  "ja/cookbook/programmatic-runs",
+                  "ja/cookbook/customizing-templates"
+                ]
+              },
+              {
+                "group": "ロードマップ",
+                "pages": ["ja/roadmap"]
+              }
             ]
           },
           {
-            "group": "CLI",
-            "pages": [
-              "ja/cli/overview",
-              "ja/cli/init",
-              "ja/cli/dev",
-              "ja/cli/build-and-start",
-              "ja/cli/auth"
-            ]
-          },
-          {
-            "group": "SDK",
-            "pages": [
-              "ja/sdk/overview",
-              "ja/sdk/create-arkor",
-              "ja/sdk/create-trainer",
-              "ja/sdk/dataset",
-              "ja/sdk/callbacks",
-              "ja/sdk/infer",
-              "ja/sdk/trainer-control"
-            ]
-          },
-          {
-            "group": "Studio",
-            "pages": [
-              "ja/studio/overview",
-              "ja/studio/jobs",
-              "ja/studio/playground"
-            ]
-          },
-          {
-            "group": "Cookbook",
-            "pages": [
-              "ja/cookbook/overview",
-              "ja/cookbook/mid-run-eval",
-              "ja/cookbook/early-stopping",
-              "ja/cookbook/notifications",
-              "ja/cookbook/programmatic-runs",
-              "ja/cookbook/customizing-templates"
+            "tab": "API リファレンス",
+            "groups": [
+              {
+                "group": "CLI",
+                "pages": [
+                  "ja/cli/overview",
+                  "ja/cli/init",
+                  "ja/cli/dev",
+                  "ja/cli/build-and-start",
+                  "ja/cli/auth"
+                ]
+              },
+              {
+                "group": "SDK",
+                "pages": [
+                  "ja/sdk/overview",
+                  "ja/sdk/create-arkor",
+                  "ja/sdk/create-trainer",
+                  "ja/sdk/dataset",
+                  "ja/sdk/callbacks",
+                  "ja/sdk/infer",
+                  "ja/sdk/trainer-control"
+                ]
+              }
             ]
           }
         ]
