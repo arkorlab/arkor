@@ -1,6 +1,13 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 import { ARKOR_BIN } from "./bins";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
@@ -114,6 +121,29 @@ describe("arkor init (E2E)", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`${pm} install`);
     expect(result.stdout).toContain(devCmd);
+  });
+
+  it("falls back to a runner-form dev hint when an existing `dev` script is preserved", async () => {
+    // Existing project with its own `dev` script (e.g. a Next.js app). The
+    // scaffolder must not clobber `scripts.dev`, so the runtime hint should
+    // point at `arkor dev` directly via the package manager runner instead
+    // of `pnpm dev` (which would re-run the user's pre-existing script).
+    writeFileSync(
+      join(cwd, "package.json"),
+      `${JSON.stringify(
+        { name: "host", private: true, scripts: { dev: "next dev" } },
+        null,
+        2,
+      )}\n`,
+    );
+    const result = await runCli(
+      ARKOR_BIN,
+      ["init", "-y", "--skip-install", "--skip-git", "--use-pnpm"],
+      cwd,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("pnpm exec arkor dev");
+    expect(result.stdout).not.toMatch(/Next:.*`pnpm dev`/);
   });
 
   it("creates a real git repo and initial commit when --git is set", async () => {

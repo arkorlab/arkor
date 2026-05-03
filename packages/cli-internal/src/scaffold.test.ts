@@ -134,6 +134,33 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("patched");
   });
 
+  it("flags devScriptWiresArkor when scripts.dev is `arkor dev` (greenfield)", async () => {
+    const result = await scaffold({ cwd, name: "fresh", template: "triage" });
+    expect(result.devScriptWiresArkor).toBe(true);
+  });
+
+  it("flags devScriptWiresArkor when an existing package.json has no `dev` script (we patch it in)", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "n", scripts: { build: "tsc" } }, null, 2),
+    );
+    const result = await scaffold({ cwd, name: "n", template: "triage" });
+    expect(result.devScriptWiresArkor).toBe(true);
+  });
+
+  it("does NOT flag devScriptWiresArkor when an existing `dev` script is preserved", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify(
+        { name: "n", scripts: { dev: "next dev", build: "tsc" } },
+        null,
+        2,
+      ),
+    );
+    const result = await scaffold({ cwd, name: "n", template: "triage" });
+    expect(result.devScriptWiresArkor).toBe(false);
+  });
+
   it("appends to an existing .gitignore only if the entry is missing", async () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
     const first = await scaffold({ cwd, name: "n", template: "triage" });

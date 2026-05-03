@@ -37,6 +37,26 @@ const MANUAL_INSTALL_HINT =
 const MANUAL_DEV_HINT =
   "run dev (npm run dev / pnpm dev / yarn dev / bun dev)";
 
+// Used when the project's `dev` script was preserved by the scaffolder and
+// points at something other than `arkor dev` (e.g. an existing `next dev`).
+// Suggest invoking the local arkor binary directly via the package manager
+// runner so the user does not accidentally launch their pre-existing app.
+const MANUAL_RUN_ARKOR_DEV_HINT =
+  "run arkor dev (npx arkor dev / pnpm exec arkor dev / yarn run arkor dev / bunx arkor dev)";
+
+function runArkorDevViaPm(pm: PackageManager): string {
+  switch (pm) {
+    case "npm":
+      return "npx arkor dev";
+    case "pnpm":
+      return "pnpm exec arkor dev";
+    case "yarn":
+      return "yarn run arkor dev";
+    case "bun":
+      return "bunx arkor dev";
+  }
+}
+
 /**
  * Decide whether to run `git init` + initial commit, surfacing the prompt
  * upfront so the user doesn't sit at an interactive question after the long
@@ -139,7 +159,11 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
   // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
-  const { files } = await scaffold({ cwd, name: sanitise(projectName), template });
+  const { files, devScriptWiresArkor } = await scaffold({
+    cwd,
+    name: sanitise(projectName),
+    template,
+  });
 
   ui.note(
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
@@ -170,11 +194,15 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   if (shouldInitGit) await runGitInit(cwd);
 
-  const devHint = pm
-    ? pm === "npm"
-      ? "`npm run dev`"
-      : `\`${pm} dev\``
-    : MANUAL_DEV_HINT;
+  const devHint = devScriptWiresArkor
+    ? pm
+      ? pm === "npm"
+        ? "`npm run dev`"
+        : `\`${pm} dev\``
+      : MANUAL_DEV_HINT
+    : pm
+      ? `\`${runArkorDevViaPm(pm)}\``
+      : MANUAL_RUN_ARKOR_DEV_HINT;
   ui.outro(
     installed
       ? `Next: ${devHint}`

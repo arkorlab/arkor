@@ -136,10 +136,15 @@ npm install && npm run dev
 
 \`arkor dev\` opens the local Studio GUI (most workflows live there).
 
-Optional — log in to your own org instead of using anonymous tokens:
+Optional — log in to your own org instead of using anonymous tokens.
+\`arkor\` is a local devDependency, not a global, so invoke it through
+your package manager's runner:
 
 \`\`\`
-arkor login
+npx arkor login
+# or: pnpm exec arkor login
+# or: yarn run arkor login
+# or: bunx arkor login
 \`\`\`
 
 CLI-only flow (no GUI):

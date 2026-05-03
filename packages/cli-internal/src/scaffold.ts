@@ -22,6 +22,13 @@ export interface ScaffoldOptions {
 export interface ScaffoldResult {
   files: Array<{ path: string; action: FileAction }>;
   cwd: string;
+  /**
+   * True when the final package.json has `scripts.dev === "arkor dev"`.
+   * False when an existing project's `dev` script was preserved and points
+   * elsewhere (e.g. `next dev`); callers should suggest invoking `arkor dev`
+   * directly in that case rather than the package script.
+   */
+  devScriptWiresArkor: boolean;
 }
 
 const INDEX_PATH = "src/arkor/index.ts";
@@ -171,7 +178,19 @@ export async function scaffold(
     path: PACKAGE_JSON_PATH,
     action: await patchPackageJson(cwd, options.name),
   });
-  return { files, cwd };
+
+  let devScriptWiresArkor = false;
+  try {
+    const pkg = JSON.parse(
+      await readFile(join(cwd, PACKAGE_JSON_PATH), "utf8"),
+    ) as { scripts?: Record<string, string> };
+    devScriptWiresArkor = pkg.scripts?.dev === SCRIPT_DEFAULTS.dev;
+  } catch {
+    // package.json unreadable: treat as not wired so callers fall back to
+    // the explicit `arkor dev` invocation form.
+  }
+
+  return { files, cwd, devScriptWiresArkor };
 }
 
 export function templateChoices(): Array<{
