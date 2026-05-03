@@ -18,7 +18,13 @@ onCheckpoint: async ({ step, infer }) => {
 }
 ```
 
-## Input
+## Signature
+
+```ts
+type Infer = (args: InferArgs) => Promise<Response>;
+```
+
+## Parameters
 
 ```ts
 interface InferArgs {
@@ -44,7 +50,7 @@ interface InferArgs {
 | `stream` | `boolean?` | Default **true** (SSE). Set `false` for a single JSON body. |
 | `signal` | `AbortSignal?` | Aborts the local fetch. Does not stop work on the backend; the model finishes generating but you stop reading. |
 
-## Output
+## Returns
 
 `infer` returns `Promise<Response>`: the raw Fetch `Response`. The SDK does not parse the body; you decide how to consume it:
 
@@ -71,8 +77,15 @@ When `stream: true` (the default), the body is an SSE event stream in the same s
 - The call is scoped to `{ kind: "checkpoint", jobId, step }`. You cannot retarget it to a different checkpoint or a different model from inside `onCheckpoint`.
 - The function is not memoized: every call hits the backend.
 
-## When you would use it
+## Use cases
 
 - **Sanity check during a run.** Compare a checkpoint at step 50 to one at step 100 against a fixed prompt. If the loss curve looks fine but outputs are degraded, you find out before the run finishes.
 - **Custom early-stopping.** Combine with a simple eval prompt: if outputs diverge, abort the run via `controller.abort()` (see [`abortSignal`](/sdk/trainer-control#abortsignal)) and call `trainer.cancel()` to stop the backend. See the [Early stopping recipe](/cookbook/early-stopping) for the full pattern.
 - **Live preview into your own UI.** Send the checkpoint output to Slack, an internal review queue, or your own app's preview channel.
+
+## See also
+
+- [`onCheckpoint`](/sdk/callbacks#oncheckpoint-step-adapter-job-infer-artifacts-) for the callback that hands you `infer`
+- [Mid-run eval recipe](/cookbook/mid-run-eval) for an end-to-end pattern
+- [Early stopping recipe](/cookbook/early-stopping) for tying `infer` output to `abortSignal` + `cancel()`
+- [Trainer control](/sdk/trainer-control) for `abortSignal` and `cancel()`
