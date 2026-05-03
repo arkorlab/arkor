@@ -177,6 +177,51 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("created");
   });
 
+  it("normalizes backslashes to forward slashes in `file:` specs", async () => {
+    // CI sets ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:${{ github.workspace }}/...
+    // and `github.workspace` is `D:\a\repo\repo` on Windows runners, so the
+    // literal value lands as `file:D:\a\repo\repo/packages/arkor` (mixed
+    // slashes). pnpm 10's URL parser treats the `D:\...` portion as a
+    // relative path and joins it onto the install cwd, producing
+    // `<tmp>\D:\a\repo\repo\...` — pnpm aborts with `ENOENT: scandir '...'`
+    // mid-install and never writes pnpm-lock.yaml. Forward slashes are the
+    // canonical form for `file:` URIs and parse as absolute on every OS,
+    // so we flip them at scaffold time.
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC =
+      "file:D:\\a\\arkor\\arkor/packages/arkor";
+    await scaffold({
+      cwd,
+      name: "windows-spec",
+      template: "triage",
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const devDeps = pkg.devDependencies as Record<string, string>;
+    expect(devDeps.arkor).toBe("file:D:/a/arkor/arkor/packages/arkor");
+  });
+
+  it("does not touch backslashes in non-`file:` specs", async () => {
+    // The normalization is scoped to `file:` specs because npm registry,
+    // git, and http(s) specs never contain real backslashes — and a
+    // literal `\` could be meaningful (e.g. inside a tag name). Don't
+    // mangle them.
+    process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC =
+      "git+https://example.com/repo.git#tag\\with\\backslashes";
+    await scaffold({
+      cwd,
+      name: "non-file-spec",
+      template: "triage",
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const devDeps = pkg.devDependencies as Record<string, string>;
+    expect(devDeps.arkor).toBe(
+      "git+https://example.com/repo.git#tag\\with\\backslashes",
+    );
+  });
+
   it.each([
     { label: "empty string", value: "" },
     { label: "whitespace only", value: "   " },

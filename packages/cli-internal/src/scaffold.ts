@@ -38,7 +38,21 @@ function resolveArkorScaffoldSpec(): string {
   // (or just spaces) would write `"arkor": ""` into the scaffolded
   // package.json, which is not a valid dependency spec.
   const override = process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC?.trim();
-  return override && override.length > 0 ? override : DEFAULT_ARKOR_SPEC;
+  if (!override || override.length === 0) return DEFAULT_ARKOR_SPEC;
+  // Normalize backslashes to forward slashes for `file:` specs. CI sets
+  // this env to `file:${{ github.workspace }}/...` and `github.workspace`
+  // is `D:\a\repo\repo` on Windows runners, so the literal value lands as
+  // `file:D:\a\repo\repo/packages/arkor` (mixed slashes). npm tolerates
+  // that, but pnpm 10's URL parser treats the leading `D:\...` as a
+  // relative path and joins it onto the install cwd, producing
+  // `<tmp>\D:\a\repo\repo\...` — pnpm aborts mid-install with
+  // `ENOENT: scandir '...'` and never writes pnpm-lock.yaml. Forward
+  // slashes are the canonical form for `file:` URIs and parse as absolute
+  // on every OS, so flip them at scaffold time. Only `file:` specs are
+  // touched — npm registry / git / http(s) specs never contain real
+  // backslashes.
+  if (override.startsWith("file:")) return override.replace(/\\/g, "/");
+  return override;
 }
 
 const SCRIPT_DEFAULTS: Record<string, string> = {
