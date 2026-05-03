@@ -58,12 +58,19 @@ export function LossChart({ points }: { points: LossPoint[] }) {
   const minLoss = Math.min(...numeric.map((p) => p.loss));
   const maxLoss = Math.max(...numeric.map((p) => p.loss));
   const span = Math.max(0.0001, maxLoss - minLoss);
-  const lastStep = Math.max(1, numeric[numeric.length - 1]!.step);
+  // Anchor the x-axis on the observed step range (firstStep..lastStep),
+  // not 0..lastStep — otherwise a trainer that emits its first
+  // training.log at step 1 leaves an empty gap from PADDING.left to
+  // the line's first vertex and tick labels at the left edge would
+  // disagree with where the line actually starts.
+  const firstStep = numeric[0]!.step;
+  const lastStep = Math.max(firstStep + 1, numeric[numeric.length - 1]!.step);
+  const xSpan = lastStep - firstStep;
   const innerW = Math.max(50, width - PADDING.left - PADDING.right);
   const innerH = HEIGHT - PADDING.top - PADDING.bottom;
 
   function xFor(step: number) {
-    return PADDING.left + (step / lastStep) * innerW;
+    return PADDING.left + ((step - firstStep) / xSpan) * innerW;
   }
   function yFor(loss: number) {
     return PADDING.top + (1 - (loss - minLoss) / span) * innerH;
@@ -80,11 +87,17 @@ export function LossChart({ points }: { points: LossPoint[] }) {
     const value = maxLoss - t * span;
     return { y: PADDING.top + t * innerH, value };
   });
+  // De-dupe via Set so a small span (e.g. lastStep === 3 with
+  // xTickCount === 6) doesn't render the same step number twice.
   const xTickCount = Math.min(6, numeric.length);
-  const xTicks = Array.from({ length: xTickCount }).map((_, i) => {
-    const t = xTickCount === 1 ? 0 : i / (xTickCount - 1);
-    return Math.round(t * lastStep);
-  });
+  const xTicks = Array.from(
+    new Set(
+      Array.from({ length: xTickCount }).map((_, i) => {
+        const t = xTickCount === 1 ? 0 : i / (xTickCount - 1);
+        return Math.round(firstStep + t * xSpan);
+      }),
+    ),
+  );
 
   function onMouseMove(e: MouseEvent<SVGRectElement>) {
     // The `<rect>` is already positioned at `x={PADDING.left}`, so its
@@ -98,7 +111,7 @@ export function LossChart({ points }: { points: LossPoint[] }) {
       0,
       Math.min(1, (e.clientX - rect.left) / rect.width),
     );
-    const targetStep = Math.round(fraction * lastStep);
+    const targetStep = Math.round(firstStep + fraction * xSpan);
     // training.log events arrive in step order, so `numeric` is sorted
     // by `.step` — binary search for the insertion point and then pick
     // whichever neighbour is closer (O(log n) vs the previous O(n)

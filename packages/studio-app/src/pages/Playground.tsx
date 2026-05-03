@@ -90,6 +90,27 @@ export function Playground({
     return () => inferenceAbortRef.current?.abort();
   }, []);
 
+  // Push picker / mode changes back into the hash so a reload or
+  // copy-paste of the URL lands on the same view. `replaceState`
+  // (not pushState) keeps the back/forward stack clean when the user
+  // is just toggling the picker; it also doesn't fire `hashchange`,
+  // so the sync-from-prop effect below won't loop.
+  function syncHash(args: { mode: Mode; adapterId: string | null }) {
+    const params = new URLSearchParams();
+    if (args.mode === "adapter" && args.adapterId) {
+      params.set("adapter", args.adapterId);
+    }
+    const query = params.toString();
+    const next = query ? `#/playground?${query}` : "#/playground";
+    if (window.location.hash !== next) {
+      window.history.replaceState(null, "", next);
+      // appliedAdapterRef tracks "the last URL value we honoured" so
+      // the sync effect below doesn't try to re-apply our own write.
+      appliedAdapterRef.current =
+        args.mode === "adapter" && args.adapterId ? args.adapterId : undefined;
+    }
+  }
+
   // Re-seed `mode` / `selectedJob` when the URL's adapter param
   // changes mid-mount (browser back/forward between two
   // `#/playground?adapter=<id>` history entries, programmatic hash
@@ -187,6 +208,17 @@ export function Playground({
     setStreaming(false);
     setMode(next);
     setMessages([]);
+    // Mirror the new mode into the URL so a copy-paste / reload lands
+    // on the same view, and going Base drops the `?adapter=…` so it
+    // doesn't reappear on next reload. `replaceState` (not push) so we
+    // don't litter the back/forward stack with every toggle.
+    syncHash({ mode: next, adapterId: next === "adapter" ? selectedJob : null });
+  }
+
+  function selectAdapter(id: string) {
+    setSelectedJob(id);
+    setMessages([]);
+    syncHash({ mode: "adapter", adapterId: id });
   }
 
   return (
@@ -222,10 +254,7 @@ export function Playground({
             <AdapterPicker
               jobs={jobs}
               selectedId={selectedJob}
-              onSelect={(id) => {
-                setSelectedJob(id);
-                setMessages([]);
-              }}
+              onSelect={selectAdapter}
               disabled={streaming}
             />
           ) : null}

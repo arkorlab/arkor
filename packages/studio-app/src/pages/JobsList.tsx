@@ -43,11 +43,14 @@ export function JobsList() {
   // re-mounts in a way that could drop a still-in-flight load's
   // results during the cleanup→remount window. The polling effect
   // below uses an effect-local `cancelled` to gate scheduling.
-  const load = useCallback(async () => {
+  // `manual` flips the visible spinner; the silent 5s polling tick
+  // calls load() without it so the refresh icon doesn't pulse every
+  // five seconds and look like the user just clicked it.
+  const load = useCallback(async (manual = false) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
+    if (manual) setRefreshing(true);
     try {
-      setRefreshing(true);
       const { jobs } = await fetchJobs();
       setJobs(jobs);
       setError(null);
@@ -55,9 +58,13 @@ export function JobsList() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       inFlightRef.current = false;
-      setRefreshing(false);
+      if (manual) setRefreshing(false);
     }
   }, []);
+
+  const refresh = useCallback(() => {
+    void load(true);
+  }, [load]);
 
   useEffect(() => {
     // Effect-local `cancelled` so the first StrictMode pass's schedule
@@ -109,7 +116,7 @@ export function JobsList() {
             <IconButton
               size="sm"
               label="Refresh"
-              onClick={load}
+              onClick={refresh}
               disabled={refreshing}
             >
               <Refresh
