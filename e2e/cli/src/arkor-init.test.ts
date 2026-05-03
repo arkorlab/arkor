@@ -191,6 +191,14 @@ describe("arkor init (E2E)", () => {
       // execution still happens *after* install — otherwise the lockfile
       // wouldn't be tracked and the bootstrap commit wouldn't be reproducible.
       const tracked = await runGit(cwd, ["ls-tree", "-r", "--name-only", "HEAD"]);
+      // === DIAG eng-625 START — REMOVE BEFORE MERGE ===================
+      // Surface the install.ts DIAG block to CI logs regardless of whether
+      // the assertion below passes. Look for `[DIAG eng-625]` lines.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[DIAG eng-625] STDERR for pm=${pm}:\n${result.stderr}\n[DIAG eng-625] tracked HEAD entries:\n${tracked.stdout}`,
+      );
+      // === DIAG eng-625 END ==========================================
       expect(tracked.stdout).toContain(lockfile);
     },
     180_000,
