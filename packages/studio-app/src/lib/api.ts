@@ -244,6 +244,16 @@ export async function streamTraining(
   // hang on `reader.read()` after the page (and the AbortController
   // cleanup) have moved on.
   const onAbort = () => void reader.cancel().catch(() => {});
+  // Cover the case where the signal was already aborted before we
+  // got here (or aborted in the small window between `getReader()`
+  // and `addEventListener`) — `addEventListener("abort", ...)` won't
+  // fire after the fact, so the trainer process spawned upstream
+  // would never be killed. Cancel synchronously instead.
+  if (signal?.aborted) {
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+    return;
+  }
   signal?.addEventListener("abort", onAbort);
   try {
     while (true) {
@@ -253,5 +263,8 @@ export async function streamTraining(
     }
   } finally {
     signal?.removeEventListener("abort", onAbort);
+    // Release the reader lock so a subsequent caller can re-acquire
+    // the body if needed. Mirrors `iterateSseFrames`'s finally clause.
+    reader.releaseLock();
   }
 }
