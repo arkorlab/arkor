@@ -57,19 +57,37 @@ export function JobsList() {
     }
   }, []);
 
+  // Track real component-instance lifetime in its own effect so the
+  // polling effect below can manage its own scheduling without sharing
+  // a flag — under React.StrictMode (enabled in main.tsx) the polling
+  // effect runs twice on mount, and a shared `aliveRef` would let the
+  // first run's resumed `await load()` see the second run's `true`
+  // alive and keep scheduling timers alongside the second run.
   useEffect(() => {
     aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Effect-local `cancelled` (NOT the shared `aliveRef`) so the
+    // first StrictMode pass's schedule chain can't accidentally
+    // continue after the second pass starts. Mirrors the pattern in
+    // Overview / JobDetail / RunTraining.
+    let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Chained setTimeout (not setInterval) so a slow /api/jobs request
     // can't accumulate overlapping in-flight calls. The same `load` is
     // wired to the manual refresh button.
     async function schedule() {
       await load();
-      if (aliveRef.current) timer = setTimeout(schedule, 5000);
+      if (cancelled) return;
+      timer = setTimeout(schedule, 5000);
     }
     schedule();
     return () => {
-      aliveRef.current = false;
+      cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
   }, [load]);
