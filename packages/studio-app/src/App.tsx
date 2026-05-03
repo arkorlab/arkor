@@ -13,11 +13,19 @@ export function App() {
   const route = useHashRoute();
 
   useEffect(() => {
+    let cancelled = false;
     fetchCredentials()
-      .then((c) => setCreds(c))
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      );
+      .then((c) => {
+        if (!cancelled) setCreds(c);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

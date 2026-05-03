@@ -47,8 +47,10 @@ export function Playground({
   const inferenceAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     fetchJobs()
       .then(({ jobs }) => {
+        if (cancelled) return;
         const completed = jobs.filter((j) => j.status === "completed");
         setJobs(completed);
         // Reconcile the current selection (which may have been seeded
@@ -63,12 +65,16 @@ export function Playground({
         });
       })
       .catch((err: unknown) => {
+        if (cancelled) return;
         // Even on /api/jobs failure, drop into base-model mode so the
         // composer still works — only the Adapter segment depends on
         // having completed jobs to enumerate.
         setJobs([]);
         setError(err instanceof Error ? err.message : String(err));
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Tear the inference stream down on unmount so navigating away

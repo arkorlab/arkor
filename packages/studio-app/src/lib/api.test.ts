@@ -369,4 +369,149 @@ describe("streamTraining", () => {
     await streamTraining((t) => received.push(t));
     expect(received).toEqual([]);
   });
+
+  it("threads the AbortSignal into apiFetch", async () => {
+    let receivedSignal: AbortSignal | null | undefined;
+    globalThis.fetch = vi.fn(async (_, init) => {
+      receivedSignal = init?.signal as AbortSignal | null | undefined;
+      return mockChunkedResponse([]);
+    }) as typeof fetch;
+    const ac = new AbortController();
+    await streamTraining(() => undefined, undefined, ac.signal);
+    expect(receivedSignal).toBe(ac.signal);
+  });
+
+  it("cancels the body reader and skips the read loop when the signal is already aborted", async () => {
+    // Track whether reader.cancel() was reached. Using a never-closing
+    // ReadableStream means the read loop would hang forever if the
+    // pre-aborted check doesn't bail; the test would time out instead
+    // of completing. The cancel call also resolves the stream so we
+    // get a clean teardown.
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+      // intentionally no enqueue / no close — would block on read()
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        }),
+    ) as typeof fetch;
+
+    const ac = new AbortController();
+    ac.abort();
+    const received: string[] = [];
+    await streamTraining((t) => received.push(t), undefined, ac.signal);
+    expect(received).toEqual([]);
+    expect(cancelled).toBe(true);
+  });
+
+  it("cancels the body reader when the signal aborts mid-stream", async () => {
+    // The stream pushes one chunk and then blocks (no further enqueue,
+    // no close). If the abort listener doesn't wire reader.cancel()
+    // through to the underlying source, this test hangs and times out.
+    // The `cancelled` flag confirms the cancel reached the source and
+    // `received === ["first "]` confirms no subsequent chunks slipped
+    // in after the abort.
+    let cancelled = false;
+    const enc = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(enc.encode("first "));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        }),
+    ) as typeof fetch;
+
+    const ac = new AbortController();
+    const received: string[] = [];
+    await streamTraining(
+      (t) => {
+        received.push(t);
+        // Trigger abort right after the first chunk lands; the next
+        // read() will resolve via the abort listener's reader.cancel()
+        // which terminates the loop with `done: true`.
+        if (received.length === 1) ac.abort();
+      },
+      undefined,
+      ac.signal,
+    );
+    expect(received).toEqual(["first "]);
+    expect(cancelled).toBe(true);
+  });
+});
+
+describe("streamInferenceContent abort", () => {
+  const ORIG_FETCH = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = ORIG_FETCH;
+    vi.restoreAllMocks();
+  });
+
+  it("threads the AbortSignal into apiFetch", async () => {
+    let receivedSignal: AbortSignal | null | undefined;
+    const enc = new TextEncoder();
+    globalThis.fetch = vi.fn(async (_, init) => {
+      receivedSignal = init?.signal as AbortSignal | null | undefined;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(enc.encode(`event: end\ndata: \n\n`));
+            c.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    }) as typeof fetch;
+
+    const ac = new AbortController();
+    const consume = (async () => {
+      for await (const _ of streamInferenceContent(
+        { messages: [], stream: true },
+        ac.signal,
+      )) {
+        // drain
+      }
+    })();
+    await consume;
+    expect(receivedSignal).toBe(ac.signal);
+  });
+
+  it("propagates fetch's AbortError when the signal is already aborted", async () => {
+    // When apiFetch sees an aborted signal it rejects with the runtime's
+    // AbortError. The streamInferenceContent generator should surface
+    // that as a thrown exception so the Playground's try/catch can run
+    // its `if (ac.signal.aborted) return;` branch.
+    globalThis.fetch = vi.fn(async (_, init) => {
+      if (init?.signal?.aborted) {
+        throw new DOMException("aborted", "AbortError");
+      }
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+
+    const ac = new AbortController();
+    ac.abort();
+    const consume = (async () => {
+      for await (const _ of streamInferenceContent(
+        { messages: [], stream: true },
+        ac.signal,
+      )) {
+        // not expected to yield
+      }
+    })();
+    await expect(consume).rejects.toMatchObject({ name: "AbortError" });
+  });
 });
