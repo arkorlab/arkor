@@ -154,20 +154,17 @@ describe("scaffold", () => {
 
   it("inserts a separating newline when the existing .gitignore lacks a trailing newline", async () => {
     // Without the `endsWith("\n") ? "" : "\n"` separator, the patched
-    // file would smash the previous last line into the first appended
-    // entry — e.g. `node_modules/dist/`, which git would interpret as
-    // a single path pattern. Existing entries that already match
-    // (here: `node_modules/`) are deduped; missing required entries
-    // (`dist/`, `.arkor/`) are appended one-per-line under the
-    // separator. yarn-cache lines do NOT fire here even though pm
-    // is undefined: the pre-seeded `.gitignore` makes the cwd
-    // non-empty, which the round-15 `isExistingProject` predicate
-    // (PR #99) now treats as a merge into an unknown surrounding
-    // project and skips the defensive yarn entries.
+    // file would smash the previous last line into the appended
+    // entry — e.g. `node_modules/.arkor/`, which git would interpret
+    // as a single path pattern. Round 16 (Copilot, PR #99) tightened
+    // the patch path to ONLY append `.arkor/`: `node_modules/`,
+    // `dist/`, and the yarn-cache lines are no longer added to a
+    // pre-existing `.gitignore` (existing repos may intentionally
+    // track build output under `dist/`, etc).
     writeFileSync(join(cwd, ".gitignore"), "node_modules/");
     await scaffold({ cwd, name: "n", template: "triage" });
     const contents = readFileSync(join(cwd, ".gitignore"), "utf8");
-    expect(contents).toBe("node_modules/\ndist/\n.arkor/\n");
+    expect(contents).toBe("node_modules/\n.arkor/\n");
   });
 
   // yarn-berry defaults to Plug'n'Play, which doesn't materialise
@@ -387,6 +384,130 @@ describe("scaffold", () => {
     expect(yarnrc?.action).toBe("kept");
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain("nodeLinker: pnp");
+  });
+
+  // Round 16 #1 (Copilot, PR #99): the corepack-declaration
+  // resolver used to read `cwd/package.json` AFTER
+  // `patchPackageJson` had already created it for the no-local-
+  // package.json case. Round 15's `isExistingProject` widening
+  // exposed this for the "yarn-berry monorepo subdir without a
+  // local package.json" case — the helper read the freshly-
+  // scaffolded manifest (no `packageManager` field) and
+  // suppressed the caveat even though `yarn install` resolves
+  // through the parent workspace and hits the unsupported PnP
+  // setup. The resolver now (a) snapshots the pre-patch local
+  // declaration before patchPackageJson runs and (b) walks up
+  // parent directories looking for the closest enclosing
+  // declaration when the local snapshot is empty.
+  it("surfaces the yarn-berry caveat when scaffolding into a subdir whose parent declares yarn 2+ via packageManager", async () => {
+    // Set up: parent dir has `package.json` with
+    // `packageManager: yarn@4.x`. cwd is a subdir under it with
+    // some pre-existing files but no local package.json.
+    const parent = mkdtempSync(join(tmpdir(), "cli-internal-parent-"));
+    try {
+      writeFileSync(
+        join(parent, "package.json"),
+        JSON.stringify(
+          {
+            name: "monorepo-root",
+            private: true,
+            packageManager: "yarn@4.6.0",
+          },
+          null,
+          2,
+        ),
+      );
+      const subdir = join(parent, "packages", "new-pkg");
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(subdir, { recursive: true });
+      // Pre-existing content in the subdir so isExistingProject
+      // fires (round-15 predicate). No local package.json.
+      writeFileSync(join(subdir, "README.md"), "# new pkg\n");
+      const result = await scaffold({
+        cwd: subdir,
+        name: "n",
+        template: "triage",
+      });
+      // Caveat surfaces — the parent's declaration was found via
+      // the walk-up.
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  // Counterpart of the above: when the local package.json HAS a
+  // declaration, the snapshot is what the resolver uses. This
+  // test guards against patchPackageJson somehow stripping the
+  // field on patch (it doesn't today, but pinning the contract
+  // here means a future patchPackageJson refactor that strips
+  // unknown top-level fields would still surface the caveat
+  // correctly via the snapshot).
+  it("uses the pre-patch packageManager snapshot when the local package.json declares yarn 2+", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify(
+        { name: "existing", private: true, packageManager: "yarn@4.6.0" },
+        null,
+        2,
+      ),
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+  });
+
+  // Round 16 #2 (Copilot, PR #99): `patchGitignore` used to
+  // append every missing required entry (node_modules/, dist/,
+  // .arkor/) to a pre-existing gitignore. That silently changed
+  // ignore policy for repos that intentionally tracked build
+  // output under `dist/` (publish forks, static-site deploy
+  // branches, etc), making future generated artifacts disappear
+  // from `git status` without the user opting in. Patch path
+  // now ONLY adds `.arkor/`; node_modules/ + dist/ are left
+  // alone.
+  it("does NOT append node_modules/ or dist/ to a pre-existing .gitignore that lacks them", async () => {
+    // Pre-existing .gitignore that neither ignores node_modules
+    // nor dist (the realistic scenario: a repo that deliberately
+    // tracks build output). After scaffold only `.arkor/` should
+    // be added; the other two stay missing.
+    writeFileSync(join(cwd, ".gitignore"), "secrets.env\n");
+    await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
+    expect(gi).toBe("secrets.env\n.arkor/\n");
+  });
+
+  // Counterpart: `node_modules/` and `dist/` STILL get written
+  // when we're creating a fresh `.gitignore` (= no pre-existing
+  // file). Establishes that round-16's tightening only narrows
+  // the patch path, not the create path. The create-path baseline
+  // matters because most fresh scaffolds genuinely want both
+  // entries ignored.
+  it("STILL writes node_modules/ + dist/ + .arkor/ when creating a fresh .gitignore in an existing project", async () => {
+    // README.md only — cwd is non-empty (round-15 isExistingProject
+    // fires) but no `.gitignore` exists, so the create path runs.
+    writeFileSync(join(cwd, "README.md"), "# my project\n");
+    await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
+    expect(gi).toContain("node_modules/");
+    expect(gi).toContain("dist/");
+    expect(gi).toContain(".arkor/");
+    // round 14 #2 still applies — yarn-cache lines stay out of
+    // existing-project scaffolds even on the create path.
+    expect(gi).not.toContain(".yarn/");
   });
 
   // Existing `.yarnrc.yml` that explicitly pins a non-`node-modules`

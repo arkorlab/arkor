@@ -125,42 +125,48 @@ async function patchGitignore(
   isExistingProject: boolean,
 ): Promise<FileAction> {
   const path = join(cwd, GITIGNORE_PATH);
-  // Required entries — every pm gets these.
-  const required = ["node_modules/", "dist/", ".arkor/"];
-  // Yarn-specific entries — `isExistingProject` is the gate, not
-  // `packageManager`. Round 14 (Copilot, PR #99) flagged that even
-  // an explicit `--use-yarn` shouldn't sprinkle `.yarn/cache` into
-  // an existing repo's `.gitignore`: Yarn zero-install setups
-  // *commit* `.yarn/cache/`, and silently ignoring those archives
-  // makes future cache zips drop out of git on every dependency
-  // change. The user can add the entries themselves if they want
-  // them. Round 5 (same reviewer) had already established the
-  // mirror policy for the `pm === undefined && isExistingProject`
-  // case; this just extends it to the `pm === "yarn"` patch path
-  // for consistency. Fresh dirs still get the entries defensively
-  // for the yarn-berry-reading-the-manual-install-hint flow.
-  const shouldEmitYarnEntries =
-    !isExistingProject &&
-    (packageManager === "yarn" || packageManager === undefined);
-  if (shouldEmitYarnEntries) {
-    required.push(...YARN_GITIGNORE_LINES);
-  }
-
+  // Two distinct entry sets:
+  //
+  //   - On CREATE (no pre-existing `.gitignore`): write a complete
+  //     starter — `node_modules/`, `dist/`, `.arkor/`, plus the
+  //     yarn-cache lines under the round-14 #2 / 15 gate. We own
+  //     the file in this case, so a sensible baseline is fine.
+  //
+  //   - On PATCH (pre-existing `.gitignore`): only ensure
+  //     `.arkor/` is present. `node_modules/` and `dist/` are NOT
+  //     touched — Copilot (PR #99 round 16) flagged that existing
+  //     repos may intentionally track them (publish forks of
+  //     build outputs, static-site `dist/` checked into a deploy
+  //     branch, etc), and silently flipping the ignore policy
+  //     could drop generated artifacts from `git status` without
+  //     the user opting in. The yarn-cache lines aren't touched
+  //     either; round-14 #2 already kept them out of pre-existing
+  //     repos. Only `.arkor/` is arkor-specific enough that we're
+  //     confident the user wants it ignored — otherwise their
+  //     trainer cache, build cache, and credentials would all
+  //     leak into commits.
+  //
+  // The `packageManager` and `isExistingProject` arguments are
+  // therefore only consulted on CREATE; the PATCH path is
+  // pm-agnostic.
   if (!existsSync(path)) {
-    await writeFile(path, required.map((line) => `${line}\n`).join(""));
+    const initial = ["node_modules/", "dist/", ".arkor/"];
+    const shouldEmitYarnEntries =
+      !isExistingProject &&
+      (packageManager === "yarn" || packageManager === undefined);
+    if (shouldEmitYarnEntries) {
+      initial.push(...YARN_GITIGNORE_LINES);
+    }
+    await writeFile(path, initial.map((line) => `${line}\n`).join(""));
     return "created";
   }
   const current = await readFile(path, "utf8");
   const present = new Set(
     current.split(/\r?\n/).map((line) => line.trim()),
   );
-  const missing = required.filter((line) => !present.has(line));
-  if (missing.length === 0) return "ok";
+  if (present.has(".arkor/")) return "ok";
   const separator = current.endsWith("\n") ? "" : "\n";
-  await writeFile(
-    path,
-    `${current}${separator}${missing.map((line) => `${line}\n`).join("")}`,
-  );
+  await writeFile(path, `${current}${separator}.arkor/\n`);
   return "patched";
 }
 
@@ -335,49 +341,119 @@ async function inspectYarnConfig(cwd: string): Promise<YarnConfigStatus> {
 }
 
 /**
- * Best-effort check: does the existing `package.json` declare
- * yarn-berry (yarn 2+) via the corepack-style `packageManager` field?
- * Used to gate the `needs-setup` advisory in the
- * `pm === undefined && isExistingProject` flow — without this filter
- * the caveat fires on every undefined-pm scaffold (e.g. CLI invoked
- * via `node`/`tsx`, which doesn't set `npm_config_user_agent`),
- * including pure npm/pnpm/bun projects where it'd just be noise.
- * (PR #99 round-10 review.)
- *
- * Returns `false` (i.e. don't warn) on:
- *   - missing/unreadable/malformed `package.json`
- *   - missing or non-string `packageManager` field
- *   - `packageManager` declaring yarn 1 (it ignores `.yarnrc.yml`),
- *     pnpm, npm, or bun
- *
- * Returns `true` only when the field unambiguously declares yarn 2+
- * (e.g. `yarn@4.6.0`, `yarn@2.4.3`). yarn-berry users who haven't
- * declared the field are silently missed here, but the existing
- * `conflict` advisory still catches them when they have a `.yarnrc.yml`
- * pinned to a non-`node-modules` linker — the gap is just users who
- * are on yarn-berry, haven't declared it via corepack, and have no
- * `.yarnrc.yml` at all. They get the same silence the CLI gave them
- * before round 9; the round-10 noise reduction is the bigger win.
+ * Read the corepack-style `packageManager` field from a
+ * `package.json` at `pkgPath`. Returns the raw string or `undefined`
+ * for any reason it can't be resolved (file missing, invalid JSON,
+ * field missing or non-string). Conservative on errors so we never
+ * misclassify on a malformed file.
  */
-async function existingProjectDeclaresYarnBerry(
-  cwd: string,
-): Promise<boolean> {
-  const pkgPath = join(cwd, PACKAGE_JSON_PATH);
-  if (!existsSync(pkgPath)) return false;
+async function readPackageManagerField(
+  pkgPath: string,
+): Promise<string | undefined> {
+  if (!existsSync(pkgPath)) return undefined;
   try {
     const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as {
       packageManager?: unknown;
     };
-    const declared = pkg.packageManager;
-    if (typeof declared !== "string") return false;
-    const m = /^yarn@(\d+)/.exec(declared.trim());
-    if (!m) return false;
-    const major = Number.parseInt(m[1] ?? "", 10);
-    return Number.isFinite(major) && major >= 2;
+    return typeof pkg.packageManager === "string"
+      ? pkg.packageManager
+      : undefined;
   } catch {
-    // Invalid JSON / read error — be conservative and don't warn.
-    return false;
+    return undefined;
   }
+}
+
+/**
+ * Walk from `cwd`'s parent up toward filesystem root looking for the
+ * first `package.json` that declares a `packageManager` field. Bound
+ * to 20 iterations as a defensive cap against pathological symlinks
+ * (a realistic monorepo subdir is at most a handful of levels deep).
+ *
+ * Used by `resolveEnclosingPackageManagerField` below to cover the
+ * round-16 (Copilot, PR #99) hazard: an `arkor init` scaffolded into
+ * a yarn-berry monorepo subdir that has no local `package.json` yet.
+ * Looking only at `cwd/package.json` would miss the parent
+ * workspace's declaration entirely and silently suppress the
+ * yarn-berry caveat. corepack itself uses the closest enclosing
+ * declaration too, so picking the first match up the tree matches
+ * runtime semantics.
+ */
+async function findEnclosingPackageManagerField(
+  cwd: string,
+): Promise<string | undefined> {
+  let dir = dirname(cwd);
+  for (let i = 0; i < 20; i++) {
+    const declared = await readPackageManagerField(
+      join(dir, PACKAGE_JSON_PATH),
+    );
+    if (declared !== undefined) return declared;
+    const parent = dirname(dir);
+    if (parent === dir) return undefined; // reached filesystem root
+    dir = parent;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the corepack-style `packageManager` declaration that
+ * applies to `cwd`, preferring (in order):
+ *
+ *   1. The pre-existing `cwd/package.json#packageManager` field
+ *      snapshotted by `preExistingPackageManagerField`.
+ *      `patchPackageJson()` runs BEFORE the inspect path and
+ *      replaces a missing local `package.json` with a freshly
+ *      scaffolded one (no `packageManager` field), so reading
+ *      from disk at this point would obscure both the
+ *      pre-existing local declaration and any parent-workspace
+ *      declaration. Using the pre-patch snapshot fixes that.
+ *      (PR #99 round 16.)
+ *   2. The closest enclosing parent's
+ *      `package.json#packageManager`. Covers the
+ *      "yarn-berry monorepo subdir without a local package.json"
+ *      case Copilot called out — without this walk-up the round-15
+ *      `isExistingProject` widening would silently suppress the
+ *      caveat for those users.
+ *
+ * Returns `undefined` when no declaration is found anywhere up the
+ * tree. The caller decides what to do with that (currently:
+ * suppress the yarn-berry caveat — see
+ * `pm === undefined && isExistingProject` arm).
+ */
+async function resolveEnclosingPackageManagerField(
+  cwd: string,
+  preExistingPackageManagerField: string | undefined,
+): Promise<string | undefined> {
+  if (preExistingPackageManagerField !== undefined) {
+    return preExistingPackageManagerField;
+  }
+  return findEnclosingPackageManagerField(cwd);
+}
+
+/**
+ * Best-effort check: does the resolved corepack-style declaration
+ * name yarn 2+ (yarn-berry)?
+ *
+ * Returns `false` for: missing declaration, yarn 1.x (it ignores
+ * `.yarnrc.yml`), pnpm, npm, bun, malformed values. Returns `true`
+ * only when the value unambiguously declares yarn 2+ (e.g.
+ * `yarn@4.6.0`, `yarn@2.4.3`). yarn-berry users who haven't
+ * declared the field anywhere in their tree are silently missed
+ * here, but the existing `conflict` advisory still catches them
+ * when they have a `.yarnrc.yml` pinned to a non-`node-modules`
+ * linker.
+ *
+ * (PR #99 round 10 introduced the gate; round 16 split the
+ * resolution out so the corepack lookup uses the pre-patch local
+ * snapshot + parent-tree walk-up.)
+ */
+function declaresYarnBerry(
+  packageManagerField: string | undefined,
+): boolean {
+  if (typeof packageManagerField !== "string") return false;
+  const m = /^yarn@(\d+)/.exec(packageManagerField.trim());
+  if (!m) return false;
+  const major = Number.parseInt(m[1] ?? "", 10);
+  return Number.isFinite(major) && major >= 2;
 }
 
 async function patchYarnConfig(
@@ -501,6 +577,18 @@ export async function scaffold(
   // writes as pre-existing content).
   const isExistingProject =
     (await readdir(cwd)).filter((f) => f !== "." && f !== "..").length > 0;
+  // Snapshot the pre-existing `package.json#packageManager` field
+  // BEFORE `patchPackageJson` runs — same timing rationale as
+  // `isExistingProject` above. `patchPackageJson` will create a
+  // fresh `package.json` (no `packageManager` field) when none
+  // exists, so a post-patch read in the inspect path would
+  // obscure both the pre-existing local declaration and any
+  // parent-workspace declaration we'd want to walk up to.
+  // (PR #99 round 16 — Copilot flagged the timing bug after the
+  // round-15 `isExistingProject` widening exposed the case.)
+  const preExistingPackageManagerField = await readPackageManagerField(
+    join(cwd, PACKAGE_JSON_PATH),
+  );
   files.push({
     path: INDEX_PATH,
     action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),
@@ -611,11 +699,21 @@ export async function scaffold(
       warnings.push(buildYarnLinkerConflictWarning(status.value));
     } else if (status.kind === "berry-without-linker") {
       warnings.push(buildYarnBerryCaveatAdvisory());
-    } else if (
-      status.kind === "no-config" &&
-      (await existingProjectDeclaresYarnBerry(cwd))
-    ) {
-      warnings.push(buildYarnBerryCaveatAdvisory());
+    } else if (status.kind === "no-config") {
+      // Round 16 (Copilot, PR #99): consult the pre-patch
+      // local snapshot AND the parent tree for the corepack
+      // declaration. The bare cwd-only check would (a) misread
+      // a freshly scaffolded `package.json` because
+      // `patchPackageJson` already ran above, and (b) miss
+      // the entire parent-workspace declaration in the
+      // monorepo-subdir case round 15 widened us into.
+      const declared = await resolveEnclosingPackageManagerField(
+        cwd,
+        preExistingPackageManagerField,
+      );
+      if (declaresYarnBerry(declared)) {
+        warnings.push(buildYarnBerryCaveatAdvisory());
+      }
     }
   }
   return { files, cwd, warnings };
