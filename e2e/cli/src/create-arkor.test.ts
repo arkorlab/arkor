@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { CREATE_ARKOR_BIN } from "./bins";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
@@ -19,17 +20,55 @@ afterEach(() => {
  * is the target directory; we pass `"target"` so it scaffolds into a fresh
  * subdir. Returns the result + the absolute target path.
  */
-async function runCreateArkor(argv: string[]) {
+async function runCreateArkor(
+  argv: string[],
+  extraEnv: NodeJS.ProcessEnv = {},
+) {
   const targetDir = join(parentDir, "target");
   const result = await runCli(
     CREATE_ARKOR_BIN,
     ["target", ...argv],
     parentDir,
+    extraEnv,
   );
   return { result, targetDir };
 }
 
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
+
+// pnpm 10 cannot parse Windows-drive `file:` URIs in any form
+// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break — pnpm strips
+// the prefix and joins to the install cwd, then aborts with
+// `ENOENT: scandir '<cwd>\D:\...'`). The install-matrix tests sidestep
+// that by pre-packing arkor into a tarball once per file and referencing
+// it via a *relative* `file:../arkor-*.tgz` path inside each test's
+// parentDir, which has no drive letter to misparse. SKIP_INSTALL=1 short-
+// circuits the whole pack since none of the gated tests will run.
+let arkorTarball: string | undefined;
+let arkorPackDir: string | undefined;
+
+beforeAll(() => {
+  if (SKIP_INSTALL) return;
+  arkorPackDir = makeTempDir("create-arkor-e2e-pack-");
+  execFileSync(
+    "pnpm",
+    ["--filter", "arkor", "pack", "--pack-destination", arkorPackDir],
+    { stdio: "pipe" },
+  );
+  const matches = readdirSync(arkorPackDir).filter(
+    (f) => f.startsWith("arkor-") && f.endsWith(".tgz"),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `expected exactly one arkor-*.tgz in ${arkorPackDir}, got ${matches.length}: ${matches.join(", ")}`,
+    );
+  }
+  arkorTarball = join(arkorPackDir, matches[0]!);
+});
+
+afterAll(() => {
+  if (arkorPackDir) cleanup(arkorPackDir);
+});
 
 describe("create-arkor (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -335,11 +374,18 @@ describe("create-arkor (E2E)", () => {
   ])(
     "runs real $pm install + git commit (gated by SKIP_E2E_INSTALL)",
     async ({ pm, lockfile }) => {
-      const { result, targetDir } = await runCreateArkor([
-        "-y",
-        `--use-${pm}`,
-        "--git",
-      ]);
+      if (!arkorTarball) throw new Error("arkor tarball wasn't packed in beforeAll");
+      // Copy the pre-packed tarball into parentDir so the scaffolded
+      // project (target/) can resolve it via a relative `file:../<tgz>`
+      // path. See the beforeAll comment for why we can't pass an
+      // absolute Windows path through pnpm 10's URL parser.
+      const tarballName = basename(arkorTarball);
+      copyFileSync(arkorTarball, join(parentDir, tarballName));
+
+      const { result, targetDir } = await runCreateArkor(
+        ["-y", `--use-${pm}`, "--git"],
+        { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
+      );
       expect(result.code).toBe(0);
       expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
       expect(existsSync(join(targetDir, ".git/HEAD"))).toBe(true);
@@ -352,15 +398,6 @@ describe("create-arkor (E2E)", () => {
       // execution still happens *after* install — otherwise the lockfile
       // wouldn't be tracked and the bootstrap commit wouldn't be reproducible.
       const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
-      // === DIAG eng-625-r3 START — REMOVE BEFORE MERGE ================
-      // Dump the scaffolded package.json to verify the file: spec
-      // normalization actually landed in the bundled CLI.
-      const pkgRaw = readFileSync(join(targetDir, "package.json"), "utf8");
-      // eslint-disable-next-line no-console
-      console.log(
-        `[DIAG3] pm=${pm} package.json:\n${pkgRaw}\n[DIAG3] env spec=${process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC ?? "<unset>"}\n[DIAG3] stdout:\n${result.stdout}`,
-      );
-      // === DIAG eng-625-r3 END =======================================
       expect(tracked.stdout).toContain(lockfile);
     },
     180_000,

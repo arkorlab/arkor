@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { basename, join } from "node:path";
 import { ARKOR_BIN } from "./bins";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
 
@@ -15,6 +16,41 @@ afterEach(() => {
 });
 
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
+
+// pnpm 10 cannot parse Windows-drive `file:` URIs in any form
+// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break — pnpm strips
+// the prefix and joins to the install cwd, then aborts with
+// `ENOENT: scandir '<cwd>\D:\...'`). The install-matrix tests sidestep
+// that by pre-packing arkor into a tarball once per file and copying it
+// into each test's cwd as `vendor/arkor-*.tgz`, then overriding the
+// scaffold spec to `file:./vendor/<basename>` — a relative path with no
+// drive letter to misparse. SKIP_INSTALL=1 short-circuits the pack since
+// none of the gated tests will run.
+let arkorTarball: string | undefined;
+let arkorPackDir: string | undefined;
+
+beforeAll(() => {
+  if (SKIP_INSTALL) return;
+  arkorPackDir = makeTempDir("arkor-init-e2e-pack-");
+  execFileSync(
+    "pnpm",
+    ["--filter", "arkor", "pack", "--pack-destination", arkorPackDir],
+    { stdio: "pipe" },
+  );
+  const matches = readdirSync(arkorPackDir).filter(
+    (f) => f.startsWith("arkor-") && f.endsWith(".tgz"),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `expected exactly one arkor-*.tgz in ${arkorPackDir}, got ${matches.length}: ${matches.join(", ")}`,
+    );
+  }
+  arkorTarball = join(arkorPackDir, matches[0]!);
+});
+
+afterAll(() => {
+  if (arkorPackDir) cleanup(arkorPackDir);
+});
 
 describe("arkor init (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -174,10 +210,20 @@ describe("arkor init (E2E)", () => {
   ])(
     "runs real $pm install + git commit (gated by SKIP_E2E_INSTALL)",
     async ({ pm, lockfile }) => {
+      if (!arkorTarball) throw new Error("arkor tarball wasn't packed in beforeAll");
+      // Stage the pre-packed tarball under cwd/vendor/ so the scaffolded
+      // package.json can resolve it via a relative `file:./vendor/<tgz>`
+      // path. See the beforeAll comment for why we can't pass an absolute
+      // Windows path through pnpm 10's URL parser.
+      const tarballName = basename(arkorTarball);
+      mkdirSync(join(cwd, "vendor"), { recursive: true });
+      copyFileSync(arkorTarball, join(cwd, "vendor", tarballName));
+
       const result = await runCli(
         ARKOR_BIN,
         ["init", "-y", `--use-${pm}`, "--git"],
         cwd,
+        { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:./vendor/${tarballName}` },
       );
       expect(result.code).toBe(0);
       expect(existsSync(join(cwd, "node_modules"))).toBe(true);
