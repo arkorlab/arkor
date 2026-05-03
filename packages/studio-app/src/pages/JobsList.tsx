@@ -24,9 +24,6 @@ export function JobsList() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [refreshing, setRefreshing] = useState(false);
-  // Flipped on unmount so in-flight refreshes (manual or interval) do
-  // not call setState after the component is gone.
-  const aliveRef = useRef(true);
   // True while a `load()` call is awaiting fetchJobs. Used to coalesce
   // a manual refresh click that lands while the polling tick is still
   // in flight (or vice versa) into a single request — without this,
@@ -39,42 +36,33 @@ export function JobsList() {
   // without re-scheduling on every render. The body only touches
   // setters (which React guarantees stable) and refs, so an empty
   // dep array is genuinely safe.
+  //
+  // No alive/cancelled gate around the setState calls here: React 18+
+  // silently no-ops setState on unmounted components, and an earlier
+  // round's `aliveRef` flag was being toggled across StrictMode dev
+  // re-mounts in a way that could drop a still-in-flight load's
+  // results during the cleanup→remount window. The polling effect
+  // below uses an effect-local `cancelled` to gate scheduling.
   const load = useCallback(async () => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
       setRefreshing(true);
       const { jobs } = await fetchJobs();
-      if (!aliveRef.current) return;
       setJobs(jobs);
       setError(null);
     } catch (err) {
-      if (!aliveRef.current) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       inFlightRef.current = false;
-      if (aliveRef.current) setRefreshing(false);
+      setRefreshing(false);
     }
   }, []);
 
-  // Track real component-instance lifetime in its own effect so the
-  // polling effect below can manage its own scheduling without sharing
-  // a flag — under React.StrictMode (enabled in main.tsx) the polling
-  // effect runs twice on mount, and a shared `aliveRef` would let the
-  // first run's resumed `await load()` see the second run's `true`
-  // alive and keep scheduling timers alongside the second run.
   useEffect(() => {
-    aliveRef.current = true;
-    return () => {
-      aliveRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    // Effect-local `cancelled` (NOT the shared `aliveRef`) so the
-    // first StrictMode pass's schedule chain can't accidentally
-    // continue after the second pass starts. Mirrors the pattern in
-    // Overview / JobDetail / RunTraining.
+    // Effect-local `cancelled` so the first StrictMode pass's schedule
+    // chain can't accidentally continue after the second pass starts.
+    // Mirrors the pattern in Overview / JobDetail / RunTraining.
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Chained setTimeout (not setInterval) so a slow /api/jobs request
