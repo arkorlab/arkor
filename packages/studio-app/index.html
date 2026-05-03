@@ -19,13 +19,20 @@
           // hardcoding light, which would override an explicit OS-level
           // dark preference.
         }
-        var theme =
-          stored === "light" || stored === "dark"
-            ? stored
-            : window.matchMedia &&
-                window.matchMedia("(prefers-color-scheme: dark)").matches
-              ? "dark"
-              : "light";
+        var theme = stored === "light" || stored === "dark" ? stored : null;
+        if (theme === null) {
+          // matchMedia exists but throws in some embedded WebViews; the
+          // whole init script must not crash, so guard the call too.
+          try {
+            theme =
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          } catch (_) {
+            theme = "light";
+          }
+        }
         document.documentElement.dataset.theme = theme;
       })();
     </script>

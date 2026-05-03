@@ -90,6 +90,25 @@ export function Playground({
     return () => inferenceAbortRef.current?.abort();
   }, []);
 
+  // Re-seed `mode` / `selectedJob` when the URL changes adapter mid-
+  // mount (e.g. browser back/forward between two
+  // `#/playground?adapter=<id>` history entries, or programmatic
+  // hash updates). The useState seeds at the top run once on mount;
+  // without this effect, prop changes after that would leave the
+  // page on the old adapter despite the new URL. Skip while a stream
+  // is in flight so we don't yank the user out of an active
+  // conversation.
+  const appliedAdapterRef = useRef(initialAdapterId);
+  useEffect(() => {
+    if (initialAdapterId === appliedAdapterRef.current) return;
+    if (!initialAdapterId) return;
+    if (streaming) return;
+    appliedAdapterRef.current = initialAdapterId;
+    setMode("adapter");
+    setSelectedJob(initialAdapterId);
+    setMessages([]);
+  }, [initialAdapterId, streaming]);
+
   const adapterDisabled = !jobs || jobs.length === 0;
 
   const canSend =
