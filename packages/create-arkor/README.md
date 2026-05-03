@@ -3,7 +3,7 @@
 Scaffolder for [Arkor](https://github.com/arkorlab/arkor) projects. Run via
 `npm create` / `pnpm create` / `yarn create` / `bun create`.
 
-> Status: alpha (`0.0.1-alpha.6`).
+> Status: alpha (`0.0.1-alpha.7`).
 
 ## Usage
 

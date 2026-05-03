@@ -67,7 +67,7 @@ const README_PATH = "README.md";
 const GITIGNORE_PATH = ".gitignore";
 const PACKAGE_JSON_PATH = "package.json";
 const YARNRC_YML_PATH = ".yarnrc.yml";
-const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.6";
+const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.7";
 
 // Single-key config: `nodeLinker: node-modules` forces yarn-berry to
 // materialise a real node_modules tree instead of its Plug'n'Play default.
