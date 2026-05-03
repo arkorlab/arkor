@@ -120,7 +120,7 @@ describe("runBuild", () => {
   });
 
   it("logs a success line when quiet is not set (default)", async () => {
-    // The `quiet` default is false — so the helper writes through ui.log.
+    // The `quiet` default is false, so the helper writes through ui.log.
     // Capture stdout to verify the log lands without snooping into clack.
     // Use vi.spyOn so the original method reference is preserved
     // (assigning `process.stdout.write.bind(...)` and restoring would

@@ -57,7 +57,7 @@ describe("trainingJobSchema", () => {
   });
 
   it("normalises non-null startedAt/completedAt strings via the truthy branch", () => {
-    // Branch coverage for the `v ? String(v) : null` transforms — the
+    // Branch coverage for the `v ? String(v) : null` transforms: the
     // `null` branch is exercised by every other test in this file
     // (the `valid` fixture has both fields null), but the `String(v)`
     // branch only fires when the field carries an actual timestamp.

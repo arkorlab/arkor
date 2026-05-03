@@ -82,14 +82,14 @@ describe("Studio server", () => {
         baseUrl: "http://mock",
         assetsDir,
         autoAnonymous: false,
-        // @ts-expect-error — intentionally omitted to assert the runtime guard
+        // @ts-expect-error: intentionally omitted to assert the runtime guard
         studioToken: undefined,
       }),
     ).toThrow(/studioToken/);
   });
 
   it("HTML-escapes special characters in the studio token before injecting", async () => {
-    // Branch coverage for `htmlAttrEscape` — a defensive guard against
+    // Branch coverage for `htmlAttrEscape`: a defensive guard against
     // a token that contains `<`, `>`, `&`, `"`, `'`. randomBytes/base64url
     // never produces these, but the helper must still escape them so a
     // future token strategy can't break index.html parsing or open a
@@ -111,7 +111,7 @@ describe("Studio server", () => {
     expect(html).toContain(
       '<meta name="arkor-studio-token" content="&lt;&gt;&amp;&quot;&#39;-1234567890ab">',
     );
-    // The raw exotic token must not leak into HTML — an attacker who
+    // The raw exotic token must not leak into HTML: an attacker who
     // could influence the token (hypothetical) shouldn't be able to
     // inject markup.
     expect(html).not.toMatch(/content="<>/);
@@ -356,7 +356,7 @@ describe("Studio server", () => {
     expect(res.status).toBe(403);
   });
 
-  // Regression for ENG-404 — `path.resolve` doesn't follow symlinks, so a
+  // Regression for ENG-404: `path.resolve` doesn't follow symlinks, so a
   // link inside the project directory pointing outside it would previously
   // pass the containment check and be handed to `arkor start` (which would
   // then dlopen the link's target).
@@ -433,7 +433,7 @@ describe("Studio server", () => {
     expect(body.error).toMatch(/does not exist/);
   });
 
-  // Regression for ENG-356 — `/api/train` previously resolved the bundled
+  // Regression for ENG-356: `/api/train` previously resolved the bundled
   // bin at `<pkg>/bin.mjs` (one level above `dist/`), which never existed.
   // The DI'd `binPath` lets us assert (a) a working bin streams its stdout
   // through the response, and (b) a missing bin surfaces ENOENT-grade errors
@@ -557,7 +557,7 @@ process.exit(0);
     });
 
     it("acquires + persists an anonymous token on the first /api/credentials hit when autoAnonymous=true", async () => {
-      // No credentials on disk — buildStudioApp's autoAnonymous default
+      // No credentials on disk: buildStudioApp's autoAnonymous default
       // (true) lets the server bootstrap on first hit so a fresh `arkor
       // dev` works even when the up-front bootstrap in dev.ts skipped due
       // to a transient network blip.
@@ -599,7 +599,7 @@ process.exit(0);
       expect(body).toMatchObject({ token: "lazy-anon", mode: "anon" });
       expect(calls).toBe(1);
 
-      // Subsequent calls use the persisted credentials — no re-bootstrap.
+      // Subsequent calls use the persisted credentials: no re-bootstrap.
       const res2 = await app.request("/api/credentials", {
         headers: {
           host: "127.0.0.1:4000",
@@ -674,7 +674,7 @@ process.exit(0);
       // The cloud-api-client wrapper around `onDeprecation` synchronously
       // checks `typeof result.then` on the callback's return value; a plain
       // `void` return throws and gets swallowed with a stderr log. The
-      // wrapper in `createRpc` returns null to short-circuit that check —
+      // wrapper in `createRpc` returns null to short-circuit that check:
       // assert that no such log fires here.
       const errorSpy = vi
         .spyOn(console, "error")
@@ -1139,7 +1139,7 @@ process.exit(0);
 
     it("auto-bootstraps project state and proxies base-model inference", async () => {
       await writeCredentials(ANON_CREDS);
-      // No state.json — server should derive a slug from cwd, create the
+      // No state.json: server should derive a slug from cwd, create the
       // project on cloud-api, persist state, and forward the inference call.
 
       const calls: Array<{
@@ -1268,7 +1268,7 @@ process.exit(0);
       });
       expect(res.status).toBe(200);
 
-      // Only the inference call should have hit the network — no project
+      // Only the inference call should have hit the network: no project
       // create/list when state is already present.
       expect(calls.filter((c) => c.url.includes("/v1/projects"))).toHaveLength(0);
       const chat = calls.find((c) => c.url.includes("/v1/inference/chat"));
@@ -1277,7 +1277,7 @@ process.exit(0);
 
     it("propagates the cloud-api status when project bootstrap fails", async () => {
       await writeCredentials(ANON_CREDS);
-      // No state.json — bootstrap will hit cloud-api, which returns 503.
+      // No state.json: bootstrap will hit cloud-api, which returns 503.
       // We expect that 503 to be passed through, not collapsed to 400.
 
       globalThis.fetch = (async (

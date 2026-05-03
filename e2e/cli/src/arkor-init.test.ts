@@ -18,12 +18,12 @@ afterEach(() => {
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
 
 // pnpm 10 cannot parse Windows-drive `file:` URIs in any form
-// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break — pnpm strips
+// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break: pnpm strips
 // the prefix and joins to the install cwd, then aborts with
 // `ENOENT: scandir '<cwd>\D:\...'`). The install-matrix tests sidestep
 // that by pre-packing arkor into a tarball once per file and copying it
 // into each test's cwd as `vendor/arkor-*.tgz`, then overriding the
-// scaffold spec to `file:./vendor/<basename>` — a relative path with no
+// scaffold spec to `file:./vendor/<basename>`: a relative path with no
 // drive letter to misparse. SKIP_INSTALL=1 short-circuits the pack since
 // none of the gated tests will run.
 let arkorTarball: string | undefined;
@@ -166,7 +166,7 @@ describe("arkor init (E2E)", () => {
     expect(pkg.name).toBe("no-prompt-app");
   });
 
-  // Regression for ENG-357 — `--name "Foo Bar"` previously fell through to
+  // Regression for ENG-357: `--name "Foo Bar"` previously fell through to
   // package.json verbatim because sanitisation only ran inside the
   // interactive branch.
   it("sanitises --name when prompts are skipped", async () => {
@@ -240,7 +240,7 @@ describe("arkor init (E2E)", () => {
 
       // Lockfile-in-initial-commit invariant: the git-init prompt is
       // surfaced *before* install so the user can walk away, but git init
-      // execution still happens *after* install — otherwise the lockfile
+      // execution still happens *after* install: otherwise the lockfile
       // wouldn't be tracked and the bootstrap commit wouldn't be reproducible.
       const tracked = await runGit(cwd, ["ls-tree", "-r", "--name-only", "HEAD"]);
       expect(tracked.stdout).toContain(lockfile);

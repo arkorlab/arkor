@@ -308,7 +308,7 @@ describe("withTelemetry", () => {
   });
 
   it("does not let a thrown PostHog *constructor* error break the CLI (and remembers the failure)", async () => {
-    // Branch coverage for the try/catch around `new PostHog(...)` —
+    // Branch coverage for the try/catch around `new PostHog(...)`:
     // sets `clientInitFailed = true` so subsequent calls don't re-attempt
     // the failing constructor.
     constructorMock.mockImplementationOnce(() => {
@@ -330,7 +330,7 @@ describe("withTelemetry", () => {
   });
 
   it("emits debug logs to stderr when ARKOR_TELEMETRY_DEBUG is set", async () => {
-    // Branch coverage for `debugLog` — gated behind the env flag so it
+    // Branch coverage for `debugLog`: gated behind the env flag so it
     // doesn't pollute normal CLI runs.
     process.env.ARKOR_TELEMETRY_DEBUG = "1";
     constructorMock.mockImplementationOnce(() => {
@@ -450,7 +450,7 @@ describe("shutdownTelemetry", () => {
     await mod.shutdownTelemetry();
     expect(shutdownMock).toHaveBeenCalledTimes(1);
 
-    // Calling again is a no-op — the module-local `client` was cleared.
+    // Calling again is a no-op: the module-local `client` was cleared.
     await mod.shutdownTelemetry();
     expect(shutdownMock).toHaveBeenCalledTimes(1);
   });
@@ -463,7 +463,7 @@ describe("shutdownTelemetry", () => {
     const wrapped = mod.withTelemetry("whoami", async () => {});
     await wrapped();
 
-    // Must not propagate — shutting down telemetry on CLI exit can never
+    // Must not propagate: shutting down telemetry on CLI exit can never
     // be allowed to mask the actual exit code.
     await expect(mod.shutdownTelemetry()).resolves.toBeUndefined();
   });

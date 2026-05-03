@@ -62,7 +62,7 @@ describe("install", () => {
       const log = (await import("node:fs")).readFileSync(marker, "utf8");
       // First line: the args we passed.
       expect(log).toContain("fake install");
-      // Env was forwarded to the child — these are the two flags that
+      // Env was forwarded to the child: these are the two flags that
       // matter for production behaviour (ADBLOCK silences create-* promo
       // output; NODE_ENV stops pnpm dropping devDependencies).
       expect(log).toContain("\n1\n");

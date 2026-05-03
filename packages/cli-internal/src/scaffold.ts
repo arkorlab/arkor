@@ -12,7 +12,7 @@ import {
 export type FileAction = "created" | "kept" | "patched" | "ok";
 
 export interface ScaffoldOptions {
-  /** Destination directory — created if it does not already exist. */
+  /** Destination directory: created if it does not already exist. */
   cwd: string;
   /** Project name used in package.json + README. */
   name: string;
@@ -56,7 +56,7 @@ async function ensureDirExists(cwd: string): Promise<void> {
 async function ensureEmptyEnough(cwd: string): Promise<void> {
   const entries = (await readdir(cwd)).filter((f) => f !== "." && f !== "..");
   if (entries.length === 0) return;
-  // Allow scaffolding into an existing project — but prevent overwriting if
+  // Allow scaffolding into an existing project, but prevent overwriting if
   // any target files already exist. `ensureFile` below keeps existing files.
 }
 

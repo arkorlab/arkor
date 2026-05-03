@@ -20,7 +20,7 @@ import type {
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 /**
- * Internal runtime context. Not part of the public API surface — exposed only
+ * Internal runtime context. Not part of the public API surface: exposed only
  * for tests and advanced power-user scenarios that need to inject a mock
  * `fetch` or override the working directory.
  *
@@ -113,7 +113,7 @@ function buildJobConfig(input: TrainerInput): JobConfig {
 /**
  * Build a `Trainer` bound to the user's configuration.
  *
- * Public signature: `createTrainer(input)` — runtime options like
+ * Public signature: `createTrainer(input)`: runtime options like
  * `baseUrl` / `credentials` / `cwd` come from the environment and `.arkor/`
  * state, never from user code. The optional second argument is reserved for
  * tests and advanced overrides.
@@ -160,7 +160,7 @@ export function createTrainer(
    * many SDK clients retry at once.
    *
    * The final value is clamped at `maxReconnectDelayMs` because jitter
-   * sits *outside* the exponential clamp — without the outer clamp, a
+   * sits *outside* the exponential clamp: without the outer clamp, a
    * long outage where `exp` already hit the cap could wait up to 1.25 ×
    * the documented cap when `Math.random()` lands near 1.
    */
@@ -335,7 +335,7 @@ export function createTrainer(
         try {
           for await (const sse of iterateEvents(response)) {
             // Any frame from the server (including pings) means we're
-            // connected and making progress — reset the failure counter
+            // connected and making progress: reset the failure counter
             // so subsequent transient blips get the full retry budget.
             receivedAny = true;
             attempt = 0;
@@ -366,7 +366,7 @@ export function createTrainer(
         if (terminal) break;
 
         if (receivedAny) {
-          // Stream had real activity then closed cleanly. Not a failure —
+          // Stream had real activity then closed cleanly. Not a failure:
           // reconnect with Last-Event-ID at the base delay (no exponential
           // backoff, no counter increment).
           await delay(initialReconnectDelayMs, abortSignal);

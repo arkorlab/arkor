@@ -44,7 +44,7 @@ function recorder(
 
 beforeEach(() => {
   // Reset the module-scoped deprecation latch to its production
-  // baseline (`null`) so each test sees its own writes — and so a
+  // baseline (`null`) so each test sees its own writes, and so a
   // leftover sentinel can't leak into other test files in the same
   // vitest worker.
   clearRecordedDeprecation();
@@ -70,7 +70,7 @@ describe("CloudApiClient construction", () => {
     await client
       .openEventStream("j1", { orgSlug: "o", projectSlug: "p" })
       .catch(() => {
-        /* ignore stream open failure — we're only checking the URL */
+        /* ignore stream open failure: we're only checking the URL */
       });
     // Single slash between origin and `/v1/...`, regardless of input form.
     expect(calls[0]?.url).toBe(
@@ -125,7 +125,7 @@ describe("CloudApiClient.cancelJob", () => {
   });
 
   it("falls through to a generic message when the body is empty", async () => {
-    // `||` (not `??`) in buildCloudApiError specifically handles this — an
+    // `||` (not `??`) in buildCloudApiError specifically handles this: an
     // empty body shouldn't produce an empty error message.
     const { fetch: f } = recorder(
       () => new Response("", { status: 500 }),
@@ -343,8 +343,8 @@ describe("CloudApiClient.chat", () => {
   it("propagates an AbortSignal so callers can cancel mid-stream", async () => {
     const ac = new AbortController();
     const { fetch: f, calls } = recorder((call) => {
-      // The implementation passes signal through `fetchImpl(url, { signal })`
-      // — verifying its presence on the captured init mirrors that contract.
+      // The implementation passes signal through `fetchImpl(url, { signal })`.
+      // Verifying its presence on the captured init mirrors that contract.
       expect(call.method).toBe("POST");
       return new Response("ok", { status: 200 });
     });

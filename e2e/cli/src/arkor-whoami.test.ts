@@ -184,7 +184,7 @@ describe("arkor whoami × SDK version gate (E2E)", () => {
     // Regression guard: a 426 with an unfamiliar body (empty here, e.g. a
     // proxy stripped it) must still hard-block. Earlier the formatter
     // returned `null` for an unparseable body, which silently fell through
-    // to the "Token may be expired" branch and exited 0 — so scripts gating
+    // to the "Token may be expired" branch and exited 0, so scripts gating
     // on `arkor whoami` would proceed past an unsupported SDK.
     server.setHandler((_req, res) => {
       res.statusCode = 426;

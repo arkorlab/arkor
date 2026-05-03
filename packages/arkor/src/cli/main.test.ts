@@ -43,7 +43,7 @@ import { runWhoami } from "./commands/whoami";
 import { shutdownTelemetry } from "../core/telemetry";
 import { main } from "./main";
 
-// Capture once so the after-each can restore — without this, tests that
+// Capture once so the after-each can restore: without this, tests that
 // set `npm_config_user_agent` to drive package-manager detection leak the
 // override into later test files when vitest reuses a worker process.
 const ORIG_USER_AGENT = process.env.npm_config_user_agent;

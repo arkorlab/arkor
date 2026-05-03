@@ -15,7 +15,7 @@ function runGit(args: string[], opts: { cwd: string }): Promise<string> {
     });
     // Without an `error` listener, a spawn failure (git missing, EACCES,
     // ENOENT on a stale cwd) leaves the promise pending forever, so the
-    // test run hangs until vitest's per-test timeout — diagnose it as a
+    // test run hangs until vitest's per-test timeout: diagnose it as a
     // fast deterministic failure instead.
     child.on("error", (err) =>
       reject(new Error(`spawn git ${args.join(" ")} failed: ${err.message}`)),
@@ -107,7 +107,7 @@ describe("gitInitialCommit", () => {
       ).trim().split("\n");
       expect(tracked).toContain("README.md");
     },
-    // Vitest's 5s default is too tight for GitHub Windows runners — git
+    // Vitest's 5s default is too tight for GitHub Windows runners: git
     // init+add+commit through three spawn() calls intermittently lands
     // past 5s under Defender / file-locking pressure, even though sibling
     // tests in this file pass in <1s. Not a real regression.
@@ -129,7 +129,7 @@ describe("gitInitialCommit", () => {
   it("falls back to commit.gpgsign=false when signing is forced and broken", async () => {
     writeFileSync(join(cwd, "f.txt"), "x");
     // Force gpg signing with a non-existent program so the signing step
-    // fails with a recognisable "gpg failed to sign" stderr — exactly the
+    // fails with a recognisable "gpg failed to sign" stderr: exactly the
     // shape the helper retries past.
     process.env.GIT_CONFIG_COUNT = "3";
     process.env.GIT_CONFIG_KEY_0 = "commit.gpgsign";

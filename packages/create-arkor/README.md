@@ -61,7 +61,7 @@ my-app/
 ```
 
 When `[dir]` is given explicitly, existing files are kept (never overwritten)
-and `package.json` is patched in place — only missing keys are added, so a
+and `package.json` is patched in place: only missing keys are added, so a
 hand-edited `build: "tsc"` survives. When the target directory is auto-derived
 (no `[dir]` passed), an existing non-empty `./<project-name>/` is treated as a
 collision: interactive runs re-prompt for a different name, and `-y` /
@@ -69,9 +69,9 @@ non-interactive runs exit with an error.
 
 ## Templates
 
-- **triage** — support ticket triage. Free-text in → `{category, urgency, summary, nextAction}` JSON. Dataset: `arkorlab/triage-demo`. ~7 min training.
-- **translate** — multilingual support-intake translation across 9 languages. → `{translation, detectedLanguage}` JSON. Dataset: `arkorlab/translate-demo`. ~7 min training.
-- **redaction** — PII redaction. Free-text in → `{redactedText, redactedCount, tags}` JSON with `[REDACTED]` substitutions. Dataset: `arkorlab/redaction-demo`. ~12 min training.
+- **triage**: support ticket triage. Free-text in → `{category, urgency, summary, nextAction}` JSON. Dataset: `arkorlab/triage-demo`. ~7 min training.
+- **translate**: multilingual support-intake translation across 9 languages. → `{translation, detectedLanguage}` JSON. Dataset: `arkorlab/translate-demo`. ~7 min training.
+- **redaction**: PII redaction. Free-text in → `{redactedText, redactedCount, tags}` JSON with `[REDACTED]` substitutions. Dataset: `arkorlab/redaction-demo`. ~12 min training.
 
 All three pair `unsloth/gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The `src/arkor/index.ts` entry point is identical across templates; only `src/arkor/trainer.ts` differs.
 
@@ -88,7 +88,7 @@ cd my-app
 The `dev` / `build` / `start` package scripts forward to the corresponding
 `arkor` subcommands, so the script form works the same across npm, pnpm,
 yarn, and bun. (npm in particular does *not* run package binaries via
-`npm <bin>` — use `npm run <script>`, or `npx arkor <subcommand>` for
+`npm <bin>`: use `npm run <script>`, or `npx arkor <subcommand>` for
 one-off invocations.)
 
 `arkor dev` opens the local Studio. See the
@@ -97,4 +97,4 @@ reference.
 
 ## License
 
-MIT — see [LICENSE.md](./LICENSE.md).
+MIT: see [LICENSE.md](./LICENSE.md).

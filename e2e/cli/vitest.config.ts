@@ -8,7 +8,7 @@ export default defineConfig({
     // `default` keeps normal CLI output; `junit` writes the XML that
     // codecov-action consumes for Test Analytics. E2E coverage itself is
     // collected via c8 (NODE_V8_COVERAGE) wrapping vitest in the
-    // `test:coverage` script — vitest's own coverage option is not used
+    // `test:coverage` script: vitest's own coverage option is not used
     // here because v8 coverage of *child* CLI processes is what we want.
     reporters: ["default", "junit"],
     outputFile: {

@@ -46,7 +46,7 @@ if (!hasStripTypesSupport()) {
   //      blob of JS that drowns the actual `Error: <message>` line.
   //   2. On macOS Node <22.17 (libuv <1.51.0) the `Error: <message>` tail of
   //      that output isn't reliably flushed to stderr before the process
-  //      exits — so spawned-CLI test assertions that `toContain` the message
+  //      exits, so spawned-CLI test assertions that `toContain` the message
   //      fail with only the code-frame received. libuv 1.51.0 fixes this,
   //      but we want CI green across the whole supported Node range.
   // Setting `process.exitCode` (instead of `process.exit(1)`) lets the event

@@ -3,7 +3,7 @@
 The Arkor SDK + CLI + bundled local Studio. One package; three surfaces.
 
 > Status: alpha (`0.0.1-alpha.7`). APIs may change without notice. No compat
-> shims are offered between alpha versions — pin and re-read the changelog
+> shims are offered between alpha versions: pin and re-read the changelog
 > before bumping.
 
 ## Install
@@ -57,7 +57,7 @@ import { trainer } from "./trainer";
 export const arkor = createArkor({ trainer });
 ```
 
-`createArkor` returns an intentionally opaque, frozen manifest — room to
+`createArkor` returns an intentionally opaque, frozen manifest: room to
 grow operation methods later without breaking callers. Keys are role-fixed
 (`trainer`, future `deploy` / `eval`) so the CLI and Studio can predict
 what's there.
@@ -66,10 +66,10 @@ what's there.
 
 `createTrainer` returns a `Trainer` with:
 
-- `start()` — submits the job to the cloud; resolves with `{ jobId }`
-- `wait()` — opens an SSE stream and dispatches `callbacks.*` until the
+- `start()`: submits the job to the cloud; resolves with `{ jobId }`
+- `wait()`: opens an SSE stream and dispatches `callbacks.*` until the
   run reaches a terminal status; resolves with `{ job, artifacts }`
-- `cancel()` — best-effort cancellation
+- `cancel()`: best-effort cancellation
 
 Inside `onCheckpoint` you also get a bound `infer({ messages, stream? })`
 helper that points at the checkpoint adapter for mid-training evaluation.
@@ -77,7 +77,7 @@ helper that points at the checkpoint adapter for mid-training evaluation.
 ### Runtime context
 
 `baseUrl`, `credentials`, and `cwd` come from the environment + `.arkor/`
-state — never from user code. Set `ARKOR_CLOUD_API_URL` to point at a
+state: never from user code. Set `ARKOR_CLOUD_API_URL` to point at a
 non-default cloud-api deployment; everything else is managed by `arkor
 login` / `arkor logout`.
 
@@ -102,13 +102,13 @@ React SPA from the same origin. Two roles:
 
 - **Hot reload** for the user's TypeScript so the UI reflects current
   source without restarts.
-- **GUI operations** — running training, inspecting jobs, mid-training
+- **GUI operations**: running training, inspecting jobs, mid-training
   inference in a Playground.
 
 Studio is loopback-only and per-launch CSRF-token-gated:
 
 - Every request, including static HTML, rejects `Host` values other than
-  `127.0.0.1` or `localhost` — defense against DNS rebinding before the
+  `127.0.0.1` or `localhost`: defense against DNS rebinding before the
   token-bearing HTML is served.
 - `/api/*` requires the `X-Arkor-Studio-Token` header. The job-event stream
   route also accepts `?studioToken=` because `EventSource` cannot send custom

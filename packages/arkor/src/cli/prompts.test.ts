@@ -248,7 +248,7 @@ describe("interactive paths (clack stubbed)", () => {
   });
 
   it("throws a 'no value received' error when clack resolves to undefined", async () => {
-    // The narrowing helper rejects undefined separately from cancellation —
+    // The narrowing helper rejects undefined separately from cancellation:
     // a safety net for clack returning `undefined` (which historically has
     // happened in clack's own bug fixes for non-TTY edge cases).
     vi.mocked(clack.text).mockResolvedValueOnce(undefined as never);

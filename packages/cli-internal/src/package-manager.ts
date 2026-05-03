@@ -2,7 +2,7 @@ export type PackageManager = "pnpm" | "yarn" | "bun" | "npm";
 
 /**
  * Infer the package manager from `npm_config_user_agent` (set by the launcher
- * that ran this script). Returns `undefined` when we genuinely can't tell —
+ * that ran this script). Returns `undefined` when we genuinely can't tell:
  * callers should then ask the user to install deps manually instead of
  * silently guessing.
  */

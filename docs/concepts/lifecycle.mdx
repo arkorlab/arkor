@@ -73,7 +73,7 @@ Common uses:
 
 - Forward to your own metrics pipeline (e.g. PostHog, Datadog).
 - Detect divergence early: if `loss` is climbing, abort `wait()` via `abortSignal` and call `trainer.cancel()` to stop the GPU on the backend.
-- Implement custom early stopping (abort a run automatically when metrics regress — see the [Early stopping recipe](/cookbook/early-stopping)).
+- Implement custom early stopping (abort a run automatically when metrics regress: see the [Early stopping recipe](/cookbook/early-stopping)).
 
 ## `onCheckpoint({ step, adapter, job, infer, artifacts })`
 

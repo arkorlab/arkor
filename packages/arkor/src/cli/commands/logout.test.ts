@@ -69,7 +69,7 @@ afterEach(() => {
   else delete process.env.HOMEPATH;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
-  // Restore the TTY flag in case the interactive test mutated it —
+  // Restore the TTY flag in case the interactive test mutated it:
   // otherwise a later test that unsets CI would unexpectedly enter
   // interactive prompt paths.
   Object.defineProperty(process.stdout, "isTTY", {

@@ -76,7 +76,7 @@ describe("runStart", () => {
   });
 
   it("skips the build step when the artifact already exists and no entry override is given", async () => {
-    // Branch coverage for `Boolean(opts.entry) || !existsSync(outFile)` —
+    // Branch coverage for `Boolean(opts.entry) || !existsSync(outFile)`:
     // the path where both halves are false. Pre-build the artifact, then
     // confirm runStart imports it without triggering esbuild again.
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });

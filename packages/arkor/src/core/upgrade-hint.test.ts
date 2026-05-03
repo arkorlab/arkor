@@ -84,7 +84,7 @@ describe("detectedUpgradeCommand", () => {
   beforeEach(() => {
     delete process.env.npm_config_user_agent;
     // Replace argv[1] with a path no detector will recognise so the npm
-    // fallback applies — otherwise the test inherits whatever vitest's
+    // fallback applies: otherwise the test inherits whatever vitest's
     // worker exec path looked like.
     process.argv[1] = "/usr/local/bin/arkor";
   });

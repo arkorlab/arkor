@@ -148,7 +148,7 @@ describe("scaffold", () => {
 
   it("inserts a separating newline when the existing .gitignore lacks a trailing newline", async () => {
     // Without the `endsWith("\n") ? "" : "\n"` separator, the patched file
-    // would smash the previous last line into the new `.arkor/` entry —
+    // would smash the previous last line into the new `.arkor/` entry:
     // e.g. `node_modules/.arkor/`, which git would interpret as a single
     // path pattern.
     writeFileSync(join(cwd, ".gitignore"), "node_modules/");
@@ -158,7 +158,7 @@ describe("scaffold", () => {
   });
 
   it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when set", async () => {
-    // The value is opaque to scaffold — only that it's faithfully
+    // The value is opaque to scaffold: only that it's faithfully
     // round-tripped into package.json matters, so use a relative
     // `file:` spec that is platform-neutral (no Unix-only `/tmp`).
     const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.7.tgz";
@@ -238,7 +238,7 @@ describe("scaffold", () => {
   it("creates the target directory when it does not exist yet", async () => {
     // The fresh-scaffold path used by `npm create arkor my-new-app` runs
     // before the directory exists on disk. ensureDirExists's mkdir branch
-    // only fires there — once the directory exists, scaffold reuses it.
+    // only fires there: once the directory exists, scaffold reuses it.
     const parent = mkdtempSync(join(tmpdir(), "scaffold-fresh-"));
     const fresh = join(parent, "brand-new");
     try {

@@ -17,7 +17,7 @@ describe("baseModels", () => {
   });
 
   it("every entry is a non-empty lowercase model id", () => {
-    // The cloud-api validation is case-sensitive — a stray uppercase entry
+    // The cloud-api validation is case-sensitive: a stray uppercase entry
     // would 4xx every chat request for that model.
     for (const m of SUPPORTED_BASE_MODELS) {
       expect(m).toMatch(/^[a-z0-9][a-z0-9./_-]*$/);

@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 // Mock `open` so the OAuth flow doesn't try to spawn a real browser.
 // The mock also delivers the loopback callback by inspecting the
-// authorize URL it's invoked with — that's how we drive the PKCE flow
+// authorize URL it's invoked with: that's how we drive the PKCE flow
 // to completion from a test.
 vi.mock("open", () => ({
   default: vi.fn(),
@@ -49,7 +49,7 @@ afterEach(() => {
   globalThis.fetch = ORIG_FETCH;
   // `vi.spyOn` does not auto-restore between tests in this project's
   // vitest config (no `restoreMocks: true`), so spies on `clack.log.*`
-  // would otherwise leak — accumulating call records across tests and
+  // would otherwise leak: accumulating call records across tests and
   // causing later assertions to see calls from earlier ones.
   vi.restoreAllMocks();
   rmSync(fakeHome, { recursive: true, force: true });
@@ -58,7 +58,7 @@ afterEach(() => {
 describe("runLogin", () => {
   // The flag rejection lives both in `main.ts` (so the CLI layer fails
   // before any I/O) and in `runLogin` itself (so programmatic callers
-  // can't bypass it). Test the function-level guard directly — the CLI
+  // can't bypass it). Test the function-level guard directly: the CLI
   // layer is a one-liner that delegates to the same check.
   it("rejects --oauth and --anonymous together", async () => {
     // No fetch mock: the guard must trip before we touch the network.
@@ -202,7 +202,7 @@ describe("runLogin", () => {
   // In non-interactive contexts (CI, piped stdout) `promptSelect` returns
   // its `initialValue` instead of blocking on a prompt. The choice to
   // default to anonymous matters because OAuth needs a browser callback
-  // CI can't satisfy — silently bootstrapping anon is safer than hanging.
+  // CI can't satisfy: silently bootstrapping anon is safer than hanging.
   it("defaults to anonymous in non-interactive contexts even when OAuth is configured", async () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
@@ -301,7 +301,7 @@ describe("runLogin", () => {
     // The `--anonymous` shortcut deliberately skips the cfg fetch (so a
     // partially-degraded cloud-api can't block the only flow that doesn't
     // need it). Per the contract in `cli/anonymous.ts`, that means
-    // `oauthAvailable` is undefined and the warn must be suppressed —
+    // `oauthAvailable` is undefined and the warn must be suppressed:
     // erring on suppression keeps users on rare anon-only deployments
     // from being pointed at `arkor login --oauth`, which would fail.
     it("suppresses the warn on the explicit --anonymous shortcut", async () => {
@@ -363,7 +363,7 @@ describe("runLogin", () => {
       const redirect = parsed.searchParams.get("redirect_uri");
       // Hit the loopback server with the matching state. We use setTimeout(0)
       // so the SDK has a chance to await its server's `waitForCallback`
-      // before we fire the request — and use ORIG_FETCH so the request
+      // before we fire the request, and use ORIG_FETCH so the request
       // actually reaches the real TCP socket instead of being intercepted
       // by the test's mock fetch.
       setTimeout(() => {
@@ -389,10 +389,10 @@ describe("runLogin", () => {
       // /callback requests run through ORIG_FETCH (above, in the `open`
       // mock), so they reach the real loopback server directly. This
       // branch only catches accidental misconfigs that route them
-      // through the test mock instead — fail loudly to flag the bug.
+      // through the test mock instead: fail loudly to flag the bug.
       if (url.startsWith("http://127.0.0.1") && url.includes("/callback")) {
         throw new Error(
-          `loopback callback hit the mock fetch — should have used ORIG_FETCH: ${url}`,
+          `loopback callback hit the mock fetch: should have used ORIG_FETCH: ${url}`,
         );
       }
       if (url === "https://tenant.auth0.com/oauth/token") {
@@ -425,7 +425,7 @@ describe("runLogin", () => {
     // false branch. We deliver the callback ourselves via setImmediate.
     delete process.env.CI;
 
-    // Stash a pending callback fire — we extract the redirect_uri from the
+    // Stash a pending callback fire: we extract the redirect_uri from the
     // ui.log.info line that runLogin prints. Easiest path is to monkey-
     // patch the native fetch so we observe the authorize URL build by way
     // of the loopback redirect: open is NOT called, so we instead arm a
@@ -458,7 +458,7 @@ describe("runLogin", () => {
     }) as typeof fetch;
 
     // Use a process.stdout.write spy to extract the authorize URL the SDK
-    // logs — `ui.log.info("Browser: <url>")`. The state value is in there.
+    // logs: `ui.log.info("Browser: <url>")`. The state value is in there.
     // Use vi.spyOn so the original method reference is preserved
     // (assigning `process.stdout.write.bind(...)` and restoring would
     // permanently rebind the slot to a wrapper for the rest of the
@@ -533,7 +533,7 @@ describe("runLogin", () => {
     // Branch coverage for the inner try/catch around `await open(url)`.
     delete process.env.CI;
     vi.mocked(open).mockImplementation((async (url: string) => {
-      // Fire the callback (good path) but ALSO throw — the helper must
+      // Fire the callback (good path) but ALSO throw: the helper must
       // continue past the open failure and complete the flow.
       const parsed = new URL(url);
       const state = parsed.searchParams.get("state");

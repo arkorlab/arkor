@@ -32,7 +32,7 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
     throw new Error("Pick one of --oauth / --anonymous, not both.");
   }
   if (options.anonymous) {
-    // `oauthAvailable` unknown here — we deliberately skip the cfg fetch on
+    // `oauthAvailable` unknown here: we deliberately skip the cfg fetch on
     // the explicit `--anonymous` shortcut so a partially-degraded cloud-api
     // doesn't block the only flow that doesn't need it. Per the gating
     // contract in `../anonymous.ts`, the persistence nudge is suppressed
@@ -72,7 +72,7 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
   // Gated on `process.env.CI` specifically (not the broader
   // `!isInteractive()` check from prompts.ts) so legitimate local
   // headless flows like `arkor login --oauth --no-browser | tee logs`
-  // still work — pipes set `process.stdout.isTTY = false` but a browser
+  // still work: pipes set `process.stdout.isTTY = false` but a browser
   // is still reachable on the user's machine.
   if (options.oauth && process.env.CI) {
     throw new Error(
@@ -83,7 +83,7 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
   // Interactive choice: when neither flag was passed, ask which mode to use.
   // Non-interactive contexts (CI, piped stdout) default to anonymous via
   // `initialValue` because OAuth requires a browser callback that CI can't
-  // satisfy — silently falling back to anon is safer than hanging on the
+  // satisfy: silently falling back to anon is safer than hanging on the
   // PKCE loopback. Automation that wants OAuth must opt in with `--oauth`.
   const mode = options.oauth
     ? "oauth"
@@ -125,7 +125,7 @@ async function runAnonymousLogin(opts: {
    * Whether OAuth is *confirmed* available on this deployment. The
    * persistence nudge fires only when this is `true`. `false` (cfg
    * fetched, no Auth0 advertised) and `undefined` (cfg not fetched, e.g.
-   * the explicit `--anonymous` shortcut) both suppress the nudge — see
+   * the explicit `--anonymous` shortcut) both suppress the nudge: see
    * the gating contract in `../anonymous.ts`. We err on suppression for
    * the unknown case so users on rare anon-only deployments are never
    * pointed at `arkor login --oauth`, which would fail on those.
