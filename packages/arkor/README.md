@@ -99,16 +99,22 @@ project's installed copy. Relative imports get inlined.
 ### Anonymous accounts are single-device
 
 `arkor login --anonymous` (and the auto-bootstrap on first `arkor dev`)
-issues a throwaway token tied to a brand-new personal org. **It only
-works on the machine where it was issued.** Copying
-`~/.arkor/credentials.json` to a second machine and using it from both
-will trip the server's single-device guard, and one of the two will be
-locked out with `anonymous_token_single_device`. On OAuth-supporting
-deployments the CLI directs the user at `arkor login --oauth` to start
-a real account; on anon-only deployments it points at `arkor login
---anonymous` instead, since `--oauth` would fail there. Either path is
-a *new* identity — there is no migration of the existing anonymous
-workspace today.
+issues a throwaway token tied to a brand-new personal org. **It is
+designed for one machine.** The cloud-api stores a `latest_jti` per
+anonymous user and rejects every authenticated request whose JWT
+carries a different jti, so copying `~/.arkor/credentials.json` to a
+second machine and using it from both will eventually trip the
+server's single-device guard. The exact timing depends on whether the
+SDK is currently auto-refreshing the token: today it isn't, so a
+copy may keep working for a while; once one of the copies forces a
+fresh login (or auto-refresh ships and rotates the stored jti), every
+*other* copy starts failing on its next call with
+`anonymous_token_single_device`. On OAuth-supporting deployments the
+CLI directs the user at `arkor login --oauth` to start a real
+account; on anon-only deployments it points at `arkor login
+--anonymous` instead, since `--oauth` would fail there. Either path
+is a *new* identity — there is no migration of the existing
+anonymous workspace today.
 
 Anonymous data isn't recoverable across re-issuance: deleting the
 credentials file or losing the single-device race means the org and

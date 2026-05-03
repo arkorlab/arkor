@@ -137,10 +137,15 @@ npm install && npm run dev
 
 \`arkor dev\` opens the local Studio GUI (most workflows live there).
 
-Anonymous tokens are tied to this machine. Copying
-\`~/.arkor/credentials.json\` to another device will be rejected as a
-single-device policy violation. When you're ready for an account-backed
-workspace that follows you across devices, run:
+Anonymous tokens are designed for one machine. The cloud-api enforces
+a single-device guard server-side, so copying
+\`~/.arkor/credentials.json\` to another device isn't a supported
+workflow — the issuing machine and the copy share one identity, and
+once either side forces a token rotation (today: a manual
+\`arkor login --anonymous\`; future: any auto-refresh) the other side
+starts failing with a single-device error on its next call. When
+you're ready for an account-backed workspace that follows you across
+devices, run:
 
 \`\`\`
 npx arkor login --oauth
