@@ -42,6 +42,10 @@
                 "pages": ["guides/cli/init"]
               },
               {
+                "group": "SDK",
+                "pages": ["guides/sdk/callbacks"]
+              },
+              {
                 "group": "Studio",
                 "pages": [
                   "studio/overview",
@@ -131,6 +135,10 @@
               {
                 "group": "CLI",
                 "pages": ["ja/guides/cli/init"]
+              },
+              {
+                "group": "SDK",
+                "pages": ["ja/guides/sdk/callbacks"]
               },
               {
                 "group": "Studio",
