@@ -14,19 +14,19 @@ Studio's **Run training** internally spawns `arkor start` (without an entry argu
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor build
+pnpm build
 ```
 
 ```bash npm
-npx arkor build
+npm run build
 ```
 
 ```bash yarn
-yarn arkor build
+yarn build
 ```
 
 ```bash bun
-bunx arkor build
+bun run build
 ```
 
 </CodeGroup>
@@ -56,19 +56,19 @@ If the entry does not exist, `arkor build` throws with a hint to either create `
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor start
+pnpm start
 ```
 
 ```bash npm
-npx arkor start
+npm start
 ```
 
 ```bash yarn
-yarn arkor start
+yarn start
 ```
 
 ```bash bun
-bunx arkor start
+bun start
 ```
 
 </CodeGroup>
@@ -127,23 +127,23 @@ Build then start, two steps:
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor build
-pnpm exec arkor start
+pnpm build
+pnpm start
 ```
 
 ```bash npm
-npx arkor build
-npx arkor start
+npm run build
+npm start
 ```
 
 ```bash yarn
-yarn arkor build
-yarn arkor start
+yarn build
+yarn start
 ```
 
 ```bash bun
-bunx arkor build
-bunx arkor start
+bun run build
+bun start
 ```
 
 </CodeGroup>
@@ -153,19 +153,19 @@ One step, force a rebuild from a different entry:
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor start src/arkor/experiment.ts
+pnpm start src/arkor/experiment.ts
 ```
 
 ```bash npm
-npx arkor start src/arkor/experiment.ts
+npm start -- src/arkor/experiment.ts
 ```
 
 ```bash yarn
-yarn arkor start src/arkor/experiment.ts
+yarn start src/arkor/experiment.ts
 ```
 
 ```bash bun
-bunx arkor start src/arkor/experiment.ts
+bun start src/arkor/experiment.ts
 ```
 
 </CodeGroup>
@@ -176,22 +176,22 @@ Rebuild stale artifact between trainer edits:
 
 ```bash pnpm
 # After editing src/arkor/trainer.ts:
-pnpm exec arkor build && pnpm exec arkor start
+pnpm build && pnpm start
 ```
 
 ```bash npm
 # After editing src/arkor/trainer.ts:
-npx arkor build && npx arkor start
+npm run build && npm start
 ```
 
 ```bash yarn
 # After editing src/arkor/trainer.ts:
-yarn arkor build && yarn arkor start
+yarn build && yarn start
 ```
 
 ```bash bun
 # After editing src/arkor/trainer.ts:
-bunx arkor build && bunx arkor start
+bun run build && bun start
 ```
 
 </CodeGroup>

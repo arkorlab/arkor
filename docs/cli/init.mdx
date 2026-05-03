@@ -8,19 +8,23 @@ description: "Scaffold an Arkor project in the current directory."
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor init
+pnpm arkor init
 ```
 
 ```bash npm
-npx arkor init
+npm arkor init
 ```
 
 ```bash yarn
 yarn arkor init
 ```
 
+```bash yarn-berry
+yarn run arkor init
+```
+
 ```bash bun
-bunx arkor init
+bun arkor init
 ```
 
 </CodeGroup>
@@ -87,19 +91,23 @@ When `process.stdout` is not a TTY, or `CI` is set in the environment, `arkor in
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor init --yes --template triage --use-pnpm --skip-git
+pnpm arkor init --yes --template triage --use-pnpm --skip-git
 ```
 
 ```bash npm
-npx arkor init --yes --template triage --use-npm --skip-git
+npm arkor init --yes --template triage --use-npm --skip-git
 ```
 
 ```bash yarn
 yarn arkor init --yes --template triage --use-yarn --skip-git
 ```
 
+```bash yarn-berry
+yarn run arkor init --yes --template triage --use-yarn --skip-git
+```
+
 ```bash bun
-bunx arkor init --yes --template triage --use-bun --skip-git
+bun arkor init --yes --template triage --use-bun --skip-git
 ```
 
 </CodeGroup>
@@ -123,19 +131,23 @@ Interactive:
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor init
+pnpm arkor init
 ```
 
 ```bash npm
-npx arkor init
+npm arkor init
 ```
 
 ```bash yarn
 yarn arkor init
 ```
 
+```bash yarn-berry
+yarn run arkor init
+```
+
 ```bash bun
-bunx arkor init
+bun arkor init
 ```
 
 </CodeGroup>
@@ -145,19 +157,23 @@ Accept defaults, skip install, skip git:
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor init --yes --skip-install --skip-git
+pnpm arkor init --yes --skip-install --skip-git
 ```
 
 ```bash npm
-npx arkor init --yes --skip-install --skip-git
+npm arkor init --yes --skip-install --skip-git
 ```
 
 ```bash yarn
 yarn arkor init --yes --skip-install --skip-git
 ```
 
+```bash yarn-berry
+yarn run arkor init --yes --skip-install --skip-git
+```
+
 ```bash bun
-bunx arkor init --yes --skip-install --skip-git
+bun arkor init --yes --skip-install --skip-git
 ```
 
 </CodeGroup>
@@ -167,19 +183,23 @@ Pin the template and force the package manager:
 <CodeGroup>
 
 ```bash pnpm
-pnpm exec arkor init --template translate --use-pnpm
+pnpm arkor init --template translate --use-pnpm
 ```
 
 ```bash npm
-npx arkor init --template translate --use-npm
+npm arkor init --template translate --use-npm
 ```
 
 ```bash yarn
 yarn arkor init --template translate --use-yarn
 ```
 
+```bash yarn-berry
+yarn run arkor init --template translate --use-yarn
+```
+
 ```bash bun
-bunx arkor init --template translate --use-bun
+bun arkor init --template translate --use-bun
 ```
 
 </CodeGroup>
