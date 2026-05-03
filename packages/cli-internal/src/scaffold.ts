@@ -380,69 +380,6 @@ async function existingProjectDeclaresYarnBerry(
   }
 }
 
-/**
- * Detect the column of the existing root mapping in a `.yarnrc.yml`,
- * mirroring the parser in `readNodeLinkerValue` (skip blanks,
- * comments, and YAML structural markers `---` / `...` / `%...`).
- * Used by the append path to ensure the inserted `nodeLinker:` lands
- * at the same column as other top-level keys; otherwise an existing
- * `  yarnPath: ...` (indented root mapping) plus a column-0 `nodeLinker:`
- * would produce invalid YAML. Returns 0 when the file has no usable
- * content lines (we'll be writing the only key, so 0 is correct).
- * (PR #99 round 12 review — scaffold.ts indented-root case.)
- */
-function detectYarnrcRootIndent(yarnrc: string): number {
-  for (const line of yarnrc.split(/\r?\n/)) {
-    if (!line.trim() || /^\s*#/.test(line)) continue;
-    const trimmed = line.trim();
-    if (
-      trimmed === "---" ||
-      trimmed === "..." ||
-      trimmed.startsWith("%")
-    ) {
-      continue;
-    }
-    return /^(\s*)/.exec(line)?.[1].length ?? 0;
-  }
-  return 0;
-}
-
-/**
- * Insert `nodeLinker: node-modules` into an existing `.yarnrc.yml`
- * that has no `nodeLinker:` key, preserving the existing structure.
- * Two YAML edge cases the naive `${current}\n${YARNRC_YML_CONTENT}`
- * append got wrong (PR #99 round 12 review):
- *
- *   1. Trailing document end marker `...` on its own line — the
- *      appended key would land *outside* the document and yarn
- *      would stop reading the config. Insert before the marker.
- *   2. Indented root mapping (e.g. `  yarnPath: ...`) — appending
- *      `nodeLinker: node-modules` at column 0 would produce a
- *      mismatched-indent root mapping (invalid YAML). Match the
- *      existing root indent.
- */
-function insertNodeLinkerIntoYarnrc(current: string): string {
-  const indent = detectYarnrcRootIndent(current);
-  const newKey = `${" ".repeat(indent)}nodeLinker: node-modules`;
-  // Preserve the original line-ending style — mostly LF in this
-  // codebase, but a CRLF input shouldn't end up with a mid-document
-  // line-ending switch.
-  const eol = current.includes("\r\n") ? "\r\n" : "\n";
-  const lines = current.split(/\r?\n/);
-  // `String.split` leaves a trailing empty string when the input
-  // ends with a newline. Track and restore that shape so we don't
-  // accidentally drop or add a blank line.
-  const trailingNewline = lines.length > 0 && lines[lines.length - 1] === "";
-  if (trailingNewline) lines.pop();
-  const terminatorIdx = lines.findIndex((l) => l.trim() === "...");
-  if (terminatorIdx !== -1) {
-    lines.splice(terminatorIdx, 0, newKey);
-  } else {
-    lines.push(newKey);
-  }
-  return lines.join(eol) + (trailingNewline ? eol : "");
-}
-
 async function patchYarnConfig(
   cwd: string,
   isExistingProject: boolean,
@@ -470,28 +407,22 @@ async function patchYarnConfig(
   //      user MADE a deliberate choice. Leave the file untouched
   //      and surface a conflict warning. (Round 5 + 8.)
   //   3. No `nodeLinker:` key at all — yarn 4 silently defaults to
-  //      PnP. Two further cases:
-  //        - fresh project: it's safe to append
-  //          `nodeLinker: node-modules`; we own the scaffold and
-  //          there are no unrelated consumers of this file.
-  //        - existing project: the absence is itself a deliberate
-  //          PnP choice in an existing yarn-berry workspace
-  //          (round 14 review). Don't append; surface the caveat.
+  //      PnP. We *always* end up here with `isExistingProject=true`
+  //      under round-15 semantics: a `.yarnrc.yml` on disk means
+  //      `readdir(cwd)` returned at least one entry. So this
+  //      branch never appends — it surfaces the same yarn-berry
+  //      caveat as the no-file case. The earlier append path
+  //      (round 12 had an `insertNodeLinkerIntoYarnrc` helper for
+  //      YAML edge cases like trailing `...` terminators and
+  //      indented root mappings) is unreachable post-round-15;
+  //      removed to keep the patch surface honest.
   const current = await readFile(path, "utf8");
   const existingValue = readNodeLinkerValue(current);
   if (existingValue !== undefined) {
     if (existingValue === "node-modules") return { action: "ok" };
     return { action: "kept", conflictingNodeLinker: existingValue };
   }
-  if (isExistingProject) {
-    return { action: "kept", needsBerryCaveat: true };
-  }
-  // Fresh project + .yarnrc.yml exists but no nodeLinker — append.
-  // Use the structure-preserving inserter so a trailing `...`
-  // document terminator or an indented root mapping doesn't
-  // produce invalid YAML. (Round 12 review.)
-  await writeFile(path, insertNodeLinkerIntoYarnrc(current));
-  return { action: "patched" };
+  return { action: "kept", needsBerryCaveat: true };
 }
 
 async function patchPackageJson(
@@ -551,11 +482,25 @@ export async function scaffold(
 
   const files: ScaffoldResult["files"] = [];
   const warnings: string[] = [];
-  // Snapshot whether this is a merge into an already-bootstrapped
-  // project BEFORE patchPackageJson runs (which would always make
-  // `package.json` exist by the time we read it later). Used by the
-  // yarn-config emission rules below.
-  const isExistingProject = existsSync(join(cwd, PACKAGE_JSON_PATH));
+  // Snapshot whether the cwd already had any contents BEFORE
+  // `ensureFile` / `patch*` start writing files. Drives the
+  // yarn-config and gitignore-yarn-lines emission rules below — the
+  // policy is "don't mutate workspace-level config in someone else's
+  // project". Earlier rounds keyed off `existsSync(package.json)`,
+  // but Copilot (PR #99 round 15) flagged that `scaffold()` also
+  // supports merging into directories that aren't bootstrapped yet
+  // (e.g. an existing git repo with just a README, a monorepo
+  // sub-dir scaffolded for a new package, etc). Those would be
+  // misclassified as "fresh" under the package.json predicate and
+  // still get repo-level yarn writes — reintroducing the
+  // workspace-mutation hazard rounds 5/14 closed. Use the same
+  // "non-empty entries" predicate `ensureEmptyEnough` already
+  // applies; the snapshot has to be taken AFTER `ensureDirExists`
+  // (so the readdir doesn't ENOENT on a freshly-created dir) and
+  // BEFORE the first ensureFile/patch (so we don't see our own
+  // writes as pre-existing content).
+  const isExistingProject =
+    (await readdir(cwd)).filter((f) => f !== "." && f !== "..").length > 0;
   files.push({
     path: INDEX_PATH,
     action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),

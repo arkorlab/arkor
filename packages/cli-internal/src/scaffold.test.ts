@@ -159,14 +159,15 @@ describe("scaffold", () => {
     // a single path pattern. Existing entries that already match
     // (here: `node_modules/`) are deduped; missing required entries
     // (`dist/`, `.arkor/`) are appended one-per-line under the
-    // separator. The yarn-cache lines also fire because the
-    // packageManager is undefined here (manual install hint flow).
+    // separator. yarn-cache lines do NOT fire here even though pm
+    // is undefined: the pre-seeded `.gitignore` makes the cwd
+    // non-empty, which the round-15 `isExistingProject` predicate
+    // (PR #99) now treats as a merge into an unknown surrounding
+    // project and skips the defensive yarn entries.
     writeFileSync(join(cwd, ".gitignore"), "node_modules/");
     await scaffold({ cwd, name: "n", template: "triage" });
     const contents = readFileSync(join(cwd, ".gitignore"), "utf8");
-    expect(contents).toBe(
-      "node_modules/\ndist/\n.arkor/\n.yarn/cache\n.yarn/install-state.gz\n",
-    );
+    expect(contents).toBe("node_modules/\ndist/\n.arkor/\n");
   });
 
   // yarn-berry defaults to Plug'n'Play, which doesn't materialise
@@ -194,11 +195,19 @@ describe("scaffold", () => {
   // silently fall back to PnP, breaking the arkor runtime. Scaffold
   // must append `nodeLinker: node-modules` while preserving the
   // user's other settings (Copilot review on PR #99).
-  it("appends nodeLinker:node-modules when existing .yarnrc.yml lacks it", async () => {
-    writeFileSync(
-      join(cwd, ".yarnrc.yml"),
-      "yarnPath: .yarn/releases/yarn-4.x.cjs\n",
-    );
+  // Pre-round-15 this test asserted "patched" via an append. Under
+  // the round-15 `isExistingProject` predicate (= cwd is non-empty
+  // before scaffold writes), pre-seeding `.yarnrc.yml` flips the
+  // dir to existing-project, so the patch path now bows out with
+  // `kept + needsBerryCaveat` instead of mutating the file.
+  // Workspace-mutation policy wins over the missing-`nodeLinker:`
+  // append; the caveat tells the user what to add themselves.
+  // (The round-12 `insertNodeLinkerIntoYarnrc` helper that handled
+  // YAML terminators / indented root mappings became unreachable
+  // when round 15 closed this branch and was removed alongside.)
+  it("does NOT mutate an existing .yarnrc.yml that lacks nodeLinker — surfaces the caveat", async () => {
+    const yarnrcContent = "yarnPath: .yarn/releases/yarn-4.x.cjs\n";
+    writeFileSync(join(cwd, ".yarnrc.yml"), yarnrcContent);
     const result = await scaffold({
       cwd,
       name: "n",
@@ -206,67 +215,11 @@ describe("scaffold", () => {
       packageManager: "yarn",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    expect(yarnrc?.action).toBe("patched");
-    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
-    expect(contents).toContain("yarnPath: .yarn/releases/yarn-4.x.cjs");
-    expect(contents).toContain("nodeLinker: node-modules");
-  });
-
-  // Round 12 (Copilot, PR #99): the verbatim-append path produced
-  // invalid YAML for two realistic existing-`.yarnrc.yml` shapes.
-  // The patch path now uses a structure-preserving inserter that
-  // covers both — these tests pin down the contract.
-  //
-  // (1) Trailing document end marker `...` — appending after it
-  // would put `nodeLinker: node-modules` *outside* the document and
-  // yarn would silently stop reading the config. Insert before the
-  // marker instead.
-  it("inserts nodeLinker:node-modules BEFORE a trailing `...` YAML document terminator", async () => {
-    writeFileSync(
-      join(cwd, ".yarnrc.yml"),
-      "yarnPath: .yarn/releases/yarn-4.x.cjs\n...\n",
-    );
-    const result = await scaffold({
-      cwd,
-      name: "n",
-      template: "triage",
-      packageManager: "yarn",
-    });
-    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    expect(yarnrc?.action).toBe("patched");
-    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
-    // nodeLinker appears in the document body, BEFORE the terminator.
-    expect(contents).toBe(
-      "yarnPath: .yarn/releases/yarn-4.x.cjs\n" +
-        "nodeLinker: node-modules\n" +
-        "...\n",
-    );
-  });
-
-  // (2) Indented root mapping (yarn parses indented top-level keys
-  // as long as every key sits at the same column). Appending an
-  // unindented `nodeLinker: node-modules` after `  yarnPath: …`
-  // produces a mid-document indent change, which is invalid YAML.
-  // Match the existing root indent.
-  it("preserves the existing root indent when appending nodeLinker:node-modules to an indented .yarnrc.yml", async () => {
-    writeFileSync(
-      join(cwd, ".yarnrc.yml"),
-      "  yarnPath: .yarn/releases/yarn-4.x.cjs\n",
-    );
-    const result = await scaffold({
-      cwd,
-      name: "n",
-      template: "triage",
-      packageManager: "yarn",
-    });
-    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    expect(yarnrc?.action).toBe("patched");
-    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
-    // The new key matches the existing 2-space indent.
-    expect(contents).toBe(
-      "  yarnPath: .yarn/releases/yarn-4.x.cjs\n" +
-        "  nodeLinker: node-modules\n",
-    );
+    expect(yarnrc?.action).toBe("kept");
+    // File is unchanged — the user's existing config wins.
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(yarnrcContent);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
   });
 
   // Round 14 #1 (Copilot, PR #99): even with an explicit
@@ -344,6 +297,72 @@ describe("scaffold", () => {
     const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
     expect(gi).toContain(".arkor/");
     expect(gi).not.toContain(".yarn/");
+  });
+
+  // Round 15 (Copilot, PR #99): `isExistingProject` used to be
+  // inferred from `existsSync(package.json)`, but `scaffold()`
+  // also supports merging into directories that aren't
+  // bootstrapped yet — e.g. an existing git repo with just a
+  // README, a monorepo sub-dir scaffolded for a new package.
+  // Under the package.json predicate those got `false` and the
+  // patch path would still write `.yarnrc.yml` + add yarn-cache
+  // lines, reintroducing the workspace-mutation hazard rounds
+  // 5/14 had closed for the package.json-bearing case. The
+  // predicate is now "cwd has any pre-existing entries" — these
+  // tests pin that down for a representative non-package.json
+  // case (just a README, no package.json).
+  it("treats a non-empty directory without package.json as existing-project (no yarnrc + no yarn-cache gitignore lines under --use-yarn)", async () => {
+    // Pre-seed a single non-package.json file. Mirrors the
+    // "existing git repo with just a README" scenario from the
+    // round-15 review.
+    writeFileSync(join(cwd, "README.md"), "# my project\n");
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    // .yarnrc.yml is NOT created (the surrounding repo might
+    // deliberately be on yarn-berry's PnP default).
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("kept");
+    expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
+    // Caveat surfaces (same flow as round-14 — the user explicitly
+    // picked yarn, so they need the pointer to set things up).
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    // .gitignore does NOT get yarn-cache lines either — Yarn
+    // zero-install setups commit `.yarn/cache/` and silently
+    // ignoring those archives is the round-14 #2 hazard.
+    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
+    expect(gi).toContain(".arkor/");
+    expect(gi).not.toContain(".yarn/");
+  });
+
+  // Counterpart of the above: a TRULY empty cwd (just made by
+  // mkdtempSync, nothing in it) should still be treated as fresh
+  // — that's the create-arkor `pnpm create arkor my-app` flow
+  // and we want the defensive `.yarnrc.yml` + gitignore yarn
+  // entries to fire there. This guards against accidentally
+  // tightening the predicate too far (e.g. treating `["."]` as
+  // non-empty would break this).
+  it("still treats a freshly-created empty directory as fresh (writes .yarnrc.yml + yarn-cache gitignore lines under --use-yarn)", async () => {
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("created");
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toContain(
+      "nodeLinker: node-modules",
+    );
+    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
+    expect(gi).toContain(".yarn/cache");
+    expect(gi).toContain(".yarn/install-state.gz");
+    // No caveat — the patch path actually mutated, no advisory needed.
+    expect(result.warnings).toEqual([]);
   });
 
   // Round 14 #1 still has an explicit-conflict counterpart that
@@ -764,11 +783,18 @@ describe("scaffold", () => {
   // key isn't a top-level setting and yarn would never honour it.
   // The reader rejects deeper-indented matches so we don't conflate
   // `parent.nodeLinker` with the root key.
-  it("ignores a nested nodeLinker key and appends the missing top-level one", async () => {
-    writeFileSync(
-      join(cwd, ".yarnrc.yml"),
-      "yarnPath: .yarn/releases/yarn-4.x.cjs\nparent:\n  nodeLinker: pnp\n",
-    );
+  //
+  // Pre-round-15 the patch path then APPENDED a top-level
+  // `nodeLinker: node-modules`. Under round-15 semantics the
+  // pre-seeded yarnrc makes the cwd non-empty → patch path bows
+  // out with `kept + caveat` instead. The point of this test is
+  // to assert the *parser* still treats the nested entry as
+  // "no top-level nodeLinker" — i.e. no spurious conflict warning,
+  // and the nested entry is preserved verbatim.
+  it("treats a nested nodeLinker key as not-top-level (no conflict warning, file untouched)", async () => {
+    const yarnrcContent =
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\nparent:\n  nodeLinker: pnp\n";
+    writeFileSync(join(cwd, ".yarnrc.yml"), yarnrcContent);
     const result = await scaffold({
       cwd,
       name: "n",
@@ -776,13 +802,17 @@ describe("scaffold", () => {
       packageManager: "yarn",
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    expect(yarnrc?.action).toBe("patched");
-    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
-    expect(contents).toContain("nodeLinker: node-modules");
-    // The original nested entry survives untouched.
-    expect(contents).toContain("parent:\n  nodeLinker: pnp");
-    // No spurious warning — the nested key wasn't a real conflict.
-    expect(result.warnings).toEqual([]);
+    expect(yarnrc?.action).toBe("kept");
+    // File is untouched — the original nested entry survives verbatim,
+    // and we did NOT spuriously add a top-level nodeLinker.
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(yarnrcContent);
+    // The single warning is the yarn-berry caveat (no top-level
+    // nodeLinker found = `berry-without-linker` route under
+    // round 11 + 15). Crucially NOT a `nodeLinker: pnp` conflict
+    // warning — the parser correctly ignored the nested key.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).not.toMatch(/nodeLinker: pnp/);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
   });
 
   // Mirror of the `.yarnrc.yml` policy on `.gitignore`: when
