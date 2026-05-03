@@ -626,15 +626,18 @@ describe("scaffold", () => {
     expect(body).toContain(AGENTS_END);
   });
 
-  it("ignores a fenced-code-block marker example earlier in AGENTS.md (canonical block is the trailing one)", async () => {
-    // Coverage for the lastIndexOf-style block discovery. A user can
-    // legitimately document the marker syntax inside a fenced code
-    // block, putting the markers on their own lines. Earlier passes
-    // would treat the example as the managed block and overwrite it on
-    // re-scaffold. The fix is to pick the *trailing* line-anchored
-    // BEGIN..END pair: the canonical block is always written at the
-    // end of the file, so any earlier line-anchored pair must be user-
-    // authored prose / examples and must be preserved verbatim.
+  it("ignores a fenced-code-block marker example earlier in AGENTS.md (signature line distinguishes managed block from user docs)", async () => {
+    // Coverage for the signature-line guard in `findManagedBlock`. A user
+    // can legitimately document the marker syntax inside a fenced code
+    // block, putting the BEGIN/END markers on their own lines. Earlier
+    // passes (line-anchored markers + first/last selection) misclassified
+    // such examples as the managed block and overwrote them on re-scaffold.
+    // The current matcher requires the canonical signature line
+    // (`# arkor is newer than your training data`) to appear immediately
+    // after BEGIN, which a typical documentation example will not contain;
+    // when *several* signature-matching blocks coexist (rarer, e.g. an
+    // aggregator README pasting the canonical body twice), the matcher
+    // refuses to patch and surfaces a warning instead of guessing.
     const docExample =
       "# AGENTS.md primer\n" +
       "\n" +

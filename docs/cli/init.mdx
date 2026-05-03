@@ -9,7 +9,17 @@ description: "Scaffold an Arkor project in the current directory."
 pnpm exec arkor init
 ```
 
-Scaffolds `src/arkor/index.ts`, `src/arkor/trainer.ts`, `arkor.config.ts`, a starter `package.json`, and `AGENTS.md` / `CLAUDE.md` (skip the agent files with `--no-agents-md`) in the **current directory**. Use this when you want to add Arkor to an existing repo (the `pnpm create arkor my-app` flow runs the same scaffolder one directory up).
+Scaffolds the following files in the **current directory** (a fresh directory ends up with all of them; an existing directory is patched non-destructively — see [What gets written](#what-gets-written) for the per-file behavior):
+
+- `src/arkor/index.ts`
+- `src/arkor/trainer.ts`
+- `arkor.config.ts`
+- `README.md`
+- `.gitignore`
+- `package.json`
+- `AGENTS.md` and `CLAUDE.md` (skip the agent files with `--no-agents-md`)
+
+Use this when you want to add Arkor to an existing repo (the `pnpm create arkor my-app` flow runs the same scaffolder one directory up).
 
 By default, the command is partly interactive: it prompts for a project name and a starter template, then runs the package manager's `install` step automatically (no confirmation prompt) unless `--skip-install` is set, and prompts before running `git init`. If no package manager can be resolved (no `--use-*` flag and detection from `npm_config_user_agent` fails), the install step is skipped and the outro prints a manual install hint.
 
@@ -115,7 +125,7 @@ The scaffolder touches up to eight paths. None of them overwrites existing user 
 | `README.md` | **Created** with a starter README if missing. **Kept** untouched if it exists. |
 | `.gitignore` | **Created** with `node_modules/`, `dist/`, `.arkor/` if missing. **Patched** by appending `.arkor/` if the file exists but does not already list it. **Ok** (no change) if `.arkor/` is already there. |
 | `package.json` | **Created** with name / `private` / `type: "module"` / starter `dev`+`build`+`start` scripts / `devDependencies.arkor` if missing. **Patched** to add any of those scripts that are absent and to add `arkor` under `devDependencies` if absent; existing values (e.g. a custom `dev` script) are **not** overwritten. **Ok** (no change) if everything is already in place. |
-| `AGENTS.md` | **Created** with the arkor-managed block if missing (default; skip with `--no-agents-md`). If the file exists, the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->`) is **patched** in place — appended on first run, replaced inline on re-scaffold — and any user content outside the markers is preserved. **Ok** (no change) if the canonical block is already present and up-to-date. |
+| `AGENTS.md` | **Created** with the arkor-managed block if missing (default; skip with `--no-agents-md`). If the file exists, the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->`) is **patched** in place — appended on first run, replaced inline on re-scaffold — and any user content outside the markers is preserved. **Ok** (no change) if the canonical block is already present and up-to-date. **Kept** with a warning, instead of patched, when the file contains more than one canonical managed block: auto-picking either copy is unsafe, so the scaffolder leaves the file alone and asks you to dedupe before the next re-scaffold. |
 | `CLAUDE.md` | **Created** with `@AGENTS.md` (the Claude Code import directive) if missing (default; skip with `--no-agents-md`). **Kept** untouched if the file already exists, so a project-specific `CLAUDE.md` is never overwritten. |
 
 The CLI prints the file list as a "Files" note before installing, with an `action` (`created` / `kept` / `patched` / `ok`) per path so you can see exactly what changed.

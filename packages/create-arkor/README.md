@@ -73,7 +73,11 @@ non-interactive runs exit with an error.
 `AGENTS.md` is patched non-destructively: an existing user file is preserved
 and the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->`
 and `<!-- END:arkor-agent-rules -->`) is appended or, on re-scaffold, replaced
-in place. `CLAUDE.md` is created with `@AGENTS.md` only if it does not already
+in place. As a safety net, when an existing `AGENTS.md` already contains more
+than one canonical managed block the scaffolder refuses to guess which copy
+is current — the file is kept untouched and a warning is printed so you can
+dedupe before the next re-scaffold patches in place.
+`CLAUDE.md` is created with `@AGENTS.md` only if it does not already
 exist.
 
 Claude Code auto-loads `CLAUDE.md` from the project root, and the
