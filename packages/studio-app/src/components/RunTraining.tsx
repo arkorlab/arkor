@@ -91,8 +91,15 @@ export function RunTraining() {
       );
     } finally {
       if (trainingAbortRef.current === ac) trainingAbortRef.current = null;
-      if (!ac.signal.aborted) setRunning(false);
+      // Always release the running flag, including the user-initiated
+      // abort path. setState on an already-unmounted component is a
+      // no-op in React 18+, so the unmount-cleanup case handles itself.
+      setRunning(false);
     }
+  }
+
+  function stop() {
+    trainingAbortRef.current?.abort();
   }
 
   const trainer = manifest && "trainer" in manifest ? manifest.trainer : null;
@@ -150,12 +157,16 @@ export function RunTraining() {
           )}
         </div>
         <Button
-          onClick={run}
-          disabled={running || !hasTrainer}
+          // While `running`, the same button doubles as the abort
+          // affordance — clicking aborts the in-flight stream so the
+          // visible StopCircle icon actually does what the user
+          // expects. When idle, it kicks off a new run.
+          onClick={running ? stop : run}
+          disabled={!running && !hasTrainer}
           leadingIcon={running ? <StopCircle /> : <Play />}
         >
           {running
-            ? "Running…"
+            ? "Stop training"
             : trainer
               ? `Run training: ${trainer.name}`
               : "Run training"}

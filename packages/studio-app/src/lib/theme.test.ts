@@ -91,6 +91,28 @@ describe("getInitialTheme", () => {
     });
     expect(getInitialTheme()).toBe("dark");
   });
+
+  it("falls back to light when matchMedia is missing entirely", () => {
+    // Older WebViews / embedded environments expose `window` without
+    // `matchMedia`. The function should degrade to "light" rather than
+    // crash on the unguarded call.
+    vi.stubGlobal("window", {
+      localStorage: { getItem: () => null, setItem: () => {} },
+    });
+    vi.stubGlobal("document", { documentElement: { dataset: {} } });
+    expect(getInitialTheme()).toBe("light");
+  });
+
+  it("falls back to light when matchMedia throws", () => {
+    vi.stubGlobal("window", {
+      localStorage: { getItem: () => null, setItem: () => {} },
+      matchMedia: () => {
+        throw new Error("not supported");
+      },
+    });
+    vi.stubGlobal("document", { documentElement: { dataset: {} } });
+    expect(getInitialTheme()).toBe("light");
+  });
 });
 
 describe("setTheme", () => {

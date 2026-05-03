@@ -11,9 +11,20 @@ export function getInitialTheme(): Theme {
     // localStorage may throw under privacy modes / sandboxed iframes.
     // Fall through to the prefers-color-scheme branch.
   }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  // `matchMedia` can be missing on older WebViews and sandboxed test
+  // environments. The pre-paint script in `index.html` already guards
+  // it the same way; mirror that here so we degrade to "light" rather
+  // than crashing initialization.
+  try {
+    if (typeof window.matchMedia === "function") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+  } catch {
+    // some environments throw on the first matchMedia query — fall through
+  }
+  return "light";
 }
 
 export function setTheme(theme: Theme): void {
