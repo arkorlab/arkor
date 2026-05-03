@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 export interface LossPoint {
   step: number;
@@ -86,7 +86,7 @@ export function LossChart({ points }: { points: LossPoint[] }) {
     return Math.round(t * lastStep);
   });
 
-  function onMouseMove(e: React.MouseEvent<SVGRectElement>) {
+  function onMouseMove(e: MouseEvent<SVGRectElement>) {
     // The `<rect>` is already positioned at `x={PADDING.left}`, so its
     // bounding box origin in viewport coordinates already accounts for
     // the chart's left padding. `e.clientX - rect.left` gives a value

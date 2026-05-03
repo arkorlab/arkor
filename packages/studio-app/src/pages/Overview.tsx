@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { fetchJobs, type Job } from "../lib/api";
 import { ArrowRight, BookOpen, Inbox, Sparkles } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
@@ -142,7 +142,7 @@ function QuickStartTile({
   href,
   external,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   description: string;
   href: string;
