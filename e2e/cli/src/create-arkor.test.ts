@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { CREATE_ARKOR_BIN } from "./bins";
 import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
@@ -20,15 +21,62 @@ afterEach(() => {
  * is the target directory; we pass `"target"` so it scaffolds into a fresh
  * subdir. Returns the result + the absolute target path.
  */
-async function runCreateArkor(argv: string[]) {
+async function runCreateArkor(
+  argv: string[],
+  extraEnv: NodeJS.ProcessEnv = {},
+) {
   const targetDir = join(parentDir, "target");
   const result = await runCli(
     CREATE_ARKOR_BIN,
     ["target", ...argv],
     parentDir,
+    extraEnv,
   );
   return { result, targetDir };
 }
+
+const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
+
+// pnpm 10 cannot parse Windows-drive `file:` URIs in any form
+// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break — pnpm strips
+// the prefix and joins to the install cwd, then aborts with
+// `ENOENT: scandir '<cwd>\D:\...'`). The install-matrix tests sidestep
+// that by pre-packing arkor into a tarball once per file and referencing
+// it via a *relative* `file:../arkor-*.tgz` path inside each test's
+// parentDir, which has no drive letter to misparse. SKIP_INSTALL=1 short-
+// circuits the whole pack since none of the gated tests will run.
+let arkorTarball: string | undefined;
+let arkorPackDir: string | undefined;
+
+beforeAll(() => {
+  if (SKIP_INSTALL) return;
+  arkorPackDir = makeTempDir("create-arkor-e2e-pack-");
+  // Windows ships `pnpm` as a `.cmd` shim under the default Corepack /
+  // global-install setup; Node refuses to execute `.cmd`/`.bat` files
+  // through `execFile*` without a shell, so the sibling beforeAll would
+  // otherwise crash before any test runs on a developer Windows box that
+  // doesn't have `@pnpm/exe` in PATH. Mirror install.ts's `shell` policy
+  // to delegate resolution to cmd.exe on win32 only.
+  execFileSync(
+    "pnpm",
+    ["--filter", "arkor", "pack", "--pack-destination", arkorPackDir],
+    { stdio: "pipe", shell: process.platform === "win32" },
+  );
+  const matches = readdirSync(arkorPackDir).filter(
+    (f) => f.startsWith("arkor-") && f.endsWith(".tgz"),
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `expected exactly one arkor-*.tgz in ${arkorPackDir}, got ${matches.length}: ${matches.join(", ")}`,
+    );
+  }
+  arkorTarball = join(arkorPackDir, matches[0]!);
+});
+
+afterAll(() => {
+  if (arkorPackDir) cleanup(arkorPackDir);
+});
+
 
 describe("create-arkor (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -331,15 +379,33 @@ describe("create-arkor (E2E)", () => {
   // Mirror of the install-matrix in arkor-init.test.ts. See
   // ./install-matrix.ts for the case list and gating rules — both
   // test files share that source so the matrix can't drift.
+  //
+  // Per-case the test stages a pre-packed `arkor-*.tgz` under
+  // parentDir and points the scaffold spec at the relative path —
+  // see the top-of-file beforeAll for why pnpm 10 can't parse an
+  // absolute Windows `file:` URI directly. Lockfile-by-flag drives
+  // the post-install assertion that verifies git init runs *after*
+  // install (so the bootstrap commit is reproducible).
+  const LOCKFILE_BY_FLAG: Record<"npm" | "pnpm" | "yarn" | "bun", string> = {
+    npm: "package-lock.json",
+    pnpm: "pnpm-lock.yaml",
+    yarn: "yarn.lock",
+    bun: "bun.lock",
+  };
   for (const { label, flag } of INSTALL_CASES) {
     it.skipIf(shouldSkipInstallCase(label))(
-      `runs real ${label} install + git commit`,
+      `runs real ${label} install + git commit (gated by SKIP_E2E_INSTALL)`,
       async () => {
-        const { result, targetDir } = await runCreateArkor([
-          "-y",
-          `--use-${flag}`,
-          "--git",
-        ]);
+        if (!arkorTarball) {
+          throw new Error("arkor tarball wasn't packed in beforeAll");
+        }
+        const tarballName = basename(arkorTarball);
+        copyFileSync(arkorTarball, join(parentDir, tarballName));
+
+        const { result, targetDir } = await runCreateArkor(
+          ["-y", `--use-${flag}`, "--git"],
+          { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
+        );
         // create-arkor swallows `<pm> install` failures into a warning
         // (so the user can retry manually) — same gotcha as
         // arkor-init.test.ts. Surface the captured output eagerly when
@@ -366,6 +432,14 @@ describe("create-arkor (E2E)", () => {
 
         const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
         expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
+
+        // Lockfile-in-initial-commit invariant: the git-init prompt
+        // is surfaced *before* install so the user can walk away, but
+        // git init execution still happens *after* install — otherwise
+        // the lockfile wouldn't be tracked and the bootstrap commit
+        // wouldn't be reproducible.
+        const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
+        expect(tracked.stdout).toContain(LOCKFILE_BY_FLAG[flag]);
       },
       180_000,
     );
