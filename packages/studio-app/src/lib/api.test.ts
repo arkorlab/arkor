@@ -370,6 +370,32 @@ describe("streamTraining", () => {
     expect(received).toEqual([]);
   });
 
+  it("flushes the TextDecoder so a multi-byte UTF-8 sequence split across chunks isn't dropped", async () => {
+    // The ideograph "あ" encodes to 0xE3 0x81 0x82 in UTF-8. Split it
+    // across two chunks: the first chunk's `decode(..., {stream:true})`
+    // returns "" (incomplete code point buffered); without a final
+    // `decode()` flush after the loop, the trailing bytes would be
+    // silently discarded and the user would see truncated trainer
+    // output for any non-ASCII tail.
+    const enc = new Uint8Array([0xe3, 0x81, 0x82]);
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              c.enqueue(enc.slice(0, 2));
+              c.enqueue(enc.slice(2));
+              c.close();
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/plain" } },
+        ),
+    ) as typeof fetch;
+    const received: string[] = [];
+    await streamTraining((t) => received.push(t));
+    expect(received.join("")).toBe("あ");
+  });
+
   it("threads the AbortSignal into apiFetch", async () => {
     let receivedSignal: AbortSignal | null | undefined;
     globalThis.fetch = vi.fn(async (_, init) => {

@@ -68,8 +68,14 @@ export function Playground({
         if (cancelled) return;
         // Even on /api/jobs failure, drop into base-model mode so the
         // composer still works — only the Adapter segment depends on
-        // having completed jobs to enumerate.
+        // having completed jobs to enumerate. Force `mode` back to
+        // "base" too: if the user landed here via
+        // `#/playground?adapter=<id>` (e.g. "Open in Playground" from
+        // JobDetail), the initial mode was "adapter" and the page
+        // would otherwise render the empty-adapter state with no
+        // composer despite base-model chat being available.
         setJobs([]);
+        setMode("base");
         setError(err instanceof Error ? err.message : String(err));
       });
     return () => {

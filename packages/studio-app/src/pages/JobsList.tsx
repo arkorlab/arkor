@@ -27,13 +27,21 @@ export function JobsList() {
   // Flipped on unmount so in-flight refreshes (manual or interval) do
   // not call setState after the component is gone.
   const aliveRef = useRef(true);
+  // True while a `load()` call is awaiting fetchJobs. Used to coalesce
+  // a manual refresh click that lands while the polling tick is still
+  // in flight (or vice versa) into a single request — without this,
+  // two concurrent /api/jobs calls could finish out of order and an
+  // older snapshot could overwrite a newer one in `setJobs`.
+  const inFlightRef = useRef(false);
 
   // useCallback (with `[]` deps) makes this referentially stable across
   // renders so the polling effect below can list it as a dependency
   // without re-scheduling on every render. The body only touches
-  // setters (which React guarantees stable) and `aliveRef`, so an
-  // empty dep array is genuinely safe.
+  // setters (which React guarantees stable) and refs, so an empty
+  // dep array is genuinely safe.
   const load = useCallback(async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     try {
       setRefreshing(true);
       const { jobs } = await fetchJobs();
@@ -44,6 +52,7 @@ export function JobsList() {
       if (!aliveRef.current) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      inFlightRef.current = false;
       if (aliveRef.current) setRefreshing(false);
     }
   }, []);

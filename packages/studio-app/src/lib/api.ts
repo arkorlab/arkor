@@ -261,6 +261,13 @@ export async function streamTraining(
       if (done) break;
       onChunk(decoder.decode(value, { stream: true }));
     }
+    // Flush any bytes the streaming decoder buffered for a multi-byte
+    // UTF-8 sequence that landed split across the final two chunks.
+    // Without this, the last character of the trainer's output gets
+    // silently dropped when it happens to be non-ASCII (Japanese log
+    // lines, emoji progress bars, etc.).
+    const tail = decoder.decode();
+    if (tail) onChunk(tail);
   } finally {
     signal?.removeEventListener("abort", onAbort);
     // Release the reader lock so a subsequent caller can re-acquire
