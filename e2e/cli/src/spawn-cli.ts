@@ -129,13 +129,25 @@ export function cleanup(dir: string): void {
  *   3. The snapshot dir is cleaned up regardless of whether the retry
  *      fired.
  *
- * The cost is bounded: the retry only fires on SIGKILL within
+ * The snapshot is gated on `darwin + CI` — the only environment where
+ * the retry can possibly fire — so Linux/Windows CI jobs and local
+ * macOS dev runs pay nothing extra. Even on the darwin+CI hot path the
+ * cost is bounded: the retry only fires on SIGKILL within
  * `SIGKILL_RETRY_MAX_MS` (300 ms), which is well before any test runs
  * `pnpm install` or `arkor build`, so the snapshotted tree is always
  * the small pre-seed fixture (a few KB at most) — never a populated
- * `node_modules/` or build artefact. The pre-attempt-1 copy itself
- * happens on every `runCli` call, but for the dominant case of an empty
- * `cwd` it's a no-op `cpSync` of an empty directory.
+ * `node_modules/` or build artefact.
+ *
+ * Limitation — only `cwd` is snapshotted. CLI commands that write
+ * outside `cwd` (e.g. `arkor login` writing `~/.arkor/credentials.json`,
+ * or `arkor dev` touching the same path) carry that mutated HOME state
+ * into attempt 2, which could pass spuriously against partial state.
+ * No current e2e command exercises that pattern through `runCli` — the
+ * commands we test (`init` / `build` / scaffold) write only inside
+ * `cwd`, and `whoami` reads (never writes) HOME — but tests that add
+ * write-to-HOME flows in the future should isolate themselves by
+ * pointing `extraEnv.HOME` at a per-test temp dir and either accept
+ * the risk or extend this snapshot to cover that path too.
  *
  * Successful retries are logged to stderr so the runner-flake rate is
  * inspectable in CI logs (otherwise a steadily worsening environment
@@ -148,10 +160,16 @@ export async function runCli(
   cwd: string,
   extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<RunResult> {
-  const snapshotDir = snapshotCwd(cwd);
+  // Only the darwin + CI combination can ever fire the retry, so only
+  // that combination pays the snapshot cost. Linux/Windows CI jobs and
+  // local Mac runs both go through the cheap branch (snapshotDir stays
+  // `undefined`, the `finally` rmSync is a no-op, no cpSync is issued).
+  const canRetry = process.platform === "darwin" && Boolean(process.env.CI);
+  const snapshotDir = canRetry ? snapshotCwd(cwd) : undefined;
   try {
     let result = await runCliOnce(binPath, argv, cwd, extraEnv);
     if (
+      snapshotDir !== undefined &&
       shouldRetryAfterSigkill(result, process.platform, Boolean(process.env.CI))
     ) {
       process.stderr.write(
@@ -162,7 +180,9 @@ export async function runCli(
     }
     return result;
   } finally {
-    rmSync(snapshotDir, { recursive: true, force: true });
+    if (snapshotDir !== undefined) {
+      rmSync(snapshotDir, { recursive: true, force: true });
+    }
   }
 }
 
