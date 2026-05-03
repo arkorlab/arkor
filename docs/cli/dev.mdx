@@ -5,6 +5,16 @@ description: "Launch Arkor Studio locally."
 
 # `arkor dev`
 
+Boots [Studio](/concepts/studio), the local web UI, on `http://localhost:4000`. Studio is where you click **Run training** to spawn `arkor start` against your `src/arkor/index.ts`, watch the run stream in, and chat with the resulting adapter in the Playground.
+
+`arkor dev` itself does **not** start a training run; it only serves the UI plus a small loopback API the SPA talks to.
+
+## Synopsis
+
+```
+arkor dev [options]
+```
+
 <CodeGroup>
 
 ```bash pnpm
@@ -25,16 +35,6 @@ bun dev
 
 </CodeGroup>
 
-Boots [Studio](/concepts/studio), the local web UI, on `http://localhost:4000`. Studio is where you click **Run training** to spawn `arkor start` against your `src/arkor/index.ts`, watch the run stream in, and chat with the resulting adapter in the Playground.
-
-`arkor dev` itself does **not** start a training run; it only serves the UI plus a small loopback API the SPA talks to.
-
-## Synopsis
-
-```
-arkor dev [options]
-```
-
 ## Options
 
 | Flag | Default | Description |
@@ -42,7 +42,9 @@ arkor dev [options]
 | `-p, --port <port>` | `4000` | Port to bind. The displayed URL uses `localhost`, but the listener binds `127.0.0.1` directly so it cannot end up IPv6-only on hosts where `/etc/hosts` lists `::1` before `127.0.0.1`. The CLI parses the value as `Number(opts.port) || 4000`, so falsy results (`0`, non-numeric) normalize to `4000`. **Truthy invalid values pass through unsanitized**: a negative port or a port above `65535` reaches the listener as-is and surfaces as a `serve()` failure (e.g. `RangeError`). Stick to the standard 1 to 65535 range yourself. |
 | `--open` | off | Open the Studio URL in a browser after the server is up. |
 
-## What happens at launch
+## Behavior
+
+### Launch sequence
 
 1. **Credential bootstrap.** If `~/.arkor/credentials.json` does not exist, the CLI always tries to bootstrap an anonymous session: it calls `/v1/auth/cli/config`, then requests an anonymous token from `/v1/auth/anonymous`. The pre-bootstrap line depends on whether the deployment advertises OAuth: when OAuth is configured the CLI prints ``No credentials on file — bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.`` so you can upgrade to a real account whenever you want; on anon-only deployments it prints `No credentials on file — requesting an anonymous token.` instead, omitting the OAuth hint because `arkor login --oauth` would fail there. Either way, it never auto-launches the OAuth flow. Once the token lands, `arkor dev` prints ``Anonymous id: <id> — Arkor Cloud uses this id to recognise this client across sessions. Keep `<home>/.arkor/credentials.json` to stay signed in as the same anonymous identity.`` (the path is the resolved `credentialsPath()`, typically `~/.arkor/credentials.json` on Linux and macOS). Only when the deployment advertises OAuth, a follow-up warn — ``Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to tie future work to your Arkor Cloud account.`` — fires alongside the success line so the upgrade hint is visible at issuance time. On anon-only deployments the warn is suppressed because pointing at `arkor login --oauth` would surface a command that fails. Transport failures (`fetch failed`) are handled differently depending on when they hit. If `/v1/auth/cli/config` already succeeded and `/v1/auth/anonymous` then fails the same way, the CLI warns and continues; the Studio server retries on the first `/api/credentials` hit. If `/v1/auth/cli/config` itself is unreachable, the same transport error is rethrown and `arkor dev` exits fast (restore connectivity and re-run). If `/v1/auth/anonymous` is rejected with a 4xx (for example because anonymous sign-in is disabled on this deployment), it surfaces an error wrapping the HTTP status and pointing at `arkor login --oauth` (full message: ``Failed to bootstrap an anonymous session (HTTP <status>). This deployment may require sign-in — run `arkor login --oauth` and try again.``).
 2. **CSRF token.** A 32-byte token (base64url, ~43 chars) is generated for this launch. It is injected into `index.html` as `<meta name="arkor-studio-token">` so the same-origin SPA can read it. Cross-origin tabs cannot read the meta and are rejected by the `/api/*` middleware.
@@ -51,7 +53,7 @@ arkor dev [options]
 
 When the process exits (normal exit, `SIGINT`, `SIGTERM`, or `SIGHUP`) the studio-token file is removed on a best-effort basis. A crash can leave the file on disk; the next `arkor dev` rotates it.
 
-## Loopback + CSRF: the security model in one paragraph
+### Loopback and CSRF model
 
 The Studio server enforces three checks on every `/api/*` request:
 
@@ -61,11 +63,11 @@ The Studio server enforces three checks on every `/api/*` request:
 
 This means `arkor dev` is safe on a shared dev machine: another tab cannot read the meta, a stale tab from a previous launch holds an old token that no longer matches, and an attacker page in a different origin cannot forge requests.
 
-## When the port is in use
+### Port collision
 
 `arkor dev` does not auto-pick a free port. If the chosen port is already taken (another `arkor dev` left running, an unrelated dev server, etc.), `serve()` surfaces the underlying `EADDRINUSE` from Node's `net.Server` and the process exits non-zero. Pick a different port with `-p <port>`, or stop whatever else is bound to it.
 
-## Common errors
+## Errors
 
 | Symptom | What it means | Fix |
 | --- | --- | --- |
@@ -126,3 +128,9 @@ bun dev --port 5000 --open
 ```
 
 </CodeGroup>
+
+## See also
+
+- [Studio concept](/concepts/studio) for what the UI actually does
+- [`arkor login`](/cli/auth) for upgrading from an anonymous session to OAuth
+- [Project structure](/concepts/project-structure) for the `~/.arkor/` and `.arkor/` layout
