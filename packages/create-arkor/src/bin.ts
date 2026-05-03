@@ -99,6 +99,17 @@ async function decideGitInit(
 }
 
 async function runGitInit(cwd: string): Promise<void> {
+  // Re-check inside the post-install window: `decideGitInit` ran before
+  // the long install, and the user / tooling may have run `git init`
+  // themselves in the meantime. Without this check we'd silently add a
+  // second commit on top of their repo, breaking the policy table's
+  // "already inside a git repo → skip" rule.
+  if (await isInGitRepo(cwd)) {
+    clack.log.info(
+      "Directory became a git repository during install — skipping git init.",
+    );
+    return;
+  }
   clack.log.step("Initialising git repository");
   try {
     const result = await gitInitialCommit(

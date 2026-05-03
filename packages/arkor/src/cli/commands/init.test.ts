@@ -290,6 +290,27 @@ describe("runInit", () => {
     expect(gitInitialCommit).not.toHaveBeenCalled();
   });
 
+  it("skips git init when the directory becomes a git repo during install", async () => {
+    // TOCTOU defence: `decideGitInit` runs before the long-running install
+    // step, so the user (or another tool — editor, autosave hook, parallel
+    // shell) can run `git init` themselves while install is going. Without
+    // the post-install re-check, we'd silently add a second commit on top
+    // of their repo. Mock isInGitRepo to return false on the pre-install
+    // call (so decideGitInit picks "yes") and true on the post-install
+    // call (so runGitInit skips).
+    vi.mocked(isInGitRepo)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    expect(isInGitRepo).toHaveBeenCalledTimes(2);
+    expect(gitInitialCommit).not.toHaveBeenCalled();
+  });
+
   it("warns about an unsigned fallback commit when signingFallback is true", async () => {
     vi.mocked(gitInitialCommit).mockResolvedValueOnce({
       signingFallback: true,
