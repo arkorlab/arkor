@@ -1,0 +1,46 @@
+---
+title: "SDK 概要"
+description: "CLI と Studio が乗っかっている TypeScript プリミティブ。"
+---
+
+# SDK 概要
+
+`arkor` パッケージは典型的なプロジェクトに必要な 3 つのプリミティブを提供します: [トレーナー](/ja/guides/sdk/create-trainer)を定義し、[プロジェクトマニフェスト](/ja/guides/sdk/create-arkor)で包み、CLI / Studio に発見させる。
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+```ts
+// src/arkor/index.ts
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+これが `arkor dev` と `arkor start` が発見する全体の形です。
+
+## このセクションにあるもの
+
+| トピック | 何をするか |
+| --- | --- |
+| [`createTrainer`](/ja/guides/sdk/create-trainer) | 学習を定義: モデル、データセット、LoRA、ハイパーパラメーター。 |
+| [`createArkor`](/ja/guides/sdk/create-arkor) | トレーナーを CLI が読むマニフェストにラップ。 |
+| [`DatasetSource`](/ja/guides/sdk/dataset) | データの所在を伝える（HuggingFace 名 or blob URL）。 |
+| [コールバック](/ja/guides/sdk/callbacks) | ランにフック: メトリックス転送、チェックポイント評価、通知。 |
+| [`infer`](/ja/guides/sdk/infer) | `onCheckpoint` から学習中のモデルを呼ぶ。 |
+| [トレーナー制御](/ja/guides/sdk/trainer-control) | `start`、`wait`、`cancel`、`abortSignal`。CLI 外で使うとき。 |
+
+## リファレンス
+
+完全な型シグネチャ、`TrainerInput` の全フィールド、補助ヘルパー（`runTrainer`、`readCredentials` など）、公開と内部のエクスポート契約は [SDK リファレンス](/ja/sdk/overview) を参照してください。
