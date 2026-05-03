@@ -112,8 +112,10 @@ import { trainer } from "./trainer";
 export const arkor = createArkor({ trainer });
 `;
 
-export const STARTER_CONFIG = `// Training defaults. Project routing (orgSlug / projectSlug) is tracked
-// automatically in .arkor/state.json — do not put it here.
+export const STARTER_CONFIG = `// Placeholder for future project-level config — the runtime does not read
+// fields from this file yet. Training settings (\`maxSteps\`, \`lora\`, etc.)
+// live on the Trainer in src/arkor/trainer.ts. Project routing
+// (orgSlug / projectSlug) is tracked automatically in .arkor/state.json.
 export default {};
 `;
 

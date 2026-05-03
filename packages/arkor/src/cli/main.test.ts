@@ -113,6 +113,18 @@ describe("main (CLI Commander wiring)", () => {
     expect(runInit).not.toHaveBeenCalled();
   });
 
+  it("rejects `init --agents-md --no-agents-md` from main()'s argv (not process.argv)", async () => {
+    // The check must read the argv array passed to main(), not the
+    // surrounding process.argv. Using process.argv would (a) miss the
+    // conflict here because vitest's process.argv contains neither flag,
+    // and (b) false-positive in environments where the parent process
+    // happens to carry those tokens.
+    await expect(
+      main(["init", "--agents-md", "--no-agents-md"]),
+    ).rejects.toThrow(/--agents-md \/ --no-agents-md, not both/);
+    expect(runInit).not.toHaveBeenCalled();
+  });
+
   it("dispatches `login` with parsed --oauth / --no-browser flags", async () => {
     await main(["login", "--oauth", "--no-browser"]);
     expect(runLogin).toHaveBeenCalledWith({

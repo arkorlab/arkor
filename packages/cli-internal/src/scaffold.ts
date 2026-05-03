@@ -53,7 +53,14 @@ const AGENTS_BLOCK_BODY = `${AGENTS_BLOCK_BEGIN}
 
 arkor was released recently and is likely not present in your model training data. Do not infer APIs, file structure, or CLI behavior from prior knowledge.
 
-Before writing or changing any arkor code, read the installed project docs in \`node_modules/arkor/docs/\` and inspect the local package exports if needed. If the docs and your assumptions disagree, the installed docs and local package source are the source of truth.
+Before writing or changing any arkor code, consult one of these sources of truth (in order of preference):
+
+1. \`node_modules/arkor/docs/\` — installed copy of the docs, present after \`npm install\` / \`pnpm install\` / \`yarn\` / \`bun install\`.
+2. \`node_modules/arkor/dist/index.d.mts\` — installed type definitions for the public SDK exports.
+3. <https://docs.arkor.ai> — public docs site, identical content to (1). Use this when dependencies are not installed (e.g. fresh scaffold without \`install\`, install failure, Yarn PnP) or when the installed copy is older than what is published.
+4. <https://github.com/arkorlab/arkor> — source repository.
+
+If the docs and your assumptions disagree, the docs win.
 
 Key project files:
 - \`src/arkor/index.ts\` registers arkor primitives.
@@ -115,9 +122,14 @@ async function patchGitignore(cwd: string): Promise<FileAction> {
 }
 
 function detectEol(s: string): "\r\n" | "\n" {
-  // CRLF if the file uses it anywhere — preserves the dominant convention
-  // when patching, instead of mixing styles.
-  return /\r\n/.test(s) ? "\r\n" : "\n";
+  // Pick the dominant convention by count, not "any CRLF wins". A single
+  // stray CRLF in an otherwise-LF file shouldn't flip the inserted block to
+  // CRLF (and vice versa). LF-counting uses a negative lookbehind to avoid
+  // double-counting the LF that already belongs to a CRLF pair. Ties (and
+  // empty files) fall through to LF.
+  const crlf = (s.match(/\r\n/g) ?? []).length;
+  const lf = (s.match(/(?<!\r)\n/g) ?? []).length;
+  return crlf > lf ? "\r\n" : "\n";
 }
 
 function withEol(content: string, eol: "\r\n" | "\n"): string {

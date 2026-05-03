@@ -60,11 +60,14 @@ export async function main(argv: string[]): Promise<void> {
         }
         // Commander treats `--agents-md` and `--no-agents-md` as the same
         // option (last-wins), so it will not surface a conflict on its
-        // own. Mirror the `--git` / `--skip-git` check by inspecting raw
-        // argv: passing both is almost always a mistake.
+        // own. Mirror the `--git` / `--skip-git` check by inspecting the
+        // raw argv passed to `main()` — using `process.argv` directly
+        // would miss the conflict when called from tests via
+        // `main([...])` and could false-positive on the parent process's
+        // own arguments.
         if (
-          process.argv.includes("--agents-md") &&
-          process.argv.includes("--no-agents-md")
+          argv.includes("--agents-md") &&
+          argv.includes("--no-agents-md")
         ) {
           throw new Error(
             "Pick one of --agents-md / --no-agents-md, not both.",

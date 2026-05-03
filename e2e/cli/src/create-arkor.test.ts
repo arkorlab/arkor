@@ -181,6 +181,23 @@ describe("create-arkor (E2E)", () => {
     );
   });
 
+  it("generates AGENTS.md and CLAUDE.md when --agents-md is passed explicitly", async () => {
+    // Belt-and-braces: the default-on path covers the common case, but
+    // the explicit `--agents-md` flag exercises a separate Commander
+    // option binding. Without this case, a future Commander upgrade that
+    // changed how `--no-foo` interacts with an explicit `--foo` could
+    // silently break opt-in users while default-on tests stayed green.
+    const { result, targetDir } = await runCreateArkor([
+      "-y",
+      "--skip-install",
+      "--skip-git",
+      "--agents-md",
+    ]);
+    expect(result.code).toBe(0);
+    expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(targetDir, "CLAUDE.md"))).toBe(true);
+  });
+
   it("rejects --agents-md --no-agents-md with a clear error", async () => {
     const { result } = await runCreateArkor([
       "-y",

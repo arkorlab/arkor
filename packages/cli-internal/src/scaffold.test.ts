@@ -367,6 +367,29 @@ describe("scaffold", () => {
     expect(body).toContain(`\r\n${AGENTS_END}`);
   });
 
+  it("treats a stray CRLF in an otherwise-LF AGENTS.md as LF (dominant style)", async () => {
+    // Regression for the previous detectEol implementation that flipped
+    // the inserted block to CRLF as soon as a single \r\n appeared
+    // anywhere in the file. Real-world AGENTS.md files often pick up a
+    // stray CRLF from a copy-paste; the patch must keep matching the
+    // dominant convention (LF here, three lines vs. one).
+    const existing = "# Project\nLine A\nLine B (stray)\r\nLine C\n";
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+    await scaffold({
+      cwd,
+      name: "mixed-eol",
+      template: "triage",
+      agentsMd: true,
+    });
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // The pre-existing stray CRLF must survive untouched outside the block.
+    expect(body).toContain("Line B (stray)\r\n");
+    // The inserted block — checked via its first newline after BEGIN —
+    // must be LF, not CRLF.
+    expect(body).toContain(`${AGENTS_BEGIN}\n`);
+    expect(body).not.toContain(`${AGENTS_BEGIN}\r\n`);
+  });
+
   it("never overwrites an existing CLAUDE.md", async () => {
     const userClaude = "# my own claude file\nproject-specific instructions\n";
     writeFileSync(join(cwd, "CLAUDE.md"), userClaude);
