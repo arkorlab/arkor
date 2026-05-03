@@ -18,6 +18,7 @@ function makeFakePm(name: string, exitCode: number, marker: string): string {
     path,
     `#!/usr/bin/env sh\nset -e\necho "fake $@" >> "${marker}"\n` +
       `printenv ADBLOCK >> "${marker}"\nprintenv NODE_ENV >> "${marker}"\n` +
+      `printenv YARN_ENABLE_IMMUTABLE_INSTALLS >> "${marker}"\n` +
       `exit ${exitCode}\n`,
     { mode: 0o755 },
   );
@@ -52,7 +53,7 @@ describe("install", () => {
   const onPosix = process.platform !== "win32" ? it : it.skip;
 
   onPosix(
-    "spawns `<pm> install` in cwd with ADBLOCK + NODE_ENV=development",
+    "spawns `<pm> install` in cwd with ADBLOCK + NODE_ENV=development + YARN_ENABLE_IMMUTABLE_INSTALLS=false",
     async () => {
       const marker = join(cwd, "marker.log");
       makeFakePm("npm", 0, marker);
@@ -62,11 +63,19 @@ describe("install", () => {
       const log = (await import("node:fs")).readFileSync(marker, "utf8");
       // First line: the args we passed.
       expect(log).toContain("fake install");
-      // Env was forwarded to the child — these are the two flags that
-      // matter for production behaviour (ADBLOCK silences create-* promo
-      // output; NODE_ENV stops pnpm dropping devDependencies).
+      // Env was forwarded to the child — these are the flags that matter
+      // for production behaviour:
+      //   - ADBLOCK silences create-* promo output (= "1")
+      //   - NODE_ENV stops pnpm dropping devDependencies (= "development")
+      //   - YARN_ENABLE_IMMUTABLE_INSTALLS=false unblocks yarn 4's first
+      //     install of a fresh scaffold under CI=1 (round-13 review):
+      //     yarn berry refuses to write the missing yarn.lock under
+      //     immutable mode and the user-facing `arkor init --use-yarn`
+      //     would fail without this. Forwarded for every pm so the env
+      //     contract is uniform; non-yarn pms ignore the variable.
       expect(log).toContain("\n1\n");
       expect(log).toContain("\ndevelopment\n");
+      expect(log).toContain("\nfalse\n");
     },
   );
 

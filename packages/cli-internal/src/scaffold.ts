@@ -127,19 +127,21 @@ async function patchGitignore(
   const path = join(cwd, GITIGNORE_PATH);
   // Required entries — every pm gets these.
   const required = ["node_modules/", "dist/", ".arkor/"];
-  // Yarn-specific entries follow the same emission policy as
-  // `.yarnrc.yml` in `scaffold()` (Copilot review on PR #99 round 5
-  // pushed back on the inconsistency where gitignore added yarn
-  // lines while yarnrc didn't):
-  //   - explicit `pm === "yarn"` always adds them
-  //   - undefined pm + fresh dir adds them defensively (yarn-berry
-  //     user reading the manual install hint may run `yarn install`)
-  //   - undefined pm + pre-existing project DOES NOT touch them —
-  //     a merge into an npm/pnpm/bun repo shouldn't sprinkle yarn
-  //     residue into their `.gitignore`
+  // Yarn-specific entries — `isExistingProject` is the gate, not
+  // `packageManager`. Round 14 (Copilot, PR #99) flagged that even
+  // an explicit `--use-yarn` shouldn't sprinkle `.yarn/cache` into
+  // an existing repo's `.gitignore`: Yarn zero-install setups
+  // *commit* `.yarn/cache/`, and silently ignoring those archives
+  // makes future cache zips drop out of git on every dependency
+  // change. The user can add the entries themselves if they want
+  // them. Round 5 (same reviewer) had already established the
+  // mirror policy for the `pm === undefined && isExistingProject`
+  // case; this just extends it to the `pm === "yarn"` patch path
+  // for consistency. Fresh dirs still get the entries defensively
+  // for the yarn-berry-reading-the-manual-install-hint flow.
   const shouldEmitYarnEntries =
-    packageManager === "yarn" ||
-    (packageManager === undefined && !isExistingProject);
+    !isExistingProject &&
+    (packageManager === "yarn" || packageManager === undefined);
   if (shouldEmitYarnEntries) {
     required.push(...YARN_GITIGNORE_LINES);
   }
@@ -232,6 +234,16 @@ interface YarnConfigPatchResult {
    * linker is changed.
    */
   conflictingNodeLinker?: string;
+  /**
+   * Set when the patch path elected NOT to mutate yarn config in an
+   * existing project (round 14: explicit `--use-yarn` shouldn't flip
+   * the install mode of a surrounding yarn-berry workspace, even
+   * when `.yarnrc.yml` is missing or has no `nodeLinker:` key).
+   * `scaffold()` turns this into the yarn-berry caveat advisory —
+   * same copy as the `inspectYarnConfig` path's `berry-without-linker`
+   * outcome, just reached from the explicit-yarn arm.
+   */
+  needsBerryCaveat?: boolean;
 }
 
 // User-facing copy for the "existing `.yarnrc.yml` pins a non-`node-modules`
@@ -368,39 +380,117 @@ async function existingProjectDeclaresYarnBerry(
   }
 }
 
-async function patchYarnConfig(cwd: string): Promise<YarnConfigPatchResult> {
+/**
+ * Detect the column of the existing root mapping in a `.yarnrc.yml`,
+ * mirroring the parser in `readNodeLinkerValue` (skip blanks,
+ * comments, and YAML structural markers `---` / `...` / `%...`).
+ * Used by the append path to ensure the inserted `nodeLinker:` lands
+ * at the same column as other top-level keys; otherwise an existing
+ * `  yarnPath: ...` (indented root mapping) plus a column-0 `nodeLinker:`
+ * would produce invalid YAML. Returns 0 when the file has no usable
+ * content lines (we'll be writing the only key, so 0 is correct).
+ * (PR #99 round 12 review — scaffold.ts indented-root case.)
+ */
+function detectYarnrcRootIndent(yarnrc: string): number {
+  for (const line of yarnrc.split(/\r?\n/)) {
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    const trimmed = line.trim();
+    if (
+      trimmed === "---" ||
+      trimmed === "..." ||
+      trimmed.startsWith("%")
+    ) {
+      continue;
+    }
+    return /^(\s*)/.exec(line)?.[1].length ?? 0;
+  }
+  return 0;
+}
+
+/**
+ * Insert `nodeLinker: node-modules` into an existing `.yarnrc.yml`
+ * that has no `nodeLinker:` key, preserving the existing structure.
+ * Two YAML edge cases the naive `${current}\n${YARNRC_YML_CONTENT}`
+ * append got wrong (PR #99 round 12 review):
+ *
+ *   1. Trailing document end marker `...` on its own line — the
+ *      appended key would land *outside* the document and yarn
+ *      would stop reading the config. Insert before the marker.
+ *   2. Indented root mapping (e.g. `  yarnPath: ...`) — appending
+ *      `nodeLinker: node-modules` at column 0 would produce a
+ *      mismatched-indent root mapping (invalid YAML). Match the
+ *      existing root indent.
+ */
+function insertNodeLinkerIntoYarnrc(current: string): string {
+  const indent = detectYarnrcRootIndent(current);
+  const newKey = `${" ".repeat(indent)}nodeLinker: node-modules`;
+  // Preserve the original line-ending style — mostly LF in this
+  // codebase, but a CRLF input shouldn't end up with a mid-document
+  // line-ending switch.
+  const eol = current.includes("\r\n") ? "\r\n" : "\n";
+  const lines = current.split(/\r?\n/);
+  // `String.split` leaves a trailing empty string when the input
+  // ends with a newline. Track and restore that shape so we don't
+  // accidentally drop or add a blank line.
+  const trailingNewline = lines.length > 0 && lines[lines.length - 1] === "";
+  if (trailingNewline) lines.pop();
+  const terminatorIdx = lines.findIndex((l) => l.trim() === "...");
+  if (terminatorIdx !== -1) {
+    lines.splice(terminatorIdx, 0, newKey);
+  } else {
+    lines.push(newKey);
+  }
+  return lines.join(eol) + (trailingNewline ? eol : "");
+}
+
+async function patchYarnConfig(
+  cwd: string,
+  isExistingProject: boolean,
+): Promise<YarnConfigPatchResult> {
   const path = join(cwd, YARNRC_YML_PATH);
   if (!existsSync(path)) {
+    if (isExistingProject) {
+      // Round 14 (Copilot, PR #99): even with an explicit
+      // `--use-yarn`, don't drop a brand-new `.yarnrc.yml` into a
+      // pre-existing project. The surrounding workspace might be
+      // a yarn-berry repo deliberately on its PnP default; writing
+      // `nodeLinker: node-modules` at the root would flip the
+      // install mode for the entire repo and could break
+      // unrelated packages. Surface the yarn-berry caveat
+      // (covering both yarnrc and gitignore) instead.
+      return { action: "kept", needsBerryCaveat: true };
+    }
     await writeFile(path, YARNRC_YML_CONTENT);
     return { action: "created" };
   }
-  // Three sub-cases for an existing `.yarnrc.yml`:
+  // Sub-cases for an existing `.yarnrc.yml`:
   //
-  //   1. No `nodeLinker:` key at all — yarn 4 silently defaults to
-  //      PnP. The user clearly didn't make a deliberate linker
-  //      choice, so it's safe to APPEND `nodeLinker: node-modules`;
-  //      other settings are preserved verbatim.
-  //   2. `nodeLinker: node-modules` already pinned — no-op.
-  //   3. Some other explicit value (e.g. `nodeLinker: pnp`) — the
-  //      user MADE a deliberate choice. `arkor init` /
-  //      `create-arkor .` both support merging into existing
-  //      directories, so silently rewriting `pnp` → `node-modules`
-  //      would flip the install mode for the entire repo and could
-  //      break unrelated packages (Copilot review on PR #99). Leave
-  //      the file untouched and surface a warning via
-  //      `conflictingNodeLinker`; the CLI shows it to the user so a
-  //      `kept` doesn't silently set them up for an `arkor dev`
-  //      failure (Copilot follow-up review).
+  //   1. `nodeLinker: node-modules` already pinned — no-op.
+  //   2. Some other explicit value (e.g. `nodeLinker: pnp`) — the
+  //      user MADE a deliberate choice. Leave the file untouched
+  //      and surface a conflict warning. (Round 5 + 8.)
+  //   3. No `nodeLinker:` key at all — yarn 4 silently defaults to
+  //      PnP. Two further cases:
+  //        - fresh project: it's safe to append
+  //          `nodeLinker: node-modules`; we own the scaffold and
+  //          there are no unrelated consumers of this file.
+  //        - existing project: the absence is itself a deliberate
+  //          PnP choice in an existing yarn-berry workspace
+  //          (round 14 review). Don't append; surface the caveat.
   const current = await readFile(path, "utf8");
   const existingValue = readNodeLinkerValue(current);
   if (existingValue !== undefined) {
     if (existingValue === "node-modules") return { action: "ok" };
     return { action: "kept", conflictingNodeLinker: existingValue };
   }
-  // No `nodeLinker:` line at all — append. Keep the existing
-  // trailing-newline shape (mirrors patchGitignore).
-  const separator = current.endsWith("\n") ? "" : "\n";
-  await writeFile(path, `${current}${separator}${YARNRC_YML_CONTENT}`);
+  if (isExistingProject) {
+    return { action: "kept", needsBerryCaveat: true };
+  }
+  // Fresh project + .yarnrc.yml exists but no nodeLinker — append.
+  // Use the structure-preserving inserter so a trailing `...`
+  // document terminator or an indented root mapping doesn't
+  // produce invalid YAML. (Round 12 review.)
+  await writeFile(path, insertNodeLinkerIntoYarnrc(current));
   return { action: "patched" };
 }
 
@@ -527,10 +617,17 @@ export async function scaffold(
     options.packageManager === "yarn" ||
     (options.packageManager === undefined && !isExistingProject);
   if (shouldEmitYarnConfig) {
-    const yarn = await patchYarnConfig(cwd);
+    const yarn = await patchYarnConfig(cwd, isExistingProject);
     files.push({ path: YARNRC_YML_PATH, action: yarn.action });
     if (yarn.conflictingNodeLinker !== undefined) {
       warnings.push(buildYarnLinkerConflictWarning(yarn.conflictingNodeLinker));
+    } else if (yarn.needsBerryCaveat) {
+      // Round 14: explicit `--use-yarn` against an existing project
+      // where `.yarnrc.yml` is missing (or has no `nodeLinker:` key)
+      // — patch path declined to mutate, surface the same caveat
+      // the inspect path uses for the unknown-pm + existing-project
+      // analogue. Same advisory copy, same remediation.
+      warnings.push(buildYarnBerryCaveatAdvisory());
     }
   } else if (
     options.packageManager === undefined &&

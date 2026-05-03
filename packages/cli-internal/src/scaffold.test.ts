@@ -212,6 +212,164 @@ describe("scaffold", () => {
     expect(contents).toContain("nodeLinker: node-modules");
   });
 
+  // Round 12 (Copilot, PR #99): the verbatim-append path produced
+  // invalid YAML for two realistic existing-`.yarnrc.yml` shapes.
+  // The patch path now uses a structure-preserving inserter that
+  // covers both — these tests pin down the contract.
+  //
+  // (1) Trailing document end marker `...` — appending after it
+  // would put `nodeLinker: node-modules` *outside* the document and
+  // yarn would silently stop reading the config. Insert before the
+  // marker instead.
+  it("inserts nodeLinker:node-modules BEFORE a trailing `...` YAML document terminator", async () => {
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\n...\n",
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("patched");
+    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
+    // nodeLinker appears in the document body, BEFORE the terminator.
+    expect(contents).toBe(
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\n" +
+        "nodeLinker: node-modules\n" +
+        "...\n",
+    );
+  });
+
+  // (2) Indented root mapping (yarn parses indented top-level keys
+  // as long as every key sits at the same column). Appending an
+  // unindented `nodeLinker: node-modules` after `  yarnPath: …`
+  // produces a mid-document indent change, which is invalid YAML.
+  // Match the existing root indent.
+  it("preserves the existing root indent when appending nodeLinker:node-modules to an indented .yarnrc.yml", async () => {
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "  yarnPath: .yarn/releases/yarn-4.x.cjs\n",
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("patched");
+    const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
+    // The new key matches the existing 2-space indent.
+    expect(contents).toBe(
+      "  yarnPath: .yarn/releases/yarn-4.x.cjs\n" +
+        "  nodeLinker: node-modules\n",
+    );
+  });
+
+  // Round 14 #1 (Copilot, PR #99): even with an explicit
+  // `--use-yarn`, don't drop a brand-new `.yarnrc.yml` into a
+  // pre-existing project. The surrounding workspace might be a
+  // yarn-berry repo deliberately on its PnP default; writing
+  // `nodeLinker: node-modules` would flip the install mode for
+  // the entire repo. Surface the same yarn-berry caveat the
+  // inspect path uses, but from the explicit-yarn arm.
+  it("does NOT create .yarnrc.yml in --use-yarn + existing-project + no-yarnrc — surfaces caveat instead", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    // Reported as `kept` (no mutation), file is NOT created on disk.
+    expect(yarnrc?.action).toBe("kept");
+    expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
+    // But the caveat IS surfaced.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    expect(result.warnings[0]).toContain("nodeLinker: node-modules");
+  });
+
+  // Round 14 #1 cont'd: same policy when the existing
+  // `.yarnrc.yml` lacks a `nodeLinker:` key. The absence is itself
+  // a deliberate PnP choice in an existing yarn-berry workspace —
+  // appending would flip the install mode just as if we'd created
+  // the file from scratch.
+  it("does NOT append nodeLinker:node-modules in --use-yarn + existing-project + yarnrc-without-linker — surfaces caveat instead", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    const yarnrcContent = "yarnPath: .yarn/releases/yarn-4.x.cjs\n";
+    writeFileSync(join(cwd, ".yarnrc.yml"), yarnrcContent);
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("kept");
+    // File untouched.
+    expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(yarnrcContent);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+  });
+
+  // Round 14 #2 (Copilot, PR #99): `--use-yarn` against an
+  // existing project must NOT add `.yarn/cache` /
+  // `.yarn/install-state.gz` to `.gitignore`. Yarn zero-install
+  // setups *commit* `.yarn/cache/`; silently ignoring those
+  // archives makes future cache zips drop out of git on every
+  // dependency change. The user can add the entries themselves
+  // if they want them.
+  it("does NOT add yarn-cache lines to .gitignore in --use-yarn + existing-project (zero-install repos)", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
+    expect(gi).toContain(".arkor/");
+    expect(gi).not.toContain(".yarn/");
+  });
+
+  // Round 14 #1 still has an explicit-conflict counterpart that
+  // must keep working: `--use-yarn` + existing project + yarnrc
+  // pinned to `nodeLinker: pnp` — the conflict path has always
+  // been "kept + warning"; the new isExistingProject gate must
+  // not interfere with it (the conflict branch returns before the
+  // gate runs).
+  it("still surfaces the conflict warning when --use-yarn + existing-project + yarnrc pins nodeLinker: pnp", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    writeFileSync(join(cwd, ".yarnrc.yml"), "nodeLinker: pnp\n");
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+    expect(yarnrc?.action).toBe("kept");
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("nodeLinker: pnp");
+  });
+
   // Existing `.yarnrc.yml` that explicitly pins a non-`node-modules`
   // linker (here PnP). Earlier rounds of this PR auto-rewrote `pnp`
   // → `node-modules`, but Copilot's PR #99 review pushed back: both
