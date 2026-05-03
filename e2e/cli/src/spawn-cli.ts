@@ -32,12 +32,35 @@ export function cleanup(dir: string): void {
  * - `GIT_AUTHOR_*` / `GIT_COMMITTER_*` are pinned so the CLI's internal
  *   `git commit` succeeds even when the host (CI runners, fresh containers)
  *   has no `user.name` / `user.email` configured.
+ *
+ * ENG-632: macOS GitHub runners occasionally signal-kill the spawned child
+ * during startup under load — the `close` event then fires with
+ * `code === null`, which surfaces as `result.code === -1` here. Same
+ * invocation passes on rerun and on every other matrix slot, so it's a
+ * runner artefact rather than a regression. We retry exactly once and
+ * only when (a) we're on macOS, (b) the previous attempt returned the
+ * `-1` signal-kill marker. A real non-zero exit (CLI bug, broken pm,
+ * assertion-driven failure) is *not* retried, so deterministic
+ * regressions still surface on the first run.
  */
-export function runCli(
+export async function runCli(
   binPath: string,
   argv: string[],
   cwd: string,
   extraEnv: NodeJS.ProcessEnv = {},
+): Promise<RunResult> {
+  let result = await runCliOnce(binPath, argv, cwd, extraEnv);
+  if (result.code === -1 && process.platform === "darwin") {
+    result = await runCliOnce(binPath, argv, cwd, extraEnv);
+  }
+  return result;
+}
+
+function runCliOnce(
+  binPath: string,
+  argv: string[],
+  cwd: string,
+  extraEnv: NodeJS.ProcessEnv,
 ): Promise<RunResult> {
   // `pnpm test` propagates the workspace's pnpm config to children as
   // `npm_config_*` / `pnpm_config_*` env vars (e.g. minimumReleaseAge from
