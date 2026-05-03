@@ -32,10 +32,16 @@ let arkorPackDir: string | undefined;
 beforeAll(() => {
   if (SKIP_INSTALL) return;
   arkorPackDir = makeTempDir("arkor-init-e2e-pack-");
+  // Windows ships `pnpm` as a `.cmd` shim under the default Corepack /
+  // global-install setup; Node refuses to execute `.cmd`/`.bat` files
+  // through `execFile*` without a shell, so the sibling beforeAll would
+  // otherwise crash before any test runs on a developer Windows box that
+  // doesn't have `@pnpm/exe` in PATH. Mirror install.ts's `shell` policy
+  // to delegate resolution to cmd.exe on win32 only.
   execFileSync(
     "pnpm",
     ["--filter", "arkor", "pack", "--pack-destination", arkorPackDir],
-    { stdio: "pipe" },
+    { stdio: "pipe", shell: process.platform === "win32" },
   );
   const matches = readdirSync(arkorPackDir).filter(
     (f) => f.startsWith("arkor-") && f.endsWith(".tgz"),
