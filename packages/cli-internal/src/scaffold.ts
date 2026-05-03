@@ -30,7 +30,7 @@ const CONFIG_PATH = "arkor.config.ts";
 const README_PATH = "README.md";
 const GITIGNORE_PATH = ".gitignore";
 const PACKAGE_JSON_PATH = "package.json";
-const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.6";
+const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.7";
 
 function resolveArkorScaffoldSpec(): string {
   // Treat unset, empty, and whitespace-only values the same: fall back to
