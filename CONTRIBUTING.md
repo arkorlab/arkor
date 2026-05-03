@@ -71,7 +71,7 @@ Studio runs at `http://127.0.0.1:4000` with a CSRF token injected per launch.
 
 ## Pull request guidelines
 
-We err on the side of accepting PRs, even rough ones. Tiny contributions: a typo fix, a smoother sentence, a clearer error message: are genuinely welcome and never too small to send. **Please don't let any of the following stop you from opening one:**
+We err on the side of accepting PRs, even rough ones. Tiny contributions (a typo fix, a smoother sentence, a clearer error message) are genuinely welcome and never too small to send. **Please don't let any of the following stop you from opening one:**
 
 - **Size doesn't matter.** Huge diffs are fine: please don't hold back on opening a PR because it grew. We'd much rather read a sprawling PR than have you not send it, and we're happy to split it up on our side if that helps review.
 - **Unclear description is OK.** A messy or sparse PR description is better than no PR. We'll ask follow-ups in review rather than bouncing the patch.
