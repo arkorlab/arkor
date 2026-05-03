@@ -19,7 +19,9 @@ export async function main(argv: string[]): Promise<void> {
 
   program
     .command("init")
-    .description("Scaffold src/arkor/index.ts + arkor.config.ts in the current directory")
+    .description(
+      "Scaffold src/arkor/index.ts, arkor.config.ts, and AGENTS.md / CLAUDE.md (skip the agent files with --no-agents-md) in the current directory",
+    )
     .option("-y, --yes", "Accept defaults instead of prompting")
     .option("--name <name>", "Project name (default: directory name)")
     .option("--template <template>", "Starter template: triage | translate | redaction")

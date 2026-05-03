@@ -138,6 +138,36 @@ function withEol(content: string, eol: "\r\n" | "\n"): string {
   return content.replace(/\r?\n/g, "\r\n");
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Locate the arkor-managed block via **line-anchored** markers — both
+ * BEGIN and END must sit at the start of a line (optionally after a CR).
+ * Inline mentions inside backticks or prose
+ * (e.g. "delimited by `<!-- BEGIN:arkor-agent-rules -->`") therefore do
+ * not register as markers, which keeps the patch idempotent for files
+ * where the user documented the marker syntax. Non-greedy `[\s\S]*?`
+ * pairs the first line-anchored BEGIN with its next line-anchored END.
+ */
+function findManagedBlock(
+  s: string,
+): { begin: number; end: number } | null {
+  const re = new RegExp(
+    `(?:^|\\n)${escapeRegExp(AGENTS_BLOCK_BEGIN)}[\\s\\S]*?\\n${escapeRegExp(
+      AGENTS_BLOCK_END,
+    )}`,
+    "m",
+  );
+  const m = re.exec(s);
+  if (!m) return null;
+  // Trim the leading-newline anchor (so we replace the marker itself,
+  // not the newline ahead of it).
+  const beginOffset = m[0].startsWith("\n") ? 1 : 0;
+  return { begin: m.index + beginOffset, end: m.index + m[0].length };
+}
+
 async function writeAgentsMd(cwd: string): Promise<FileAction> {
   const path = join(cwd, AGENTS_MD_PATH);
   if (!existsSync(path)) {
@@ -148,12 +178,11 @@ async function writeAgentsMd(cwd: string): Promise<FileAction> {
   const eol = detectEol(current);
   const block = withEol(AGENTS_BLOCK_BODY, eol);
 
-  const beginIdx = current.indexOf(AGENTS_BLOCK_BEGIN);
-  const endIdx = current.indexOf(AGENTS_BLOCK_END);
-  if (beginIdx !== -1 && endIdx > beginIdx) {
+  const found = findManagedBlock(current);
+  if (found) {
     // Replace block content only, preserving anything outside the markers.
-    const before = current.slice(0, beginIdx);
-    const after = current.slice(endIdx + AGENTS_BLOCK_END.length);
+    const before = current.slice(0, found.begin);
+    const after = current.slice(found.end);
     const next = `${before}${block}${after}`;
     if (next === current) return "ok";
     await writeFile(path, next);

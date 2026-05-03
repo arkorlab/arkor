@@ -332,6 +332,72 @@ describe("scaffold", () => {
     expect(body).toContain("arkor is newer than your training data");
   });
 
+  it("ignores stray marker mentions outside the managed block (does not duplicate on re-scaffold)", async () => {
+    // Regression: previously the END marker was located via
+    // `current.indexOf(END)` from the start of the file, so a user-
+    // authored mention of the END marker (in notes / explanation text)
+    // before the real managed block would either patch the wrong span
+    // (when END appeared between BEGIN and the real END) or fall through
+    // to the append path entirely (when END appeared before BEGIN). On
+    // every re-scaffold the append path would add a fresh canonical
+    // block, growing the file unboundedly.
+    const userNotes =
+      "# Project\n" +
+      "\n" +
+      "Note: the canonical block is delimited by `<!-- BEGIN:arkor-agent-rules -->` " +
+      "and `<!-- END:arkor-agent-rules -->`.\n" +
+      "\n";
+    // Real managed block sits *after* the prose mentions above. The END
+    // string in the prose appears earlier in the file than the real END.
+    const realBlock = `${AGENTS_BEGIN}\noriginal canonical body\n${AGENTS_END}`;
+    writeFileSync(join(cwd, "AGENTS.md"), `${userNotes}${realBlock}\n`);
+
+    // Counting helper: only line-anchored markers (start of file or
+    // immediately after a newline) count as canonical markers; inline
+    // mentions inside prose / backticks are just text that must be
+    // preserved verbatim.
+    const countAnchored = (s: string, marker: string): number => {
+      const re = new RegExp(`(?:^|\\n)${marker.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}`, "g");
+      return (s.match(re) ?? []).length;
+    };
+
+    // First re-scaffold: should patch the real block in place.
+    const first = await scaffold({
+      cwd,
+      name: "stray-marker",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(first.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
+      "patched",
+    );
+    const after = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(after).toContain("arkor is newer than your training data");
+    expect(after).not.toContain("original canonical body");
+    // Exactly one canonical (line-anchored) BEGIN/END pair — the prose
+    // mention is preserved verbatim but does not count as a canonical
+    // marker because it is inside backticks.
+    expect(countAnchored(after, AGENTS_BEGIN)).toBe(1);
+    expect(countAnchored(after, AGENTS_END)).toBe(1);
+    expect(after).toContain("Note: the canonical block is delimited by");
+
+    // Second re-scaffold: must be idempotent — file size and marker
+    // count both stable, no second block appended.
+    const second = await scaffold({
+      cwd,
+      name: "stray-marker",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
+      "ok",
+    );
+    const final = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(final).toBe(after);
+    expect(countAnchored(final, AGENTS_BEGIN)).toBe(1);
+    expect(countAnchored(final, AGENTS_END)).toBe(1);
+  });
+
   it("returns 'ok' when AGENTS.md already has the canonical block", async () => {
     // First scaffold creates the file; second scaffold should detect the
     // block is already up-to-date and skip the write.

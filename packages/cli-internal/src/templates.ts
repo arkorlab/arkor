@@ -156,11 +156,18 @@ npm run start    # runs the build artifact on the cloud
 
 - \`src/arkor/index.ts\` — entry-point manifest (\`createArkor({ trainer })\`).
   This is what the CLI and Studio discover.
-- \`src/arkor/trainer.ts\` — your trainer (\`createTrainer({...})\`). Add
+- \`src/arkor/trainer.ts\` — your trainer (\`createTrainer({...})\`). Training
+  settings (\`maxSteps\`, \`lora\`, etc.) live on the Trainer itself. Add
   sibling files for future primitives (\`deploy.ts\`, \`eval.ts\`) and
   register them in the \`createArkor\` call.
-- \`arkor.config.ts\` — training defaults. Project routing lives in
-  \`.arkor/state.json\`, managed by the CLI.
+- \`arkor.config.ts\` — placeholder for future project-level config. The
+  runtime does not read fields from this file yet. Project routing lives
+  in \`.arkor/state.json\`, managed by the CLI.
+- \`AGENTS.md\` / \`CLAUDE.md\` — instructions for AI coding agents,
+  briefing them that arkor post-dates their training data. \`CLAUDE.md\`
+  is a one-liner that imports \`AGENTS.md\` via the Claude Code
+  \`@<path>\` directive. Skip these by re-scaffolding with
+  \`--no-agents-md\`.
 
 Requires Node.js >= 22.6.
 `;
