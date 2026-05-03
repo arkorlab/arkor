@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloudApiClient, CloudApiError } from "./client";
+import { buildCloudApiError, CloudApiClient, CloudApiError } from "./client";
 import type { AnonymousCredentials } from "./credentials";
 import {
   clearRecordedDeprecation,
@@ -596,5 +596,61 @@ describe("CloudApiError", () => {
     expect(e.name).toBe("CloudApiError");
     expect(e.status).toBe(418);
     expect(e.message).toBe("I'm a teapot");
+  });
+
+  it("carries the optional `code` field when supplied", () => {
+    // Direct constructor coverage for the `code` parameter — the field is
+    // what `cli/main.ts`'s anonymous-auth-error formatter pivots on, so
+    // an accidental drop would silently regress the friendly-error path.
+    const e = new CloudApiError(409, "...", "anonymous_token_single_device");
+    expect(e.code).toBe("anonymous_token_single_device");
+  });
+});
+
+describe("buildCloudApiError", () => {
+  it("preserves the structured `code` from the cloud-api error body", async () => {
+    // The dead-end formatter in cli/main.ts branches on `err.code`, so this
+    // round-trip (JSON body → parseErrorBody → CloudApiError.code) must
+    // survive any future refactor of buildCloudApiError.
+    const res = new Response(
+      JSON.stringify({
+        error: "Anonymous token is no longer current.",
+        code: "anonymous_token_single_device",
+      }),
+      {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      },
+    );
+    const err = await buildCloudApiError(res);
+    expect(err).toBeInstanceOf(CloudApiError);
+    expect(err.status).toBe(409);
+    expect(err.message).toBe("Anonymous token is no longer current.");
+    expect(err.code).toBe("anonymous_token_single_device");
+  });
+
+  it("leaves `code` undefined when the body has no `code` field", async () => {
+    // Generic 4xx/5xx without a structured identifier — formatter falls
+    // through to the default Node error rendering rather than the
+    // anon-auth-error branch.
+    const res = new Response(JSON.stringify({ error: "bad request" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+    const err = await buildCloudApiError(res);
+    expect(err.message).toBe("bad request");
+    expect(err.code).toBeUndefined();
+  });
+
+  it("leaves `code` undefined when the body is non-JSON", async () => {
+    const res = new Response("plain text failure", {
+      status: 502,
+      headers: { "content-type": "text/plain" },
+    });
+    const err = await buildCloudApiError(res);
+    expect(err.status).toBe(502);
+    // `||` (not `??`) means the raw text becomes the message.
+    expect(err.message).toBe("plain text failure");
+    expect(err.code).toBeUndefined();
   });
 });

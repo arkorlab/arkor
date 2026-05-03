@@ -542,6 +542,85 @@ describe("ensureCredentialsForStudio", () => {
       );
     });
   });
+
+  // Same gating contract as the persistence nudge: the OAuth-flavoured
+  // single-device note ("Run `arkor login --oauth` to sign up for
+  // multi-device access") fires only when OAuth is *confirmed* available.
+  // Anon-only deployments fall back to the bare fact so users aren't
+  // pointed at a command that fails immediately. Both paths surface the
+  // single-device limitation up-front rather than letting users discover
+  // it via a 401 on a second machine.
+  describe("anon-issuance output (ANON_SINGLE_DEVICE_NOTE gating)", () => {
+    const okConfigResponse = () =>
+      new Response(
+        JSON.stringify({
+          auth0Domain: "tenant.auth0.com",
+          clientId: "client-id",
+          audience: "https://api.arkor.ai",
+          callbackPorts: [4000],
+        }),
+        { status: 200 },
+      );
+    const noOauthConfigResponse = () =>
+      new Response(
+        JSON.stringify({
+          auth0Domain: null,
+          clientId: null,
+          audience: null,
+          callbackPorts: [],
+        }),
+        { status: 200 },
+      );
+    const okAnonResponse = () =>
+      new Response(
+        JSON.stringify({
+          token: "anon-tok",
+          anonymousId: "anon-aid",
+          kind: "cli",
+          personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
+        }),
+        { status: 200 },
+      );
+
+    it("emits the OAuth-flavoured note when the deployment advertises OAuth", async () => {
+      globalThis.fetch = vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/cli/config")) return okConfigResponse();
+        if (url.endsWith("/v1/auth/anonymous")) return okAnonResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+      const infoSpy = vi.spyOn(clack.log, "info");
+
+      await ensureCredentialsForStudio();
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Run `arkor login --oauth` to sign up for multi-device access",
+        ),
+      );
+    });
+
+    it("emits the bare note on anon-only deployments", async () => {
+      globalThis.fetch = vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/cli/config")) return noOauthConfigResponse();
+        if (url.endsWith("/v1/auth/anonymous")) return okAnonResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+      const infoSpy = vi.spyOn(clack.log, "info");
+
+      await ensureCredentialsForStudio();
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "anonymous accounts work on this machine only",
+        ),
+      );
+      expect(infoSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("arkor login --oauth"),
+      );
+    });
+  });
 });
 
 describe("runDev", () => {

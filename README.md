@@ -52,7 +52,7 @@ pnpm dev
 **No signup required:** 
 `arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it provisions a throwaway anonymous workspace so you can fire off a real training run right away. 
 
-Run `arkor login --oauth` later if you want to claim your work under an account.
+Anonymous workspaces are tied to this machine. The cloud-api enforces a single-device guard server-side, so `~/.arkor/credentials.json` shouldn't be copied to a second machine — each anonymous workspace is meant to live where it was issued. Today the CLI doesn't auto-refresh the anonymous token, so a copy may keep working for a while and only start failing once the issuing user runs `arkor login --anonymous` again (or auto-refresh ships and rotates the stored jti); when that happens, every other copy starts failing on its next call with a single-device error. Switching to OAuth does not migrate prior anonymous work: `arkor login --oauth` overwrites `~/.arkor/credentials.json` with a fresh OAuth identity that any *future* work will be associated with, but existing anonymous jobs and orgs stay reachable only from the credentials file that issued them. Run `arkor login --oauth` whenever you're ready to start an account-backed workspace that follows you across devices.
 
 ### Pick a template
 
@@ -85,7 +85,7 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 - [x] **React to training in code, not in a dashboard.** Lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) fire as the run streams from the cloud, fully typed.
 - [x] **Sanity-check the model before the run finishes.** Inside `onCheckpoint`, call `infer({ messages })` against the model as it's being trained.
 - [x] **Watch the run in a local Studio.** `arkor dev` opens a UI with a jobs list, live loss chart, log tail, and a Playground for chatting with your fine-tuned models.
-- [x] **Try it without an account.** `arkor dev` boots straight into a fresh anonymous workspace. Run `arkor login --oauth` to start the Arkor Cloud OAuth (PKCE) flow and attach the work to your account.
+- [x] **Try it without an account.** `arkor dev` boots straight into a fresh anonymous workspace. Anonymous workspaces are single-device: they live on the machine that issued them, and there's no migration path into an OAuth account today. Run `arkor login --oauth` whenever you want *future* work backed by an account that follows you across devices.
 
 ## What's coming next
 

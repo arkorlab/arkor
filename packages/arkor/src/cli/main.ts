@@ -7,11 +7,73 @@ import { runDev } from "./commands/dev";
 import { runBuild } from "./commands/build";
 import { runStart } from "./commands/start";
 import { resolvePackageManager, type TemplateId } from "@arkor/cli-internal";
+import {
+  formatAnonymousAuthError,
+  isAnonymousAuthDeadEnd,
+} from "../core/anonymous-auth-error";
+import { fetchCliConfig } from "../core/auth0";
+import {
+  defaultArkorCloudApiUrl,
+  readCredentials,
+} from "../core/credentials";
 import { getRecordedDeprecation } from "../core/deprecation";
 import { shutdownTelemetry, withTelemetry } from "../core/telemetry";
 import { detectedUpgradeCommand } from "../core/upgrade-hint";
 import { SDK_VERSION } from "../core/version";
 import { ui } from "./prompts";
+
+/**
+ * Resolve OAuth availability for the current deployment so anonymous-auth
+ * dead-end errors recommend a recovery path that actually works on
+ * anon-only deployments. Probes the *credentials' own* cloud-api URL
+ * (the one that just produced the auth error), not the global default
+ * — `ARKOR_CLOUD_API_URL` may have changed since the credentials were
+ * issued, or a command may have run against a non-default endpoint, in
+ * which case probing `defaultArkorCloudApiUrl()` would inspect the
+ * wrong deployment and recommend the opposite recovery path.
+ *
+ * Returns a tri-state rather than a boolean. An earlier version
+ * collapsed every probe failure to `false`, which made the formatter
+ * confidently steer users at `arkor login --anonymous` even when the
+ * config endpoint was just timing out on an OAuth-supporting
+ * deployment, hiding the real recovery (`arkor login --oauth`).
+ * Distinguishing the cases lets the formatter hedge when we genuinely
+ * don't know:
+ *
+ * - `"available"`: cfg fetched, Auth0 fields present → `--oauth`.
+ * - `"absent"`: cfg fetched, no Auth0 fields → `--anonymous`.
+ * - `"unknown"`: probe failed (network, timeout, malformed cfg,
+ *    missing credentials) → suggest both, with an honest hedge.
+ *
+ * The probe runs *after* a command has already failed, so blocking
+ * the recovery hint behind an unbounded HTTP call would compound the
+ * outage. `AbortSignal.timeout` caps the probe at 3 s so the user
+ * always gets *some* guidance even when the cloud-api is sick. That
+ * timeout falls into `"unknown"`.
+ */
+type OauthAvailability = "available" | "absent" | "unknown";
+const PROBE_TIMEOUT_MS = 3000;
+async function probeOauthAvailability(): Promise<OauthAvailability> {
+  try {
+    const creds = await readCredentials().catch(() => null);
+    // Only `AnonymousCredentials` carries `arkorCloudApiUrl`; the
+    // anon-auth-error path only fires for anonymous tokens anyway, but
+    // we defensively fall through to the global default for any other
+    // shape rather than throwing on a `Auth0Credentials` narrowing.
+    const baseUrl =
+      creds?.mode === "anon" && creds.arkorCloudApiUrl
+        ? creds.arkorCloudApiUrl
+        : defaultArkorCloudApiUrl();
+    const cfg = await fetchCliConfig(baseUrl, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    return cfg.auth0Domain && cfg.clientId && cfg.audience
+      ? "available"
+      : "absent";
+  } catch {
+    return "unknown";
+  }
+}
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();
@@ -149,6 +211,40 @@ export async function main(argv: string[]): Promise<void> {
 
   try {
     await program.parseAsync(argv, { from: "user" });
+  } catch (err) {
+    // Intercept the structured anonymous-auth-state errors before they
+    // propagate to bin.ts and get rendered with a stack trace. Only the
+    // two known dead-end codes (`anonymous_token_single_device`,
+    // `anonymous_account_not_found`) are formatted here; everything
+    // else rethrows so the existing fallback in bin.ts surfaces it.
+    // Setting `process.exitCode` (rather than calling `process.exit`
+    // directly) keeps the deprecation + telemetry-shutdown step in the
+    // `finally` block reachable.
+    if (isAnonymousAuthDeadEnd(err)) {
+      // Probe deployment OAuth status only on the dead-end path so we
+      // don't add a network round-trip to every successful command.
+      // The probe is tri-state (`"available"` / `"absent"` /
+      // `"unknown"`), so the formatter can hedge instead of
+      // confidently recommending `--anonymous` when the config
+      // endpoint just timed out on an OAuth-supporting deployment.
+      const probe = await probeOauthAvailability();
+      const friendly = formatAnonymousAuthError(err, {
+        oauthAvailable:
+          probe === "available"
+            ? true
+            : probe === "absent"
+              ? false
+              : undefined,
+      });
+      if (friendly !== null) {
+        process.stderr.write(`${friendly}\n`);
+        process.exitCode = 1;
+      } else {
+        throw err;
+      }
+    } else {
+      throw err;
+    }
   } finally {
     const notice = getRecordedDeprecation();
     if (notice) {

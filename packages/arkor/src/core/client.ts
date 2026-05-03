@@ -18,10 +18,18 @@ import { SDK_VERSION } from "./version";
 
 export class CloudApiError extends Error {
   status: number;
+  /**
+   * Stable machine-readable identifier surfaced by cloud-api / control-plane.
+   * Lets callers branch on auth-state failures (e.g.
+   * `anonymous_token_single_device`, `anonymous_account_not_found`)
+   * without parsing the human-readable `message`.
+   */
+  code?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
     this.name = "CloudApiError";
   }
 }
@@ -40,8 +48,12 @@ async function decode<T>(res: Response, schema: z.ZodType<T>): Promise<T> {
 /**
  * Build a `CloudApiError` from a non-ok Response, inlining the cloud-api
  * gate's upgrade hint when the status is 426.
+ *
+ * Exported so non-`CloudApiClient` callers (e.g. `whoami` hitting the
+ * RPC directly) can produce errors with the same `{error, code}` shape
+ * that `cli/main.ts`'s top-level handler knows how to format.
  */
-async function buildCloudApiError(res: Response): Promise<CloudApiError> {
+export async function buildCloudApiError(res: Response): Promise<CloudApiError> {
   const text = await res.text().catch(() => "");
   let parsed: unknown = null;
   try {
@@ -58,7 +70,7 @@ async function buildCloudApiError(res: Response): Promise<CloudApiError> {
   // Use `||` (not `??`) so an empty-string body falls through to the
   // generic `cloud-api <status>` instead of becoming an empty message.
   const message = fields.error || text || `cloud-api ${res.status}`;
-  return new CloudApiError(res.status, message);
+  return new CloudApiError(res.status, message, fields.code);
 }
 
 export interface CloudApiClientOptions {

@@ -137,11 +137,23 @@ npm install && npm run dev
 
 \`arkor dev\` opens the local Studio GUI (most workflows live there).
 
-Optional — log in to your own org instead of using anonymous tokens:
+Anonymous tokens are designed for one machine. The cloud-api enforces
+a single-device guard server-side, so copying
+\`~/.arkor/credentials.json\` to another device isn't a supported
+workflow — the issuing machine and the copy share one identity, and
+once either side forces a token rotation (today: a manual
+\`arkor login --anonymous\`; future: any auto-refresh) the other side
+starts failing with a single-device error on its next call. When
+you're ready for an account-backed workspace that follows you across
+devices, run:
 
 \`\`\`
-npx arkor login
+npx arkor login --oauth
 \`\`\`
+
+The OAuth flow starts a *new* identity — existing anonymous work cannot
+be migrated, so future work created after sign-in is what ends up under
+the account.
 
 CLI-only flow (no GUI):
 

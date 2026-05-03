@@ -30,3 +30,23 @@ export async function acquireAnonymousTokenResult(baseUrl: string) {
 //      defaulting to show.
 export const ANON_PERSISTENCE_NUDGE =
   "Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to tie future work to your Arkor Cloud account.";
+
+// Single-device limitation note. The fact applies on every deployment
+// (the cloud-api binds the issued token to the calling machine via
+// `latest_jti` rotation regardless of whether OAuth is offered), so the
+// bare `ANON_SINGLE_DEVICE_NOTE` is always safe to emit. The
+// `..._WITH_OAUTH` variant additionally points at `arkor login --oauth`
+// as the upgrade path; per the same gating contract as
+// `ANON_PERSISTENCE_NUDGE`, callers must only emit it when
+// `oauthAvailable === true`. The `false` and `undefined` cases fall back
+// to the bare note so anon-only deployments don't advertise a command
+// that fails immediately.
+//
+// The wording here is also what `formatAnonymousAuthError` returns when
+// the cloud-api emits `code: "anonymous_token_single_device"`, so users
+// see consistent phrasing whether they hit it at issuance or at the
+// first 401.
+export const ANON_SINGLE_DEVICE_NOTE =
+  "Note: anonymous accounts work on this machine only.";
+export const ANON_SINGLE_DEVICE_NOTE_WITH_OAUTH =
+  `${ANON_SINGLE_DEVICE_NOTE} Run \`arkor login --oauth\` to sign up for multi-device access.`;

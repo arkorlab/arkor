@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CloudApiError } from "../../core/client";
 import { writeCredentials } from "../../core/credentials";
 import { runWhoami } from "./whoami";
 
@@ -237,6 +238,34 @@ describe("runWhoami", () => {
     expect(capturedAuth).toBe("Bearer auth0-at");
   });
 
+  it("targets the credentials' arkorCloudApiUrl, not ARKOR_CLOUD_API_URL", async () => {
+    // Anonymous credentials pin the cloud-api they were issued against.
+    // If the env-derived default has changed since login (or this command
+    // is run against a non-default endpoint), `whoami` must follow the
+    // credentials, otherwise the dead-end formatter in `cli/main.ts`
+    // could surface single-device guidance for a token that's actually
+    // valid on its original deployment.
+    await writeCredentials({
+      mode: "anon",
+      token: "anon-tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "https://custom.cloud.example",
+      orgSlug: "anon-abc",
+    });
+    process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
+    let seenUrl = "";
+    globalThis.fetch = vi.fn(async (input) => {
+      seenUrl = String(input);
+      return new Response(
+        JSON.stringify({ user: { id: "u-anon" }, orgs: [] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    await runWhoami();
+    expect(seenUrl).toBe("https://custom.cloud.example/v1/me");
+  });
+
   it("falls back to org id when an org has no slug", async () => {
     // Branch coverage for `o.slug ?? o.id` — historic data may have orgs
     // without a slug column populated; the helper must still render
@@ -264,7 +293,13 @@ describe("runWhoami", () => {
     expect(out).toMatch(/Orgs: o-without-slug, named/);
   });
 
-  it("prints a 'token may be expired' hint on other non-2xx without setting exitCode", async () => {
+  it("appends the bare single-device note on TTY when credentials are anonymous", async () => {
+    // The note is keyed on the local `creds.mode === "anon"` rather
+    // than the cloud-api's `/v1/me` body shape, because the response
+    // schema doesn't guarantee a discriminator field. The fixture
+    // here mirrors what the existing E2E tests assume the server
+    // returns (a plain user object, no `kind`) so a regression that
+    // re-introduces a body-shape dependency is caught here.
     await writeCredentials({
       mode: "anon",
       token: "anon-tok",
@@ -273,15 +308,157 @@ describe("runWhoami", () => {
       orgSlug: "anon-abc",
     });
     globalThis.fetch = vi.fn(
-      async () => new Response("{}", { status: 401 }),
+      async () =>
+        new Response(
+          JSON.stringify({
+            user: { id: "u-anon", email: null },
+            orgs: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof fetch;
+
+    // Pretend the user is in an interactive terminal; the TTY gate
+    // (see whoami.ts) only emits the note when both stdout and stderr
+    // are TTYs so wrappers/CI scripts aren't surprised by output.
+    const origStdoutIsTTY = process.stdout.isTTY;
+    const origStderrIsTTY = process.stderr.isTTY;
+    process.stdout.isTTY = true;
+    process.stderr.isTTY = true;
+    try {
+      await runWhoami();
+    } finally {
+      process.stdout.isTTY = origStdoutIsTTY;
+      process.stderr.isTTY = origStderrIsTTY;
+    }
+    // The note goes to stderr so wrapper scripts piping `arkor whoami`
+    // through `jq` (or grepping the JSON / `Orgs:` line on stdout)
+    // aren't broken by human-oriented prose appearing in their data
+    // stream. stdout must stay machine-parseable.
+    const out = stdoutChunks.join("");
+    const err = stderrChunks.join("");
+    expect(err).toMatch(
+      /Note: anonymous accounts work on this machine only\./,
+    );
+    expect(out).not.toMatch(/this machine only/);
+    // The OAuth-flavoured upgrade hint is suppressed here because
+    // whoami does not know whether OAuth is configured on the
+    // deployment.
+    expect(err).not.toMatch(/arkor login --oauth/);
+  });
+
+  it("suppresses the single-device note when stdout/stderr aren't TTY (CI/scripts)", async () => {
+    // CI runners and shell wrappers (`arkor whoami | jq`,
+    // `arkor whoami > out`) drop `isTTY` on the redirected stream.
+    // Many CI tools also treat any stderr-on-success output as a
+    // warning marker, so the note must stay quiet outside an
+    // interactive terminal.
+    await writeCredentials({
+      mode: "anon",
+      token: "anon-tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://mock-cloud-api",
+      orgSlug: "anon-abc",
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            user: { id: "u-anon", email: null },
+            orgs: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof fetch;
+
+    // vitest workers default to non-TTY; assert that explicitly so
+    // the test isn't depending on host-environment defaults.
+    const origStdoutIsTTY = process.stdout.isTTY;
+    const origStderrIsTTY = process.stderr.isTTY;
+    process.stdout.isTTY = false;
+    process.stderr.isTTY = false;
+    try {
+      await runWhoami();
+    } finally {
+      process.stdout.isTTY = origStdoutIsTTY;
+      process.stderr.isTTY = origStderrIsTTY;
+    }
+    const out = stdoutChunks.join("");
+    const err = stderrChunks.join("");
+    expect(out).not.toMatch(/this machine only/);
+    expect(err).not.toMatch(/this machine only/);
+  });
+
+  it("does not append the single-device note for non-anonymous users", async () => {
+    // Auth0 sessions are unaffected by the anonymous single-device
+    // guard, so the note should not surface there.
+    await writeCredentials({
+      mode: "auth0",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "tenant.auth0.com",
+      audience: "https://api.arkor.ai",
+      clientId: "cid",
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            user: { kind: "auth0", auth0Id: "auth0|sub" },
+            orgs: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
     ) as typeof fetch;
 
     await runWhoami();
     const out = stdoutChunks.join("");
-    expect(out).toMatch(/Failed to fetch \/v1\/me \(401\)/);
-    expect(out).toMatch(/Token may be expired/);
-    // Distinct from the 426 path: no hard block on auth failures, just a
-    // hint, so the deprecation flush in main.ts can still run.
-    expect(process.exitCode).not.toBe(1);
+    const err = stderrChunks.join("");
+    expect(out).not.toMatch(/this machine only/);
+    expect(err).not.toMatch(/this machine only/);
+  });
+
+  it("throws CloudApiError on other non-2xx so cli/main.ts can format auth-state codes", async () => {
+    // Previously the command swallowed non-426 failures with a generic
+    // "Token may be expired" hint. The new contract is to throw a
+    // `CloudApiError` (with the upstream `code` if present) so the
+    // top-level handler in `cli/main.ts` can surface
+    // `anonymous_token_single_device` / `anonymous_account_not_found`
+    // with actionable guidance instead of a vague hint.
+    await writeCredentials({
+      mode: "anon",
+      token: "anon-tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://mock-cloud-api",
+      orgSlug: "anon-abc",
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "Anonymous token revoked",
+            code: "anonymous_token_single_device",
+          }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof fetch;
+
+    let caught: unknown;
+    try {
+      await runWhoami();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(CloudApiError);
+    const err = caught as CloudApiError;
+    expect(err.status).toBe(401);
+    expect(err.code).toBe("anonymous_token_single_device");
+    expect(err.message).toMatch(/revoked/);
+    // No print-and-return: the previous "Token may be expired" hint is
+    // intentionally gone so callers can't accidentally degrade structured
+    // codes into a vague string.
+    const out = stdoutChunks.join("");
+    expect(out).not.toMatch(/Token may be expired/);
   });
 });

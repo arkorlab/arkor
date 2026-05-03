@@ -15,6 +15,8 @@ import {
 } from "../../core/credentials";
 import {
   ANON_PERSISTENCE_NUDGE,
+  ANON_SINGLE_DEVICE_NOTE,
+  ANON_SINGLE_DEVICE_NOTE_WITH_OAUTH,
   acquireAnonymousTokenResult,
 } from "../anonymous";
 import { promptSelect, ui } from "../prompts";
@@ -153,6 +155,17 @@ async function runAnonymousLogin(opts: {
     ui.log.warn(ANON_PERSISTENCE_NUDGE);
   }
   ui.log.success(`Signed in anonymously (personal org: ${result.orgSlug}).`);
+  // Surface the single-device constraint immediately so users don't
+  // discover it the hard way when copying credentials.json to a second
+  // machine. Same gating contract as `ANON_PERSISTENCE_NUDGE`: the
+  // OAuth-flavoured variant fires only when OAuth is *confirmed*
+  // available, anything else falls back to the bare fact so anon-only
+  // deployments aren't pointed at a command that cannot succeed.
+  ui.log.info(
+    opts.oauthAvailable === true
+      ? ANON_SINGLE_DEVICE_NOTE_WITH_OAUTH
+      : ANON_SINGLE_DEVICE_NOTE,
+  );
 }
 
 interface ResolvedCliConfig {

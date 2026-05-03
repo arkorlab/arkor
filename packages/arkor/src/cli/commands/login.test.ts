@@ -348,6 +348,107 @@ describe("runLogin", () => {
     });
   });
 
+  // The single-device note follows the same gating contract as
+  // `ANON_PERSISTENCE_NUDGE`: the OAuth-flavoured variant only fires when
+  // `oauthAvailable === true`, anything else falls back to the bare fact
+  // so anon-only deployments aren't pointed at a command that fails. The
+  // bare fact ("works on this machine only") is universally true and
+  // always emitted, regardless of deployment shape.
+  describe("anon-issuance output (ANON_SINGLE_DEVICE_NOTE gating)", () => {
+    const okConfigResponse = () =>
+      new Response(
+        JSON.stringify({
+          auth0Domain: "tenant.auth0.com",
+          clientId: "client-id",
+          audience: "https://api.arkor.ai",
+          callbackPorts: [4000],
+        }),
+        { status: 200 },
+      );
+    const noOauthConfigResponse = () =>
+      new Response(
+        JSON.stringify({
+          auth0Domain: null,
+          clientId: null,
+          audience: null,
+          callbackPorts: [],
+        }),
+        { status: 200 },
+      );
+    const okAnonResponse = () =>
+      new Response(
+        JSON.stringify({
+          token: "anon-tok",
+          anonymousId: "anon-aid",
+          kind: "cli",
+          personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
+        }),
+        { status: 200 },
+      );
+
+    it("emits the OAuth-flavoured note on picker → Anonymous when OAuth is configured", async () => {
+      globalThis.fetch = vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/cli/config")) return okConfigResponse();
+        if (url.endsWith("/v1/auth/anonymous")) return okAnonResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+      const infoSpy = vi.spyOn(clack.log, "info");
+
+      await runLogin();
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Run `arkor login --oauth` to sign up for multi-device access",
+        ),
+      );
+    });
+
+    it("emits the bare note on the explicit --anonymous shortcut", async () => {
+      // `--anonymous` skips the cfg fetch, so `oauthAvailable` is undefined.
+      // The bare fact is always safe to surface; the OAuth pointer is not
+      // — that gating is what this test enforces.
+      globalThis.fetch = vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/anonymous")) return okAnonResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+      const infoSpy = vi.spyOn(clack.log, "info");
+
+      await runLogin({ anonymous: true });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "anonymous accounts work on this machine only",
+        ),
+      );
+      expect(infoSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("arkor login --oauth"),
+      );
+    });
+
+    it("emits the bare note when OAuth is not configured", async () => {
+      globalThis.fetch = vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/cli/config")) return noOauthConfigResponse();
+        if (url.endsWith("/v1/auth/anonymous")) return okAnonResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+      const infoSpy = vi.spyOn(clack.log, "info");
+
+      await runLogin();
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "anonymous accounts work on this machine only",
+        ),
+      );
+      expect(infoSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("arkor login --oauth"),
+      );
+    });
+  });
+
   it("completes the PKCE flow end-to-end and persists Auth0 credentials when --oauth + non-CI", async () => {
     // Lift the CI guard: --oauth is rejected in CI before any browser
     // interaction, so we have to pretend we're on a developer machine.
