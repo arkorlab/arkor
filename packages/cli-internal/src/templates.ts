@@ -125,13 +125,12 @@ An arkor training project scaffolded by \`create-arkor\`.
 
 The \`dev\` / \`build\` / \`start\` package scripts forward to the matching
 \`arkor\` subcommands, so the script form works across every package
-manager (\`npm\` does not run package binaries via \`npm <bin>\` — use
-\`npm run <script>\` or \`npx arkor <subcommand>\`).
+manager.
 
 \`\`\`
 npm install && npm run dev
 # or: pnpm install && pnpm dev
-# or: yarn && yarn dev
+# or: yarn install && yarn dev
 # or: bun install && bun dev
 \`\`\`
 
@@ -140,7 +139,7 @@ npm install && npm run dev
 Optional — log in to your own org instead of using anonymous tokens:
 
 \`\`\`
-npx arkor login
+arkor login
 \`\`\`
 
 CLI-only flow (no GUI):

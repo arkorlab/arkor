@@ -168,7 +168,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   if (shouldInitGit) await runGitInit(cwd);
 
   const devCmd =
-    pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
+    pm && pm !== "npm" ? `${pm} dev` : "npm run dev";
   ui.outro(
     installed
       ? `Next: \`${devCmd}\``

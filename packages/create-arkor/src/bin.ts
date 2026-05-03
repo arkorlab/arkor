@@ -266,7 +266,7 @@ async function run(options: RunOptions): Promise<void> {
       ? `  ${pm} install`
       : `  ${MANUAL_INSTALL_HINT}`;
   const devLine =
-    pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
+    pm && pm !== "npm" ? `  ${pm} dev` : `  npm run dev`;
 
   clack.outro(
     [
