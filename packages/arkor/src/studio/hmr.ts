@@ -100,6 +100,15 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
   let lastEvent: HmrEvent | null = null;
   let watcher: RolldownWatcher | null = null;
   let disposed = false;
+  /**
+   * When `startWatcher` runs against a project that doesn't have an
+   * entry file yet, a poll timer takes over and waits for the file to
+   * appear. Without this, an SPA that opened `/api/dev/events` against
+   * a fresh scaffold would hang on the initial `error` event forever
+   * — `startWatcher` is only re-entered on `subscribe()`, but EventSource
+   * doesn't reconnect on application-level errors.
+   */
+  let entryWaitTimer: ReturnType<typeof setInterval> | null = null;
 
   function broadcast(event: HmrEvent): void {
     lastEvent = event;
@@ -133,7 +142,33 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
         type: "error",
         message: `Build entry not found: ${resolved.entry}. Create ${BUILD_DEFAULTS.entry} or pass an explicit entry argument.`,
       });
+      // Hand off to a low-frequency poll so an SPA already connected to
+      // `/api/dev/events` transitions from "error" to "ready" the moment
+      // the user creates the entry file — no manual reconnect required.
+      // The poll is `unref()`'d so it never blocks process exit, and
+      // `dispose()` clears it.
+      if (!entryWaitTimer) {
+        entryWaitTimer = setInterval(() => {
+          if (disposed || watcher) {
+            if (entryWaitTimer) clearInterval(entryWaitTimer);
+            entryWaitTimer = null;
+            return;
+          }
+          if (existsSync(resolved.entry)) {
+            if (entryWaitTimer) clearInterval(entryWaitTimer);
+            entryWaitTimer = null;
+            startWatcher();
+          }
+        }, 1000);
+        entryWaitTimer.unref?.();
+      }
       return;
+    }
+    // The entry exists now — clear any leftover poll timer from a prior
+    // failed startWatcher invocation.
+    if (entryWaitTimer) {
+      clearInterval(entryWaitTimer);
+      entryWaitTimer = null;
     }
     watcher = watch({
       ...rolldownInputOptions(resolved),
@@ -172,6 +207,10 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     async dispose() {
       disposed = true;
       subscribers.clear();
+      if (entryWaitTimer) {
+        clearInterval(entryWaitTimer);
+        entryWaitTimer = null;
+      }
       if (watcher) {
         const w = watcher;
         watcher = null;

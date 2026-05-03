@@ -1405,12 +1405,23 @@ describe("createTrainer (early stop)", () => {
     );
     const original = globalThis.fetch;
     globalThis.fetch = fetcher;
+    let result: Awaited<ReturnType<typeof trainer.wait>>;
     try {
-      await trainer.wait();
+      result = await trainer.wait();
     } finally {
       globalThis.fetch = original;
     }
     expect(cancelCalls).toBe(1);
+    // Regression: the early-stop checkpoint branch returns
+    // `{ terminal: true }` to break out of `wait()`'s loop without
+    // waiting for a cloud-side terminal event. The `TrainingResult`
+    // it resolves with must therefore reflect a terminal status
+    // locally — otherwise `wait()` violates its documented contract
+    // ("Resolve when the job reaches a terminal status") and a
+    // subsequent `requestEarlyStop` wouldn't see the
+    // `TERMINAL_STATUSES` short-circuit.
+    expect(result.job.status).toBe("cancelled");
+    expect(result.job.completedAt).toBe("2026-01-01T00:00:03Z");
   });
 
   it("falls back to immediate cancel when no checkpoint arrives within timeoutMs", async () => {

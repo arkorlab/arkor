@@ -704,6 +704,47 @@ describe("runDev", () => {
     }
   });
 
+  it("keeps the SIGINT exit handler armed even when persisting the studio token fails", async () => {
+    // Regression: if `persistStudioToken` threw, the previous code
+    // skipped `scheduleStudioTokenCleanup` — and that was the *only*
+    // hook that called `process.exit(0)` on SIGINT. The leftover HMR
+    // hook overrides Node's default "exit on SIGINT" behaviour, so the
+    // dev server would idle in the foreground forever. The fix
+    // registers the token cleanup unconditionally; here we make
+    // persist throw and verify SIGINT still terminates.
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      // Root bypasses chmod permission checks — skip on root containers.
+      return;
+    }
+    chmodSync(join(fakeHome, ".arkor"), 0o555);
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4206 });
+    } finally {
+      stdoutSpy.mockRestore();
+      chmodSync(join(fakeHome, ".arkor"), 0o755);
+    }
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => {
+        return undefined as never;
+      }) as typeof process.exit);
+    try {
+      const sigintListeners = process.listeners("SIGINT");
+      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      handler();
+      // Even though the token file was never written, the cleanup hook
+      // ran (best-effort `unlinkSync` swallows ENOENT) and the
+      // exit-on-signal arm fired.
+      expect(exitSpy).toHaveBeenCalledWith(0);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
   it("registers a cleanup listener that removes the studio-token file on exit", async () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")

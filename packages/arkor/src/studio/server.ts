@@ -15,7 +15,7 @@ import { recordDeprecation, tapDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
 import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
-import { readManifestSummary, summariseBuiltManifest } from "./manifest";
+import { readManifestSummary } from "./manifest";
 import type { HmrCoordinator, HmrEvent } from "./hmr";
 import { TrainRegistry, type RestartTarget } from "./trainRegistry";
 
@@ -383,56 +383,78 @@ export function buildStudioApp(options: StudioServerOptions) {
   }
   if (options.hmr) {
     const hmr = options.hmr;
-    app.get("/api/dev/events", (c) => {
-      let unsubscribe: (() => void) | null = null;
+    /** Augmented event = raw HMR event + the per-child signal results we
+     *  computed for it. We compute these once per rebuild (not once per
+     *  connected SSE client) so opening multiple Studio tabs doesn't fan
+     *  out into N × SIGTERM / N × SIGUSR2 to each child. */
+    type AugmentedEvent = HmrEvent & {
+      restart?: boolean;
+      hotSwap?: boolean;
+      restartTargets?: RestartTarget[];
+      hotSwapTargets?: RestartTarget[];
+    };
+    const sseListeners = new Set<(event: AugmentedEvent) => void>();
+    let lastAugmented: AugmentedEvent | null = null;
+
+    // Single subscription against the HMR coordinator: this handler does
+    // signal dispatch + augmentation exactly once per rebuild, then fans
+    // the augmented payload out to every connected SSE client. Late-
+    // mounting clients receive `lastAugmented` instead of triggering a
+    // fresh signal pass against the same rebuild.
+    hmr.subscribe((event) => {
+      let augmented: AugmentedEvent = event;
+      if (event.type === "rebuild" && activeTrains.size > 0) {
+        // Per-child decision: if the rebuilt bundle's `configHash`
+        // matches the child's spawn-time hash, the cloud-side run is
+        // unaffected — SIGUSR2 lets the runner re-import and rotate the
+        // callbacks cell. Otherwise SIGTERM triggers the trainer's
+        // internal early-stop so the next checkpoint lands before the
+        // SPA re-spawns.
+        const nextHash = event.configHash ?? null;
+        const hotSwapTargets = activeTrains.notifyCallbackReload(nextHash);
+        const restartTargets =
+          activeTrains.requestEarlyStopOnMismatch(nextHash);
+        augmented = {
+          ...event,
+          hotSwap: hotSwapTargets.length > 0,
+          hotSwapTargets,
+          restart: restartTargets.length > 0,
+          restartTargets,
+        };
+      }
+      lastAugmented = augmented;
+      for (const fn of sseListeners) {
+        try {
+          fn(augmented);
+        } catch {
+          // listener controller closed mid-write — the cancel hook
+          // below takes care of removing it from the set.
+        }
+      }
+    });
+
+    app.get("/api/dev/events", () => {
+      const enc = new TextEncoder();
+      let listener: ((event: AugmentedEvent) => void) | null = null;
       const stream = new ReadableStream({
         start(controller) {
-          const enc = new TextEncoder();
-          const send = (
-            event: HmrEvent & {
-              restart?: boolean;
-              hotSwap?: boolean;
-              restartTargets?: RestartTarget[];
-              hotSwapTargets?: RestartTarget[];
-            },
-          ) => {
+          const send = (event: AugmentedEvent): void => {
             const payload = JSON.stringify(event);
             try {
               controller.enqueue(
                 enc.encode(`event: ${event.type}\ndata: ${payload}\n\n`),
               );
             } catch {
-              // controller closed mid-write; the unsubscribe path below
-              // takes care of the rest.
+              // controller closed mid-write; cancel() removes us.
             }
           };
-          unsubscribe = hmr.subscribe((event) => {
-            if (event.type !== "rebuild" || activeTrains.size === 0) {
-              send(event);
-              return;
-            }
-            // Per-child decision: if the rebuilt bundle's `configHash`
-            // matches the child's spawn-time hash, the cloud-side run
-            // is unaffected — SIGUSR2 lets the runner re-import and
-            // call `Trainer.replaceCallbacks`. Otherwise SIGTERM
-            // triggers `Trainer.requestEarlyStop` so the next
-            // checkpoint lands before the SPA re-spawns.
-            const nextHash = event.configHash ?? null;
-            const hotSwapTargets = activeTrains.notifyCallbackReload(nextHash);
-            const restartTargets =
-              activeTrains.requestEarlyStopOnMismatch(nextHash);
-            send({
-              ...event,
-              hotSwap: hotSwapTargets.length > 0,
-              hotSwapTargets,
-              restart: restartTargets.length > 0,
-              restartTargets,
-            });
-          });
+          if (lastAugmented) send(lastAugmented);
+          listener = send;
+          sseListeners.add(send);
         },
         cancel() {
-          unsubscribe?.();
-          unsubscribe = null;
+          if (listener) sseListeners.delete(listener);
+          listener = null;
         },
       });
       return new Response(stream, {

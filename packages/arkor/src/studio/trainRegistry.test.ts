@@ -115,4 +115,62 @@ describe("TrainRegistry", () => {
     expect(() => reg.notifyCallbackReload("h")).not.toThrow();
     expect(() => reg.requestEarlyStopOnMismatch("x")).not.toThrow();
   });
+
+  it("requestEarlyStopOnMismatch omits dead-on-kill children from the restart targets", () => {
+    // Regression: previously the implementation always pushed onto
+    // `targets` even when `kill()` threw, so a child that had already
+    // exited would still be reported back to the SPA as a restart
+    // target — the SPA would then wait forever for the (already-
+    // delivered) `exit=...` line and never re-spawn.
+    const reg = new TrainRegistry();
+    const dead = fakeChild(801);
+    dead.kill.mockImplementation(() => {
+      throw new Error("ESRCH");
+    });
+    reg.register(dead as unknown as ChildProcess, {
+      configHash: "stale",
+      trainFile: "/tmp/d.ts",
+    });
+    expect(reg.requestEarlyStopOnMismatch("fresh")).toEqual([]);
+  });
+
+  it("requestEarlyStopOnMismatch sends SIGTERM at most once per child across rebuilds", () => {
+    // Regression: under rapid edits the dev loop can fire multiple
+    // rebuilds before the child reaches its next checkpoint. The
+    // runner's shutdown handler treats a *second* SIGTERM as the
+    // emergency `exit(143)` fast-path, which would defeat the whole
+    // point of preserving the in-flight checkpoint. The registry now
+    // tracks per-child early-stop state and skips children it has
+    // already signalled.
+    const reg = new TrainRegistry();
+    const a = fakeChild(901);
+    reg.register(a as unknown as ChildProcess, {
+      configHash: "h1",
+      trainFile: "/tmp/a.ts",
+    });
+
+    const first = reg.requestEarlyStopOnMismatch("h2");
+    expect(first).toEqual([{ pid: 901, trainFile: "/tmp/a.ts" }]);
+    expect(a.kill).toHaveBeenCalledTimes(1);
+
+    // Second mismatching rebuild before the child has exited: must NOT
+    // re-send SIGTERM and must NOT re-list the child as a restart
+    // target (the SPA already has a pending re-spawn for it).
+    const second = reg.requestEarlyStopOnMismatch("h3");
+    expect(second).toEqual([]);
+    expect(a.kill).toHaveBeenCalledTimes(1);
+
+    // After the child exits and is unregistered, a fresh spawn in its
+    // place starts from a clean slate.
+    reg.unregister(901);
+    const respawn = fakeChild(902);
+    reg.register(respawn as unknown as ChildProcess, {
+      configHash: "h3",
+      trainFile: "/tmp/a.ts",
+    });
+    expect(reg.requestEarlyStopOnMismatch("h4")).toEqual([
+      { pid: 902, trainFile: "/tmp/a.ts" },
+    ]);
+    expect(respawn.kill).toHaveBeenCalledTimes(1);
+  });
 });

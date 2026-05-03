@@ -277,9 +277,21 @@ export function createTrainer(
         // is durable. Cancel the cloud job and end `wait()` cleanly.
         if (earlyStopRequested && earlyStopDeferred) {
           await trainer.cancel();
+          // Reflect the cancellation locally so `wait()`'s resolved
+          // `TrainingResult.job.status` is a terminal status (per the
+          // documented contract). Without this update the result would
+          // surface as `status: "running"`, and a subsequent
+          // `requestEarlyStop` would not see the
+          // `TERMINAL_STATUSES.has(...)` short-circuit it relies on.
+          startedJob = {
+            ...startedJob,
+            status: "cancelled",
+            completedAt: event.timestamp,
+          };
           if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
           earlyStopDeferred.resolve();
           earlyStopDeferred = null;
+          earlyStopRequested = false;
           return { terminal: true, artifacts: terminalResult?.artifacts ?? [] };
         }
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };

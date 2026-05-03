@@ -12,7 +12,7 @@ export function RunTraining() {
   const [log, setLog] = useState("");
   const [manifest, setManifest] = useState<ManifestResult | null>(null);
   const [hmrStatus, setHmrStatus] = useState<
-    "idle" | "rebuilding" | "early-stopping" | "restarting" | "hot-swapped"
+    "idle" | "early-stopping" | "restarting" | "hot-swapped"
   >("idle");
   const boxRef = useRef<HTMLPreElement>(null);
   const lastTrainFileRef = useRef<string | undefined>(undefined);
@@ -64,12 +64,21 @@ export function RunTraining() {
           });
         });
       if (payload.restart) {
-        // Training run is early-stopping; the active stream will resolve
-        // once the next checkpoint lands and the subprocess exits cleanly.
-        // The `finally` block of `run()` picks up the pending flag and
-        // re-spawns with the same args.
-        restartPendingRef.current = true;
-        setHmrStatus(runningRef.current ? "early-stopping" : "idle");
+        // `/api/dev/events` is a broadcast — every open Studio tab gets
+        // this event. Only flip the auto-restart latch when *this* tab
+        // is actually running a stream right now; otherwise a passive
+        // tab would silently auto-spawn an extra job the next time the
+        // user clicks Run training, doubling cloud spend.
+        if (runningRef.current) {
+          // Training run is early-stopping; the active stream will
+          // resolve once the next checkpoint lands and the subprocess
+          // exits cleanly. The `finally` block of `run()` picks up the
+          // pending flag and re-spawns with the same args.
+          restartPendingRef.current = true;
+          setHmrStatus("early-stopping");
+        } else {
+          setHmrStatus("idle");
+        }
       } else if (payload.hotSwap) {
         // Callbacks were swapped in place — the cloud-side run is
         // unaffected. Flash a brief "hot-swapped" indicator so users

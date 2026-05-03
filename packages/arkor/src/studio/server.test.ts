@@ -1404,16 +1404,35 @@ process.exit(0);
         cwd: trainCwd,
         hmr: fake.coordinator,
       });
+      // The server subscribes to the HMR coordinator exactly once at
+      // build time (so multiple SSE clients don't fan signal dispatch
+      // out to the same child N times). Per-client cleanup happens on
+      // the SSE listener set, not against the coordinator — so
+      // `fake.subscriberCount` stays at 1 across the connection
+      // lifecycle. We assert that here rather than expect the
+      // pre-refactor "0 after cancel" behaviour.
+      expect(fake.subscriberCount).toBe(1);
       const res = await app.request(
         `/api/dev/events?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
         { headers: { host: "127.0.0.1:4000" } },
       );
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toBe("text/event-stream");
-      // Cancelling the body's reader should release the subscriber.
       const reader = res.body!.getReader();
       await reader.cancel();
-      expect(fake.subscriberCount).toBe(0);
+      // Cancel doesn't unsubscribe the server-level listener; emitting
+      // an event after cancel must still be safe (the SSE listener that
+      // was registered for this connection is removed, so the
+      // controller-closed try/catch in `send` is never exercised).
+      expect(() =>
+        fake.emit({
+          type: "rebuild",
+          outFile: "/tmp/x",
+          hash: "h",
+          configHash: null,
+          trainerName: null,
+        }),
+      ).not.toThrow();
     });
 
     it("rejects /api/dev/events when host header is non-loopback", async () => {
@@ -1431,6 +1450,46 @@ process.exit(0);
         { headers: { host: "evil.example.com" } },
       );
       expect(res.status).toBe(403);
+    });
+
+    it("dispatches HMR signals exactly once per rebuild regardless of connected SSE client count", async () => {
+      // Regression: previously each `/api/dev/events` connection
+      // attached its own `hmr.subscribe(...)` callback, so a rebuild
+      // with N open Studio tabs fanned out into N × SIGUSR2 / N ×
+      // SIGTERM per child. The runner's shutdown handler interprets a
+      // *second* SIGTERM as the emergency `exit(143)` fast-path, which
+      // would defeat checkpoint preservation. The server now subscribes
+      // to the coordinator exactly once and broadcasts the augmented
+      // payload to every SSE client; we assert that subscriber count
+      // doesn't grow when extra connections are opened.
+      const fake = fakeHmr();
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fake.coordinator,
+      });
+      expect(fake.subscriberCount).toBe(1);
+      const r1 = await app.request(
+        `/api/dev/events?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+        { headers: { host: "127.0.0.1:4000" } },
+      );
+      const r2 = await app.request(
+        `/api/dev/events?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+        { headers: { host: "127.0.0.1:4000" } },
+      );
+      // Pump the streams so their `start()` runs, registering the
+      // per-client SSE listeners on the server side.
+      const reader1 = r1.body!.getReader();
+      const reader2 = r2.body!.getReader();
+      // Even with two concurrent SSE clients the HMR coordinator still
+      // sees exactly the one server-level subscriber.
+      expect(fake.subscriberCount).toBe(1);
+      await reader1.cancel();
+      await reader2.cancel();
+      expect(fake.subscriberCount).toBe(1);
     });
 
     it("forwards rebuild events as SSE frames", async () => {

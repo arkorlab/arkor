@@ -99,6 +99,32 @@ describe("createHmrCoordinator", () => {
     }
   });
 
+  it("transitions from `error` to `ready` once the entry appears, without re-subscribing", async () => {
+    // Regression: previously `startWatcher` bailed out and never
+    // retried, so an SPA already connected to `/api/dev/events` against
+    // a fresh scaffold would be stuck on the initial `error` event
+    // forever — EventSource doesn't reconnect on application-level
+    // errors. The coordinator now polls for the entry file in the
+    // background and starts the watcher the moment it appears.
+    const events: HmrEvent[] = [];
+    const hmr = createHmrCoordinator({ cwd });
+    hmr.subscribe((e) => events.push(e));
+    try {
+      await nextEvent(events, (e) => e.type === "error", 1000);
+      // Same subscriber — no reconnect, no second `subscribe` call.
+      mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+      writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+      const ready = await nextEvent(
+        events,
+        (e) => e.type === "ready",
+        4000,
+      );
+      expect(ready.outFile).toMatch(/index\.mjs$/);
+    } finally {
+      await hmr.dispose();
+    }
+  });
+
   it("replays the latest event to late subscribers", async () => {
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);

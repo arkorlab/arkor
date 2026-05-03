@@ -21,6 +21,16 @@ export interface ActiveTrain {
    *  build). A null entry forces SIGTERM on the next rebuild because we
    *  can't prove the configs match. */
   configHash: string | null;
+  /**
+   * `true` once we've already SIGTERM'd this child for an HMR-driven
+   * early-stop. Subsequent rebuilds (which can land before the child
+   * has reached its next checkpoint) must NOT re-send SIGTERM —
+   * the runner's shutdown handler treats a second SIGTERM as the
+   * emergency `process.exit(143)` escape hatch, which would defeat
+   * the whole point of preserving the in-flight checkpoint. Kept
+   * internal to the registry; consumers shouldn't manage it.
+   */
+  earlyStopRequested?: boolean;
 }
 
 export interface RestartTarget {
@@ -37,9 +47,16 @@ export interface RestartTarget {
 export class TrainRegistry {
   private readonly entries = new Map<number, ActiveTrain>();
 
-  register(child: ChildProcess, init: Omit<ActiveTrain, "child">): void {
+  register(
+    child: ChildProcess,
+    init: Omit<ActiveTrain, "child" | "earlyStopRequested">,
+  ): void {
     if (typeof child.pid !== "number") return;
-    this.entries.set(child.pid, { child, ...init });
+    this.entries.set(child.pid, {
+      child,
+      ...init,
+      earlyStopRequested: false,
+    });
   }
 
   unregister(pid: number | undefined): void {
@@ -84,21 +101,31 @@ export class TrainRegistry {
 
   /**
    * Send a graceful early-stop signal (SIGTERM) to every child whose
-   * stored `configHash` differs from `nextConfigHash`. The child's
-   * runner (`installShutdownHandlers`) calls `Trainer.requestEarlyStop`
-   * which preserves the in-flight checkpoint before exiting. Returns
-   * the list of children signalled so the SPA can re-spawn them with
-   * the new bundle.
+   * stored `configHash` differs from `nextConfigHash` AND that hasn't
+   * already been signalled. The child's runner
+   * (`installShutdownHandlers`) calls the trainer's internal
+   * early-stop entry point which preserves the in-flight checkpoint
+   * before exiting. Returns the list of children we actually
+   * signalled this call so the SPA can re-spawn them with the new
+   * bundle.
    *
    * If `nextConfigHash` is null (the new bundle has no inspectable
-   * trainer), every active child is SIGTERM'd defensively — we can't
-   * prove their configs are unaffected.
+   * trainer), every active not-yet-signalled child is SIGTERM'd
+   * defensively — we can't prove their configs are unaffected.
+   *
+   * Re-signal protection: a second SIGTERM hits the runner's
+   * emergency `exit(143)` fast-path and would defeat checkpoint
+   * preservation. Children flagged `earlyStopRequested` here are
+   * skipped on subsequent rebuilds; the entry is removed from the
+   * registry when the child exits, so the next spawn starts from a
+   * clean slate.
    */
   requestEarlyStopOnMismatch(
     nextConfigHash: string | null,
   ): RestartTarget[] {
     const targets: RestartTarget[] = [];
     for (const [pid, entry] of this.entries) {
+      if (entry.earlyStopRequested) continue;
       if (
         nextConfigHash === null ||
         entry.configHash === null ||
@@ -106,10 +133,15 @@ export class TrainRegistry {
       ) {
         try {
           entry.child.kill("SIGTERM");
+          entry.earlyStopRequested = true;
+          // Push only after a successful kill; a thrown `kill` means
+          // the child has already exited and is not a real restart
+          // target (the SPA would otherwise wait forever for an
+          // exit message that never comes).
+          targets.push({ pid, trainFile: entry.trainFile });
         } catch {
           // child already exited; close handler will clean up.
         }
-        targets.push({ pid, trainFile: entry.trainFile });
       }
     }
     return targets;

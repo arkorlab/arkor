@@ -213,16 +213,28 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   const hmr = createHmrCoordinator({ cwd: process.cwd() });
   scheduleHmrCleanup(hmr);
 
+  // Register the studio-token cleanup *unconditionally* up-front. The hook
+  // is the only one that calls `process.exit(0)` on SIGINT/SIGTERM/SIGHUP
+  // (the HMR hook above only disposes), and `registerCleanupHook` overrides
+  // Node's default "exit on signal" behaviour for any signal it listens
+  // on. If we were to gate this hook behind a successful `persistStudioToken`
+  // and the persist threw, Ctrl-C would run the HMR dispose and then leave
+  // the server idle in the foreground — no exit ever fires. Registering
+  // first means the hook is in place even if persist fails; the cleanup
+  // body is best-effort (`unlinkSync` in a try/catch) so calling it on a
+  // file that was never written is a silent no-op.
+  const tokenPath = studioTokenPath();
+  scheduleStudioTokenCleanup(tokenPath);
+
   // Persisting the token to disk is *only* needed for the Vite SPA dev
   // workflow. The bundled `:port` flow injects the meta tag at request time
   // via `buildStudioApp`, so a failure here (read-only $HOME on Docker /
   // locked-down CI / restrictive umask) must not block the server.
   try {
-    const tokenPath = await persistStudioToken(studioToken);
-    scheduleStudioTokenCleanup(tokenPath);
+    await persistStudioToken(studioToken);
   } catch (err) {
     ui.log.warn(
-      `Could not write ${studioTokenPath()} (${
+      `Could not write ${tokenPath} (${
         err instanceof Error ? err.message : String(err)
       }). The Studio at http://localhost:${port} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
     );
