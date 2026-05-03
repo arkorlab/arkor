@@ -168,9 +168,12 @@ describe("arkor init (E2E)", () => {
     expect(log.code).not.toBe(0);
   });
 
-  it.skipIf(SKIP_INSTALL).each([{ pm: "npm" }, { pm: "pnpm" }])(
+  it.skipIf(SKIP_INSTALL).each([
+    { pm: "npm", lockfile: "package-lock.json" },
+    { pm: "pnpm", lockfile: "pnpm-lock.yaml" },
+  ])(
     "runs real $pm install + git commit (gated by SKIP_E2E_INSTALL)",
-    async ({ pm }) => {
+    async ({ pm, lockfile }) => {
       const result = await runCli(
         ARKOR_BIN,
         ["init", "-y", `--use-${pm}`, "--git"],
@@ -182,6 +185,13 @@ describe("arkor init (E2E)", () => {
 
       const log = await runGit(cwd, ["log", "-1", "--format=%s"]);
       expect(log.stdout.trim()).toBe("Initial commit from `arkor init`");
+
+      // Lockfile-in-initial-commit invariant: the git-init prompt is
+      // surfaced *before* install so the user can walk away, but git init
+      // execution still happens *after* install — otherwise the lockfile
+      // wouldn't be tracked and the bootstrap commit wouldn't be reproducible.
+      const tracked = await runGit(cwd, ["ls-tree", "-r", "--name-only", "HEAD"]);
+      expect(tracked.stdout).toContain(lockfile);
     },
     180_000,
   );
