@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CloudApiError } from "./client";
 import { createTrainer } from "./trainer";
 import { writeState } from "./state";
 import type { AnonymousCredentials } from "./credentials";
@@ -625,6 +626,58 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       globalThis.fetch = original;
     }
   }
+
+  it("fails fast on anonymous-auth dead-end errors without retrying", async () => {
+    // Anonymous-auth dead-ends (`anonymous_token_single_device`,
+    // `anonymous_account_not_found`) never recover by reconnecting:
+    // the server has already rejected this credentials' jti or
+    // removed the underlying anonymous row. Burning the reconnect
+    // budget here would just delay the inevitable failure and bury
+    // the actionable recovery hint that `cli/main.ts` formats from
+    // the same error. The fast-fail path bubbles the original
+    // CloudApiError straight up so the top-level handler can format
+    // it.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const deadEnd = new CloudApiError(
+      409,
+      "Anonymous token is no longer current.",
+      "anonymous_token_single_device",
+    );
+    const { fetch: fetcher, streamCalls } = streamFetcher([
+      { kind: "throw", error: deadEnd },
+      // Extra handlers in case of an unexpected retry; presence here
+      // would make the assertion below clearly fail rather than
+      // misleadingly pass on a "no more handlers" runtime error.
+      { kind: "throw", error: deadEnd },
+      { kind: "throw", error: deadEnd },
+    ]);
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 5,
+      },
+    );
+
+    const error = await withMockedFetch(fetcher, async () =>
+      trainer.wait().catch((e: unknown) => e),
+    );
+    expect(error).toBe(deadEnd);
+    // Exactly one open attempt: no retry burn.
+    expect(streamCalls()).toBe(1);
+  });
 
   it("rejects after maxReconnectAttempts of consecutive open failures", async () => {
     await writeState(

@@ -30,6 +30,20 @@ export interface FormatAnonymousAuthErrorContext {
    * correct recovery.
    */
   oauthAvailable?: boolean;
+  /**
+   * Whether the current process is running in CI. Defaults to
+   * reading `process.env.CI` so callers don't have to plumb this
+   * explicitly; tests override it to keep assertions deterministic.
+   *
+   * `runLogin()` rejects `--oauth` outright when CI is set (PKCE
+   * needs a browser callback CI runners can't satisfy), so the
+   * formatter must avoid recommending a command that's guaranteed to
+   * fail in the current environment. CI builds that hit a dead-end
+   * get pointed at `--anonymous` instead, with a side note that
+   * `--oauth` (when applicable) needs to be run from a developer
+   * machine.
+   */
+  inCi?: boolean;
 }
 
 /**
@@ -52,20 +66,38 @@ export function formatAnonymousAuthError(
   ctx: FormatAnonymousAuthErrorContext = {},
 ): string | null {
   if (!(err instanceof CloudApiError)) return null;
+  const inCi = ctx.inCi ?? Boolean(process.env.CI);
   // The unknown-state branch surfaces both commands so users on an
   // OAuth-supporting deployment aren't denied the correct recovery
   // just because the config endpoint timed out. The order points at
   // `--oauth` first because it covers the majority of deployments;
   // anon-only users will get a clean "OAuth is not configured" error
-  // and can fall through to the second command.
-  const unknownTail = [
-    "Couldn't reach the deployment to confirm whether OAuth is offered. Try the OAuth path first; if it fails with `OAuth is not configured`, fall through to the anonymous path:",
-    "",
-    "  arkor login --oauth",
-    "  arkor login --anonymous",
-  ];
+  // and can fall through to the second command. In CI we drop the
+  // `--oauth` half entirely: `runLogin()` rejects `--oauth` up front
+  // when `process.env.CI` is set, so suggesting it would just send
+  // the runner at a guaranteed failure.
+  const unknownTail = inCi
+    ? [
+        "Couldn't reach the deployment to confirm whether OAuth is offered. From a CI environment the only viable recovery is to mint a new anonymous identity (`arkor login --oauth` is rejected in CI; run it from a developer machine if a multi-device account is what you actually want):",
+        "",
+        "  arkor login --anonymous",
+      ]
+    : [
+        "Couldn't reach the deployment to confirm whether OAuth is offered. Try the OAuth path first; if it fails with `OAuth is not configured`, fall through to the anonymous path:",
+        "",
+        "  arkor login --oauth",
+        "  arkor login --anonymous",
+      ];
   if (err.code === ANONYMOUS_TOKEN_SINGLE_DEVICE) {
     if (ctx.oauthAvailable === true) {
+      if (inCi) {
+        return [
+          "Anonymous credentials were rejected as single-device.",
+          "Anonymous accounts only work on one machine. Re-mint anonymous credentials to continue here (this CI environment can't run the OAuth browser flow; for a multi-device account, run `arkor login --oauth` from a developer machine):",
+          "",
+          "  arkor login --anonymous",
+        ].join("\n");
+      }
       return [
         "Anonymous credentials were rejected as single-device.",
         "Anonymous accounts only work on one machine. Sign up for an account that supports multiple devices:",
@@ -90,6 +122,14 @@ export function formatAnonymousAuthError(
   }
   if (err.code === ANONYMOUS_ACCOUNT_NOT_FOUND) {
     if (ctx.oauthAvailable === true) {
+      if (inCi) {
+        return [
+          "Your anonymous credentials are no longer valid.",
+          "Mint a new anonymous identity to continue here (this CI environment can't run the OAuth browser flow; for a multi-device account, run `arkor login --oauth` from a developer machine):",
+          "",
+          "  arkor login --anonymous",
+        ].join("\n");
+      }
       return [
         "Your anonymous credentials are no longer valid.",
         "Sign up to continue:",

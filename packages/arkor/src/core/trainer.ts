@@ -1,4 +1,5 @@
 import { iterateEvents } from "@arkor/cloud-api-client";
+import { isAnonymousAuthDeadEnd } from "./anonymous-auth-error";
 import { CloudApiClient } from "./client";
 import {
   defaultArkorCloudApiUrl,
@@ -306,6 +307,15 @@ export function createTrainer(
 
       const handleFailure = async (err: unknown): Promise<void> => {
         if (abortSignal?.aborted) throw err;
+        // Anonymous-auth dead-ends never recover by reconnecting: the
+        // server has already rejected this credentials' jti
+        // (`anonymous_token_single_device`) or removed the underlying
+        // anonymous row (`anonymous_account_not_found`). Bubble up
+        // immediately so `cli/main.ts`'s top-level handler can format
+        // the actionable recovery hint, instead of burning the
+        // reconnect budget on a request that will keep returning the
+        // same 401/409.
+        if (isAnonymousAuthDeadEnd(err)) throw err;
         if (
           maxReconnectAttempts !== undefined &&
           attempt >= maxReconnectAttempts
