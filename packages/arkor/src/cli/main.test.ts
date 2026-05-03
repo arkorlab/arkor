@@ -390,8 +390,12 @@ describe("main (CLI Commander wiring)", () => {
       } finally {
         restore();
       }
+      // The probe also bounds itself with `AbortSignal.timeout(...)` so a
+      // hung cli/config can't block the recovery message; assert the
+      // signal makes it through alongside the URL.
       expect(fetchCliConfig).toHaveBeenCalledWith(
         "https://custom.cloud.example",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
 

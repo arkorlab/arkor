@@ -293,7 +293,7 @@ describe("runWhoami", () => {
     expect(out).toMatch(/Orgs: o-without-slug, named/);
   });
 
-  it("appends the bare single-device note when credentials are anonymous", async () => {
+  it("appends the bare single-device note on TTY when credentials are anonymous", async () => {
     // The note is keyed on the local `creds.mode === "anon"` rather
     // than the cloud-api's `/v1/me` body shape, because the response
     // schema doesn't guarantee a discriminator field. The fixture
@@ -318,7 +318,19 @@ describe("runWhoami", () => {
         ),
     ) as typeof fetch;
 
-    await runWhoami();
+    // Pretend the user is in an interactive terminal; the TTY gate
+    // (see whoami.ts) only emits the note when both stdout and stderr
+    // are TTYs so wrappers/CI scripts aren't surprised by output.
+    const origStdoutIsTTY = process.stdout.isTTY;
+    const origStderrIsTTY = process.stderr.isTTY;
+    process.stdout.isTTY = true;
+    process.stderr.isTTY = true;
+    try {
+      await runWhoami();
+    } finally {
+      process.stdout.isTTY = origStdoutIsTTY;
+      process.stderr.isTTY = origStderrIsTTY;
+    }
     // The note goes to stderr so wrapper scripts piping `arkor whoami`
     // through `jq` (or grepping the JSON / `Orgs:` line on stdout)
     // aren't broken by human-oriented prose appearing in their data
@@ -333,6 +345,48 @@ describe("runWhoami", () => {
     // whoami does not know whether OAuth is configured on the
     // deployment.
     expect(err).not.toMatch(/arkor login --oauth/);
+  });
+
+  it("suppresses the single-device note when stdout/stderr aren't TTY (CI/scripts)", async () => {
+    // CI runners and shell wrappers (`arkor whoami | jq`,
+    // `arkor whoami > out`) drop `isTTY` on the redirected stream.
+    // Many CI tools also treat any stderr-on-success output as a
+    // warning marker, so the note must stay quiet outside an
+    // interactive terminal.
+    await writeCredentials({
+      mode: "anon",
+      token: "anon-tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://mock-cloud-api",
+      orgSlug: "anon-abc",
+    });
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            user: { id: "u-anon", email: null },
+            orgs: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    ) as typeof fetch;
+
+    // vitest workers default to non-TTY; assert that explicitly so
+    // the test isn't depending on host-environment defaults.
+    const origStdoutIsTTY = process.stdout.isTTY;
+    const origStderrIsTTY = process.stderr.isTTY;
+    process.stdout.isTTY = false;
+    process.stderr.isTTY = false;
+    try {
+      await runWhoami();
+    } finally {
+      process.stdout.isTTY = origStdoutIsTTY;
+      process.stderr.isTTY = origStderrIsTTY;
+    }
+    const out = stdoutChunks.join("");
+    const err = stderrChunks.join("");
+    expect(out).not.toMatch(/this machine only/);
+    expect(err).not.toMatch(/this machine only/);
   });
 
   it("does not append the single-device note for non-anonymous users", async () => {

@@ -32,12 +32,20 @@ import { ui } from "./prompts";
  * which case probing `defaultArkorCloudApiUrl()` would inspect the
  * wrong deployment and recommend the opposite recovery path.
  *
- * Best-effort: missing credentials, network failure, or malformed cfg
- * all collapse to `false`, which makes the formatter point at
+ * Best-effort: missing credentials, network failure, malformed cfg, or
+ * timeout all collapse to `false`, which makes the formatter point at
  * `arkor login --anonymous` rather than `--oauth`. That's the only
  * recovery that's universally available, so erring on the
  * suppression-of-`--oauth` side is safe.
+ *
+ * The probe runs *after* a command has already failed, so blocking the
+ * recovery hint behind an unbounded HTTP call would compound the
+ * outage: a degraded `/v1/auth/cli/config` endpoint would leave the
+ * CLI sitting indefinitely with no message printed. `AbortSignal.timeout`
+ * caps the probe at 3 s so the user always gets *some* guidance even
+ * when the cloud-api is sick.
  */
+const PROBE_TIMEOUT_MS = 3000;
 async function probeOauthAvailability(): Promise<boolean> {
   try {
     const creds = await readCredentials().catch(() => null);
@@ -49,7 +57,9 @@ async function probeOauthAvailability(): Promise<boolean> {
       creds?.mode === "anon" && creds.arkorCloudApiUrl
         ? creds.arkorCloudApiUrl
         : defaultArkorCloudApiUrl();
-    const cfg = await fetchCliConfig(baseUrl);
+    const cfg = await fetchCliConfig(baseUrl, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
     return Boolean(cfg.auth0Domain && cfg.clientId && cfg.audience);
   } catch {
     return false;

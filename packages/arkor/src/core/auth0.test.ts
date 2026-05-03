@@ -94,7 +94,9 @@ describe("fetchCliConfig", () => {
         status: 200,
         headers: { "content-type": "application/json" },
       })) as typeof fetch;
-    const cfg = await fetchCliConfig("http://localhost:3003", fetchImpl);
+    const cfg = await fetchCliConfig("http://localhost:3003", {
+      fetch: fetchImpl,
+    });
     expect(cfg).toEqual(payload);
   });
 
@@ -102,7 +104,7 @@ describe("fetchCliConfig", () => {
     const fetchImpl = (async () =>
       new Response("nope", { status: 500 })) as typeof fetch;
     await expect(
-      fetchCliConfig("http://localhost:3003", fetchImpl),
+      fetchCliConfig("http://localhost:3003", { fetch: fetchImpl }),
     ).rejects.toThrow(/Failed to fetch CLI config/);
   });
 
@@ -120,8 +122,36 @@ describe("fetchCliConfig", () => {
         { status: 200 },
       );
     }) as typeof fetch;
-    await fetchCliConfig("http://localhost:3003/", fetchImpl);
+    await fetchCliConfig("http://localhost:3003/", { fetch: fetchImpl });
     expect(captured).toBe("http://localhost:3003/v1/auth/cli/config");
+  });
+
+  it("forwards an AbortSignal so callers can bound the request", async () => {
+    // The probe path in `cli/main.ts` runs after a command has already
+    // failed; without a signal a stalled `/v1/auth/cli/config` would
+    // leave the user waiting indefinitely with no recovery message.
+    let capturedSignal: AbortSignal | undefined;
+    const fetchImpl = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      capturedSignal = init?.signal ?? undefined;
+      return new Response(
+        JSON.stringify({
+          auth0Domain: null,
+          clientId: null,
+          audience: null,
+          callbackPorts: [],
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    const ac = new AbortController();
+    await fetchCliConfig("http://localhost:3003", {
+      fetch: fetchImpl,
+      signal: ac.signal,
+    });
+    expect(capturedSignal).toBe(ac.signal);
   });
 });
 

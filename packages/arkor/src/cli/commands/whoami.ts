@@ -74,7 +74,7 @@ export async function runWhoami(): Promise<void> {
       `Orgs: ${body.orgs.map((o) => String(o.slug ?? o.id)).join(", ")}\n`,
     );
   }
-  if (creds.mode === "anon") {
+  if (creds.mode === "anon" && process.stdout.isTTY && process.stderr.isTTY) {
     // Anonymous accounts are single-device on purpose, so surface the
     // limitation here so users discover it before hitting a 401 on a
     // second machine. We key off `creds.mode` (already in scope from
@@ -92,10 +92,13 @@ export async function runWhoami(): Promise<void> {
     // surfaces, which already know `oauthAvailable`, do append the
     // upgrade hint when warranted.
     //
-    // The note goes to stderr so wrapper scripts piping `arkor whoami`
-    // through `jq` (or grepping the JSON / `Orgs:` line on stdout)
-    // aren't broken by human-oriented prose appearing in their data
-    // stream. stdout stays a stable, machine-parseable shape.
+    // TTY gate: emit only when *both* stdout and stderr are interactive.
+    // Wrappers piping stdout through `jq` (or any pipeline) drop
+    // `stdout.isTTY`, and CI runners that treat any stderr-on-success
+    // output as a warning marker drop `stderr.isTTY` — both groups
+    // get clean output. The note goes to stderr to keep stdout
+    // machine-parseable on the rare host where stdout is a TTY but
+    // a wrapper still parses it (e.g. `script(1)`).
     process.stderr.write(`\n${ANON_SINGLE_DEVICE_NOTE}\n`);
   }
   // Avoid "unused import" noise by referencing CloudApiClient in an assertion.

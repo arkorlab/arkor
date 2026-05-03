@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import process from "node:process";
+import { CloudApiError } from "./core/client";
 import { main } from "./cli/main";
 
 /**
@@ -51,10 +52,24 @@ if (!hasStripTypesSupport()) {
   //      but we want CI green across the whole supported Node range.
   // Setting `process.exitCode` (instead of `process.exit(1)`) lets the event
   // loop drain naturally so stderr fully flushes before exit.
+  //
+  // `CloudApiError` is special-cased to print just `err.message` (the
+  // upstream cloud-api `error` body or `cloud-api <status>` fallback).
+  // These cover routine failures — expired OAuth sessions, transient
+  // 5xx, unmapped 4xx — so dumping a full stack frame for every one
+  // turns expected auth/transport errors into noisy debugging output.
+  // For unknown `Error`s (likely actual SDK bugs) we still print the
+  // stack so users have something to file against.
   try {
     await main(process.argv.slice(2));
   } catch (err) {
-    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+    if (err instanceof CloudApiError) {
+      console.error(err.message);
+    } else if (err instanceof Error) {
+      console.error(err.stack ?? err.message);
+    } else {
+      console.error(String(err));
+    }
     process.exitCode = 1;
   }
 }

@@ -14,13 +14,21 @@ export interface CliConfig {
  * Fetch the arkor-cloud-api deployment's CLI config. Needed before starting
  * the PKCE flow so the CLI learns the Auth0 tenant + client id without env
  * vars on the user's machine.
+ *
+ * Accepts an optional `AbortSignal` so callers on the dead-end auth-error
+ * path in `cli/main.ts` can bound the probe — without it a degraded
+ * deployment (cli/config endpoint hung) would leave the CLI sitting
+ * indefinitely *after* a command has already failed, with no recovery
+ * guidance ever reaching the user.
  */
 export async function fetchCliConfig(
   baseUrl: string,
-  fetchImpl: typeof fetch = fetch,
+  options: { fetch?: typeof fetch; signal?: AbortSignal } = {},
 ): Promise<CliConfig> {
+  const fetchImpl = options.fetch ?? fetch;
   const res = await fetchImpl(
     `${baseUrl.replace(/\/$/, "")}/v1/auth/cli/config`,
+    { signal: options.signal },
   );
   if (!res.ok) {
     throw new Error(
