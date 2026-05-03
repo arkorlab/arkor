@@ -12,13 +12,17 @@ export default defineConfig({
     // surfaces as `result.code === -1` and trips assertions like
     // `expect(result.code).toBe(0)`). Same test passes on rerun and on
     // every other matrix slot — runner artefact, not a regression.
-    // Retry the whole test up to twice on failure so a single transient
-    // SIGKILL doesn't block the merge queue. Scoped intentionally to
-    // this suite: unit suites under packages/* keep retry=0 so a real
-    // flake there still surfaces on the first run. Vitest reports
-    // retried passes with a `(retry x N)` annotation, so accidental
-    // hiding of a *consistently* flaky test stays visible in CI logs.
-    retry: 2,
+    //
+    // Gate the retry on `darwin` only: the SIGKILL pattern has only ever
+    // been observed on macOS runners, and applying retry universally
+    // would let a real Linux/Windows regression need three failures
+    // before it surfaces — and would slow local debugging on those
+    // platforms. Mac developers debugging locally see the same retry as
+    // CI, which is acceptable because the flake symptom (`code === -1`
+    // with no other output) is unmistakable in vitest's `(retry x N)`
+    // annotation. Unit suites under `packages/*` are unaffected — they
+    // load their own vitest config without `retry`.
+    retry: process.platform === "darwin" ? 2 : 0,
     // `default` keeps normal CLI output; `junit` writes the XML that
     // codecov-action consumes for Test Analytics. E2E coverage itself is
     // collected via c8 (NODE_V8_COVERAGE) wrapping vitest in the
