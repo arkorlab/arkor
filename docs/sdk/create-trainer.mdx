@@ -19,6 +19,14 @@ export const trainer = createTrainer({
 
 `createTrainer` returns a `Trainer` object with `start` / `wait` / `cancel` methods (see [Trainer control](/sdk/trainer-control)). The function does **not** run client-side validation on `TrainerInput`: TypeScript checks the typed fields at compile time, and the rest is forwarded to the cloud-api when `start()` runs. Bad values surface as backend errors during the run, not as client-side throws at construction.
 
+## Signature
+
+```ts
+function createTrainer(input: TrainerInput): Trainer;
+```
+
+The full `TrainerInput` shape is described under Parameters below; the returned `Trainer` is documented on the [Trainer control](/sdk/trainer-control) page.
+
 ## Required fields
 
 | Field | Type | Notes |
@@ -85,6 +93,13 @@ These are typed as `unknown` and forwarded to the cloud API verbatim (`packages/
 
 These fields are explicitly **not** stable: the backend contract for them can change between releases, and there is no compile-time check on the value you pass. Prefer the typed fields above; reach for these only when nothing else covers what you need.
 
-## Not yet
+## Roadmap
 
 - Multi-trainer projects. `createArkor` accepts a single `trainer`; there is no array form. To register a second trainer, you would either swap the export at runtime or wait for the API to gain that shape.
+
+## See also
+
+- [Trainer control](/sdk/trainer-control) for the `Trainer` object's `start` / `wait` / `cancel` methods
+- [Lifecycle callbacks](/sdk/callbacks) for the `callbacks` field
+- [`DatasetSource`](/sdk/dataset) for the `dataset` field shape
+- [`createArkor`](/sdk/create-arkor) for wrapping the trainer into a project manifest
