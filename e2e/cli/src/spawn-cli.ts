@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -112,15 +112,24 @@ export function cleanup(dir: string): void {
  * failures, broken pm, real CLI bugs). Those still surface on the first
  * run on every platform.
  *
- * Caveat (`cwd` carryover): the retry runs in the same `cwd`. Whatever
- * the first attempt wrote (scaffolded files, `git init`, partial
- * `node_modules/`) carries over into attempt 2. The (c) elapsed-ms gate
- * keeps that risk tightly scoped — `SIGKILL_RETRY_MAX_MS` is held below
- * the time scaffold needs to start writing files, so a qualifying run
- * means the bin almost certainly never reached the filesystem. A blanket
- * reset of `cwd` would clobber legitimately pre-seeded state (e.g. tests
- * that `git init` before calling `runCli`), so we accept the best-effort
- * behaviour rather than introducing a snapshot/restore.
+ * `cwd` handling: even with a tight elapsed-ms gate, the bin can reach
+ * `scaffold()` and start writing `package.json` / `src/arkor/*` before
+ * the SIGKILL lands — so attempt 2 in the same `cwd` could either pass
+ * spuriously against partial scaffold state or fail for the wrong
+ * reason. We dodge that two ways:
+ *
+ *   (i)  Snapshot whether `cwd` was empty *before* attempt 1. If it
+ *        wasn't (test pre-seeded state, e.g. `skips git init when the
+ *        target is already a git repo` runs `git init` first), we
+ *        suppress the retry — wiping unknown pre-seeded state would be
+ *        worse than letting the SIGKILL surface.
+ *   (ii) When `cwd` was empty and we *do* retry, wipe whatever the
+ *        killed first attempt left behind so attempt 2 starts pristine.
+ *
+ * Successful retries are logged to stderr so the runner-flake rate is
+ * inspectable in CI logs (otherwise a steadily worsening environment
+ * would silently turn into "tests still passing" until the second
+ * attempt also starts SIGKILLing).
  */
 export async function runCli(
   binPath: string,
@@ -128,13 +137,47 @@ export async function runCli(
   cwd: string,
   extraEnv: NodeJS.ProcessEnv = {},
 ): Promise<RunResult> {
+  const cwdInitiallyEmpty = isCwdEmpty(cwd);
   let result = await runCliOnce(binPath, argv, cwd, extraEnv);
   if (
-    shouldRetryAfterSigkill(result, process.platform, Boolean(process.env.CI))
+    shouldRetryAfterSigkill(result, process.platform, Boolean(process.env.CI)) &&
+    cwdInitiallyEmpty
   ) {
+    process.stderr.write(
+      `[runCli] retrying after SIGKILL at ${result.elapsedMs}ms (${binPath} ${argv.join(" ")})\n`,
+    );
+    clearDirContents(cwd);
     result = await runCliOnce(binPath, argv, cwd, extraEnv);
   }
   return result;
+}
+
+/**
+ * Cheap snapshot used by `runCli` to decide whether wiping `cwd` between
+ * retry attempts is safe. Returns `true` if `readdirSync` raises (e.g.
+ * `cwd` doesn't exist yet) — the SIGKILL retry path is guarded by other
+ * conditions and `runCliOnce` will surface a real spawn failure anyway,
+ * so a missing `cwd` is treated the same as "no pre-seeded state to
+ * preserve".
+ */
+function isCwdEmpty(cwd: string): boolean {
+  try {
+    return readdirSync(cwd).length === 0;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Empty `cwd` while preserving the directory itself, so the caller's
+ * temp-dir handle stays valid across the retry. We iterate one level
+ * because `readdirSync` only returns names; `rmSync` recurses into each
+ * entry to remove subtrees.
+ */
+function clearDirContents(cwd: string): void {
+  for (const name of readdirSync(cwd)) {
+    rmSync(join(cwd, name), { recursive: true, force: true });
+  }
 }
 
 function runCliOnce(

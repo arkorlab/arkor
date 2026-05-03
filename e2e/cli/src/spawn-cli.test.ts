@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // `vi.hoisted` ensures the mock factory and its captured `spawnMock` are
 // available before any module-level imports execute, so the
@@ -145,7 +148,8 @@ describe("shouldRetryAfterSigkill", () => {
 // pure-function tests above lock in the gate's decision matrix; these
 // tests lock in that `runCli` actually wires the gate up correctly —
 // retries exactly once (not zero, not twice) on a qualifying SIGKILL,
-// and never retries non-qualifying outcomes.
+// wipes `cwd` between attempts, refuses to retry against pre-seeded
+// state, and never retries non-qualifying outcomes.
 
 interface FakeCloseSpec {
   code: number | null;
@@ -173,9 +177,12 @@ function makeFakeChild(close: FakeCloseSpec): EventEmitter {
 describe("runCli orchestration", () => {
   // Pin the platform / CI to the canonical "we should retry" environment
   // so the gate can fire when the close-spec qualifies. Individual tests
-  // override the close spec to vary the outcome.
+  // override the close spec (and `Date.now` returns) to vary the outcome.
   const ORIG_PLATFORM = process.platform;
   const ORIG_CI = process.env.CI;
+  let cwd: string;
+  let dateNowSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     Object.defineProperty(process, "platform", {
@@ -184,6 +191,24 @@ describe("runCli orchestration", () => {
     });
     process.env.CI = "1";
     spawnMock.mockReset();
+    // Real temp dir so the cwd-empty / wipe / pre-seed paths actually
+    // exercise filesystem state. The mocked `spawn` doesn't run a real
+    // process, so any files in `cwd` come from `writeFileSync` inside
+    // the test or inside the mock's `mockImplementationOnce` callback —
+    // i.e. exactly the carryover patterns we want to assert on.
+    cwd = mkdtempSync(join(tmpdir(), "spawn-cli-orchestration-"));
+    // Pin `Date.now` so `elapsedMs` is independent of wall-clock jitter.
+    // CI runners under load can delay `setImmediate` past the 300 ms
+    // gate; this stub keeps the test deterministic regardless. Each
+    // test overrides the return queue to simulate the elapsed time it
+    // wants attempt 1 (and, if applicable, attempt 2) to look like.
+    dateNowSpy = vi.spyOn(Date, "now");
+    // Suppress + capture the retry log so it doesn't pollute test
+    // output and so we can assert it fired.
+    stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      .mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -193,31 +218,49 @@ describe("runCli orchestration", () => {
     });
     if (ORIG_CI === undefined) delete process.env.CI;
     else process.env.CI = ORIG_CI;
+    rmSync(cwd, { recursive: true, force: true });
+    dateNowSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
   it("retries exactly once when a qualifying SIGKILL precedes a clean exit", async () => {
-    // The canonical recovery path: attempt 1 SIGKILL'd, attempt 2 fine.
-    // `spawnMock` should be called twice and the final result reflects
-    // attempt 2's clean exit.
+    // The canonical recovery path: attempt 1 SIGKILL'd at 100 ms (under
+    // the 300 ms cutoff), attempt 2 clean. `spawnMock` should be called
+    // twice and the final result reflects attempt 2's exit.
+    dateNowSpy
+      .mockReturnValueOnce(1000) // attempt 1 start
+      .mockReturnValueOnce(1100) // attempt 1 close → elapsedMs=100
+      .mockReturnValueOnce(2000) // attempt 2 start
+      .mockReturnValueOnce(2050); // attempt 2 close → elapsedMs=50
     spawnMock
       .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }))
       .mockImplementationOnce(() => makeFakeChild({ code: 0, signal: null }));
 
-    const result = await runCli("/fake/bin", [], "/tmp/x");
+    const result = await runCli("/fake/bin", [], cwd);
 
     expect(spawnMock).toHaveBeenCalledTimes(2);
     expect(result.code).toBe(0);
     expect(result.signal).toBeNull();
+    expect(result.elapsedMs).toBe(50);
+    // Retry was logged so CI inspection can see how often this fires.
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining("retrying after SIGKILL at 100ms"),
+    );
   });
 
   it("does not retry a third time when both attempts SIGKILL", async () => {
     // Retry budget is one — a second SIGKILL must surface as the final
     // result. Without this guard a flaky environment could loop forever.
+    dateNowSpy
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1100)
+      .mockReturnValueOnce(2000)
+      .mockReturnValueOnce(2100);
     spawnMock
       .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }))
       .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }));
 
-    const result = await runCli("/fake/bin", [], "/tmp/x");
+    const result = await runCli("/fake/bin", [], cwd);
 
     expect(spawnMock).toHaveBeenCalledTimes(2);
     expect(result.signal).toBe("SIGKILL");
@@ -226,27 +269,99 @@ describe("runCli orchestration", () => {
   it("does not retry a non-qualifying signal (SIGTERM)", async () => {
     // SIGTERM is *not* the runner-flake signature; retrying would risk
     // hiding a genuine crash. Spawn must be invoked exactly once.
+    dateNowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(1100);
     spawnMock.mockImplementationOnce(() =>
       makeFakeChild({ code: null, signal: "SIGTERM" }),
     );
 
-    const result = await runCli("/fake/bin", [], "/tmp/x");
+    const result = await runCli("/fake/bin", [], cwd);
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(result.signal).toBe("SIGTERM");
+    expect(stderrSpy).not.toHaveBeenCalled();
   });
 
   it("does not retry a clean exit", async () => {
     // The hot-path sanity check: a green test run must not double the
     // spawn cost. If the gate ever returned `true` for a clean exit
     // every CI run would silently re-execute every test once.
+    dateNowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(1500);
     spawnMock.mockImplementationOnce(() =>
       makeFakeChild({ code: 0, signal: null }),
     );
 
-    const result = await runCli("/fake/bin", [], "/tmp/x");
+    const result = await runCli("/fake/bin", [], cwd);
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(result.code).toBe(0);
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not retry once SIGKILL elapsed-ms exceeds the cutoff", async () => {
+    // Wall-clock 500 ms attempt 1: well past `SIGKILL_RETRY_MAX_MS`.
+    // Same SIGKILL signature as the canonical flake but the elapsed
+    // time signals it landed mid-run, so the gate refuses.
+    dateNowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(1500);
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ code: null, signal: "SIGKILL" }),
+    );
+
+    const result = await runCli("/fake/bin", [], cwd);
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(result.signal).toBe("SIGKILL");
+    expect(result.elapsedMs).toBe(500);
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not retry when `cwd` was non-empty before attempt 1", async () => {
+    // Some tests pre-seed `cwd` with state the CLI is supposed to react
+    // to (e.g. `arkor init` against a directory that already has
+    // `git init` run inside it). Wiping that state to retry would
+    // change the CLI's input, so the gate suppresses the retry and
+    // surfaces the SIGKILL directly.
+    writeFileSync(join(cwd, "preseeded"), "");
+    dateNowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(1100);
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ code: null, signal: "SIGKILL" }),
+    );
+
+    const result = await runCli("/fake/bin", [], cwd);
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(result.signal).toBe("SIGKILL");
+    // Pre-seeded file survived (the wipe path was skipped).
+    expect(existsSync(join(cwd, "preseeded"))).toBe(true);
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it("wipes leftover scaffold artefacts before attempt 2", async () => {
+    // Simulate the precise concern reviewers flagged: a SIGKILL that
+    // landed *during* scaffold's filesystem writes leaves a partially
+    // populated `cwd`. The mock's first implementation writes a
+    // sentinel to fake that partial scaffold; attempt 2 must run
+    // against an empty `cwd` so it can scaffold fresh.
+    dateNowSpy
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1100)
+      .mockReturnValueOnce(2000)
+      .mockReturnValueOnce(2050);
+    spawnMock
+      .mockImplementationOnce(() => {
+        writeFileSync(join(cwd, "package.json"), "{ partial }");
+        writeFileSync(join(cwd, "README.md"), "partial");
+        return makeFakeChild({ code: null, signal: "SIGKILL" });
+      })
+      .mockImplementationOnce(() => {
+        // Attempt 2 runs against a wiped `cwd` — exactly what a single
+        // clean run would have seen.
+        expect(readdirSync(cwd)).toEqual([]);
+        return makeFakeChild({ code: 0, signal: null });
+      });
+
+    const result = await runCli("/fake/bin", [], cwd);
+
+    expect(spawnMock).toHaveBeenCalledTimes(2);
     expect(result.code).toBe(0);
   });
 });
