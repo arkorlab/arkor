@@ -22,6 +22,7 @@ vi.mock("@arkor/cli-internal", () => ({
   scaffold: vi.fn(async () => ({
     files: [{ action: "created", path: "package.json" }],
     warnings: [],
+    blockInstall: false,
   })),
   resolvePackageManager: vi.fn(),
   TEMPLATES: {
@@ -50,7 +51,7 @@ vi.mock("@clack/prompts", () => ({
   spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
 }));
 
-import { scaffold } from "@arkor/cli-internal";
+import { install, scaffold } from "@arkor/cli-internal";
 import { run, shouldRunAsCli } from "./bin";
 
 let parentDir: string;
@@ -76,6 +77,7 @@ beforeEach(() => {
     cwd: parentDir,
     files: [{ action: "created", path: "package.json" }],
     warnings: [],
+    blockInstall: false,
   });
 });
 
@@ -135,6 +137,7 @@ describe("create-arkor run()", () => {
       cwd: parentDir,
       files: [{ action: "created", path: "package.json" }],
       warnings: advisories,
+      blockInstall: false,
     });
     const clack = await import("@clack/prompts");
     await run({
@@ -161,6 +164,49 @@ describe("create-arkor run()", () => {
       skipGit: true,
     });
     expect(vi.mocked(clack.log.warn)).not.toHaveBeenCalled();
+  });
+
+  // Round 17 (Copilot, PR #99): when scaffold returns
+  // `blockInstall: true` (= surfaced a yarn-config advisory the user
+  // must apply before install), run() MUST skip the auto-install and
+  // surface a fix-then-retry hint. Otherwise we'd run `yarn install`
+  // against an unfixed PnP setup, producing no node_modules and
+  // leaving the project broken.
+  it("skips install when scaffold returns blockInstall=true and surfaces a fix-then-retry hint", async () => {
+    vi.mocked(scaffold).mockResolvedValueOnce({
+      cwd: parentDir,
+      files: [{ action: "created", path: "package.json" }],
+      warnings: ["Existing .yarnrc.yml pins `nodeLinker: pnp`. ..."],
+      blockInstall: true,
+    });
+    const clack = await import("@clack/prompts");
+    await run({
+      dir: "target",
+      yes: true,
+      template: "triage",
+      packageManager: "yarn",
+      skipGit: true,
+    });
+    expect(vi.mocked(install)).not.toHaveBeenCalled();
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(infoMessages).toContain("yarn install");
+    expect(infoMessages).toMatch(/Skipping install/);
+  });
+
+  // Counterpart: regression guard for the no-warning path.
+  it("runs install when scaffold returns blockInstall=false (no advisory)", async () => {
+    // Default mock already returns blockInstall: false.
+    await run({
+      dir: "target",
+      yes: true,
+      template: "triage",
+      packageManager: "yarn",
+      skipGit: true,
+    });
+    expect(vi.mocked(install)).toHaveBeenCalledWith("yarn", expect.any(String));
   });
 });
 

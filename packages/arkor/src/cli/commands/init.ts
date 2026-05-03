@@ -138,7 +138,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
   // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
   // yarn-berry's PnP default which the arkor runtime can't load through).
-  const { files, warnings } = await scaffold({
+  const { files, warnings, blockInstall } = await scaffold({
     cwd,
     name: sanitise(projectName),
     template,
@@ -151,8 +151,12 @@ export async function runInit(options: InitOptions): Promise<void> {
   );
   // Surface non-fatal scaffolder advisories (currently: existing
   // `.yarnrc.yml` with `nodeLinker:` set to a value the arkor runtime
-  // can't load through). Loud but non-blocking — install/git steps
-  // still run.
+  // can't load through, or yarn-berry merge into an existing project
+  // where we declined to write `.yarnrc.yml` defensively). The
+  // install step below also consults `blockInstall` and bows out
+  // when these advisories fire — running `yarn install` against an
+  // unfixed PnP setup produces no `node_modules` and leaves the
+  // project broken, so install would be worse than useless.
   for (const warning of warnings) {
     ui.log.warn(warning);
   }
@@ -169,13 +173,26 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   let installed = false;
   if (!options.skipInstall && pm) {
-    ui.log.step(`Installing dependencies with ${pm}`);
-    try {
-      await install(pm, cwd);
-      installed = true;
-    } catch (err) {
-      ui.log.warn(err instanceof Error ? err.message : String(err));
-      ui.log.info(`Retry manually: ${pm} install`);
+    if (blockInstall) {
+      // Round 17 (Copilot, PR #99): the yarn-config advisories above
+      // tell the user to fix `.yarnrc.yml` before running `yarn
+      // install`. Running install ourselves first would produce an
+      // empty `node_modules` (yarn 4 PnP) and leave `arkor dev` /
+      // `arkor train` broken — the install becomes worse than
+      // useless. Skip and surface the manual-retry hint instead, so
+      // the user fixes the config first and retries.
+      ui.log.info(
+        `Skipping install — fix the advisory above first, then run: ${pm} install`,
+      );
+    } else {
+      ui.log.step(`Installing dependencies with ${pm}`);
+      try {
+        await install(pm, cwd);
+        installed = true;
+      } catch (err) {
+        ui.log.warn(err instanceof Error ? err.message : String(err));
+        ui.log.info(`Retry manually: ${pm} install`);
+      }
     }
   }
 

@@ -233,7 +233,7 @@ export async function run(options: RunOptions): Promise<void> {
   spin.start(`Scaffolding in ${cwd}`);
   // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
   // yarn-berry's PnP default which the arkor runtime can't load through).
-  const { files, warnings } = await scaffold({ cwd, name, template, packageManager: pm });
+  const { files, warnings, blockInstall } = await scaffold({ cwd, name, template, packageManager: pm });
   spin.stop("Done");
 
   clack.note(
@@ -241,7 +241,10 @@ export async function run(options: RunOptions): Promise<void> {
     "Files",
   );
   // Surface non-fatal scaffolder advisories (see arkor init for the
-  // mirror of this loop and the rationale).
+  // mirror of this loop and the rationale). The install step below
+  // also consults `blockInstall` and bows out when these advisories
+  // fire — running `yarn install` against an unfixed PnP setup
+  // produces no `node_modules` and leaves the project broken.
   for (const warning of warnings) {
     clack.log.warn(warning);
   }
@@ -256,17 +259,32 @@ export async function run(options: RunOptions): Promise<void> {
 
   let installed = false;
   if (!options.skipInstall && pm) {
-    clack.log.step(`Installing dependencies with ${pm}`);
-    try {
-      await install(pm, cwd);
-      installed = true;
-    } catch (err) {
-      clack.log.warn(err instanceof Error ? err.message : String(err));
+    if (blockInstall) {
+      // Round 17 (Copilot, PR #99): the yarn-config advisories above
+      // tell the user to fix `.yarnrc.yml` before running `yarn
+      // install`. Running install ourselves first would produce an
+      // empty `node_modules` (yarn 4 PnP) and leave `arkor dev` /
+      // `arkor train` broken — the install becomes worse than
+      // useless. Skip and surface the manual-retry hint instead.
+      const retry = inPlace
+        ? `${pm} install`
+        : `cd ${cdTarget} && ${pm} install`;
       clack.log.info(
-        inPlace
-          ? `Retry manually: ${pm} install`
-          : `Retry manually: cd ${cdTarget} && ${pm} install`,
+        `Skipping install — fix the advisory above first, then run: ${retry}`,
       );
+    } else {
+      clack.log.step(`Installing dependencies with ${pm}`);
+      try {
+        await install(pm, cwd);
+        installed = true;
+      } catch (err) {
+        clack.log.warn(err instanceof Error ? err.message : String(err));
+        clack.log.info(
+          inPlace
+            ? `Retry manually: ${pm} install`
+            : `Retry manually: cd ${cdTarget} && ${pm} install`,
+        );
+      }
     }
   }
 

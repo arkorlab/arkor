@@ -58,6 +58,22 @@ export interface ScaffoldResult {
    * is nothing to flag.
    */
   warnings: string[];
+  /**
+   * Set to `true` when at least one of the surfaced `warnings` is the
+   * yarn-config hazard (existing `nodeLinker: pnp` or missing/no-file
+   * setup that would default yarn 4 to PnP). The arkor runtime can't
+   * resolve dependencies through PnP, so running `yarn install`
+   * BEFORE the user fixes the config produces no `node_modules` and
+   * leaves the scaffolded app broken — the install is worse than
+   * useless. Both CLIs use this flag to skip the auto-install in
+   * that case and surface a "fix-then-retry" hint instead. (Copilot
+   * review on PR #99 round 17 — the warning loop alone wasn't
+   * enough; we have to actually NOT run install.) The flag is
+   * specifically about install-blocking; future non-blocking
+   * advisories (e.g. soft deprecation notices) would land in
+   * `warnings` without flipping `blockInstall`.
+   */
+  blockInstall: boolean;
 }
 
 const INDEX_PATH = "src/arkor/index.ts";
@@ -558,6 +574,10 @@ export async function scaffold(
 
   const files: ScaffoldResult["files"] = [];
   const warnings: string[] = [];
+  // Flipped to `true` whenever a yarn-config-blocking advisory fires
+  // (conflict warning OR berry caveat). The CLIs use this to skip the
+  // auto-install — see ScaffoldResult.blockInstall for the rationale.
+  let blockInstall = false;
   // Snapshot whether the cwd already had any contents BEFORE
   // `ensureFile` / `patch*` start writing files. Drives the
   // yarn-config and gitignore-yarn-lines emission rules below — the
@@ -651,9 +671,20 @@ export async function scaffold(
     (options.packageManager === undefined && !isExistingProject);
   if (shouldEmitYarnConfig) {
     const yarn = await patchYarnConfig(cwd, isExistingProject);
-    files.push({ path: YARNRC_YML_PATH, action: yarn.action });
+    // Only record `.yarnrc.yml` in `files[]` when the file actually
+    // exists on disk. The `kept + needsBerryCaveat` branch returns
+    // `kept` for a file we deliberately did NOT create (round 14):
+    // pushing it anyway makes both CLIs print "kept .yarnrc.yml"
+    // for a file that doesn't exist, which is a confusing lie.
+    // (Copilot, PR #99 round 18.) The `berry-without-linker` case
+    // — file exists on disk, we declined to mutate — is still
+    // legitimately `kept` and gets recorded.
+    if (existsSync(join(cwd, YARNRC_YML_PATH))) {
+      files.push({ path: YARNRC_YML_PATH, action: yarn.action });
+    }
     if (yarn.conflictingNodeLinker !== undefined) {
       warnings.push(buildYarnLinkerConflictWarning(yarn.conflictingNodeLinker));
+      blockInstall = true;
     } else if (yarn.needsBerryCaveat) {
       // Round 14: explicit `--use-yarn` against an existing project
       // where `.yarnrc.yml` is missing (or has no `nodeLinker:` key)
@@ -661,6 +692,7 @@ export async function scaffold(
       // the inspect path uses for the unknown-pm + existing-project
       // analogue. Same advisory copy, same remediation.
       warnings.push(buildYarnBerryCaveatAdvisory());
+      blockInstall = true;
     }
   } else if (
     options.packageManager === undefined &&
@@ -697,8 +729,10 @@ export async function scaffold(
     const status = await inspectYarnConfig(cwd);
     if (status.kind === "conflict") {
       warnings.push(buildYarnLinkerConflictWarning(status.value));
+      blockInstall = true;
     } else if (status.kind === "berry-without-linker") {
       warnings.push(buildYarnBerryCaveatAdvisory());
+      blockInstall = true;
     } else if (status.kind === "no-config") {
       // Round 16 (Copilot, PR #99): consult the pre-patch
       // local snapshot AND the parent tree for the corepack
@@ -713,10 +747,11 @@ export async function scaffold(
       );
       if (declaresYarnBerry(declared)) {
         warnings.push(buildYarnBerryCaveatAdvisory());
+        blockInstall = true;
       }
     }
   }
-  return { files, cwd, warnings };
+  return { files, cwd, warnings, blockInstall };
 }
 
 export function templateChoices(): Array<{

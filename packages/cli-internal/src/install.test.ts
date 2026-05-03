@@ -14,9 +14,13 @@ const ORIG_PATH = process.env.PATH;
 // production than mocking spawn would be.
 function makeFakePm(name: string, exitCode: number, marker: string): string {
   const path = join(fakeBin, name);
+  // No `set -e`: `printenv VAR` returns 1 when VAR is unset, and the
+  // round-17 split made YARN_ENABLE_IMMUTABLE_INSTALLS conditional —
+  // the shim must tolerate the absent case without aborting before
+  // the trailing `exit ${exitCode}` runs.
   writeFileSync(
     path,
-    `#!/usr/bin/env sh\nset -e\necho "fake $@" >> "${marker}"\n` +
+    `#!/usr/bin/env sh\necho "fake $@" >> "${marker}"\n` +
       `printenv ADBLOCK >> "${marker}"\nprintenv NODE_ENV >> "${marker}"\n` +
       `printenv YARN_ENABLE_IMMUTABLE_INSTALLS >> "${marker}"\n` +
       `exit ${exitCode}\n`,
@@ -53,7 +57,7 @@ describe("install", () => {
   const onPosix = process.platform !== "win32" ? it : it.skip;
 
   onPosix(
-    "spawns `<pm> install` in cwd with ADBLOCK + NODE_ENV=development + YARN_ENABLE_IMMUTABLE_INSTALLS=false",
+    "spawns `<pm> install` in cwd with ADBLOCK + NODE_ENV=development",
     async () => {
       const marker = join(cwd, "marker.log");
       makeFakePm("npm", 0, marker);
@@ -67,15 +71,68 @@ describe("install", () => {
       // for production behaviour:
       //   - ADBLOCK silences create-* promo output (= "1")
       //   - NODE_ENV stops pnpm dropping devDependencies (= "development")
-      //   - YARN_ENABLE_IMMUTABLE_INSTALLS=false unblocks yarn 4's first
-      //     install of a fresh scaffold under CI=1 (round-13 review):
-      //     yarn berry refuses to write the missing yarn.lock under
-      //     immutable mode and the user-facing `arkor init --use-yarn`
-      //     would fail without this. Forwarded for every pm so the env
-      //     contract is uniform; non-yarn pms ignore the variable.
       expect(log).toContain("\n1\n");
       expect(log).toContain("\ndevelopment\n");
+    },
+  );
+
+  // YARN_ENABLE_IMMUTABLE_INSTALLS gating splits along yarn-only +
+  // no-pre-existing-lockfile (PR #99 round 17 — Copilot flagged that
+  // an unconditional override would let `arkor init` rewrite a
+  // committed lockfile in an existing yarn-berry workspace).
+  onPosix(
+    "forwards YARN_ENABLE_IMMUTABLE_INSTALLS=false for yarn when no pre-existing yarn.lock",
+    async () => {
+      const marker = join(cwd, "marker.log");
+      makeFakePm("yarn", 0, marker);
+
+      await install("yarn", cwd);
+
+      const log = (await import("node:fs")).readFileSync(marker, "utf8");
+      // The fresh-scaffold case: yarn 4's CI=1 default would otherwise
+      // refuse to write the missing yarn.lock and exit YN0028. The env
+      // override unblocks that without affecting yarn 1 / npm / pnpm /
+      // bun (they ignore the variable).
       expect(log).toContain("\nfalse\n");
+    },
+  );
+
+  onPosix(
+    "does NOT forward YARN_ENABLE_IMMUTABLE_INSTALLS when a yarn.lock already exists in cwd",
+    async () => {
+      const marker = join(cwd, "marker.log");
+      makeFakePm("yarn", 0, marker);
+      // Pre-seed a lockfile to simulate an existing yarn-berry workspace
+      // we're being merged into. Bypassing immutability here would let
+      // the install silently rewrite the committed lockfile — exactly
+      // the round-17 hazard we're guarding against.
+      writeFileSync(join(cwd, "yarn.lock"), "# pre-existing\n");
+
+      await install("yarn", cwd);
+
+      const log = (await import("node:fs")).readFileSync(marker, "utf8");
+      // The override env var is absent, so `printenv` writes the empty
+      // string. Surrounding sentinel lines confirm the script ran;
+      // we just want to be sure "false" doesn't appear on the
+      // YARN_ENABLE_IMMUTABLE_INSTALLS line — match the empty value
+      // explicitly via the line shape.
+      expect(log).not.toContain("\nfalse\n");
+    },
+  );
+
+  onPosix(
+    "does NOT forward YARN_ENABLE_IMMUTABLE_INSTALLS for non-yarn package managers",
+    async () => {
+      // The variable is yarn-berry-specific. Setting it for npm/pnpm/bun
+      // is harmless (they ignore it) but we keep the env surface tight
+      // to make the contract obvious in install.ts.
+      const marker = join(cwd, "marker.log");
+      makeFakePm("pnpm", 0, marker);
+
+      await install("pnpm", cwd);
+
+      const log = (await import("node:fs")).readFileSync(marker, "utf8");
+      expect(log).not.toContain("\nfalse\n");
     },
   );
 

@@ -36,6 +36,7 @@ vi.mock("@arkor/cli-internal", () => {
     scaffold: vi.fn(async () => ({
       files: [{ action: "created", path: "package.json" }],
       warnings: [],
+      blockInstall: false,
     })),
     TEMPLATES: {
       triage: {},
@@ -418,6 +419,7 @@ describe("runInit", () => {
       cwd,
       files: [{ action: "created", path: "package.json" }],
       warnings: advisories,
+      blockInstall: false,
     });
     const clack = await import("@clack/prompts");
     await runInit({
@@ -468,6 +470,48 @@ describe("runInit", () => {
     expect(installOrder).toBeDefined();
     expect(commitOrder).toBeDefined();
     expect(installOrder).toBeLessThan(commitOrder!);
+  });
+
+  // Round 17 (Copilot, PR #99): when scaffold returns
+  // `blockInstall: true` (= surfaced a yarn-config advisory the user
+  // must apply before install), runInit MUST skip the auto-install
+  // and surface a fix-then-retry hint. Otherwise we'd run
+  // `yarn install` against an unfixed PnP setup, producing no
+  // node_modules and leaving the project broken.
+  it("skips install when scaffold returns blockInstall=true and surfaces a fix-then-retry hint", async () => {
+    vi.mocked(scaffold).mockResolvedValueOnce({
+      cwd,
+      files: [{ action: "created", path: "package.json" }],
+      warnings: ["Existing .yarnrc.yml pins `nodeLinker: pnp`. ..."],
+      blockInstall: true,
+    });
+    const clack = await import("@clack/prompts");
+    await runInit({
+      yes: true,
+      packageManager: "yarn",
+      skipGit: true,
+    });
+    expect(vi.mocked(install)).not.toHaveBeenCalled();
+    // The fix-then-retry hint surfaces via ui.log.info — assert it
+    // mentions the install command so the user knows what to retry.
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(infoMessages).toContain("yarn install");
+    expect(infoMessages).toMatch(/Skipping install/);
+  });
+
+  // Counterpart: regression guard so the gate doesn't accidentally
+  // start tripping on the no-warning path.
+  it("runs install when scaffold returns blockInstall=false (no advisory)", async () => {
+    // Default mock already returns blockInstall: false.
+    await runInit({
+      yes: true,
+      packageManager: "yarn",
+      skipGit: true,
+    });
+    expect(vi.mocked(install)).toHaveBeenCalledWith("yarn", expect.any(String));
   });
 
   it("interactive: prompts for git init before install so the user can walk away", async () => {

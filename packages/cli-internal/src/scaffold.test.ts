@@ -237,9 +237,14 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "yarn",
     });
+    // Round 18 (Copilot, PR #99): when patchYarnConfig declines to
+    // create the file in the existing-project case, scaffold must
+    // NOT record a `.yarnrc.yml` entry in `files[]`. Both CLIs
+    // print files verbatim in the "Files" note, so an entry here
+    // would surface "kept .yarnrc.yml" for a file that doesn't
+    // exist — confusing the user about repo state.
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    // Reported as `kept` (no mutation), file is NOT created on disk.
-    expect(yarnrc?.action).toBe("kept");
+    expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
     // But the caveat IS surfaced.
     expect(result.warnings).toHaveLength(1);
@@ -265,6 +270,12 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "yarn",
     });
+    // Counterpart to the no-yarnrc test above: HERE the
+    // `.yarnrc.yml` does exist on disk (we declined to mutate it,
+    // not to create it), so the round-18 phantom-entry guard does
+    // NOT fire — the `kept` entry IS legitimate. Pin that down so
+    // a future tightening of the existsSync check doesn't drop
+    // the entry for the existing-but-unmodified case.
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc?.action).toBe("kept");
     // File untouched.
@@ -320,9 +331,12 @@ describe("scaffold", () => {
       packageManager: "yarn",
     });
     // .yarnrc.yml is NOT created (the surrounding repo might
-    // deliberately be on yarn-berry's PnP default).
+    // deliberately be on yarn-berry's PnP default), and round 18
+    // also drops the `kept` entry from `files[]` so the CLI's
+    // "Files" note doesn't print a phantom line for a file that
+    // doesn't exist.
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    expect(yarnrc?.action).toBe("kept");
+    expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
     // Caveat surfaces (same flow as round-14 — the user explicitly
     // picked yarn, so they need the pointer to set things up).
