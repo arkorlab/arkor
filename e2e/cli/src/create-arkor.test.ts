@@ -44,6 +44,20 @@ describe("create-arkor (E2E)", () => {
     expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
     expect(existsSync(join(targetDir, "arkor.config.ts"))).toBe(true);
     expect(existsSync(join(targetDir, ".gitignore"))).toBe(true);
+    // AGENTS.md / CLAUDE.md ship by default to brief AI coding agents that
+    // arkor post-dates their training data.
+    expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(targetDir, "CLAUDE.md"))).toBe(true);
+    const agents = readFileSync(join(targetDir, "AGENTS.md"), "utf8");
+    expect(agents).toContain("<!-- BEGIN:arkor-agent-rules -->");
+    expect(agents).toContain("<!-- END:arkor-agent-rules -->");
+    expect(agents).toContain("arkor is newer than your training data");
+    expect(readFileSync(join(targetDir, "CLAUDE.md"), "utf8")).toBe(
+      "@AGENTS.md\n",
+    );
+    // Files note in the outro lists both new entries.
+    expect(result.stdout).toContain("AGENTS.md");
+    expect(result.stdout).toContain("CLAUDE.md");
 
     const pkg = JSON.parse(
       readFileSync(join(targetDir, "package.json"), "utf8"),
@@ -117,6 +131,41 @@ describe("create-arkor (E2E)", () => {
     const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
     expect(log.code).toBe(0);
     expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
+  });
+
+  it("skips AGENTS.md and CLAUDE.md when --no-agents-md is passed", async () => {
+    const { result, targetDir } = await runCreateArkor([
+      "-y",
+      "--skip-install",
+      "--skip-git",
+      "--no-agents-md",
+    ]);
+    expect(result.code).toBe(0);
+    expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(targetDir, "CLAUDE.md"))).toBe(false);
+    // Other starter files are unaffected.
+    expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
+  });
+
+  it("preserves an existing AGENTS.md and patches in the managed block", async () => {
+    // Pre-create the target dir + a hand-written AGENTS.md to simulate
+    // scaffolding into an existing project that already has agent rules.
+    const targetDir = join(parentDir, "existing-agents");
+    mkdirSync(targetDir);
+    const userContent = "# Existing rules\n\nWritten by hand.\n";
+    writeFileSync(join(targetDir, "AGENTS.md"), userContent);
+
+    const result = await runCli(
+      CREATE_ARKOR_BIN,
+      ["existing-agents", "-y", "--skip-install", "--skip-git"],
+      parentDir,
+    );
+    expect(result.code).toBe(0);
+
+    const body = readFileSync(join(targetDir, "AGENTS.md"), "utf8");
+    expect(body.startsWith(userContent)).toBe(true);
+    expect(body).toContain("<!-- BEGIN:arkor-agent-rules -->");
+    expect(body).toContain("<!-- END:arkor-agent-rules -->");
   });
 
   it("rejects --git --skip-git with a clear error", async () => {

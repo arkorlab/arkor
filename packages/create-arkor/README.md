@@ -46,6 +46,7 @@ pnpm create arkor my-app \
 | `--skip-install` | Don't run `<pm> install` after scaffolding |
 | `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun` | Force a package manager (otherwise auto-detected from `npm_config_user_agent`) |
 | `--git` / `--skip-git` | Initialise a git repo with an initial commit, or skip the prompt |
+| `--agents-md` / `--no-agents-md` | Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data (default: on) |
 
 ## What it writes
 
@@ -57,6 +58,8 @@ my-app/
 ├── arkor.config.ts
 ├── README.md
 ├── .gitignore          # node_modules/, dist/, .arkor/
+├── AGENTS.md           # AI-agent rules (omit with --no-agents-md)
+├── CLAUDE.md           # @AGENTS.md re-export for Claude Code
 └── package.json        # scripts: dev / build / start
 ```
 
@@ -66,6 +69,18 @@ hand-edited `build: "tsc"` survives. When the target directory is auto-derived
 (no `[dir]` passed), an existing non-empty `./<project-name>/` is treated as a
 collision: interactive runs re-prompt for a different name, and `-y` /
 non-interactive runs exit with an error.
+
+`AGENTS.md` is patched non-destructively: an existing user file is preserved
+and the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->`
+and `<!-- END:arkor-agent-rules -->`) is appended or, on re-scaffold, replaced
+in place. `CLAUDE.md` is created with `@AGENTS.md` only if it does not already
+exist.
+
+Claude Code auto-loads `CLAUDE.md` from the project root, and the
+`@<path>` directive is a built-in import — writing `@AGENTS.md` inlines
+the AGENTS.md contents into Claude's context, so the two files stay in
+sync without duplication. Other agents that follow the AGENTS.md
+convention read `AGENTS.md` directly.
 
 ## Templates
 

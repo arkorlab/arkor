@@ -34,6 +34,9 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
+const AGENTS_BEGIN = "<!-- BEGIN:arkor-agent-rules -->";
+const AGENTS_END = "<!-- END:arkor-agent-rules -->";
+
 describe("scaffold", () => {
   it("writes all starter files in an empty directory", async () => {
     const result = await scaffold({ cwd, name: "my-app", template: "triage" });
@@ -249,6 +252,133 @@ describe("scaffold", () => {
     } finally {
       rmSync(parent, { recursive: true, force: true });
     }
+  });
+
+  it("does not write AGENTS.md or CLAUDE.md when agentsMd is omitted", async () => {
+    // Default behavior: scaffold() leaves AGENTS.md / CLAUDE.md alone unless
+    // the caller opts in. Protects existing arkor init flow that doesn't pass
+    // the flag.
+    const { existsSync } = await import("node:fs");
+    const result = await scaffold({ cwd, name: "no-agents", template: "triage" });
+    expect(result.files.map((f) => f.path)).not.toContain("AGENTS.md");
+    expect(result.files.map((f) => f.path)).not.toContain("CLAUDE.md");
+    expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+  });
+
+  it("creates AGENTS.md and CLAUDE.md when agentsMd is true and neither file exists", async () => {
+    const result = await scaffold({
+      cwd,
+      name: "agentic",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = result.files.find((f) => f.path === "AGENTS.md");
+    const claude = result.files.find((f) => f.path === "CLAUDE.md");
+    expect(agents?.action).toBe("created");
+    expect(claude?.action).toBe("created");
+
+    const agentsBody = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(agentsBody).toContain(AGENTS_BEGIN);
+    expect(agentsBody).toContain(AGENTS_END);
+    expect(agentsBody).toContain("arkor is newer than your training data");
+    expect(agentsBody).toContain("node_modules/arkor/docs/");
+    // No trailing junk past the closing marker on a fresh write.
+    expect(agentsBody.endsWith(`${AGENTS_END}\n`)).toBe(true);
+
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe("@AGENTS.md\n");
+  });
+
+  it("appends the managed block to an existing AGENTS.md without markers", async () => {
+    const existing = "# My project\n\nSome notes from the user.\n";
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+    const result = await scaffold({
+      cwd,
+      name: "merge",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = result.files.find((f) => f.path === "AGENTS.md");
+    expect(agents?.action).toBe("patched");
+
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // Existing user content must survive verbatim ahead of the block.
+    expect(body.startsWith(existing)).toBe(true);
+    expect(body).toContain(AGENTS_BEGIN);
+    expect(body).toContain(AGENTS_END);
+    // Exactly one blank line between user content and the block.
+    expect(body).toMatch(/Some notes from the user\.\n\n<!-- BEGIN:arkor-agent-rules -->/);
+  });
+
+  it("replaces only the block contents when AGENTS.md already has the markers", async () => {
+    const before = "# Project\n\n";
+    const after = "\n\n## Manual notes outside the block\n";
+    const stale = `${before}${AGENTS_BEGIN}\nstale content\n${AGENTS_END}${after}`;
+    writeFileSync(join(cwd, "AGENTS.md"), stale);
+    const result = await scaffold({
+      cwd,
+      name: "patch",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = result.files.find((f) => f.path === "AGENTS.md");
+    expect(agents?.action).toBe("patched");
+
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(body.startsWith(before)).toBe(true);
+    expect(body.endsWith(after)).toBe(true);
+    // Stale content gone; canonical body present.
+    expect(body).not.toContain("stale content");
+    expect(body).toContain("arkor is newer than your training data");
+  });
+
+  it("returns 'ok' when AGENTS.md already has the canonical block", async () => {
+    // First scaffold creates the file; second scaffold should detect the
+    // block is already up-to-date and skip the write.
+    await scaffold({ cwd, name: "idempotent", template: "triage", agentsMd: true });
+    const before = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    const second = await scaffold({
+      cwd,
+      name: "idempotent",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = second.files.find((f) => f.path === "AGENTS.md");
+    expect(agents?.action).toBe("ok");
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(before);
+  });
+
+  it("preserves CRLF line endings when patching a CRLF AGENTS.md", async () => {
+    // The block is authored with LF; without the eol-aware patch path it
+    // would land as LF inside an otherwise-CRLF file, mixing styles and
+    // breaking diff hygiene on Windows checkouts.
+    const existing = "# Project\r\n\r\nNotes.\r\n";
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+    await scaffold({
+      cwd,
+      name: "crlf",
+      template: "triage",
+      agentsMd: true,
+    });
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // No bare LFs anywhere in the patched file.
+    expect(body).not.toMatch(/[^\r]\n/);
+    expect(body).toContain(`${AGENTS_BEGIN}\r\n`);
+    expect(body).toContain(`\r\n${AGENTS_END}`);
+  });
+
+  it("never overwrites an existing CLAUDE.md", async () => {
+    const userClaude = "# my own claude file\nproject-specific instructions\n";
+    writeFileSync(join(cwd, "CLAUDE.md"), userClaude);
+    const result = await scaffold({
+      cwd,
+      name: "claude-kept",
+      template: "triage",
+      agentsMd: true,
+    });
+    const claude = result.files.find((f) => f.path === "CLAUDE.md");
+    expect(claude?.action).toBe("kept");
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe(userClaude);
   });
 
   it("renders each template with a distinct trainer body", async () => {

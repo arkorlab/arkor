@@ -11,9 +11,17 @@ my-arkor-app/
 │   ├── index.ts        # createArkor({ trainer })
 │   └── trainer.ts      # createTrainer({ ... })
 ├── arkor.config.ts
+├── AGENTS.md           # AI-agent rules (skip with create-arkor's --no-agents-md)
+├── CLAUDE.md           # @AGENTS.md re-export for Claude Code
 ├── .arkor/             # per-project state (gitignored)
 └── package.json        # dev / build / start
 ```
+
+`AGENTS.md` is the source of truth for AI-agent instructions. `CLAUDE.md`
+exists because Claude Code auto-loads `CLAUDE.md` from the project root,
+and its `@<path>` directive is a built-in import — the single line
+`@AGENTS.md` inlines the AGENTS.md contents into Claude's context, so
+both files stay in sync without duplication.
 
 Two layers of state matter beyond your source: `.arkor/` (per-project, in the repo) and `~/.arkor/` (per-user, in your home directory).
 

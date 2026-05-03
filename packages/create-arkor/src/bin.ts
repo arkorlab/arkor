@@ -30,6 +30,11 @@ interface RunOptions {
   git?: boolean;
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
+  /**
+   * Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor is
+   * newer than their training data. Defaults to true; `--no-agents-md` opts out.
+   */
+  agentsMd: boolean;
 }
 
 const MANUAL_INSTALL_HINT =
@@ -214,7 +219,12 @@ async function run(options: RunOptions): Promise<void> {
 
   const spin = clack.spinner();
   spin.start(`Scaffolding in ${cwd}`);
-  const { files } = await scaffold({ cwd, name, template });
+  const { files } = await scaffold({
+    cwd,
+    name,
+    template,
+    agentsMd: options.agentsMd,
+  });
   spin.stop("Done");
 
   clack.note(
@@ -292,6 +302,11 @@ program
     "initialise a git repo and create an initial commit (skips the prompt)",
   )
   .option("--skip-git", "skip the git init prompt and do not initialise git")
+  .option(
+    "--agents-md",
+    "include AGENTS.md and CLAUDE.md to guide AI coding agents (default)",
+  )
+  .option("--no-agents-md", "skip generating AGENTS.md and CLAUDE.md")
   .action(
     async (
       dir: string | undefined,
@@ -306,6 +321,10 @@ program
         useBun?: boolean;
         git?: boolean;
         skipGit?: boolean;
+        // Commander v13 leaves this undefined unless one of --agents-md /
+        // --no-agents-md was passed; the action treats undefined as the
+        // default-on value.
+        agentsMd?: boolean;
       },
     ) => {
       if (opts.git && opts.skipGit) {
@@ -339,6 +358,10 @@ program
         packageManager,
         git: opts.git,
         skipGit: opts.skipGit,
+        // Commander v13 leaves opts.agentsMd undefined when no flag is
+        // passed (it doesn't auto-default --no-foo to `foo: true`). Default
+        // to on; only explicit `--no-agents-md` (which sets `false`) opts out.
+        agentsMd: opts.agentsMd !== false,
       });
     },
   );
