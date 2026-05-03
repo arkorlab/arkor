@@ -35,7 +35,7 @@ What you can do right now:
 - Fine-tune an open-weight LLM (Gemma-based today) from a single file.
 - Pick from three end-to-end templates that finish in minutes: `triage` (support classification), `translate` (9 languages), and `redaction` (PII extraction).
 - React to training in code via lifecycle callbacks, not a dashboard.
-- Run training on Arkor's managed GPUs with no separate infra setup. Try it without an account; run `pnpm exec arkor login --oauth` before your next run if you want it tied to an account. Merging anonymous workspaces and jobs into an account once you sign in is on the roadmap.
+- Run training on Arkor's managed GPUs with no separate infra setup. Try it without an account; run `arkor login --oauth` before your next run if you want it tied to an account. Merging anonymous workspaces and jobs into an account once you sign in is on the roadmap.
 - Watch the run live in the local Studio. Once it finishes, chat with the trained model in the Playground.
 
 What is not in yet:
@@ -49,11 +49,33 @@ The full state of "what works / what is coming" lives in the [README](https://gi
 
 ## Try it
 
-```bash
+<CodeGroup>
+
+```bash pnpm
 pnpm create arkor my-arkor-app
 cd my-arkor-app
 pnpm dev
 ```
+
+```bash npm
+npm create arkor@latest my-arkor-app
+cd my-arkor-app
+npm run dev
+```
+
+```bash yarn
+yarn create arkor my-arkor-app
+cd my-arkor-app
+yarn dev
+```
+
+```bash bun
+bun create arkor my-arkor-app
+cd my-arkor-app
+bun dev
+```
+
+</CodeGroup>
 
 The first run finishes in roughly 7 to 12 minutes depending on the template.
 
