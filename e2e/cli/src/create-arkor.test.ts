@@ -352,12 +352,15 @@ describe("create-arkor (E2E)", () => {
       // execution still happens *after* install — otherwise the lockfile
       // wouldn't be tracked and the bootstrap commit wouldn't be reproducible.
       const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
-      // === DIAG eng-625-r2 START — REMOVE BEFORE MERGE ================
+      // === DIAG eng-625-r3 START — REMOVE BEFORE MERGE ================
+      // Dump the scaffolded package.json to verify the file: spec
+      // normalization actually landed in the bundled CLI.
+      const pkgRaw = readFileSync(join(targetDir, "package.json"), "utf8");
       // eslint-disable-next-line no-console
       console.log(
-        `[DIAG2] pm=${pm} stdout:\n${result.stdout}\n[DIAG2] stderr:\n${result.stderr}\n[DIAG2] HEAD:\n${tracked.stdout}`,
+        `[DIAG3] pm=${pm} package.json:\n${pkgRaw}\n[DIAG3] env spec=${process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC ?? "<unset>"}\n[DIAG3] stdout:\n${result.stdout}`,
       );
-      // === DIAG eng-625-r2 END =======================================
+      // === DIAG eng-625-r3 END =======================================
       expect(tracked.stdout).toContain(lockfile);
     },
     180_000,
