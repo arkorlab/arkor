@@ -283,8 +283,8 @@ describe("main (CLI Commander wiring)", () => {
     });
 
     it("formats anonymous_token_single_device with --anonymous hint on anon-only deployments", async () => {
-      // No Auth0 advertised → probeOauthAvailability returns false →
-      // formatter falls back to the universally-available recovery.
+      // No Auth0 advertised → probeOauthAvailability returns "absent" →
+      // formatter confidently recommends the only working recovery.
       vi.mocked(fetchCliConfig).mockResolvedValueOnce({
         auth0Domain: null,
         clientId: null,
@@ -399,10 +399,13 @@ describe("main (CLI Commander wiring)", () => {
       );
     });
 
-    it("treats fetchCliConfig failure as anon-only (probe falls back to false)", async () => {
-      // Network blip → probeOauthAvailability returns false → users
-      // get the universally-available recovery rather than a `--oauth`
-      // hint that might fail on this deployment.
+    it("hedges with both commands when fetchCliConfig fails (probe inconclusive)", async () => {
+      // Network blip → probeOauthAvailability returns "unknown" →
+      // formatter surfaces both `--oauth` and `--anonymous` so a
+      // transient probe failure on an OAuth-supporting deployment
+      // doesn't push users toward the wrong recovery. An earlier
+      // version collapsed every probe failure to `false` and
+      // confidently steered users at `--anonymous` only.
       vi.mocked(fetchCliConfig).mockRejectedValueOnce(
         new TypeError("fetch failed"),
       );
@@ -421,8 +424,12 @@ describe("main (CLI Commander wiring)", () => {
         restore();
       }
       const buf = chunks.join("");
+      expect(buf).toMatch(/Couldn't reach the deployment/);
+      expect(buf).toMatch(/arkor login --oauth/);
       expect(buf).toMatch(/arkor login --anonymous/);
-      expect(buf).not.toMatch(/arkor login --oauth/);
+      // The hedge text must NOT claim the deployment is anon-only
+      // when we couldn't confirm.
+      expect(buf).not.toMatch(/does not advertise OAuth/);
       expect(process.exitCode).toBe(1);
     });
   });

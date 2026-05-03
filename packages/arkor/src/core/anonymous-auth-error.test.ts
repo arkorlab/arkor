@@ -55,16 +55,24 @@ describe("formatAnonymousAuthError", () => {
       expect(out!).not.toMatch(/arkor login --oauth/);
     });
 
-    it("treats `oauthAvailable: undefined` as anon-only (errs on suppression)", () => {
-      // Same gating contract as ANON_PERSISTENCE_NUDGE in anonymous.ts:
-      // `undefined` (cfg fetch skipped or failed) is treated like
-      // `false` so we never dead-end users on `--oauth` we can't
-      // confirm works.
+    it("hedges with both commands when probe is inconclusive (oauthAvailable === undefined)", () => {
+      // An earlier version collapsed `undefined` into `false` (same
+      // gating contract as ANON_PERSISTENCE_NUDGE), but on the
+      // dead-end formatter path that hid the correct recovery
+      // (`--oauth`) whenever the config probe just timed out. Now we
+      // surface both commands and tell the user what to try first.
       const out = formatAnonymousAuthError(
         new CloudApiError(409, "...", ANONYMOUS_TOKEN_SINGLE_DEVICE),
       );
+      expect(out).not.toBeNull();
+      expect(out!).toMatch(/single-device/);
+      expect(out!).toMatch(/Couldn't reach the deployment/);
+      expect(out!).toMatch(/arkor login --oauth/);
       expect(out!).toMatch(/arkor login --anonymous/);
-      expect(out!).not.toMatch(/arkor login --oauth/);
+      // The "OAuth is not configured" hedge must NOT claim that's
+      // the current state. It only describes what to do if the user
+      // hits that error.
+      expect(out!).not.toMatch(/does not advertise OAuth/);
     });
   });
 
@@ -88,6 +96,17 @@ describe("formatAnonymousAuthError", () => {
       expect(out!).toMatch(/no longer valid/);
       expect(out!).toMatch(/arkor login --anonymous/);
       expect(out!).not.toMatch(/arkor login --oauth/);
+    });
+
+    it("hedges with both commands when probe is inconclusive (oauthAvailable === undefined)", () => {
+      const out = formatAnonymousAuthError(
+        new CloudApiError(401, "...", ANONYMOUS_ACCOUNT_NOT_FOUND),
+      );
+      expect(out).not.toBeNull();
+      expect(out!).toMatch(/no longer valid/);
+      expect(out!).toMatch(/Couldn't reach the deployment/);
+      expect(out!).toMatch(/arkor login --oauth/);
+      expect(out!).toMatch(/arkor login --anonymous/);
     });
   });
 });

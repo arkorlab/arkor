@@ -11,14 +11,23 @@ export const ANONYMOUS_ACCOUNT_NOT_FOUND = "anonymous_account_not_found";
 
 export interface FormatAnonymousAuthErrorContext {
   /**
-   * Whether OAuth is *confirmed* available on the current deployment.
-   * Same gating contract as the login/dev surfaces: only a `true` value
-   * unlocks the `arkor login --oauth` recovery hint. `false` /
-   * `undefined` (cfg fetch skipped or failed) fall back to the
-   * `arkor login --anonymous` re-mint path, which is the only recovery
-   * that works on every supported deployment shape — pointing anon-only
-   * users at `--oauth` would just send them to a command that fails
-   * immediately.
+   * Whether OAuth is available on the current deployment. Tri-state:
+   *
+   * - `true`: confirmed available (cfg fetched, Auth0 fields present).
+   *   The formatter recommends `arkor login --oauth`.
+   * - `false`: confirmed *absent* (cfg fetched, no Auth0 fields). The
+   *   formatter recommends `arkor login --anonymous` and explicitly
+   *   tells the user OAuth isn't offered on this deployment.
+   * - `undefined`: probe inconclusive (cfg fetch skipped, network
+   *   blip, timeout, etc.). The formatter hedges by surfacing both
+   *   commands and pointing at `--oauth` first because it works on
+   *   the majority of deployments, with a clear fall-through to
+   *   `--anonymous` if it fails.
+   *
+   * Mapping `undefined` to "OAuth not advertised" was the previous
+   * behaviour and was misleading: a transient probe failure on an
+   * OAuth-supporting deployment would steer users away from the
+   * correct recovery.
    */
   oauthAvailable?: boolean;
 }
@@ -43,24 +52,40 @@ export function formatAnonymousAuthError(
   ctx: FormatAnonymousAuthErrorContext = {},
 ): string | null {
   if (!(err instanceof CloudApiError)) return null;
-  const oauthLine =
-    ctx.oauthAvailable === true
-      ? "  arkor login --oauth"
-      : "  arkor login --anonymous";
+  // The unknown-state branch surfaces both commands so users on an
+  // OAuth-supporting deployment aren't denied the correct recovery
+  // just because the config endpoint timed out. The order points at
+  // `--oauth` first because it covers the majority of deployments;
+  // anon-only users will get a clean "OAuth is not configured" error
+  // and can fall through to the second command.
+  const unknownTail = [
+    "Couldn't reach the deployment to confirm whether OAuth is offered. Try the OAuth path first; if it fails with `OAuth is not configured`, fall through to the anonymous path:",
+    "",
+    "  arkor login --oauth",
+    "  arkor login --anonymous",
+  ];
   if (err.code === ANONYMOUS_TOKEN_SINGLE_DEVICE) {
     if (ctx.oauthAvailable === true) {
       return [
         "Anonymous credentials were rejected as single-device.",
         "Anonymous accounts only work on one machine. Sign up for an account that supports multiple devices:",
         "",
-        oauthLine,
+        "  arkor login --oauth",
+      ].join("\n");
+    }
+    if (ctx.oauthAvailable === false) {
+      return [
+        "Anonymous credentials were rejected as single-device.",
+        "Anonymous accounts only work on one machine. This deployment does not advertise OAuth, so the only recovery is to mint a new anonymous identity (your previous workspace data cannot be recovered):",
+        "",
+        "  arkor login --anonymous",
       ].join("\n");
     }
     return [
       "Anonymous credentials were rejected as single-device.",
-      "Anonymous accounts only work on one machine. This deployment does not advertise OAuth, so the only recovery is to mint a new anonymous identity (your previous workspace data cannot be recovered):",
+      "Anonymous accounts only work on one machine.",
       "",
-      oauthLine,
+      ...unknownTail,
     ].join("\n");
   }
   if (err.code === ANONYMOUS_ACCOUNT_NOT_FOUND) {
@@ -69,14 +94,21 @@ export function formatAnonymousAuthError(
         "Your anonymous credentials are no longer valid.",
         "Sign up to continue:",
         "",
-        oauthLine,
+        "  arkor login --oauth",
+      ].join("\n");
+    }
+    if (ctx.oauthAvailable === false) {
+      return [
+        "Your anonymous credentials are no longer valid.",
+        "Mint a new anonymous identity to continue (your previous workspace data cannot be recovered):",
+        "",
+        "  arkor login --anonymous",
       ].join("\n");
     }
     return [
       "Your anonymous credentials are no longer valid.",
-      "Mint a new anonymous identity to continue (your previous workspace data cannot be recovered):",
       "",
-      oauthLine,
+      ...unknownTail,
     ].join("\n");
   }
   return null;

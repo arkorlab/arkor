@@ -23,7 +23,7 @@ import { SDK_VERSION } from "../core/version";
 import { ui } from "./prompts";
 
 /**
- * Resolve `oauthAvailable` for the current deployment so anonymous-auth
+ * Resolve OAuth availability for the current deployment so anonymous-auth
  * dead-end errors recommend a recovery path that actually works on
  * anon-only deployments. Probes the *credentials' own* cloud-api URL
  * (the one that just produced the auth error), not the global default
@@ -32,21 +32,28 @@ import { ui } from "./prompts";
  * which case probing `defaultArkorCloudApiUrl()` would inspect the
  * wrong deployment and recommend the opposite recovery path.
  *
- * Best-effort: missing credentials, network failure, malformed cfg, or
- * timeout all collapse to `false`, which makes the formatter point at
- * `arkor login --anonymous` rather than `--oauth`. That's the only
- * recovery that's universally available, so erring on the
- * suppression-of-`--oauth` side is safe.
+ * Returns a tri-state rather than a boolean. An earlier version
+ * collapsed every probe failure to `false`, which made the formatter
+ * confidently steer users at `arkor login --anonymous` even when the
+ * config endpoint was just timing out on an OAuth-supporting
+ * deployment, hiding the real recovery (`arkor login --oauth`).
+ * Distinguishing the cases lets the formatter hedge when we genuinely
+ * don't know:
  *
- * The probe runs *after* a command has already failed, so blocking the
- * recovery hint behind an unbounded HTTP call would compound the
- * outage: a degraded `/v1/auth/cli/config` endpoint would leave the
- * CLI sitting indefinitely with no message printed. `AbortSignal.timeout`
- * caps the probe at 3 s so the user always gets *some* guidance even
- * when the cloud-api is sick.
+ * - `"available"`: cfg fetched, Auth0 fields present → `--oauth`.
+ * - `"absent"`: cfg fetched, no Auth0 fields → `--anonymous`.
+ * - `"unknown"`: probe failed (network, timeout, malformed cfg,
+ *    missing credentials) → suggest both, with an honest hedge.
+ *
+ * The probe runs *after* a command has already failed, so blocking
+ * the recovery hint behind an unbounded HTTP call would compound the
+ * outage. `AbortSignal.timeout` caps the probe at 3 s so the user
+ * always gets *some* guidance even when the cloud-api is sick. That
+ * timeout falls into `"unknown"`.
  */
+type OauthAvailability = "available" | "absent" | "unknown";
 const PROBE_TIMEOUT_MS = 3000;
-async function probeOauthAvailability(): Promise<boolean> {
+async function probeOauthAvailability(): Promise<OauthAvailability> {
   try {
     const creds = await readCredentials().catch(() => null);
     // Only `AnonymousCredentials` carries `arkorCloudApiUrl`; the
@@ -60,9 +67,11 @@ async function probeOauthAvailability(): Promise<boolean> {
     const cfg = await fetchCliConfig(baseUrl, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
-    return Boolean(cfg.auth0Domain && cfg.clientId && cfg.audience);
+    return cfg.auth0Domain && cfg.clientId && cfg.audience
+      ? "available"
+      : "absent";
   } catch {
-    return false;
+    return "unknown";
   }
 }
 
@@ -214,10 +223,19 @@ export async function main(argv: string[]): Promise<void> {
     if (isAnonymousAuthDeadEnd(err)) {
       // Probe deployment OAuth status only on the dead-end path so we
       // don't add a network round-trip to every successful command.
-      // Failure collapses to "no OAuth", which steers the formatter at
-      // the universally-available `arkor login --anonymous` recovery.
-      const oauthAvailable = await probeOauthAvailability();
-      const friendly = formatAnonymousAuthError(err, { oauthAvailable });
+      // The probe is tri-state (`"available"` / `"absent"` /
+      // `"unknown"`), so the formatter can hedge instead of
+      // confidently recommending `--anonymous` when the config
+      // endpoint just timed out on an OAuth-supporting deployment.
+      const probe = await probeOauthAvailability();
+      const friendly = formatAnonymousAuthError(err, {
+        oauthAvailable:
+          probe === "available"
+            ? true
+            : probe === "absent"
+              ? false
+              : undefined,
+      });
       if (friendly !== null) {
         process.stderr.write(`${friendly}\n`);
         process.exitCode = 1;

@@ -92,13 +92,20 @@ export async function runWhoami(): Promise<void> {
     // surfaces, which already know `oauthAvailable`, do append the
     // upgrade hint when warranted.
     //
-    // TTY gate: emit only when *both* stdout and stderr are interactive.
-    // Wrappers piping stdout through `jq` (or any pipeline) drop
-    // `stdout.isTTY`, and CI runners that treat any stderr-on-success
-    // output as a warning marker drop `stderr.isTTY` — both groups
-    // get clean output. The note goes to stderr to keep stdout
-    // machine-parseable on the rare host where stdout is a TTY but
-    // a wrapper still parses it (e.g. `script(1)`).
+    // TTY gate: emit only when *both* stdout and stderr are
+    // interactive. Any redirected stream drops `stdout.isTTY`, and
+    // CI runners that treat any stderr-on-success output as a
+    // warning marker drop `stderr.isTTY`. Both groups get clean
+    // output. The note goes to stderr (not stdout) so it never
+    // reaches a downstream consumer parsing stdout, even on hosts
+    // where stdout happens to be a TTY but the user is still
+    // capturing it (e.g. `script(1)`).
+    //
+    // Note that stdout itself isn't a strict-JSON stream regardless
+    // of TTY: the optional `Orgs: <slug>, …` line above is a human
+    // summary tail, not part of the JSON document. Don't pipe the
+    // full output through `jq`. Read the JSON head with a parser
+    // that stops at the first complete value, or grep for `Orgs:`.
     process.stderr.write(`\n${ANON_SINGLE_DEVICE_NOTE}\n`);
   }
   // Avoid "unused import" noise by referencing CloudApiClient in an assertion.
