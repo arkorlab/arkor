@@ -5,10 +5,11 @@ export default defineConfig({
     // Spawning Node + the bundled CLI bin takes ~600–1200 ms locally; the
     // default 5 s timeout is too tight for assertions that wait for `close`.
     testTimeout: 15_000,
-    // ENG-632 retry lives in `spawn-cli.ts` (`runCli` / `shouldRetryAfter
-    // Sigkill`), not here. A vitest-level `retry` would rerun on every
-    // assertion failure on every platform — too broad. The harness gate
-    // only fires when ALL of these hold for the previous attempt:
+    // ENG-632 retry lives in `spawn-cli.ts` — see `runCli` and the pure
+    // gate `shouldRetryAfterSigkill`. A vitest-level `retry` would rerun
+    // on every assertion failure on every platform — too broad. The
+    // harness gate only fires when ALL of these hold for the previous
+    // attempt:
     //
     //   - `signal === "SIGKILL"`           (the observed runner symptom;
     //                                       SIGTERM/SIGABRT/SIGSEGV are

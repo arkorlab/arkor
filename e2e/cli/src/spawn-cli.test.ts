@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -314,33 +322,63 @@ describe("runCli orchestration", () => {
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
-  it("does not retry when `cwd` was non-empty before attempt 1", async () => {
-    // Some tests pre-seed `cwd` with state the CLI is supposed to react
-    // to (e.g. `arkor init` against a directory that already has
-    // `git init` run inside it). Wiping that state to retry would
-    // change the CLI's input, so the gate suppresses the retry and
-    // surfaces the SIGKILL directly.
-    writeFileSync(join(cwd, "preseeded"), "");
-    dateNowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(1100);
-    spawnMock.mockImplementationOnce(() =>
-      makeFakeChild({ code: null, signal: "SIGKILL" }),
-    );
+  it("preserves pre-seeded `cwd` state across the retry while clearing scaffold leftovers", async () => {
+    // Tests that pre-seed `cwd` (e.g. `arkor-init.test.ts`'s
+    // `git init` setup, `arkor-whoami.test.ts`'s seeded credentials,
+    // build fixtures) used to be excluded from the retry path under the
+    // earlier "cwd must be empty" gate. The path-set snapshot lifts that
+    // restriction: pre-existing entries survive, but anything attempt 1
+    // newly added gets removed before attempt 2 spawns.
+    //
+    // Setup: pre-seed `cwd/.git/HEAD` (a small file inside an existing
+    // dir, mirroring `git init`'s output) plus a sibling marker file.
+    // The killed first attempt then fakes a partial scaffold by
+    // writing `package.json` *and* a new file inside the pre-existing
+    // `.git/` (e.g. `.git/index`). Attempt 2 should see only the
+    // pre-seeded paths, with the partial scaffold gone.
+    mkdirSync(join(cwd, ".git"));
+    writeFileSync(join(cwd, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(cwd, "preseeded.txt"), "user state");
+
+    dateNowSpy
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1100)
+      .mockReturnValueOnce(2000)
+      .mockReturnValueOnce(2050);
+    spawnMock
+      .mockImplementationOnce(() => {
+        // Fake a partial scaffold: a brand-new top-level file *and* a
+        // new file inside the pre-seeded `.git/` directory. Both should
+        // be cleared on retry.
+        writeFileSync(join(cwd, "package.json"), "{ partial }");
+        writeFileSync(join(cwd, ".git", "index"), "binary blob");
+        return makeFakeChild({ code: null, signal: "SIGKILL" });
+      })
+      .mockImplementationOnce(() => {
+        // Attempt 2 sees only the pre-seeded baseline.
+        expect(existsSync(join(cwd, ".git", "HEAD"))).toBe(true);
+        expect(readFileSync(join(cwd, "preseeded.txt"), "utf8")).toBe(
+          "user state",
+        );
+        // Attempt 1's new files were removed.
+        expect(existsSync(join(cwd, "package.json"))).toBe(false);
+        expect(existsSync(join(cwd, ".git", "index"))).toBe(false);
+        return makeFakeChild({ code: 0, signal: null });
+      });
 
     const result = await runCli("/fake/bin", [], cwd);
 
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(result.signal).toBe("SIGKILL");
-    // Pre-seeded file survived (the wipe path was skipped).
-    expect(existsSync(join(cwd, "preseeded"))).toBe(true);
-    expect(stderrSpy).not.toHaveBeenCalled();
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(result.code).toBe(0);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining("retrying after SIGKILL at 100ms"),
+    );
   });
 
-  it("wipes leftover scaffold artefacts before attempt 2", async () => {
-    // Simulate the precise concern reviewers flagged: a SIGKILL that
-    // landed *during* scaffold's filesystem writes leaves a partially
-    // populated `cwd`. The mock's first implementation writes a
-    // sentinel to fake that partial scaffold; attempt 2 must run
-    // against an empty `cwd` so it can scaffold fresh.
+  it("wipes leftover scaffold artefacts when `cwd` started empty", async () => {
+    // Simpler case of the same path-diff cleanup: empty cwd at attempt
+    // 1 start, partial scaffold from the SIGKILL'd attempt, attempt 2
+    // sees an empty cwd again. This is the canonical PR #104 pattern.
     dateNowSpy
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1100)
@@ -353,8 +391,6 @@ describe("runCli orchestration", () => {
         return makeFakeChild({ code: null, signal: "SIGKILL" });
       })
       .mockImplementationOnce(() => {
-        // Attempt 2 runs against a wiped `cwd` — exactly what a single
-        // clean run would have seen.
         expect(readdirSync(cwd)).toEqual([]);
         return makeFakeChild({ code: 0, signal: null });
       });
