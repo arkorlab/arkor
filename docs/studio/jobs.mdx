@@ -19,7 +19,7 @@ The button is disabled while a run is in flight and while no trainer has resolve
 
 When you click it, Studio sends `POST /api/train`. The backend spawns `arkor start` in a subprocess and streams its stdout / stderr back as raw text. The pre-formatted log box auto-scrolls; what you see is exactly what the spawned `arkor start` would print in a terminal.
 
-There is no input form for picking the trainer or passing flags: Studio always runs the trainer registered through `createArkor`, and `arkor start` reuses `.arkor/build/index.mjs` if it already exists. Edits to `src/arkor/` are not picked up automatically across multiple clicks on the same page; reload the Run training page (or run the build script from a terminal: `pnpm build` / `npm run build` / `yarn build` / `bun run build`) between edits and the next click. See [CLI § build / start](/cli/build-and-start) for the precise rebuild rules.
+There is no input form for picking the trainer or passing flags: Studio always runs the trainer registered through `createArkor`, and `arkor start` reuses `.arkor/build/index.mjs` if it already exists. Edits to `src/arkor/` are not picked up automatically across multiple clicks on the same page; reload the Run training page (or run `arkor build` from a terminal) between edits and the next click. See [CLI § build / start](/cli/build-and-start) for the precise rebuild rules.
 
 ## Jobs list
 
