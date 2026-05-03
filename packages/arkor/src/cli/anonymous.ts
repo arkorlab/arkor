@@ -14,7 +14,7 @@ export async function acquireAnonymousTokenResult(baseUrl: string) {
 //      before they invest real work.
 //   2. `arkor login --oauth` overwrites the credentials file (see
 //      `credentialsPath()` in `core/credentials.ts`) under a new identity
-//     : there is no server-side path to carry an existing anon id's
+//      there is no server-side path to carry an existing anon id's
 //      work into a future OAuth org. The copy therefore targets
 //      *future* work rather than implying existing artifacts will be
 //      saved or transferred. Surfacing that limitation directly would
