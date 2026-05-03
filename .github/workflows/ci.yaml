@@ -30,7 +30,8 @@ jobs:
         # strip-types / transform-types / amaro behaviour shifts.
         node:
           # Node 22 LTS DoS-patched range
-          - '>=22.22.0 <23'
+          - '22.22.0'              # exact minimum supported version (DoS-patched)
+          - '>=22.22.0 <23'        # latest 22.x range
 
           - '>=24.0.0 <24.1.0'     # Node 24 initial state; strip-types default-on / Stability: RC
           - '>=24.1.0 <24.3.0'     # amaro updates
