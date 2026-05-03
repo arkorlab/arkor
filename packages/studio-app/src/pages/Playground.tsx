@@ -90,22 +90,30 @@ export function Playground({
     return () => inferenceAbortRef.current?.abort();
   }, []);
 
-  // Re-seed `mode` / `selectedJob` when the URL changes adapter mid-
-  // mount (e.g. browser back/forward between two
-  // `#/playground?adapter=<id>` history entries, or programmatic
-  // hash updates). The useState seeds at the top run once on mount;
-  // without this effect, prop changes after that would leave the
-  // page on the old adapter despite the new URL. Skip while a stream
-  // is in flight so we don't yank the user out of an active
-  // conversation.
+  // Re-seed `mode` / `selectedJob` when the URL's adapter param
+  // changes mid-mount (browser back/forward between two
+  // `#/playground?adapter=<id>` history entries, programmatic hash
+  // updates, or a navigation that drops the param entirely). The
+  // useState seeds at the top run only once on mount; without this
+  // effect, prop changes afterwards would leave the page out of sync
+  // with the URL. Skip while a stream is in flight so we don't yank
+  // the user out of an active conversation — when streaming flips
+  // false the effect re-runs and applies the pending change.
   const appliedAdapterRef = useRef(initialAdapterId);
   useEffect(() => {
     if (initialAdapterId === appliedAdapterRef.current) return;
-    if (!initialAdapterId) return;
     if (streaming) return;
     appliedAdapterRef.current = initialAdapterId;
-    setMode("adapter");
-    setSelectedJob(initialAdapterId);
+    if (initialAdapterId) {
+      setMode("adapter");
+      setSelectedJob(initialAdapterId);
+    } else {
+      // URL dropped the adapter param — fall back to base mode so the
+      // page state matches the bare `#/playground` URL. Leave
+      // `selectedJob` as-is so flipping back to Adapter via the
+      // picker remembers the prior selection.
+      setMode("base");
+    }
     setMessages([]);
   }, [initialAdapterId, streaming]);
 
