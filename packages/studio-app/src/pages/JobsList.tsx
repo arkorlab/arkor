@@ -30,6 +30,12 @@ export function JobsList() {
   // two concurrent /api/jobs calls could finish out of order and an
   // older snapshot could overwrite a newer one in `setJobs`.
   const inFlightRef = useRef(false);
+  // Set when the user clicks Refresh while the polling tick's load()
+  // is still awaiting fetchJobs. Without this the click would early-
+  // return at `inFlightRef` and produce no spinner / no follow-up
+  // fetch, swallowing the user's intent. The poll's finally block
+  // checks this flag and kicks a manual follow-up immediately.
+  const pendingManualRef = useRef(false);
 
   // useCallback (with `[]` deps) makes this referentially stable across
   // renders so the polling effect below can list it as a dependency
@@ -43,11 +49,21 @@ export function JobsList() {
   // re-mounts in a way that could drop a still-in-flight load's
   // results during the cleanup→remount window. The polling effect
   // below uses an effect-local `cancelled` to gate scheduling.
+  //
   // `manual` flips the visible spinner; the silent 5s polling tick
   // calls load() without it so the refresh icon doesn't pulse every
   // five seconds and look like the user just clicked it.
   const load = useCallback(async (manual = false) => {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current) {
+      // Don't drop a user click — flip the spinner so they get
+      // immediate feedback and queue a follow-up fetch for when the
+      // current request resolves.
+      if (manual) {
+        pendingManualRef.current = true;
+        setRefreshing(true);
+      }
+      return;
+    }
     inFlightRef.current = true;
     if (manual) setRefreshing(true);
     try {
@@ -58,7 +74,16 @@ export function JobsList() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       inFlightRef.current = false;
-      if (manual) setRefreshing(false);
+      if (pendingManualRef.current) {
+        // Honour the queued click. Recursing keeps the spinner up
+        // (we don't release `refreshing` first) and pulls fresh data
+        // for the user's actual request, not just the poll snapshot
+        // that happened to be in flight.
+        pendingManualRef.current = false;
+        void load(true);
+      } else if (manual) {
+        setRefreshing(false);
+      }
     }
   }, []);
 
