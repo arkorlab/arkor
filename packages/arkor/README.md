@@ -20,7 +20,7 @@ Direct install is fine too:
 pnpm add arkor
 ```
 
-Requires Node.js 22.6+.
+Requires Node.js 22.22.0+.
 
 ## SDK
 
