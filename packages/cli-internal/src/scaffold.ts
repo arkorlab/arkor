@@ -28,6 +28,14 @@ export interface ScaffoldOptions {
 export interface ScaffoldResult {
   files: Array<{ path: string; action: FileAction }>;
   cwd: string;
+  /**
+   * Non-fatal advisories the scaffolder couldn't fix on its own. Empty
+   * when there is nothing to flag. Currently populated by
+   * `writeAgentsMd` when an existing `AGENTS.md` contains more than one
+   * canonical managed block (auto-picking either copy is unsafe — the
+   * user must dedupe before the next re-scaffold can patch in place).
+   */
+  warnings: string[];
 }
 
 const INDEX_PATH = "src/arkor/index.ts";
@@ -151,6 +159,11 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+type ManagedBlockLookup =
+  | { kind: "none" }
+  | { kind: "single"; begin: number; end: number }
+  | { kind: "ambiguous"; count: number };
+
 /**
  * Locate the arkor-managed block in `s`.
  *
@@ -158,8 +171,9 @@ function escapeRegExp(s: string): string {
  * (or pasted documentation) as the managed block:
  *
  *   1. **Line-anchored markers.** BEGIN and END must each sit at the
- *      start of a line (optionally after a CR). Inline mentions inside
- *      backticks (e.g. "delimited by `<!-- BEGIN:arkor-agent-rules -->`")
+ *      start of a line — at file start (optionally after a UTF-8 BOM),
+ *      or after a CR/LF newline. Inline mentions inside backticks
+ *      (e.g. "delimited by `<!-- BEGIN:arkor-agent-rules -->`")
  *      therefore do not register.
  *   2. **Signature line.** The line immediately after BEGIN must equal
  *      `AGENTS_BLOCK_SIGNATURE_LINE` ("# arkor is newer than your
@@ -169,64 +183,92 @@ function escapeRegExp(s: string): string {
  *      managed block to remove the heading) we deliberately fall through
  *      to the append path, which preserves their bytes and adds a fresh
  *      canonical block at the end.
- *   3. **Trailing pair.** When several signature-matching pairs exist
- *      (rare — e.g. an aggregator README that pastes the canonical block
- *      multiple times), pick the trailing one because the canonical block
- *      is always written at the end of the file by the append path.
+ *   3. **Single match required.** When several signature-matching pairs
+ *      exist we refuse to patch and surface a warning to the caller.
+ *      Earlier rounds tried "pick the first" / "pick the last", but both
+ *      are unsafe — `writeAgentsMd` preserves user content on either side
+ *      of the managed block, so a user can legitimately put the block at
+ *      the top, middle, or bottom of their file. Auto-picking either end
+ *      would update the wrong copy and silently leave a stale set of
+ *      rules in the file. Keeping the file untouched + warning is the
+ *      conservative default; the user resolves the duplication and the
+ *      next re-scaffold patches in place.
  */
-function findManagedBlock(
-  s: string,
-): { begin: number; end: number } | null {
+function findManagedBlock(s: string): ManagedBlockLookup {
   // All inter-line breaks accept either LF or CRLF. Hard-coding `\n`
   // would cause re-scaffolds of a CRLF AGENTS.md to miss the previously
   // inserted block (its line breaks are `\r\n`), fall through to the
   // append path, and stack a second canonical block on every run —
-  // breaking idempotency on Windows checkouts.
+  // breaking idempotency on Windows checkouts. The leading anchor also
+  // skips an optional UTF-8 BOM (U+FEFF) at the file start so AGENTS.md
+  // saved by editors that prepend a BOM (Windows Notepad's pre-2019
+  // default, etc.) still detect the existing block on re-scaffold.
   const NL = "(?:\\r\\n|\\n)";
   const re = new RegExp(
-    `(?:^|${NL})${escapeRegExp(AGENTS_BLOCK_BEGIN)}${NL}${escapeRegExp(
+    `(?:^\\uFEFF?|${NL})${escapeRegExp(AGENTS_BLOCK_BEGIN)}${NL}${escapeRegExp(
       AGENTS_BLOCK_SIGNATURE_LINE,
     )}${NL}[\\s\\S]*?${NL}${escapeRegExp(AGENTS_BLOCK_END)}`,
     "gm",
   );
   const matches = [...s.matchAll(re)];
-  if (matches.length === 0) return null;
-  const m = matches[matches.length - 1]!;
-  // Strip the leading-newline anchor so we replace the marker itself,
-  // not the newline ahead of it. The leading anchor is either `\r\n`
-  // (2 chars), `\n` (1 char), or absent (0 chars — file starts with the
-  // marker). Match-boundary `m.index` always points at the newline
-  // start, so the offset is just the leading-NL byte length.
-  const leadingNl = m[0].startsWith("\r\n")
-    ? 2
-    : m[0].startsWith("\n")
-      ? 1
-      : 0;
+  if (matches.length === 0) return { kind: "none" };
+  if (matches.length > 1) {
+    return { kind: "ambiguous", count: matches.length };
+  }
+  const m = matches[0]!;
+  // Strip the leading-newline (or BOM) anchor so we replace the marker
+  // itself, not the newline / BOM ahead of it. Possible prefixes:
+  //   - "\r\n" (2 chars)
+  //   - "\n"   (1 char)
+  //   - "﻿" (1 char — UTF-16 code unit; both String#slice and the
+  //     scaffolder's downstream `string.slice(start, end)` are UTF-16
+  //     code-unit-indexed, matching `m.index` semantics)
+  //   - "" when the marker sits at byte 0 of an unBOM'd file
+  let leading = 0;
+  if (m[0].startsWith("\r\n")) leading = 2;
+  else if (m[0].startsWith("\n")) leading = 1;
+  else if (m[0].startsWith("﻿")) leading = 1;
   return {
-    begin: m.index + leadingNl,
+    kind: "single",
+    begin: m.index + leading,
     end: m.index + m[0].length,
   };
 }
 
-async function writeAgentsMd(cwd: string): Promise<FileAction> {
+async function writeAgentsMd(
+  cwd: string,
+): Promise<{ action: FileAction; warning?: string }> {
   const path = join(cwd, AGENTS_MD_PATH);
   if (!existsSync(path)) {
     await writeFile(path, `${AGENTS_BLOCK_BODY}\n`);
-    return "created";
+    return { action: "created" };
   }
   const current = await readFile(path, "utf8");
   const eol = detectEol(current);
   const block = withEol(AGENTS_BLOCK_BODY, eol);
 
   const found = findManagedBlock(current);
-  if (found) {
+  if (found.kind === "ambiguous") {
+    // Conservative: don't guess which copy is canonical. Auto-picking
+    // first/last is unsafe — `writeAgentsMd` lets users put content on
+    // either side of the managed block, so a duplicate could be a real
+    // earlier block + a user-pasted example below it (or vice versa).
+    // Patching the wrong one silently leaves stale rules in the file.
+    // Surface a warning and let the user dedupe; the next re-scaffold
+    // will patch in place.
+    return {
+      action: "kept",
+      warning: `${AGENTS_MD_PATH} contains ${found.count} arkor-managed blocks (delimited by ${AGENTS_BLOCK_BEGIN} / ${AGENTS_BLOCK_END} with the canonical signature line). Refusing to patch automatically — remove the duplicate(s) and re-run.`,
+    };
+  }
+  if (found.kind === "single") {
     // Replace block content only, preserving anything outside the markers.
     const before = current.slice(0, found.begin);
     const after = current.slice(found.end);
     const next = `${before}${block}${after}`;
-    if (next === current) return "ok";
+    if (next === current) return { action: "ok" };
     await writeFile(path, next);
-    return "patched";
+    return { action: "patched" };
   }
   // No markers yet — append the block at the end. Preserve the user's
   // existing trailing-newline pattern verbatim (a previous version
@@ -249,7 +291,7 @@ async function writeAgentsMd(cwd: string): Promise<FileAction> {
     separator = `${eol}${eol}`;
   }
   await writeFile(path, `${current}${separator}${block}${eol}`);
-  return "patched";
+  return { action: "patched" };
 }
 
 async function writeClaudeMd(cwd: string): Promise<FileAction> {
@@ -338,7 +380,10 @@ export async function scaffold(
     path: README_PATH,
     action: await ensureFile(
       join(cwd, README_PATH),
-      STARTER_README(options.name),
+      // Mirror what we actually emit on disk so a `--no-agents-md` run
+      // doesn't ship a README that documents AGENTS.md / CLAUDE.md as
+      // existing files.
+      STARTER_README(options.name, { agentsMd: options.agentsMd === true }),
     ),
   });
   files.push({
@@ -349,17 +394,17 @@ export async function scaffold(
     path: PACKAGE_JSON_PATH,
     action: await patchPackageJson(cwd, options.name),
   });
+  const warnings: string[] = [];
   if (options.agentsMd) {
-    files.push({
-      path: AGENTS_MD_PATH,
-      action: await writeAgentsMd(cwd),
-    });
+    const agents = await writeAgentsMd(cwd);
+    files.push({ path: AGENTS_MD_PATH, action: agents.action });
+    if (agents.warning) warnings.push(agents.warning);
     files.push({
       path: CLAUDE_MD_PATH,
       action: await writeClaudeMd(cwd),
     });
   }
-  return { files, cwd };
+  return { files, cwd, warnings };
 }
 
 export function templateChoices(): Array<{

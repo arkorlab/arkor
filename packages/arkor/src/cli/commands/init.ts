@@ -133,7 +133,7 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
   // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
-  const { files } = await scaffold({
+  const { files, warnings } = await scaffold({
     cwd,
     name: sanitise(projectName),
     template,
@@ -144,6 +144,9 @@ export async function runInit(options: InitOptions): Promise<void> {
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
+  for (const w of warnings) {
+    ui.log.warn(w);
+  }
 
   const pm = options.packageManager;
 

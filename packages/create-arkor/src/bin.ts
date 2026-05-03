@@ -219,7 +219,7 @@ async function run(options: RunOptions): Promise<void> {
 
   const spin = clack.spinner();
   spin.start(`Scaffolding in ${cwd}`);
-  const { files } = await scaffold({
+  const { files, warnings } = await scaffold({
     cwd,
     name,
     template,
@@ -231,6 +231,9 @@ async function run(options: RunOptions): Promise<void> {
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
+  for (const w of warnings) {
+    clack.log.warn(w);
+  }
 
   const pm = options.packageManager;
 

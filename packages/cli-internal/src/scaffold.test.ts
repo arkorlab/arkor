@@ -481,6 +481,104 @@ describe("scaffold", () => {
     expect(afterSecond.match(new RegExp(AGENTS_BEGIN, "g"))?.length).toBe(1);
   });
 
+  it("detects an existing managed block in a UTF-8-with-BOM AGENTS.md", async () => {
+    // Regression: the previous regex anchored BEGIN at `^` or after a
+    // newline. A BOM at the file start (Windows Notepad's pre-2019
+    // default save mode) put a U+FEFF byte ahead of BEGIN, so neither
+    // anchor matched. The detector returned null and re-scaffolding
+    // appended a second canonical block instead of patching in place.
+    // Re-scaffolds of a BOM file must therefore be idempotent.
+    const BOM = "﻿";
+    const block = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\noriginal canonical body\n${AGENTS_END}`;
+    writeFileSync(join(cwd, "AGENTS.md"), `${BOM}${block}\n`);
+
+    const first = await scaffold({
+      cwd,
+      name: "bom",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(first.warnings).toEqual([]);
+    // The block was detected and patched in place — file still has
+    // exactly one BEGIN / END pair and the BOM survives at byte 0.
+    const after = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(after.startsWith(BOM)).toBe(true);
+    expect(after.match(new RegExp(AGENTS_BEGIN, "g"))?.length).toBe(1);
+    expect(after.match(new RegExp(AGENTS_END, "g"))?.length).toBe(1);
+    // Stale content gone; canonical body present.
+    expect(after).not.toContain("original canonical body");
+    expect(after).toContain("arkor is newer than your training data");
+
+    // Second re-scaffold: idempotent.
+    const second = await scaffold({
+      cwd,
+      name: "bom",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
+      "ok",
+    );
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(after);
+  });
+
+  it("refuses to patch when AGENTS.md contains multiple canonical blocks (warns instead)", async () => {
+    // Auto-picking first/last is unsafe — `writeAgentsMd` lets users
+    // put content on either side of the managed block, so a duplicate
+    // could be a real earlier block + a user-pasted example below it
+    // (or vice versa). The conservative response is to refuse the
+    // patch and surface a warning so the user can dedupe.
+    const block = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nfirst copy\n${AGENTS_END}`;
+    const dup = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nsecond copy\n${AGENTS_END}`;
+    const original = `# Project\n\n${block}\n\nUser notes\n\n${dup}\n`;
+    writeFileSync(join(cwd, "AGENTS.md"), original);
+
+    const result = await scaffold({
+      cwd,
+      name: "ambiguous",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = result.files.find((f) => f.path === "AGENTS.md");
+    expect(agents?.action).toBe("kept");
+    // File must be byte-identical — no auto-patch happened.
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(original);
+    // Warning surfaced naming the file and the canonical block markers.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("AGENTS.md");
+    expect(result.warnings[0]).toContain("2");
+    expect(result.warnings[0]).toContain(AGENTS_BEGIN);
+  });
+
+  it("scaffolds README.md without the AGENTS.md / CLAUDE.md bullet when agentsMd is false", async () => {
+    // Regression: `STARTER_README` previously hard-coded an
+    // `AGENTS.md / CLAUDE.md` bullet that ran for every fresh scaffold.
+    // A `--no-agents-md` project would then ship a README documenting
+    // files that were intentionally not created. The bullet must
+    // mirror what was actually written to disk.
+    await scaffold({ cwd, name: "no-agents-readme", template: "triage" });
+    const readme = readFileSync(join(cwd, "README.md"), "utf8");
+    expect(readme).not.toContain("AGENTS.md");
+    expect(readme).not.toContain("CLAUDE.md");
+    expect(readme).not.toContain("--no-agents-md");
+    // Other Files-section entries still present.
+    expect(readme).toContain("src/arkor/index.ts");
+    expect(readme).toContain("arkor.config.ts");
+  });
+
+  it("scaffolds README.md with the AGENTS.md / CLAUDE.md bullet when agentsMd is true", async () => {
+    await scaffold({
+      cwd,
+      name: "with-agents-readme",
+      template: "triage",
+      agentsMd: true,
+    });
+    const readme = readFileSync(join(cwd, "README.md"), "utf8");
+    expect(readme).toContain("AGENTS.md");
+    expect(readme).toContain("CLAUDE.md");
+    expect(readme).toContain("--no-agents-md");
+  });
+
   it("treats a stray CRLF in an otherwise-LF AGENTS.md as LF (dominant style)", async () => {
     // Regression for the previous detectEol implementation that flipped
     // the inserted block to CRLF as soon as a single \r\n appeared

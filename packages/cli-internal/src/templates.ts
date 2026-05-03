@@ -119,7 +119,18 @@ export const STARTER_CONFIG = `// Placeholder for future project-level config �
 export default {};
 `;
 
-export const STARTER_README = (name: string) => `# ${name}
+/**
+ * Body of the scaffolded `README.md`.
+ *
+ * `agentsMd` controls whether the AGENTS.md / CLAUDE.md bullet appears
+ * in the Files section: it must mirror what the scaffolder actually
+ * wrote to disk, otherwise a project created with `--no-agents-md`
+ * would ship a README that documents files that do not exist.
+ */
+export const STARTER_README = (
+  name: string,
+  options: { agentsMd: boolean } = { agentsMd: true },
+) => `# ${name}
 
 An arkor training project scaffolded by \`create-arkor\`.
 
@@ -162,14 +173,18 @@ npm run start    # runs the build artifact on the cloud
   register them in the \`createArkor\` call.
 - \`arkor.config.ts\` — placeholder for future project-level config. The
   runtime does not read fields from this file yet. Project routing lives
-  in \`.arkor/state.json\`, managed by the CLI.
+  in \`.arkor/state.json\`, managed by the CLI.${
+    options.agentsMd
+      ? `
 - \`AGENTS.md\` / \`CLAUDE.md\` — instructions for AI coding agents,
   briefing them that arkor post-dates their training data. \`CLAUDE.md\`
   is a one-liner that imports \`AGENTS.md\` via the Claude Code
   \`@<path>\` directive. To opt out of these files in **future**
   scaffolds, pass \`--no-agents-md\` to \`create-arkor\` / \`arkor init\`;
   the flag does not delete files that are already on disk, so remove
-  them by hand if you no longer want them.
+  them by hand if you no longer want them.`
+      : ""
+  }
 
 Requires Node.js >= 22.6.
 `;
