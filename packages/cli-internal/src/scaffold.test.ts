@@ -443,6 +443,44 @@ describe("scaffold", () => {
     expect(body).toContain(`\r\n${AGENTS_END}`);
   });
 
+  it("re-scaffolding a CRLF AGENTS.md is idempotent (does not stack a second managed block)", async () => {
+    // Regression: the previous `findManagedBlock` regex hard-coded `\n`
+    // between BEGIN/signature/END, so it failed to recognise a managed
+    // block in a CRLF-formatted file (where the actual line breaks are
+    // `\r\n`). The detector returned null on every re-scaffold and the
+    // append path stacked a fresh canonical block on each run, growing
+    // the file unboundedly on Windows checkouts.
+    const existing = "# Project\r\n\r\nNotes.\r\n";
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+
+    // First scaffold: append (action `patched`).
+    await scaffold({
+      cwd,
+      name: "crlf-idempotent",
+      template: "triage",
+      agentsMd: true,
+    });
+    const afterFirst = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // Exactly one canonical block landed.
+    expect(afterFirst.match(new RegExp(AGENTS_BEGIN, "g"))?.length).toBe(1);
+    expect(afterFirst.match(new RegExp(AGENTS_END, "g"))?.length).toBe(1);
+
+    // Second scaffold: must detect the existing block (despite CRLF
+    // breaks), find no diff, and return `ok` without growing the file.
+    const second = await scaffold({
+      cwd,
+      name: "crlf-idempotent",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
+      "ok",
+    );
+    const afterSecond = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(afterSecond).toBe(afterFirst);
+    expect(afterSecond.match(new RegExp(AGENTS_BEGIN, "g"))?.length).toBe(1);
+  });
+
   it("treats a stray CRLF in an otherwise-LF AGENTS.md as LF (dominant style)", async () => {
     // Regression for the previous detectEol implementation that flipped
     // the inserted block to CRLF as soon as a single \r\n appeared

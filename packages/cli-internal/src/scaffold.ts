@@ -177,17 +177,35 @@ function escapeRegExp(s: string): string {
 function findManagedBlock(
   s: string,
 ): { begin: number; end: number } | null {
+  // All inter-line breaks accept either LF or CRLF. Hard-coding `\n`
+  // would cause re-scaffolds of a CRLF AGENTS.md to miss the previously
+  // inserted block (its line breaks are `\r\n`), fall through to the
+  // append path, and stack a second canonical block on every run —
+  // breaking idempotency on Windows checkouts.
+  const NL = "(?:\\r\\n|\\n)";
   const re = new RegExp(
-    `(?:^|\\n)${escapeRegExp(AGENTS_BLOCK_BEGIN)}\\n${escapeRegExp(
+    `(?:^|${NL})${escapeRegExp(AGENTS_BLOCK_BEGIN)}${NL}${escapeRegExp(
       AGENTS_BLOCK_SIGNATURE_LINE,
-    )}\\n[\\s\\S]*?\\n${escapeRegExp(AGENTS_BLOCK_END)}`,
+    )}${NL}[\\s\\S]*?${NL}${escapeRegExp(AGENTS_BLOCK_END)}`,
     "gm",
   );
   const matches = [...s.matchAll(re)];
   if (matches.length === 0) return null;
   const m = matches[matches.length - 1]!;
-  const beginOffset = m[0].startsWith("\n") ? 1 : 0;
-  return { begin: m.index + beginOffset, end: m.index + m[0].length };
+  // Strip the leading-newline anchor so we replace the marker itself,
+  // not the newline ahead of it. The leading anchor is either `\r\n`
+  // (2 chars), `\n` (1 char), or absent (0 chars — file starts with the
+  // marker). Match-boundary `m.index` always points at the newline
+  // start, so the offset is just the leading-NL byte length.
+  const leadingNl = m[0].startsWith("\r\n")
+    ? 2
+    : m[0].startsWith("\n")
+      ? 1
+      : 0;
+  return {
+    begin: m.index + leadingNl,
+    end: m.index + m[0].length,
+  };
 }
 
 async function writeAgentsMd(cwd: string): Promise<FileAction> {
