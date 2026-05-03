@@ -3,6 +3,10 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  MANUAL_DEV_HINT,
+  MANUAL_INSTALL_HINT,
+  MANUAL_RUN_ARKOR_DEV_HINT,
+  runArkorDevViaPm,
   sanitise,
   scaffold,
   TEMPLATES,
@@ -29,32 +33,6 @@ export interface InitOptions {
   git?: boolean;
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
-}
-
-const MANUAL_INSTALL_HINT =
-  "install dependencies (npm i / pnpm install / yarn / bun install)";
-
-const MANUAL_DEV_HINT =
-  "run dev (npm run dev / pnpm dev / yarn dev / bun dev)";
-
-// Used when the project's `dev` script was preserved by the scaffolder and
-// points at something other than `arkor dev` (e.g. an existing `next dev`).
-// Suggest invoking the local arkor binary directly via the package manager
-// runner so the user does not accidentally launch their pre-existing app.
-const MANUAL_RUN_ARKOR_DEV_HINT =
-  "run arkor dev (npx arkor dev / pnpm exec arkor dev / yarn run arkor dev / bunx arkor dev)";
-
-function runArkorDevViaPm(pm: PackageManager): string {
-  switch (pm) {
-    case "npm":
-      return "npx arkor dev";
-    case "pnpm":
-      return "pnpm exec arkor dev";
-    case "yarn":
-      return "yarn run arkor dev";
-    case "bun":
-      return "bunx arkor dev";
-  }
 }
 
 /**

@@ -19,6 +19,12 @@ export {
 } from "./package-manager";
 export { install } from "./install";
 export {
+  MANUAL_DEV_HINT,
+  MANUAL_INSTALL_HINT,
+  MANUAL_RUN_ARKOR_DEV_HINT,
+  runArkorDevViaPm,
+} from "./next-steps";
+export {
   gitInitialCommit,
   isInGitRepo,
   type InitialCommitResult,
