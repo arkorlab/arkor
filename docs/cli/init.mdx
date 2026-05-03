@@ -8,7 +8,7 @@ description: "Scaffold an Arkor project in the current directory."
 <CodeGroup>
 
 ```bash pnpm
-pnpm dlx arkor init
+pnpm exec arkor init
 ```
 
 ```bash npm
@@ -16,7 +16,7 @@ npx arkor init
 ```
 
 ```bash yarn
-yarn dlx arkor init
+yarn arkor init
 ```
 
 ```bash bun
@@ -87,7 +87,7 @@ When `process.stdout` is not a TTY, or `CI` is set in the environment, `arkor in
 <CodeGroup>
 
 ```bash pnpm
-pnpm dlx arkor init --yes --template triage --use-pnpm --skip-git
+pnpm exec arkor init --yes --template triage --use-pnpm --skip-git
 ```
 
 ```bash npm
@@ -95,7 +95,7 @@ npx arkor init --yes --template triage --use-npm --skip-git
 ```
 
 ```bash yarn
-yarn dlx arkor init --yes --template triage --use-yarn --skip-git
+yarn arkor init --yes --template triage --use-yarn --skip-git
 ```
 
 ```bash bun
@@ -123,7 +123,7 @@ Interactive:
 <CodeGroup>
 
 ```bash pnpm
-pnpm dlx arkor init
+pnpm exec arkor init
 ```
 
 ```bash npm
@@ -131,7 +131,7 @@ npx arkor init
 ```
 
 ```bash yarn
-yarn dlx arkor init
+yarn arkor init
 ```
 
 ```bash bun
@@ -145,7 +145,7 @@ Accept defaults, skip install, skip git:
 <CodeGroup>
 
 ```bash pnpm
-pnpm dlx arkor init --yes --skip-install --skip-git
+pnpm exec arkor init --yes --skip-install --skip-git
 ```
 
 ```bash npm
@@ -153,7 +153,7 @@ npx arkor init --yes --skip-install --skip-git
 ```
 
 ```bash yarn
-yarn dlx arkor init --yes --skip-install --skip-git
+yarn arkor init --yes --skip-install --skip-git
 ```
 
 ```bash bun
@@ -167,7 +167,7 @@ Pin the template and force the package manager:
 <CodeGroup>
 
 ```bash pnpm
-pnpm dlx arkor init --template translate --use-pnpm
+pnpm exec arkor init --template translate --use-pnpm
 ```
 
 ```bash npm
@@ -175,7 +175,7 @@ npx arkor init --template translate --use-npm
 ```
 
 ```bash yarn
-yarn dlx arkor init --template translate --use-yarn
+yarn arkor init --template translate --use-yarn
 ```
 
 ```bash bun
