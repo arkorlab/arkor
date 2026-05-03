@@ -31,7 +31,7 @@ export type Credentials = Auth0Credentials | AnonymousCredentials;
  * non-2xx status while requesting an anonymous token.
  *
  * Covers both explicit deployment-side rejection (e.g. anonymous tokens
- * disabled — typically 401/403/404) and other HTTP failures such as
+ * disabled: typically 401/403/404) and other HTTP failures such as
  * transient 5xx server errors. Distinct from transport failures (raw
  * `TypeError("fetch failed")`), schema mismatches (`ZodError`), and
  * local fs errors so callers can pattern-match on "anon endpoint

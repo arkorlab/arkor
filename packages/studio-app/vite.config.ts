@@ -45,7 +45,7 @@ function arkorStudioToken(): Plugin {
       try {
         token = (await readFile(STUDIO_TOKEN_PATH, "utf8")).trim();
       } catch {
-        // `arkor dev` not running yet — leave the SPA token-less and let
+        // `arkor dev` not running yet: leave the SPA token-less and let
         // the Studio server's 403 surface the wiring problem on first call.
         return html;
       }

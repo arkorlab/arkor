@@ -192,7 +192,7 @@ describe("exchangeCode", () => {
   it("throws when Auth0 omits the refresh token (offline_access scope missing)", async () => {
     // The offline_access scope is what causes Auth0 to issue a refresh
     // token. Forgetting it on the Application registration is a common
-    // setup mistake — surface the actionable hint loudly rather than
+    // setup mistake: surface the actionable hint loudly rather than
     // limping along with no refresh capability.
     const fetchImpl = (async () =>
       new Response(
@@ -268,9 +268,9 @@ describe("startLoopbackServer", () => {
       );
       expect(res.status).toBe(400);
       const body = await res.text();
-      // The trailing ` — ` is preserved before the empty description so
+      // The trailing `: ` is preserved before the empty description so
       // a regression that drops the separator surfaces here.
-      expect(body).toContain("Authentication failed: server_error — ");
+      expect(body).toContain("Authentication failed: server_error: ");
       const err = await callback;
       expect((err as Error).message).toMatch(/server_error/);
     } finally {
@@ -299,7 +299,7 @@ describe("startLoopbackServer", () => {
       );
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
       const body = await res.text();
-      // Payload must round-trip literally — not HTML-escaped (text/plain
+      // Payload must round-trip literally: not HTML-escaped (text/plain
       // already neutralises it) and not stripped.
       expect(body).toContain(payload);
       await callback;
@@ -332,7 +332,7 @@ describe("startLoopbackServer", () => {
       const res = await fetch(`http://127.0.0.1:${result.port}/`);
       expect(res.status).toBe(404);
 
-      // The callback promise is still pending — `waitForCallback` only
+      // The callback promise is still pending: `waitForCallback` only
       // resolves on a real /callback hit.
       const sentinel = Symbol("pending");
       const winner = await Promise.race([
@@ -366,7 +366,7 @@ describe("startLoopbackServer", () => {
 
   it("throws when none of the requested ports can be bound", async () => {
     // Hold an ephemeral port to guarantee an EADDRINUSE on the second
-    // bind attempt — relying on the unprivileged-port (port 1) trick is
+    // bind attempt: relying on the unprivileged-port (port 1) trick is
     // not portable (root containers, BSD permission models). The error
     // message must include all attempted ports so the user can update
     // the Auth0 Allowed Callback URLs.

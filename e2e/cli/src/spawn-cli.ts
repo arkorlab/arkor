@@ -44,7 +44,7 @@ export function runCli(
   // pnpm-workspace.yaml becomes `npm_config_minimum_release_age`). Inside
   // an e2e test that scaffolds a *fresh* project in /tmp and runs `pnpm
   // install`, those leak through and apply the workspace's policy to a
-  // brand-new tree — most painfully, freshly-published `arkor` versions
+  // brand-new tree: most painfully, freshly-published `arkor` versions
   // get blocked by minimumReleaseAge. Strip them so the spawned CLI sees
   // a clean user shell.
   //
@@ -53,7 +53,7 @@ export function runCli(
   // the parent can hand us `NPM_CONFIG_USER_AGENT` while we expect
   // `npm_config_user_agent`. A case-sensitive prefix check would let the
   // upper-case variant leak through, which on Windows then collides with
-  // our explicit `npm_config_user_agent: ""` override below — Windows
+  // our explicit `npm_config_user_agent: ""` override below: Windows
   // picks one of the duplicates non-deterministically and the spawned
   // CLI has historically seen pnpm's UA, defeating the hermetic
   // `detectPackageManager()` path.
@@ -71,7 +71,7 @@ export function runCli(
     // POSIX consults HOME, Windows consults USERPROFILE (with HOMEDRIVE
     // + HOMEPATH as a tertiary fallback). Without this, tests that seed
     // a fake `~/.arkor/credentials.json` under HOME are silently bypassed
-    // on Windows — the CLI keeps reading the real runner profile and
+    // on Windows: the CLI keeps reading the real runner profile and
     // reports "Not signed in", causing assertions to fail in confusing
     // ways. Tests that genuinely need divergent HOME / USERPROFILE values
     // can still set USERPROFILE explicitly: extraEnv is spread last.

@@ -27,7 +27,7 @@ export interface BlobDatasetSource {
 export type DatasetSource = HuggingfaceDatasetSource | BlobDatasetSource;
 
 /**
- * Wire shape sent to the cloud API's job-create endpoint. Internal — users
+ * Wire shape sent to the cloud API's job-create endpoint. Internal: users
  * compose a `TrainerInput` and the SDK translates to this.
  */
 export interface JobConfig {
@@ -204,7 +204,7 @@ export interface Trainer {
 
 /**
  * Project entry-point manifest produced by `createArkor`. Currently a frozen descriptor
- * of the project's primitives. The shape is intentionally opaque — operation
+ * of the project's primitives. The shape is intentionally opaque: operation
  * methods may be added later without breaking the user-facing API.
  */
 export interface Arkor {

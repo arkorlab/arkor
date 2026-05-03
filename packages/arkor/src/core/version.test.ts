@@ -5,7 +5,7 @@ import { SDK_VERSION } from "./version";
 // where `__SDK_VERSION__` is a free identifier replaced textually by
 // tsdown's build-time `define`. After the transform, the ternary is dead
 // code (the artifact contains a literal version string), so the
-// "defined" branch is only ever taken in the built bundle — not at
+// "defined" branch is only ever taken in the built bundle: not at
 // runtime in any environment a unit test can simulate. Setting
 // `globalThis.__SDK_VERSION__` doesn't help: it might happen to satisfy
 // `typeof __SDK_VERSION__` on V8 in some scope chains, but that's a

@@ -37,7 +37,7 @@ function fakeClient(
   // Construct a real CloudApiClient (so type-compatibility holds), then
   // monkey-patch only the methods exercised by ensureProjectState. The
   // other methods would throw on first use because no fetcher is wired,
-  // which is fine — projectState should never reach them.
+  // which is fine: projectState should never reach them.
   const client = new CloudApiClient({
     baseUrl: "http://mock",
     credentials: anonCreds,
@@ -84,7 +84,7 @@ describe("ensureProjectState", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
-  it("throws for auth0 callers without state — they must run `arkor init`", async () => {
+  it("throws for auth0 callers without state: they must run `arkor init`", async () => {
     const client = fakeClient();
     await expect(
       ensureProjectState({ cwd, client, credentials: auth0Creds }),
@@ -116,7 +116,7 @@ describe("ensureProjectState", () => {
       expect(createProject).toHaveBeenCalledWith({
         orgSlug: "anon-abc",
         name: expect.stringMatching(/^my-app/),
-        // Sanitised slug — basename starts with "my-app-<random>", and we
+        // Sanitised slug: basename starts with "my-app-<random>", and we
         // expect the sanitiser to keep dashes.
         slug: expect.stringMatching(/^my-app/),
       });

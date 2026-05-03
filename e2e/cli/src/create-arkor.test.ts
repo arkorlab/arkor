@@ -37,7 +37,7 @@ async function runCreateArkor(
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
 
 // pnpm 10 cannot parse Windows-drive `file:` URIs in any form
-// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break — pnpm strips
+// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break: pnpm strips
 // the prefix and joins to the install cwd, then aborts with
 // `ENOENT: scandir '<cwd>\D:\...'`). The install-matrix tests sidestep
 // that by pre-packing arkor into a tarball once per file and referencing
@@ -202,7 +202,7 @@ describe("create-arkor (E2E)", () => {
     expect(trainer).toContain('"redaction-run"');
   });
 
-  // Regression for ENG-357 — `--name "Foo Bar"` previously fell through to
+  // Regression for ENG-357: `--name "Foo Bar"` previously fell through to
   // package.json verbatim because sanitisation only ran inside the
   // interactive branch.
   it("sanitises --name when prompts are skipped", async () => {
@@ -221,7 +221,7 @@ describe("create-arkor (E2E)", () => {
     expect(pkg.name).toBe("foo-bar");
   });
 
-  // Regression for ENG-359 — `process.cwd()` / `options.dir` ending in `/`
+  // Regression for ENG-359: `process.cwd()` / `options.dir` ending in `/`
   // (Docker root, `--dir foo/`, etc.) used to produce an empty defaultName
   // because `cwd.split(/[/\\]/).pop()` returned "" and `??` only fires on
   // null/undefined. `path.basename` correctly strips the trailing slash.
@@ -241,7 +241,7 @@ describe("create-arkor (E2E)", () => {
     expect(pkg.name).toBe("trail");
   });
 
-  // Regression for ENG-426 — without an explicit `[dir]` the CLI used to
+  // Regression for ENG-426: without an explicit `[dir]` the CLI used to
   // scaffold straight into `process.cwd()`, littering whatever directory the
   // user happened to be in. The new behaviour mirrors `create-vite`: derive
   // the project name (prompted in interactive mode, `arkor-project` under
@@ -300,7 +300,7 @@ describe("create-arkor (E2E)", () => {
 
   // Collision guards for the auto-derived `./<name>/` path. When the user
   // didn't pass `[dir]` we refuse to merge into a non-empty existing
-  // directory — easy to hit by accident (typo, forgotten earlier scaffold)
+  // directory: easy to hit by accident (typo, forgotten earlier scaffold)
   // and the silent merge would surprise users.
   it("refuses to scaffold when ./arkor-project/ already exists and is non-empty", async () => {
     const collidingDir = join(parentDir, "arkor-project");
@@ -316,7 +316,7 @@ describe("create-arkor (E2E)", () => {
     expect(result.stdout + result.stderr).toContain(
       'Directory "arkor-project/" already exists and is not empty.',
     );
-    // Sentinel survives — we bailed before touching anything.
+    // Sentinel survives: we bailed before touching anything.
     expect(readFileSync(join(collidingDir, "sentinel.txt"), "utf8")).toBe(
       "do not touch\n",
     );
@@ -358,7 +358,7 @@ describe("create-arkor (E2E)", () => {
     expect(readFileSync(join(targetDir, "sentinel.txt"), "utf8")).toBe("kept\n");
   });
 
-  // Collision check should NOT fire when the would-be target is empty —
+  // Collision check should NOT fire when the would-be target is empty:
   // makes sure the guard discriminates between empty placeholders (e.g. a
   // pre-created mount point) and real existing projects.
   it("scaffolds into an empty pre-existing ./<name>/ without complaining", async () => {
@@ -401,7 +401,7 @@ describe("create-arkor (E2E)", () => {
 
       // Lockfile-in-initial-commit invariant: the git-init prompt is
       // surfaced *before* install so the user can walk away, but git init
-      // execution still happens *after* install — otherwise the lockfile
+      // execution still happens *after* install: otherwise the lockfile
       // wouldn't be tracked and the bootstrap commit wouldn't be reproducible.
       const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
       expect(tracked.stdout).toContain(lockfile);

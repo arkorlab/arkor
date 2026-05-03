@@ -16,7 +16,7 @@ export async function install(
     const child = spawn(packageManager, ["install"], {
       cwd,
       stdio: "inherit",
-      // `pnpm` / `yarn` / `bun` are `.cmd` shims on Windows — spawn needs a
+      // `pnpm` / `yarn` / `bun` are `.cmd` shims on Windows: spawn needs a
       // shell to resolve them.
       shell: process.platform === "win32",
       env: {

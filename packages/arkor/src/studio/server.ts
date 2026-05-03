@@ -98,7 +98,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   // `studio/server.ts` is bundled into `dist/bin.mjs` (it isn't reachable
   // from `src/index.ts`, so tsdown doesn't extract it as a shared chunk).
   // The bin therefore sits *next* to this code at runtime, not one
-  // directory up — `../bin.mjs` would resolve to the package root.
+  // directory up: `../bin.mjs` would resolve to the package root.
   const trainBinPath =
     options.binPath ?? fileURLToPath(new URL("./bin.mjs", import.meta.url));
 
@@ -131,7 +131,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   //   1. Per-launch token. CORS is intentionally not configured: the SPA
   //      is same-origin so CORS adds no value, and reflecting `*` would let
   //      "simple" cross-origin POSTs (text/plain, urlencoded) skip preflight
-  //      and reach the handler. The token check rejects those — an attacker
+  //      and reach the handler. The token check rejects those: an attacker
   //      page can't read the SPA's <meta> from another origin.
   //   2. `?studioToken=` is accepted only on the job-event stream route
   //      because `EventSource` cannot send custom headers. Mutation routes
@@ -283,7 +283,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
     let trainFile: string | undefined;
     if (body.file) {
-      // Resolve symlinks before the containment check — `path.resolve` is purely
+      // Resolve symlinks before the containment check: `path.resolve` is purely
       // lexical, so a symlink under the project directory pointing at e.g.
       // `/etc/passwd` would otherwise pass `startsWith(baseAbs + sep)`. The
       // bin spawned below would then dlopen the link's target.
@@ -345,7 +345,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       state = await ensureProjectState({ cwd: trainCwd, client, credentials });
     } catch (err) {
       // Propagate cloud-api's status verbatim (e.g. 401 / 403 / 5xx) so the
-      // SPA / clients can react appropriately — collapsing everything to 400
+      // SPA / clients can react appropriately: collapsing everything to 400
       // would mis-report upstream outages and auth failures. Anything else
       // (local writeState failures, missing-credentials guard) is treated as
       // a server-side error.

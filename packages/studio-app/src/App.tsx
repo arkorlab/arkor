@@ -8,12 +8,12 @@ import { fetchCredentials, type Credentials } from "./lib/api";
 const PRODUCTION_CLOUD_API_URL = "https://api.arkor.ai";
 
 // Hide the cloud-api URL from the identity header when pointing at the
-// production endpoint — regular users don't need it. For Arkor contributors
+// production endpoint: regular users don't need it. For Arkor contributors
 // running against a local cloud-api (`ARKOR_CLOUD_API_URL=...`), surface just
 // the host:port so it's clear which backend the Studio is talking to without
 // the protocol noise.
 function formatIdentityBaseUrl(baseUrl: string): string | null {
-  // Strip trailing slash before comparing — the server normalises env-var
+  // Strip trailing slash before comparing: the server normalises env-var
   // overrides via `defaultArkorCloudApiUrl()` today, but a future change that
   // forwards the raw value would otherwise let `https://api.arkor.ai/` slip
   // past the production check and surface in the header.

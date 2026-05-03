@@ -174,7 +174,7 @@ describe("requestAnonymousToken", () => {
   });
 
   it("falls back to an empty body snippet when reading the response text throws", async () => {
-    // Branch coverage for the `.catch(() => "")` defensive arm — a
+    // Branch coverage for the `.catch(() => "")` defensive arm: a
     // proxied response whose body errors mid-read shouldn't crash the
     // bootstrap with a confusing TypeError instead of a clean
     // AnonymousTokenRejectedError.
@@ -224,7 +224,7 @@ describe("ensureCredentials", () => {
     };
     await writeCredentials(creds);
 
-    // No fetch mock — the function must early-return without calling out.
+    // No fetch mock: the function must early-return without calling out.
     globalThis.fetch = (async () => {
       throw new Error("fetch should not be called");
     }) as typeof fetch;

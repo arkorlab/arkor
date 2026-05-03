@@ -115,7 +115,7 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
         sendPlain(
           res,
           400,
-          `Authentication failed: ${error} — ${errorDescription ?? ""}`,
+          `Authentication failed: ${error}: ${errorDescription ?? ""}`,
         );
         rejectCallback(
           new Error(`Authentication failed: ${error} ${errorDescription ?? ""}`),

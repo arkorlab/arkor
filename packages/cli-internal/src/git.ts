@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 // while the surrounding cmd.exe `/c "<cmd>"` framing turns the resulting
 // nested quotes into a malformed command line. Git then sees a shorter or
 // empty message and either silently no-ops or commits unexpected content,
-// reporting exit 0 — leaving the scaffolded directory with a `.git/HEAD` but
+// reporting exit 0: leaving the scaffolded directory with a `.git/HEAD` but
 // no commit. Only `pnpm`/`yarn`/`bun`-style `.cmd` shims need shell:true
 // (see `install.ts`); plain `.exe` binaries do not.
 
@@ -31,7 +31,7 @@ export async function isInGitRepo(cwd: string): Promise<boolean> {
 export interface InitialCommitResult {
   /**
    * `true` when the user's signing config was active but the actual signing
-   * step failed (missing key, agent timeout, etc.) — we then retried with
+   * step failed (missing key, agent timeout, etc.): we then retried with
    * `commit.gpgsign=false` and produced an unsigned commit. Callers can use
    * this to surface a one-line notice.
    */

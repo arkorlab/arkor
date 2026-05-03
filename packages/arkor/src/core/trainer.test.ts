@@ -266,7 +266,7 @@ describe("createTrainer (credentials defaulting)", () => {
             model: "m",
             dataset: { type: "huggingface", name: "x" },
           },
-          // Note: NO `credentials` here — trainer must call ensureCredentials.
+          // Note: NO `credentials` here: trainer must call ensureCredentials.
           {
             baseUrl: "http://mock",
             cwd: localCwd,
@@ -558,7 +558,7 @@ describe("createTrainer (SSE event stream)", () => {
   });
 });
 
-// Regression for ENG-406 — the previous reconnect loop had no upper bound
+// Regression for ENG-406: the previous reconnect loop had no upper bound
 // and no jitter, so a permanently-down cloud-api would keep retrying every
 // `reconnectDelayMs` forever (and on recovery several SDK clients would
 // reconnect at exactly the same instant).
@@ -686,7 +686,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
             step: 1,
             loss: 1,
           })}\n\n`,
-          // No terminal event — stream closes cleanly, outer loop reconnects.
+          // No terminal event: stream closes cleanly, outer loop reconnects.
         ],
       },
       { kind: "throw", error: new TypeError("fetch failed") },
@@ -724,7 +724,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   // when `Math.random()` lands near 1.
   // Codex review on PR #13 (round 3) flagged that a 200-OK stream that
   // EOFs without emitting any frame would loop forever at the base delay
-  // — `maxReconnectAttempts` was bypassed because clean closes never
+  //: `maxReconnectAttempts` was bypassed because clean closes never
   // touched the failure counter. Misconfigured proxies / load-balancers
   // that accept the connection and immediately drop it would hang
   // `wait()` indefinitely.
@@ -846,7 +846,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     };
     // The trainer fires `POST /v1/jobs` synchronously inside the start()
     // path, so cancel() needs the job row to be assigned. We never open the
-    // event stream — cancel() should not depend on it.
+    // event stream: cancel() should not depend on it.
     const sse = [
       `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
         type: "training.completed",
@@ -903,7 +903,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const original = globalThis.fetch;
     globalThis.fetch = fetcher;
     try {
-      // Start the run by awaiting wait() — the streamed completion event
+      // Start the run by awaiting wait(): the streamed completion event
       // closes the loop quickly so cancel() runs against a fully-resolved
       // startedJob/scope pair.
       await trainer.wait();
@@ -977,7 +977,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   });
 
   it("skips malformed event payloads without aborting the stream", async () => {
-    // Branch coverage for the `try/catch` around JSON.parse — a single
+    // Branch coverage for the `try/catch` around JSON.parse: a single
     // malformed `data:` line shouldn't tear down the whole training run.
     // Send one garbage frame followed by a real terminal event.
     await writeState(
@@ -1044,7 +1044,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   });
 
   it("recovers when the SSE body itself errors mid-stream", async () => {
-    // Branch coverage for the catch around the for-await iterator —
+    // Branch coverage for the catch around the for-await iterator:
     // covers the case where the stream's underlying body emits an error
     // (e.g. a network disconnect partway through). The reconnect loop
     // should treat it as a failure, count it toward the limit, then
@@ -1154,7 +1154,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,
     );
-    // No fetch mock at all — if cancel() reached the API we'd see a real
+    // No fetch mock at all: if cancel() reached the API we'd see a real
     // network error. Safety net for callers that wire up cancel() to
     // SIGINT before kicking off the run.
     const trainer = createTrainer(

@@ -89,7 +89,7 @@ export async function fetchJobs(): Promise<{ jobs: Job[] }> {
 /**
  * Fetch a serialisable summary of the user's `createArkor({...})` manifest.
  * Returns `{ error }` (not a thrown exception) on 4xx so the SPA can render a
- * targeted hint — typically "no src/arkor/index.ts yet" right after scaffold.
+ * targeted hint: typically "no src/arkor/index.ts yet" right after scaffold.
  */
 export async function fetchManifest(): Promise<ManifestResult> {
   const res = await apiFetch("/api/manifest");
@@ -123,7 +123,7 @@ export interface ChatRequestBody {
  * Stream assistant text deltas from `/api/inference/chat`.
  *
  * The Studio server proxies cloud-api's `/v1/inference/chat` SSE stream
- * verbatim, so the body is `event: …\ndata: {…}\n\n` frames — not plain
+ * verbatim, so the body is `event: …\ndata: {…}\n\n` frames: not plain
  * text. We parse the frames with `eventsource-parser` (the same parser
  * the SDK's `iterateEvents` uses) and pull the assistant text out of
  * each frame's `data` payload.
@@ -147,7 +147,7 @@ export async function* streamInferenceContent(
   }
   // `iterateSseFrames` mirrors cloud-api-client's `iterateEvents` and silently
   // exits when there's no body. That's fine for the SDK but in the Playground
-  // it would leave an empty assistant bubble with no error surfaced — make
+  // it would leave an empty assistant bubble with no error surfaced: make
   // the missing-body case loud here instead.
   if (!res.body) {
     throw new Error("Inference response has no body");
@@ -211,7 +211,7 @@ export function extractInferenceDelta(data: string): string | null {
     return data;
   }
   // Some providers/proxies serialize token chunks as plain JSON strings
-  // (`data: "Hel"`) rather than objects — surface those directly so we
+  // (`data: "Hel"`) rather than objects: surface those directly so we
   // don't end up with a silently empty assistant bubble.
   if (typeof parsed === "string") return parsed;
   if (!parsed || typeof parsed !== "object") return null;

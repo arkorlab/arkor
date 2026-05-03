@@ -3,7 +3,7 @@
  * Copy the repo-root `docs/` source tree into the package directory so the
  * Mintlify-authored docs ship inside the published `arkor` tarball
  * alongside the SDK + CLI. The Mintlify config (`docs.json`), the docs
- * workspace's own `package.json`, and `node_modules` are excluded —
+ * workspace's own `package.json`, and `node_modules` are excluded:
  * consumers should read the published site at https://docs.arkor.ai or
  * the markdown files directly, not run Mintlify locally from an installed
  * tarball.

@@ -33,7 +33,7 @@ describe("extractInferenceDelta", () => {
     // Some providers/proxies serialize token chunks as `data: "Hel"`
     // (a JSON string, not an object). Previously these parsed as a
     // string, hit the `typeof parsed !== "object"` branch, and returned
-    // null — leaving the assistant bubble silently empty.
+    // null: leaving the assistant bubble silently empty.
     expect(extractInferenceDelta('"Hel"')).toBe("Hel");
     expect(extractInferenceDelta('""')).toBe("");
   });
@@ -58,7 +58,7 @@ describe("extractInferenceDelta", () => {
 });
 
 // Mount a SSE-shaped Response from a list of frames and let the SPA's
-// stream consumer assemble the assistant text. Regression for ENG-358 —
+// stream consumer assemble the assistant text. Regression for ENG-358:
 // the previous Playground code concatenated raw `data: …\n\n` frames
 // straight into the message bubble.
 describe("streamInferenceContent (regression for ENG-358)", () => {
@@ -139,7 +139,7 @@ describe("streamInferenceContent (regression for ENG-358)", () => {
     // closed cleanly without writing any frames) used to surface as
     // `Error("No response body")` in the Playground. After the SSE rewrite
     // the silent-exit branch in `iterateSseFrames` would have left the
-    // assistant bubble empty with no feedback — guard against that.
+    // assistant bubble empty with no feedback: guard against that.
     globalThis.fetch = vi.fn(
       async () => new Response(null, { status: 204 }),
     ) as typeof fetch;
@@ -281,7 +281,7 @@ describe("fetchManifest", () => {
 
   it("returns the structured error envelope on 400 (e.g. missing src/arkor/index.ts)", async () => {
     // The SPA renders this error inline as a hint instead of a generic
-    // failure — the helper must therefore distinguish 400 from other 4xx.
+    // failure: the helper must therefore distinguish 400 from other 4xx.
     globalThis.fetch = vi.fn(
       async () =>
         new Response(

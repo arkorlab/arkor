@@ -19,7 +19,7 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 // Mock the cli-internal helpers so we don't actually scaffold files,
-// run install, or hit git on disk for every branch — the helpers have
+// run install, or hit git on disk for every branch: the helpers have
 // their own tests in @arkor/cli-internal. We only verify the
 // orchestration logic in init.ts itself.
 vi.mock("@arkor/cli-internal", () => {
@@ -91,7 +91,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
   if (ORIG_CI === undefined) delete process.env.CI;
   else process.env.CI = ORIG_CI;
-  // Restore the TTY flag in case an interactive test mutated it —
+  // Restore the TTY flag in case an interactive test mutated it:
   // otherwise a later test that unsets CI would unexpectedly enter
   // interactive prompt paths.
   Object.defineProperty(process.stdout, "isTTY", {
@@ -189,7 +189,7 @@ describe("runInit", () => {
 
   it("falls back to undefined skipWith for template when not --yes and no --template", async () => {
     // Branch coverage for the `options.template ?? (options.yes ? "triage" : undefined)`
-    // chain — the `undefined` arm fires when neither flag is set. The
+    // chain: the `undefined` arm fires when neither flag is set. The
     // promptSelect helper falls back to `initialValue: "triage"` under
     // CI=1, so the resolved template still lands on triage even though
     // skipWith is undefined.
@@ -214,7 +214,7 @@ describe("runInit", () => {
   });
 
   it("skips install when no packageManager could be detected", async () => {
-    // Branch coverage for `pm` undefined — the user gets the manual-install
+    // Branch coverage for `pm` undefined: the user gets the manual-install
     // hint in the outro instead of a silent guess.
     await runInit({
       yes: true,
@@ -292,7 +292,7 @@ describe("runInit", () => {
 
   it("skips git init when the directory becomes a git repo during install", async () => {
     // TOCTOU defence: `decideGitInit` runs before the long-running install
-    // step, so the user (or another tool — editor, autosave hook, parallel
+    // step, so the user (or another tool: editor, autosave hook, parallel
     // shell) can run `git init` themselves while install is going. Without
     // the post-install re-check, we'd silently add a second commit on top
     // of their repo. Mock isInGitRepo to return false on the pre-install

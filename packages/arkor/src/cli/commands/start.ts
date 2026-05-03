@@ -23,8 +23,8 @@ const DEFAULT_OUT_DIR = ".arkor/build";
  * the user's TS has already been compiled by `arkor build`, and this command
  * just imports the artifact and dispatches to the discovered trainer.
  *
- * For ergonomics — and so Studio's "Run training" button doesn't have to chain
- * two spawns — `start` auto-runs `build` when no artifact exists, or when an
+ * For ergonomics, and so Studio's "Run training" button doesn't have to chain
+ * two spawns: `start` auto-runs `build` when no artifact exists, or when an
  * explicit entry is provided.
  */
 export async function runStart(opts: StartOptions = {}): Promise<void> {

@@ -37,7 +37,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
           ...prev,
           { step: d.step, loss: d.loss ?? null },
         ]);
-        pushRaw(`[log] step=${d.step} loss=${d.loss ?? "—"}`);
+        pushRaw(`[log] step=${d.step} loss=${d.loss ?? "-"}`);
       } catch {
         pushRaw(`[log] ${ev.data}`);
       }
@@ -91,7 +91,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       )}
       <LossChart points={events} />
       <h3>Events</h3>
-      <pre className="log">{rawTail.join("\n") || "—"}</pre>
+      <pre className="log">{rawTail.join("\n") || "-"}</pre>
     </div>
   );
 }

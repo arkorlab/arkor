@@ -83,7 +83,7 @@ describe("ensureCredentialsForStudio", () => {
   });
 
   // When OAuth is advertised by the deployment, `arkor dev` no longer
-  // hands off to `runLogin` — that would block the Studio launch on a
+  // hands off to `runLogin`: that would block the Studio launch on a
   // browser flow. Instead we bootstrap anon and show a hint pointing at
   // `arkor login`, leaving the upgrade in the user's hands.
   it("bootstraps anonymous credentials even when OAuth is configured", async () => {
@@ -158,7 +158,7 @@ describe("ensureCredentialsForStudio", () => {
     });
   });
 
-  // Regression for ENG-403 — when the cloud-api is unreachable, `arkor dev`
+  // Regression for ENG-403: when the cloud-api is unreachable, `arkor dev`
   // previously failed to start because the anonymous bootstrap's network
   // error wasn't caught.
   it("does not throw when the anonymous bootstrap fails after a successful config fetch", async () => {
@@ -240,7 +240,7 @@ describe("ensureCredentialsForStudio", () => {
   // must surface at startup instead of being silently warned.
   it("re-throws when ARKOR_CLOUD_API_URL is malformed (config error)", async () => {
     process.env.ARKOR_CLOUD_API_URL = "";
-    // No fetch mock — let real fetch raise the URL parse error so we
+    // No fetch mock: let real fetch raise the URL parse error so we
     // exercise the actual undici contract, not a synthetic TypeError.
     await expect(ensureCredentialsForStudio()).rejects.toThrow(TypeError);
     await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
@@ -281,7 +281,7 @@ describe("ensureCredentialsForStudio", () => {
     );
   });
 
-  // Codex P1 review on PR #65 — OAuth-only deployments advertise Auth0 in
+  // Codex P1 review on PR #65: OAuth-only deployments advertise Auth0 in
   // /v1/auth/cli/config but reject /v1/auth/anonymous. The new "always try
   // anon first" flow used to leave first-run users on those deployments
   // with a bare "Failed to acquire anonymous token (4xx)" error and no way
@@ -320,7 +320,7 @@ describe("ensureCredentialsForStudio", () => {
     expect(await readCredentials()).toBeNull();
   });
 
-  // Codex P2 review on PR #65 — the OAuth-only wrap used to span the whole
+  // Codex P2 review on PR #65: the OAuth-only wrap used to span the whole
   // anon bootstrap, so fs errors from `writeCredentials` were also rewritten
   // as "deployment may require sign-in", hiding the actionable fs cause.
   //
@@ -330,7 +330,7 @@ describe("ensureCredentialsForStudio", () => {
   // `writeFile` would raise EACCES under the bootstrap) only works on
   // POSIX as a non-root user: root bypasses chmod (Codex on PR #65), and
   // on Windows POSIX permission bits don't durably block writes inside a
-  // directory at all — Node maps `chmod` to the legacy read-only
+  // directory at all: Node maps `chmod` to the legacy read-only
   // attribute, which NTFS only enforces on files. Both edges silently
   // turned the test green for the wrong reason. Mocking lifts the
   // "produce an EACCES" half of the test out of the host filesystem
@@ -395,7 +395,7 @@ describe("ensureCredentialsForStudio", () => {
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
+        // Missing `personalOrg`: anonymousTokenResponseSchema rejects.
         return new Response(
           JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
           { status: 200 },
@@ -413,7 +413,7 @@ describe("ensureCredentialsForStudio", () => {
   it("forwards a non-Error throwable from requestAnonymousToken (String() coercion)", async () => {
     // Defensive coverage of the `err instanceof Error ? err.message : String(err)`
     // helper inside the warn branch isn't exercised here because the
-    // helper is in the dev.ts catch — but the symmetrical path inside
+    // helper is in the dev.ts catch, but the symmetrical path inside
     // the schema-error case rethrows with the original value preserved.
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
@@ -449,7 +449,7 @@ describe("ensureCredentialsForStudio", () => {
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
+        // Missing `personalOrg`: anonymousTokenResponseSchema rejects.
         return new Response(
           JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
           { status: 200 },
@@ -654,7 +654,7 @@ describe("runDev", () => {
     // ~/.arkor read-only after writeCredentials (so readCredentials still
     // works) so the per-launch token write hits EACCES.
     if (typeof process.getuid === "function" && process.getuid() === 0) {
-      // Root bypasses chmod permission checks — skip on root containers.
+      // Root bypasses chmod permission checks: skip on root containers.
       return;
     }
     chmodSync(join(fakeHome, ".arkor"), 0o555);
