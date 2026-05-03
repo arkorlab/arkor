@@ -68,7 +68,7 @@ export default {};
 このディレクトリーはコミットしないでください。
 
 - **`.arkor/state.json`**。プロジェクトのルーティング: `orgSlug`、`projectSlug`、`projectId`。これによってランタイムはローカルリポジトリをマネージドバックエンドのワークスペースにマップします。ファイルは `ensureProjectState()` が作成し、これは初回の学習開始（または初回のベースモデル推論）の際に走ります。**匿名**ワークスペースではこの初回呼び出しで自動作成されます。**OAuth** ワークスペースの場合はランタイムがエラーを返します。今のところ `arkor login` も `arkor init` もこのファイルを populate しないので、`{ orgSlug, projectSlug, projectId }` を手動で書いて作るのが現実的なパスです。一度作られたら手で編集しないでください。
-- **`.arkor/build/index.mjs`**。`arkor build` の出力。`src/arkor/index.ts` を Node 22.6 ターゲットで esbuild した単一バンドルで、bare specifier は外部のままにしてあります。`arkor start` がこれを実行します。
+- **`.arkor/build/index.mjs`**。`arkor build` の出力。`src/arkor/index.ts` を Node 22.22 ターゲットで esbuild した単一バンドルで、bare specifier は外部のままにしてあります。`arkor start` がこれを実行します。
 
 ## `~/.arkor/`（ユーザーごと）
 

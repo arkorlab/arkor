@@ -47,7 +47,7 @@ arkor build [entry]
 
 ### 出力
 
-`.arkor/build/index.mjs`（`outDir` のデフォルトは `.arkor/build`）。出力は単一の ESM ファイル、Node 22.6 をターゲットにし、`packages: "external"` で bare specifier（`arkor`、`node_modules` 内のもの）はバンドルせず、成果物はあなたの `node_modules` からランタイム SDK を解決します。インライン化されるのは相対 import のみです。
+`.arkor/build/index.mjs`（`outDir` のデフォルトは `.arkor/build`）。出力は単一の ESM ファイル、Node 22.22 をターゲットにし、`packages: "external"` で bare specifier（`arkor`、`node_modules` 内のもの）はバンドルせず、成果物はあなたの `node_modules` からランタイム SDK を解決します。インライン化されるのは相対 import のみです。
 
 エントリーが存在しない場合、`arkor build` は `src/arkor/index.ts` を作るか明示的なエントリーを渡すよう促すメッセージで例外が発生します。
 

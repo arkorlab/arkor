@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/arkor"><img src="https://img.shields.io/npm/v/arkor?label=arkor&color=000" alt="npm"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-000" alt="MIT"></a>
-  <img src="https://img.shields.io/badge/node-%E2%89%A522.6-000" alt="node ≥22.6">
+  <img src="https://img.shields.io/badge/node-%E2%89%A522.22.0-000" alt="node ≥22.22.0">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="alpha">
   <a href="https://discord.gg/YujCZYGrEZ"><img src="https://img.shields.io/badge/discord-join-5865F2" alt="Discord"></a>
 </p>
@@ -191,7 +191,7 @@ Training runs on managed GPUs; checkpoints stream back as SSE events that fire y
 | [`create-arkor`](packages/create-arkor)        | `pnpm create arkor` scaffolder              |
 | [`docs`](docs)                                 | Mintlify source for [docs.arkor.ai](https://docs.arkor.ai) (`pnpm --filter @arkor/docs docs:dev`) |
 
-Requires Node.js 22.6+. 
+Requires Node.js 22.22.0+. 
 (Please use Node.js 24, preferably the latest version, for contributing to this repository.)
 
 Works with pnpm / npm / yarn / bun.

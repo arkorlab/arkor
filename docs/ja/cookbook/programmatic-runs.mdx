@@ -23,8 +23,6 @@ await runTrainer(".arkor/build/index.mjs");  // 明示的なビルド成果物
 
 トレーナーが既に `src/arkor/` にあって、CLI 以外のコード（GitHub Actions のステップ、ビルドステップ、使い捨てスクリプト）からトリガーしたいだけなら、これが正しい形です。トレーナーのコールバックと `abortSignal` の配線をそのまま継承します。
 
-**`.ts` エントリーでの Node バージョン注意。** `arkor` CLI の bin は、走っている Node が TypeScript ストリッピングを有効化していないとき、自身を `--experimental-strip-types` フラグ付きで起動し直して TypeScript を実行できる状態にします。プログラム呼び出し側はその恩恵を受けません。`runTrainer()` を `.ts` のソースエントリーに対して呼ぶスクリプトを動かすには、Node 23+（TypeScript ストリッピングがデフォルトで有効）を使うか、Node 22.6+ なら `--experimental-strip-types` を付けてください。実験フラグに依存したくないなら、`runTrainer` をビルド出力（`.arkor/build/index.mjs`）に向ければよいです。成果物は素の ESM で、対応 Node であればフラグなしで動きます。
-
 CI で刺さりがちな細かい点: `runTrainer()`（および `trainer.wait()`）は学習が `completed` で終わっても `failed` で終わっても **resolve します**。SSE ストリームはどちらでも単に終了し、reject するのはトランスポートレベルのエラー（Abort、再接続が尽きたなど）だけです。`runTrainer()` を素朴に `try / catch` で囲むと、失敗した学習ジョブでも CI は `0` で終わってしまいます。CI を失敗させたいなら、トレーナーを直接駆動して終端ステータスを検査してください:
 
 ```ts
