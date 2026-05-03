@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scaffold, templateChoices } from "./scaffold";
@@ -522,12 +522,16 @@ describe("scaffold", () => {
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(after);
   });
 
-  it("refuses to patch when AGENTS.md contains multiple canonical blocks (warns instead)", async () => {
+  it("refuses to patch when AGENTS.md contains multiple canonical blocks (warns instead) AND skips CLAUDE.md", async () => {
     // Auto-picking first/last is unsafe — `writeAgentsMd` lets users
     // put content on either side of the managed block, so a duplicate
     // could be a real earlier block + a user-pasted example below it
     // (or vice versa). The conservative response is to refuse the
-    // patch and surface a warning so the user can dedupe.
+    // patch and surface a warning so the user can dedupe. Also skip
+    // CLAUDE.md in this state: it would auto-import the unresolved
+    // duplicate rules into Claude Code's context via the `@AGENTS.md`
+    // shim, amplifying the broken state instead of waiting for the
+    // user to fix it.
     const block = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nfirst copy\n${AGENTS_END}`;
     const dup = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nsecond copy\n${AGENTS_END}`;
     const original = `# Project\n\n${block}\n\nUser notes\n\n${dup}\n`;
@@ -543,11 +547,47 @@ describe("scaffold", () => {
     expect(agents?.action).toBe("kept");
     // File must be byte-identical — no auto-patch happened.
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(original);
-    // Warning surfaced naming the file and the canonical block markers.
+
+    // CLAUDE.md was skipped (kept) and not written to disk.
+    const claude = result.files.find((f) => f.path === "CLAUDE.md");
+    expect(claude?.action).toBe("kept");
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+
+    // Two warnings: AGENTS.md ambiguity + CLAUDE.md skip explanation.
+    expect(result.warnings).toHaveLength(2);
+    const [agentsWarning, claudeWarning] = result.warnings;
+    expect(agentsWarning).toContain("AGENTS.md");
+    expect(agentsWarning).toContain("2");
+    expect(agentsWarning).toContain(AGENTS_BEGIN);
+    expect(claudeWarning).toContain("CLAUDE.md");
+    expect(claudeWarning).toContain("AGENTS.md");
+  });
+
+  it("does not overwrite an existing CLAUDE.md even when AGENTS.md is ambiguous (no extra warning)", async () => {
+    // Companion to the test above: when CLAUDE.md is already on disk,
+    // the existing-file branch of writeClaudeMd ("kept") covers the
+    // user — no `@AGENTS.md` shim is created, so we don't need to add
+    // a second warning about not creating one.
+    const dup = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nbody\n${AGENTS_END}`;
+    const original = `${dup}\n\n${dup}\n`;
+    writeFileSync(join(cwd, "AGENTS.md"), original);
+    const userClaude = "# project-specific\nrules I want kept\n";
+    writeFileSync(join(cwd, "CLAUDE.md"), userClaude);
+
+    const result = await scaffold({
+      cwd,
+      name: "ambiguous-with-claude",
+      template: "triage",
+      agentsMd: true,
+    });
+    const claude = result.files.find((f) => f.path === "CLAUDE.md");
+    expect(claude?.action).toBe("kept");
+    // The user's CLAUDE.md is preserved verbatim.
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe(userClaude);
+    // Only the AGENTS.md ambiguity warning is surfaced; CLAUDE.md was
+    // already on disk so the "not created" advisory would be confusing.
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain("AGENTS.md");
-    expect(result.warnings[0]).toContain("2");
-    expect(result.warnings[0]).toContain(AGENTS_BEGIN);
   });
 
   it("scaffolds README.md without the AGENTS.md / CLAUDE.md bullet when agentsMd is false", async () => {

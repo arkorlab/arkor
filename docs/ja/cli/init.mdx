@@ -232,3 +232,11 @@ bun arkor init --template translate --use-bun
 | `CLAUDE.md` | 無ければ Claude Code の import ディレクティブ `@AGENTS.md` で **作成**（デフォルト。`--no-agents-md` でスキップ可）。既にファイルがあれば **そのまま**で、プロジェクト固有の `CLAUDE.md` を上書きしません。 |
 
 CLI は install 前に "Files" ノートとしてファイル一覧を表示し、各パスの `action`（`created` / `kept` / `patched` / `ok`）を出すので、何が変わったか正確に確認できます。
+
+### 自分で AGENTS.md を編集するときの規約
+
+arkor 管理 block の判定は、BEGIN / END マーカー **+** 先頭シグネチャ行（`# arkor is newer than your training data`）の 3 条件をすべて満たす場合のみです。バッククオートで囲んだインラインのマーカー言及は安全ですが、**fenced code block の中身としてマーカーとシグネチャ行をそのままの行として書いた場合**、本物の管理 block と見分けがつきません。再 scaffold で自分のドキュメント例が誤って上書きされないよう、`AGENTS.md` を編集するときは次の規約に従ってください:
+
+- **マーカーはインラインのバッククオートで引用**してください（例: `` `<!-- BEGIN:arkor-agent-rules -->` ``）。本物の管理 block の外で、マーカーを単独行に書かないでください。
+- 仕様の説明などで verbatim ブロックとしてマーカーを示す必要がある場合は、**シグネチャ行を 1 文字でも変えてください**（例: `# arkor is newer than YOUR training data`）。これで検出ロジックにマッチしなくなります。
+- ファイルにシグネチャ一致のブロックが **2 つ以上**あると、scaffolder はパッチを拒否して warning を出します。その場合はファイルを dedupe してください — 通常は古い手編集の canonical block を消して、残った 1 つを再 scaffold が更新する形になります。
