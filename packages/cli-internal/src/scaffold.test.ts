@@ -53,7 +53,7 @@ describe("scaffold", () => {
 
     const trainer = readFileSync(join(cwd, "src/arkor/trainer.ts"), "utf8");
     expect(trainer).toContain("createTrainer");
-    expect(trainer).toContain("unsloth/gemma-4-E4B-it");
+    expect(trainer).toContain("unsloth/gemma-4-e4b-it");
     expect(trainer).toContain('"triage-run"');
 
     const pkg = JSON.parse(
