@@ -43,7 +43,7 @@ curl https://support-bot.arkor.app/v1/chat/completions \
 
 送信すると Studio は `POST /api/deployments` を呼び、cloud API に転送します。成功するとフォームが閉じ、一覧が再読み込みされて新しい deployment の行が先頭に並ぶので、その行を開いてキー管理に進んでください。409（slug 重複）の場合は upstream のメッセージが赤字で表示され、フォームは開いたまま別の slug を試せます。
 
-job UUID のドロップダウン補完は今のところありません。[Jobs](/ja/studio/jobs) ページから ID をコピーしてください（将来 job ピッカーに置き換える可能性あり）。
+job UUID は今のところ平文の入力欄です。[Jobs](/ja/studio/jobs) ページから ID をコピーして貼り付けてください（将来 job ピッカーに置き換える可能性あり）。
 
 ## 詳細
 

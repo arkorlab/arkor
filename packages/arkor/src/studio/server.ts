@@ -411,11 +411,25 @@ export function buildStudioApp(options: StudioServerOptions) {
       : null;
   }
 
+  /**
+   * Intent of the route calling `withDeploymentClient`:
+   *   - `"read"` — pure GET. If `.arkor/state.json` is missing, return
+   *     404 ("no deployments could exist on this fresh workspace") rather
+   *     than provisioning a remote project as a side effect of a read.
+   *     Bookmarked detail-page hits and `/keys` lookups must NOT silently
+   *     create empty cloud projects.
+   *   - `"write"` — POST/PATCH/DELETE that the user explicitly initiated.
+   *     If state is missing, run `ensureProjectState()` to lazily provision
+   *     the project (anonymous workspaces only). For Auth0 callers we
+   *     don't know which org/project to use, so we point at `arkor init`.
+   */
+  type ScopeIntent = "read" | "write";
+
   async function withDeploymentClient<T>(
-    requireScope: boolean,
+    intent: ScopeIntent,
     handler: (args: {
       client: CloudApiClient;
-      scope: { orgSlug: string; projectSlug: string } | null;
+      scope: { orgSlug: string; projectSlug: string };
     }) => Promise<T>,
   ): Promise<Response> {
     let credentials: Credentials;
@@ -424,20 +438,30 @@ export function buildStudioApp(options: StudioServerOptions) {
     try {
       // Read state first. `readState` only does a local FS read and can't
       // fail in a way that exposes auth state, so it stays before
-      // `getCredentials()` to keep the list-view path (`requireScope=false`)
-      // cheap.
+      // `getCredentials()` to keep the read paths cheap.
       scope = await readScopeFromState();
       credentials = await getCredentials();
       client = new CloudApiClient({ baseUrl, credentials });
-      if (requireScope && !scope) {
-        // Anonymous credentials carry an `orgSlug` + the cwd basename, so
-        // we can derive a full `ArkorProjectState` on demand. This mirrors
-        // `/api/inference/chat` and `arkor train`, which both call
-        // `ensureProjectState()` before issuing the first cloud call so a
-        // user can get something done from a fresh `arkor dev` without
-        // having to first run a training job to bootstrap the state file.
-        // Without this, "Studio → Endpoints → New endpoint" on a fresh
-        // workspace fails with a misleading 400.
+      if (!scope) {
+        if (intent === "read") {
+          // Read-only routes must not provision remote state as a
+          // side effect — bookmarked detail / keys lookups should
+          // resolve to a clean 404, not create a remote project that
+          // sits around empty.
+          return new Response(
+            JSON.stringify({
+              error:
+                "No project state — this workspace has no deployments yet. Create one from the Endpoints page first.",
+            }),
+            { status: 404, headers: { "content-type": "application/json" } },
+          );
+        }
+        // intent === "write": anonymous credentials carry an `orgSlug`
+        // and we can derive a `projectSlug` from the cwd basename, so we
+        // bootstrap on demand. This mirrors `/api/inference/chat` and
+        // `arkor train`, which both call `ensureProjectState()` before
+        // issuing their first cloud call so a user can get something
+        // done from a fresh `arkor dev` without first running training.
         if (credentials.mode === "anon") {
           const state = await ensureProjectState({
             cwd: trainCwd,
@@ -524,8 +548,8 @@ export function buildStudioApp(options: StudioServerOptions) {
         headers: { "content-type": "application/json" },
       });
     }
-    return withDeploymentClient(true, ({ client, scope }) =>
-      client.listDeployments(scope!),
+    return withDeploymentClient("read", ({ client, scope }) =>
+      client.listDeployments(scope),
     );
   });
 
@@ -536,15 +560,15 @@ export function buildStudioApp(options: StudioServerOptions) {
     if (!body) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    return await withDeploymentClient(true, async ({ client, scope }) =>
-      await client.createDeployment(scope!, body),
+    return await withDeploymentClient("write", async ({ client, scope }) =>
+      await client.createDeployment(scope, body),
     );
   });
 
   app.get("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    return await withDeploymentClient(true, async ({ client, scope }) =>
-      await client.getDeployment(id, scope!),
+    return await withDeploymentClient("read", async ({ client, scope }) =>
+      await client.getDeployment(id, scope),
     );
   });
 
@@ -556,15 +580,15 @@ export function buildStudioApp(options: StudioServerOptions) {
     if (!body) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    return await withDeploymentClient(true, async ({ client, scope }) =>
-      await client.updateDeployment(id, scope!, body),
+    return await withDeploymentClient("write", async ({ client, scope }) =>
+      await client.updateDeployment(id, scope, body),
     );
   });
 
   app.delete("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    return await withDeploymentClient(true, async ({ client, scope }) => {
-      await client.deleteDeployment(id, scope!);
+    return await withDeploymentClient("write", async ({ client, scope }) => {
+      await client.deleteDeployment(id, scope);
       // 204 has no body in the cloud API; the Studio API normalises this to
       // `{}` so the SPA's JSON parsing path is uniform across every route.
       return {};
@@ -573,8 +597,8 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.get("/api/deployments/:id/keys", async (c) => {
     const id = c.req.param("id");
-    return await withDeploymentClient(true, async ({ client, scope }) =>
-      await client.listDeploymentKeys(id, scope!),
+    return await withDeploymentClient("read", async ({ client, scope }) =>
+      await client.listDeploymentKeys(id, scope),
     );
   });
 
@@ -586,16 +610,16 @@ export function buildStudioApp(options: StudioServerOptions) {
     if (!body) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    return await withDeploymentClient(true, async ({ client, scope }) =>
-      await client.createDeploymentKey(id, scope!, body),
+    return await withDeploymentClient("write", async ({ client, scope }) =>
+      await client.createDeploymentKey(id, scope, body),
     );
   });
 
   app.delete("/api/deployments/:id/keys/:keyId", async (c) => {
     const id = c.req.param("id");
     const keyId = c.req.param("keyId");
-    return await withDeploymentClient(true, async ({ client, scope }) => {
-      await client.revokeDeploymentKey(id, keyId, scope!);
+    return await withDeploymentClient("write", async ({ client, scope }) => {
+      await client.revokeDeploymentKey(id, keyId, scope);
       return {};
     });
   });

@@ -315,6 +315,7 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
               <input
                 type="text"
                 required
+                aria-label="Base model name"
                 value={baseModel}
                 onChange={(e) => setBaseModel(e.target.value)}
                 placeholder="meta-llama/Llama-2-7b-hf"
@@ -325,6 +326,7 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
                 <input
                   type="text"
                   required
+                  aria-label="Job UUID"
                   value={jobId}
                   onChange={(e) => setJobId(e.target.value)}
                   placeholder="Job UUID"
@@ -335,6 +337,7 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
                     type="number"
                     required
                     min={0}
+                    aria-label="Checkpoint step"
                     value={step}
                     onChange={(e) => setStep(Number(e.target.value))}
                     placeholder="Step"
@@ -760,6 +763,7 @@ export function EndpointDetail({ id }: { id: string }) {
           <form onSubmit={onCreateKey} className="mb-4 flex items-center gap-2">
             <input
               type="text"
+              aria-label="API key label"
               value={newKeyLabel}
               onChange={(e) => setNewKeyLabel(e.target.value)}
               placeholder="Label (e.g. production)"

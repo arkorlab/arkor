@@ -43,7 +43,7 @@ Click **New endpoint** at the top right of the list. The inline form takes:
 
 Submit and Studio calls `POST /api/deployments`, which forwards to the cloud API. On success the form closes and the list refreshes with the new deployment row at the top; open it to manage keys. On a 409 (slug collision) the form shows the upstream message in red and stays open so you can pick a different slug.
 
-Studio doesn't pre-populate the job UUID dropdown, so copy the id from the [Jobs](/studio/jobs) page. (A future iteration may turn that into a job picker.)
+The job UUID is a plain text field today: copy the id from the [Jobs](/studio/jobs) page and paste it in. (A future iteration may turn that into a job picker.)
 
 ## Detail
 
