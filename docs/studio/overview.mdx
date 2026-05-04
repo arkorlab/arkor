@@ -11,13 +11,14 @@ Open it at `http://localhost:4000` (configurable with `arkor dev --port`).
 
 The header shows the current identity in the form `<mode> · <org>[ / <project>][ · <baseUrl-host>]`, where `mode` is `anonymous` or `auth0`. The cloud-api host suffix is hidden when the CLI is pointing at the production endpoint and shown otherwise.
 
-Three pages, switched via the in-app nav:
+Four pages, switched via the in-app nav:
 
 | Route | Page | What you do here |
 | --- | --- | --- |
 | `#/` | [Home](/studio/jobs) | Trigger a training run and watch the jobs list. |
 | `#/jobs/:id` | [Job detail](/studio/jobs#job-detail) | Live status, loss chart, and event log for one run. |
 | `#/playground` | [Playground](/studio/playground) | Chat with a completed adapter or the base model. |
+| `#/endpoints` | [Endpoints](/studio/endpoints) | Publish a `*.arkor.app` URL for an adapter or base model and manage its API keys. |
 
 ## Architecture
 
@@ -47,6 +48,7 @@ The token is rotated on every `arkor dev` launch, so a stale tab from a previous
 | **Jobs list** | Home page, polled at a fixed 5-second interval. Columns: Status, Name (links to detail), Created, ID. |
 | **Job detail** | Live status badge, an SVG loss chart, and a raw event log (last 50 lines). Streams from `/api/jobs/:id/events` via Server-Sent Events. |
 | **Playground** | Chat UI on `#/playground`. Two modes: a single supported base model, or the final adapter from any completed job. |
+| **Endpoints** | `*.arkor.app` URL management on `#/endpoints`. Create deployments, toggle enabled / auth mode, issue and revoke API keys. The UI mirrors the SDK's [`CloudApiClient`](/sdk/deployments) — every action has a programmatic equivalent. |
 
 ## Not yet
 
@@ -61,6 +63,7 @@ These exist either at the SDK or HTTP-API level, but not as Studio UI today:
 | Tweak `temperature` / `topP` / `maxTokens` from Playground | The HTTP API ([`InferArgs`](/sdk/infer)) accepts these; pass them when calling `infer` from the SDK. |
 | Loss chart zoom, export, tooltip | The chart is a static SVG path. |
 | Light-mode toggle | The Studio CSS pins `color-scheme: dark`. |
+| Edit a deployment's target after creation | The cloud API supports `PATCH /v1/endpoints/:id` with `target`; the [Endpoints](/studio/endpoints) UI exposes only the auth-mode and enabled toggles. Call [`updateDeployment`](/sdk/deployments) from the SDK. |
 
 ## When not to use Studio
 

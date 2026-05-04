@@ -4,7 +4,9 @@ export type Route =
   | { kind: "home" }
   | { kind: "jobs" }
   | { kind: "job"; id: string }
-  | { kind: "playground"; adapterJobId?: string };
+  | { kind: "playground"; adapterJobId?: string }
+  | { kind: "endpoints" }
+  | { kind: "endpoint"; id: string };
 
 export function parseRoute(): Route {
   // Split into path / query first; trimming trailing slashes from the
@@ -28,6 +30,11 @@ export function parseRoute(): Route {
     // never see an empty string masquerading as a real adapter id.
     const adapterJobId = params.get("adapter")?.trim() || undefined;
     return { kind: "playground", adapterJobId };
+  }
+  if (path === "endpoints") return { kind: "endpoints" };
+  if (path.startsWith("endpoints/")) {
+    const id = path.slice("endpoints/".length);
+    if (id) return { kind: "endpoint", id };
   }
   return { kind: "home" };
 }

@@ -1337,4 +1337,131 @@ process.exit(0);
       expect(body.error).toMatch(/credentials|login/i);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Deployments (`/api/deployments/*`) — minimal coverage of the router
+  // boundary. Cloud-side semantics already have heavy test coverage in
+  // `core/client.deployments.test.ts`; here we verify only that the Studio
+  // server forwards correctly, returns the empty wrapper when no project
+  // state exists, and surfaces upstream errors verbatim.
+  // -------------------------------------------------------------------------
+  describe("/api/deployments", () => {
+    const ORIG_FETCH = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("returns an empty deployments list when no project state is on disk", async () => {
+      // Mirrors the `/api/jobs` empty path. No upstream fetch should happen.
+      await writeCredentials(ANON_CREDS);
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("should not call upstream when no scope");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ deployments: [] });
+      expect(calls).toBe(0);
+    });
+
+    it("forwards GET /api/deployments to /v1/endpoints with project scope", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "anon-org",
+          projectSlug: "p",
+          projectId: "p-id",
+        },
+        trainCwd,
+      );
+      let upstreamUrl: string | null = null;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        upstreamUrl = String(input);
+        return new Response(
+          JSON.stringify({
+            deployments: [
+              {
+                id: "d1",
+                slug: "x",
+                orgId: "o",
+                projectId: "p",
+                target: { kind: "base_model", baseModel: "m" },
+                authMode: "none",
+                urlFormat: "openai_compat",
+                enabled: true,
+                customDomain: null,
+                createdAt: "2026-05-05T00:00:00Z",
+                updatedAt: "2026-05-05T00:00:00Z",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { deployments: { slug: string }[] };
+      expect(body.deployments[0]?.slug).toBe("x");
+      expect(upstreamUrl).toContain("/v1/endpoints");
+      expect(upstreamUrl).toContain("orgSlug=anon-org");
+      expect(upstreamUrl).toContain("projectSlug=p");
+    });
+
+    it("propagates upstream 409 with the upstream error message", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({ error: "Deployment slug is already taken" }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        )) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          slug: "taken",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/already taken/);
+    });
+
+    it("rejects mutating /api/deployments without a studio token", async () => {
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(403);
+    });
+  });
 });

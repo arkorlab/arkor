@@ -57,7 +57,8 @@
               "sdk/dataset",
               "sdk/callbacks",
               "sdk/infer",
-              "sdk/trainer-control"
+              "sdk/trainer-control",
+              "sdk/deployments"
             ]
           },
           {
@@ -65,7 +66,8 @@
             "pages": [
               "studio/overview",
               "studio/jobs",
-              "studio/playground"
+              "studio/playground",
+              "studio/endpoints"
             ]
           },
           {
@@ -134,7 +136,8 @@
               "ja/sdk/dataset",
               "ja/sdk/callbacks",
               "ja/sdk/infer",
-              "ja/sdk/trainer-control"
+              "ja/sdk/trainer-control",
+              "ja/sdk/deployments"
             ]
           },
           {
@@ -142,7 +145,8 @@
             "pages": [
               "ja/studio/overview",
               "ja/studio/jobs",
-              "ja/studio/playground"
+              "ja/studio/playground",
+              "ja/studio/endpoints"
             ]
           },
           {

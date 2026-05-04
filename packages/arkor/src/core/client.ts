@@ -5,12 +5,27 @@ import {
 } from "@arkor/cloud-api-client";
 import type { z } from "zod";
 import type { Credentials } from "./credentials";
+import type {
+  CreateDeploymentInput,
+  CreateDeploymentKeyInput,
+  CreateDeploymentKeyResult,
+  DeploymentDto,
+  DeploymentKeyDto,
+  DeploymentScope,
+  UpdateDeploymentInput,
+} from "./deployments";
 import { recordDeprecation, tapDeprecation } from "./deprecation";
 import {
+  createDeploymentKeyResponseSchema,
+  createDeploymentResponseSchema,
   createJobResponseSchema,
   createProjectResponseSchema,
+  getDeploymentResponseSchema,
   jobDetailResponseSchema,
+  listDeploymentKeysResponseSchema,
+  listDeploymentsResponseSchema,
   listProjectsResponseSchema,
+  updateDeploymentResponseSchema,
 } from "./schemas";
 import type { JobConfig, TrainingJob } from "./types";
 import { formatSdkUpgradeError } from "./upgrade-hint";
@@ -186,6 +201,112 @@ export class CloudApiClient {
       throw await buildCloudApiError(res);
     }
     return res;
+  }
+
+  // ---------------------------------------------------------------------
+  // Deployments (`/v1/endpoints/*`)
+  //
+  // Routed through the typed Hono RPC client so the cloud API's
+  // discriminated `target` shape, `authMode` enum, and 204 statuses are
+  // checked at compile time. Migrated from raw fetch in
+  // `@arkor/cloud-api-client@0.0.1-alpha.2`, which was the first published
+  // version exposing these routes' types.
+  // ---------------------------------------------------------------------
+
+  async listDeployments(
+    scope: DeploymentScope,
+  ): Promise<{ deployments: DeploymentDto[] }> {
+    const res = await this.rpc.v1.endpoints.$get({ query: scope });
+    const data = await decode(res, listDeploymentsResponseSchema);
+    return data as unknown as { deployments: DeploymentDto[] };
+  }
+
+  async getDeployment(
+    id: string,
+    scope: DeploymentScope,
+  ): Promise<{ deployment: DeploymentDto }> {
+    const res = await this.rpc.v1.endpoints[":id"].$get({
+      param: { id },
+      query: scope,
+    });
+    const data = await decode(res, getDeploymentResponseSchema);
+    return data as unknown as { deployment: DeploymentDto };
+  }
+
+  async createDeployment(
+    scope: DeploymentScope,
+    input: CreateDeploymentInput,
+  ): Promise<{ deployment: DeploymentDto }> {
+    const res = await this.rpc.v1.endpoints.$post({
+      query: scope,
+      json: input,
+    });
+    const data = await decode(res, createDeploymentResponseSchema);
+    return data as unknown as { deployment: DeploymentDto };
+  }
+
+  async updateDeployment(
+    id: string,
+    scope: DeploymentScope,
+    input: UpdateDeploymentInput,
+  ): Promise<{ deployment: DeploymentDto }> {
+    const res = await this.rpc.v1.endpoints[":id"].$patch({
+      param: { id },
+      query: scope,
+      json: input,
+    });
+    const data = await decode(res, updateDeploymentResponseSchema);
+    return data as unknown as { deployment: DeploymentDto };
+  }
+
+  async deleteDeployment(id: string, scope: DeploymentScope): Promise<void> {
+    const res = await this.rpc.v1.endpoints[":id"].$delete({
+      param: { id },
+      query: scope,
+    });
+    if (!res.ok) {
+      throw await buildCloudApiError(res);
+    }
+  }
+
+  async listDeploymentKeys(
+    id: string,
+    scope: DeploymentScope,
+  ): Promise<{ keys: DeploymentKeyDto[] }> {
+    const res = await this.rpc.v1.endpoints[":id"].keys.$get({
+      param: { id },
+      query: scope,
+    });
+    const data = await decode(res, listDeploymentKeysResponseSchema);
+    return data as unknown as { keys: DeploymentKeyDto[] };
+  }
+
+  async createDeploymentKey(
+    id: string,
+    scope: DeploymentScope,
+    input: CreateDeploymentKeyInput,
+  ): Promise<{ key: CreateDeploymentKeyResult }> {
+    const res = await this.rpc.v1.endpoints[":id"].keys.$post({
+      param: { id },
+      query: scope,
+      json: input,
+    });
+    const data = await decode(res, createDeploymentKeyResponseSchema);
+    return data as unknown as { key: CreateDeploymentKeyResult };
+  }
+
+  async revokeDeploymentKey(
+    id: string,
+    keyId: string,
+    scope: DeploymentScope,
+  ): Promise<void> {
+    const res = await this.rpc.v1.endpoints[":id"].keys[":keyId"].$delete({
+      param: { id, keyId },
+      query: scope,
+    });
+    if (!res.ok) {
+      throw await buildCloudApiError(res);
+    }
   }
 
   /**

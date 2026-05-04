@@ -380,6 +380,151 @@ export function buildStudioApp(options: StudioServerOptions) {
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 
+  // ---- Deployments (`*.arkor.app` URL management) -------------------------
+  //
+  // Studio-side routes thinly wrap the SDK's `CloudApiClient` so the SPA can
+  // manage `*.arkor.app` deployments without re-implementing the cloud API
+  // contract. Each request:
+  //   1. Reads the project state to derive `(orgSlug, projectSlug)` scope —
+  //      no scope means no deployments to list, return an empty wrapper.
+  //   2. Builds a `CloudApiClient` from on-disk credentials (same flow as
+  //      `/api/inference/chat`).
+  //   3. Calls the corresponding SDK method.
+  //   4. Maps `CloudApiError` → upstream status + message; anything else →
+  //      500. This mirrors the inference/chat error envelope so the SPA has
+  //      a single error-handling shape across cloud-backed routes.
+
+  async function withDeploymentClient<T>(
+    requireScope: boolean,
+    handler: (args: {
+      client: CloudApiClient;
+      scope: { orgSlug: string; projectSlug: string } | null;
+    }) => Promise<T>,
+  ): Promise<Response> {
+    let credentials: Credentials;
+    let scope: { orgSlug: string; projectSlug: string } | null;
+    try {
+      credentials = await getCredentials();
+      const state = await readState(trainCwd);
+      scope = state
+        ? { orgSlug: state.orgSlug, projectSlug: state.projectSlug }
+        : null;
+      if (requireScope && !scope) {
+        return new Response(
+          JSON.stringify({ error: "No project state — run `arkor dev` once" }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      }
+    } catch (err) {
+      return new Response(
+        JSON.stringify({
+          error: err instanceof Error ? err.message : String(err),
+        }),
+        { status: 500, headers: { "content-type": "application/json" } },
+      );
+    }
+    const client = new CloudApiClient({ baseUrl, credentials });
+    try {
+      const result = await handler({ client, scope });
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    } catch (err) {
+      if (err instanceof CloudApiError) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: err.status,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          error: err instanceof Error ? err.message : String(err),
+        }),
+        { status: 500, headers: { "content-type": "application/json" } },
+      );
+    }
+  }
+
+  app.get("/api/deployments", async () =>
+    withDeploymentClient(false, async ({ client, scope }) => {
+      // No scope on disk yet → empty list (mirrors `/api/jobs`).
+      if (!scope) return { deployments: [] };
+      return await client.listDeployments(scope);
+    }),
+  );
+
+  app.post("/api/deployments", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as
+      | Parameters<CloudApiClient["createDeployment"]>[1]
+      | null;
+    if (!body) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    return await withDeploymentClient(true, async ({ client, scope }) =>
+      await client.createDeployment(scope!, body),
+    );
+  });
+
+  app.get("/api/deployments/:id", async (c) => {
+    const id = c.req.param("id");
+    return await withDeploymentClient(true, async ({ client, scope }) =>
+      await client.getDeployment(id, scope!),
+    );
+  });
+
+  app.patch("/api/deployments/:id", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => null)) as
+      | Parameters<CloudApiClient["updateDeployment"]>[2]
+      | null;
+    if (!body) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    return await withDeploymentClient(true, async ({ client, scope }) =>
+      await client.updateDeployment(id, scope!, body),
+    );
+  });
+
+  app.delete("/api/deployments/:id", async (c) => {
+    const id = c.req.param("id");
+    return await withDeploymentClient(true, async ({ client, scope }) => {
+      await client.deleteDeployment(id, scope!);
+      // 204 has no body in the cloud API; the Studio API normalises this to
+      // `{}` so the SPA's JSON parsing path is uniform across every route.
+      return {};
+    });
+  });
+
+  app.get("/api/deployments/:id/keys", async (c) => {
+    const id = c.req.param("id");
+    return await withDeploymentClient(true, async ({ client, scope }) =>
+      await client.listDeploymentKeys(id, scope!),
+    );
+  });
+
+  app.post("/api/deployments/:id/keys", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => null)) as
+      | Parameters<CloudApiClient["createDeploymentKey"]>[2]
+      | null;
+    if (!body) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    return await withDeploymentClient(true, async ({ client, scope }) =>
+      await client.createDeploymentKey(id, scope!, body),
+    );
+  });
+
+  app.delete("/api/deployments/:id/keys/:keyId", async (c) => {
+    const id = c.req.param("id");
+    const keyId = c.req.param("keyId");
+    return await withDeploymentClient(true, async ({ client, scope }) => {
+      await client.revokeDeploymentKey(id, keyId, scope!);
+      return {};
+    });
+  });
+
   // ---- Static assets (SPA-style fallback) ---------------------------------
 
   const CONTENT_TYPES: Record<string, string> = {

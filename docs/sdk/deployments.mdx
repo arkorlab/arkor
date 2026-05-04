@@ -1,0 +1,173 @@
+---
+title: "Deployments"
+description: "Programmatically manage *.arkor.app inference URLs from your own code via CloudApiClient."
+---
+
+# Deployments
+
+A **deployment** publishes a trained adapter (or a base model) at a dedicated subdomain — `https://<slug>.arkor.app/v1/chat/completions` — that speaks the OpenAI Chat Completions wire format. Pointed at it from any OpenAI-compatible client (the official `openai` SDK, LangChain, etc.) and it just works.
+
+`CloudApiClient` is the typed entry point for managing these deployments programmatically (creating them, rotating API keys, deleting them) from a Node.js script or from your own server. The same actions are also available in the Studio dashboard and (eventually) on the CLI; this page covers the SDK surface.
+
+## When to use the SDK
+
+- **CI / IaC** — provision deployments alongside your other infra. A trained job's `final` adapter goes from "saved checkpoint" to "live URL" in one script step.
+- **Custom dashboards** — embed deployment management in your own admin UI.
+- **Bulk operations** — script revoking + re-issuing keys across many deployments after an incident.
+
+For interactive day-to-day use, prefer Studio or the upcoming `arkor endpoints` CLI; the SDK is the lower-level surface those tools sit on top of.
+
+## Setup
+
+```ts
+import { CloudApiClient, ensureCredentials } from "arkor";
+
+// `ensureCredentials` either reads the existing `~/.arkor/credentials.json`
+// or bootstraps a fresh anonymous identity if none exists.
+const credentials = await ensureCredentials("https://api.arkor.ai");
+
+const client = new CloudApiClient({
+  baseUrl: "https://api.arkor.ai",
+  credentials,
+});
+```
+
+`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK — an Auth0-issued access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both.
+
+Every deployment lives inside a `(orgSlug, projectSlug)` scope; pass that scope on every call:
+
+```ts
+const scope = { orgSlug: "my-org", projectSlug: "my-project" };
+```
+
+## Create a deployment
+
+```ts
+const { deployment } = await client.createDeployment(scope, {
+  slug: "support-bot",                         // → support-bot.arkor.app
+  target: {
+    kind: "adapter",
+    adapter: { kind: "final", jobId: "<uuid>" },
+  },
+  authMode: "fixed_api_key",                   // or "none" for public
+});
+```
+
+`target` is a discriminated union:
+
+```ts
+type DeploymentTarget =
+  | { kind: "adapter"; adapter:
+      | { kind: "final"; jobId: string }
+      | { kind: "checkpoint"; jobId: string; step: number };
+    }
+  | { kind: "base_model"; baseModel: string };
+```
+
+`authMode` is either `"fixed_api_key"` (clients send `Authorization: Bearer …` or `x-api-key`) or `"none"` (the URL is open — only use for public demos / models).
+
+`runRetentionMode` and `runRetentionDays` are optional; omitting them uses the server defaults (`days` / 7 days). Pass `"unlimited"` to retain indefinitely or `"disabled"` to skip persistence entirely.
+
+The slug must match `[a-z0-9][a-z0-9-]*[a-z0-9]` (2–50 chars). Reserved labels (`www`, `api`, `admin`, …) are rejected by the server with a 400.
+
+## Issue an API key
+
+```ts
+const { key } = await client.createDeploymentKey(deployment.id, scope, {
+  label: "production",
+});
+
+console.log(key.plaintext); // ← shown EXACTLY ONCE; store now
+```
+
+The plaintext is returned only on creation. Subsequent `listDeploymentKeys()` calls return the label and a display prefix (`ark_live_abcd1234…`) — never the full key. If a key is lost, issue a new one and revoke the old.
+
+To use the key:
+
+```bash
+curl https://support-bot.arkor.app/v1/chat/completions \
+  -H "Authorization: Bearer $ARK_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"ignored","messages":[{"role":"user","content":"hi"}]}'
+```
+
+The `model` field in the request body is ignored — the deployment already pins the target. Standard OpenAI SDKs work out of the box; just point `baseURL` at `https://<slug>.arkor.app/v1`.
+
+## List, get, update, delete
+
+```ts
+// List all deployments in this project
+const { deployments } = await client.listDeployments(scope);
+
+// Look up one
+const { deployment } = await client.getDeployment(id, scope);
+
+// Re-target without changing the URL — clients keep working
+await client.updateDeployment(id, scope, {
+  target: { kind: "adapter", adapter: { kind: "final", jobId: newJobId } },
+});
+
+// Or temporarily disable
+await client.updateDeployment(id, scope, { enabled: false });
+
+// Delete (cascades to keys; the URL goes 404)
+await client.deleteDeployment(id, scope);
+```
+
+`updateDeployment` is partial — any field you omit is left unchanged. The URL itself is determined by `slug` and is **not** mutable; if you need a different slug, create a new deployment.
+
+## Manage keys
+
+```ts
+const { keys } = await client.listDeploymentKeys(id, scope);
+// keys: [{ id, label, prefix, enabled, createdAt, lastUsedAt }, ...]
+
+// Revoke. enabled flips to false; new requests with this key 401 within
+// ~30s (the edge cache TTL).
+await client.revokeDeploymentKey(id, keyId, scope);
+```
+
+`lastUsedAt` is updated best-effort by the edge service; under traffic it lags by up to a minute (per-deployment-key debounce) and may never appear if the key has not been used since the last edge instance restart. Treat it as approximate.
+
+## Error handling
+
+Non-2xx responses surface as `CloudApiError`:
+
+```ts
+import { CloudApiClient, CloudApiError } from "arkor";
+
+try {
+  await client.createDeployment(scope, { slug: "taken", /* … */ });
+} catch (err) {
+  if (err instanceof CloudApiError && err.status === 409) {
+    console.error("Slug already taken — pick another");
+  } else {
+    throw err;
+  }
+}
+```
+
+Common statuses:
+
+| Status | When | Suggested action |
+| --- | --- | --- |
+| `400` | Schema validation failure (bad slug, malformed target) | Surface `err.message` to the user |
+| `403` | Caller is not a member of the org / project | Re-resolve scope; check `arkor whoami` |
+| `404` | Deployment / key / job not found in scope | Confirm UUIDs match the scope you passed |
+| `409` | Slug collision on create | Retry with a different slug |
+| `426` | SDK is too old | Upgrade `arkor` per the message body |
+
+## Reference
+
+| Method | Returns |
+| --- | --- |
+| `listDeployments(scope)` | `{ deployments: DeploymentDto[] }` |
+| `getDeployment(id, scope)` | `{ deployment: DeploymentDto }` |
+| `createDeployment(scope, input)` | `{ deployment: DeploymentDto }` |
+| `updateDeployment(id, scope, input)` | `{ deployment: DeploymentDto }` |
+| `deleteDeployment(id, scope)` | `void` (HTTP 204) |
+| `listDeploymentKeys(id, scope)` | `{ keys: DeploymentKeyDto[] }` |
+| `createDeploymentKey(id, scope, input)` | `{ key: CreateDeploymentKeyResult }` (plaintext **only** here) |
+| `revokeDeploymentKey(id, keyId, scope)` | `void` (HTTP 204) |
+
+Public types: `CloudApiClient`, `CloudApiError`, `CloudApiClientOptions`, `DeploymentTarget`, `DeploymentAuthMode`, `DeploymentRunRetentionMode`, `DeploymentDto`, `DeploymentKeyDto`, `DeploymentScope`, `CreateDeploymentInput`, `UpdateDeploymentInput`, `CreateDeploymentKeyInput`, `CreateDeploymentKeyResult`.

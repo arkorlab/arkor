@@ -53,12 +53,15 @@ These are exported for code that drives Arkor outside the CLI flow, e.g. running
 | `credentialsPath()` | `core/credentials.ts` | Absolute path to `~/.arkor/credentials.json`. |
 | `readState(cwd?)` / `writeState(state, cwd?)` / `statePath(cwd?)` | `core/state.ts` | Read or write `.arkor/state.json` (project routing). |
 | `isArkor(value)` | `core/arkor.ts` | Type guard for the manifest. |
+| [`CloudApiClient`](/sdk/deployments) | `core/client.ts` | Typed client for the cloud API. Exposes `listDeployments` / `createDeployment` / `createDeploymentKey` etc. for managing `*.arkor.app` inference URLs. See [Deployments](/sdk/deployments) for the full method list and examples. |
 
 ## Types
 
 Public type exports (from `arkor`):
 
 `Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `Auth0Credentials` (the OAuth credentials type, named after the underlying Auth0-based provider), `AnonymousCredentials`, and `Credentials` for the auth helpers.
+
+Deployment-related types (see [Deployments](/sdk/deployments)): `CloudApiClient`, `CloudApiError`, `CloudApiClientOptions`, `DeploymentTarget`, `DeploymentAuthMode`, `DeploymentRunRetentionMode`, `DeploymentDto`, `DeploymentKeyDto`, `DeploymentScope`, `CreateDeploymentInput`, `UpdateDeploymentInput`, `CreateDeploymentKeyInput`, `CreateDeploymentKeyResult`.
 
 `TrainingLogContext`, `CheckpointContext`, `InferArgs` are not exported by name today; they are documented in the [callbacks](/sdk/callbacks) and [infer](/sdk/infer) pages so you can mirror them inline if you need typed callback parameters.
 

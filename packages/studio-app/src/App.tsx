@@ -4,6 +4,7 @@ import { Overview } from "./pages/Overview";
 import { JobsList } from "./pages/JobsList";
 import { JobDetail } from "./pages/JobDetail";
 import { Playground } from "./pages/Playground";
+import { EndpointsList, EndpointDetail } from "./pages/Endpoints";
 import { fetchCredentials, type Credentials } from "./lib/api";
 import { useHashRoute } from "./route";
 
@@ -36,6 +37,8 @@ export function App() {
       {route.kind === "playground" && (
         <Playground initialAdapterId={route.adapterJobId} />
       )}
+      {route.kind === "endpoints" && <EndpointsList />}
+      {route.kind === "endpoint" && <EndpointDetail id={route.id} />}
     </AppShell>
   );
 }

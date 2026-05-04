@@ -541,3 +541,185 @@ describe("streamInferenceContent abort", () => {
     await expect(consume).rejects.toMatchObject({ name: "AbortError" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Deployment helpers — verify the wire shape (method/URL/body) the Studio
+// SPA sends to its own server so regressions in route paths or request
+// envelopes show up here rather than as silent SPA bugs.
+// ---------------------------------------------------------------------------
+
+import {
+  createDeployment,
+  createDeploymentKey,
+  deleteDeployment,
+  DeploymentApiError,
+  fetchDeployment,
+  fetchDeploymentKeys,
+  fetchDeployments,
+  revokeDeploymentKey,
+  updateDeployment,
+} from "./api";
+
+interface DeploymentFetchCall {
+  url: string;
+  init: RequestInit | undefined;
+}
+
+function recordingDeploymentFetch(
+  responder: (url: string, init: RequestInit | undefined) => Response,
+): { fetch: typeof fetch; calls: DeploymentFetchCall[] } {
+  const calls: DeploymentFetchCall[] = [];
+  const fn: typeof fetch = (async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url =
+      typeof input === "string" || input instanceof URL
+        ? input.toString()
+        : input.url;
+    calls.push({ url, init });
+    return responder(url, init);
+  }) as typeof fetch;
+  return { fetch: fn, calls };
+}
+
+const ORIG_FETCH_FOR_DEPLOY = globalThis.fetch;
+
+describe("deployment api helpers", () => {
+  afterEach(() => {
+    globalThis.fetch = ORIG_FETCH_FOR_DEPLOY;
+  });
+
+  it("fetchDeployments → GET /api/deployments", async () => {
+    const { fetch: f, calls } = recordingDeploymentFetch(
+      () =>
+        new Response(JSON.stringify({ deployments: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    globalThis.fetch = f;
+    const out = await fetchDeployments();
+    expect(out).toEqual({ deployments: [] });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("/api/deployments");
+    expect(calls[0].init?.method ?? "GET").toBe("GET");
+  });
+
+  it("createDeployment → POST /api/deployments with JSON body", async () => {
+    const { fetch: f, calls } = recordingDeploymentFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            deployment: { id: "d1", slug: "x" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    globalThis.fetch = f;
+    await createDeployment({
+      slug: "x",
+      target: { kind: "base_model", baseModel: "m" },
+      authMode: "none",
+    });
+    expect(calls[0].init?.method).toBe("POST");
+    const headers = new Headers(calls[0].init?.headers);
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({
+      slug: "x",
+      target: { kind: "base_model", baseModel: "m" },
+      authMode: "none",
+    });
+  });
+
+  it("fetchDeployment + updateDeployment encode the id segment", async () => {
+    const id = "deploy-123/with-/slashes";
+    const { fetch: f, calls } = recordingDeploymentFetch(
+      () =>
+        new Response(JSON.stringify({ deployment: { id } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    globalThis.fetch = f;
+    await fetchDeployment(id);
+    await updateDeployment(id, { enabled: false });
+    // Both calls must percent-encode the id; otherwise extra `/` would
+    // mis-route into the keys sub-tree.
+    expect(calls[0].url).toBe(`/api/deployments/${encodeURIComponent(id)}`);
+    expect(calls[1].url).toBe(`/api/deployments/${encodeURIComponent(id)}`);
+    expect(calls[1].init?.method).toBe("PATCH");
+  });
+
+  it("deleteDeployment → DELETE returns void on 200 with empty `{}`", async () => {
+    const { fetch: f } = recordingDeploymentFetch(
+      () =>
+        new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    globalThis.fetch = f;
+    await expect(deleteDeployment("d1")).resolves.toBeUndefined();
+  });
+
+  it("createDeploymentKey returns plaintext from the response envelope", async () => {
+    const { fetch: f } = recordingDeploymentFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            key: {
+              id: "k1",
+              label: "production",
+              plaintext: "ark_live_SECRET",
+              prefix: "ark_live_S",
+              createdAt: "2026-05-05T00:00:00Z",
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    globalThis.fetch = f;
+    const out = await createDeploymentKey("d1", { label: "production" });
+    expect(out.key.plaintext).toBe("ark_live_SECRET");
+  });
+
+  it("fetchDeploymentKeys + revokeDeploymentKey use the keys sub-route", async () => {
+    const { fetch: f, calls } = recordingDeploymentFetch(
+      () =>
+        new Response(JSON.stringify({ keys: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    globalThis.fetch = f;
+    await fetchDeploymentKeys("d1");
+    await revokeDeploymentKey("d1", "k1");
+    expect(calls[0].url).toBe("/api/deployments/d1/keys");
+    expect(calls[1].url).toBe("/api/deployments/d1/keys/k1");
+    expect(calls[1].init?.method).toBe("DELETE");
+  });
+
+  it("non-2xx responses throw DeploymentApiError carrying status + message", async () => {
+    const { fetch: f } = recordingDeploymentFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: "Deployment slug is already taken" }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+    );
+    globalThis.fetch = f;
+    await expect(
+      createDeployment({
+        slug: "taken",
+        target: { kind: "base_model", baseModel: "m" },
+        authMode: "none",
+      }),
+    ).rejects.toMatchObject({
+      // Match by structure: vitest workers can carry distinct module
+      // instances of the class so `instanceof` is unreliable in CI.
+      status: 409,
+      message: expect.stringMatching(/already taken/),
+    } satisfies Partial<DeploymentApiError>);
+  });
+});

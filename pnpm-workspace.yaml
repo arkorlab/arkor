@@ -3,6 +3,11 @@ packages:
   - "e2e/*"
   - "docs"
 minimumReleaseAge: 1440
+# Our own alpha packages bypass the 24h release-age gate so we can iterate
+# without waiting a day per publish. The gate still applies to all other
+# (third-party) deps as a supply-chain guard.
+minimumReleaseAgeExclude:
+  - "@arkor/cloud-api-client"
 trustPolicy: no-downgrade
 trustPolicyExclude:
   # Pulled in by @vitejs/plugin-react -> @babel/core for Studio UI builds.

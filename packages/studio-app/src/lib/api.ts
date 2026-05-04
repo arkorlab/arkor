@@ -275,3 +275,174 @@ export async function streamTraining(
     reader.releaseLock();
   }
 }
+
+// ---- Deployments (`*.arkor.app` URL management) -------------------------
+//
+// Wire-shape DTOs used by the SPA. They mirror the SDK's public types
+// (re-declared here so the studio-app bundle stays decoupled from the
+// `arkor` package — shipping an `import { DeploymentDto } from "arkor"`
+// would pull the SDK + its deps into the Vite bundle).
+
+export type DeploymentTarget =
+  | {
+      kind: "adapter";
+      adapter:
+        | { kind: "final"; jobId: string }
+        | { kind: "checkpoint"; jobId: string; step: number };
+    }
+  | { kind: "base_model"; baseModel: string };
+
+export type DeploymentAuthMode = "none" | "fixed_api_key";
+
+export interface Deployment {
+  id: string;
+  slug: string;
+  orgId: string;
+  projectId: string;
+  target: DeploymentTarget;
+  authMode: DeploymentAuthMode;
+  urlFormat: "openai_compat";
+  enabled: boolean;
+  customDomain: string | null;
+  runRetentionMode?: "unlimited" | "disabled" | "days";
+  runRetentionDays?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeploymentKey {
+  id: string;
+  label: string;
+  prefix: string;
+  enabled: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface CreatedDeploymentKey {
+  id: string;
+  label: string;
+  /** Plaintext is returned exactly once, on creation. */
+  plaintext: string;
+  prefix: string;
+  createdAt: string;
+}
+
+export interface CreateDeploymentBody {
+  slug: string;
+  target: DeploymentTarget;
+  authMode: DeploymentAuthMode;
+  runRetentionMode?: "unlimited" | "disabled" | "days";
+  runRetentionDays?: number;
+}
+
+export interface UpdateDeploymentBody {
+  target?: DeploymentTarget;
+  authMode?: DeploymentAuthMode;
+  enabled?: boolean;
+  runRetentionMode?: "unlimited" | "disabled" | "days";
+  runRetentionDays?: number;
+}
+
+/**
+ * Surface the cloud API's `{ error }` envelope as a thrown `Error` carrying
+ * the upstream status. Lets the SPA branch on `err.status` (e.g. 409 → "slug
+ * collision, pick another") without losing the human-readable message.
+ */
+export class DeploymentApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.name = "DeploymentApiError";
+  }
+}
+
+async function deploymentJson<T>(res: Response): Promise<T> {
+  if (res.ok) return (await res.json()) as T;
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  throw new DeploymentApiError(
+    res.status,
+    body.error || `${res.status} ${res.statusText}`,
+  );
+}
+
+export async function fetchDeployments(): Promise<{
+  deployments: Deployment[];
+}> {
+  return deploymentJson(await apiFetch("/api/deployments"));
+}
+
+export async function fetchDeployment(id: string): Promise<{
+  deployment: Deployment;
+}> {
+  return deploymentJson(
+    await apiFetch(`/api/deployments/${encodeURIComponent(id)}`),
+  );
+}
+
+export async function createDeployment(
+  body: CreateDeploymentBody,
+): Promise<{ deployment: Deployment }> {
+  return deploymentJson(
+    await apiFetch("/api/deployments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+export async function updateDeployment(
+  id: string,
+  body: UpdateDeploymentBody,
+): Promise<{ deployment: Deployment }> {
+  return deploymentJson(
+    await apiFetch(`/api/deployments/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+export async function deleteDeployment(id: string): Promise<void> {
+  await deploymentJson<unknown>(
+    await apiFetch(`/api/deployments/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+  );
+}
+
+export async function fetchDeploymentKeys(
+  id: string,
+): Promise<{ keys: DeploymentKey[] }> {
+  return deploymentJson(
+    await apiFetch(`/api/deployments/${encodeURIComponent(id)}/keys`),
+  );
+}
+
+export async function createDeploymentKey(
+  id: string,
+  body: { label: string },
+): Promise<{ key: CreatedDeploymentKey }> {
+  return deploymentJson(
+    await apiFetch(`/api/deployments/${encodeURIComponent(id)}/keys`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+export async function revokeDeploymentKey(
+  id: string,
+  keyId: string,
+): Promise<void> {
+  await deploymentJson<unknown>(
+    await apiFetch(
+      `/api/deployments/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}`,
+      { method: "DELETE" },
+    ),
+  );
+}

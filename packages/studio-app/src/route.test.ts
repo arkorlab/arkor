@@ -119,3 +119,33 @@ describe("parseRoute — playground", () => {
     });
   });
 });
+
+describe("parseRoute — endpoints", () => {
+  it("matches `#/endpoints` (list view)", () => {
+    withHash("#/endpoints");
+    expect(parseRoute()).toEqual({ kind: "endpoints" });
+  });
+
+  it("matches `#/endpoints/` (trailing slash)", () => {
+    withHash("#/endpoints/");
+    expect(parseRoute()).toEqual({ kind: "endpoints" });
+  });
+
+  it("extracts the deployment id from `#/endpoints/<id>`", () => {
+    withHash("#/endpoints/dep-abc");
+    expect(parseRoute()).toEqual({ kind: "endpoint", id: "dep-abc" });
+  });
+
+  it("strips a trailing slash from the id segment", () => {
+    withHash("#/endpoints/dep-abc/");
+    expect(parseRoute()).toEqual({ kind: "endpoint", id: "dep-abc" });
+  });
+
+  it("falls through to home when the id segment is empty", () => {
+    // `#/endpoints/` already returns the list (handled above); this
+    // is a defensive case — `#/endpoints//` becomes `endpoints/` after
+    // trailing-slash trim, which still maps to the list view.
+    withHash("#/endpoints//");
+    expect(parseRoute()).toEqual({ kind: "endpoints" });
+  });
+});
