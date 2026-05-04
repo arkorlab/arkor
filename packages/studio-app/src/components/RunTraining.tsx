@@ -124,7 +124,17 @@ export function RunTraining() {
   useEffect(() => {
     if (!isHmrEnabled()) return;
     const es = openDevEvents();
-    const onMessage = (raw: MessageEvent) => {
+    // Typed as `Event` (not `MessageEvent`) because the same handler
+    // is registered for the `error` event, which EventSource fires
+    // as a plain `Event` on connection failures (server crashed,
+    // browser dropped the SSE) — those carry no `.data`. Custom
+    // server-sent events (`event: ready` / `event: rebuild` / the
+    // SSE `event: error` frame the HMR server emits) all arrive as
+    // `MessageEvent` instances, so we narrow before reading
+    // `.data`. EventSource will auto-retry connection failures, so
+    // there's nothing to do for them other than not crash.
+    const onMessage = (raw: Event) => {
+      if (!(raw instanceof MessageEvent)) return;
       let payload: DevEvent;
       try {
         payload = JSON.parse(raw.data) as DevEvent;

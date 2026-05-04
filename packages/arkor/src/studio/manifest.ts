@@ -1,6 +1,6 @@
-import { pathToFileURL } from "node:url";
 import { runBuild } from "../cli/commands/build";
 import { hashJobConfig } from "../core/configHash";
+import { moduleCacheBustUrl } from "../core/moduleCacheBust";
 import {
   findTrainerInModule,
   getTrainerInspection,
@@ -40,8 +40,16 @@ const EMPTY: ManifestSummary = { trainer: null, configHash: null };
 export async function summariseBuiltManifest(
   outFile: string,
 ): Promise<ManifestSummary> {
-  const url = `${pathToFileURL(outFile).href}?t=${Date.now()}`;
-  const mod = (await import(url)) as Record<string, unknown>;
+  // mtime+size cache-bust (vs `Date.now()`): the SPA polls
+  // `/api/manifest` every ~5 s, so a `Date.now()` suffix would
+  // accumulate one ESM module record per poll across a long
+  // `arkor dev` session — Node's loader has no eviction. Keying on
+  // the artefact bytes collapses unchanged-poll reads onto the
+  // existing record.
+  const mod = (await import(moduleCacheBustUrl(outFile))) as Record<
+    string,
+    unknown
+  >;
   // Walk every trainer export shape `runner.ts` accepts via the
   // shared helper (named `arkor`, named `trainer`, default Arkor
   // manifest, `default.trainer`) so manifest summary, HMR routing,

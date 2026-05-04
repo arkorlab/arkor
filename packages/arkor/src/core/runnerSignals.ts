@@ -1,4 +1,4 @@
-import { pathToFileURL } from "node:url";
+import { moduleCacheBustUrl } from "./moduleCacheBust";
 import {
   findInspectableTrainer,
   replaceTrainerCallbacks,
@@ -74,7 +74,13 @@ export function installCallbackReloadHandler(
   entryPath: string,
 ): () => void {
   const handler = (): void => {
-    const url = `${pathToFileURL(entryPath).href}?t=${Date.now()}`;
+    // mtime+size cache-bust (vs `Date.now()`): Node's ESM loader
+    // never evicts module records, so a long `arkor start` session
+    // with frequent SIGUSR2 reloads would accumulate one record per
+    // signal forever. Keying on the actual artefact bytes collapses
+    // no-op signals onto the same URL — the leak is bounded to "one
+    // per real edit", which is fundamentally what HMR has to retain.
+    const url = moduleCacheBustUrl(entryPath);
     void (async () => {
       try {
         const mod = (await import(url)) as Record<string, unknown>;

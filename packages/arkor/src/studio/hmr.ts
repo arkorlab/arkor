@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 import { watch, type RolldownWatcher } from "rolldown";
 import { hashJobConfig } from "../core/configHash";
+import { moduleCacheBustUrl } from "../core/moduleCacheBust";
 import {
   BUILD_DEFAULTS,
   resolveBuildEntry,
@@ -104,17 +104,10 @@ type InspectionResult = {
  */
 async function inspectBundle(outFile: string): Promise<InspectionResult> {
   try {
-    let key = "0-0";
-    try {
-      const s = statSync(outFile);
-      key = `${s.mtimeMs.toFixed(0)}-${s.size}`;
-    } catch {
-      // outFile vanished between the BUNDLE_END and our stat —
-      // fall through to the import attempt; it'll throw and we'll
-      // return null cleanly.
-    }
-    const url = `${pathToFileURL(outFile).href}?t=${key}`;
-    const mod = (await import(url)) as Record<string, unknown>;
+    const mod = (await import(moduleCacheBustUrl(outFile))) as Record<
+      string,
+      unknown
+    >;
     const inspection = findInspectableTrainer(mod);
     if (!inspection) return null;
     return {

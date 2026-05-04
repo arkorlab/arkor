@@ -496,6 +496,22 @@ export function createTrainer(
         .cancel()
         .catch(() => {})
         .finally(() => {
+          // Mirror the checkpoint-triggered early-stop branch: reset
+          // the latch and reflect the cancellation locally so a
+          // second `requestEarlyStop()` call is a no-op (instead of
+          // re-arming a fresh timer + re-issuing cancel) and so
+          // `wait()`'s eventual resolution exposes a terminal status.
+          // Without this, a long-lived trainer left in
+          // `earlyStopRequested = true` would re-cancel on every
+          // future checkpoint event for the rest of its lifetime.
+          earlyStopRequested = false;
+          if (startedJob && !TERMINAL_STATUSES.has(startedJob.status)) {
+            startedJob = {
+              ...startedJob,
+              status: "cancelled",
+              completedAt: new Date().toISOString(),
+            };
+          }
           if (active) active.resolve();
           if (earlyStopDeferred === active) earlyStopDeferred = null;
         });

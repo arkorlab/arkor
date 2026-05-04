@@ -1600,6 +1600,16 @@ describe("createTrainer (early stop)", () => {
       // Tiny timeout so the test doesn't actually wait 5 minutes.
       await requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
       expect(cancelCalls).toBe(1);
+      // Regression: the timeout fallback used to leave
+      // `earlyStopRequested = true` and `startedJob.status =
+      // "running"`. A subsequent `requestEarlyStop()` call would
+      // then re-arm a fresh timer and re-issue cancel even though
+      // the early-stop already fired. With the latch reset and
+      // local terminal-status update mirroring the
+      // checkpoint-triggered branch, the second call hits the
+      // TERMINAL_STATUSES short-circuit and is a true no-op.
+      await requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
+      expect(cancelCalls).toBe(1);
     } finally {
       globalThis.fetch = original;
     }
