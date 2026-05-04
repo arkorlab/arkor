@@ -31,6 +31,7 @@ import {
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
+import { __resetCleanupHooksForTests } from "../cleanupHooks";
 import { ensureCredentialsForStudio, runDev } from "./dev";
 
 /**
@@ -558,15 +559,6 @@ describe("ensureCredentialsForStudio", () => {
 });
 
 describe("runDev", () => {
-  // Track exit/signal listeners we add via scheduleStudioTokenCleanup so
-  // we can remove them between tests; otherwise vitest's worker would
-  // accumulate listeners and Node's MaxListenersExceededWarning would
-  // fire by the third test.
-  const ORIG_EXIT_LISTENERS = process.listeners("exit").length;
-  const ORIG_SIGINT_LISTENERS = process.listeners("SIGINT").length;
-  const ORIG_SIGTERM_LISTENERS = process.listeners("SIGTERM").length;
-  const ORIG_SIGHUP_LISTENERS = process.listeners("SIGHUP").length;
-
   beforeEach(async () => {
     vi.mocked(serve).mockClear();
     vi.mocked(open).mockClear();
@@ -583,18 +575,11 @@ describe("runDev", () => {
   });
 
   afterEach(() => {
-    // Trim the exit/signal listeners runDev installed each iteration to
-    // keep vitest's worker tidy across tests.
-    const trim = (ev: string, keep: number) => {
-      const all = process.listeners(ev as never);
-      for (let i = keep; i < all.length; i++) {
-        process.removeListener(ev as never, all[i] as never);
-      }
-    };
-    trim("exit", ORIG_EXIT_LISTENERS);
-    trim("SIGINT", ORIG_SIGINT_LISTENERS);
-    trim("SIGTERM", ORIG_SIGTERM_LISTENERS);
-    trim("SIGHUP", ORIG_SIGHUP_LISTENERS);
+    // Each `runDev()` arms exit/signal hooks via `registerCleanupHook`.
+    // Tests whose handler never fires would leak listeners across the
+    // vitest worker's queue; this detaches every still-armed
+    // registration so Node's MaxListenersExceededWarning doesn't trip.
+    __resetCleanupHooksForTests();
   });
 
   it("persists the studio token and starts the server on the requested port", async () => {

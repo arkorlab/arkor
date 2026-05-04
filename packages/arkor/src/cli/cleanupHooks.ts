@@ -36,6 +36,19 @@ export interface CleanupHookOptions {
 const inFlightCleanups = new Set<Promise<void>>();
 
 /**
+ * Detachers for every still-armed registration. The signal/exit
+ * handlers each call their own detacher synchronously after invoking
+ * `run()` so a long-lived worker that calls `registerCleanupHook`
+ * many times (vitest reusing the same Node worker across tests, or a
+ * future caller that re-arms hooks dynamically) doesn't pile up
+ * `process.on(...)` listeners and trip Node's
+ * `MaxListenersExceededWarning`. Test code can also call
+ * `__resetCleanupHooksForTests()` to detach every still-armed
+ * registration up-front for explicit isolation.
+ */
+const attachedHandlers = new Set<() => void>();
+
+/**
  * Register a cleanup hook that fires on `process.exit` and on
  * SIGINT / SIGTERM / SIGHUP. Used by `runDev` to dispose long-lived
  * resources (the studio-token file, the HMR coordinator) without each
@@ -44,9 +57,10 @@ const inFlightCleanups = new Set<Promise<void>>();
  *
  * Per-registration signal listeners (rather than a singleton): each
  * `runDev()` invocation gets its own listener wired to its own
- * `done` latch. This matches the old behaviour and keeps test
- * isolation simple (vitest's per-test cleanup doesn't have to reach
- * into module state).
+ * `done` latch. Listeners auto-detach as soon as their handler fires
+ * (the `done` latch makes any later invocation a no-op anyway), so
+ * a process that goes through many register → fire cycles doesn't
+ * accumulate stale listeners on `process`.
  *
  * `process.on("exit", ...)` listeners cannot be async — Node fires
  * them right before the process terminates and discards any returned
@@ -77,18 +91,20 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
     return promise;
   };
 
-  process.on("exit", () => {
+  const exitHandler = () => {
     void run();
-  });
-
+    detach();
+  };
+  const signalHandlers = new Map<(typeof TERMINATING_SIGNALS)[number], () => void>();
   for (const sig of TERMINATING_SIGNALS) {
-    process.on(sig, () => {
+    signalHandlers.set(sig, () => {
       // Sync cleanup body fires inside this `run()` call before the
       // returned promise resolves; that preserves "side effect is
       // observable right after the handler returns" for sync
       // cleanups like `unlinkSync` (and the existing tests that
       // assert on it).
       const my = run();
+      detach();
       if (!options.exitOnSignal) return;
       // Wait for THIS hook's tail and every other in-flight cleanup
       // (siblings registered in the same process) before exiting.
@@ -101,4 +117,36 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       ]).then(() => process.exit(0));
     });
   }
+
+  let detached = false;
+  const detach = () => {
+    if (detached) return;
+    detached = true;
+    process.off("exit", exitHandler);
+    for (const sig of TERMINATING_SIGNALS) {
+      const handler = signalHandlers.get(sig);
+      if (handler) process.off(sig, handler);
+    }
+    attachedHandlers.delete(detach);
+  };
+  attachedHandlers.add(detach);
+
+  process.on("exit", exitHandler);
+  for (const sig of TERMINATING_SIGNALS) {
+    const handler = signalHandlers.get(sig);
+    if (handler) process.on(sig, handler);
+  }
+}
+
+/**
+ * Detach every still-armed registration. Test-only escape hatch: a
+ * vitest worker reuses the same Node process across many tests, and
+ * each `registerCleanupHook` call leaves listeners attached until
+ * something fires them. Call this from `afterEach` to keep the
+ * worker's `process` listener counts flat.
+ */
+export function __resetCleanupHooksForTests(): void {
+  for (const detach of [...attachedHandlers]) detach();
+  attachedHandlers.clear();
+  inFlightCleanups.clear();
 }
