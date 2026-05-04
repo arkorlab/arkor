@@ -175,6 +175,21 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
    * the race.
    */
   let firstBroadcast = true;
+  /**
+   * Cached `configHash` of the last *successful* build, **independent
+   * of `lastEvent`**. `lastEvent` tracks every broadcast (including
+   * `error`) for the cached-replay-on-late-subscribe contract, but a
+   * transient build error must not blank out the spawn-time hash that
+   * `/api/train` reads via `getCurrentConfigHash()`. The on-disk
+   * `.arkor/build/index.mjs` doesn't change on ERROR, so a child
+   * spawned during an error state is running the *previous* successful
+   * bundle — and the next BUNDLE_END's hash should be compared
+   * against THAT. Without this separate cache, the whole rebuild gets
+   * routed through SIGTERM-restart and SIGUSR2 hot-swap stops working
+   * for the rest of the session whenever the user briefly broke their
+   * source.
+   */
+  let lastSuccessConfigHash: string | null = null;
 
   function broadcast(event: HmrEvent): void {
     lastEvent = event;
@@ -201,11 +216,18 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     if (seq !== buildSeq || disposed) return;
     const type: HmrEventType = firstBroadcast ? "ready" : "rebuild";
     firstBroadcast = false;
+    const configHash = inspection?.configHash ?? null;
+    // BUNDLE_END always reflects what's now on disk — even when the
+    // bundle is unbranded (`configHash === null`), that's the
+    // current truth. Capture it so `/api/train` spawning during a
+    // *subsequent* transient error still has the right spawn-time
+    // hash to compare against the next successful rebuild.
+    lastSuccessConfigHash = configHash;
     broadcast({
       type,
       outFile: resolved.outFile,
       hash: fingerprint(resolved.outFile),
-      configHash: inspection?.configHash ?? null,
+      configHash,
       trainerName: inspection?.trainerName ?? null,
     });
   }
@@ -291,10 +313,17 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       };
     },
     getCurrentConfigHash() {
-      // `lastEvent` is `null` until the first BUNDLE_END (or null again
-      // if the most recent emission was an `error`); both cases are
-      // legitimate "we don't know the hash yet" signals to the caller.
-      return lastEvent?.configHash ?? null;
+      // Returns the hash of the *last successful* build, NOT
+      // `lastEvent.configHash`. The two diverge after an ERROR:
+      // `lastEvent` becomes the error event (no `configHash`), but
+      // `.arkor/build/index.mjs` still holds the previous successful
+      // bundle bytes — and a child spawned in that window is running
+      // those bytes. Returning the cached success hash keeps
+      // `/api/train` registering accurate spawn-time hashes so the
+      // next successful BUNDLE_END can route hot-swap vs restart
+      // correctly. `null` only before the first successful build (or
+      // a build that wasn't inspectable).
+      return lastSuccessConfigHash;
     },
     async dispose() {
       disposed = true;

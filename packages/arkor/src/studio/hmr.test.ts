@@ -282,4 +282,44 @@ describe("createHmrCoordinator", () => {
       await hmr.dispose();
     }
   });
+
+  it("getCurrentConfigHash() preserves the last-success hash across an ERROR event", async () => {
+    // Regression: previously `getCurrentConfigHash()` returned
+    // `lastEvent?.configHash ?? null`. After an ERROR landed,
+    // `lastEvent` was the error event (no `configHash`) so the
+    // getter went null — even though `.arkor/build/index.mjs` still
+    // held the previous *successful* bundle bytes (ERROR doesn't
+    // overwrite the output). A child spawned via `/api/train` in
+    // that window would register `configHash: null`, and the next
+    // successful BUNDLE_END would diff against null → SIGTERM
+    // restart instead of SIGUSR2 hot-swap, defeating callback
+    // hot-swap for the rest of the session. The fix tracks the
+    // last *successful* hash separately from `lastEvent`.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+
+    const events: HmrEvent[] = [];
+    const hmr = createHmrCoordinator({ cwd });
+    hmr.subscribe((e) => events.push(e));
+    try {
+      const ready = await nextEvent(events, (e) => e.type === "ready");
+      const successHash = hmr.getCurrentConfigHash();
+      // Sanity: ready event's configHash matches the getter.
+      expect(successHash).toBe(ready.configHash ?? null);
+      // Inject a syntax error to force a watcher ERROR event.
+      writeFileSync(
+        join(cwd, "src/arkor/index.ts"),
+        "this is not { valid javascript = ;",
+      );
+      await nextEvent(events, (e) => e.type === "error", 4000);
+      // After the error, the cached `lastEvent` is the error frame
+      // — but the on-disk artifact still holds the previous
+      // success. The getter must return that previous-success hash
+      // so any `/api/train` spawn during this window still gets a
+      // useful spawn-time hash for the *next* rebuild's routing.
+      expect(hmr.getCurrentConfigHash()).toBe(successHash);
+    } finally {
+      await hmr.dispose();
+    }
+  });
 });
