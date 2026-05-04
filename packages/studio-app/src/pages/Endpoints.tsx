@@ -442,9 +442,16 @@ export function EndpointDetail({ id }: { id: string }) {
       setError(asMessage(err));
       return undefined;
     } finally {
-      // Always clear `busy` even if we navigated away; otherwise a
-      // back-navigation to this id would land on a stuck spinner.
-      setBusy(false);
+      // Only clear `busy` if we're still on the endpoint that started
+      // this mutation. Without the guard, a long-running A-mutation
+      // settling after the user has navigated to B would flip B's busy
+      // flag back to false while B's own request might still be in
+      // flight, re-enabling its controls and allowing duplicate
+      // enable/delete/revoke clicks. The B-side `withBusy` runs its own
+      // setBusy(true)/setBusy(false) cycle for that request, so leaving
+      // A's stale finally as a no-op is safe; the per-id useEffect
+      // above also resets `busy` on the next id change.
+      if (activeIdRef.current === myId) setBusy(false);
     }
   }
 

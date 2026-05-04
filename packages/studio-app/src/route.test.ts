@@ -141,10 +141,11 @@ describe("parseRoute — endpoints", () => {
     expect(parseRoute()).toEqual({ kind: "endpoint", id: "dep-abc" });
   });
 
-  it("falls through to home when the id segment is empty", () => {
-    // `#/endpoints/` already returns the list (handled above); this
-    // is a defensive case — `#/endpoints//` becomes `endpoints/` after
-    // trailing-slash trim, which still maps to the list view.
+  it("treats trailing slashes after `endpoints` as the list view", () => {
+    // `#/endpoints/` is already the list (handled above); this defensive
+    // case checks `#/endpoints//`, which becomes `endpoints/` after the
+    // trailing-slash trim and still maps to the list rather than to a
+    // detail route with an empty id.
     withHash("#/endpoints//");
     expect(parseRoute()).toEqual({ kind: "endpoints" });
   });

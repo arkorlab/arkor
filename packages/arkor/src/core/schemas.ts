@@ -62,13 +62,27 @@ export const createJobResponseSchema = z.object({ job: trainingJobSchema });
  * because the inner-discriminator validation is done at the cloud-api
  * boundary; we just want to assert presence + primitive type here.
  */
+// Inner adapter discriminator. Splitting `final` and `checkpoint` into
+// separate branches lets us require `step` only on the checkpoint side
+// (the exported `DeploymentTarget` declares `step: number` for that
+// variant, so a server response missing `step` would otherwise produce
+// a type-unsound DTO that downstream code dereferences as `undefined`).
+const adapterRefSchema = z.union([
+  z.looseObject({
+    kind: z.literal("final"),
+    jobId: z.string(),
+  }),
+  z.looseObject({
+    kind: z.literal("checkpoint"),
+    jobId: z.string(),
+    step: z.number(),
+  }),
+]);
+
 const deploymentTargetSchema = z.union([
   z.looseObject({
     kind: z.literal("adapter"),
-    adapter: z.looseObject({
-      kind: z.enum(["final", "checkpoint"]),
-      jobId: z.string(),
-    }),
+    adapter: adapterRefSchema,
   }),
   z.looseObject({
     kind: z.literal("base_model"),
