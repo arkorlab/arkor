@@ -149,6 +149,7 @@ jobs:
         node:
           - '22.22.0'             # exact engines floor (DoS-patched 22 LTS)
           - '>=22.22.0 <23'       # latest 22.x
+          - '24.0.0'              # exact 24.x floor (initial release; type-stripping default-on / Stability: RC)
           - '24.12.0'             # exact boundary where type stripping became Stable
           - '>=24.12.0 <25'       # latest 24.x
         id: [pnpm-9, pnpm-10, pnpm-11, npm, yarn, yarn-berry, bun]
