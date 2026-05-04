@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scaffold, templateChoices } from "./scaffold";
@@ -264,17 +264,20 @@ describe("scaffold", () => {
     expect(result.blockInstall).toBe(true);
   });
 
-  // Round 27 (Codex P2, PR #99) — reversal of round-20: the
-  // round-20 "no yarn-berry signal → no caveat" gate optimised
-  // yarn 1 user UX (avoid a needless manual-install flow), but
-  // it false-NEGATIVED for yarn 4 users without a corepack
-  // `packageManager` declaration (a common Yarn Berry setup).
-  // Those users got NO caveat, blockInstall stayed false, and
-  // `yarn install` ran with PnP — exact recurrence of the bug
-  // PR #99 was supposed to prevent. Trade-off: always fire on
-  // the explicit-yarn arm; yarn 1 users get a one-step
-  // inconvenience, yarn 4 users get correctness.
-  it("STILL fires the caveat in --use-yarn + existing-project + no yarn-berry signal (yarn 4 undeclared protection)", async () => {
+  // Round 29 (Copilot, PR #99) — final settle on the round-20
+  // / 27 ping-pong: the gate is back, broadened to include
+  // `.yarn/` directory existence as a positive yarn-berry
+  // signal alongside `.yarnrc.yml` on disk and corepack
+  // `packageManager: "yarn@2+"`. yarn 1 users with an existing
+  // project AND none of those signals are NOT in regression
+  // anymore (round 27's "always fire" had blocked their install
+  // unnecessarily). yarn 4 users with at least one signal still
+  // get the caveat. The remaining gap — yarn 4 with NONE of
+  // those signals — is the rare bootstrap case where the user
+  // is setting up yarn 4 from scratch alongside arkor scaffolding;
+  // documented as a known limitation in scaffold.ts's gate
+  // comment.
+  it("does NOT fire the caveat in --use-yarn + existing-project + no yarn-berry signal (yarn 1 friendliness)", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
@@ -285,14 +288,34 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "yarn",
     });
-    // Still don't write `.yarnrc.yml` — round-14 policy stands.
+    // Round-14 policy: no `.yarnrc.yml` written.
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
     expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
-    // The caveat IS surfaced and blocks install — yarn 4 users
-    // without a corepack declaration would otherwise hit the
-    // PnP runtime break. yarn 1 users see the advisory and can
-    // re-run with `--skip-install` then their own `yarn install`
-    // (one extra step; not broken).
+    // No caveat / blockInstall — yarn 1 users sail through.
+    expect(result.warnings).toEqual([]);
+    expect(result.blockInstall).toBe(false);
+  });
+
+  // Round 29 cont'd: `.yarn/` directory existence is a positive
+  // signal even without `.yarnrc.yml` or a corepack declaration
+  // — yarn 1 doesn't create that tree, so an existing `.yarn/`
+  // dir means the user is on yarn-berry. Pin the contract so a
+  // future tightening of the gate doesn't drop this signal.
+  it("DOES fire the caveat in --use-yarn + existing-project when only `.yarn/` dir signals yarn-berry", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    // Just an empty `.yarn/` dir — common in yarn-berry repos
+    // that haven't yet committed `.yarnrc.yml` (e.g. mid-bootstrap)
+    // but already pinned a yarn release under `.yarn/releases/`.
+    mkdirSync(join(cwd, ".yarn"));
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
     expect(result.blockInstall).toBe(true);
@@ -384,17 +407,15 @@ describe("scaffold", () => {
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
-    // The caveat DOES fire — round 27 (Codex P2, PR #99) reversed
-    // the round-20 gate that had silenced it for "no yarn-berry
-    // signal" cases. Reasoning: yarn 4 users without a corepack
-    // declaration are common and the silenced caveat let
-    // `yarn install` run with PnP, breaking the runtime. Always
-    // firing on the explicit-yarn arm protects them; yarn 1
-    // users see the advisory and can re-run with --skip-install
-    // (annoying, not broken).
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
-    expect(result.blockInstall).toBe(true);
+    // No caveat — round 29 (Copilot, PR #99) settled on the
+    // positive-signal gate (yarnrc / `.yarn/` / corepack
+    // declaration). README-only fixture has none of those, so
+    // `--use-yarn` here is treated as plausibly yarn 1 (which
+    // installs fine without `.yarnrc.yml`). The yarn 1 regression
+    // round-27 introduced is fixed; the remaining gap (yarn 4
+    // with NO signal at all) is documented in scaffold.ts.
+    expect(result.warnings).toEqual([]);
+    expect(result.blockInstall).toBe(false);
     // .gitignore does NOT get yarn-cache lines either — Yarn
     // zero-install setups commit `.yarn/cache/` and silently
     // ignoring those archives is the round-14 #2 hazard.
@@ -737,14 +758,21 @@ describe("scaffold", () => {
     expect(readFileSync(join(cwd, ".gitignore"), "utf8")).not.toContain(
       ".yarn/",
     );
-    // But the caveat IS surfaced — and it mentions both fixups
-    // (yarnrc nodeLinker, gitignore yarn-cache entries) so a user
-    // who reads it can address both before running `yarn install`.
+    // But the caveat IS surfaced. Round 29 (Copilot, PR #99)
+    // trimmed the prior `.yarn/cache` / `.yarn/install-state.gz`
+    // gitignore prescription — `patchGitignore` deliberately
+    // doesn't add those to existing repos (round-14 #2: Yarn
+    // zero-install repos commit them on purpose), so prescribing
+    // them in the advisory contradicted our own patch policy.
+    // The advisory now only flags the runtime-blocking
+    // `nodeLinker` fix.
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
     expect(result.warnings[0]).toContain("nodeLinker: node-modules");
-    expect(result.warnings[0]).toContain(".yarn/cache");
-    expect(result.warnings[0]).toContain(".yarn/install-state.gz");
+    // No `.yarn/cache` / `.yarn/install-state.gz` recommendation —
+    // see round-29 trim above.
+    expect(result.warnings[0]).not.toContain(".yarn/cache");
+    expect(result.warnings[0]).not.toContain(".yarn/install-state.gz");
   });
 
   // Round 11 (Copilot): when `.yarnrc.yml` exists but lacks a

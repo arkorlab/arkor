@@ -499,6 +499,15 @@ describe("runCli yarn cache plumbing", () => {
     // Force a SIGKILL retry so spawn fires twice; assert the two
     // cache dirs are distinct paths (otherwise parallel workers
     // would still race the same dir on the retry path).
+    //
+    // Round 29 (Copilot, PR #99): the original `finally` here
+    // captured `process.platform` AFTER mutating it to "darwin",
+    // so the restore was a no-op and the fake platform leaked
+    // into later tests in this file. Snapshot the descriptor
+    // (or just the original value) BEFORE the mutation and
+    // restore from that.
+    const originalPlatform = process.platform;
+    const originalCI = process.env.CI;
     Object.defineProperty(process, "platform", {
       value: "darwin",
       configurable: true,
@@ -542,10 +551,14 @@ describe("runCli yarn cache plumbing", () => {
         stderrSpy.mockRestore();
       }
     } finally {
+      // Restore both the platform AND the CI env so this test's
+      // mutations don't leak into subsequent tests in the file.
       Object.defineProperty(process, "platform", {
-        value: process.platform,
+        value: originalPlatform,
         configurable: true,
       });
+      if (originalCI === undefined) delete process.env.CI;
+      else process.env.CI = originalCI;
     }
   });
 

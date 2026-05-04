@@ -291,31 +291,29 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
 // existing project but no usable `nodeLinker: node-modules` setup.
 // arkor's runtime can't resolve dependencies through Plug'n'Play
 // (yarn-berry's default), so `yarn install` would land on PnP and
-// `arkor dev` / `arkor train` would break — and yarn-berry would
-// also generate `.yarn/cache` / `.yarn/install-state.gz` that aren't
-// covered by the non-yarn `.gitignore` we wrote here. Bundle both
-// fixups into one advisory.
+// `arkor dev` / `arkor train` would break.
 //
 // Path-agnostic copy — emitted from BOTH the explicit `--use-yarn`
 // patch path (via `needsBerryCaveat`) AND the
 // `pm === undefined && isExistingProject` inspect path (when the
-// inspect helpers find positive yarn-berry signal). The earlier
-// "Scaffolded into an existing project without an explicit package
-// manager" framing was correct for the inspect path but a lie for
-// the patch path (the user explicitly chose yarn). Round 20
-// (Copilot, PR #99) flagged the wording mismatch — this version
-// frames the advisory around the detected condition (yarn-berry
-// + missing nodeLinker) rather than how we got here, so both paths
-// can share it without misattribution.
+// inspect helpers find positive yarn-berry signal).
+//
+// Round 29 (Copilot, PR #99) trimmed the round-9 `.yarn/cache` /
+// `.yarn/install-state.gz` `.gitignore` recommendation: the
+// surrounding `patchGitignore` deliberately doesn't add those
+// entries to existing repos (round-14 #2 / 15 — Yarn zero-install
+// setups commit `.yarn/cache/` on purpose), so prescribing them
+// in the advisory contradicted our own patch policy. The user
+// keeps full control over their `.yarn/` policy; the advisory
+// only flags the runtime-blocking `nodeLinker` fix.
 function buildYarnBerryCaveatAdvisory(): string {
   return (
     `yarn 4+ (yarn-berry) on an existing project, but ` +
     `\`nodeLinker: node-modules\` isn't set. arkor's runtime can't ` +
     `resolve dependencies through Plug'n'Play (yarn-berry's default), ` +
     `so \`arkor dev\` and \`arkor train\` will fail until the linker ` +
-    `is set. Before running \`yarn install\`: add ` +
-    `\`nodeLinker: node-modules\` to \`.yarnrc.yml\` and add ` +
-    `\`.yarn/cache\` + \`.yarn/install-state.gz\` to \`.gitignore\`.`
+    `is set. Before running \`yarn install\`, add ` +
+    `\`nodeLinker: node-modules\` to \`.yarnrc.yml\`.`
   );
 }
 
@@ -692,32 +690,58 @@ export async function scaffold(
     } else if (yarn.needsBerryCaveat) {
       // Round 14: explicit `--use-yarn` against an existing project
       // where `.yarnrc.yml` is missing (or has no `nodeLinker:` key)
-      // — patch path declined to mutate. Round 27 (Codex P2, PR #99)
-      // reverts the round-20 gate that tried to skip the caveat
-      // when no positive yarn-berry signal was visible: it
-      // optimised yarn 1 user UX (avoid a needless manual-install
-      // flow) but at the cost of false-NEGATIVES for yarn 4 users
-      // who don't declare a `packageManager` field — exactly the
-      // common Yarn Berry config that PR #99 is trying to protect.
-      // Without the caveat firing, blockInstall stayed false and
-      // `yarn install` ran with PnP, silently breaking
-      // `arkor dev` / `arkor train` — the recurrence of the bug
-      // PR #99 set out to fix.
+      // — patch path declined to mutate. Whether to surface the
+      // caveat depends on whether the project is actually on
+      // yarn-berry, gated on positive signal:
       //
-      // Trade-off picked: ALWAYS fire on the explicit-yarn arm.
-      // The user opted into yarn explicitly, so a yarn-config
-      // advisory isn't noise. yarn 1 users seeing the caveat get
-      // one extra step (`--skip-install` + their own `yarn
-      // install`) — annoying but not broken. yarn 4 users get
-      // their config corrected before the broken install — the
-      // win we care about.
+      //   - `.yarnrc.yml` exists on disk → unambiguous yarn-berry
+      //     evidence (yarn 1 reads `.yarnrc`, not `.yarnrc.yml`).
+      //   - `.yarn/` directory exists → also yarn-berry-only
+      //     (yarn 1 doesn't create that tree). Catches the
+      //     yarn-berry-with-cached-releases case where the user
+      //     committed `.yarn/releases/yarn-*.cjs` but no
+      //     `.yarnrc.yml` yet.
+      //   - corepack `packageManager: yarn@2+` declared anywhere
+      //     up the tree → yarn-berry signal.
       //
-      // The inspect path (`pm === undefined && isExistingProject`,
-      // below) keeps its own round-10/16 gate — that path's user
-      // didn't opt into yarn at all, so the noise concern still
-      // applies there.
-      warnings.push(buildYarnBerryCaveatAdvisory());
-      blockInstall = true;
+      // None of those → `--use-yarn` is most likely yarn 1 (which
+      // would install fine in this branch — yarn 1 ignores
+      // `.yarnrc.yml`). Round 20 / 27 / 29 ping-ponged on the
+      // trade-off here:
+      //
+      //   - Round 20 (Copilot): without the gate, yarn 1 users
+      //     scaffolding into existing projects get a useless
+      //     blocking advisory and a needless manual-install flow.
+      //   - Round 27 (Codex P2): with too-narrow a gate,
+      //     yarn 4 users WITHOUT a corepack declaration silently
+      //     hit the runtime break PR #99 set out to fix.
+      //   - Round 29 (Copilot): round-27's "always fire" reverted
+      //     the yarn 1 regression — current text.
+      //
+      // Settled: keep the positive-signal gate AND broaden the
+      // signal set (`.yarn/` directory in addition to
+      // `.yarnrc.yml` + corepack declaration). The remaining gap
+      // — yarn 4 with no `.yarnrc.yml`, no `.yarn/`, AND no
+      // corepack declaration — is the rare bootstrap case where
+      // the user is setting up yarn 4 from scratch. Documented
+      // limitation; the `inspectYarnConfig` path's `conflict`
+      // arm still catches anyone with an explicit `nodeLinker:
+      // pnp` pinned.
+      const yarnrcOnDisk = existsSync(join(cwd, YARNRC_YML_PATH));
+      const yarnDirOnDisk = existsSync(join(cwd, ".yarn"));
+      const positiveBerrySignal =
+        yarnrcOnDisk ||
+        yarnDirOnDisk ||
+        declaresYarnBerry(
+          await resolveEnclosingPackageManagerField(
+            cwd,
+            preExistingPackageManagerField,
+          ),
+        );
+      if (positiveBerrySignal) {
+        warnings.push(buildYarnBerryCaveatAdvisory());
+        blockInstall = true;
+      }
     }
   } else if (
     options.packageManager === undefined &&
