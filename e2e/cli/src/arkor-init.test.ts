@@ -254,32 +254,32 @@ describe("arkor init (E2E)", () => {
   // Lockfile-by-flag drives the post-install assertion that
   // verifies git init runs *after* install (so the bootstrap
   // commit is reproducible).
-  //
-  // bun is intentionally absent here: bun on Windows produces
-  // `bun.lock` reliably from the IDENTICAL fixture in
-  // create-arkor.test.ts (same runner, same bun 1.3.13, same
-  // single-segment `file:../<tgz>` spec, same parentDir+project
-  // layout — verified passing on the same CI runs that fail this
-  // lane), but skips lockfile generation for `arkor init` calls.
-  // Rounds 22 → 23 → 25 narrowed the divergence to the CLI
-  // binary itself (`arkor` vs `create-arkor`); no other observable
-  // difference accounts for it. The install-ran-before-git
-  // invariant is still exercised: every other arkor-init pm lane
-  // asserts the lockfile lands in the commit, and create-arkor's
-  // bun lane asserts the same property end-to-end. arkor-init's
-  // bun assertions stop at `node_modules` + `.git/HEAD` + commit
-  // message until the bun-side regression is understood (likely
-  // candidate: bun's lockfile writeback under `arkor init`'s
-  // spawn shape — `bun install` invoked synchronously through
-  // `cli-internal/install.ts` from a Node parent, with stdio
-  // inherited).
-  const LOCKFILE_BY_FLAG: Partial<
-    Record<"npm" | "pnpm" | "yarn" | "bun", string>
-  > = {
+  const LOCKFILE_BY_FLAG: Record<"npm" | "pnpm" | "yarn" | "bun", string> = {
     npm: "package-lock.json",
     pnpm: "pnpm-lock.yaml",
     yarn: "yarn.lock",
+    bun: "bun.lock",
   };
+
+  // bun on Windows skips `bun.lock` generation specifically for
+  // `arkor init`'s spawn shape (Node parent → `cli-internal/
+  // install.ts` → `spawn("bun", ["install"], {stdio: "inherit"})`),
+  // but produces it reliably for the IDENTICAL fixture under
+  // create-arkor (same bun 1.3.13, same `file:../<tgz>` spec,
+  // same parentDir+project layout — verified passing on the
+  // same CI runs that fail this lane). Rounds 22 → 23 → 25
+  // narrowed the divergence to the CLI-binary axis with no other
+  // observable difference. Round 28 (Copilot, PR #99) flagged
+  // that dropping the bun assertion ENTIRELY leaves a real
+  // regression window in the install-matrix. Compromise: skip
+  // ONLY the Windows × bun combination here. bun on
+  // Linux/macOS keeps the strict lockfile-in-initial-commit
+  // assertion, and create-arkor's bun lane (which works
+  // cross-platform) covers the bun-specific install path on
+  // Windows too.
+  function shouldSkipBunLockfileAssertion(flag: string): boolean {
+    return flag === "bun" && process.platform === "win32";
+  }
   for (const { label, flag } of INSTALL_CASES) {
     it.skipIf(shouldSkipInstallCase(label))(
       `runs real ${label} install + git commit (gated by SKIP_E2E_INSTALL)`,
@@ -336,18 +336,18 @@ describe("arkor init (E2E)", () => {
           // is surfaced *before* install so the user can walk away, but
           // git init execution still happens *after* install — otherwise
           // the lockfile wouldn't be tracked and the bootstrap commit
-          // wouldn't be reproducible. Skipped for the bun lane; see
-          // LOCKFILE_BY_FLAG comment for the bun-on-Windows divergence
-          // create-arkor's identical-fixture lane doesn't reproduce.
-          const expectedLockfile = LOCKFILE_BY_FLAG[flag];
-          if (expectedLockfile !== undefined) {
+          // wouldn't be reproducible. Skipped for the bun-on-Windows
+          // sub-case only; see `shouldSkipBunLockfileAssertion` for the
+          // bun-on-Windows divergence create-arkor's identical-fixture
+          // lane doesn't reproduce.
+          if (!shouldSkipBunLockfileAssertion(flag)) {
             const tracked = await runGit(projectDir, [
               "ls-tree",
               "-r",
               "--name-only",
               "HEAD",
             ]);
-            expect(tracked.stdout).toContain(expectedLockfile);
+            expect(tracked.stdout).toContain(LOCKFILE_BY_FLAG[flag]);
           }
         } finally {
           cleanup(parentDir);

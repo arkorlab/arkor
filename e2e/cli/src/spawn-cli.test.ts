@@ -443,3 +443,195 @@ describe("runCli orchestration", () => {
     expect(result.code).toBe(0);
   });
 });
+
+// Per-spawn yarn cache plumbing: the matrix's yarn-flake fix
+// depends on `YARN_CACHE_FOLDER` being a fresh tmp dir per call
+// (so parallel vitest workers don't race the shared
+// `~/.cache/yarn/v6/`), `YARN_NETWORK_CONCURRENCY=1` being
+// forwarded (yarn 1 optional-deps extraction race), the temp
+// cache being cleaned up on either close or error (no tmpdir
+// pollution), and `extraEnv` keeping its last-write-wins ordering
+// (so individual tests can override). Round 28 (Copilot, PR #99)
+// flagged the absence of hermetic coverage for this plumbing —
+// these tests lock the contract down so a future refactor that
+// drops a piece trips a unit test rather than a CI yarn flake.
+describe("runCli yarn cache plumbing", () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    spawnMock.mockReset();
+    cwd = mkdtempSync(join(tmpdir(), "spawn-cli-yarn-plumbing-"));
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  function lastSpawnEnv(): NodeJS.ProcessEnv {
+    const calls = spawnMock.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const opts = calls[calls.length - 1]?.[2] as { env: NodeJS.ProcessEnv };
+    return opts.env;
+  }
+
+  it("forwards YARN_CACHE_FOLDER pointing at a fresh tmp dir per spawn", async () => {
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ code: 0, signal: null }),
+    );
+    await runCli("/fake/bin", [], cwd);
+
+    const yarnCache = lastSpawnEnv().YARN_CACHE_FOLDER;
+    expect(yarnCache).toBeDefined();
+    // mkdtempSync places it under tmpdir() with our prefix.
+    expect(yarnCache).toMatch(/[\\/]arkor-e2e-yarn-cache-/);
+  });
+
+  it("forwards YARN_NETWORK_CONCURRENCY=1 (yarn 1 optionalDeps extraction race)", async () => {
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ code: 0, signal: null }),
+    );
+    await runCli("/fake/bin", [], cwd);
+
+    expect(lastSpawnEnv().YARN_NETWORK_CONCURRENCY).toBe("1");
+  });
+
+  it("uses a unique YARN_CACHE_FOLDER for each spawn (covers the retry case)", async () => {
+    // Force a SIGKILL retry so spawn fires twice; assert the two
+    // cache dirs are distinct paths (otherwise parallel workers
+    // would still race the same dir on the retry path).
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      configurable: true,
+    });
+    process.env.CI = "1";
+    try {
+      const dateNowSpy = vi
+        .spyOn(Date, "now")
+        .mockReturnValueOnce(1000)
+        .mockReturnValueOnce(1100)
+        .mockReturnValueOnce(2000)
+        .mockReturnValueOnce(2050);
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+      try {
+        spawnMock
+          .mockImplementationOnce(() =>
+            makeFakeChild({ code: null, signal: "SIGKILL" }),
+          )
+          .mockImplementationOnce(() =>
+            makeFakeChild({ code: 0, signal: null }),
+          );
+
+        await runCli("/fake/bin", [], cwd);
+
+        expect(spawnMock).toHaveBeenCalledTimes(2);
+        const firstEnv = (
+          spawnMock.mock.calls[0]?.[2] as { env: NodeJS.ProcessEnv }
+        ).env;
+        const secondEnv = (
+          spawnMock.mock.calls[1]?.[2] as { env: NodeJS.ProcessEnv }
+        ).env;
+        expect(firstEnv.YARN_CACHE_FOLDER).toBeDefined();
+        expect(secondEnv.YARN_CACHE_FOLDER).toBeDefined();
+        expect(firstEnv.YARN_CACHE_FOLDER).not.toBe(
+          secondEnv.YARN_CACHE_FOLDER,
+        );
+      } finally {
+        dateNowSpy.mockRestore();
+        stderrSpy.mockRestore();
+      }
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: process.platform,
+        configurable: true,
+      });
+    }
+  });
+
+  it("cleans up the yarn cache dir after a clean close", async () => {
+    let capturedCacheDir: string | undefined;
+    spawnMock.mockImplementationOnce((_execPath, _argv, opts) => {
+      capturedCacheDir = (opts as { env: NodeJS.ProcessEnv }).env
+        .YARN_CACHE_FOLDER;
+      // Inside the spawn impl the dir is freshly mkdtemp'd by the
+      // caller, so it should exist at this point.
+      expect(capturedCacheDir).toBeDefined();
+      expect(existsSync(capturedCacheDir!)).toBe(true);
+      return makeFakeChild({ code: 0, signal: null });
+    });
+
+    await runCli("/fake/bin", [], cwd);
+
+    // After runCli resolves, the close handler's cleanup should
+    // have removed the cache dir — no tmpdir pollution.
+    expect(capturedCacheDir).toBeDefined();
+    expect(existsSync(capturedCacheDir!)).toBe(false);
+  });
+
+  it("cleans up the yarn cache dir even when the child emits `error`", async () => {
+    let capturedCacheDir: string | undefined;
+    spawnMock.mockImplementationOnce((_execPath, _argv, opts) => {
+      capturedCacheDir = (opts as { env: NodeJS.ProcessEnv }).env
+        .YARN_CACHE_FOLDER;
+      const child = new EventEmitter();
+      Object.assign(child, {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+      });
+      // Defer the error emit so the caller has a chance to attach
+      // its listener inside the Promise constructor before we fire.
+      setImmediate(() => {
+        child.emit("error", new Error("spawn ENOENT"));
+      });
+      return child;
+    });
+
+    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(
+      /spawn ENOENT/,
+    );
+    // Error path also has to clean — otherwise a tight loop of
+    // failed spawns would fill tmpdir on long CI runs.
+    expect(capturedCacheDir).toBeDefined();
+    expect(existsSync(capturedCacheDir!)).toBe(false);
+  });
+
+  it("lets extraEnv last-write-wins override YARN_CACHE_FOLDER", async () => {
+    // Tests that genuinely need a stable / pre-populated cache
+    // (e.g. an integration test seeding offline yarn artefacts)
+    // can override via extraEnv. The default-then-extraEnv spread
+    // ordering inside spawn-cli.ts puts extraEnv last so the
+    // override wins.
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ code: 0, signal: null }),
+    );
+    await runCli("/fake/bin", [], cwd, {
+      YARN_CACHE_FOLDER: "/explicitly/overridden",
+    });
+
+    expect(lastSpawnEnv().YARN_CACHE_FOLDER).toBe("/explicitly/overridden");
+  });
+
+  it("strips npm_config_* / pnpm_config_* leakage from the parent shell", async () => {
+    // pnpm propagates its workspace config to children as
+    // `npm_config_*` env vars. If those leak through, scaffolded
+    // fixtures inherit the workspace's policy (most painfully
+    // `minimumReleaseAge`, which blocks freshly-published `arkor`
+    // versions). The runCli wrapper strips them; this test pins
+    // that contract by setting a leaky var on the parent and
+    // asserting it doesn't reach the child env.
+    const ORIG = process.env.npm_config_minimum_release_age;
+    process.env.npm_config_minimum_release_age = "1440";
+    try {
+      spawnMock.mockImplementationOnce(() =>
+        makeFakeChild({ code: 0, signal: null }),
+      );
+      await runCli("/fake/bin", [], cwd);
+
+      expect(lastSpawnEnv().npm_config_minimum_release_age).toBeUndefined();
+    } finally {
+      if (ORIG === undefined) delete process.env.npm_config_minimum_release_age;
+      else process.env.npm_config_minimum_release_age = ORIG;
+    }
+  });
+});

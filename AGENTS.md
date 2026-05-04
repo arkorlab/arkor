@@ -80,7 +80,7 @@ The CLI/Studio look at `src/arkor/index.ts` in user projects. Discovery in [pack
 
 [e2e/cli](e2e/cli) has a `pretest` hook that rebuilds `create-arkor` and `arkor` before vitest runs. Every supported Node (≥22.22.0) is in rolldown's compatible range (^20.19 || >=22.12), so the previous "rolldown-incompatible" CI bypass path was removed.
 
-Tests rely on `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:.../packages/arkor` so the scaffolded fixtures install the workspace `arkor` instead of the npm-published one. Both this var and `SKIP_E2E_INSTALL` are declared in [turbo.json](turbo.json) so they pass through Turbo's hash.
+Tests rely on `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:.../packages/arkor` so the scaffolded fixtures install the workspace `arkor` instead of the npm-published one. This var, `SKIP_E2E_INSTALL`, and `ARKOR_E2E_PM` (set per-runner by the CI install-matrix to gate exactly one pm's install assertions per job; valid labels: `npm` / `pnpm` / `yarn` / `yarn-berry` / `bun`) are all declared in [turbo.json](turbo.json) so they pass through Turbo's hash.
 
 E2E coverage uses `c8` wrapping vitest (NOT vitest's own coverage) so child CLI processes' V8 coverage is captured and remapped through tsdown sourcemaps back to `src/`. `create-arkor`'s tsdown config only emits sourcemaps when `CREATE_ARKOR_BUILD_SOURCEMAP=1` (the published tarball ships without them).
 
