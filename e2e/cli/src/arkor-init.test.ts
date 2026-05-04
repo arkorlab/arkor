@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { basename, join } from "node:path";
 import { ARKOR_BIN } from "./bins";
 import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
@@ -219,32 +219,37 @@ describe("arkor init (E2E)", () => {
   // CI yaml's `PM_LABEL` mapping and create-arkor.test.ts stay in sync
   // with one source of truth (Copilot review on PR #99).
   //
-  // Per-case the test points the scaffold spec at a relative
-  // `file:` path resolving to `arkorTarball` (which lives in the
-  // sibling `arkorPackDir` set up in beforeAll). Two reasons for
-  // sibling-relative instead of an in-project `cwd/vendor/<tgz>`
-  // copy:
+  // Per-case fixture mirrors create-arkor.test.ts's pattern
+  // exactly: a per-test parent dir contains the tarball as a
+  // single-segment sibling FILE, plus a fresh `project/` subdir
+  // that `arkor init` runs in. The scaffold spec is therefore
+  // `file:../<tgz>` (one level up to the parent + filename, no
+  // intermediate directory components).
+  //
+  // Why this exact shape:
   //
   //   1. pnpm 10 can't parse absolute Windows-drive `file:` URIs
   //      (`file:D:\...`), so the path has to be relative. (See
   //      the top-of-file beforeAll for the full rationale.)
-  //   2. Pre-seeding ANYTHING under `cwd` BEFORE `arkor init` runs
-  //      flips scaffold's round-15 `isExistingProject` predicate
-  //      to true, which then activates the round-14 / round-20
-  //      "existing project" yarn-config policy: scaffold declines
-  //      to write `.yarnrc.yml`, yarn-berry falls back to its
-  //      Plug'n'Play default at install time, and the resulting
-  //      tree has no `node_modules` (CI-observed: yarn-berry on
-  //      Windows ran in PnP mode and the test's
-  //      `existsSync(node_modules)` assertion failed). A sibling
-  //      tarball leaves cwd empty when scaffold runs, so the
-  //      fresh-project path fires and `.yarnrc.yml` lands.
+  //   2. Pre-seeding ANYTHING under the project dir BEFORE
+  //      `arkor init` runs flips scaffold's round-15
+  //      `isExistingProject` predicate to true, which activates
+  //      the round-14 / round-20 "existing project" yarn-config
+  //      policy: scaffold declines to write `.yarnrc.yml`,
+  //      yarn-berry falls back to PnP at install time, and the
+  //      tree has no `node_modules` (CI run 25323281510). The
+  //      tarball must therefore live OUTSIDE the project dir.
+  //   3. bun on Windows skips `bun.lock` generation for `file:`
+  //      deps with multi-segment relative paths
+  //      (`file:../<dir>/<tgz>` — observed in CI run 25326609066).
+  //      A single-segment `file:../<tgz>` works (the create-arkor
+  //      lane has been passing on Windows × bun all along with
+  //      this exact shape). So the tarball must be a sibling
+  //      FILE of the project, not a sibling DIRECTORY entry.
   //
-  // Sibling-relative also incidentally fixes the bun lockfile
-  // gap that round 22 worked around: bun on Windows generates
-  // `bun.lock` reliably for out-of-project `file:` deps (the
-  // create-arkor lane proves this), so we can keep bun in the
-  // assertion table.
+  // The global `cwd` from beforeEach is unused by these tests —
+  // afterEach still cleans it up, and the per-test `parentDir`
+  // is cleaned up in the `finally` block below.
   //
   // Lockfile-by-flag drives the post-install assertion that
   // verifies git init runs *after* install (so the bootstrap
@@ -262,57 +267,66 @@ describe("arkor init (E2E)", () => {
         if (!arkorTarball) {
           throw new Error("arkor tarball wasn't packed in beforeAll");
         }
-        // Relative path from cwd → sibling arkorTarball; force
-        // forward slashes so the `file:` URL parses uniformly on
-        // Windows (Node's `path.relative` returns native
-        // separators).
-        const fileSpec = `file:${relative(cwd, arkorTarball).replace(/\\/g, "/")}`;
+        const parentDir = makeTempDir("arkor-init-e2e-pkg-");
+        try {
+          const projectDir = join(parentDir, "project");
+          mkdirSync(projectDir);
+          const tarballName = basename(arkorTarball);
+          copyFileSync(arkorTarball, join(parentDir, tarballName));
 
-        const result = await runCli(
-          ARKOR_BIN,
-          ["init", "-y", `--use-${flag}`, "--git"],
-          cwd,
-          { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: fileSpec },
-        );
-        // arkor init swallows `<pm> install` failures into a one-line
-        // warning so the user can retry manually — that means a broken
-        // pm setup leaves us with `result.code === 0` but no
-        // node_modules and only a warn buried in stderr. Surface the
-        // captured stdout/stderr eagerly when an assertion is about to
-        // fail so the install-matrix CI logs are diagnostic rather than
-        // a bare `expected false to be true`.
-        if (
-          result.code !== 0 ||
-          !existsSync(join(cwd, "node_modules"))
-        ) {
-          // eslint-disable-next-line no-console
-          console.error(
-            `[install-matrix:${label}] arkor init failed to produce node_modules:\n` +
-              `  exit: ${result.code}\n` +
-              `  --- stdout ---\n${result.stdout}\n` +
-              `  --- stderr ---\n${result.stderr}`,
+          const result = await runCli(
+            ARKOR_BIN,
+            ["init", "-y", `--use-${flag}`, "--git"],
+            projectDir,
+            { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
           );
+          // arkor init swallows `<pm> install` failures into a one-line
+          // warning so the user can retry manually — that means a broken
+          // pm setup leaves us with `result.code === 0` but no
+          // node_modules and only a warn buried in stderr. Surface the
+          // captured stdout/stderr eagerly when an assertion is about to
+          // fail so the install-matrix CI logs are diagnostic rather than
+          // a bare `expected false to be true`.
+          if (
+            result.code !== 0 ||
+            !existsSync(join(projectDir, "node_modules"))
+          ) {
+            // eslint-disable-next-line no-console
+            console.error(
+              `[install-matrix:${label}] arkor init failed to produce node_modules:\n` +
+                `  exit: ${result.code}\n` +
+                `  --- stdout ---\n${result.stdout}\n` +
+                `  --- stderr ---\n${result.stderr}`,
+            );
+          }
+          expect(result.code).toBe(0);
+          // Every pm — including yarn-berry — produces a real node_modules
+          // tree because the scaffold writes `.yarnrc.yml` with
+          // `nodeLinker: node-modules` whenever the user picked yarn (see
+          // packages/cli-internal/src/scaffold.ts). Without that pin
+          // yarn-berry would default to Plug'n'Play and the arkor runtime
+          // would fail to resolve modules.
+          expect(existsSync(join(projectDir, "node_modules"))).toBe(true);
+          expect(existsSync(join(projectDir, ".git/HEAD"))).toBe(true);
+
+          const log = await runGit(projectDir, ["log", "-1", "--format=%s"]);
+          expect(log.stdout.trim()).toBe("Initial commit from `arkor init`");
+
+          // Lockfile-in-initial-commit invariant: the git-init prompt
+          // is surfaced *before* install so the user can walk away, but
+          // git init execution still happens *after* install — otherwise
+          // the lockfile wouldn't be tracked and the bootstrap commit
+          // wouldn't be reproducible.
+          const tracked = await runGit(projectDir, [
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "HEAD",
+          ]);
+          expect(tracked.stdout).toContain(LOCKFILE_BY_FLAG[flag]);
+        } finally {
+          cleanup(parentDir);
         }
-        expect(result.code).toBe(0);
-        // Every pm — including yarn-berry — produces a real node_modules
-        // tree because the scaffold writes `.yarnrc.yml` with
-        // `nodeLinker: node-modules` whenever the user picked yarn (see
-        // packages/cli-internal/src/scaffold.ts). Without that pin
-        // yarn-berry would default to Plug'n'Play and the arkor runtime
-        // would fail to resolve modules.
-        expect(existsSync(join(cwd, "node_modules"))).toBe(true);
-        expect(existsSync(join(cwd, ".git/HEAD"))).toBe(true);
-
-        const log = await runGit(cwd, ["log", "-1", "--format=%s"]);
-        expect(log.stdout.trim()).toBe("Initial commit from `arkor init`");
-
-        // Lockfile-in-initial-commit invariant: the git-init prompt
-        // is surfaced *before* install so the user can walk away, but
-        // git init execution still happens *after* install — otherwise
-        // the lockfile wouldn't be tracked and the bootstrap commit
-        // wouldn't be reproducible.
-        const tracked = await runGit(cwd, ["ls-tree", "-r", "--name-only", "HEAD"]);
-        expect(tracked.stdout).toContain(LOCKFILE_BY_FLAG[flag]);
       },
       180_000,
     );
