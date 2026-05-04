@@ -474,6 +474,40 @@ export function EndpointDetail({ id }: { id: string }) {
   const initialDeploymentSupersededRef = useRef(false);
   const initialKeysSupersededRef = useRef(false);
 
+  // Track in-flight `createDeploymentKey` calls separately from the rest
+  // of the mutations because the response carries the *one-time*
+  // plaintext: if the user navigates away or closes the tab while it's
+  // pending, the server may still commit the row but we lose the only
+  // chance to show the secret. Two layers of defence:
+  //   1. `pendingKeyIssueRef` tracks "is there an in-flight POST whose
+  //      plaintext we cannot recover?" — used to register a
+  //      `beforeunload` warning so the browser confirms before tab close.
+  //   2. `keyIssueControllerRef` lets the unmount cleanup abort the
+  //      fetch (the server may still commit, in which case the orphan
+  //      key shows up the next time the user opens this endpoint and is
+  //      revocable from the list).
+  const pendingKeyIssueRef = useRef(false);
+  const keyIssueControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!pendingKeyIssueRef.current) return;
+      // Modern browsers (Chrome 119+, Firefox, Safari) show the generic
+      // confirm dialog from `preventDefault()` alone — the custom message
+      // is no longer rendered, so we don't bother with the deprecated
+      // `returnValue`. Goal: stop the user from losing the one-time
+      // plaintext key by closing the tab mid-flight.
+      e.preventDefault();
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      // Component is being torn down: best-effort abort the in-flight
+      // POST so the network layer drops the response. If the server
+      // already committed, the key will show up on the next visit.
+      keyIssueControllerRef.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     // The `id` prop changed (or this is the first mount). Reset visible
     // state immediately so the previous endpoint's slug / keys / revealed
@@ -647,29 +681,50 @@ export function EndpointDetail({ id }: { id: string }) {
     if (!label) return;
     const myId = id;
     await withBusy(async () => {
-      const { key } = await createDeploymentKey(myId, { label });
-      if (activeIdRef.current !== myId) return;
-      setRevealed(key);
-      setNewKeyLabel("");
-      // Drop any in-flight initial keys fetch so it can't land later
-      // and overwrite the just-issued / refreshed list.
-      initialKeysSupersededRef.current = true;
-      if (keys === null) {
-        // Initial load failed; optimistically appending to `[]` would
-        // hide every pre-existing key. Re-fetch the canonical list.
-        await refreshKeysIfStale(myId);
-      } else {
-        setKeys([
-          ...keys,
-          {
-            id: key.id,
-            label: key.label,
-            prefix: key.prefix,
-            enabled: true,
-            createdAt: key.createdAt,
-            lastUsedAt: null,
-          },
-        ]);
+      // Mark the issue as in flight so the `beforeunload` listener
+      // (set up in the unmount-cleanup useEffect above) confirms before
+      // a tab close that would drop the one-time plaintext.
+      keyIssueControllerRef.current?.abort();
+      const controller = new AbortController();
+      keyIssueControllerRef.current = controller;
+      pendingKeyIssueRef.current = true;
+      try {
+        const { key } = await createDeploymentKey(
+          myId,
+          { label },
+          { signal: controller.signal },
+        );
+        if (activeIdRef.current !== myId) return;
+        setRevealed(key);
+        setNewKeyLabel("");
+        // Drop any in-flight initial keys fetch so it can't land later
+        // and overwrite the just-issued / refreshed list.
+        initialKeysSupersededRef.current = true;
+        if (keys === null) {
+          // Initial load failed; optimistically appending to `[]` would
+          // hide every pre-existing key. Re-fetch the canonical list.
+          await refreshKeysIfStale(myId);
+        } else {
+          setKeys([
+            ...keys,
+            {
+              id: key.id,
+              label: key.label,
+              prefix: key.prefix,
+              enabled: true,
+              createdAt: key.createdAt,
+              lastUsedAt: null,
+            },
+          ]);
+        }
+      } finally {
+        // Always clear the pending flag so a subsequent tab close after
+        // this one settles (success or failure) does not get a stale
+        // confirm dialog.
+        pendingKeyIssueRef.current = false;
+        if (keyIssueControllerRef.current === controller) {
+          keyIssueControllerRef.current = null;
+        }
       }
     });
   }

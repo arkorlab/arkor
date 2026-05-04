@@ -1464,6 +1464,108 @@ process.exit(0);
       expect(res.status).toBe(403);
     });
 
+    it("bootstraps `.arkor/state.json` on first anonymous POST and forwards the create", async () => {
+      // Coverage for the write-path branch in `withDeploymentClient` that
+      // calls `ensureProjectState()` for anonymous workspaces with no
+      // state file. The first POST should create the project (PROJECT
+      // upsert), persist `.arkor/state.json`, and then forward the
+      // deployment create with the resolved scope. Without this branch
+      // working, the very first "Create endpoint" click on a fresh
+      // anonymous workspace would hard-fail.
+      await writeCredentials(ANON_CREDS);
+      const upstreamCalls: { url: string; method?: string }[] = [];
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: RequestInit,
+      ) => {
+        const url = String(input);
+        upstreamCalls.push({ url, method: init?.method });
+        if (url.includes("/v1/projects") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({
+              project: {
+                id: "p-id",
+                slug: "anon-cwd",
+                name: "anon-cwd",
+                orgId: "o-id",
+                createdAt: "2026-05-04T00:00:00Z",
+                updatedAt: "2026-05-04T00:00:00Z",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v1/endpoints") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({ deployment: deploymentResponse("first") }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        throw new Error(`unexpected upstream call: ${init?.method} ${url}`);
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          slug: "first",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { deployment: { slug: string } };
+      expect(body.deployment.slug).toBe("first");
+      // The bootstrap must precede the endpoint create, otherwise the
+      // endpoint POST would have nothing to scope itself to.
+      const projectIdx = upstreamCalls.findIndex((c) =>
+        c.url.includes("/v1/projects"),
+      );
+      const endpointIdx = upstreamCalls.findIndex((c) =>
+        c.url.includes("/v1/endpoints"),
+      );
+      expect(projectIdx).toBeGreaterThanOrEqual(0);
+      expect(endpointIdx).toBeGreaterThan(projectIdx);
+    });
+
+    it("rejects POST /api/deployments with a manual-state hint when Auth0 creds have no state file", async () => {
+      // Coverage for the Auth0 branch in `withDeploymentClient`: we
+      // intentionally do NOT bootstrap because we don't know which org
+      // the logged-in user wants the deployment in. The error must
+      // point at the only working remediation today (write `.arkor/
+      // state.json` by hand), since `arkor login` and `arkor init`
+      // both leave that file untouched.
+      await writeCredentials({
+        mode: "auth0",
+        accessToken: "at",
+        refreshToken: "rt",
+        expiresAt: 0,
+        auth0Domain: "d",
+        audience: "a",
+        clientId: "c",
+      });
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          slug: "x",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/\.arkor\/state\.json/);
+      expect(body.error).toMatch(/by hand/);
+      expect(upstreamCalls).toBe(0);
+    });
+
     // -----------------------------------------------------------------------
     // Per-id and key-sub-route coverage. The previous block covered list +
     // create + 409. Each handler below is an independent forward path with

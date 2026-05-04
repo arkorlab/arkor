@@ -445,12 +445,14 @@ export async function fetchDeploymentKeys(
 export async function createDeploymentKey(
   id: string,
   body: { label: string },
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ key: CreatedDeploymentKey }> {
   return deploymentJson(
     await apiFetch(`/api/deployments/${encodeURIComponent(id)}/keys`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: options.signal,
     }),
   );
 }

@@ -442,10 +442,16 @@ export function buildStudioApp(options: StudioServerOptions) {
     // into an opaque 500.
     const scope0 = await readScopeFromState().catch(() => null);
     if (!scope0 && intent === "read") {
+      // Stay neutral about how to fix this. For anonymous workspaces the
+      // first deployment-create POST will bootstrap `.arkor/state.json`
+      // automatically; for Auth0 workspaces the user must write the file
+      // by hand (see `intent === "write"` below). The two remediations
+      // diverge, so we keep the read-side message a plain "no state yet"
+      // and let the relevant write attempt surface the right next step.
       return new Response(
         JSON.stringify({
           error:
-            "No project state — this workspace has no deployments yet. Create one from the Endpoints page first.",
+            "No project state on disk — this workspace has no deployments yet.",
         }),
         { status: 404, headers: { "content-type": "application/json" } },
       );
