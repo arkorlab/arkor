@@ -341,6 +341,84 @@ describe("scaffold", () => {
     expect(result.blockInstall).toBe(true);
   });
 
+  // Round 34 (Copilot, PR #99): yarn itself walks up for
+  // `.yarnrc.yml` and `.yarn/` during resolution — the workspace
+  // root's config governs descendant packages. The cwd-only
+  // signal check missed monorepo-subdir scaffolds (e.g.
+  // `monorepo/packages/new-pkg`) whose root pins the yarn-berry
+  // config. Now `hasEnclosingPath` walks up the tree.
+  it("DOES fire the caveat for a monorepo-subdir --use-yarn scaffold whose ancestor has `.yarnrc.yml`", async () => {
+    // Build: root has `.yarnrc.yml`, run scaffold in
+    // `root/packages/new-pkg`.
+    const subdir = join(cwd, "packages", "new-pkg");
+    mkdirSync(subdir, { recursive: true });
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\n",
+    );
+    // Pre-seed something in subdir so isExistingProject=true
+    // (round 15 widened predicate).
+    writeFileSync(join(subdir, "README.md"), "# my package\n");
+    const result = await scaffold({
+      cwd: subdir,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
+  });
+
+  it("DOES fire the caveat for a monorepo-subdir --use-yarn scaffold whose ancestor has `.yarn/` dir", async () => {
+    // Same shape but root has `.yarn/` instead of `.yarnrc.yml`.
+    const subdir = join(cwd, "packages", "new-pkg");
+    mkdirSync(subdir, { recursive: true });
+    mkdirSync(join(cwd, ".yarn"));
+    writeFileSync(join(subdir, "README.md"), "# my package\n");
+    const result = await scaffold({
+      cwd: subdir,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
+  });
+
+  // Mirror round-34 walk-up coverage on the inspect path
+  // (`pm === undefined && isExistingProject`). The `no-config`
+  // branch returns when cwd has no `.yarnrc.yml`; before round
+  // 34 it then only checked the corepack declaration and the
+  // local `.yarn/`, missing monorepo subdirs.
+  it("inspect path: monorepo-subdir scaffold without packageManager fires caveat when ancestor has `.yarnrc.yml`", async () => {
+    const subdir = join(cwd, "packages", "new-pkg");
+    mkdirSync(subdir, { recursive: true });
+    // Ancestor has `.yarnrc.yml` (no nodeLinker line, plain
+    // yarn-berry pin).
+    writeFileSync(
+      join(cwd, ".yarnrc.yml"),
+      "yarnPath: .yarn/releases/yarn-4.x.cjs\n",
+    );
+    // Pre-existing package.json in subdir but NO `packageManager`
+    // field — without round 34's tree walk, this path saw
+    // `no-config` (no local yarnrc) + no corepack declaration
+    // and stayed silent.
+    writeFileSync(
+      join(subdir, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    const result = await scaffold({
+      cwd: subdir,
+      name: "n",
+      template: "triage",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
+  });
+
   // Round 30 (Copilot, PR #99): the round-29 documented gap (yarn
   // 4 fresh bootstrap into existing dir with no on-disk signals
   // and no corepack declaration) was unacceptable because it left

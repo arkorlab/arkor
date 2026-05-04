@@ -388,6 +388,32 @@ async function readPackageManagerField(
 }
 
 /**
+ * Walk from `cwd` up toward filesystem root checking whether any
+ * ancestor (including `cwd` itself) contains an entry named
+ * `name`. Used to detect yarn-berry workspace artefacts —
+ * `.yarnrc.yml` and `.yarn/` — that yarn itself walks up to find
+ * during resolution. Bound to 20 iterations as a defensive cap
+ * against pathological symlinks; matches the
+ * `findEnclosingPackageManagerField` budget.
+ *
+ * (PR #99 round 34 — Copilot flagged that the cwd-only check
+ * missed monorepo-subdir scaffolds whose workspace root pins the
+ * yarn-berry config: `monorepo/packages/foo` has neither
+ * `.yarnrc.yml` nor `.yarn/` locally but inherits both from
+ * `monorepo/`.)
+ */
+function hasEnclosingPath(cwd: string, name: string): boolean {
+  let dir = cwd;
+  for (let i = 0; i < 20; i++) {
+    if (existsSync(join(dir, name))) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false; // reached filesystem root
+    dir = parent;
+  }
+  return false;
+}
+
+/**
  * Walk from `cwd`'s parent up toward filesystem root looking for the
  * first `package.json` that declares a `packageManager` field. Bound
  * to 20 iterations as a defensive cap against pathological symlinks
@@ -722,11 +748,17 @@ export async function scaffold(
       //      and returns `undefined` if yarn isn't on PATH /
       //      errors out — that fallback keeps the yarn 1 happy
       //      path intact when detection isn't possible.
-      const yarnrcOnDisk = existsSync(join(cwd, YARNRC_YML_PATH));
-      const yarnDirOnDisk = existsSync(join(cwd, ".yarn"));
+      // Round 34 (Copilot, PR #99): walk up the ancestor tree
+      // for `.yarnrc.yml` and `.yarn/` rather than checking only
+      // cwd. yarn itself walks up to find these during
+      // resolution (workspace root config governs descendant
+      // packages), so a `monorepo/packages/foo` scaffold whose
+      // root has either signal is unambiguously yarn-berry.
+      const yarnrcInTree = hasEnclosingPath(cwd, YARNRC_YML_PATH);
+      const yarnDirInTree = hasEnclosingPath(cwd, ".yarn");
       let positiveBerrySignal =
-        yarnrcOnDisk ||
-        yarnDirOnDisk ||
+        yarnrcInTree ||
+        yarnDirInTree ||
         declaresYarnBerry(
           await resolveEnclosingPackageManagerField(
             cwd,
@@ -826,12 +858,22 @@ export async function scaffold(
       // yarn (`pm === undefined`), so probing `yarn --version`
       // would false-positive on every pnpm/npm/bun project that
       // happens to have yarn installed in its dev env.
-      const yarnDirOnDisk = existsSync(join(cwd, ".yarn"));
+      //
+      // Round 34 (Copilot, PR #99): walk up the ancestor tree
+      // for both `.yarnrc.yml` and `.yarn/` (matching the patch
+      // path's round-34 fix) so monorepo-subdir scaffolds whose
+      // workspace root pins the yarn-berry config are detected.
+      // The cwd-only `inspectYarnConfig` returned `no-config`
+      // because the local dir doesn't have `.yarnrc.yml`, but
+      // the parent workspace's `.yarnrc.yml` still governs
+      // `yarn install` from this subdir.
+      const yarnrcInTree = hasEnclosingPath(cwd, YARNRC_YML_PATH);
+      const yarnDirInTree = hasEnclosingPath(cwd, ".yarn");
       const declared = await resolveEnclosingPackageManagerField(
         cwd,
         preExistingPackageManagerField,
       );
-      if (yarnDirOnDisk || declaresYarnBerry(declared)) {
+      if (yarnrcInTree || yarnDirInTree || declaresYarnBerry(declared)) {
         warnings.push(buildYarnBerryCaveatAdvisory());
         blockInstall = true;
       }
