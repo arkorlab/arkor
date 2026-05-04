@@ -279,20 +279,23 @@ describe("scaffold", () => {
     expect(result.blockInstall).toBe(true);
   });
 
-  // Round 32 (Copilot, PR #99) — final fail-closed semantics:
-  // when `--use-yarn` is passed, none of the on-disk signals
-  // are present, AND `detectYarnMajor()` returns `undefined`
-  // (yarn not on PATH / exec error / 5s timeout), assume the
-  // worst (yarn 4) instead of the best (yarn 1). The user
-  // explicitly committed to yarn, so a transient detection
-  // hiccup shouldn't silently let install land on PnP. yarn 1
-  // users get a manual-install flow they can re-run with
-  // `--skip-install` + their own `yarn install`.
+  // Round 33 (Copilot, PR #99) — final settle on the
+  // detection-undefined trade-off (round 31 ↔ 32 ↔ 33): when
+  // `--use-yarn` is passed, none of the on-disk signals are
+  // present, AND `detectYarnMajor()` returns `undefined`
+  // (yarn not on PATH / exec error / 5s timeout), DON'T fire
+  // the caveat. The probe-failure modes (yarn missing,
+  // corepack blocked by a non-yarn `packageManager`,
+  // etc.) don't share a fix with the PnP hazard, so telling
+  // the user to edit `.yarnrc.yml` would mislead them away
+  // from the actual problem. Round 32 had tried fail-closed
+  // here; round 33 pushed back. Install still runs, and any
+  // real yarn issue surfaces with yarn's own diagnostic.
   //
   // The default mock for `detectYarnMajor` returns `undefined`,
-  // so this test exercises the fail-closed path without an
+  // so this test exercises the fall-through path without an
   // explicit override.
-  it("FAILS CLOSED in --use-yarn + existing-project + no signal + detection-undefined (round-32 protection)", async () => {
+  it("does NOT fire the caveat in --use-yarn + existing-project + no signal + detection-undefined", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
@@ -306,11 +309,11 @@ describe("scaffold", () => {
     // Round-14 policy: no `.yarnrc.yml` written.
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
     expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
-    // Caveat IS surfaced — fail-closed: detection couldn't
-    // confirm yarn 1, treat as yarn 2+ for safety.
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
-    expect(result.blockInstall).toBe(true);
+    // Probe couldn't confirm yarn 2+, no caveat. install runs;
+    // any actual yarn issue (missing binary, corepack block)
+    // surfaces with its own diagnostic.
+    expect(result.warnings).toEqual([]);
+    expect(result.blockInstall).toBe(false);
   });
 
   // Round 29 cont'd: `.yarn/` directory existence is a positive
@@ -388,15 +391,17 @@ describe("scaffold", () => {
     expect(result.blockInstall).toBe(false);
   });
 
-  it("FAILS CLOSED when detection fails (yarn not on PATH / exec error → caveat fires)", async () => {
+  it("does NOT fire the caveat when detection returns undefined (yarn not on PATH / exec error)", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
     );
-    // Round 32 (Copilot, PR #99): detection failure no longer
-    // assumes yarn 1. The user explicitly passed `--use-yarn`,
-    // so a transient detection hiccup shouldn't let install
-    // land on PnP. Treat undefined as yarn 2+ (caveat fires).
+    // Round 33 (Copilot, PR #99): probe-undefined falls through
+    // to "no positive signal" and install runs. Probe-failure
+    // causes (yarn missing, corepack blocked, subprocess error)
+    // don't share a fix with the PnP hazard, so firing the
+    // `nodeLinker:` caveat would mislead users whose actual
+    // failure mode is something else.
     vi.mocked(detectYarnMajor).mockResolvedValueOnce(undefined);
     const result = await scaffold({
       cwd,
@@ -404,9 +409,8 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "yarn",
     });
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
-    expect(result.blockInstall).toBe(true);
+    expect(result.warnings).toEqual([]);
+    expect(result.blockInstall).toBe(false);
   });
 
   // Round 14 #1 cont'd: same policy when the existing

@@ -735,23 +735,28 @@ export async function scaffold(
         );
       if (!positiveBerrySignal) {
         // Round 30 (Copilot, PR #99): runtime detection closes
-        // the yarn-4-fresh-bootstrap gap.
+        // the yarn-4-fresh-bootstrap gap by reporting the actual
+        // yarn major.
         //
-        // Round 32 (Copilot, PR #99): when detection itself
-        // fails (yarn not on PATH at scaffold time, exec error,
-        // 5s timeout), the previous code fell through to "no
-        // caveat" — assuming yarn 1. But the user explicitly
-        // passed `--use-yarn`, so they're committing to yarn,
-        // and yarn 1 sailing through requires yarn to actually
-        // BE on PATH at install time. Failing closed (treat
-        // detection failure as a positive berry signal and fire
-        // the caveat) is the safer default: yarn 4 users with
-        // a transient detection hiccup still get protected; the
-        // worst-case for yarn 1 users is a manual-install flow
-        // they can short-circuit with `--skip-install` and their
-        // own `yarn install`.
+        // Round 32 → 33 (Copilot, PR #99): the trade-off for
+        // `undefined` (yarn not on PATH / exec error / 5s
+        // timeout) settled on "don't fire". Round 32 had tried
+        // fail-closed (treat undefined as yarn 2+) for safety,
+        // but round 33 pushed back: conflating probe-failure
+        // with PnP hazard misleads users whose actual failure
+        // mode is something else — yarn missing, corepack
+        // blocked by an enclosing non-yarn `packageManager`,
+        // etc. Telling those users to "edit `.yarnrc.yml`" when
+        // the real fix is "install yarn" or "fix corepack" is
+        // worse than letting `yarn install` surface its own
+        // clear error.
+        //
+        // Settled: only fire when the probe positively reports
+        // yarn 2+. Probe-undefined falls through to "no
+        // positive signal" and install runs, where any actual
+        // yarn issue surfaces with its own diagnostic.
         const yarnMajor = await detectYarnMajor(cwd);
-        if (yarnMajor === undefined || yarnMajor >= 2) {
+        if (yarnMajor !== undefined && yarnMajor >= 2) {
           positiveBerrySignal = true;
         }
       }
