@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,6 +44,31 @@ function nextEvent(
         );
       }
       setTimeout(tick, 25);
+    };
+    tick();
+  });
+}
+
+/**
+ * Resolve once `events.length` has gone `quietWindowMs` without
+ * growing. Used to wait out spurious watcher events on noisier file
+ * systems (Windows polling / macOS FSEvents coalescing) before
+ * asserting the cached state.
+ */
+function waitForStableEvents(
+  events: HmrEvent[],
+  quietWindowMs: number,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let lastLength = events.length;
+    let stableSince = Date.now();
+    const tick = () => {
+      if (events.length !== lastLength) {
+        lastLength = events.length;
+        stableSince = Date.now();
+      }
+      if (Date.now() - stableSince >= quietWindowMs) return resolve();
+      setTimeout(tick, 50);
     };
     tick();
   });
@@ -184,9 +210,9 @@ describe("createHmrCoordinator", () => {
     // We can't deterministically synthesise a race against rolldown's
     // real watcher, but we *can* assert the user-visible invariant:
     // after a sequence of edits, the cached state must match the
-    // last write. The new sequence-number guard inside
-    // `emitBuildSucceeded` drops stale inspection results so the
-    // final broadcast always wins.
+    // bytes that are actually on disk. The new sequence-number guard
+    // inside `emitBuildSucceeded` drops stale inspection results so
+    // whichever BUNDLE_END landed last broadcasts last.
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
 
@@ -195,37 +221,30 @@ describe("createHmrCoordinator", () => {
     hmr.subscribe((e) => events.push(e));
     try {
       await nextEvent(events, (e) => e.type === "ready");
-      // Two source edits in quick succession. Both must result in a
-      // broadcast eventually, and `lastEvent.hash` must end up
-      // matching the file content of the FINAL write — not the
-      // first one (which would prove the older inspection raced
-      // past the newer one's broadcast).
       writeFileSync(
         join(cwd, "src/arkor/index.ts"),
         FAKE_MANIFEST.replace(`"alpha"`, `"beta"`),
       );
-      const v2 = await nextEvent(
-        events,
-        (e) => e.type === "rebuild",
-        4000,
-      );
+      await nextEvent(events, (e) => e.type === "rebuild", 4000);
       writeFileSync(
         join(cwd, "src/arkor/index.ts"),
         FAKE_MANIFEST.replace(`"alpha"`, `"gamma"`),
       );
-      // Wait for any rebuild whose hash differs from v2's. Without
-      // the seq guard the older inspection could clobber the cached
-      // state with v2 again, so this would time out.
-      const v3 = await nextEvent(
-        events,
-        (e) => e.type === "rebuild" && e.hash !== v2.hash,
-        4000,
-      );
-      // Settle: give any in-flight inspection time to land so we can
-      // assert the final cached state really is v3, not a late v2
-      // overwrite.
-      await new Promise((r) => setTimeout(r, 250));
-      expect(events[events.length - 1]?.hash).toBe(v3.hash);
+      // Wait for the watcher to settle — any rebuild that's going to
+      // fire (including spurious extras from FSEvents on macOS or
+      // chokidar polling on Windows) lands within this window. The
+      // assertion then compares the cached `lastEvent.hash` against
+      // the *actual* fingerprint of the on-disk artefact, not a
+      // captured "last expected" hash from earlier in the test —
+      // that earlier capture was brittle on Windows where rolldown
+      // routinely emits a 4th BUNDLE_END after the explicit edits
+      // settle, producing a slightly different output byte (a
+      // change in the bundled comment header is enough to bump
+      // mtime + size).
+      await waitForStableEvents(events, 750);
+      const stat = statSync(join(cwd, ".arkor/build/index.mjs"));
+      const expectedHash = `${stat.mtimeMs.toFixed(0)}-${stat.size}`;
+      expect(events[events.length - 1]?.hash).toBe(expectedHash);
     } finally {
       await hmr.dispose();
     }
