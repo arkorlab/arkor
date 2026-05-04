@@ -65,6 +65,14 @@ const STUDIO_TOKEN = readStudioToken();
  * real `arkor dev` sessions. `RunTraining` consults this flag before
  * opening `/api/dev/events`; without it, the EventSource would retry
  * forever against the 404 the server returns for non-HMR builds.
+ *
+ * The Vite SPA dev workflow (`pnpm --filter @arkor/studio-app dev`)
+ * serves its own `index.html`, so the SPA's `vite.config.ts` plugin
+ * also injects this meta alongside the studio-token meta — that way
+ * a single meta-presence check covers both the production-built SPA
+ * (served by `arkor dev`) and the Vite-served dev SPA, instead of
+ * needing a separate `import.meta.env.DEV` fallback that would diverge
+ * between dev workflows.
  */
 export function isHmrEnabled(): boolean {
   if (typeof document === "undefined") return false;
