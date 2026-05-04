@@ -9,9 +9,9 @@ import type { ChildProcess } from "node:child_process";
  *     matches the one captured at spawn time — the cloud-side run is
  *     unaffected, only in-process callbacks need to update.
  *   - **SIGTERM** (graceful early-stop + restart) when the configs
- *     diverge — `Trainer.requestEarlyStop` lets the next checkpoint
- *     finish, the subprocess exits, and the SPA re-spawns with the
- *     rebuilt artefact.
+ *     diverge — the runner's internal early-stop entry point lets the
+ *     next checkpoint finish, the subprocess exits, and the SPA
+ *     re-spawns with the rebuilt artefact.
  */
 export interface ActiveTrain {
   child: ChildProcess;
@@ -36,6 +36,38 @@ export interface ActiveTrain {
 export interface RestartTarget {
   pid: number;
   trainFile?: string;
+}
+
+export interface DispatchResult {
+  /** Children whose callbacks were rotated in place via SIGUSR2. */
+  hotSwapTargets: RestartTarget[];
+  /**
+   * Children that were SIGTERM'd for graceful early-stop and need to
+   * be re-spawned by the SPA after the train stream emits its
+   * `exit=...` line. Includes both config-mismatch matches and
+   * config-match cases that fell back here because the platform
+   * doesn't support SIGUSR2 (Windows).
+   */
+  restartTargets: RestartTarget[];
+}
+
+/**
+ * Outcome of a single `child.kill(signal)` call.
+ *
+ * - `"ok"`: signal was delivered.
+ * - `"gone"`: process was already exited (`kill` returned `false`); no
+ *   real signal was sent.
+ * - `"unsupported"`: the platform doesn't support this signal kind
+ *   (Windows + `SIGUSR2`); `kill` threw.
+ */
+type KillResult = "ok" | "gone" | "unsupported";
+
+function safeKill(child: ChildProcess, signal: NodeJS.Signals): KillResult {
+  try {
+    return child.kill(signal) ? "ok" : "gone";
+  } catch {
+    return "unsupported";
+  }
 }
 
 /**
@@ -73,77 +105,77 @@ export class TrainRegistry {
   }
 
   /**
-   * Send a callback hot-swap signal (SIGUSR2) to every child whose
-   * stored `configHash` matches `nextConfigHash`. The child's runner
-   * (`installCallbackReloadHandler`) re-imports the rebuilt bundle and
-   * calls `Trainer.replaceCallbacks`. Returns the list of children
-   * actually signalled, so the SSE event payload can include them for
-   * SPA-side telemetry.
+   * Single entry point for HMR rebuilds: per active child, decide
+   * between callback hot-swap (SIGUSR2) and graceful restart
+   * (SIGTERM), apply the signal, and report which children landed in
+   * each bucket so the SPA can update its UI / re-spawn restarted
+   * runs.
+   *
+   * Combines what was previously `notifyCallbackReload` +
+   * `requestEarlyStopOnMismatch` into one pass so the per-child
+   * decision is atomic — important because the hot-swap path can
+   * gracefully degrade into the restart path on platforms (Windows)
+   * where SIGUSR2 isn't supported, which is hard to express across
+   * two separate iterations of the registry.
+   *
+   * Re-signal protection: children already flagged
+   * `earlyStopRequested` are skipped entirely. The flag is cleared
+   * naturally when the child exits and is unregistered.
+   *
+   * Defensive corner cases:
+   *   - `kill()` returns `false` (process already exited) → drop
+   *     from the targets list, the registry's close handler will
+   *     unregister it.
+   *   - `kill("SIGUSR2")` throws on Windows → degrade to SIGTERM so
+   *     callback edits still take effect (via a full restart) rather
+   *     than silently being ignored.
    */
-  notifyCallbackReload(
-    nextConfigHash: string | null,
-  ): Array<{ pid: number; trainFile?: string }> {
-    if (nextConfigHash === null) return [];
-    const signalled: Array<{ pid: number; trainFile?: string }> = [];
-    for (const [pid, entry] of this.entries) {
-      if (entry.configHash !== null && entry.configHash === nextConfigHash) {
-        try {
-          entry.child.kill("SIGUSR2");
-          signalled.push({ pid, trainFile: entry.trainFile });
-        } catch {
-          // child may have just exited; the close handler will clean
-          // up the entry on its own.
-        }
-      }
-    }
-    return signalled;
-  }
+  dispatchRebuild(nextConfigHash: string | null): DispatchResult {
+    const hotSwapTargets: RestartTarget[] = [];
+    const restartTargets: RestartTarget[] = [];
 
-  /**
-   * Send a graceful early-stop signal (SIGTERM) to every child whose
-   * stored `configHash` differs from `nextConfigHash` AND that hasn't
-   * already been signalled. The child's runner
-   * (`installShutdownHandlers`) calls the trainer's internal
-   * early-stop entry point which preserves the in-flight checkpoint
-   * before exiting. Returns the list of children we actually
-   * signalled this call so the SPA can re-spawn them with the new
-   * bundle.
-   *
-   * If `nextConfigHash` is null (the new bundle has no inspectable
-   * trainer), every active not-yet-signalled child is SIGTERM'd
-   * defensively — we can't prove their configs are unaffected.
-   *
-   * Re-signal protection: a second SIGTERM hits the runner's
-   * emergency `exit(143)` fast-path and would defeat checkpoint
-   * preservation. Children flagged `earlyStopRequested` here are
-   * skipped on subsequent rebuilds; the entry is removed from the
-   * registry when the child exits, so the next spawn starts from a
-   * clean slate.
-   */
-  requestEarlyStopOnMismatch(
-    nextConfigHash: string | null,
-  ): RestartTarget[] {
-    const targets: RestartTarget[] = [];
     for (const [pid, entry] of this.entries) {
       if (entry.earlyStopRequested) continue;
-      if (
-        nextConfigHash === null ||
-        entry.configHash === null ||
-        entry.configHash !== nextConfigHash
-      ) {
-        try {
-          entry.child.kill("SIGTERM");
-          entry.earlyStopRequested = true;
-          // Push only after a successful kill; a thrown `kill` means
-          // the child has already exited and is not a real restart
-          // target (the SPA would otherwise wait forever for an
-          // exit message that never comes).
-          targets.push({ pid, trainFile: entry.trainFile });
-        } catch {
-          // child already exited; close handler will clean up.
+      const target: RestartTarget = { pid, trainFile: entry.trainFile };
+      const matches =
+        nextConfigHash !== null &&
+        entry.configHash !== null &&
+        entry.configHash === nextConfigHash;
+
+      if (matches) {
+        const r = safeKill(entry.child, "SIGUSR2");
+        if (r === "ok") {
+          hotSwapTargets.push(target);
+          continue;
         }
+        if (r === "gone") {
+          // Child already exited; close handler will unregister.
+          continue;
+        }
+        // Windows fallback: SIGUSR2 isn't supported on win32 — degrade
+        // to a full restart so callback edits don't silently fail to
+        // apply. The user-visible result (callbacks reload after a
+        // brief restart) matches the design intent.
+        const fallback = safeKill(entry.child, "SIGTERM");
+        if (fallback === "ok") {
+          entry.earlyStopRequested = true;
+          restartTargets.push(target);
+        }
+        // "gone" / "unsupported" again → drop silently; the close
+        // handler (or operator-driven restart) will recover.
+        continue;
       }
+
+      // Hash mismatch (or one side is null): graceful restart.
+      const r = safeKill(entry.child, "SIGTERM");
+      if (r === "ok") {
+        entry.earlyStopRequested = true;
+        restartTargets.push(target);
+      }
+      // "gone": child already exited, drop. "unsupported": can't
+      // happen for SIGTERM on supported platforms; drop defensively.
     }
-    return targets;
+
+    return { hotSwapTargets, restartTargets };
   }
 }

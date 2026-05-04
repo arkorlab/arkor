@@ -1,4 +1,5 @@
-import type { JobConfig, Trainer, TrainerCallbacks } from "./types";
+import { isArkor } from "./arkor";
+import type { Arkor, JobConfig, Trainer, TrainerCallbacks } from "./types";
 
 /**
  * Snapshot of a trainer's identity and cloud-side config that the Studio
@@ -165,4 +166,87 @@ export function requestTrainerEarlyStop(
     TRAINER_REQUEST_EARLY_STOP_KEY
   ] as (opts?: RequestEarlyStopOptions) => Promise<void>;
   return fn.call(trainer, opts);
+}
+
+/**
+ * Trainer-shaped value pulled from a re-imported bundle. We don't
+ * import the public `Trainer` type here because consumers of this
+ * helper want to read minimal fields (`name` for display) without
+ * type-narrowing on the full SDK interface — many tests fabricate
+ * hand-rolled trainer literals that don't structurally match
+ * `Trainer` (no `requestEarlyStop` etc.) but are still legitimate
+ * user shapes the runner accepts.
+ */
+type TrainerLike = { name?: unknown; [key: string]: unknown };
+
+function isTrainerLike(value: unknown): value is TrainerLike {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.start === "function" &&
+    typeof v.wait === "function" &&
+    typeof v.cancel === "function"
+  );
+}
+
+/**
+ * Walk a freshly-imported user bundle in the same precedence order
+ * as `runner.ts`'s `extractTrainer` and return the first
+ * trainer-shaped value (anything that has `start`/`wait`/`cancel`
+ * functions). Doesn't require the SDK inspection brand — the
+ * manifest UI displays the trainer's `name` for hand-rolled trainers
+ * too, even when HMR can't compute a `configHash` for them.
+ *
+ * The four supported shapes:
+ *   1. `export const arkor = createArkor({ trainer })`
+ *   2. `export const trainer = createTrainer(...)`  (bare named export)
+ *   3. `export default createArkor({ trainer })`
+ *   4. `export default { trainer: createTrainer(...) }`
+ */
+export function findTrainerInModule(
+  mod: Record<string, unknown>,
+): TrainerLike | null {
+  const candidates: unknown[] = [];
+  // 1: createArkor named export
+  if (isArkor(mod.arkor) && (mod.arkor as Arkor).trainer) {
+    candidates.push((mod.arkor as Arkor).trainer);
+  }
+  // 2: bare `trainer` named export
+  if (mod.trainer) candidates.push(mod.trainer);
+  // 3: default-export holding an Arkor manifest
+  if (isArkor(mod.default) && (mod.default as Arkor).trainer) {
+    candidates.push((mod.default as Arkor).trainer);
+  }
+  // 4: default.trainer nested
+  if (
+    mod.default &&
+    typeof mod.default === "object" &&
+    "trainer" in (mod.default as Record<string, unknown>)
+  ) {
+    candidates.push((mod.default as Record<string, unknown>).trainer);
+  }
+  for (const c of candidates) {
+    if (isTrainerLike(c)) return c;
+  }
+  return null;
+}
+
+/**
+ * Walk a freshly-imported user bundle and return the first inspection
+ * snapshot we can pull off a discovered trainer. Used by both
+ * `studio/hmr.ts` (computing the `configHash` for HMR routing) and
+ * `core/runnerSignals.ts` (extracting new callbacks for SIGUSR2 hot-
+ * swap) so the two paths stay in sync with the runner about which
+ * export shapes count as "a trainer is exported here".
+ *
+ * Returns `null` when none of the candidates carry the inspection
+ * brand — typically because the bundle has no SDK-built trainer
+ * (hand-rolled trainer, fresh scaffold, syntax error, or a
+ * third-party shape).
+ */
+export function findInspectableTrainer(
+  mod: Record<string, unknown>,
+): TrainerInspection | null {
+  const trainer = findTrainerInModule(mod);
+  return trainer ? getTrainerInspection(trainer) : null;
 }

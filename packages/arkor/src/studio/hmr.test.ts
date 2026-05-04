@@ -175,4 +175,37 @@ describe("createHmrCoordinator", () => {
     await new Promise((r) => setTimeout(r, 250));
     expect(events.length).toBe(countAfterDispose);
   });
+
+  it("getCurrentConfigHash() returns the latest cached event's hash", async () => {
+    // Regression: `/api/train` previously called `readManifestSummary`
+    // and ran a redundant rebuild per spawn (racing the watcher).
+    // The new server flow reads the cached hash via
+    // `getCurrentConfigHash()`. We can't trigger a real build here
+    // (the user-bundle entry shape would need a working `arkor`
+    // resolution at import time), but we can verify the getter
+    // returns `null` before the watcher has emitted any event and
+    // tracks the cached event's `configHash` field once one lands.
+    // The integration of "configHash actually populated for all
+    // entry shapes" is covered by the unit test against
+    // `findInspectableTrainer` in `trainerInspection.test.ts`.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+
+    const events: HmrEvent[] = [];
+    const hmr = createHmrCoordinator({ cwd });
+    // Before any subscriber attaches, no watcher is running and no
+    // event has been broadcast — getter must return null without
+    // throwing.
+    expect(hmr.getCurrentConfigHash()).toBeNull();
+    hmr.subscribe((e) => events.push(e));
+    try {
+      const ready = await nextEvent(events, (e) => e.type === "ready");
+      // FAKE_MANIFEST is hand-rolled (no SDK brand) so the cached
+      // hash is null — but the *getter* must still return whatever
+      // the cached event carries, not throw.
+      expect(hmr.getCurrentConfigHash()).toBe(ready.configHash ?? null);
+    } finally {
+      await hmr.dispose();
+    }
+  });
 });

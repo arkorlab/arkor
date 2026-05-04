@@ -1,7 +1,6 @@
 import { pathToFileURL } from "node:url";
-import { isArkor } from "./arkor";
 import {
-  getTrainerInspection,
+  findInspectableTrainer,
   replaceTrainerCallbacks,
   requestTrainerEarlyStop,
 } from "./trainerInspection";
@@ -104,29 +103,14 @@ export function installCallbackReloadHandler(
 
 /**
  * Extract the user-supplied callbacks reference from a re-imported
- * bundle. Mirrors `runner.ts`'s entry-extraction precedence (named
- * `arkor` export → bare `trainer` → default-export shapes) but pulls
- * callbacks via `getTrainerInspection` so we get the current cell of
- * `currentCallbacks` at re-import time. Returns `null` when the new
- * bundle has no inspectable trainer.
+ * bundle. Delegates the entry-shape walk to `findInspectableTrainer`
+ * so SIGUSR2's view of "what counts as a trainer" stays identical to
+ * the HMR coordinator's `inspectBundle` and `runner.ts`'s
+ * `extractTrainer`. Returns `null` when no candidate carries the
+ * inspection brand.
  */
 function extractCallbacks(
   mod: Record<string, unknown>,
 ): Partial<TrainerCallbacks> | null {
-  const candidates: unknown[] = [];
-  if (isArkor(mod.arkor) && mod.arkor.trainer) candidates.push(mod.arkor.trainer);
-  if (mod.trainer) candidates.push(mod.trainer);
-  if (isArkor(mod.default) && mod.default.trainer) candidates.push(mod.default.trainer);
-  if (
-    mod.default &&
-    typeof mod.default === "object" &&
-    "trainer" in (mod.default as Record<string, unknown>)
-  ) {
-    candidates.push((mod.default as Record<string, unknown>).trainer);
-  }
-  for (const c of candidates) {
-    const inspection = getTrainerInspection(c);
-    if (inspection) return inspection.callbacks;
-  }
-  return null;
+  return findInspectableTrainer(mod)?.callbacks ?? null;
 }

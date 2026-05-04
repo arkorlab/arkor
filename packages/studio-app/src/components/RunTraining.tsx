@@ -32,18 +32,37 @@ export function RunTraining() {
   // from Overview mid-stream tears the training stream down without
   // touching the (always-running) manifest poll.
   const trainingAbortRef = useRef<AbortController | null>(null);
-  // HMR auto-restart bookkeeping. `lastTrainFileRef` carries the same
-  // `file?` arg into the auto re-spawn; `restartPendingRef` is the
-  // latch the SSE listener trips when the dev loop SIGTERMs the
-  // current run for a config-mismatch rebuild; `runningRef` lets the
-  // listener tell "is this tab the one running training?" apart from
-  // a passive tab that should ignore the broadcast.
+  // HMR auto-restart bookkeeping:
+  //  - lastTrainFileRef: carries the same `file?` arg into the auto
+  //    re-spawn.
+  //  - restartPendingRef: latch the SSE listener trips ONLY when *this
+  //    tab's* current child landed in `restartTargets`. Without the
+  //    pid scope, a tab whose run was hot-swapped (other tab's child
+  //    in `restartTargets`) would still latch on the broadcast and
+  //    auto-spawn a duplicate job after its own run completes.
+  //  - runningRef: short-circuit for tabs not running anything.
+  //  - currentPidRef: the spawned child's pid for the run currently
+  //    in flight, set from the `X-Arkor-Train-Pid` response header.
+  //  - hotSwapTimerRef: id for the "hot-swapped" status auto-clear
+  //    timer so unmount-during-flash doesn't leak (or trigger a
+  //    setState-after-unmount warning).
   const lastTrainFileRef = useRef<string | undefined>(undefined);
   const restartPendingRef = useRef(false);
   const runningRef = useRef(false);
+  const currentPidRef = useRef<number | null>(null);
+  // Browser `window.setTimeout` returns a numeric handle, not Node's
+  // `Timeout` object — explicit `number` so TS doesn't pick up the
+  // Node typing from the global `setTimeout`.
+  const hotSwapTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    return () => trainingAbortRef.current?.abort();
+    return () => {
+      trainingAbortRef.current?.abort();
+      if (hotSwapTimerRef.current !== null) {
+        clearTimeout(hotSwapTimerRef.current);
+        hotSwapTimerRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -74,11 +93,18 @@ export function RunTraining() {
     };
   }, []);
 
-  // HMR: listen for rebuild notifications from `arkor dev` and refresh the
-  // manifest. When a rebuild also early-stopped a running training run, the
-  // server flags `restart: true`; defer the actual re-invocation until the
-  // current `streamTraining` resolves so we don't run two cloud jobs at once.
+  // HMR: listen for rebuild notifications from `arkor dev` and refresh
+  // the manifest. When a rebuild also early-stopped *this tab's*
+  // training run, the server includes the spawned pid in
+  // `restartTargets`; defer the auto re-invocation until the current
+  // `streamTraining` resolves so we don't run two cloud jobs at once.
+  //
+  // Gated by `import.meta.env.DEV`: `/api/dev/events` returns 404 when
+  // the server runs in production mode, and `EventSource` would then
+  // retry indefinitely creating constant background traffic. The dev
+  // build is the only place this endpoint exists.
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
     const es = openDevEvents();
     const onMessage = (raw: MessageEvent) => {
       let payload: DevEvent;
@@ -100,32 +126,47 @@ export function RunTraining() {
             error: err instanceof Error ? err.message : String(err),
           });
         });
-      if (payload.restart) {
-        // `/api/dev/events` is a broadcast — every open Studio tab gets
-        // this event. Only flip the auto-restart latch when *this* tab
-        // is actually running a stream right now; otherwise a passive
-        // tab would silently auto-spawn an extra job the next time the
-        // user clicks Run training, doubling cloud spend.
-        if (runningRef.current) {
-          // Training run is early-stopping; the active stream will
-          // resolve once the next checkpoint lands and the subprocess
-          // exits cleanly. The `finally` block of `run()` picks up the
-          // pending flag and re-spawns with the same args.
-          restartPendingRef.current = true;
-          setHmrStatus("early-stopping");
-        } else {
-          setHmrStatus("idle");
-        }
-      } else if (payload.hotSwap) {
+      // Per-child decision based on the spawned pid: a single rebuild
+      // can produce mixed outcomes (one child hot-swapped, another
+      // restarted), and `payload.restart` / `payload.hotSwap` reflect
+      // *aggregate* truth across all active children. Filter to "did
+      // *my* child land in this bucket?" so a tab whose run was
+      // hot-swapped doesn't latch onto a sibling tab's restart.
+      const myPid = currentPidRef.current;
+      const myRestart =
+        runningRef.current &&
+        myPid !== null &&
+        (payload.restartTargets?.some((t) => t.pid === myPid) ?? false);
+      const myHotSwap =
+        myPid !== null &&
+        (payload.hotSwapTargets?.some((t) => t.pid === myPid) ?? false);
+      if (myRestart) {
+        // Training run is early-stopping; the active stream will
+        // resolve once the next checkpoint lands and the subprocess
+        // exits cleanly. The `finally` block of `run()` picks up the
+        // pending flag and re-spawns with the same args.
+        restartPendingRef.current = true;
+        setHmrStatus("early-stopping");
+      } else if (myHotSwap) {
         // Callbacks were swapped in place — the cloud-side run is
         // unaffected. Flash a brief "hot-swapped" indicator so users
-        // know the new code is live.
+        // know the new code is live. The previous timer (if any) is
+        // cleared so two close-together rebuilds don't race for the
+        // status reset.
         setHmrStatus("hot-swapped");
-        window.setTimeout(() => {
+        if (hotSwapTimerRef.current !== null) {
+          clearTimeout(hotSwapTimerRef.current);
+        }
+        hotSwapTimerRef.current = window.setTimeout(() => {
           setHmrStatus((s) => (s === "hot-swapped" ? "idle" : s));
+          hotSwapTimerRef.current = null;
         }, 1500);
       } else {
-        setHmrStatus("idle");
+        // Nothing pertaining to this tab's child — leave any in-
+        // progress status spans alone but make sure stale "early-
+        // stopping" / "restarting" labels from a prior run don't
+        // linger past the next quiet rebuild.
+        if (!runningRef.current) setHmrStatus("idle");
       }
     };
     es.addEventListener("ready", onMessage);
@@ -143,6 +184,11 @@ export function RunTraining() {
   async function run(file?: string): Promise<void> {
     runningRef.current = true;
     lastTrainFileRef.current = file;
+    // Reset the pid before each spawn so a stale value from a prior
+    // run can't accidentally match a new HMR restart broadcast in the
+    // window between this assignment and `streamTraining` invoking
+    // `onSpawn`.
+    currentPidRef.current = null;
     setRunning(true);
     setLog("");
     const ac = new AbortController();
@@ -156,6 +202,9 @@ export function RunTraining() {
         },
         file,
         ac.signal,
+        (pid) => {
+          currentPidRef.current = pid;
+        },
       );
     } catch (err) {
       // Aborts are expected when the user navigates away mid-stream;
@@ -169,6 +218,7 @@ export function RunTraining() {
       );
     } finally {
       runningRef.current = false;
+      currentPidRef.current = null;
       if (trainingAbortRef.current === ac) trainingAbortRef.current = null;
       // Always release the running flag, including the user-initiated
       // abort path. setState on an already-unmounted component is a

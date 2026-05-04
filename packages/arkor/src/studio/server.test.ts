@@ -469,6 +469,12 @@ process.exit(0);
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(200);
+      // Regression: the spawned subprocess's pid is exposed via the
+      // `X-Arkor-Train-Pid` response header so the SPA can scope HMR
+      // restart events to its own child (a multi-tab broadcast can
+      // contain mixed restart/hot-swap targets across siblings).
+      const pidHeader = res.headers.get("x-arkor-train-pid");
+      expect(pidHeader).toMatch(/^\d+$/);
       const text = await res.text();
       expect(text).toContain("[fake-bin]");
       // The bin receives `start` as the first non-flag arg.
@@ -548,6 +554,94 @@ process.exit(0);
       expect(text).toMatch(/Cannot find module|MODULE_NOT_FOUND|ENOENT/);
       expect(text).toContain("exit=");
       expect(text).not.toContain("exit=0");
+    });
+
+    it("captures the spawn-time configHash from the HMR coordinator (no extra rebuild)", async () => {
+      // Regression: `/api/train` previously called `readManifestSummary`
+      // which ran a full `runBuild()` per spawn — wasteful and racy
+      // against the HMR watcher writing the same `.arkor/build/index.mjs`.
+      // The new server reads the cached hash from
+      // `coordinator.getCurrentConfigHash()` instead. We assert the
+      // call happens (so a rebuild is *not* required) by exposing the
+      // spy count on the fake coordinator.
+      await writeCredentials(ANON_CREDS);
+      let getCurrentCalls = 0;
+      const fakeHmr = {
+        subscribe: () => () => undefined,
+        getCurrentConfigHash: () => {
+          getCurrentCalls += 1;
+          return "spawn-time-hash";
+        },
+        async dispose() {},
+      };
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      writeFileSync(fakeBin, `process.exit(0);\n`);
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: fakeBin,
+        hmr: fakeHmr,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      // Drain the body so the close handler runs and the test
+      // doesn't leak the subprocess.
+      await res.text();
+      expect(getCurrentCalls).toBe(1);
+    });
+
+    it("/api/train cancel handler doesn't crash when child.kill() throws", async () => {
+      // Regression: `ReadableStream.cancel()` called `child.kill()`
+      // without a try/catch. If the child had already exited (ESRCH
+      // race against the cancel), the throw bubbled up as an
+      // unhandled exception and crashed the request handler.
+      await writeCredentials(ANON_CREDS);
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      // Bin exits immediately so the child is already dead by the
+      // time our cancel handler tries to signal it.
+      writeFileSync(fakeBin, `process.exit(0);\n`);
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: fakeBin,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      // Race: read enough of the body to see the close, then cancel.
+      // The cancel hook must not throw even when the underlying
+      // child is already gone.
+      const reader = res.body!.getReader();
+      // Wait for `exit=` so we know the child died first.
+      let buf = "";
+      const decoder = new TextDecoder();
+      while (!buf.includes("exit=")) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+      }
+      await expect(reader.cancel()).resolves.toBeUndefined();
     });
   });
 
@@ -1340,17 +1434,24 @@ process.exit(0);
   });
 
   describe("/api/dev/events (HMR)", () => {
-    function fakeHmr() {
-      // Mirror the real HmrCoordinator surface but stay synchronous so the
-      // test doesn't depend on rolldown.watch starting up. `emit` is a test
-      // hook for pushing events into the SSE stream from the test body.
+    function fakeHmr(initialConfigHash: string | null = null) {
+      // Mirror the real HmrCoordinator surface but stay synchronous so
+      // the test doesn't depend on rolldown.watch starting up. `emit`
+      // is a test hook for pushing events into the SSE stream from the
+      // test body; `currentConfigHash` is a settable mock for what
+      // `/api/train` reads via `getCurrentConfigHash` to capture the
+      // spawned-config snapshot.
       const subs = new Set<(e: HmrEvent) => void>();
+      let currentConfigHash: string | null = initialConfigHash;
       const coordinator: HmrCoordinator = {
         subscribe(fn) {
           subs.add(fn);
           return () => {
             subs.delete(fn);
           };
+        },
+        getCurrentConfigHash() {
+          return currentConfigHash;
         },
         async dispose() {
           subs.clear();
@@ -1360,6 +1461,9 @@ process.exit(0);
         coordinator,
         emit(event: HmrEvent) {
           for (const fn of subs) fn(event);
+        },
+        setConfigHash(hash: string | null) {
+          currentConfigHash = hash;
         },
         get subscriberCount() {
           return subs.size;

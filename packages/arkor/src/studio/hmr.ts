@@ -1,7 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { watch, type RolldownWatcher } from "rolldown";
-import { isArkor } from "../core/arkor";
 import { hashJobConfig } from "../core/configHash";
 import {
   BUILD_DEFAULTS,
@@ -9,7 +8,7 @@ import {
   rolldownInputOptions,
   type BuildEntryOptions,
 } from "../core/rolldownConfig";
-import { getTrainerInspection } from "../core/trainerInspection";
+import { findInspectableTrainer } from "../core/trainerInspection";
 
 export type HmrEventType = "ready" | "rebuild" | "error";
 
@@ -41,6 +40,15 @@ export interface HmrCoordinator {
    * event. Returns an unsubscribe function.
    */
   subscribe(fn: (event: HmrEvent) => void): () => void;
+  /**
+   * Synchronous read of the most recent successful build's
+   * `configHash`. Used by `/api/train` to capture the hash that's
+   * about to be spawned so HMR routing on the *next* rebuild knows
+   * whether the new bundle changed cloud-side config. `null` when the
+   * watcher hasn't completed a successful build yet (e.g. fresh
+   * scaffold) or the latest event was an `error`.
+   */
+  getCurrentConfigHash(): string | null;
   dispose(): Promise<void>;
 }
 
@@ -58,9 +66,19 @@ function fingerprint(outFile: string): string {
 /**
  * Dynamic-import the freshly-built bundle and pull a `TrainerInspection`
  * snapshot off the discovered trainer. Cache-bust the URL so Node's ESM
- * loader returns the new module text rather than a stale evaluation. Best-
- * effort: a missing/malformed manifest or a thrown user constructor returns
- * `null` and the caller treats the rebuild as "config-unknown".
+ * loader returns the new module text rather than a stale evaluation.
+ *
+ * Walks every entry shape `runner.ts` accepts (named `arkor`, named
+ * `trainer`, `default` Arkor manifest, `default.trainer`) via the
+ * shared `findInspectableTrainer` helper — keeping inspection in sync
+ * with execution. Without this, projects that only `export const
+ * trainer` (a documented shortcut) would always produce `configHash:
+ * null` and the SPA would unnecessarily SIGTERM-restart on every
+ * rebuild.
+ *
+ * Best-effort: a missing/malformed manifest or a thrown user
+ * constructor returns `null` and the caller treats the rebuild as
+ * "config-unknown".
  */
 async function inspectBundle(
   outFile: string,
@@ -68,9 +86,7 @@ async function inspectBundle(
   try {
     const url = `${pathToFileURL(outFile).href}?t=${Date.now()}`;
     const mod = (await import(url)) as Record<string, unknown>;
-    const candidate = mod.arkor ?? mod.default;
-    if (!isArkor(candidate)) return null;
-    const inspection = getTrainerInspection(candidate.trainer);
+    const inspection = findInspectableTrainer(mod);
     if (!inspection) return null;
     return {
       configHash: hashJobConfig(inspection.config),
@@ -203,6 +219,12 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       return () => {
         subscribers.delete(fn);
       };
+    },
+    getCurrentConfigHash() {
+      // `lastEvent` is `null` until the first BUNDLE_END (or null again
+      // if the most recent emission was an `error`); both cases are
+      // legitimate "we don't know the hash yet" signals to the caller.
+      return lastEvent?.configHash ?? null;
     },
     async dispose() {
       disposed = true;

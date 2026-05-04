@@ -32,8 +32,13 @@ export interface Job {
  */
 export interface ManifestSummary {
   trainer: { name: string } | null;
-  /** Present when an inspectable trainer is loaded; otherwise null. */
-  configHash?: string | null;
+  /**
+   * Stable hash of the trainer's cloud-side `JobConfig`. The server is
+   * always paired with this SPA in the same package, so the field is
+   * always present in the wire payload — `null` when no inspectable
+   * trainer is loaded, a hex string otherwise. Not optional.
+   */
+  configHash: string | null;
 }
 
 export interface ManifestError {
@@ -261,6 +266,14 @@ export async function streamTraining(
   onChunk: (text: string) => void,
   file?: string,
   signal?: AbortSignal,
+  /**
+   * Called once with the spawned subprocess's pid (or `null` if the
+   * server didn't include the `X-Arkor-Train-Pid` header). The SPA
+   * uses this to scope HMR `restart` events to the run *this* call
+   * actually started, so a passive tab whose own run was hot-swapped
+   * doesn't latch onto a sibling tab's restart broadcast.
+   */
+  onSpawn?: (pid: number | null) => void,
 ): Promise<void> {
   const res = await apiFetch("/api/train", {
     method: "POST",
@@ -268,6 +281,11 @@ export async function streamTraining(
     body: JSON.stringify({ ...(file ? { file } : {}) }),
     signal,
   });
+  if (onSpawn) {
+    const raw = res.headers.get("x-arkor-train-pid");
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    onSpawn(Number.isFinite(parsed) ? parsed : null);
+  }
   if (!res.body) return;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

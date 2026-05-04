@@ -8,6 +8,8 @@ interface FakeChild {
 }
 
 function fakeChild(pid: number): FakeChild {
+  // Default: `kill(sig)` returns `true`, mirroring Node's contract for
+  // a successful signal delivery to a still-running process.
   return { pid, kill: vi.fn(() => true) };
 }
 
@@ -20,7 +22,7 @@ describe("TrainRegistry", () => {
     expect(reg.size).toBe(0);
   });
 
-  it("notifyCallbackReload SIGUSR2s only matching configHashes", () => {
+  it("dispatchRebuild SIGUSR2s only matching configHashes", () => {
     const reg = new TrainRegistry();
     const a = fakeChild(101);
     const b = fakeChild(102);
@@ -32,98 +34,83 @@ describe("TrainRegistry", () => {
     });
     reg.register(c as unknown as ChildProcess, { configHash: "match" });
 
-    const signalled = reg.notifyCallbackReload("match");
-    expect(signalled).toEqual([
+    const result = reg.dispatchRebuild("match");
+    expect(result.hotSwapTargets).toEqual([
       { pid: 101, trainFile: undefined },
       { pid: 103, trainFile: undefined },
     ]);
+    expect(result.restartTargets).toEqual([
+      { pid: 102, trainFile: "/tmp/b.ts" },
+    ]);
     expect(a.kill).toHaveBeenCalledWith("SIGUSR2");
     expect(c.kill).toHaveBeenCalledWith("SIGUSR2");
-    expect(b.kill).not.toHaveBeenCalled();
+    expect(b.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
-  it("notifyCallbackReload is a no-op when nextConfigHash is null", () => {
+  it("dispatchRebuild SIGTERMs everything when nextConfigHash is null", () => {
+    // null nextHash means "we couldn't inspect the new bundle" — be
+    // conservative and SIGTERM every active child since we can't
+    // prove their configs are unaffected.
     const reg = new TrainRegistry();
     const a = fakeChild(201);
-    reg.register(a as unknown as ChildProcess, { configHash: null });
-    expect(reg.notifyCallbackReload(null)).toEqual([]);
-    expect(a.kill).not.toHaveBeenCalled();
-  });
-
-  it("requestEarlyStopOnMismatch SIGTERMs only mismatched children", () => {
-    const reg = new TrainRegistry();
-    const same = fakeChild(301);
-    const diff = fakeChild(302);
-    reg.register(same as unknown as ChildProcess, { configHash: "h" });
-    reg.register(diff as unknown as ChildProcess, {
-      configHash: "x",
-      trainFile: "/tmp/diff.ts",
-    });
-
-    const targets = reg.requestEarlyStopOnMismatch("h");
-    expect(targets).toEqual([{ pid: 302, trainFile: "/tmp/diff.ts" }]);
-    expect(same.kill).not.toHaveBeenCalled();
-    expect(diff.kill).toHaveBeenCalledWith("SIGTERM");
-  });
-
-  it("requestEarlyStopOnMismatch SIGTERMs everything when nextConfigHash is null", () => {
-    const reg = new TrainRegistry();
-    const a = fakeChild(401);
-    const b = fakeChild(402);
+    const b = fakeChild(202);
     reg.register(a as unknown as ChildProcess, { configHash: "h" });
     reg.register(b as unknown as ChildProcess, { configHash: null });
 
-    // null nextHash means "we couldn't inspect the new bundle" — be
-    // conservative and SIGTERM every active child.
-    const targets = reg.requestEarlyStopOnMismatch(null);
-    expect(targets).toHaveLength(2);
+    const result = reg.dispatchRebuild(null);
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toHaveLength(2);
     expect(a.kill).toHaveBeenCalledWith("SIGTERM");
     expect(b.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
-  it("requestEarlyStopOnMismatch SIGTERMs children whose stored hash is null", () => {
+  it("dispatchRebuild SIGTERMs children whose stored hash is null", () => {
     // A spawn that raced an in-flight build can land with `configHash:
     // null`. It must not be hot-swapped — even if the new bundle's hash
     // is known, we have no proof the spawned subprocess is running the
     // same config.
     const reg = new TrainRegistry();
-    const a = fakeChild(501);
+    const a = fakeChild(301);
     reg.register(a as unknown as ChildProcess, { configHash: null });
-    const targets = reg.requestEarlyStopOnMismatch("h");
-    expect(targets).toHaveLength(1);
+    const result = reg.dispatchRebuild("h");
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toHaveLength(1);
     expect(a.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
   it("unregister removes the child from the policy decisions", () => {
     const reg = new TrainRegistry();
-    const a = fakeChild(601);
+    const a = fakeChild(401);
     reg.register(a as unknown as ChildProcess, { configHash: "h" });
-    reg.unregister(601);
+    reg.unregister(401);
     expect(reg.size).toBe(0);
-    expect(reg.notifyCallbackReload("h")).toEqual([]);
+    const result = reg.dispatchRebuild("h");
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toEqual([]);
   });
 
   it("survives kill() throwing (child exited mid-iteration)", () => {
     const reg = new TrainRegistry();
-    const a = fakeChild(701);
+    const a = fakeChild(501);
     a.kill.mockImplementation(() => {
       throw new Error("ESRCH");
     });
     reg.register(a as unknown as ChildProcess, { configHash: "h" });
-    // Both code paths should swallow the throw and continue with their
+    // Both the hot-swap branch (matching hash) and the restart branch
+    // (mismatched hash) must swallow the throw and continue with their
     // bookkeeping so a single dead child can't break HMR for siblings.
-    expect(() => reg.notifyCallbackReload("h")).not.toThrow();
-    expect(() => reg.requestEarlyStopOnMismatch("x")).not.toThrow();
+    expect(() => reg.dispatchRebuild("h")).not.toThrow();
+    expect(() => reg.dispatchRebuild("x")).not.toThrow();
   });
 
-  it("requestEarlyStopOnMismatch omits dead-on-kill children from the restart targets", () => {
+  it("dispatchRebuild omits dead-on-kill children from the restart targets", () => {
     // Regression: previously the implementation always pushed onto
     // `targets` even when `kill()` threw, so a child that had already
     // exited would still be reported back to the SPA as a restart
     // target — the SPA would then wait forever for the (already-
     // delivered) `exit=...` line and never re-spawn.
     const reg = new TrainRegistry();
-    const dead = fakeChild(801);
+    const dead = fakeChild(601);
     dead.kill.mockImplementation(() => {
       throw new Error("ESRCH");
     });
@@ -131,10 +118,31 @@ describe("TrainRegistry", () => {
       configHash: "stale",
       trainFile: "/tmp/d.ts",
     });
-    expect(reg.requestEarlyStopOnMismatch("fresh")).toEqual([]);
+    const result = reg.dispatchRebuild("fresh");
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toEqual([]);
   });
 
-  it("requestEarlyStopOnMismatch sends SIGTERM at most once per child across rebuilds", () => {
+  it("dispatchRebuild omits dead-on-kill children when kill returns false (no throw)", () => {
+    // Regression: `ChildProcess.kill()` returns `false` (without
+    // throwing) when the target process is already gone. The previous
+    // implementation treated any non-throw as success and reported the
+    // child as a restart target — the SPA would then wait forever for
+    // an exit line that already arrived.
+    const reg = new TrainRegistry();
+    const gone = fakeChild(701);
+    gone.kill.mockReturnValue(false);
+    reg.register(gone as unknown as ChildProcess, {
+      configHash: "stale",
+      trainFile: "/tmp/g.ts",
+    });
+    const result = reg.dispatchRebuild("fresh");
+    expect(result.restartTargets).toEqual([]);
+    // We still attempted the kill — only the bookkeeping is skipped.
+    expect(gone.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("dispatchRebuild sends SIGTERM at most once per child across rebuilds", () => {
     // Regression: under rapid edits the dev loop can fire multiple
     // rebuilds before the child reaches its next checkpoint. The
     // runner's shutdown handler treats a *second* SIGTERM as the
@@ -143,34 +151,74 @@ describe("TrainRegistry", () => {
     // tracks per-child early-stop state and skips children it has
     // already signalled.
     const reg = new TrainRegistry();
-    const a = fakeChild(901);
+    const a = fakeChild(801);
     reg.register(a as unknown as ChildProcess, {
       configHash: "h1",
       trainFile: "/tmp/a.ts",
     });
 
-    const first = reg.requestEarlyStopOnMismatch("h2");
-    expect(first).toEqual([{ pid: 901, trainFile: "/tmp/a.ts" }]);
+    const first = reg.dispatchRebuild("h2");
+    expect(first.restartTargets).toEqual([
+      { pid: 801, trainFile: "/tmp/a.ts" },
+    ]);
     expect(a.kill).toHaveBeenCalledTimes(1);
 
     // Second mismatching rebuild before the child has exited: must NOT
     // re-send SIGTERM and must NOT re-list the child as a restart
     // target (the SPA already has a pending re-spawn for it).
-    const second = reg.requestEarlyStopOnMismatch("h3");
-    expect(second).toEqual([]);
+    const second = reg.dispatchRebuild("h3");
+    expect(second.restartTargets).toEqual([]);
     expect(a.kill).toHaveBeenCalledTimes(1);
 
     // After the child exits and is unregistered, a fresh spawn in its
     // place starts from a clean slate.
-    reg.unregister(901);
-    const respawn = fakeChild(902);
+    reg.unregister(801);
+    const respawn = fakeChild(802);
     reg.register(respawn as unknown as ChildProcess, {
       configHash: "h3",
       trainFile: "/tmp/a.ts",
     });
-    expect(reg.requestEarlyStopOnMismatch("h4")).toEqual([
-      { pid: 902, trainFile: "/tmp/a.ts" },
+    const third = reg.dispatchRebuild("h4");
+    expect(third.restartTargets).toEqual([
+      { pid: 802, trainFile: "/tmp/a.ts" },
     ]);
     expect(respawn.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("dispatchRebuild degrades to SIGTERM-restart when SIGUSR2 is unsupported (Windows)", () => {
+    // Regression: Node's win32 build doesn't deliver SIGUSR2 (it
+    // throws "ENOSYS" inside `child.kill('SIGUSR2')`). The previous
+    // implementation silently swallowed that throw, so on Windows a
+    // hash-match rebuild produced neither hot-swap nor restart and
+    // callback edits never landed. Now we degrade to a SIGTERM-driven
+    // restart so the new code does take effect — at the cost of a
+    // brief gap rather than an in-place swap.
+    const reg = new TrainRegistry();
+    const a = fakeChild(901);
+    a.kill.mockImplementation((sig?: string) => {
+      if (sig === "SIGUSR2") {
+        const err = new Error(
+          "kill ENOSYS",
+        ) as Error & { code?: string };
+        err.code = "ENOSYS";
+        throw err;
+      }
+      return true; // SIGTERM works
+    });
+    reg.register(a as unknown as ChildProcess, {
+      configHash: "match",
+      trainFile: "/tmp/win.ts",
+    });
+    const result = reg.dispatchRebuild("match");
+    // Must not appear in hot-swap (signal failed) but must appear in
+    // restart (fallback succeeded) so the SPA re-spawns once the
+    // exit message arrives.
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toEqual([
+      { pid: 901, trainFile: "/tmp/win.ts" },
+    ]);
+    // Both signals were attempted in order: SIGUSR2 → fallback SIGTERM.
+    expect(a.kill).toHaveBeenNthCalledWith(1, "SIGUSR2");
+    expect(a.kill).toHaveBeenNthCalledWith(2, "SIGTERM");
   });
 });

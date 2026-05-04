@@ -19,6 +19,12 @@ import { readManifestSummary } from "./manifest";
 import type { HmrCoordinator, HmrEvent } from "./hmr";
 import { TrainRegistry, type RestartTarget } from "./trainRegistry";
 
+/** Identify the spawned subprocess to the SPA without exposing it as
+ *  a body frame (which would interleave with trainer stdout). The SPA
+ *  reads this off `Response.headers` and uses it to scope HMR
+ *  `restart` events to the run *this* tab actually started. */
+const TRAIN_PID_HEADER = "x-arkor-train-pid";
+
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
 function copyDeprecationHeaders(from: Headers, to: Headers): void {
   for (const name of DEPRECATION_HEADERS) {
@@ -326,20 +332,21 @@ export function buildStudioApp(options: StudioServerOptions) {
       }
       trainFile = abs;
     }
-    // Read the current manifest before spawn so the configHash is on
-    // hand for HMR's "hot-swap vs restart" decision later. Building the
-    // manifest also pre-warms `.arkor/build/index.mjs` for the
-    // subprocess's `runStart`. A failure here is non-fatal — the spawn
-    // proceeds with `configHash: null`, which forces SIGTERM (full
-    // restart) on the next rebuild.
-    let configHash: string | null = null;
-    try {
-      const manifest = await readManifestSummary(trainCwd);
-      configHash = manifest.configHash;
-    } catch {
-      // ignore — `arkor start` will surface its own build error to the
-      // SPA via stderr; we only needed configHash for HMR routing.
-    }
+    // Snapshot the current `configHash` so HMR routing on the *next*
+    // rebuild can compare against this child's spawn-time config.
+    //
+    // When HMR is enabled, read it synchronously from the coordinator
+    // (which already maintains `lastEvent.configHash` for its watcher).
+    // Reading from the cache avoids triggering an extra `runBuild()`
+    // per train request — the previous implementation called
+    // `readManifestSummary(trainCwd)` here, which both wasted CPU and
+    // raced the watcher writing the same `.arkor/build/index.mjs`.
+    //
+    // When HMR is disabled the field is irrelevant (no rebuilds will
+    // happen) so we leave it null without paying for a build.
+    const configHash: string | null = options.hmr
+      ? options.hmr.getCurrentConfigHash()
+      : null;
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
     const child = spawn(process.execPath, args, {
@@ -360,12 +367,31 @@ export function buildStudioApp(options: StudioServerOptions) {
       },
       cancel() {
         activeTrains.unregister(child.pid);
-        child.kill();
+        // `ChildProcess.kill()` can throw (ESRCH if the process has
+        // already exited between this handler's invocation and the
+        // signal delivery). A throw here would surface as an unhandled
+        // exception in the request pipeline and crash the server
+        // handler — swallow it; the close handler above has already
+        // taken the entry out of the registry.
+        try {
+          child.kill();
+        } catch {
+          // already gone; nothing to clean up.
+        }
       },
     });
+    // Expose the spawned pid via a response header so the SPA can
+    // tell its own child apart from other tabs' children when
+    // `/api/dev/events` broadcasts `restartTargets` / `hotSwapTargets`.
+    // Without this, a passive tab whose run was hot-swapped could
+    // misread a sibling tab's restart event as its own.
+    const pidHeader = typeof child.pid === "number" ? String(child.pid) : "";
     return new Response(stream, {
       status: 200,
-      headers: { "content-type": "text/plain; charset=utf-8" },
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        [TRAIN_PID_HEADER]: pidHeader,
+      },
     });
   });
 
@@ -404,16 +430,14 @@ export function buildStudioApp(options: StudioServerOptions) {
     hmr.subscribe((event) => {
       let augmented: AugmentedEvent = event;
       if (event.type === "rebuild" && activeTrains.size > 0) {
-        // Per-child decision: if the rebuilt bundle's `configHash`
-        // matches the child's spawn-time hash, the cloud-side run is
-        // unaffected — SIGUSR2 lets the runner re-import and rotate the
-        // callbacks cell. Otherwise SIGTERM triggers the trainer's
-        // internal early-stop so the next checkpoint lands before the
-        // SPA re-spawns.
+        // Single per-child decision pass: hash match → SIGUSR2 (with
+        // a Windows fallback to SIGTERM since win32 doesn't deliver
+        // SIGUSR2), hash mismatch → SIGTERM. The registry returns
+        // both buckets so the SPA can react per-child rather than
+        // assuming one global outcome.
         const nextHash = event.configHash ?? null;
-        const hotSwapTargets = activeTrains.notifyCallbackReload(nextHash);
-        const restartTargets =
-          activeTrains.requestEarlyStopOnMismatch(nextHash);
+        const { hotSwapTargets, restartTargets } =
+          activeTrains.dispatchRebuild(nextHash);
         augmented = {
           ...event,
           hotSwap: hotSwapTargets.length > 0,

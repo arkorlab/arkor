@@ -33,6 +33,19 @@ import {
 } from "../../core/credentials";
 import { ensureCredentialsForStudio, runDev } from "./dev";
 
+/**
+ * Yield long enough for the cleanupHooks coordinator to settle its
+ * `Promise.allSettled(...)` chain and dispatch `process.exit(0)`. Two
+ * `setImmediate`-equivalent ticks cover the typical case (one for the
+ * `Promise.resolve(...)` wrapping inside `run()`, one for the
+ * `.then(() => process.exit(0))`); using `setImmediate` instead of
+ * `Promise.resolve` ensures the exit microtask actually runs before
+ * we resume.
+ */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
 // `os.homedir()` reads USERPROFILE on Windows; HOME-only redirection leaves
@@ -697,7 +710,12 @@ describe("runDev", () => {
       const sigintListeners = process.listeners("SIGINT");
       const handler = sigintListeners[sigintListeners.length - 1] as () => void;
       handler();
+      // Sync side effect (token unlink) lands inside the synchronous
+      // portion of the handler.
       expect(existsSync(studioTokenPath())).toBe(false);
+      // Exit fires after `Promise.allSettled(asyncCleanups)` resolves —
+      // a few microticks later. Flush to let the queued exit run.
+      await flushMicrotasks();
       expect(exitSpy).toHaveBeenCalledWith(0);
     } finally {
       exitSpy.mockRestore();
@@ -738,7 +756,8 @@ describe("runDev", () => {
       handler();
       // Even though the token file was never written, the cleanup hook
       // ran (best-effort `unlinkSync` swallows ENOENT) and the
-      // exit-on-signal arm fired.
+      // exit-on-signal arm fired (after async cleanup tails settle).
+      await flushMicrotasks();
       expect(exitSpy).toHaveBeenCalledWith(0);
     } finally {
       exitSpy.mockRestore();

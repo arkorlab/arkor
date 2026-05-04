@@ -1,8 +1,10 @@
 import { pathToFileURL } from "node:url";
 import { runBuild } from "../cli/commands/build";
-import { isArkor } from "../core/arkor";
 import { hashJobConfig } from "../core/configHash";
-import { getTrainerInspection } from "../core/trainerInspection";
+import {
+  findTrainerInModule,
+  getTrainerInspection,
+} from "../core/trainerInspection";
 
 /**
  * Wire-friendly snapshot of the user's `createArkor({...})` manifest. Mirrors
@@ -40,14 +42,25 @@ export async function summariseBuiltManifest(
 ): Promise<ManifestSummary> {
   const url = `${pathToFileURL(outFile).href}?t=${Date.now()}`;
   const mod = (await import(url)) as Record<string, unknown>;
-  const candidate = mod.arkor ?? mod.default;
-  if (!isArkor(candidate)) return EMPTY;
-  const trainer = candidate.trainer
-    ? { name: candidate.trainer.name }
-    : null;
-  const inspection = getTrainerInspection(candidate.trainer);
-  const configHash = inspection ? hashJobConfig(inspection.config) : null;
-  return { trainer, configHash };
+  // Walk every trainer export shape `runner.ts` accepts via the
+  // shared helper (named `arkor`, named `trainer`, default Arkor
+  // manifest, `default.trainer`) so manifest summary, HMR routing,
+  // and runtime execution all agree about which exports count as a
+  // trainer.
+  const trainer = findTrainerInModule(mod);
+  if (!trainer) return EMPTY;
+  // Trainer name renders in the UI even for hand-rolled trainers
+  // that bypass `createTrainer` and therefore don't carry the SDK
+  // inspection brand. The brand is required only for the
+  // `configHash` used by HMR routing — without it, HMR conservatively
+  // SIGTERM-restarts on every rebuild (correct fallback).
+  const name =
+    typeof trainer.name === "string" ? trainer.name : "(unnamed trainer)";
+  const inspection = getTrainerInspection(trainer);
+  return {
+    trainer: { name },
+    configHash: inspection ? hashJobConfig(inspection.config) : null,
+  };
 }
 
 /**

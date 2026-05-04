@@ -276,7 +276,21 @@ export function createTrainer(
         // Early-stop latch: a checkpoint just landed, so the in-flight work
         // is durable. Cancel the cloud job and end `wait()` cleanly.
         if (earlyStopRequested && earlyStopDeferred) {
-          await trainer.cancel();
+          // Best-effort `cancel()` — swallow throws so the deferred
+          // *always* resolves and the SIGTERM handler waiting on
+          // `requestEarlyStop()` can exit. Letting an error propagate
+          // here would leave the deferred pending and the runner
+          // process hung on shutdown; the local `startedJob.status`
+          // is set to `cancelled` regardless so subsequent
+          // `requestEarlyStop` calls see the terminal-status
+          // short-circuit. The cookbook already calls `cancel()`
+          // best-effort, so users tolerating a transient cloud-api
+          // failure here matches the documented contract.
+          try {
+            await trainer.cancel();
+          } catch {
+            // intentionally ignored — see comment above.
+          }
           // Reflect the cancellation locally so `wait()`'s resolved
           // `TrainingResult.job.status` is a terminal status (per the
           // documented contract). Without this update the result would

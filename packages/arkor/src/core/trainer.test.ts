@@ -1424,6 +1424,108 @@ describe("createTrainer (early stop)", () => {
     expect(result.job.completedAt).toBe("2026-01-01T00:00:03Z");
   });
 
+  it("early-stop checkpoint branch still resolves the deferred when cancel() throws", async () => {
+    // Regression: previously, an `await trainer.cancel()` that threw
+    // (network failure / cloud-api 5xx during the cancel POST) would
+    // propagate out of the dispatch and leave `earlyStopDeferred`
+    // pending forever. The runner's SIGTERM handler awaits that
+    // promise before exiting, so the subprocess would hang on
+    // shutdown. The fix swallows the cancel throw best-effort and
+    // still marks the run terminal locally so the deferred resolves.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 3\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+        type: "checkpoint.saved",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        step: 10,
+      })}\n\n`,
+    ];
+    let cancelAttempts = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        cancelAttempts += 1;
+        // Simulate the cloud-api being unreachable mid-cancel.
+        throw new TypeError("fetch failed");
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: () => {
+            void requestTrainerEarlyStop(trainer, { timeoutMs: 60_000 });
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    let stopPromiseResult: "resolved" | "rejected" | "pending" = "pending";
+    const stopPromise = new Promise<void>((resolve) => {
+      // Don't drive the early-stop ourselves — `onLog` arms it. We
+      // just want to verify that whichever code path ultimately drives
+      // it sees a resolved deferred even though cancel() throws.
+      const tick = setInterval(() => {
+        // Probe the trainer's state via a fresh requestEarlyStop call:
+        // once the cancel-after-checkpoint branch ran, status is
+        // "cancelled" and this returns instantly.
+        void requestTrainerEarlyStop(trainer, { timeoutMs: 1 }).then(() => {
+          clearInterval(tick);
+          stopPromiseResult = "resolved";
+          resolve();
+        });
+      }, 25);
+    });
+    try {
+      await trainer.wait();
+      // Wait for the probe to confirm the deferred resolves.
+      await stopPromise;
+    } finally {
+      globalThis.fetch = original;
+    }
+    // cancel() was attempted (and threw) but the deferred still resolved.
+    expect(cancelAttempts).toBe(1);
+    expect(stopPromiseResult).toBe("resolved");
+  });
+
   it("falls back to immediate cancel when no checkpoint arrives within timeoutMs", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
