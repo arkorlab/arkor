@@ -420,8 +420,10 @@ export function buildStudioApp(options: StudioServerOptions) {
    *     create empty cloud projects.
    *   - `"write"` — POST/PATCH/DELETE that the user explicitly initiated.
    *     If state is missing, run `ensureProjectState()` to lazily provision
-   *     the project (anonymous workspaces only). For Auth0 callers we
-   *     don't know which org/project to use, so we point at `arkor init`.
+   *     the project (anonymous workspaces only). For Auth0 callers we don't
+   *     know which org/project to use; neither `arkor login` nor `arkor init`
+   *     populates `.arkor/state.json` today, so we tell the user to write
+   *     the file by hand. (See docs/concepts/project-structure.)
    */
   type ScopeIntent = "read" | "write";
 

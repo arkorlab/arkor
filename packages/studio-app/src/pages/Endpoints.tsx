@@ -121,6 +121,14 @@ export function EndpointsList() {
             setShowCreate(false);
             void load();
           }}
+          onMaybeCreated={() => {
+            // The form was unmounted (Cancel button, navigation) while a
+            // POST was in flight. The server may already have committed
+            // the row even though the client aborted, so reload the list
+            // — otherwise the user sees their cancel "succeed", retries
+            // with the same slug, and gets a mysterious 409 collision.
+            void load();
+          }}
         />
       )}
 
@@ -194,7 +202,13 @@ export function EndpointsList() {
 
 type TargetMode = "adapter_final" | "adapter_checkpoint" | "base_model";
 
-function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
+function NewEndpointForm({
+  onCreated,
+  onMaybeCreated,
+}: {
+  onCreated: () => void;
+  onMaybeCreated: () => void;
+}) {
   const [slug, setSlug] = useState("");
   const [authMode, setAuthMode] = useState<DeploymentAuthMode>("fixed_api_key");
   const [targetMode, setTargetMode] = useState<TargetMode>("adapter_final");
@@ -204,16 +218,26 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Abort the in-flight POST when the form unmounts (the parent's Cancel
-  // toggle hides this component, route changes, etc.) so a user who
-  // clicks "Cancel" while the request is in flight does not get an
-  // endpoint created behind their back. The parent's `onCreated` callback
-  // also stops being valid once we're unmounted, so even if the request
-  // had already returned, suppressing the success path here prevents a
-  // stale list refresh.
+  // toggle hides this component, route changes, etc.). Aborting only
+  // stops the *client* from waiting; the server may already have
+  // committed the row, so we tell the parent to refresh the list via
+  // `onMaybeCreated` — otherwise the user clicks Cancel, retries with
+  // the same slug, and sees a confusing 409 collision instead of the
+  // row that was actually created.
+  //
+  // Use refs (not closures) so the unmount cleanup sees the most recent
+  // controller / "was a request in flight?" state without re-binding the
+  // effect on every render.
   const submitControllerRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef(false);
+  const onMaybeCreatedRef = useRef(onMaybeCreated);
+  onMaybeCreatedRef.current = onMaybeCreated;
   useEffect(() => {
     return () => {
-      submitControllerRef.current?.abort();
+      if (inFlightRef.current) {
+        submitControllerRef.current?.abort();
+        onMaybeCreatedRef.current();
+      }
     };
   }, []);
 
@@ -247,19 +271,22 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
     submitControllerRef.current?.abort();
     const controller = new AbortController();
     submitControllerRef.current = controller;
+    inFlightRef.current = true;
     setSubmitting(true);
     try {
       await createDeployment(body, { signal: controller.signal });
       if (controller.signal.aborted) return;
       onCreated();
     } catch (err) {
-      // AbortError fires when the form unmounts mid-flight; the request
-      // may or may not have committed on the server, but in either case
-      // the user explicitly asked to cancel so do not surface an error.
+      // AbortError fires when the form unmounts mid-flight; the unmount
+      // cleanup above is responsible for telling the parent to reload
+      // via `onMaybeCreated` (the POST may already be committed). Don't
+      // surface the abort as an error.
       if (controller.signal.aborted) return;
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(asMessage(err));
     } finally {
+      inFlightRef.current = false;
       // Only clear `submitting` if we're still the active controller.
       // After abort the component is being torn down, so a setState would
       // either no-op (post-unmount) or fight a fresh submit attempt.

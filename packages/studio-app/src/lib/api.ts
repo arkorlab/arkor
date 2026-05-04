@@ -328,21 +328,29 @@ export interface CreatedDeploymentKey {
   createdAt: string;
 }
 
-export interface CreateDeploymentBody {
+/**
+ * Mirror of the SDK's `RunRetentionFields` discriminated union (see
+ * `packages/arkor/src/core/deployments.ts`). `runRetentionDays` is required
+ * when `runRetentionMode === "days"` and disallowed otherwise — model that
+ * coupling here so SPA call sites cannot construct an invalid combination
+ * the backend would reject with a 400. Omit both for server defaults.
+ */
+type RunRetentionFields =
+  | { runRetentionMode?: undefined; runRetentionDays?: undefined }
+  | { runRetentionMode: "unlimited" | "disabled"; runRetentionDays?: undefined }
+  | { runRetentionMode: "days"; runRetentionDays: number };
+
+export type CreateDeploymentBody = {
   slug: string;
   target: DeploymentTarget;
   authMode: DeploymentAuthMode;
-  runRetentionMode?: "unlimited" | "disabled" | "days";
-  runRetentionDays?: number;
-}
+} & RunRetentionFields;
 
-export interface UpdateDeploymentBody {
+export type UpdateDeploymentBody = {
   target?: DeploymentTarget;
   authMode?: DeploymentAuthMode;
   enabled?: boolean;
-  runRetentionMode?: "unlimited" | "disabled" | "days";
-  runRetentionDays?: number;
-}
+} & RunRetentionFields;
 
 /**
  * Surface the cloud API's `{ error }` envelope as a thrown `Error` carrying
