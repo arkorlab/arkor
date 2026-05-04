@@ -1,12 +1,27 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Mock the yarn-version subprocess helper so unit tests are
+// deterministic regardless of whether the test machine has yarn
+// installed globally. Without this, scaffold's runtime-detection
+// fallback (round 30, PR #99) would shell out to `yarn --version`
+// in the explicit-`--use-yarn` + no-signal branch, and the test's
+// caveat-fires-or-not outcome would depend on the dev box's yarn
+// version. Default mock returns `undefined` (yarn not detected →
+// caveat doesn't fire); per-test overrides below simulate yarn 1
+// vs yarn 4 for the round-30 regression tests.
+vi.mock("./yarn-version", () => ({
+  detectYarnMajor: vi.fn(async () => undefined),
+}));
+
 import { scaffold, templateChoices } from "./scaffold";
 import {
   detectPackageManager,
   resolvePackageManager,
 } from "./package-manager";
+import { detectYarnMajor } from "./yarn-version";
 
 let cwd: string;
 const ORIG_UA = process.env.npm_config_user_agent;
@@ -317,8 +332,79 @@ describe("scaffold", () => {
       packageManager: "yarn",
     });
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
     expect(result.blockInstall).toBe(true);
+  });
+
+  // Round 30 (Copilot, PR #99): the round-29 documented gap (yarn
+  // 4 fresh bootstrap into existing dir with no on-disk signals
+  // and no corepack declaration) was unacceptable because it left
+  // a real silent break for that population. Resolution: layered
+  // gate's last step shells out to `yarn --version` and treats
+  // a yarn 2+ result as positive berry signal. Three new test
+  // cases lock down the behaviour the helper enables, with
+  // `vi.mocked(detectYarnMajor)` controlling the simulated
+  // version per test:
+  //
+  //   - yarn 4 detected → caveat fires (the round-30 protection)
+  //   - yarn 1 detected → no caveat (yarn 1 friendliness preserved)
+  //   - detection returns undefined (yarn not on PATH / errored
+  //     out) → no caveat (safe yarn-1-friendly default)
+  it("DOES fire the caveat when only the runtime `yarn --version` signals yarn-berry (yarn 4 fresh bootstrap)", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    // No yarnrc, no .yarn/, no corepack declaration — the
+    // documented round-29 gap. Runtime detection now closes it.
+    vi.mocked(detectYarnMajor).mockResolvedValueOnce(4);
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
+  });
+
+  it("does NOT fire the caveat when the runtime `yarn --version` reports yarn 1 (yarn 1 friendliness)", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    vi.mocked(detectYarnMajor).mockResolvedValueOnce(1);
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    // yarn 1 ignores `.yarnrc.yml` so install would work — no caveat.
+    expect(result.warnings).toEqual([]);
+    expect(result.blockInstall).toBe(false);
+  });
+
+  it("does NOT fire the caveat when detection fails (yarn not on PATH / exec error)", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    // Default mock value (undefined) — no override needed; covers
+    // the "yarn binary not available, can't tell" case. Safe
+    // default: assume yarn 1 (no caveat). Note this is also the
+    // path that makes the bare `does NOT fire (yarn 1 friendliness)`
+    // test above deterministic on dev machines without yarn.
+    vi.mocked(detectYarnMajor).mockResolvedValueOnce(undefined);
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    expect(result.warnings).toEqual([]);
+    expect(result.blockInstall).toBe(false);
   });
 
   // Round 14 #1 cont'd: same policy when the existing

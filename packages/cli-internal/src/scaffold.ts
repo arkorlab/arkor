@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { PackageManager } from "./package-manager";
+import { detectYarnMajor } from "./yarn-version";
 import {
   STARTER_CONFIG,
   STARTER_INDEX,
@@ -306,9 +307,14 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
 // in the advisory contradicted our own patch policy. The user
 // keeps full control over their `.yarn/` policy; the advisory
 // only flags the runtime-blocking `nodeLinker` fix.
+//
+// Round 30 (Copilot, PR #99) widened "yarn 4+" → "yarn 2+":
+// `declaresYarnBerry()` and the rest of the gate treat yarn 2 /
+// 3 / 4 as equivalent (all use Plug'n'Play by default), so the
+// advisory text needs to match.
 function buildYarnBerryCaveatAdvisory(): string {
   return (
-    `yarn 4+ (yarn-berry) on an existing project, but ` +
+    `yarn 2+ (yarn-berry) on an existing project, but ` +
     `\`nodeLinker: node-modules\` isn't set. arkor's runtime can't ` +
     `resolve dependencies through Plug'n'Play (yarn-berry's default), ` +
     `so \`arkor dev\` and \`arkor train\` will fail until the linker ` +
@@ -692,44 +698,33 @@ export async function scaffold(
       // where `.yarnrc.yml` is missing (or has no `nodeLinker:` key)
       // — patch path declined to mutate. Whether to surface the
       // caveat depends on whether the project is actually on
-      // yarn-berry, gated on positive signal:
+      // yarn-berry, gated on layered signals:
       //
-      //   - `.yarnrc.yml` exists on disk → unambiguous yarn-berry
-      //     evidence (yarn 1 reads `.yarnrc`, not `.yarnrc.yml`).
-      //   - `.yarn/` directory exists → also yarn-berry-only
-      //     (yarn 1 doesn't create that tree). Catches the
-      //     yarn-berry-with-cached-releases case where the user
-      //     committed `.yarn/releases/yarn-*.cjs` but no
-      //     `.yarnrc.yml` yet.
-      //   - corepack `packageManager: yarn@2+` declared anywhere
-      //     up the tree → yarn-berry signal.
-      //
-      // None of those → `--use-yarn` is most likely yarn 1 (which
-      // would install fine in this branch — yarn 1 ignores
-      // `.yarnrc.yml`). Round 20 / 27 / 29 ping-ponged on the
-      // trade-off here:
-      //
-      //   - Round 20 (Copilot): without the gate, yarn 1 users
-      //     scaffolding into existing projects get a useless
-      //     blocking advisory and a needless manual-install flow.
-      //   - Round 27 (Codex P2): with too-narrow a gate,
-      //     yarn 4 users WITHOUT a corepack declaration silently
-      //     hit the runtime break PR #99 set out to fix.
-      //   - Round 29 (Copilot): round-27's "always fire" reverted
-      //     the yarn 1 regression — current text.
-      //
-      // Settled: keep the positive-signal gate AND broaden the
-      // signal set (`.yarn/` directory in addition to
-      // `.yarnrc.yml` + corepack declaration). The remaining gap
-      // — yarn 4 with no `.yarnrc.yml`, no `.yarn/`, AND no
-      // corepack declaration — is the rare bootstrap case where
-      // the user is setting up yarn 4 from scratch. Documented
-      // limitation; the `inspectYarnConfig` path's `conflict`
-      // arm still catches anyone with an explicit `nodeLinker:
-      // pnp` pinned.
+      //   1. `.yarnrc.yml` exists on disk → unambiguous yarn-berry
+      //      evidence (yarn 1 reads `.yarnrc`, not `.yarnrc.yml`).
+      //   2. `.yarn/` directory exists → also yarn-berry-only
+      //      (yarn 1 doesn't create that tree). Catches the
+      //      yarn-berry-with-cached-releases case where the user
+      //      committed `.yarn/releases/yarn-*.cjs` but no
+      //      `.yarnrc.yml` yet.
+      //   3. corepack `packageManager: yarn@2+` declared anywhere
+      //      up the tree → yarn-berry signal.
+      //   4. (last resort) `yarn --version` reports a yarn 2+
+      //      major. Rounds 20 / 27 / 29 ping-ponged because the
+      //      filesystem signals alone can't distinguish the
+      //      "yarn 4 fresh bootstrap into a non-empty existing
+      //      dir, no setup committed yet" case from "yarn 1
+      //      user scaffolding into existing dir". Round 30
+      //      (Copilot, PR #99) flagged that without runtime
+      //      detection the round-29 documented-gap was a real
+      //      silent break for the yarn 4 bootstrap case.
+      //      `detectYarnMajor` shells out to `yarn --version`
+      //      and returns `undefined` if yarn isn't on PATH /
+      //      errors out — that fallback keeps the yarn 1 happy
+      //      path intact when detection isn't possible.
       const yarnrcOnDisk = existsSync(join(cwd, YARNRC_YML_PATH));
       const yarnDirOnDisk = existsSync(join(cwd, ".yarn"));
-      const positiveBerrySignal =
+      let positiveBerrySignal =
         yarnrcOnDisk ||
         yarnDirOnDisk ||
         declaresYarnBerry(
@@ -738,6 +733,12 @@ export async function scaffold(
             preExistingPackageManagerField,
           ),
         );
+      if (!positiveBerrySignal) {
+        const yarnMajor = await detectYarnMajor(cwd);
+        if (yarnMajor !== undefined && yarnMajor >= 2) {
+          positiveBerrySignal = true;
+        }
+      }
       if (positiveBerrySignal) {
         warnings.push(buildYarnBerryCaveatAdvisory());
         blockInstall = true;
