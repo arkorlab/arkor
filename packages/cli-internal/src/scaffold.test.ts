@@ -853,12 +853,40 @@ describe("scaffold", () => {
     // The advisory now only flags the runtime-blocking
     // `nodeLinker` fix.
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
     expect(result.warnings[0]).toContain("nodeLinker: node-modules");
     // No `.yarn/cache` / `.yarn/install-state.gz` recommendation —
     // see round-29 trim above.
     expect(result.warnings[0]).not.toContain(".yarn/cache");
     expect(result.warnings[0]).not.toContain(".yarn/install-state.gz");
+  });
+
+  // Round 31 (Copilot, PR #99): the inspect path's `no-config`
+  // branch was narrower than the patch path's gate — it only
+  // consulted the corepack `packageManager` declaration, missing
+  // yarn-berry repos that committed `.yarn/releases/yarn-*.cjs`
+  // but not yet a `packageManager` field. `.yarn/` is yarn-berry
+  // -only (yarn 1 doesn't create it), so adding it as a positive
+  // signal is safe. Pin the contract here.
+  it("warns about the yarn-berry caveat in undefined-pm + existing-project when only `.yarn/` dir signals yarn-berry", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    // No `.yarnrc.yml`, no `packageManager` declaration — but
+    // `.yarn/` directory exists (the bootstrap state where the
+    // yarn binary was committed under `.yarn/releases/` but the
+    // user hasn't yet committed a `.yarnrc.yml` or corepack
+    // pin).
+    mkdirSync(join(cwd, ".yarn"));
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
   });
 
   // Round 11 (Copilot): when `.yarnrc.yml` exists but lacks a

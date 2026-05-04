@@ -791,11 +791,26 @@ export async function scaffold(
       // `patchPackageJson` already ran above, and (b) miss
       // the entire parent-workspace declaration in the
       // monorepo-subdir case round 15 widened us into.
+      //
+      // Round 31 (Copilot, PR #99): also consult `.yarn/` on
+      // disk — the patch path adopted that as a positive
+      // yarn-berry signal in round 29 (yarn 1 doesn't create
+      // that tree, so its existence is unambiguous yarn-berry
+      // evidence) but the inspect path was still narrower,
+      // missing yarn-berry repos that have committed
+      // `.yarn/releases/yarn-*.cjs` but not yet a corepack
+      // `packageManager` field. We DO NOT mirror the patch
+      // path's runtime `detectYarnMajor` fallback here:
+      // the inspect path fires when the user did NOT opt into
+      // yarn (`pm === undefined`), so probing `yarn --version`
+      // would false-positive on every pnpm/npm/bun project that
+      // happens to have yarn installed in its dev env.
+      const yarnDirOnDisk = existsSync(join(cwd, ".yarn"));
       const declared = await resolveEnclosingPackageManagerField(
         cwd,
         preExistingPackageManagerField,
       );
-      if (declaresYarnBerry(declared)) {
+      if (yarnDirOnDisk || declaresYarnBerry(declared)) {
         warnings.push(buildYarnBerryCaveatAdvisory());
         blockInstall = true;
       }
