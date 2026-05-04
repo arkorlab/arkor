@@ -219,10 +219,29 @@ export async function runInit(options: InitOptions): Promise<void> {
   // (`--use-yarn` / `--git` / `--name` / etc). Drop the
   // prescriptive command — point at the advisory and let the
   // user re-invoke with whatever they originally typed.
+  // Round 35 (Copilot, PR #99): the lockfile-in-initial-commit
+  // invariant is broken in TWO failure modes, not just the
+  // round-19 advisory case:
+  //   1. blockInstall=true → install was deliberately skipped.
+  //   2. install was attempted but THREW (caught above, set
+  //      installed=false). The catch surfaced a `Retry manually`
+  //      hint, but the original code still ran `git init` on
+  //      the no-lockfile tree — same dirty-repo / amend
+  //      headache as the round-19 case.
+  // Either way: if install was supposed to run AND didn't
+  // succeed, skip git too and tell the user to retry. The
+  // wouldHaveInstalled gate (round 21) still guards the
+  // `--skip-install --git` honor case where no install was
+  // attempted by design.
   const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
+  const installSucceeded = !wouldHaveInstalled || installed;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(
       "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
+    );
+  } else if (shouldInitGit && !installSucceeded) {
+    ui.log.info(
+      `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
     );
   } else if (shouldInitGit) {
     await runGitInit(cwd);

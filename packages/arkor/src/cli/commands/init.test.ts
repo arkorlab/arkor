@@ -239,8 +239,12 @@ describe("runInit", () => {
       template: "triage",
       packageManager: "pnpm",
     });
-    // git init still runs even if install failed.
-    expect(gitInitialCommit).toHaveBeenCalled();
+    // Round 35 (Copilot, PR #99): when install throws, git
+    // init is NOW skipped to preserve the
+    // lockfile-in-initial-commit invariant. The scaffolded
+    // tree still survives (the user keeps their files); only
+    // the git step bows out.
+    expect(gitInitialCommit).not.toHaveBeenCalled();
   });
 
   it("forwards a non-Error install rejection through String() coercion", async () => {
@@ -567,6 +571,34 @@ describe("runInit", () => {
     // git init runs as the user requested — no lockfile to land
     // anyway, so the invariant is moot here.
     expect(vi.mocked(gitInitialCommit)).toHaveBeenCalled();
+  });
+
+  // Round 35 (Copilot, PR #99): when install was attempted but
+  // FAILED (caught error → installed=false), the previous code
+  // still ran `git init` on the no-lockfile tree, breaking the
+  // bootstrap-commit invariant. Skip git too and surface a
+  // recovery hint mirroring the round-19 advisory branch.
+  it("skips git init when install was attempted but threw (lockfile-in-initial-commit invariant)", async () => {
+    vi.mocked(install).mockRejectedValueOnce(
+      new Error("`yarn install` exited with code 7"),
+    );
+    const clack = await import("@clack/prompts");
+    await runInit({
+      yes: true,
+      packageManager: "yarn",
+      git: true,
+    });
+    expect(vi.mocked(install)).toHaveBeenCalled();
+    // git init was NOT called because install failed.
+    expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
+    // User is told why git was skipped + how to recover.
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(infoMessages).toMatch(/Skipping git init/);
+    expect(infoMessages).toMatch(/yarn install.*failed/);
+    expect(infoMessages).toMatch(/re-run this command/);
   });
 
   // Counterpart: regression guard so the gate doesn't accidentally

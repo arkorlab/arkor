@@ -257,6 +257,33 @@ describe("create-arkor run()", () => {
     expect(vi.mocked(gitInitialCommit)).toHaveBeenCalled();
   });
 
+  // Round 35 (Copilot, PR #99): when install was attempted but
+  // FAILED (caught error), the previous code still ran git init
+  // on the no-lockfile tree, breaking the bootstrap-commit
+  // invariant. Skip git too and surface a recovery hint.
+  it("skips git init when install was attempted but threw (lockfile-in-initial-commit invariant)", async () => {
+    vi.mocked(install).mockRejectedValueOnce(
+      new Error("`yarn install` exited with code 7"),
+    );
+    const clack = await import("@clack/prompts");
+    await run({
+      dir: "target",
+      yes: true,
+      template: "triage",
+      packageManager: "yarn",
+      git: true,
+    });
+    expect(vi.mocked(install)).toHaveBeenCalled();
+    expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(infoMessages).toMatch(/Skipping git init/);
+    expect(infoMessages).toMatch(/yarn install.*failed/);
+    expect(infoMessages).toMatch(/re-run this command/);
+  });
+
   // Counterpart: regression guard for the no-warning path.
   it("runs install when scaffold returns blockInstall=false (no advisory)", async () => {
     // Default mock already returns blockInstall: false.

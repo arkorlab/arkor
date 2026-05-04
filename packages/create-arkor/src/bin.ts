@@ -310,10 +310,24 @@ export async function run(options: RunOptions): Promise<void> {
   // `--name` / etc). Drop the prescriptive command — point at
   // the advisory and let the user re-invoke with whatever they
   // originally typed.
+  // Round 35 (Copilot, PR #99): the lockfile-in-initial-commit
+  // invariant is broken in TWO failure modes, not just the
+  // round-19 advisory case. install can also THROW (caught above,
+  // sets `installed=false` + surfaces a manual-retry hint). In
+  // that case the original code still ran `git init` on the
+  // no-lockfile tree — same dirty-repo / amend headache as the
+  // round-19 case. Skip git in both modes; the
+  // wouldHaveInstalled gate (round 21) still honors the
+  // `--skip-install --git` no-install-attempted case.
   const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
+  const installSucceeded = !wouldHaveInstalled || installed;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(
       "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
+    );
+  } else if (shouldInitGit && !installSucceeded) {
+    clack.log.info(
+      `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
     );
   } else if (shouldInitGit) {
     await runGitInit(cwd);
