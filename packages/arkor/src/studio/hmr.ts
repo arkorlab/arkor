@@ -63,10 +63,14 @@ function fingerprint(outFile: string): string {
   }
 }
 
+type InspectionResult = {
+  configHash: string;
+  trainerName: string;
+} | null;
+
 /**
  * Dynamic-import the freshly-built bundle and pull a `TrainerInspection`
- * snapshot off the discovered trainer. Cache-bust the URL so Node's ESM
- * loader returns the new module text rather than a stale evaluation.
+ * snapshot off the discovered trainer.
  *
  * Walks every entry shape `runner.ts` accepts (named `arkor`, named
  * `trainer`, `default` Arkor manifest, `default.trainer`) via the
@@ -76,15 +80,40 @@ function fingerprint(outFile: string): string {
  * null` and the SPA would unnecessarily SIGTERM-restart on every
  * rebuild.
  *
+ * Cache-bust by file mtime+size rather than `Date.now()`:
+ *
+ *   - Node's ESM loader caches every dynamically-imported URL for the
+ *     lifetime of the process and never evicts. A `?t=Date.now()`
+ *     suffix produces a unique URL per call, so a long `arkor dev`
+ *     session would accumulate one module record per BUNDLE_END —
+ *     unbounded memory growth.
+ *   - Mtime+size keys the cache to "the actual bytes in this file",
+ *     so spurious watcher events that don't change content reuse the
+ *     prior module record. The leak shrinks from "one entry per
+ *     keystroke" to "one entry per actual rebuild", which for a
+ *     realistic dev session (hundreds of saves over hours) is bounded
+ *     by the number of distinct file states the user produces — and
+ *     that's fundamentally what HMR has to track to surface up-to-
+ *     date trainer state. There's no public Node API for evicting an
+ *     ESM module record, so this is the tightest bound we can offer
+ *     without spawning a child process per inspection.
+ *
  * Best-effort: a missing/malformed manifest or a thrown user
  * constructor returns `null` and the caller treats the rebuild as
  * "config-unknown".
  */
-async function inspectBundle(
-  outFile: string,
-): Promise<{ configHash: string; trainerName: string } | null> {
+async function inspectBundle(outFile: string): Promise<InspectionResult> {
   try {
-    const url = `${pathToFileURL(outFile).href}?t=${Date.now()}`;
+    let key = "0-0";
+    try {
+      const s = statSync(outFile);
+      key = `${s.mtimeMs.toFixed(0)}-${s.size}`;
+    } catch {
+      // outFile vanished between the BUNDLE_END and our stat —
+      // fall through to the import attempt; it'll throw and we'll
+      // return null cleanly.
+    }
+    const url = `${pathToFileURL(outFile).href}?t=${key}`;
     const mod = (await import(url)) as Record<string, unknown>;
     const inspection = findInspectableTrainer(mod);
     if (!inspection) return null;
@@ -239,6 +268,15 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
         void emitBuildSucceeded();
       } else if (event.code === "ERROR") {
         event.result.close().catch(() => {});
+        // Bump the seq so a still-in-flight `emitBuildSucceeded`
+        // from a *prior* BUNDLE_END drops its broadcast when its
+        // inspection finally resolves. Without this, the older
+        // success would land on top of this error and clobber
+        // `lastEvent`/`configHash`, leaving the SPA showing a
+        // healthy rebuild while the actual latest build state is
+        // a compile error. The successful-rebuild path bumps the
+        // same counter inside `emitBuildSucceeded`.
+        buildSeq += 1;
         broadcast({
           type: "error",
           message:

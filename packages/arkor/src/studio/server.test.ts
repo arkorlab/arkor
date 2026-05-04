@@ -682,6 +682,76 @@ process.exit(0);
       }
       await expect(reader.cancel()).resolves.toBeUndefined();
     });
+
+    it("/api/train survives cancellation while the child is still streaming output", async () => {
+      // Regression: the previous implementation registered raw
+      // `controller.enqueue(...)` listeners on `child.stdout` /
+      // `child.stderr` and an unguarded `controller.close()` in
+      // `child.on("close")`. After the client cancelled the
+      // ReadableStream, those handlers kept firing — and calling
+      // `enqueue` / `close` on a closed controller throws "Invalid
+      // state". The throw escaped the request pipeline as an
+      // unhandled exception. The fix tracks a `closed` flag, removes
+      // the child listeners on cancel, and try/catches the post-
+      // cancel enqueue paths defensively.
+      await writeCredentials(ANON_CREDS);
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      // Bin spits a chunk every ~5 ms forever. We cancel while it's
+      // mid-stream so the child is *still alive* when listeners are
+      // removed — the previous bug only surfaced in this window.
+      writeFileSync(
+        fakeBin,
+        `setInterval(() => process.stdout.write("tick\\n"), 5);\nsetInterval(() => {}, 60_000);\n`,
+      );
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: fakeBin,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      const reader = res.body!.getReader();
+      // Read at least one chunk so the child is definitely streaming
+      // before we cancel — that's the race window the previous code
+      // crashed in.
+      const decoder = new TextDecoder();
+      let received = "";
+      while (!received.includes("tick")) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        received += decoder.decode(value, { stream: true });
+      }
+      // Listen for unhandled rejections / uncaught exceptions during
+      // and shortly after the cancel — before the fix, the child's
+      // next `data` chunk would synchronously throw inside the
+      // enqueue callback.
+      const errors: unknown[] = [];
+      const onUnhandled = (err: unknown) => errors.push(err);
+      process.on("uncaughtException", onUnhandled);
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        await reader.cancel();
+        // Give the child's interval a few iterations to attempt
+        // post-cancel writes. The handler must short-circuit on the
+        // `closed` flag and not crash the worker.
+        await new Promise((r) => setTimeout(r, 50));
+      } finally {
+        process.off("uncaughtException", onUnhandled);
+        process.off("unhandledRejection", onUnhandled);
+      }
+      expect(errors).toEqual([]);
+    });
   });
 
   describe("auto-anonymous bootstrap", () => {

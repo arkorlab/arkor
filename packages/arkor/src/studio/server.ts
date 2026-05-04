@@ -374,19 +374,66 @@ export function buildStudioApp(options: StudioServerOptions) {
       cwd: trainCwd,
     });
     activeTrains.register(child, { trainFile, configHash });
-    const stream = new ReadableStream({
+    // Hoisted out of the `ReadableStream` underlying-source so the
+    // `start` handler can hand its closure-bound teardown helper to
+    // the `cancel` handler. `cancel` runs in a separate invocation,
+    // not through `controller`, so the two need a parent-scope
+    // rendez-vous variable.
+    let cancelTeardown: (() => void) | null = null;
+    const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        // After `cancel()` runs, calling `controller.enqueue` /
+        // `controller.close` on the now-closed controller throws
+        // ("Invalid state: Controller is closed"). The child
+        // subprocess keeps emitting `data` and ultimately a `close`
+        // event for some time after the client disconnects, so each
+        // forwarder needs its own "are we still attached?" guard.
+        // Track via a flag plus an explicit listener-removal so the
+        // event loop also stops dispatching once we've torn down.
+        let closed = false;
+        // `child.stdout` is in default (binary) mode, so each `data`
+        // chunk is a Buffer — and `Buffer extends Uint8Array`, so we
+        // can pass it straight to `controller.enqueue` without a
+        // round-trip through `TextEncoder`. The previous code did
+        // `enc.encode(d)` which implicitly coerced the buffer via
+        // `String()` — same byte content, but allocates a new array.
+        const onChunk = (d: Buffer): void => {
+          if (closed) return;
+          try {
+            controller.enqueue(d);
+          } catch {
+            // Controller raced us into the closed state — flip the
+            // flag so subsequent chunks short-circuit.
+            closed = true;
+          }
+        };
         const enc = new TextEncoder();
-        child.stdout.on("data", (d) => controller.enqueue(enc.encode(d)));
-        child.stderr.on("data", (d) => controller.enqueue(enc.encode(d)));
-        child.on("close", (code) => {
+        const onClose = (code: number | null): void => {
           activeTrains.unregister(child.pid);
-          controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
-          controller.close();
-        });
+          child.stdout.off("data", onChunk);
+          child.stderr.off("data", onChunk);
+          if (closed) return;
+          closed = true;
+          try {
+            controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
+            controller.close();
+          } catch {
+            // already cancelled; nothing more to do.
+          }
+        };
+        child.stdout.on("data", onChunk);
+        child.stderr.on("data", onChunk);
+        child.on("close", onClose);
+        cancelTeardown = () => {
+          closed = true;
+          child.stdout.off("data", onChunk);
+          child.stderr.off("data", onChunk);
+          child.off("close", onClose);
+        };
       },
       cancel() {
         activeTrains.unregister(child.pid);
+        cancelTeardown?.();
         // `ChildProcess.kill()` can throw (ESRCH if the process has
         // already exited between this handler's invocation and the
         // signal delivery). A throw here would surface as an unhandled
