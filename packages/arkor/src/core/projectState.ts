@@ -14,11 +14,13 @@ export interface EnsureProjectStateOptions {
  * cloud-api endpoints. Returns existing `.arkor/state.json` if present;
  * otherwise — for anonymous credentials only — derives a slug from the cwd
  * basename, creates (or reuses on 409) the project, persists state, and
- * returns it. Auth0 callers without state must run `arkor init` first.
+ * returns it. Auth0 callers without state cannot bootstrap automatically
+ * (we don't know which org / project they want); they must write
+ * `.arkor/state.json` by hand.
  *
  * Shared by the trainer (`createTrainer().start()`) and Studio's
- * `/api/inference/chat` so a fresh launch can hit base-model inference
- * without a prior `arkor init`.
+ * `/api/inference/chat` so a fresh anonymous launch can hit base-model
+ * inference without any prior setup.
  */
 export async function ensureProjectState(
   options: EnsureProjectStateOptions,
@@ -28,8 +30,16 @@ export async function ensureProjectState(
   if (existing) return existing;
 
   if (credentials.mode !== "anon") {
+    // Auth0 callers cannot bootstrap automatically: we don't know which
+    // org / project the logged-in user wants. `arkor login` and `arkor
+    // init` both leave `.arkor/state.json` untouched today (see
+    // docs/concepts/project-structure), so the only working path is to
+    // write the file by hand. Keep this message in sync with the Studio
+    // server's identical guard in `studio/server.ts` so users hit the
+    // same instruction whether they came from the Playground / training
+    // / Endpoints flow.
     throw new Error(
-      "No .arkor/state.json found. Run `arkor init` to scaffold the project, or create .arkor/state.json manually with { orgSlug, projectSlug, projectId }.",
+      "No .arkor/state.json found. Create it by hand with { orgSlug, projectSlug, projectId } pointing at the project you want to use.",
     );
   }
   const orgSlug = credentials.orgSlug;

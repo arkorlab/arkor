@@ -7,7 +7,7 @@ description: "CloudApiClient を使って *.arkor.app の推論 URL をプログ
 
 **Deployment** は学習済みアダプタ（または素のベースモデル）を専用のサブドメイン `https://<slug>.arkor.app/v1/chat/completions` に公開する仕組みです。OpenAI Chat Completions のワイヤーフォーマットで応答するので、OpenAI 互換のクライアント（公式 `openai` SDK、LangChain など）の `baseURL` を向けるだけで使えます。
 
-`CloudApiClient` はこれらの deployment をプログラムで管理（作成、API キーのローテーション、削除）するための型付きエントリポイントです。Node.js スクリプトや自分のサーバーから呼べます。同じ操作は Studio ダッシュボードや（将来的に）`arkor endpoints` CLI からも可能ですが、このページでは SDK の表面を扱います。
+`CloudApiClient` はこれらの deployment をプログラムで管理（作成、API キーのローテーション、削除）するための型付きエントリポイントです。Node.js スクリプトや自分のサーバーから呼べます。Studio ダッシュボードは作成 / トグル / キー管理といった共通操作をカバーしますが、いくつかの操作は今のところ SDK のみで可能です（既存 deployment の target 差し替え、デフォルト以外の run retention 設定、バルク操作のスクリプト化など）。今日のパリティ境界は [Studio Endpoints ページ](/ja/studio/endpoints) を参照してください。このページは SDK の表面を扱います。
 
 ## SDK を使う場面
 

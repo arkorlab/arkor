@@ -334,8 +334,8 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   // Playground hits this so mid-training inference from Studio has the same
   // auth path as the rest of /api/*. State is auto-bootstrapped (anon only)
-  // so the Playground's base-model mode works on a fresh launch with no
-  // prior `arkor init`.
+  // so the Playground's base-model mode works on a fresh anonymous launch
+  // with no prior setup.
   app.post("/api/inference/chat", async (c) => {
     let credentials: Credentials;
     let state: { orgSlug: string; projectSlug: string };

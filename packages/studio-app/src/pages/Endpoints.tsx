@@ -22,6 +22,7 @@ import {
   type DeploymentKey,
   type DeploymentTarget,
 } from "../lib/api";
+import { registerNavigationGuard } from "../route";
 import { Button } from "../components/ui/Button";
 import {
   Card,
@@ -498,38 +499,31 @@ export function EndpointDetail({ id }: { id: string }) {
       // plaintext key by closing the tab mid-flight.
       e.preventDefault();
     }
-    // In-app navigation goes through hash routing (`#/endpoints/:id`),
-    // and `hashchange` is not cancelable — but it is observable. When a
-    // hashchange would unmount this page mid-flight, snap the URL back
-    // to the previous hash, prompt the user, and only commit the
-    // navigation if they confirm. Without this, the always-visible nav
-    // tabs / browser back button silently lose the one-time plaintext
-    // even though the POST may already have committed server-side.
-    function onHashChange(e: HashChangeEvent) {
-      if (!pendingKeyIssueRef.current) return;
-      const oldHash = new URL(e.oldURL).hash;
-      const newHash = new URL(e.newURL).hash;
-      if (oldHash === newHash) return;
-      // `replaceState` keeps the address bar consistent without firing
-      // another `hashchange`, so we can re-navigate cleanly if the user
-      // confirms below.
-      history.replaceState(null, "", e.oldURL);
+    // In-app navigation goes through `useHashRoute` (`route.ts`). A page
+    // listening to `hashchange` directly cannot reliably block: by spec,
+    // listeners run in registration order, so `useHashRoute`'s handler
+    // (registered at app mount) updates the route state before this
+    // page's handler ever runs, and React has already torn this
+    // component down by the time we could call `confirm()`. The
+    // navigation-guard registry in `route.ts` runs *inside*
+    // `useHashRoute`'s handler, before `setRoute()`, so a guard return
+    // of `false` actually stops the route change.
+    const unregisterGuard = registerNavigationGuard(() => {
+      if (!pendingKeyIssueRef.current) return true;
       const proceed = window.confirm(
         "An API key is being issued. Leaving now will lose the one-time secret. Continue anyway?",
       );
       if (proceed) {
-        // The user accepts losing the plaintext — release the guard so
-        // subsequent hashchanges flow through, then re-issue the
-        // navigation we just rolled back.
+        // User accepts losing the plaintext — release the guard so
+        // subsequent navigations flow through.
         pendingKeyIssueRef.current = false;
-        window.location.hash = newHash;
       }
-    }
+      return proceed;
+    });
     window.addEventListener("beforeunload", onBeforeUnload);
-    window.addEventListener("hashchange", onHashChange);
     return () => {
+      unregisterGuard();
       window.removeEventListener("beforeunload", onBeforeUnload);
-      window.removeEventListener("hashchange", onHashChange);
       // Component is being torn down: best-effort abort the in-flight
       // POST so the network layer drops the response. If the server
       // already committed, the key will show up on the next visit.

@@ -7,7 +7,7 @@ description: "Programmatically manage *.arkor.app inference URLs from your own c
 
 A **deployment** publishes a trained adapter (or a base model) at a dedicated subdomain (`https://<slug>.arkor.app/v1/chat/completions`) that speaks the OpenAI Chat Completions wire format. Pointed at it from any OpenAI-compatible client (the official `openai` SDK, LangChain, etc.) and it just works.
 
-`CloudApiClient` is the typed entry point for managing these deployments programmatically (creating them, rotating API keys, deleting them) from a Node.js script or from your own server. The same actions are also available in the Studio dashboard and (eventually) on the CLI; this page covers the SDK surface.
+`CloudApiClient` is the typed entry point for managing these deployments programmatically (creating them, rotating API keys, deleting them) from a Node.js script or from your own server. The Studio dashboard covers the common create / toggle / key-management actions, but several operations are SDK-only today (re-targeting an existing deployment, configuring non-default run retention, bulk scripting); see the [Studio Endpoints page](/studio/endpoints) for the current parity boundary. This page covers the SDK surface.
 
 ## When to use the SDK
 

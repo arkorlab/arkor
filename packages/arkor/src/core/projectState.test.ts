@@ -84,11 +84,11 @@ describe("ensureProjectState", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
-  it("throws for auth0 callers without state — they must run `arkor init`", async () => {
+  it("throws for auth0 callers without state — they must write .arkor/state.json by hand", async () => {
     const client = fakeClient();
     await expect(
       ensureProjectState({ cwd, client, credentials: auth0Creds }),
-    ).rejects.toThrow(/arkor init/);
+    ).rejects.toThrow(/\.arkor\/state\.json/);
   });
 
   it("creates a project for anonymous callers and persists state.json", async () => {

@@ -54,10 +54,61 @@ export function parseRoute(): Route {
   return { kind: "home" };
 }
 
+/**
+ * A guard returns `false` to *block* a pending hash navigation (the
+ * router will then snap the URL back to the previous hash and skip the
+ * route update). Used by pages that hold un-recoverable state — the
+ * `EndpointDetail` page registers a guard while a one-time API key
+ * `plaintext` response is in flight, so any nav-tab click / back button
+ * has to confirm before losing the secret.
+ *
+ * Guards run inside the same `hashchange` handler that drives
+ * `useHashRoute`, so they fire *before* the route state updates and
+ * before any per-page `hashchange` listener — that ordering is what
+ * makes the block effective. A per-page listener registered separately
+ * runs after `setRoute()` has already torn its component down.
+ */
+export type NavigationGuard = () => boolean;
+const navigationGuards = new Set<NavigationGuard>();
+
+/** Register a `NavigationGuard`; the returned function unregisters it. */
+export function registerNavigationGuard(
+  guard: NavigationGuard,
+): () => void {
+  navigationGuards.add(guard);
+  return () => {
+    navigationGuards.delete(guard);
+  };
+}
+
 export function useHashRoute(): Route {
   const [route, setRoute] = useState<Route>(parseRoute);
   useEffect(() => {
-    const handler = () => setRoute(parseRoute());
+    let lastHash = window.location.hash;
+    const handler = () => {
+      const newHash = window.location.hash;
+      // A guard's `replaceState` below restores `lastHash`; that change
+      // does not fire `hashchange`, but a subsequent user click on the
+      // *same* link would. Bail early when the URL matches what we
+      // already have so the same confirm dialog doesn't pop twice.
+      if (newHash === lastHash) return;
+      for (const guard of navigationGuards) {
+        if (!guard()) {
+          // Restore the previous hash without triggering another
+          // `hashchange` (and so without re-running this handler).
+          // `replaceState` is the only way to do that; assigning to
+          // `location.hash` would fire another event.
+          history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}${lastHash}`,
+          );
+          return;
+        }
+      }
+      lastHash = newHash;
+      setRoute(parseRoute());
+    };
     window.addEventListener("hashchange", handler);
     return () => window.removeEventListener("hashchange", handler);
   }, []);
