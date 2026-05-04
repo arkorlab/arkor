@@ -102,7 +102,13 @@ const deploymentSchema = z.looseObject({
   customDomain: z.string().nullable(),
   // Retention fields are optional in the shared schema (see
   // packages/shared/src/schemas/deployments.ts) — treat them as such.
-  runRetentionMode: z.enum(["unlimited", "disabled", "days"]).optional(),
+  // `runRetentionMode` is parsed as a plain string rather than a closed
+  // enum so an older SDK does not refuse to decode the response when the
+  // control plane introduces a new mode (e.g. `"hours"`). The public DTO
+  // type narrows the documented values for autocomplete via the
+  // `(string & {})` open-enum trick — see DeploymentRunRetentionMode in
+  // ./deployments.ts.
+  runRetentionMode: z.string().optional(),
   runRetentionDays: z.number().optional(),
   // Cloud API serializes timestamps as ISO strings; we accept Date too
   // for parity with `trainingJobSchema`'s tolerant transform.

@@ -57,7 +57,14 @@ export interface DeploymentDto {
   enabled: boolean;
   /** Reserved for future custom-domain support — `null` for now. */
   customDomain: string | null;
-  runRetentionMode?: DeploymentRunRetentionMode;
+  /**
+   * Documented values are `unlimited` / `disabled` / `days`; future server
+   * additions land as plain strings (open-enum) so an older SDK does not
+   * crash when the control plane introduces a new mode. The
+   * `(string & {})` intersection preserves autocomplete on the known
+   * literals while permitting unknown strings at runtime.
+   */
+  runRetentionMode?: DeploymentRunRetentionMode | (string & {});
   runRetentionDays?: number;
   createdAt: string;
   updatedAt: string;

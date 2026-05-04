@@ -77,7 +77,7 @@ Studio はこれらのルートで cloud API を直接叩きません。`/api/jo
 3. SDK メソッドを呼び出し
 4. `CloudApiError` を upstream の HTTP ステータスにマップして SPA 側のエラー envelope を統一
 
-すべての `/api/deployments/*` 呼び出しはローンチごとの [Studio CSRF トークン](/ja/studio/overview#architecture) を伴います。クロスオリジンタブは meta タグを読めないため、`evil.com` のタブからこれらのエンドポイントを叩くことは（`arkor dev` が動いていても）できません。
+すべての `/api/deployments/*` 呼び出しはローンチごとの [Studio CSRF トークン](/ja/studio/overview#アーキテクチャ) を伴います。クロスオリジンタブは meta タグを読めないため、`evil.com` のタブからこれらのエンドポイントを叩くことは（`arkor dev` が動いていても）できません。
 
 ## このページで（まだ）できないこと
 
