@@ -29,7 +29,7 @@ Open `#/endpoints` from the nav. Each row shows:
 
 Click any row to open the detail page. There is no search / filter or auto-refresh on this page today; reload to pick up changes from another tab or the CLI / SDK.
 
-When the project state isn't on disk yet (you haven't run `arkor dev` against this directory) the list shows empty and Studio doesn't make an upstream call. There's no scope to send without `(orgSlug, projectSlug)`.
+When `.arkor/state.json` isn't on disk yet, the list shows empty and Studio doesn't make an upstream call (there's no scope to send without `orgSlug` / `projectSlug`). The state file is bootstrapped lazily, on the first call that needs a scope: a training run, base-model inference, or (for anonymous workspaces) creating the first deployment from this page. `arkor dev` itself doesn't write the file, so an empty list right after launching Studio is normal and expected.
 
 ## Create
 

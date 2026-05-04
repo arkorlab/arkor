@@ -419,33 +419,62 @@ export function buildStudioApp(options: StudioServerOptions) {
     }) => Promise<T>,
   ): Promise<Response> {
     let credentials: Credentials;
+    let client: CloudApiClient;
     let scope: { orgSlug: string; projectSlug: string } | null;
     try {
-      // Read state first so the no-scope branch can short-circuit before
-      // we touch credentials. `readState` only does a local FS read and
-      // can't fail in a way that exposes auth state.
+      // Read state first. `readState` only does a local FS read and can't
+      // fail in a way that exposes auth state, so it stays before
+      // `getCredentials()` to keep the list-view path (`requireScope=false`)
+      // cheap.
       scope = await readScopeFromState();
-      if (requireScope && !scope) {
-        return new Response(
-          JSON.stringify({ error: "No project state — run `arkor dev` once" }),
-          { status: 400, headers: { "content-type": "application/json" } },
-        );
-      }
       credentials = await getCredentials();
+      client = new CloudApiClient({ baseUrl, credentials });
+      if (requireScope && !scope) {
+        // Anonymous credentials carry an `orgSlug` + the cwd basename, so
+        // we can derive a full `ArkorProjectState` on demand. This mirrors
+        // `/api/inference/chat` and `arkor train`, which both call
+        // `ensureProjectState()` before issuing the first cloud call so a
+        // user can get something done from a fresh `arkor dev` without
+        // having to first run a training job to bootstrap the state file.
+        // Without this, "Studio → Endpoints → New endpoint" on a fresh
+        // workspace fails with a misleading 400.
+        if (credentials.mode === "anon") {
+          const state = await ensureProjectState({
+            cwd: trainCwd,
+            client,
+            credentials,
+          });
+          scope = {
+            orgSlug: state.orgSlug,
+            projectSlug: state.projectSlug,
+          };
+        } else {
+          // Auth0 callers cannot bootstrap automatically (we don't know
+          // which org / project a logged-in user wants the deployment in).
+          // Point them at `arkor init`, which is what
+          // `ensureProjectState()` would tell them anyway.
+          return new Response(
+            JSON.stringify({
+              error:
+                "No project state. Run `arkor init` to scaffold the project, or create .arkor/state.json with { orgSlug, projectSlug, projectId }.",
+            }),
+            { status: 400, headers: { "content-type": "application/json" } },
+          );
+        }
+      }
     } catch (err) {
       // Stack-trace / message contents on local-side failures (credentials
-      // file read, anonymous-token bootstrap) can leak filesystem paths
-      // and internal endpoint hostnames. Log full detail for the operator
-      // and return an opaque envelope to the SPA. The 500 surface is
-      // already enough for the SPA to render a generic "Studio could not
-      // contact its backend" hint.
+      // file read, anonymous-token bootstrap, project bootstrap) can leak
+      // filesystem paths and internal endpoint hostnames. Log full detail
+      // for the operator and return an opaque envelope to the SPA. The
+      // 500 surface is already enough for the SPA to render a generic
+      // "Studio could not contact its backend" hint.
       console.error("[studio] withDeploymentClient setup failed:", err);
       return new Response(
         JSON.stringify({ error: "Studio backend unavailable" }),
         { status: 500, headers: { "content-type": "application/json" } },
       );
     }
-    const client = new CloudApiClient({ baseUrl, credentials });
     try {
       const result = await handler({ client, scope });
       return new Response(JSON.stringify(result), {

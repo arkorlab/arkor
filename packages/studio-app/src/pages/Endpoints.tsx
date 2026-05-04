@@ -514,6 +514,30 @@ export function EndpointDetail({ id }: { id: string }) {
     }
   }
 
+  /**
+   * Re-fetch the key list and reconcile state after a mutation. Only
+   * meaningful when the initial `/keys` load failed (`keys === null` and
+   * `keysError !== null`): a successful issue / revoke happens against
+   * the cloud's full list, and the optimistic local-only update would
+   * otherwise wipe pre-existing keys from view (operators couldn't audit
+   * or revoke them after a transient load failure). When the initial
+   * load succeeded, the in-memory list is authoritative and we let the
+   * optimistic update stand.
+   */
+  async function refreshKeysIfStale(myId: string): Promise<void> {
+    if (keys !== null) return;
+    try {
+      const { keys: fresh } = await fetchDeploymentKeys(myId);
+      if (activeIdRef.current !== myId) return;
+      setKeys(fresh);
+      setKeysError(null);
+    } catch (err) {
+      if (activeIdRef.current !== myId) return;
+      // Keep the prior `keysError` visible if the refetch also fails.
+      setKeysError(asMessage(err));
+    }
+  }
+
   async function onCreateKey(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const label = newKeyLabel.trim();
@@ -523,22 +547,24 @@ export function EndpointDetail({ id }: { id: string }) {
       const { key } = await createDeploymentKey(myId, { label });
       if (activeIdRef.current !== myId) return;
       setRevealed(key);
-      // A successful issue effectively invalidates a previous load
-      // failure: we now know at least one key (the new one) so the
-      // list should not stay in the "Failed to load keys" state.
-      setKeysError(null);
-      setKeys((prev) => [
-        ...(prev ?? []),
-        {
-          id: key.id,
-          label: key.label,
-          prefix: key.prefix,
-          enabled: true,
-          createdAt: key.createdAt,
-          lastUsedAt: null,
-        },
-      ]);
       setNewKeyLabel("");
+      if (keys === null) {
+        // Initial load failed; optimistically appending to `[]` would
+        // hide every pre-existing key. Re-fetch the canonical list.
+        await refreshKeysIfStale(myId);
+      } else {
+        setKeys([
+          ...keys,
+          {
+            id: key.id,
+            label: key.label,
+            prefix: key.prefix,
+            enabled: true,
+            createdAt: key.createdAt,
+            lastUsedAt: null,
+          },
+        ]);
+      }
     });
   }
 
@@ -548,11 +574,17 @@ export function EndpointDetail({ id }: { id: string }) {
     await withBusy(async () => {
       await revokeDeploymentKey(myId, keyId);
       if (activeIdRef.current !== myId) return;
-      setKeys((prev) =>
-        (prev ?? []).map((k) =>
-          k.id === keyId ? { ...k, enabled: false } : k,
-        ),
-      );
+      if (keys === null) {
+        // Same hazard as above: marking just this key as disabled would
+        // imply an empty rest-of-the-list. Re-fetch instead.
+        await refreshKeysIfStale(myId);
+      } else {
+        setKeys(
+          keys.map((k) =>
+            k.id === keyId ? { ...k, enabled: false } : k,
+          ),
+        );
+      }
     });
   }
 
