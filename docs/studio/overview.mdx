@@ -15,7 +15,7 @@ Four pages, switched via the in-app nav (Overview, Jobs, Playground, Endpoints):
 
 | Route | Page | What you do here |
 | --- | --- | --- |
-| `#/` | [Overview](/studio/jobs) | Project landing. Trigger a training run from here. |
+| `#/` | Overview (this page) | Project landing. Trigger a training run from here. |
 | `#/jobs` | [Jobs](/studio/jobs) | Auto-refreshing list of every training run. |
 | `#/playground` | [Playground](/studio/playground) | Chat with a completed adapter or the base model. |
 | `#/endpoints` | [Endpoints](/studio/endpoints) | Publish a `*.arkor.app` URL for an adapter or base model and manage its API keys. |
@@ -64,7 +64,6 @@ These exist either at the SDK or HTTP-API level, but not as Studio UI today:
 | Multiple trainers per project | `/api/manifest` returns a single `trainer`. The SDK [`createArkor`](/sdk/create-arkor) only accepts one. |
 | Tweak `temperature` / `topP` / `maxTokens` from Playground | The HTTP API ([`InferArgs`](/sdk/infer)) accepts these; pass them when calling `infer` from the SDK. |
 | Loss chart zoom, export, tooltip | The chart is a static SVG path. |
-| Light-mode toggle | The Studio CSS pins `color-scheme: dark`. |
 | Edit a deployment's target after creation | The cloud API supports `PATCH /v1/endpoints/:id` with `target`; the [Endpoints](/studio/endpoints) UI exposes only the auth-mode and enabled toggles. Call [`updateDeployment`](/sdk/deployments) from the SDK. |
 
 ## When not to use Studio

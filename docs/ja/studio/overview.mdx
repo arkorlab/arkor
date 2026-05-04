@@ -15,7 +15,7 @@ Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するロー
 
 | ルート | ページ | やること |
 | --- | --- | --- |
-| `#/` | [Overview](/ja/studio/jobs) | プロジェクトのランディング。ここから学習をトリガーする。 |
+| `#/` | Overview（このページ） | プロジェクトのランディング。ここから学習をトリガーする。 |
 | `#/jobs` | [Jobs](/ja/studio/jobs) | 自動更新されるジョブ一覧。 |
 | `#/playground` | [Playground](/ja/studio/playground) | 完了アダプタやベースモデルとチャット。 |
 | `#/endpoints` | [Endpoints](/ja/studio/endpoints) | アダプタ／ベースモデルを `*.arkor.app` URL として公開し API キーを管理。 |
@@ -64,7 +64,6 @@ Arkor マネージドバックエンド
 | プロジェクトごとの複数トレーナー | `/api/manifest` が単一の `trainer` を返す。SDK の [`createArkor`](/ja/sdk/create-arkor) も 1 つしか受け付けない。 |
 | Playground から `temperature` / `topP` / `maxTokens` を調整 | HTTP API（[`InferArgs`](/ja/sdk/infer)）はこれらを受け付ける。SDK から `infer` を呼ぶ際に渡してください。 |
 | Loss チャートのズーム、エクスポート、ツールチップ | チャートは静的な SVG パス。 |
-| ライトモード切替 | Studio CSS は `color-scheme: dark` に固定。 |
 | Deployment 作成後のターゲット編集 | cloud API は `PATCH /v1/endpoints/:id` で `target` を受け付けますが、[Endpoints](/ja/studio/endpoints) UI では auth mode と enabled トグルしか公開していません。SDK の [`updateDeployment`](/ja/sdk/deployments) を使ってください。 |
 
 ## Studio を使うべきでない場面
