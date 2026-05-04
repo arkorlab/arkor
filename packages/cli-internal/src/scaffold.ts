@@ -692,33 +692,32 @@ export async function scaffold(
     } else if (yarn.needsBerryCaveat) {
       // Round 14: explicit `--use-yarn` against an existing project
       // where `.yarnrc.yml` is missing (or has no `nodeLinker:` key)
-      // — patch path declined to mutate. Whether to surface the
-      // caveat depends on whether the project is actually on
-      // yarn-berry:
+      // — patch path declined to mutate. Round 27 (Codex P2, PR #99)
+      // reverts the round-20 gate that tried to skip the caveat
+      // when no positive yarn-berry signal was visible: it
+      // optimised yarn 1 user UX (avoid a needless manual-install
+      // flow) but at the cost of false-NEGATIVES for yarn 4 users
+      // who don't declare a `packageManager` field — exactly the
+      // common Yarn Berry config that PR #99 is trying to protect.
+      // Without the caveat firing, blockInstall stayed false and
+      // `yarn install` ran with PnP, silently breaking
+      // `arkor dev` / `arkor train` — the recurrence of the bug
+      // PR #99 set out to fix.
       //
-      //   - `.yarnrc.yml` exists on disk → unambiguous yarn-berry
-      //     evidence (yarn 1 reads `.yarnrc`, not `.yarnrc.yml`).
-      //     Fire unconditionally.
-      //   - file doesn't exist → `--use-yarn` is ambiguous between
-      //     yarn 1 (which would install fine in this branch) and
-      //     yarn 4 (which would PnP-fail). Round 20 (Copilot, PR
-      //     #99) flagged that unconditionally firing here regressed
-      //     yarn 1 users into a needless manual-install flow.
-      //     Mirror the inspect path's gate: only fire when the
-      //     resolved corepack declaration positively names yarn 2+.
-      const yarnrcOnDisk = existsSync(join(cwd, YARNRC_YML_PATH));
-      const positiveBerrySignal =
-        yarnrcOnDisk ||
-        declaresYarnBerry(
-          await resolveEnclosingPackageManagerField(
-            cwd,
-            preExistingPackageManagerField,
-          ),
-        );
-      if (positiveBerrySignal) {
-        warnings.push(buildYarnBerryCaveatAdvisory());
-        blockInstall = true;
-      }
+      // Trade-off picked: ALWAYS fire on the explicit-yarn arm.
+      // The user opted into yarn explicitly, so a yarn-config
+      // advisory isn't noise. yarn 1 users seeing the caveat get
+      // one extra step (`--skip-install` + their own `yarn
+      // install`) — annoying but not broken. yarn 4 users get
+      // their config corrected before the broken install — the
+      // win we care about.
+      //
+      // The inspect path (`pm === undefined && isExistingProject`,
+      // below) keeps its own round-10/16 gate — that path's user
+      // didn't opt into yarn at all, so the noise concern still
+      // applies there.
+      warnings.push(buildYarnBerryCaveatAdvisory());
+      blockInstall = true;
     }
   } else if (
     options.packageManager === undefined &&

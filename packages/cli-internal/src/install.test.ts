@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -116,6 +116,32 @@ describe("install", () => {
       // we just want to be sure "false" doesn't appear on the
       // YARN_ENABLE_IMMUTABLE_INSTALLS line — match the empty value
       // explicitly via the line shape.
+      expect(log).not.toContain("\nfalse\n");
+    },
+  );
+
+  // Round 27 (Copilot, PR #99): yarn-berry workspace subdirs share
+  // the root's lockfile — `yarn install` from the subdir writes to
+  // the ancestor lockfile, so the cwd-only round-17 check would
+  // miss this case and bypass immutable installs in the workspace
+  // subdir scaffold flow. The check now walks up the ancestor tree.
+  onPosix(
+    "does NOT forward YARN_ENABLE_IMMUTABLE_INSTALLS when a yarn.lock exists in a parent directory",
+    async () => {
+      // Build a workspace-subdir layout: cwd's parent has a
+      // yarn.lock, cwd itself doesn't.
+      const subdir = join(cwd, "packages", "foo");
+      mkdirSync(subdir, { recursive: true });
+      writeFileSync(join(cwd, "yarn.lock"), "# enclosing workspace lockfile\n");
+      const marker = join(subdir, "marker.log");
+      makeFakePm("yarn", 0, marker);
+
+      await install("yarn", subdir);
+
+      const log = (await import("node:fs")).readFileSync(marker, "utf8");
+      // The walk-up finds the ancestor `yarn.lock` and refuses to
+      // disable immutability — yarn 4 will then refuse to rewrite
+      // the committed root lockfile in CI mode (correct behaviour).
       expect(log).not.toContain("\nfalse\n");
     },
   );

@@ -1,7 +1,32 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { PackageManager } from "./package-manager";
+
+/**
+ * Walk from `cwd` up to filesystem root looking for the first
+ * `yarn.lock`. Mirrors yarn's own resolution: in a yarn-berry
+ * workspace, `yarn install` from a subdirectory writes to the
+ * ENCLOSING workspace's lockfile, so the immutable-install check
+ * has to look at the ancestor tree, not just `cwd`. Bound to 20
+ * iterations as a defensive cap against pathological symlinks.
+ *
+ * (PR #99 round 27 — Copilot flagged the cwd-only check as
+ * unsafe in the workspace-subdir case: a user scaffolding into
+ * `monorepo/packages/foo` would otherwise have the override
+ * fire, letting yarn rewrite the root `monorepo/yarn.lock`
+ * silently in CI.)
+ */
+function hasEnclosingYarnLock(cwd: string): boolean {
+  let dir = cwd;
+  for (let i = 0; i < 20; i++) {
+    if (existsSync(join(dir, "yarn.lock"))) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false; // reached filesystem root
+    dir = parent;
+  }
+  return false;
+}
 
 /**
  * Run `install` through the given package manager in `cwd` with stdio
@@ -28,20 +53,27 @@ export async function install(
   // explicitly forbidden`. Real users running `arkor init
   // --use-yarn` / `create-arkor --use-yarn` in their CI hit this.
   //
-  // Override only when there's no pre-existing `yarn.lock` in `cwd`
-  // — i.e. the fresh-scaffold case. With a lockfile already present
-  // (an existing yarn-berry project that `arkor init` was merged
-  // into), we MUST NOT bypass yarn's immutability check: doing so
-  // would silently let install rewrite the user's committed
-  // lockfile, which the safety check exists to prevent in CI.
-  // (PR #99 round 13 introduced the unconditional override; round
-  // 17 narrowed it to fresh scaffolds after Copilot flagged the
-  // lockfile-rewrite hazard.) yarn 1 / npm / pnpm / bun all ignore
-  // the variable, so the gate is a no-op outside yarn-berry.
-  if (
-    packageManager === "yarn" &&
-    !existsSync(join(cwd, "yarn.lock"))
-  ) {
+  // Override only when there's no enclosing `yarn.lock` in the
+  // ancestor tree — i.e. the fresh-scaffold case. With a lockfile
+  // already present (in cwd OR in any ancestor — yarn-berry
+  // workspace subdirs share the root's lockfile), we MUST NOT
+  // bypass yarn's immutability check: doing so would silently let
+  // install rewrite the committed lockfile, which the safety
+  // check exists to prevent in CI.
+  //
+  // History:
+  //   - Round 13: introduced the unconditional override.
+  //   - Round 17: narrowed to fresh scaffolds via cwd-only
+  //     `existsSync(yarn.lock)` after Copilot flagged the
+  //     lockfile-rewrite hazard.
+  //   - Round 27: extended the check to walk up the ancestor
+  //     tree after Copilot pointed out workspace-subdir scaffolds
+  //     bypassed the round-17 guard (cwd has no lockfile, but the
+  //     enclosing workspace does).
+  //
+  // yarn 1 / npm / pnpm / bun all ignore the variable, so the
+  // gate is a no-op outside yarn-berry.
+  if (packageManager === "yarn" && !hasEnclosingYarnLock(cwd)) {
     env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
   }
   return new Promise((resolve, reject) => {

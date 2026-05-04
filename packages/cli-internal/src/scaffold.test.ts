@@ -264,14 +264,17 @@ describe("scaffold", () => {
     expect(result.blockInstall).toBe(true);
   });
 
-  // Round 20 (Copilot, PR #99) — counterpart for the yarn-1
-  // false-fire regression: same scaffold inputs as above MINUS
-  // the `packageManager` declaration → no positive yarn-berry
-  // signal → no caveat, no install block. yarn 1.x users
-  // running `--use-yarn` against an existing project should sail
-  // through (yarn 1 reads `.yarnrc` not `.yarnrc.yml`, so the
-  // "fix yarn-berry config" advisory is not actionable for them).
-  it("does NOT fire the caveat in --use-yarn + existing-project + no yarn-berry signal", async () => {
+  // Round 27 (Codex P2, PR #99) — reversal of round-20: the
+  // round-20 "no yarn-berry signal → no caveat" gate optimised
+  // yarn 1 user UX (avoid a needless manual-install flow), but
+  // it false-NEGATIVED for yarn 4 users without a corepack
+  // `packageManager` declaration (a common Yarn Berry setup).
+  // Those users got NO caveat, blockInstall stayed false, and
+  // `yarn install` ran with PnP — exact recurrence of the bug
+  // PR #99 was supposed to prevent. Trade-off: always fire on
+  // the explicit-yarn arm; yarn 1 users get a one-step
+  // inconvenience, yarn 4 users get correctness.
+  it("STILL fires the caveat in --use-yarn + existing-project + no yarn-berry signal (yarn 4 undeclared protection)", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
@@ -285,10 +288,14 @@ describe("scaffold", () => {
     // Still don't write `.yarnrc.yml` — round-14 policy stands.
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
     expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
-    // But ALSO no caveat / blockInstall — yarn 1 users would
-    // install fine here.
-    expect(result.warnings).toEqual([]);
-    expect(result.blockInstall).toBe(false);
+    // The caveat IS surfaced and blocks install — yarn 4 users
+    // without a corepack declaration would otherwise hit the
+    // PnP runtime break. yarn 1 users see the advisory and can
+    // re-run with `--skip-install` then their own `yarn install`
+    // (one extra step; not broken).
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
   });
 
   // Round 14 #1 cont'd: same policy when the existing
@@ -377,13 +384,17 @@ describe("scaffold", () => {
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
-    // No caveat — round 20 (Copilot, PR #99) gates the caveat on
-    // positive yarn-berry signal (`.yarnrc.yml` on disk OR a
-    // corepack declaration naming yarn 2+). Neither is present
-    // in this README-only fixture, so we DON'T fire — the user
-    // could be on yarn 1.x, and yarn 1 would install fine here.
-    expect(result.warnings).toEqual([]);
-    expect(result.blockInstall).toBe(false);
+    // The caveat DOES fire — round 27 (Codex P2, PR #99) reversed
+    // the round-20 gate that had silenced it for "no yarn-berry
+    // signal" cases. Reasoning: yarn 4 users without a corepack
+    // declaration are common and the silenced caveat let
+    // `yarn install` run with PnP, breaking the runtime. Always
+    // firing on the explicit-yarn arm protects them; yarn 1
+    // users see the advisory and can re-run with --skip-install
+    // (annoying, not broken).
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
     // .gitignore does NOT get yarn-cache lines either — Yarn
     // zero-install setups commit `.yarn/cache/` and silently
     // ignoring those archives is the round-14 #2 hazard.
