@@ -196,21 +196,36 @@ export async function runInit(options: InitOptions): Promise<void> {
     }
   }
 
-  // Round 19 (Copilot, PR #99): when blockInstall is true we
-  // skipped the install above, so a `git init` here would commit a
-  // tree without `node_modules` / lockfile and break the
-  // "lockfile lands in the initial commit" invariant the prompt
-  // ordering exists to preserve. Skip the git step too and tell
-  // the user to re-run `arkor init` after fixing the advisory —
-  // the next run will install successfully and produce a single
-  // bootstrap commit that captures the lockfile. (Same reasoning
-  // mirrored in create-arkor's bin.ts.)
-  if (shouldInitGit && !blockInstall) {
-    await runGitInit(cwd);
-  } else if (shouldInitGit && blockInstall) {
+  // Round 19 (Copilot, PR #99): when blockInstall is true AND
+  // an install was actually going to run, skipping git init
+  // preserves the "lockfile lands in the initial commit"
+  // invariant — committing now would capture an empty
+  // `node_modules`-less tree, and a re-run after the advisory
+  // is fixed would either skip git ("already inside a git repo")
+  // or stack a second commit on top.
+  //
+  // Round 21 (Codex P2, PR #99): the rationale only applies when
+  // install was actually going to run. If the user explicitly
+  // passed `--skip-install`, no install was happening anyway,
+  // there's no lockfile to wait for, and `--git`/`-y` is an
+  // explicit request we shouldn't second-guess. Same goes for
+  // `pm === undefined` (manual install hint flow). Gate the
+  // skip on "install would have run".
+  //
+  // Round 21 (Copilot, PR #99): the recovery hint used to
+  // prescribe `arkor init` as the rerun command, but the local
+  // `arkor` bin isn't on PATH yet (we just skipped install) and
+  // the hint dropped any flags the user originally passed
+  // (`--use-yarn` / `--git` / `--name` / etc). Drop the
+  // prescriptive command — point at the advisory and let the
+  // user re-invoke with whatever they originally typed.
+  const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
+  if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(
-      "Skipping git init too — re-run `arkor init` after fixing the advisory so the lockfile lands in the initial commit.",
+      "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
     );
+  } else if (shouldInitGit) {
+    await runGitInit(cwd);
   }
 
   const devCmd =

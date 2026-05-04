@@ -288,23 +288,35 @@ export async function run(options: RunOptions): Promise<void> {
     }
   }
 
-  // Round 19 (Copilot, PR #99): when blockInstall is true we
-  // skipped the install above, so a `git init` here would commit a
-  // tree without `node_modules` / lockfile and break the
-  // "lockfile lands in the initial commit" invariant the prompt
-  // ordering exists to preserve. Skip the git step too and tell
-  // the user to re-run after fixing the advisory — the next run
-  // will install successfully and produce a single bootstrap
-  // commit that captures the lockfile.
-  if (shouldInitGit && !blockInstall) {
-    await runGitInit(cwd);
-  } else if (shouldInitGit && blockInstall) {
-    const retry = inPlace
-      ? "create-arkor"
-      : `create-arkor ${cdTarget}`;
+  // Round 19 (Copilot, PR #99): when blockInstall is true AND
+  // an install was actually going to run, skipping git init
+  // preserves the "lockfile lands in the initial commit"
+  // invariant.
+  //
+  // Round 21 (Codex P2, PR #99): the rationale only applies when
+  // install was actually going to run. If the user explicitly
+  // passed `--skip-install`, no install was happening anyway,
+  // there's no lockfile to wait for, and `--git`/`-y` is an
+  // explicit request we shouldn't second-guess. Same goes for
+  // `pm === undefined`. Gate the skip on "install would have
+  // run".
+  //
+  // Round 21 (Copilot, PR #99): the recovery hint used to
+  // prescribe `create-arkor` as the rerun command, but real
+  // users invoke this via `npm create` / `pnpm create` /
+  // `yarn create` / `bun create` (the `create-arkor` bin
+  // usually isn't on PATH directly), and the hint dropped any
+  // flags the user originally passed (`--use-yarn` / `--git` /
+  // `--name` / etc). Drop the prescriptive command — point at
+  // the advisory and let the user re-invoke with whatever they
+  // originally typed.
+  const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
+  if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(
-      `Skipping git init too — re-run \`${retry}\` after fixing the advisory so the lockfile lands in the initial commit.`,
+      "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
     );
+  } else if (shouldInitGit) {
+    await runGitInit(cwd);
   }
 
   const installLine = installed

@@ -225,7 +225,36 @@ describe("create-arkor run()", () => {
       .mock.calls.map((c) => c[0])
       .join("\n");
     expect(infoMessages).toMatch(/Skipping git init/);
-    expect(infoMessages).toMatch(/re-run/);
+    expect(infoMessages).toMatch(/re-run this command/);
+    // Round 21 (Copilot, PR #99) dropped the prescriptive
+    // `create-arkor` rerun copy — real users invoke via
+    // `npm create` / `pnpm create` / etc, and the original flags
+    // would be lost in the prescription.
+    expect(infoMessages).not.toMatch(/`create-arkor`/);
+  });
+
+  // Round 21 (Codex P2, PR #99): when the user explicitly opted
+  // out of install (`--skip-install`), the lockfile-ordering
+  // rationale doesn't apply — there's no lockfile to wait for.
+  // Honor an explicit `--git` request even when scaffold returns
+  // blockInstall=true.
+  it("STILL runs git init when blockInstall=true but install was explicitly skipped via --skip-install", async () => {
+    vi.mocked(scaffold).mockResolvedValueOnce({
+      cwd: parentDir,
+      files: [{ action: "created", path: "package.json" }],
+      warnings: ["Existing .yarnrc.yml pins `nodeLinker: pnp`. ..."],
+      blockInstall: true,
+    });
+    await run({
+      dir: "target",
+      yes: true,
+      template: "triage",
+      packageManager: "yarn",
+      skipInstall: true,
+      git: true,
+    });
+    expect(vi.mocked(install)).not.toHaveBeenCalled();
+    expect(vi.mocked(gitInitialCommit)).toHaveBeenCalled();
   });
 
   // Counterpart: regression guard for the no-warning path.

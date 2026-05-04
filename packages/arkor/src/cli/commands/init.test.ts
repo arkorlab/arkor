@@ -526,13 +526,47 @@ describe("runInit", () => {
     // The git init step is also skipped — the lockfile-in-initial-
     // commit invariant requires install to land first.
     expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
-    // The user is told why git was skipped and how to recover.
+    // The user is told why git was skipped. Round 21 (Copilot, PR
+    // #99) dropped the prescriptive `arkor init` rerun copy
+    // (the local bin isn't installed yet, and the original flags
+    // would be lost) — just point at the advisory.
     const infoMessages = vi
       .mocked(clack.log.info)
       .mock.calls.map((c) => c[0])
       .join("\n");
     expect(infoMessages).toMatch(/Skipping git init/);
-    expect(infoMessages).toMatch(/re-run `arkor init`/);
+    expect(infoMessages).toMatch(/re-run this command/);
+    // Specifically NOT the prescriptive "arkor init" rerun the
+    // round-19 hint had — the local bin isn't on PATH yet.
+    expect(infoMessages).not.toMatch(/`arkor init`/);
+  });
+
+  // Round 21 (Codex P2, PR #99): when the user explicitly opted
+  // out of install (`--skip-install`), the lockfile-ordering
+  // rationale doesn't apply — there's no lockfile to wait for.
+  // Honor an explicit `--git` request even when scaffold returns
+  // blockInstall=true. This restores the historical behaviour
+  // for the `--skip-install --git` combo that round 19's broader
+  // skip would have regressed.
+  it("STILL runs git init when blockInstall=true but install was explicitly skipped via --skip-install", async () => {
+    vi.mocked(scaffold).mockResolvedValueOnce({
+      cwd,
+      files: [{ action: "created", path: "package.json" }],
+      warnings: ["Existing .yarnrc.yml pins `nodeLinker: pnp`. ..."],
+      blockInstall: true,
+    });
+    await runInit({
+      yes: true,
+      packageManager: "yarn",
+      skipInstall: true,
+      git: true,
+    });
+    // No install attempted (user opted out), no install gate
+    // skip-message either.
+    expect(vi.mocked(install)).not.toHaveBeenCalled();
+    // git init runs as the user requested — no lockfile to land
+    // anyway, so the invariant is moot here.
+    expect(vi.mocked(gitInitialCommit)).toHaveBeenCalled();
   });
 
   // Counterpart: regression guard so the gate doesn't accidentally
