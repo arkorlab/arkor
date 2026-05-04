@@ -176,6 +176,61 @@ describe("createHmrCoordinator", () => {
     expect(events.length).toBe(countAfterDispose);
   });
 
+  it("the cached lastEvent reflects the LATEST source under rapid back-to-back edits", async () => {
+    // Regression: the BUNDLE_END handler used to fire
+    // `emitBuildSucceeded` without awaiting, so two quick rebuilds
+    // could run `inspectBundle` concurrently and broadcast out of
+    // order — leaving `lastEvent` pointing at the older snapshot.
+    // We can't deterministically synthesise a race against rolldown's
+    // real watcher, but we *can* assert the user-visible invariant:
+    // after a sequence of edits, the cached state must match the
+    // last write. The new sequence-number guard inside
+    // `emitBuildSucceeded` drops stale inspection results so the
+    // final broadcast always wins.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+
+    const events: HmrEvent[] = [];
+    const hmr = createHmrCoordinator({ cwd });
+    hmr.subscribe((e) => events.push(e));
+    try {
+      await nextEvent(events, (e) => e.type === "ready");
+      // Two source edits in quick succession. Both must result in a
+      // broadcast eventually, and `lastEvent.hash` must end up
+      // matching the file content of the FINAL write — not the
+      // first one (which would prove the older inspection raced
+      // past the newer one's broadcast).
+      writeFileSync(
+        join(cwd, "src/arkor/index.ts"),
+        FAKE_MANIFEST.replace(`"alpha"`, `"beta"`),
+      );
+      const v2 = await nextEvent(
+        events,
+        (e) => e.type === "rebuild",
+        4000,
+      );
+      writeFileSync(
+        join(cwd, "src/arkor/index.ts"),
+        FAKE_MANIFEST.replace(`"alpha"`, `"gamma"`),
+      );
+      // Wait for any rebuild whose hash differs from v2's. Without
+      // the seq guard the older inspection could clobber the cached
+      // state with v2 again, so this would time out.
+      const v3 = await nextEvent(
+        events,
+        (e) => e.type === "rebuild" && e.hash !== v2.hash,
+        4000,
+      );
+      // Settle: give any in-flight inspection time to land so we can
+      // assert the final cached state really is v3, not a late v2
+      // overwrite.
+      await new Promise((r) => setTimeout(r, 250));
+      expect(events[events.length - 1]?.hash).toBe(v3.hash);
+    } finally {
+      await hmr.dispose();
+    }
+  });
+
   it("getCurrentConfigHash() returns the latest cached event's hash", async () => {
     // Regression: `/api/train` previously called `readManifestSummary`
     // and ran a redundant rebuild per spawn (racing the watcher).

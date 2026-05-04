@@ -55,9 +55,22 @@ export function RunTraining() {
   // `Timeout` object — explicit `number` so TS doesn't pick up the
   // Node typing from the global `setTimeout`.
   const hotSwapTimerRef = useRef<number | null>(null);
+  // Tracks "is this React tree still mounted?". The HMR auto-restart
+  // path schedules `queueMicrotask(() => run(...))` after the prior
+  // run's `finally` — without this gate, navigating away during the
+  // tiny window between scheduling and the microtask running would
+  // fire a fresh `/api/train` POST from an unmounted view, spawning
+  // an invisible cloud job the user can't see or stop.
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
     return () => {
+      isMountedRef.current = false;
+      // Defense in depth: clearing the latch here means even if a
+      // microtask snuck past the `isMountedRef` check (concurrent
+      // edits to React's effect ordering, future refactors), it
+      // still finds nothing pending.
+      restartPendingRef.current = false;
       trainingAbortRef.current?.abort();
       if (hotSwapTimerRef.current !== null) {
         clearTimeout(hotSwapTimerRef.current);
@@ -244,8 +257,16 @@ export function RunTraining() {
         // `running=false` state first (otherwise the re-entry overlaps).
         restartPendingRef.current = false;
         setHmrStatus("restarting");
+        const fileForRestart = lastTrainFileRef.current;
         queueMicrotask(() => {
-          void run(lastTrainFileRef.current);
+          // Don't auto-spawn a fresh /api/train request from an
+          // unmounted view — the user navigated away in the small
+          // window between scheduling and running this microtask, so
+          // their intent was "stop interacting with this view", not
+          // "kick off another cloud job invisibly". The unmount
+          // cleanup also clears `restartPendingRef` defensively.
+          if (!isMountedRef.current) return;
+          void run(fileForRestart);
         });
       } else {
         // User-initiated abort takes precedence over a pending HMR

@@ -125,6 +125,34 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
    * doesn't reconnect on application-level errors.
    */
   let entryWaitTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Monotonically incrementing build sequence number. Bumped on every
+   * `BUNDLE_END` *before* the inspection awaits, so when an
+   * inspection eventually resolves it can check whether a newer
+   * build has started in the meantime and silently drop its stale
+   * result.
+   *
+   * This matters because `inspectBundle` does an asynchronous
+   * dynamic-import of the just-written artifact. Two rebuilds A → B
+   * landing within the import window can race, with A's inspection
+   * resolving *after* B's — the previous "fire-and-forget" code
+   * would then publish A on top of B and leave `lastEvent` pointing
+   * at the older `configHash`/`trainerName`. That in turn drove
+   * `/api/dev/events` to make hot-swap-vs-restart decisions against
+   * stale routing data and surfaced the wrong trainer name in the
+   * SPA.
+   */
+  let buildSeq = 0;
+  /**
+   * Whether a `ready` event has actually broadcast yet. Tracked
+   * separately from `firstBuild` because the inspection await means
+   * the first BUNDLE_END's broadcast can land *after* a second
+   * BUNDLE_END schedules its own — pinning the type to
+   * "broadcast-time" rather than "schedule-time" guarantees the SPA
+   * still sees `ready` first even when the initial inspection loses
+   * the race.
+   */
+  let firstBroadcast = true;
 
   function broadcast(event: HmrEvent): void {
     lastEvent = event;
@@ -139,11 +167,20 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     }
   }
 
-  async function emitBuildSucceeded(eventType: HmrEventType): Promise<void> {
+  async function emitBuildSucceeded(): Promise<void> {
     if (disposed) return;
+    const seq = ++buildSeq;
     const inspection = await inspectBundle(resolved.outFile);
+    // Drop stale results: a newer rebuild already started (or
+    // finished) while our inspection was running. The newer
+    // inspection will own the broadcast for the latest state; this
+    // one publishing now would just clobber `lastEvent` with the
+    // older snapshot.
+    if (seq !== buildSeq || disposed) return;
+    const type: HmrEventType = firstBroadcast ? "ready" : "rebuild";
+    firstBroadcast = false;
     broadcast({
-      type: eventType,
+      type,
       outFile: resolved.outFile,
       hash: fingerprint(resolved.outFile),
       configHash: inspection?.configHash ?? null,
@@ -190,14 +227,16 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       ...rolldownInputOptions(resolved),
       output: { file: resolved.outFile, format: "esm" },
     });
-    let firstBuild = true;
     watcher.on("event", (event) => {
       if (event.code === "BUNDLE_END") {
         // rolldown requires the per-build result to be closed to avoid leaks.
         event.result.close().catch(() => {});
-        const type: HmrEventType = firstBuild ? "ready" : "rebuild";
-        firstBuild = false;
-        void emitBuildSucceeded(type);
+        // The event type ("ready" vs "rebuild") is decided inside
+        // `emitBuildSucceeded` *after* the inspection await, based on
+        // whether any prior broadcast actually landed — see the
+        // `firstBroadcast` comment for why pinning the type at this
+        // schedule point would be wrong under inspection races.
+        void emitBuildSucceeded();
       } else if (event.code === "ERROR") {
         event.result.close().catch(() => {});
         broadcast({
