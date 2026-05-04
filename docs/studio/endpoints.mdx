@@ -41,7 +41,7 @@ Click **New endpoint** at the top right of the list. The inline form takes:
 | **Target** | Three options: the **final adapter** of a job (paste the job UUID), a **specific checkpoint** (job UUID + step), or a **base model** name (e.g. `meta-llama/Llama-2-7b-hf`). |
 | **Auth mode** | `Fixed API key` (default) or `No auth (public)`. Public means anyone with the URL can call the endpoint, so only use it for demos or genuinely public models. |
 
-Submit and Studio calls `POST /api/deployments`, which forwards to the cloud API. On success the form closes and the list refreshes with the new deployment row at the top; open it to manage keys. On a 409 (slug collision) the form shows the upstream message in red and stays open so you can pick a different slug.
+Submit and Studio calls `POST /api/deployments`, which forwards to the cloud API. On success the form closes and the list refreshes with the new row included; open it to manage keys. On a 409 (slug collision) the form shows the upstream message in red and stays open so you can pick a different slug.
 
 The job UUID is a plain text field today: copy the id from the [Jobs](/studio/jobs) page and paste it in. (A future iteration may turn that into a job picker.)
 

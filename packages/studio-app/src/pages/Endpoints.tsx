@@ -203,6 +203,19 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
   const [baseModel, setBaseModel] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Abort the in-flight POST when the form unmounts (the parent's Cancel
+  // toggle hides this component, route changes, etc.) so a user who
+  // clicks "Cancel" while the request is in flight does not get an
+  // endpoint created behind their back. The parent's `onCreated` callback
+  // also stops being valid once we're unmounted, so even if the request
+  // had already returned, suppressing the success path here prevents a
+  // stale list refresh.
+  const submitControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    return () => {
+      submitControllerRef.current?.abort();
+    };
+  }, []);
 
   function buildTarget(): DeploymentTarget | null {
     if (targetMode === "base_model") {
@@ -231,14 +244,28 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
       return;
     }
     const body: CreateDeploymentBody = { slug: slug.trim(), target, authMode };
+    submitControllerRef.current?.abort();
+    const controller = new AbortController();
+    submitControllerRef.current = controller;
     setSubmitting(true);
     try {
-      await createDeployment(body);
+      await createDeployment(body, { signal: controller.signal });
+      if (controller.signal.aborted) return;
       onCreated();
     } catch (err) {
+      // AbortError fires when the form unmounts mid-flight; the request
+      // may or may not have committed on the server, but in either case
+      // the user explicitly asked to cancel so do not surface an error.
+      if (controller.signal.aborted) return;
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(asMessage(err));
     } finally {
-      setSubmitting(false);
+      // Only clear `submitting` if we're still the active controller.
+      // After abort the component is being torn down, so a setState would
+      // either no-op (post-unmount) or fight a fresh submit attempt.
+      if (submitControllerRef.current === controller) {
+        setSubmitting(false);
+      }
     }
   }
 

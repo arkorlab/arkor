@@ -390,12 +390,14 @@ export async function fetchDeployment(
 
 export async function createDeployment(
   body: CreateDeploymentBody,
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ deployment: Deployment }> {
   return deploymentJson(
     await apiFetch("/api/deployments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: options.signal,
     }),
   );
 }
