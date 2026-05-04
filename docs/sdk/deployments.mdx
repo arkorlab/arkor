@@ -5,15 +5,15 @@ description: "Programmatically manage *.arkor.app inference URLs from your own c
 
 # Deployments
 
-A **deployment** publishes a trained adapter (or a base model) at a dedicated subdomain — `https://<slug>.arkor.app/v1/chat/completions` — that speaks the OpenAI Chat Completions wire format. Pointed at it from any OpenAI-compatible client (the official `openai` SDK, LangChain, etc.) and it just works.
+A **deployment** publishes a trained adapter (or a base model) at a dedicated subdomain (`https://<slug>.arkor.app/v1/chat/completions`) that speaks the OpenAI Chat Completions wire format. Pointed at it from any OpenAI-compatible client (the official `openai` SDK, LangChain, etc.) and it just works.
 
 `CloudApiClient` is the typed entry point for managing these deployments programmatically (creating them, rotating API keys, deleting them) from a Node.js script or from your own server. The same actions are also available in the Studio dashboard and (eventually) on the CLI; this page covers the SDK surface.
 
 ## When to use the SDK
 
-- **CI / IaC** — provision deployments alongside your other infra. A trained job's `final` adapter goes from "saved checkpoint" to "live URL" in one script step.
-- **Custom dashboards** — embed deployment management in your own admin UI.
-- **Bulk operations** — script revoking + re-issuing keys across many deployments after an incident.
+- **CI / IaC**: provision deployments alongside your other infra. A trained job's `final` adapter goes from "saved checkpoint" to "live URL" in one script step.
+- **Custom dashboards**: embed deployment management in your own admin UI.
+- **Bulk operations**: script revoking + re-issuing keys across many deployments after an incident.
 
 For interactive day-to-day use, prefer Studio or the upcoming `arkor endpoints` CLI; the SDK is the lower-level surface those tools sit on top of.
 
@@ -32,7 +32,7 @@ const client = new CloudApiClient({
 });
 ```
 
-`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK — an Auth0-issued access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both.
+`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK: an Auth0-issued access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both.
 
 Every deployment lives inside a `(orgSlug, projectSlug)` scope; pass that scope on every call:
 
@@ -64,11 +64,11 @@ type DeploymentTarget =
   | { kind: "base_model"; baseModel: string };
 ```
 
-`authMode` is either `"fixed_api_key"` (clients send `Authorization: Bearer …` or `x-api-key`) or `"none"` (the URL is open — only use for public demos / models).
+`authMode` is either `"fixed_api_key"` (clients send `Authorization: Bearer …` or `x-api-key`) or `"none"` (the URL is open; only use for public demos / models).
 
 `runRetentionMode` and `runRetentionDays` are optional; omitting them uses the server defaults (`days` / 7 days). Pass `"unlimited"` to retain indefinitely or `"disabled"` to skip persistence entirely.
 
-The slug must match `[a-z0-9][a-z0-9-]*[a-z0-9]` (2–50 chars). Reserved labels (`www`, `api`, `admin`, …) are rejected by the server with a 400.
+The slug must match `[a-z0-9][a-z0-9-]*[a-z0-9]` (2-50 chars). Reserved labels (`www`, `api`, `admin`, etc.) are rejected by the server with a 400.
 
 ## Issue an API key
 
@@ -80,7 +80,7 @@ const { key } = await client.createDeploymentKey(deployment.id, scope, {
 console.log(key.plaintext); // ← shown EXACTLY ONCE; store now
 ```
 
-The plaintext is returned only on creation. Subsequent `listDeploymentKeys()` calls return the label and a display prefix (`ark_live_abcd1234…`) — never the full key. If a key is lost, issue a new one and revoke the old.
+The plaintext is returned only on creation. Subsequent `listDeploymentKeys()` calls return the label and a display prefix (`ark_live_abcd1234…`), never the full key. If a key is lost, issue a new one and revoke the old.
 
 To use the key:
 
@@ -91,7 +91,7 @@ curl https://support-bot.arkor.app/v1/chat/completions \
   -d '{"model":"ignored","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-The `model` field in the request body is ignored — the deployment already pins the target. Standard OpenAI SDKs work out of the box; just point `baseURL` at `https://<slug>.arkor.app/v1`.
+The `model` field in the request body is ignored, since the deployment already pins the target. Standard OpenAI SDKs work out of the box; just point `baseURL` at `https://<slug>.arkor.app/v1`.
 
 ## List, get, update, delete
 
@@ -102,7 +102,7 @@ const { deployments } = await client.listDeployments(scope);
 // Look up one
 const { deployment } = await client.getDeployment(id, scope);
 
-// Re-target without changing the URL — clients keep working
+// Re-target without changing the URL; clients keep working
 await client.updateDeployment(id, scope, {
   target: { kind: "adapter", adapter: { kind: "final", jobId: newJobId } },
 });
@@ -114,7 +114,7 @@ await client.updateDeployment(id, scope, { enabled: false });
 await client.deleteDeployment(id, scope);
 ```
 
-`updateDeployment` is partial — any field you omit is left unchanged. The URL itself is determined by `slug` and is **not** mutable; if you need a different slug, create a new deployment.
+`updateDeployment` is partial; any field you omit is left unchanged. The URL itself is determined by `slug` and is **not** mutable. If you need a different slug, create a new deployment.
 
 ## Manage keys
 
@@ -140,7 +140,7 @@ try {
   await client.createDeployment(scope, { slug: "taken", /* … */ });
 } catch (err) {
   if (err instanceof CloudApiError && err.status === 409) {
-    console.error("Slug already taken — pick another");
+    console.error("Slug already taken; pick another");
   } else {
     throw err;
   }

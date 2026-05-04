@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type SyntheticEvent,
+} from "react";
 import {
   createDeployment,
   createDeploymentKey,
@@ -102,7 +108,7 @@ export function EndpointsList() {
         <CardHeader>
           <CardTitle>Deployments</CardTitle>
           <CardDescription>
-            Click a row to manage API keys and re-target.
+            Click a row to manage API keys and toggle settings.
           </CardDescription>
         </CardHeader>
 
@@ -196,7 +202,7 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
     };
   }
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     const target = buildTarget();
@@ -364,53 +370,102 @@ export function EndpointDetail({ id }: { id: string }) {
   const [revealed, setRevealed] = useState<CreatedDeploymentKey | null>(null);
   const [newKeyLabel, setNewKeyLabel] = useState("");
 
-  const load = useCallback(async () => {
-    try {
-      const [{ deployment }, { keys }] = await Promise.all([
-        fetchDeployment(id),
-        fetchDeploymentKeys(id),
-      ]);
-      setDeployment(deployment);
-      setKeys(keys);
-      setError(null);
-    } catch (err) {
-      setError(asMessage(err));
-    }
-  }, [id]);
+  // Per-`id` request guard. When the user navigates from endpoint A to
+  // endpoint B quickly, the in-flight A fetch can settle after B's and
+  // overwrite B's state — leaving the page showing A while every action
+  // handler calls the API for B (the value of `id` from props). We tag
+  // every load with the id it was started for and ignore results whose
+  // tag no longer matches the current `id` prop.
+  const activeIdRef = useRef(id);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    // The `id` prop changed (or this is the first mount). Reset visible
+    // state immediately so the previous endpoint's slug / keys / revealed
+    // plaintext don't keep rendering while the new fetch is in flight.
+    // Without this, a fast Delete / Enable / Revoke click can mutate the
+    // *new* deployment while the UI still shows the *old* one.
+    activeIdRef.current = id;
+    setDeployment(null);
+    setKeys(null);
+    setError(null);
+    setRevealed(null);
+    setNewKeyLabel("");
+    setBusy(false);
 
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const [{ deployment }, { keys }] = await Promise.all([
+          fetchDeployment(id, { signal: controller.signal }),
+          fetchDeploymentKeys(id, { signal: controller.signal }),
+        ]);
+        if (controller.signal.aborted || activeIdRef.current !== id) return;
+        setDeployment(deployment);
+        setKeys(keys);
+        setError(null);
+      } catch (err) {
+        if (controller.signal.aborted || activeIdRef.current !== id) return;
+        // AbortError is expected on navigation away — don't surface it.
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(asMessage(err));
+      }
+    })();
+
+    return () => {
+      // Effect cleanup runs on every `id` change AND on unmount. Abort
+      // the in-flight requests so the network layer drops the response
+      // and the load doesn't even attempt to call setState for a stale
+      // deployment.
+      controller.abort();
+    };
+  }, [id]);
+
+
+  /**
+   * Wrap a mutation so a slow API call that resolves after the user has
+   * navigated to a different endpoint doesn't apply its result to the
+   * new endpoint's state. The pattern: capture the id-at-call-time, run
+   * the mutation, and only commit the optimistic state update if the
+   * page is still showing the same endpoint when the response lands.
+   */
   async function withBusy<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    const myId = id;
     setError(null);
     setBusy(true);
     try {
-      return await fn();
+      const result = await fn();
+      if (activeIdRef.current !== myId) return undefined;
+      return result;
     } catch (err) {
+      if (activeIdRef.current !== myId) return undefined;
       setError(asMessage(err));
       return undefined;
     } finally {
+      // Always clear `busy` even if we navigated away; otherwise a
+      // back-navigation to this id would land on a stuck spinner.
       setBusy(false);
     }
   }
 
   async function toggleEnabled() {
     if (!deployment) return;
+    const myId = id;
     await withBusy(async () => {
-      const { deployment: updated } = await updateDeployment(id, {
+      const { deployment: updated } = await updateDeployment(myId, {
         enabled: !deployment.enabled,
       });
-      setDeployment(updated);
+      if (activeIdRef.current === myId) setDeployment(updated);
     });
   }
 
   async function changeAuthMode(mode: DeploymentAuthMode) {
+    const myId = id;
     await withBusy(async () => {
-      const { deployment: updated } = await updateDeployment(id, {
+      const { deployment: updated } = await updateDeployment(myId, {
         authMode: mode,
       });
-      setDeployment(updated);
+      if (activeIdRef.current === myId) setDeployment(updated);
     });
   }
 
@@ -421,21 +476,24 @@ export function EndpointDetail({ id }: { id: string }) {
     ) {
       return;
     }
+    const myId = id;
     const ok = await withBusy(async () => {
-      await deleteDeployment(id);
+      await deleteDeployment(myId);
       return true;
     });
-    if (ok) {
+    if (ok && activeIdRef.current === myId) {
       window.location.hash = "#/endpoints";
     }
   }
 
-  async function onCreateKey(e: FormEvent<HTMLFormElement>) {
+  async function onCreateKey(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const label = newKeyLabel.trim();
     if (!label) return;
+    const myId = id;
     await withBusy(async () => {
-      const { key } = await createDeploymentKey(id, { label });
+      const { key } = await createDeploymentKey(myId, { label });
+      if (activeIdRef.current !== myId) return;
       setRevealed(key);
       setKeys((prev) => [
         ...(prev ?? []),
@@ -454,8 +512,10 @@ export function EndpointDetail({ id }: { id: string }) {
 
   async function onRevoke(keyId: string) {
     if (!window.confirm("Revoke this key?")) return;
+    const myId = id;
     await withBusy(async () => {
-      await revokeDeploymentKey(id, keyId);
+      await revokeDeploymentKey(myId, keyId);
+      if (activeIdRef.current !== myId) return;
       setKeys((prev) =>
         (prev ?? []).map((k) =>
           k.id === keyId ? { ...k, enabled: false } : k,

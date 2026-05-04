@@ -148,4 +148,22 @@ describe("parseRoute — endpoints", () => {
     withHash("#/endpoints//");
     expect(parseRoute()).toEqual({ kind: "endpoints" });
   });
+
+  it("decodes percent-escaped reserved characters in the id", () => {
+    // Links are built with `encodeURIComponent`. Without a matching
+    // decode here, `fetchDeployment(id)` would encode again on the way
+    // to the network and the API call would 404 for any id containing
+    // reserved chars. Use a slash because the api.ts deployment tests
+    // already exercise slash-containing ids end-to-end.
+    withHash(`#/endpoints/${encodeURIComponent("a/b")}`);
+    expect(parseRoute()).toEqual({ kind: "endpoint", id: "a/b" });
+  });
+
+  it("falls back to home when the id has malformed %-escapes", () => {
+    // `%2` (no second hex digit) makes `decodeURIComponent` throw
+    // URIError. The parser should swallow that and route to home rather
+    // than crash the SPA bootstrap.
+    withHash("#/endpoints/%2");
+    expect(parseRoute()).toEqual({ kind: "home" });
+  });
 });

@@ -1,11 +1,11 @@
 ---
 title: "Endpoints"
-description: "Manage *.arkor.app inference URLs from inside Studio: create, retarget, issue API keys."
+description: "Manage *.arkor.app inference URLs from inside Studio: create deployments, toggle settings, issue API keys."
 ---
 
 # Endpoints
 
-The Endpoints page (`#/endpoints`) is where you publish a trained adapter or a base model at a dedicated `*.arkor.app` URL and manage the API keys that authenticate calls to it. It's the UI on top of the SDK's [`CloudApiClient` deployment methods](/sdk/deployments) — every action you can take here has a corresponding programmatic call.
+The Endpoints page (`#/endpoints`) is where you publish a trained adapter or a base model at a dedicated `*.arkor.app` URL and manage the API keys that authenticate calls to it. It's the UI on top of the SDK's [`CloudApiClient` deployment methods](/sdk/deployments): every action you can take here has a corresponding programmatic call.
 
 A **deployment** is a `<slug>.arkor.app` URL bound to a target (an adapter or a base model) plus an auth mode. Once created, the URL serves OpenAI-compatible chat completions; point any OpenAI SDK at it and it works:
 
@@ -16,20 +16,20 @@ curl https://support-bot.arkor.app/v1/chat/completions \
   -d '{"model":"ignored","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-The `model` field in the request body is ignored — the deployment pins the target.
+The `model` field in the request body is ignored, since the deployment pins the target.
 
 ## List
 
 Open `#/endpoints` from the nav. Each row shows:
 
 - The slug (and the `.arkor.app` host suffix)
-- A one-line target summary — `Final adapter (job <8 chars>)`, `Checkpoint step N (job <8 chars>)`, or `Base model: <name>`
+- A one-line target summary: `Final adapter (job <8 chars>)`, `Checkpoint step N (job <8 chars>)`, or `Base model: <name>`
 - The current `authMode` (`fixed_api_key` or `none`)
 - An enabled / disabled badge
 
 Click any row to open the detail page. There is no search / filter or auto-refresh on this page today; reload to pick up changes from another tab or the CLI / SDK.
 
-When the project state isn't on disk yet (you haven't run `arkor dev` against this directory) the list shows empty and Studio doesn't make an upstream call — it can't pick a scope without `(orgSlug, projectSlug)`.
+When the project state isn't on disk yet (you haven't run `arkor dev` against this directory) the list shows empty and Studio doesn't make an upstream call. There's no scope to send without `(orgSlug, projectSlug)`.
 
 ## Create
 
@@ -37,13 +37,13 @@ Click **New endpoint** at the top right of the list. The inline form takes:
 
 | Field | Notes |
 | --- | --- |
-| **Slug** | 2–50 characters, `[a-z0-9][a-z0-9-]*[a-z0-9]`. Reserved labels (`www`, `api`, `admin`, …) are rejected by the backend with a 400. |
+| **Slug** | 2-50 characters, `[a-z0-9][a-z0-9-]*[a-z0-9]`. Reserved labels (`www`, `api`, `admin`, etc.) are rejected by the backend with a 400. |
 | **Target** | Three options: the **final adapter** of a job (paste the job UUID), a **specific checkpoint** (job UUID + step), or a **base model** name (e.g. `meta-llama/Llama-2-7b-hf`). |
-| **Auth mode** | `Fixed API key` (default) or `No auth (public)`. Public means anyone with the URL can call the endpoint — only use it for demos or genuinely public models. |
+| **Auth mode** | `Fixed API key` (default) or `No auth (public)`. Public means anyone with the URL can call the endpoint, so only use it for demos or genuinely public models. |
 
-Submit and Studio calls `POST /api/deployments`, which forwards to the cloud API. On success you land on the detail page; on a 409 (slug collision) the form shows the upstream message in red and stays open so you can pick a different slug.
+Submit and Studio calls `POST /api/deployments`, which forwards to the cloud API. On success the form closes and the list refreshes with the new deployment row at the top; open it to manage keys. On a 409 (slug collision) the form shows the upstream message in red and stays open so you can pick a different slug.
 
-Studio doesn't pre-populate the job UUID dropdown — copy the id from the [Jobs](/studio/jobs) page. (A future iteration may turn that into a job picker.)
+Studio doesn't pre-populate the job UUID dropdown, so copy the id from the [Jobs](/studio/jobs) page. (A future iteration may turn that into a job picker.)
 
 ## Detail
 
@@ -56,17 +56,17 @@ The full `https://<slug>.arkor.app/v1/chat/completions` URL with a copy button. 
 ### Settings
 
 - **Enable / Disable** toggle. Disabled deployments return 404 from the edge service. The URL stays reserved (other users can't claim the slug) so you can re-enable later without losing it.
-- **Auth mode** dropdown. Switching from `fixed_api_key` to `none` opens the URL up immediately; switching back makes the existing keys authoritative again. Existing keys are not revoked when you toggle modes — they just become enforced again.
+- **Auth mode** dropdown. Switching from `fixed_api_key` to `none` opens the URL up immediately; switching back makes the existing keys authoritative again. Existing keys are not revoked when you toggle modes; they just become enforced again.
 
-The target itself is **not** editable from the UI today. To re-target a deployment to a different job or checkpoint, use the SDK's [`updateDeployment`](/sdk/deployments) — it accepts a `target` field on the partial update body.
+The target itself is **not** editable from the UI today. To re-target a deployment to a different job or checkpoint, use the SDK's [`updateDeployment`](/sdk/deployments). It accepts a `target` field on the partial update body.
 
 ### API keys
 
-- The list shows label, prefix (the first ~12 chars of the plaintext, e.g. `ark_live_abcd1234…`), enabled status, and `lastUsedAt`. Revoked keys appear struck-through.
-- **Issue key** prompts for a label (1–80 chars, e.g. `production`, `staging`) and on success shows the **plaintext exactly once** in an amber callout with a copy button. Save it now — neither Studio nor the cloud API will ever return it again.
+- The list shows label and prefix (the first ~12 chars of the plaintext, e.g. `ark_live_abcd1234…`). Revoked keys appear struck-through.
+- **Issue key** prompts for a label (1-80 chars, e.g. `production`, `staging`) and on success shows the **plaintext exactly once** in an amber callout with a copy button. Save it now; neither Studio nor the cloud API will ever return it again.
 - **Revoke** flips `enabled` to false. Revoked keys stop authenticating within ~30 seconds (the edge cache TTL); requests with an already-cached revoked key may succeed for that window.
 
-`lastUsedAt` is updated by the edge service on a best-effort, debounced basis (per-deployment-key, ~1-minute window). It will lag under traffic and may stay null for a freshly-issued key that hasn't been used since the most recent edge instance restart. Treat it as approximate — don't gate revoke decisions on it.
+The cloud API also tracks a per-key `lastUsedAt` timestamp (best-effort, debounced ~1 minute) but Studio does not surface it in this list yet. Call [`listDeploymentKeys`](/sdk/deployments) from the SDK if you need to see it.
 
 ## Where Studio sits in the stack
 
@@ -90,4 +90,4 @@ Every `/api/deployments/*` call carries the per-launch [Studio CSRF token](/stud
 ## When to use Studio vs the SDK
 
 - **Studio**: one-off creation, casual key rotation, "give a colleague a URL right now" demos.
-- **SDK** ([Deployments](/sdk/deployments)): CI / IaC provisioning, scripted bulk operations, bespoke admin UIs. Studio is a thin wrapper over the same `CloudApiClient`, so anything Studio can do, the SDK can do — and several things only the SDK can do today (target edit, custom retention, etc.).
+- **SDK** ([Deployments](/sdk/deployments)): CI / IaC provisioning, scripted bulk operations, bespoke admin UIs. Studio is a thin wrapper over the same `CloudApiClient`, so anything Studio can do, the SDK can do. Several things only the SDK can do today (target edit, custom retention, etc.).

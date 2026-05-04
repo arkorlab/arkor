@@ -33,8 +33,23 @@ export function parseRoute(): Route {
   }
   if (path === "endpoints") return { kind: "endpoints" };
   if (path.startsWith("endpoints/")) {
-    const id = path.slice("endpoints/".length);
-    if (id) return { kind: "endpoint", id };
+    // The hash segment is URL-encoded — links are constructed via
+    // `#/endpoints/${encodeURIComponent(id)}` to keep slashes / reserved
+    // chars from breaking the path split. Decode once here so the SPA
+    // hands the raw id to `fetchDeployment(id)`, which encodes again on
+    // the way to the network. Without this step a slash-containing id
+    // (`a/b`) would end up double-encoded (`a%252Fb`) and 404.
+    const raw = path.slice("endpoints/".length);
+    if (raw) {
+      try {
+        return { kind: "endpoint", id: decodeURIComponent(raw) };
+      } catch {
+        // Malformed `%`-escapes (e.g. a stray `%` typed into the URL bar)
+        // throw URIError from `decodeURIComponent`. Fall through to home
+        // rather than crashing the app.
+        return { kind: "home" };
+      }
+    }
   }
   return { kind: "home" };
 }

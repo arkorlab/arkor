@@ -373,11 +373,16 @@ export async function fetchDeployments(): Promise<{
   return deploymentJson(await apiFetch("/api/deployments"));
 }
 
-export async function fetchDeployment(id: string): Promise<{
+export async function fetchDeployment(
+  id: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<{
   deployment: Deployment;
 }> {
   return deploymentJson(
-    await apiFetch(`/api/deployments/${encodeURIComponent(id)}`),
+    await apiFetch(`/api/deployments/${encodeURIComponent(id)}`, {
+      signal: options.signal,
+    }),
   );
 }
 
@@ -416,9 +421,12 @@ export async function deleteDeployment(id: string): Promise<void> {
 
 export async function fetchDeploymentKeys(
   id: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ keys: DeploymentKey[] }> {
   return deploymentJson(
-    await apiFetch(`/api/deployments/${encodeURIComponent(id)}/keys`),
+    await apiFetch(`/api/deployments/${encodeURIComponent(id)}/keys`, {
+      signal: options.signal,
+    }),
   );
 }
 

@@ -394,6 +394,23 @@ export function buildStudioApp(options: StudioServerOptions) {
   //      500. This mirrors the inference/chat error envelope so the SPA has
   //      a single error-handling shape across cloud-backed routes.
 
+  /**
+   * Read project state without requiring credentials. Listing deployments
+   * for a fresh workspace (no `.arkor/state.json`) is a local no-op — same
+   * behaviour as `/api/jobs` — so we must NOT call `getCredentials()`
+   * first: that path can throw on `autoAnonymous: false` setups or when
+   * the anonymous-token bootstrap fails offline, turning the empty-list
+   * read into a 500.
+   */
+  async function readScopeFromState(): Promise<
+    { orgSlug: string; projectSlug: string } | null
+  > {
+    const state = await readState(trainCwd);
+    return state
+      ? { orgSlug: state.orgSlug, projectSlug: state.projectSlug }
+      : null;
+  }
+
   async function withDeploymentClient<T>(
     requireScope: boolean,
     handler: (args: {
@@ -404,22 +421,27 @@ export function buildStudioApp(options: StudioServerOptions) {
     let credentials: Credentials;
     let scope: { orgSlug: string; projectSlug: string } | null;
     try {
-      credentials = await getCredentials();
-      const state = await readState(trainCwd);
-      scope = state
-        ? { orgSlug: state.orgSlug, projectSlug: state.projectSlug }
-        : null;
+      // Read state first so the no-scope branch can short-circuit before
+      // we touch credentials. `readState` only does a local FS read and
+      // can't fail in a way that exposes auth state.
+      scope = await readScopeFromState();
       if (requireScope && !scope) {
         return new Response(
           JSON.stringify({ error: "No project state — run `arkor dev` once" }),
           { status: 400, headers: { "content-type": "application/json" } },
         );
       }
+      credentials = await getCredentials();
     } catch (err) {
+      // Stack-trace / message contents on local-side failures (credentials
+      // file read, anonymous-token bootstrap) can leak filesystem paths
+      // and internal endpoint hostnames. Log full detail for the operator
+      // and return an opaque envelope to the SPA. The 500 surface is
+      // already enough for the SPA to render a generic "Studio could not
+      // contact its backend" hint.
+      console.error("[studio] withDeploymentClient setup failed:", err);
       return new Response(
-        JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
-        }),
+        JSON.stringify({ error: "Studio backend unavailable" }),
         { status: 500, headers: { "content-type": "application/json" } },
       );
     }
@@ -432,27 +454,40 @@ export function buildStudioApp(options: StudioServerOptions) {
       });
     } catch (err) {
       if (err instanceof CloudApiError) {
+        // Cloud API errors are intentionally forwarded — `err.message` is
+        // the structured `{ error }` body cloud-api returned, which is
+        // already user-facing copy ("Slug already taken", etc.).
         return new Response(JSON.stringify({ error: err.message }), {
           status: err.status,
           headers: { "content-type": "application/json" },
         });
       }
+      // Anything else (a thrown plain Error from the handler, an unhandled
+      // network failure) is logged with full detail and returned opaque
+      // to the SPA so we don't leak stack traces / filesystem paths.
+      console.error("[studio] withDeploymentClient handler failed:", err);
       return new Response(
-        JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
-        }),
+        JSON.stringify({ error: "Studio backend error" }),
         { status: 500, headers: { "content-type": "application/json" } },
       );
     }
   }
 
-  app.get("/api/deployments", async () =>
-    withDeploymentClient(false, async ({ client, scope }) => {
-      // No scope on disk yet → empty list (mirrors `/api/jobs`).
-      if (!scope) return { deployments: [] };
-      return await client.listDeployments(scope);
-    }),
-  );
+  app.get("/api/deployments", async () => {
+    // List view doesn't require credentials when there's no scope yet —
+    // mirror `/api/jobs`'s local-only empty-list path so the Endpoints
+    // tab loads cleanly on fresh workspaces and offline.
+    const scope = await readScopeFromState();
+    if (!scope) {
+      return new Response(JSON.stringify({ deployments: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return withDeploymentClient(true, ({ client, scope }) =>
+      client.listDeployments(scope!),
+    );
+  });
 
   app.post("/api/deployments", async (c) => {
     const body = (await c.req.json().catch(() => null)) as

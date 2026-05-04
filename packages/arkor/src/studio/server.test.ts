@@ -1463,5 +1463,242 @@ process.exit(0);
       });
       expect(res.status).toBe(403);
     });
+
+    // -----------------------------------------------------------------------
+    // Per-id and key-sub-route coverage. The previous block covered list +
+    // create + 409. Each handler below is an independent forward path with
+    // its own param parsing + body parsing + error normalization, so a
+    // boundary test per route catches regressions in any of those.
+    // -----------------------------------------------------------------------
+    function deploymentResponse(slug = "x") {
+      return {
+        id: "00000000-0000-4000-8000-000000000010",
+        slug,
+        orgId: "00000000-0000-4000-8000-000000000001",
+        projectId: "00000000-0000-4000-8000-000000000002",
+        target: { kind: "base_model", baseModel: "m" },
+        authMode: "none",
+        urlFormat: "openai_compat",
+        enabled: true,
+        customDomain: null,
+        createdAt: "2026-05-04T00:00:00Z",
+        updatedAt: "2026-05-04T00:00:00Z",
+      };
+    }
+
+    async function arrangeProjectState() {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+    }
+
+    function studioHeaders(extra: Record<string, string> = {}) {
+      return {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+        ...extra,
+      };
+    }
+
+    it("GET /api/deployments/:id forwards to /v1/endpoints/:id", async () => {
+      await arrangeProjectState();
+      let upstreamUrl: string | null = null;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        upstreamUrl = String(input);
+        return new Response(
+          JSON.stringify({ deployment: deploymentResponse("alpha") }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(upstreamUrl).toContain("/v1/endpoints/dep-1");
+      expect(upstreamUrl).toContain("orgSlug=anon-org");
+    });
+
+    it("PATCH /api/deployments/:id sends the body verbatim to upstream", async () => {
+      await arrangeProjectState();
+      let upstreamMethod: string | undefined;
+      let upstreamBody: string | undefined;
+      globalThis.fetch = (async (
+        _input: Parameters<typeof fetch>[0],
+        init?: RequestInit,
+      ) => {
+        upstreamMethod = init?.method;
+        upstreamBody = init?.body as string | undefined;
+        return new Response(
+          JSON.stringify({
+            deployment: { ...deploymentResponse(), enabled: false },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        method: "PATCH",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ enabled: false }),
+      });
+      expect(res.status).toBe(200);
+      expect(upstreamMethod).toBe("PATCH");
+      expect(JSON.parse(upstreamBody as string)).toEqual({ enabled: false });
+    });
+
+    it("PATCH /api/deployments/:id rejects malformed JSON with 400 (no upstream call)", async () => {
+      await arrangeProjectState();
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("upstream should not be called");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        method: "PATCH",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: "not-json",
+      });
+      expect(res.status).toBe(400);
+      expect(calls).toBe(0);
+    });
+
+    it("DELETE /api/deployments/:id normalizes upstream 204 to a 200 `{}` envelope", async () => {
+      // The cloud API answers 204; the SDK promise resolves to void; the
+      // Studio router serializes that as JSON 200 `{}` so the SPA's JSON
+      // parsing path is uniform across every route.
+      await arrangeProjectState();
+      let upstreamMethod: string | undefined;
+      globalThis.fetch = (async (
+        _input: Parameters<typeof fetch>[0],
+        init?: RequestInit,
+      ) => {
+        upstreamMethod = init?.method;
+        return new Response(null, { status: 204 });
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        method: "DELETE",
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({});
+      expect(upstreamMethod).toBe("DELETE");
+    });
+
+    it("GET /api/deployments/:id/keys forwards to the keys sub-route", async () => {
+      await arrangeProjectState();
+      let upstreamUrl: string | null = null;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        upstreamUrl = String(input);
+        return new Response(
+          JSON.stringify({
+            keys: [
+              {
+                id: "k1",
+                label: "production",
+                prefix: "ark_live_",
+                enabled: true,
+                createdAt: "2026-05-04T00:00:00Z",
+                lastUsedAt: null,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1/keys", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(upstreamUrl).toContain("/v1/endpoints/dep-1/keys");
+    });
+
+    it("POST /api/deployments/:id/keys preserves the plaintext envelope", async () => {
+      await arrangeProjectState();
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            key: {
+              id: "k1",
+              label: "production",
+              plaintext: "ark_live_TESTSECRET",
+              prefix: "ark_live_T",
+              createdAt: "2026-05-04T00:00:00Z",
+            },
+          }),
+          { status: 201, headers: { "content-type": "application/json" } },
+        )) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1/keys", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ label: "production" }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        key: { plaintext: string };
+      };
+      expect(body.key.plaintext).toBe("ark_live_TESTSECRET");
+    });
+
+    it("DELETE /api/deployments/:id/keys/:keyId hits the right upstream path", async () => {
+      await arrangeProjectState();
+      let upstreamUrl: string | null = null;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        upstreamUrl = String(input);
+        return new Response(null, { status: 204 });
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1/keys/k1", {
+        method: "DELETE",
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({});
+      expect(upstreamUrl).toContain("/v1/endpoints/dep-1/keys/k1");
+    });
+
+    it("listing without project state returns an empty wrapper without calling getCredentials", async () => {
+      // Regression for the P2 review: previously this path failed when
+      // the credentials file was missing AND autoAnonymous was false,
+      // because withDeploymentClient's `getCredentials()` ran *before*
+      // the no-scope short-circuit and threw. The list view should be
+      // a local no-op on a fresh workspace.
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("should not call upstream when no scope");
+      }) as typeof fetch;
+      const app = build(); // build() pins autoAnonymous: false
+      const res = await app.request("/api/deployments", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ deployments: [] });
+      expect(calls).toBe(0);
+    });
+
+    it("opaque 500 envelope when the credentials read fails (no stack-trace leak)", async () => {
+      // autoAnonymous: false + no credentials + project state present →
+      // getCredentials() throws inside withDeploymentClient. The CodeQL
+      // alert flagged returning err.message verbatim; verify we surface
+      // a generic envelope here.
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toBe("Studio backend unavailable");
+    });
   });
 });

@@ -52,27 +52,78 @@ export const createJobResponseSchema = z.object({ job: trainingJobSchema });
  * field addition (e.g. a new retention mode, a `customDomain` value, etc.)
  * doesn't break installed SDK versions that haven't been re-published.
  *
- * Field-level shape is matched at the TS-type layer (see
- * `core/deployments.ts`); the runtime parse here only validates the wrapper
- * envelope so the SDK can throw a clear error when control-plane returns an
- * unexpected response (e.g. a stray HTML 502 page from a CDN in front).
+ * Required fields here mirror every field declared as required in the
+ * exported `DeploymentDto` / `DeploymentKeyDto` / `CreateDeploymentKeyResult`
+ * TS interfaces (see `core/deployments.ts`). Without that parity an
+ * upstream that drops a field would `decode()` cleanly while the SDK then
+ * hands callers an object that violates its declared type contract.
+ *
+ * Inner shapes (`target`, retention enums) are kept structurally loose
+ * because the inner-discriminator validation is done at the cloud-api
+ * boundary; we just want to assert presence + primitive type here.
  */
+const deploymentTargetSchema = z.union([
+  z.looseObject({
+    kind: z.literal("adapter"),
+    adapter: z.looseObject({
+      kind: z.enum(["final", "checkpoint"]),
+      jobId: z.string(),
+    }),
+  }),
+  z.looseObject({
+    kind: z.literal("base_model"),
+    baseModel: z.string(),
+  }),
+]);
+
 const deploymentSchema = z.looseObject({
   id: z.string(),
   slug: z.string(),
   orgId: z.string(),
   projectId: z.string(),
+  target: deploymentTargetSchema,
+  authMode: z.enum(["none", "fixed_api_key"]),
+  urlFormat: z.literal("openai_compat"),
+  enabled: z.boolean(),
+  customDomain: z.string().nullable(),
+  // Retention fields are optional in the shared schema (see
+  // packages/shared/src/schemas/deployments.ts) — treat them as such.
+  runRetentionMode: z.enum(["unlimited", "disabled", "days"]).optional(),
+  runRetentionDays: z.number().optional(),
+  // Cloud API serializes timestamps as ISO strings; we accept Date too
+  // for parity with `trainingJobSchema`'s tolerant transform.
+  createdAt: z
+    .union([z.string(), z.date()])
+    .transform((v) => String(v)),
+  updatedAt: z
+    .union([z.string(), z.date()])
+    .transform((v) => String(v)),
 });
+
 const deploymentKeySchema = z.looseObject({
   id: z.string(),
   label: z.string(),
   prefix: z.string(),
+  enabled: z.boolean(),
+  createdAt: z
+    .union([z.string(), z.date()])
+    .transform((v) => String(v)),
+  // `lastUsedAt` is updated best-effort by the edge service; null until
+  // the first authenticated request lands on the key.
+  lastUsedAt: z
+    .union([z.string(), z.date()])
+    .nullish()
+    .transform((v) => (v ? String(v) : null)),
 });
+
 const createKeyEnvelopeSchema = z.looseObject({
   id: z.string(),
   label: z.string(),
   plaintext: z.string(),
   prefix: z.string(),
+  createdAt: z
+    .union([z.string(), z.date()])
+    .transform((v) => String(v)),
 });
 
 export const getDeploymentResponseSchema = z.object({

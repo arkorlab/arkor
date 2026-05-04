@@ -11,9 +11,9 @@ description: "CloudApiClient を使って *.arkor.app の推論 URL をプログ
 
 ## SDK を使う場面
 
-- **CI / IaC** — 他のインフラと一緒に deployment をプロビジョニング。学習済み job の `final` アダプタが、1 ステップのスクリプトで「保存済みチェックポイント」から「ライブ URL」になります。
-- **独自ダッシュボード** — 自前の管理 UI に deployment 管理を組み込む。
-- **一括操作** — インシデント後に多数の deployment のキーをまとめて revoke + 再発行する、など。
+- **CI / IaC**: 他のインフラと一緒に deployment をプロビジョニング。学習済み job の `final` アダプタが、1 ステップのスクリプトで「保存済みチェックポイント」から「ライブ URL」になります。
+- **独自ダッシュボード**: 自前の管理 UI に deployment 管理を組み込む。
+- **一括操作**: インシデント後に多数の deployment のキーをまとめて revoke + 再発行する、など。
 
 日常の対話的な操作には Studio や今後の `arkor endpoints` CLI が向いています。SDK はそれらが乗っている下層レイヤーです。
 
@@ -32,7 +32,7 @@ const client = new CloudApiClient({
 });
 ```
 
-`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります — Auth0 由来のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。
+`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります。Auth0 由来のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。
 
 deployment はすべて `(orgSlug, projectSlug)` スコープに属するので、毎回そのスコープを渡します:
 
@@ -64,11 +64,11 @@ type DeploymentTarget =
   | { kind: "base_model"; baseModel: string };
 ```
 
-`authMode` は `"fixed_api_key"`（クライアントが `Authorization: Bearer …` または `x-api-key` を送る）または `"none"`（URL がオープン — 公開デモやモデル限定で使用）です。
+`authMode` は `"fixed_api_key"`（クライアントが `Authorization: Bearer …` または `x-api-key` を送る）または `"none"`（URL がオープン。公開デモやモデル限定で使用）です。
 
 `runRetentionMode` と `runRetentionDays` は省略可。省略時はサーバーのデフォルト（`days` / 7 日）を使います。`"unlimited"` で無期限保持、`"disabled"` で永続化スキップ。
 
-slug は `[a-z0-9][a-z0-9-]*[a-z0-9]`（2–50 文字）に一致する必要があります。予約ラベル（`www`、`api`、`admin` など）はサーバーが 400 で拒否します。
+slug は `[a-z0-9][a-z0-9-]*[a-z0-9]`（2-50 文字）に一致する必要があります。予約ラベル（`www`、`api`、`admin` など）はサーバーが 400 で拒否します。
 
 ## API キーを発行する
 
@@ -91,7 +91,7 @@ curl https://support-bot.arkor.app/v1/chat/completions \
   -d '{"model":"ignored","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-リクエスト body の `model` フィールドは無視されます — deployment 側でターゲットが固定されているためです。OpenAI SDK は `baseURL` を `https://<slug>.arkor.app/v1` に向けるだけで動きます。
+リクエスト body の `model` フィールドは無視されます。deployment 側でターゲットが固定されているためです。OpenAI SDK は `baseURL` を `https://<slug>.arkor.app/v1` に向けるだけで動きます。
 
 ## 取得・一覧・更新・削除
 
@@ -102,7 +102,7 @@ const { deployments } = await client.listDeployments(scope);
 // 単一取得
 const { deployment } = await client.getDeployment(id, scope);
 
-// URL を変えずにターゲットだけ差し替える — クライアント側は無修正で動く
+// URL を変えずにターゲットだけ差し替える。クライアント側は無修正で動く
 await client.updateDeployment(id, scope, {
   target: { kind: "adapter", adapter: { kind: "final", jobId: newJobId } },
 });
@@ -114,7 +114,7 @@ await client.updateDeployment(id, scope, { enabled: false });
 await client.deleteDeployment(id, scope);
 ```
 
-`updateDeployment` は部分更新です — 渡さなかったフィールドはそのまま。URL 自体は `slug` で決まり**変更不可**。slug を変えたい場合は新規作成してください。
+`updateDeployment` は部分更新です。渡さなかったフィールドはそのまま残ります。URL 自体は `slug` で決まり**変更不可**。slug を変えたい場合は新規作成してください。
 
 ## キーの管理
 
@@ -140,7 +140,7 @@ try {
   await client.createDeployment(scope, { slug: "taken", /* … */ });
 } catch (err) {
   if (err instanceof CloudApiError && err.status === 409) {
-    console.error("Slug already taken — pick another");
+    console.error("Slug already taken; pick another");
   } else {
     throw err;
   }
