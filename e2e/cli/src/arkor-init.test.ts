@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
 import { ARKOR_BIN } from "./bins";
 import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
@@ -219,27 +219,41 @@ describe("arkor init (E2E)", () => {
   // CI yaml's `PM_LABEL` mapping and create-arkor.test.ts stay in sync
   // with one source of truth (Copilot review on PR #99).
   //
-  // Per-case the test stages a pre-packed `arkor-*.tgz` under
-  // `cwd/vendor/` and points the scaffold spec at the relative path
-  // — see the top-of-file beforeAll for why pnpm 10 can't parse an
-  // absolute Windows `file:` URI directly. Lockfile-by-flag drives
-  // the post-install assertion that verifies git init runs *after*
-  // install (so the bootstrap commit is reproducible).
+  // Per-case the test points the scaffold spec at a relative
+  // `file:` path resolving to `arkorTarball` (which lives in the
+  // sibling `arkorPackDir` set up in beforeAll). Two reasons for
+  // sibling-relative instead of an in-project `cwd/vendor/<tgz>`
+  // copy:
   //
-  // bun is intentionally absent: bun on Windows + a `file:./vendor/
-  // <tgz>` dep (within-project tarball) skips lockfile generation
-  // (observed in CI — same bun version on the same runner DOES
-  // produce `bun.lock` for create-arkor's `file:../<tgz>` shape).
-  // The install-ran-before-git invariant is still exercised
-  // transitively: every other lane asserts the lockfile, and
-  // bun's `node_modules`-was-created assertion above already
-  // confirms install completed before git init in this lane.
-  const LOCKFILE_BY_FLAG: Partial<
-    Record<"npm" | "pnpm" | "yarn" | "bun", string>
-  > = {
+  //   1. pnpm 10 can't parse absolute Windows-drive `file:` URIs
+  //      (`file:D:\...`), so the path has to be relative. (See
+  //      the top-of-file beforeAll for the full rationale.)
+  //   2. Pre-seeding ANYTHING under `cwd` BEFORE `arkor init` runs
+  //      flips scaffold's round-15 `isExistingProject` predicate
+  //      to true, which then activates the round-14 / round-20
+  //      "existing project" yarn-config policy: scaffold declines
+  //      to write `.yarnrc.yml`, yarn-berry falls back to its
+  //      Plug'n'Play default at install time, and the resulting
+  //      tree has no `node_modules` (CI-observed: yarn-berry on
+  //      Windows ran in PnP mode and the test's
+  //      `existsSync(node_modules)` assertion failed). A sibling
+  //      tarball leaves cwd empty when scaffold runs, so the
+  //      fresh-project path fires and `.yarnrc.yml` lands.
+  //
+  // Sibling-relative also incidentally fixes the bun lockfile
+  // gap that round 22 worked around: bun on Windows generates
+  // `bun.lock` reliably for out-of-project `file:` deps (the
+  // create-arkor lane proves this), so we can keep bun in the
+  // assertion table.
+  //
+  // Lockfile-by-flag drives the post-install assertion that
+  // verifies git init runs *after* install (so the bootstrap
+  // commit is reproducible).
+  const LOCKFILE_BY_FLAG: Record<"npm" | "pnpm" | "yarn" | "bun", string> = {
     npm: "package-lock.json",
     pnpm: "pnpm-lock.yaml",
     yarn: "yarn.lock",
+    bun: "bun.lock",
   };
   for (const { label, flag } of INSTALL_CASES) {
     it.skipIf(shouldSkipInstallCase(label))(
@@ -248,15 +262,17 @@ describe("arkor init (E2E)", () => {
         if (!arkorTarball) {
           throw new Error("arkor tarball wasn't packed in beforeAll");
         }
-        const tarballName = basename(arkorTarball);
-        mkdirSync(join(cwd, "vendor"), { recursive: true });
-        copyFileSync(arkorTarball, join(cwd, "vendor", tarballName));
+        // Relative path from cwd → sibling arkorTarball; force
+        // forward slashes so the `file:` URL parses uniformly on
+        // Windows (Node's `path.relative` returns native
+        // separators).
+        const fileSpec = `file:${relative(cwd, arkorTarball).replace(/\\/g, "/")}`;
 
         const result = await runCli(
           ARKOR_BIN,
           ["init", "-y", `--use-${flag}`, "--git"],
           cwd,
-          { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:./vendor/${tarballName}` },
+          { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: fileSpec },
         );
         // arkor init swallows `<pm> install` failures into a one-line
         // warning so the user can retry manually — that means a broken
@@ -294,13 +310,9 @@ describe("arkor init (E2E)", () => {
         // is surfaced *before* install so the user can walk away, but
         // git init execution still happens *after* install — otherwise
         // the lockfile wouldn't be tracked and the bootstrap commit
-        // wouldn't be reproducible. Skipped for the bun lane — see
-        // LOCKFILE_BY_FLAG comment for why.
-        const expectedLockfile = LOCKFILE_BY_FLAG[flag];
-        if (expectedLockfile !== undefined) {
-          const tracked = await runGit(cwd, ["ls-tree", "-r", "--name-only", "HEAD"]);
-          expect(tracked.stdout).toContain(expectedLockfile);
-        }
+        // wouldn't be reproducible.
+        const tracked = await runGit(cwd, ["ls-tree", "-r", "--name-only", "HEAD"]);
+        expect(tracked.stdout).toContain(LOCKFILE_BY_FLAG[flag]);
       },
       180_000,
     );
