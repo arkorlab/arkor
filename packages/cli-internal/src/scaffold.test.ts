@@ -279,20 +279,20 @@ describe("scaffold", () => {
     expect(result.blockInstall).toBe(true);
   });
 
-  // Round 29 (Copilot, PR #99) — final settle on the round-20
-  // / 27 ping-pong: the gate is back, broadened to include
-  // `.yarn/` directory existence as a positive yarn-berry
-  // signal alongside `.yarnrc.yml` on disk and corepack
-  // `packageManager: "yarn@2+"`. yarn 1 users with an existing
-  // project AND none of those signals are NOT in regression
-  // anymore (round 27's "always fire" had blocked their install
-  // unnecessarily). yarn 4 users with at least one signal still
-  // get the caveat. The remaining gap — yarn 4 with NONE of
-  // those signals — is the rare bootstrap case where the user
-  // is setting up yarn 4 from scratch alongside arkor scaffolding;
-  // documented as a known limitation in scaffold.ts's gate
-  // comment.
-  it("does NOT fire the caveat in --use-yarn + existing-project + no yarn-berry signal (yarn 1 friendliness)", async () => {
+  // Round 32 (Copilot, PR #99) — final fail-closed semantics:
+  // when `--use-yarn` is passed, none of the on-disk signals
+  // are present, AND `detectYarnMajor()` returns `undefined`
+  // (yarn not on PATH / exec error / 5s timeout), assume the
+  // worst (yarn 4) instead of the best (yarn 1). The user
+  // explicitly committed to yarn, so a transient detection
+  // hiccup shouldn't silently let install land on PnP. yarn 1
+  // users get a manual-install flow they can re-run with
+  // `--skip-install` + their own `yarn install`.
+  //
+  // The default mock for `detectYarnMajor` returns `undefined`,
+  // so this test exercises the fail-closed path without an
+  // explicit override.
+  it("FAILS CLOSED in --use-yarn + existing-project + no signal + detection-undefined (round-32 protection)", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
@@ -306,9 +306,11 @@ describe("scaffold", () => {
     // Round-14 policy: no `.yarnrc.yml` written.
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
     expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
-    // No caveat / blockInstall — yarn 1 users sail through.
-    expect(result.warnings).toEqual([]);
-    expect(result.blockInstall).toBe(false);
+    // Caveat IS surfaced — fail-closed: detection couldn't
+    // confirm yarn 1, treat as yarn 2+ for safety.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
   });
 
   // Round 29 cont'd: `.yarn/` directory existence is a positive
@@ -386,16 +388,15 @@ describe("scaffold", () => {
     expect(result.blockInstall).toBe(false);
   });
 
-  it("does NOT fire the caveat when detection fails (yarn not on PATH / exec error)", async () => {
+  it("FAILS CLOSED when detection fails (yarn not on PATH / exec error → caveat fires)", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
     );
-    // Default mock value (undefined) — no override needed; covers
-    // the "yarn binary not available, can't tell" case. Safe
-    // default: assume yarn 1 (no caveat). Note this is also the
-    // path that makes the bare `does NOT fire (yarn 1 friendliness)`
-    // test above deterministic on dev machines without yarn.
+    // Round 32 (Copilot, PR #99): detection failure no longer
+    // assumes yarn 1. The user explicitly passed `--use-yarn`,
+    // so a transient detection hiccup shouldn't let install
+    // land on PnP. Treat undefined as yarn 2+ (caveat fires).
     vi.mocked(detectYarnMajor).mockResolvedValueOnce(undefined);
     const result = await scaffold({
       cwd,
@@ -403,8 +404,9 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "yarn",
     });
-    expect(result.warnings).toEqual([]);
-    expect(result.blockInstall).toBe(false);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
+    expect(result.blockInstall).toBe(true);
   });
 
   // Round 14 #1 cont'd: same policy when the existing
@@ -477,8 +479,14 @@ describe("scaffold", () => {
   it("treats a non-empty directory without package.json as existing-project (no yarnrc + no yarn-cache gitignore lines under --use-yarn)", async () => {
     // Pre-seed a single non-package.json file. Mirrors the
     // "existing git repo with just a README" scenario from the
-    // round-15 review.
+    // round-15 review. The point of this test is round-15's
+    // existing-project policy (no yarnrc, no `.yarn/` gitignore
+    // lines), not the round-32 fail-closed gate — so simulate
+    // a successful yarn 1 detection so the caveat path stays
+    // dormant and we can assert on the file-side semantics
+    // cleanly.
     writeFileSync(join(cwd, "README.md"), "# my project\n");
+    vi.mocked(detectYarnMajor).mockResolvedValueOnce(1);
     const result = await scaffold({
       cwd,
       name: "n",
@@ -493,13 +501,9 @@ describe("scaffold", () => {
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
-    // No caveat — round 29 (Copilot, PR #99) settled on the
-    // positive-signal gate (yarnrc / `.yarn/` / corepack
-    // declaration). README-only fixture has none of those, so
-    // `--use-yarn` here is treated as plausibly yarn 1 (which
-    // installs fine without `.yarnrc.yml`). The yarn 1 regression
-    // round-27 introduced is fixed; the remaining gap (yarn 4
-    // with NO signal at all) is documented in scaffold.ts.
+    // No caveat — yarn 1 detected, no yarn-berry signal, so the
+    // gate stays open. (Round 32's fail-closed only fires when
+    // detection returns undefined.)
     expect(result.warnings).toEqual([]);
     expect(result.blockInstall).toBe(false);
     // .gitignore does NOT get yarn-cache lines either — Yarn

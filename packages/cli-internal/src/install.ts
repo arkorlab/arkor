@@ -73,8 +73,22 @@ export async function install(
   //
   // yarn 1 / npm / pnpm / bun all ignore the variable, so the
   // gate is a no-op outside yarn-berry.
-  if (packageManager === "yarn" && !hasEnclosingYarnLock(cwd)) {
-    env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
+  //
+  // Round 32 (Copilot, PR #99): when there IS an enclosing
+  // `yarn.lock` we MUST clear any inherited
+  // `YARN_ENABLE_IMMUTABLE_INSTALLS=false` from the parent
+  // shell. Without the explicit delete, a CI that exports the
+  // var globally (or a developer who set it for some other
+  // workflow) would leak it through `{ ...process.env, ... }`
+  // and bypass the very immutability check the lockfile-present
+  // branch is supposed to preserve. Keep the override only on
+  // the fresh-scaffold branch where bypassing is intentional.
+  if (packageManager === "yarn") {
+    if (hasEnclosingYarnLock(cwd)) {
+      delete env.YARN_ENABLE_IMMUTABLE_INSTALLS;
+    } else {
+      env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
+    }
   }
   return new Promise((resolve, reject) => {
     const child = spawn(packageManager, ["install"], {

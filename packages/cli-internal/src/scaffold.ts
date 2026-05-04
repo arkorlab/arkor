@@ -734,8 +734,24 @@ export async function scaffold(
           ),
         );
       if (!positiveBerrySignal) {
+        // Round 30 (Copilot, PR #99): runtime detection closes
+        // the yarn-4-fresh-bootstrap gap.
+        //
+        // Round 32 (Copilot, PR #99): when detection itself
+        // fails (yarn not on PATH at scaffold time, exec error,
+        // 5s timeout), the previous code fell through to "no
+        // caveat" — assuming yarn 1. But the user explicitly
+        // passed `--use-yarn`, so they're committing to yarn,
+        // and yarn 1 sailing through requires yarn to actually
+        // BE on PATH at install time. Failing closed (treat
+        // detection failure as a positive berry signal and fire
+        // the caveat) is the safer default: yarn 4 users with
+        // a transient detection hiccup still get protected; the
+        // worst-case for yarn 1 users is a manual-install flow
+        // they can short-circuit with `--skip-install` and their
+        // own `yarn install`.
         const yarnMajor = await detectYarnMajor(cwd);
-        if (yarnMajor !== undefined && yarnMajor >= 2) {
+        if (yarnMajor === undefined || yarnMajor >= 2) {
           positiveBerrySignal = true;
         }
       }

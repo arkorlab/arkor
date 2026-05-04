@@ -146,6 +146,44 @@ describe("install", () => {
     },
   );
 
+  // Round 32 (Copilot, PR #99): the lockfile-present branch
+  // must explicitly clear `YARN_ENABLE_IMMUTABLE_INSTALLS` so a
+  // parent shell that already exported `=false` (CI workflows
+  // that set it globally, or a developer who set it for some
+  // other workflow) doesn't leak through `{ ...process.env, ...}`
+  // and bypass the very immutability check the lockfile-present
+  // branch is supposed to preserve.
+  onPosix(
+    "explicitly clears a leaked YARN_ENABLE_IMMUTABLE_INSTALLS=false from the parent shell when yarn.lock exists",
+    async () => {
+      // Pre-existing lockfile in cwd.
+      writeFileSync(join(cwd, "yarn.lock"), "# pre-existing\n");
+      // Simulate a parent shell that exported the override
+      // globally — install() would otherwise inherit this
+      // through the wholesale `process.env` spread.
+      const ORIG = process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
+      process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
+      try {
+        const marker = join(cwd, "marker.log");
+        makeFakePm("yarn", 0, marker);
+
+        await install("yarn", cwd);
+
+        const log = (await import("node:fs")).readFileSync(marker, "utf8");
+        // The variable is explicitly deleted in the lockfile-
+        // present branch, so `printenv` writes the empty
+        // string — yarn 4 sees no override and falls back to
+        // its CI=1 default of `enableImmutableInstalls=true`,
+        // which is exactly what protects the committed
+        // lockfile.
+        expect(log).not.toContain("\nfalse\n");
+      } finally {
+        if (ORIG === undefined) delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
+        else process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = ORIG;
+      }
+    },
+  );
+
   onPosix(
     "does NOT forward YARN_ENABLE_IMMUTABLE_INSTALLS for non-yarn package managers",
     async () => {
