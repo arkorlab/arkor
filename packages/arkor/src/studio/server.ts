@@ -463,12 +463,23 @@ export function buildStudioApp(options: StudioServerOptions) {
         }
       }
     } catch (err) {
-      // Stack-trace / message contents on local-side failures (credentials
-      // file read, anonymous-token bootstrap, project bootstrap) can leak
-      // filesystem paths and internal endpoint hostnames. Log full detail
-      // for the operator and return an opaque envelope to the SPA. The
-      // 500 surface is already enough for the SPA to render a generic
-      // "Studio could not contact its backend" hint.
+      // CloudApiError from `ensureProjectState()` (the only cloud call in
+      // setup) carries the upstream `{error}` body verbatim and is
+      // already user-facing copy ("Slug already taken", auth issues,
+      // etc.). Forward it with the original status so the SPA can show
+      // an actionable message instead of a generic "Studio backend
+      // unavailable" envelope. This mirrors the handler-side catch
+      // below.
+      if (err instanceof CloudApiError) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: err.status,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      // Local-side failures (credentials file read, anonymous-token
+      // bootstrap, FS error) can leak filesystem paths and internal
+      // endpoint hostnames in `err.message` / stack. Log full detail
+      // for the operator and return an opaque 500 to the SPA.
       console.error("[studio] withDeploymentClient setup failed:", err);
       return new Response(
         JSON.stringify({ error: "Studio backend unavailable" }),

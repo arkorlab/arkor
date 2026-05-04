@@ -62,19 +62,39 @@ export function EndpointsList() {
   const [deployments, setDeployments] = useState<Deployment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  // Track the currently-active in-flight `fetchDeployments` so a slower
+  // earlier load (e.g. the initial mount fetch) can't land after a
+  // user-triggered reload (post-create) and overwrite the fresh list
+  // with a stale snapshot. Each `load()` aborts the previous one.
+  const loadControllerRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
     try {
-      const { deployments } = await fetchDeployments();
+      const { deployments } = await fetchDeployments({
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       setDeployments(deployments);
       setError(null);
     } catch (err) {
+      if (controller.signal.aborted) return;
+      // AbortError is expected when the next load() supersedes us.
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(asMessage(err));
     }
   }, []);
 
   useEffect(() => {
     void load();
+    // The controller created by load() is closed when this effect tears
+    // down (component unmount or `load` identity change), aborting any
+    // still-in-flight fetch so it can't setState on an unmounted view.
+    return () => {
+      loadControllerRef.current?.abort();
+    };
   }, [load]);
 
   return (
@@ -384,6 +404,19 @@ export function EndpointDetail({ id }: { id: string }) {
   // tag no longer matches the current `id` prop.
   const activeIdRef = useRef(id);
 
+  // Per-resource superseded flags. The initial mount fires
+  // `fetchDeployment` and `fetchDeploymentKeys` in parallel. If the user
+  // mutates either resource (toggle / delete / issue / revoke) before the
+  // matching initial fetch resolves, the late-landing initial response
+  // would otherwise overwrite the optimistic mutation result and leave
+  // the UI showing the pre-mutation snapshot. Mutation handlers flip the
+  // matching flag before calling setState; the initial-fetch `.then`s
+  // bail when the flag is set. The flags are scoped per-resource so a
+  // deployment mutation doesn't drop the in-flight keys load and vice
+  // versa.
+  const initialDeploymentSupersededRef = useRef(false);
+  const initialKeysSupersededRef = useRef(false);
+
   useEffect(() => {
     // The `id` prop changed (or this is the first mount). Reset visible
     // state immediately so the previous endpoint's slug / keys / revealed
@@ -391,6 +424,8 @@ export function EndpointDetail({ id }: { id: string }) {
     // Without this, a fast Delete / Enable / Revoke click can mutate the
     // *new* deployment while the UI still shows the *old* one.
     activeIdRef.current = id;
+    initialDeploymentSupersededRef.current = false;
+    initialKeysSupersededRef.current = false;
     setDeployment(null);
     setKeys(null);
     setError(null);
@@ -415,21 +450,23 @@ export function EndpointDetail({ id }: { id: string }) {
     // inline error in its own card.
     void fetchDeployment(id, { signal: controller.signal })
       .then(({ deployment }) => {
-        if (!stillActive()) return;
+        if (!stillActive() || initialDeploymentSupersededRef.current) return;
         setDeployment(deployment);
       })
       .catch((err: unknown) => {
-        if (!stillActive() || isAbort(err)) return;
+        if (!stillActive() || initialDeploymentSupersededRef.current) return;
+        if (isAbort(err)) return;
         setError(asMessage(err));
       });
 
     void fetchDeploymentKeys(id, { signal: controller.signal })
       .then(({ keys }) => {
-        if (!stillActive()) return;
+        if (!stillActive() || initialKeysSupersededRef.current) return;
         setKeys(keys);
       })
       .catch((err: unknown) => {
-        if (!stillActive() || isAbort(err)) return;
+        if (!stillActive() || initialKeysSupersededRef.current) return;
+        if (isAbort(err)) return;
         setKeysError(asMessage(err));
       });
 
@@ -483,7 +520,13 @@ export function EndpointDetail({ id }: { id: string }) {
       const { deployment: updated } = await updateDeployment(myId, {
         enabled: !deployment.enabled,
       });
-      if (activeIdRef.current === myId) setDeployment(updated);
+      if (activeIdRef.current === myId) {
+        // Mark the in-flight initial deployment fetch as superseded so
+        // a slow initial response can't land after this mutation and
+        // overwrite our fresh value with the pre-toggle snapshot.
+        initialDeploymentSupersededRef.current = true;
+        setDeployment(updated);
+      }
     });
   }
 
@@ -493,7 +536,10 @@ export function EndpointDetail({ id }: { id: string }) {
       const { deployment: updated } = await updateDeployment(myId, {
         authMode: mode,
       });
-      if (activeIdRef.current === myId) setDeployment(updated);
+      if (activeIdRef.current === myId) {
+        initialDeploymentSupersededRef.current = true;
+        setDeployment(updated);
+      }
     });
   }
 
@@ -548,6 +594,9 @@ export function EndpointDetail({ id }: { id: string }) {
       if (activeIdRef.current !== myId) return;
       setRevealed(key);
       setNewKeyLabel("");
+      // Drop any in-flight initial keys fetch so it can't land later
+      // and overwrite the just-issued / refreshed list.
+      initialKeysSupersededRef.current = true;
       if (keys === null) {
         // Initial load failed; optimistically appending to `[]` would
         // hide every pre-existing key. Re-fetch the canonical list.
@@ -574,6 +623,10 @@ export function EndpointDetail({ id }: { id: string }) {
     await withBusy(async () => {
       await revokeDeploymentKey(myId, keyId);
       if (activeIdRef.current !== myId) return;
+      // Same supersede guard as create: a slow initial /keys fetch
+      // landing after this revoke would otherwise re-show the key as
+      // enabled until the next reload.
+      initialKeysSupersededRef.current = true;
       if (keys === null) {
         // Same hazard as above: marking just this key as disabled would
         // imply an empty rest-of-the-list. Re-fetch instead.

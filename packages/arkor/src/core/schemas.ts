@@ -114,21 +114,37 @@ const deploymentSchema = z.looseObject({
     .transform((v) => String(v)),
 });
 
-const deploymentKeySchema = z.looseObject({
-  id: z.string(),
-  label: z.string(),
-  prefix: z.string(),
-  enabled: z.boolean(),
-  createdAt: z
-    .union([z.string(), z.date()])
-    .transform((v) => String(v)),
-  // `lastUsedAt` is updated best-effort by the edge service; null until
-  // the first authenticated request lands on the key.
-  lastUsedAt: z
-    .union([z.string(), z.date()])
-    .nullish()
-    .transform((v) => (v ? String(v) : null)),
-});
+const deploymentKeySchema = z
+  .looseObject({
+    id: z.string(),
+    label: z.string(),
+    prefix: z.string(),
+    enabled: z.boolean(),
+    createdAt: z
+      .union([z.string(), z.date()])
+      .transform((v) => String(v)),
+    // `lastUsedAt` is updated best-effort by the edge service; null until
+    // the first authenticated request lands on the key.
+    lastUsedAt: z
+      .union([z.string(), z.date()])
+      .nullish()
+      .transform((v) => (v ? String(v) : null)),
+  })
+  // List-keys responses are documented as the no-plaintext shape
+  // (plaintext is only ever returned from the create-key envelope, exactly
+  // once on issue). `looseObject` would otherwise pass an unexpected
+  // `plaintext` field straight through if the control plane regressed,
+  // and the SDK type contract (`DeploymentKeyDto` has no `plaintext`)
+  // would silently leak the secret to callers. Strip it defensively.
+  .transform((entry) => {
+    if ("plaintext" in entry) {
+      // Mutate the parsed object instead of spreading: `looseObject` keeps
+      // the `passthrough` proxy around unknown keys, and a spread would
+      // both copy the field through and lose the type narrowing.
+      delete (entry as { plaintext?: unknown }).plaintext;
+    }
+    return entry;
+  });
 
 const createKeyEnvelopeSchema = z.looseObject({
   id: z.string(),

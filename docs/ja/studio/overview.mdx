@@ -11,14 +11,16 @@ Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するロー
 
 ヘッダーには現在の identity が `<mode> · <org>[ / <project>][ · <baseUrl-host>]` の形で表示されます。`mode` は `anonymous` か `auth0`。クラウド API ホスト suffix は CLI が本番エンドポイントを指しているときは隠され、それ以外で表示されます。
 
-4 ページ、アプリ内ナビで切り替えます:
+4 ページ、アプリ内ナビ（Overview / Jobs / Playground / Endpoints）で切り替えます:
 
 | ルート | ページ | やること |
 | --- | --- | --- |
-| `#/` | [Home](/ja/studio/jobs) | 学習をトリガーしてジョブ一覧を眺める。 |
-| `#/jobs/:id` | [Job 詳細](/ja/studio/jobs#job-詳細) | 1 つのジョブのライブステータス、Loss チャート、イベントログ。 |
+| `#/` | [Overview](/ja/studio/jobs) | プロジェクトのランディング。ここから学習をトリガーする。 |
+| `#/jobs` | [Jobs](/ja/studio/jobs) | 自動更新されるジョブ一覧。 |
 | `#/playground` | [Playground](/ja/studio/playground) | 完了アダプタやベースモデルとチャット。 |
 | `#/endpoints` | [Endpoints](/ja/studio/endpoints) | アダプタ／ベースモデルを `*.arkor.app` URL として公開し API キーを管理。 |
+
+Jobs ページは `#/jobs/:id` でジョブ単位の詳細（ライブステータス、Loss チャート、イベントログ）も開けます。ナビタブではなく Jobs のサブルートとして提供しています。
 
 ## アーキテクチャ
 

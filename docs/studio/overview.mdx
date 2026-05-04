@@ -11,14 +11,16 @@ Open it at `http://localhost:4000` (configurable with `arkor dev --port`).
 
 The header shows the current identity in the form `<mode> · <org>[ / <project>][ · <baseUrl-host>]`, where `mode` is `anonymous` or `auth0`. The cloud-api host suffix is hidden when the CLI is pointing at the production endpoint and shown otherwise.
 
-Four pages, switched via the in-app nav:
+Four pages, switched via the in-app nav (Overview, Jobs, Playground, Endpoints):
 
 | Route | Page | What you do here |
 | --- | --- | --- |
-| `#/` | [Home](/studio/jobs) | Trigger a training run and watch the jobs list. |
-| `#/jobs/:id` | [Job detail](/studio/jobs#job-detail) | Live status, loss chart, and event log for one run. |
+| `#/` | [Overview](/studio/jobs) | Project landing. Trigger a training run from here. |
+| `#/jobs` | [Jobs](/studio/jobs) | Auto-refreshing list of every training run. |
 | `#/playground` | [Playground](/studio/playground) | Chat with a completed adapter or the base model. |
 | `#/endpoints` | [Endpoints](/studio/endpoints) | Publish a `*.arkor.app` URL for an adapter or base model and manage its API keys. |
+
+The Jobs page also opens a per-run detail at `#/jobs/:id` (live status, loss chart, event log). It's a sub-route of Jobs, not its own nav tab.
 
 ## Architecture
 
