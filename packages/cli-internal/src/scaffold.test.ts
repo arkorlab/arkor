@@ -226,10 +226,21 @@ describe("scaffold", () => {
   // `nodeLinker: node-modules` would flip the install mode for
   // the entire repo. Surface the same yarn-berry caveat the
   // inspect path uses, but from the explicit-yarn arm.
-  it("does NOT create .yarnrc.yml in --use-yarn + existing-project + no-yarnrc — surfaces caveat instead", async () => {
+  //
+  // Round 20 (Copilot, PR #99): the caveat-fire condition is
+  // gated on positive yarn-berry signal — `.yarnrc.yml` on disk
+  // OR a corepack-style `packageManager: "yarn@2+"` declaration.
+  // Without one of those, `--use-yarn` could mean yarn 1.x,
+  // which doesn't read `.yarnrc.yml` and would install fine.
+  // The fixture below declares yarn@4 to satisfy the gate.
+  it("does NOT create .yarnrc.yml in --use-yarn + existing-project + no-yarnrc + yarn-berry signal — surfaces caveat instead", async () => {
     writeFileSync(
       join(cwd, "package.json"),
-      JSON.stringify({ name: "existing", private: true }, null, 2),
+      JSON.stringify(
+        { name: "existing", private: true, packageManager: "yarn@4.6.0" },
+        null,
+        2,
+      ),
     );
     const result = await scaffold({
       cwd,
@@ -246,10 +257,38 @@ describe("scaffold", () => {
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
-    // But the caveat IS surfaced.
+    // The caveat IS surfaced (positive yarn-berry signal gates it).
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
     expect(result.warnings[0]).toContain("nodeLinker: node-modules");
+    expect(result.blockInstall).toBe(true);
+  });
+
+  // Round 20 (Copilot, PR #99) — counterpart for the yarn-1
+  // false-fire regression: same scaffold inputs as above MINUS
+  // the `packageManager` declaration → no positive yarn-berry
+  // signal → no caveat, no install block. yarn 1.x users
+  // running `--use-yarn` against an existing project should sail
+  // through (yarn 1 reads `.yarnrc` not `.yarnrc.yml`, so the
+  // "fix yarn-berry config" advisory is not actionable for them).
+  it("does NOT fire the caveat in --use-yarn + existing-project + no yarn-berry signal", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ name: "existing", private: true }, null, 2),
+    );
+    const result = await scaffold({
+      cwd,
+      name: "n",
+      template: "triage",
+      packageManager: "yarn",
+    });
+    // Still don't write `.yarnrc.yml` — round-14 policy stands.
+    expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
+    expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
+    // But ALSO no caveat / blockInstall — yarn 1 users would
+    // install fine here.
+    expect(result.warnings).toEqual([]);
+    expect(result.blockInstall).toBe(false);
   });
 
   // Round 14 #1 cont'd: same policy when the existing
@@ -338,10 +377,13 @@ describe("scaffold", () => {
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
-    // Caveat surfaces (same flow as round-14 — the user explicitly
-    // picked yarn, so they need the pointer to set things up).
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
+    // No caveat — round 20 (Copilot, PR #99) gates the caveat on
+    // positive yarn-berry signal (`.yarnrc.yml` on disk OR a
+    // corepack declaration naming yarn 2+). Neither is present
+    // in this README-only fixture, so we DON'T fire — the user
+    // could be on yarn 1.x, and yarn 1 would install fine here.
+    expect(result.warnings).toEqual([]);
+    expect(result.blockInstall).toBe(false);
     // .gitignore does NOT get yarn-cache lines either — Yarn
     // zero-install setups commit `.yarn/cache/` and silently
     // ignoring those archives is the round-14 #2 hazard.

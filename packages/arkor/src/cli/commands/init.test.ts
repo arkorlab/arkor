@@ -502,6 +502,39 @@ describe("runInit", () => {
     expect(infoMessages).toMatch(/Skipping install/);
   });
 
+  // Round 19 (Copilot, PR #99): when blockInstall is true we
+  // skipped install above; running git init at this point would
+  // commit a tree without `node_modules`/lockfile, breaking the
+  // "lockfile lands in the initial commit" invariant. Skip git
+  // too — the user re-runs `arkor init` after fixing the advisory
+  // and the next run produces a single bootstrap commit with the
+  // lockfile included.
+  it("skips git init when scaffold returns blockInstall=true (preserves lockfile-in-initial-commit invariant)", async () => {
+    vi.mocked(scaffold).mockResolvedValueOnce({
+      cwd,
+      files: [{ action: "created", path: "package.json" }],
+      warnings: ["Existing .yarnrc.yml pins `nodeLinker: pnp`. ..."],
+      blockInstall: true,
+    });
+    const clack = await import("@clack/prompts");
+    await runInit({
+      yes: true,
+      packageManager: "yarn",
+      git: true, // explicit --git → would normally trigger runGitInit
+    });
+    expect(vi.mocked(install)).not.toHaveBeenCalled();
+    // The git init step is also skipped — the lockfile-in-initial-
+    // commit invariant requires install to land first.
+    expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
+    // The user is told why git was skipped and how to recover.
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(infoMessages).toMatch(/Skipping git init/);
+    expect(infoMessages).toMatch(/re-run `arkor init`/);
+  });
+
   // Counterpart: regression guard so the gate doesn't accidentally
   // start tripping on the no-warning path.
   it("runs install when scaffold returns blockInstall=false (no advisory)", async () => {

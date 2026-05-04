@@ -196,7 +196,22 @@ export async function runInit(options: InitOptions): Promise<void> {
     }
   }
 
-  if (shouldInitGit) await runGitInit(cwd);
+  // Round 19 (Copilot, PR #99): when blockInstall is true we
+  // skipped the install above, so a `git init` here would commit a
+  // tree without `node_modules` / lockfile and break the
+  // "lockfile lands in the initial commit" invariant the prompt
+  // ordering exists to preserve. Skip the git step too and tell
+  // the user to re-run `arkor init` after fixing the advisory —
+  // the next run will install successfully and produce a single
+  // bootstrap commit that captures the lockfile. (Same reasoning
+  // mirrored in create-arkor's bin.ts.)
+  if (shouldInitGit && !blockInstall) {
+    await runGitInit(cwd);
+  } else if (shouldInitGit && blockInstall) {
+    ui.log.info(
+      "Skipping git init too — re-run `arkor init` after fixing the advisory so the lockfile lands in the initial commit.",
+    );
+  }
 
   const devCmd =
     pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
