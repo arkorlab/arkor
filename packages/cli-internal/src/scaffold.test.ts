@@ -134,7 +134,7 @@ describe("scaffold", () => {
     expect(scripts.dev).toBe("arkor dev");
     expect(scripts.start).toBe("arkor start");
     const devDeps = patched.devDependencies as Record<string, string>;
-    expect(devDeps.arkor).toBe("^0.0.1-alpha.7");
+    expect(devDeps.arkor).toBe("^0.0.1-alpha.8");
 
     const pkgEntry = files.find((f) => f.path === "package.json");
     expect(pkgEntry?.action).toBe("patched");
@@ -1070,7 +1070,7 @@ describe("scaffold", () => {
     // The value is opaque to scaffold — only that it's faithfully
     // round-tripped into package.json matters, so use a relative
     // `file:` spec that is platform-neutral (no Unix-only `/tmp`).
-    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.7.tgz";
+    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.8.tgz";
     process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = overrideSpec;
     const { files } = await scaffold({
       cwd,
@@ -1105,7 +1105,7 @@ describe("scaffold", () => {
         readFileSync(join(cwd, "package.json"), "utf8"),
       ) as Record<string, unknown>;
       const devDeps = pkg.devDependencies as Record<string, string>;
-      expect(devDeps.arkor).toBe("^0.0.1-alpha.7");
+      expect(devDeps.arkor).toBe("^0.0.1-alpha.8");
     },
   );
 
@@ -1114,7 +1114,7 @@ describe("scaffold", () => {
     // and the patch path that runs when `package.json` already exists
     // but has no `devDependencies.arkor`. Cover the patch path too so
     // the override doesn't silently regress to the default there.
-    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.7.tgz";
+    const overrideSpec = "file:./vendor/arkor-0.0.1-alpha.8.tgz";
     process.env.ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC = overrideSpec;
     writeFileSync(
       join(cwd, "package.json"),
