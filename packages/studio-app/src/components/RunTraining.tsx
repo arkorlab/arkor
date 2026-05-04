@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   fetchManifest,
+  isHmrEnabled,
   openDevEvents,
   streamTraining,
   type DevEvent,
@@ -99,12 +100,16 @@ export function RunTraining() {
   // `restartTargets`; defer the auto re-invocation until the current
   // `streamTraining` resolves so we don't run two cloud jobs at once.
   //
-  // Gated by `import.meta.env.DEV`: `/api/dev/events` returns 404 when
-  // the server runs in production mode, and `EventSource` would then
-  // retry indefinitely creating constant background traffic. The dev
-  // build is the only place this endpoint exists.
+  // Gated by `isHmrEnabled()` (server-injected `<meta>` flag) rather
+  // than `import.meta.env.DEV`: the SPA is shipped via `vite build`
+  // and served by `arkor dev` as static assets, so DEV is `false` in
+  // every real session. The server-side flag is `true` exactly when
+  // `arkor dev` wired in an HMR coordinator — i.e. when
+  // `/api/dev/events` actually exists. Without this flag the
+  // EventSource would either be dead in real dev sessions (DEV gate)
+  // or retry forever against a 404 (no gate).
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!isHmrEnabled()) return;
     const es = openDevEvents();
     const onMessage = (raw: MessageEvent) => {
       let payload: DevEvent;
@@ -204,6 +209,14 @@ export function RunTraining() {
         ac.signal,
         (pid) => {
           currentPidRef.current = pid;
+          // Clear the "Restarting with updated code…" status as soon
+          // as the new run starts spawning. Without this the label
+          // stays pinned for the entire restarted run because
+          // `setHmrStatus("restarting")` is set in the *prior* run's
+          // `finally` and nothing else clears it. We only knock out
+          // "restarting" specifically — "early-stopping" / "hot-
+          // swapped" should land via their own state transitions.
+          setHmrStatus((s) => (s === "restarting" ? "idle" : s));
         },
       );
     } catch (err) {

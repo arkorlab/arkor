@@ -5,6 +5,7 @@ import {
   fetchJobs,
   fetchManifest,
   fetchMe,
+  isHmrEnabled,
   streamInferenceContent,
   streamTraining,
 } from "./api";
@@ -539,5 +540,77 @@ describe("streamInferenceContent abort", () => {
       }
     })();
     await expect(consume).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("isHmrEnabled", () => {
+  // Regression: a previous version of `RunTraining` gated its
+  // EventSource subscription on `import.meta.env.DEV`, which is
+  // baked to `false` by `vite build` and therefore *always* false
+  // in a real `arkor dev` session (the SPA is shipped as static
+  // assets). The new server-side `<meta name="arkor-hmr-enabled">`
+  // tag is what tells the SPA whether HMR is actually wired in;
+  // these tests pin the contract.
+  //
+  // The package's vitest config doesn't load jsdom (the rest of the
+  // suite runs in Node), so we stub the minimal `document` API
+  // `isHmrEnabled` uses — `querySelector('meta[name=...]')` —
+  // directly on `globalThis`. The reader's contract is just "look
+  // up a meta tag and return its content === 'true'", which a tiny
+  // hand-rolled stub covers without dragging the whole DOM in.
+  function withMetaContent(value: string | null, fn: () => void) {
+    const fakeDocument = {
+      querySelector: (selector: string) => {
+        if (selector !== 'meta[name="arkor-hmr-enabled"]') return null;
+        if (value === null) return null;
+        return { getAttribute: () => value };
+      },
+    };
+    const had = "document" in globalThis;
+    const previous = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = fakeDocument;
+    try {
+      fn();
+    } finally {
+      if (had) (globalThis as { document?: unknown }).document = previous;
+      else delete (globalThis as { document?: unknown }).document;
+    }
+  }
+
+  it("returns true when the server-injected meta says HMR is on", () => {
+    withMetaContent("true", () => {
+      expect(isHmrEnabled()).toBe(true);
+    });
+  });
+
+  it("returns false when the meta tag is missing entirely", () => {
+    // No injection → SPA must NOT open `/api/dev/events` (which
+    // would 404 and EventSource-retry forever in a non-HMR build).
+    withMetaContent(null, () => {
+      expect(isHmrEnabled()).toBe(false);
+    });
+  });
+
+  it("returns false for any meta content other than the literal `true`", () => {
+    // Defensive: don't fail open on a malformed/legacy server that
+    // injects an empty value or a placeholder.
+    withMetaContent("", () => expect(isHmrEnabled()).toBe(false));
+    withMetaContent("false", () => expect(isHmrEnabled()).toBe(false));
+    withMetaContent("yes", () => expect(isHmrEnabled()).toBe(false));
+  });
+
+  it("returns false when there is no document at all (Node SSR / module-load probe)", () => {
+    // The reader is called during component render; in any non-DOM
+    // host (test fixtures that import the module without jsdom, a
+    // hypothetical SSR pre-render) it must return false rather than
+    // throwing on `document` being undefined.
+    const had = "document" in globalThis;
+    const previous = (globalThis as { document?: unknown }).document;
+    delete (globalThis as { document?: unknown }).document;
+    try {
+      expect(isHmrEnabled()).toBe(false);
+    } finally {
+      if (had) (globalThis as { document?: unknown }).document = previous;
+    }
   });
 });

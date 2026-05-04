@@ -114,10 +114,12 @@ export function attachTrainerCallbackReplacer(
 
 /**
  * Replace the trainer's lifecycle callbacks atomically. The brand is
- * unconditionally attached by `createTrainer` in this same SDK package,
- * so this can assume the brand is present — there's no documented
- * public path that produces a brand-less trainer, and the helper itself
- * is never called on user-controlled values.
+ * attached by `createTrainer`, but `runTrainer`'s `extractTrainer`
+ * also accepts hand-rolled trainers (any `{ start, wait, cancel }`
+ * shape) — those don't carry the brand. The HMR pipeline never
+ * routes SIGUSR2 to such trainers in practice (they always produce
+ * `configHash: null` upstream, which forces the SIGTERM-restart
+ * path), so this helper is a no-op for them rather than throwing.
  */
 export function replaceTrainerCallbacks(
   trainer: Trainer,
@@ -125,7 +127,8 @@ export function replaceTrainerCallbacks(
 ): void {
   const fn = (trainer as unknown as Record<symbol, unknown>)[
     TRAINER_REPLACE_CALLBACKS_KEY
-  ] as (cbs: Partial<TrainerCallbacks>) => void;
+  ] as ((cbs: Partial<TrainerCallbacks>) => void) | undefined;
+  if (typeof fn !== "function") return;
   fn.call(trainer, callbacks);
 }
 
@@ -154,18 +157,43 @@ export function attachTrainerEarlyStopper(
  * Resolves once `cancel()` has been accepted by the cloud API, or
  * after `timeoutMs` if no checkpoint arrived in time.
  *
- * The brand is unconditionally attached by `createTrainer` and the
- * runner only ever calls this on a discovered SDK trainer — there's no
- * branch for "brand missing".
+ * `createTrainer` attaches the brand unconditionally, but
+ * `runTrainer`'s `extractTrainer` also accepts hand-rolled trainers
+ * — any `{ start, wait, cancel }` shape — which legitimately don't
+ * carry the brand. Falling back to the public `Trainer.cancel()` for
+ * those is the closest semantic match available without the SDK's
+ * checkpoint-aware machinery; it's also what the runner's SIGTERM
+ * handler needs to keep working (the previous "throw if brand
+ * missing" behaviour caused a synchronous TypeError before the
+ * handler's `.catch().finally()` chain attached, so SIGTERM crashed
+ * the runner instead of stopping the run).
  */
-export function requestTrainerEarlyStop(
+// async wrapper (rather than a bare function returning Promise) so
+// any *synchronous* throw inside the brand call (or its arguments)
+// becomes a rejected promise — the SIGTERM handler's `.catch()` then
+// catches it instead of the throw escaping past the `.finally()`
+// chain and taking the runner down.
+export async function requestTrainerEarlyStop(
   trainer: Trainer,
   opts?: RequestEarlyStopOptions,
 ): Promise<void> {
   const fn = (trainer as unknown as Record<symbol, unknown>)[
     TRAINER_REQUEST_EARLY_STOP_KEY
-  ] as (opts?: RequestEarlyStopOptions) => Promise<void>;
-  return fn.call(trainer, opts);
+  ] as ((opts?: RequestEarlyStopOptions) => Promise<void>) | undefined;
+  if (typeof fn !== "function") {
+    // Best-effort fallback for unbranded trainers: trainer.cancel()
+    // is part of the public Trainer interface, so it's always safe
+    // to call. Catch/swallow because the documented contract for
+    // cancel() is "best-effort" and the SIGTERM handler needs the
+    // returned promise to settle either way.
+    try {
+      await trainer.cancel();
+    } catch {
+      // intentionally ignored — see comment above.
+    }
+    return;
+  }
+  await fn.call(trainer, opts);
 }
 
 /**

@@ -56,6 +56,23 @@ function readStudioToken(): string {
 const STUDIO_TOKEN = readStudioToken();
 
 /**
+ * Whether `arkor dev` wired in an HMR coordinator at server boot.
+ * The studio server emits `<meta name="arkor-hmr-enabled" content="true">`
+ * into `index.html` only when `options.hmr` is set, so we can tell
+ * dev-mode usage from prod-mode usage at runtime — `vite build`'s
+ * output ships with `import.meta.env.DEV === false`, so a build-time
+ * gate inside the SPA bundle would (wrongly) suppress HMR even in
+ * real `arkor dev` sessions. `RunTraining` consults this flag before
+ * opening `/api/dev/events`; without it, the EventSource would retry
+ * forever against the 404 the server returns for non-HMR builds.
+ */
+export function isHmrEnabled(): boolean {
+  if (typeof document === "undefined") return false;
+  const meta = document.querySelector('meta[name="arkor-hmr-enabled"]');
+  return meta?.getAttribute("content") === "true";
+}
+
+/**
  * `fetch` with the per-launch CSRF token attached. The token is read once at
  * module load from the `<meta>` tag the Studio server injects into
  * `index.html`; cross-origin tabs cannot read it (same-origin policy on the

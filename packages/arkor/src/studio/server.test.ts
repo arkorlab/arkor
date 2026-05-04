@@ -134,6 +134,45 @@ describe("Studio server", () => {
     expect(html.indexOf("arkor-studio-token")).toBeLessThan(
       html.indexOf("</head>"),
     );
+    // HMR meta tag must NOT appear when no coordinator was supplied.
+    // The SPA reads this flag to decide whether to open
+    // `/api/dev/events`; a stray "true" here would make every prod
+    // session retry against the 404 indefinitely.
+    expect(html).not.toContain("arkor-hmr-enabled");
+  });
+
+  it("injects <meta name=\"arkor-hmr-enabled\"> when an HMR coordinator is supplied", async () => {
+    // Regression: the SPA can't tell dev-mode usage from prod-mode
+    // usage at runtime — `vite build` ships with
+    // `import.meta.env.DEV === false`, so a build-time DEV gate inside
+    // the SPA bundle would (wrongly) suppress HMR even in real
+    // `arkor dev` sessions. The server-side flag is `true` exactly
+    // when `arkor dev` wired in an HMR coordinator. Verify it lands
+    // in `<head>` next to the studio-token tag.
+    const fakeHmr = {
+      subscribe: () => () => undefined,
+      getCurrentConfigHash: () => null,
+      async dispose() {},
+    };
+    const app = buildStudioApp({
+      baseUrl: "http://mock",
+      assetsDir,
+      autoAnonymous: false,
+      studioToken: STUDIO_TOKEN,
+      cwd: trainCwd,
+      hmr: fakeHmr,
+    });
+    const res = await app.request("/", {
+      headers: { host: "127.0.0.1:4000" },
+    });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(
+      `<meta name="arkor-hmr-enabled" content="true">`,
+    );
+    expect(html.indexOf("arkor-hmr-enabled")).toBeLessThan(
+      html.indexOf("</head>"),
+    );
   });
 
   it("serves non-html assets with the correct content-type", async () => {

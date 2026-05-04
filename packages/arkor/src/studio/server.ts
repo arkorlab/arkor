@@ -99,11 +99,31 @@ function htmlAttrEscape(s: string): string {
   );
 }
 
-function injectStudioToken(html: string, token: string): string {
-  const meta = `<meta name="arkor-studio-token" content="${htmlAttrEscape(token)}">`;
+/**
+ * Inject the per-launch studio token (always) and an optional HMR
+ * feature flag into `<head>`. Both are read by the SPA via
+ * `<meta name="...">` lookups — the token gates `/api/*` requests and
+ * the HMR flag tells `RunTraining` whether to open
+ * `/api/dev/events` (which only exists when `arkor dev` wired in an
+ * HMR coordinator). Without the server-side flag the SPA can't tell
+ * dev-mode usage from prod-mode usage at runtime: `vite build`'s
+ * output ships with `import.meta.env.DEV === false`, so any DEV gate
+ * baked into the bundle would suppress HMR even in real `arkor dev`
+ * sessions.
+ */
+function injectStudioMeta(
+  html: string,
+  token: string,
+  hmrEnabled: boolean,
+): string {
+  const tokenTag = `<meta name="arkor-studio-token" content="${htmlAttrEscape(token)}">`;
+  const hmrTag = hmrEnabled
+    ? `<meta name="arkor-hmr-enabled" content="true">`
+    : "";
+  const tags = `${tokenTag}${hmrTag}`;
   const idx = html.indexOf("</head>");
-  if (idx === -1) return `${meta}${html}`;
-  return `${html.slice(0, idx)}${meta}${html.slice(idx)}`;
+  if (idx === -1) return `${tags}${html}`;
+  return `${html.slice(0, idx)}${tags}${html.slice(idx)}`;
 }
 
 export function buildStudioApp(options: StudioServerOptions) {
@@ -559,7 +579,11 @@ export function buildStudioApp(options: StudioServerOptions) {
       const file = await readFile(join(assetsDir, cleaned));
       const ext = cleaned.slice(cleaned.lastIndexOf(".") + 1);
       if (ext === "html") {
-        const html = injectStudioToken(file.toString("utf8"), studioToken);
+        const html = injectStudioMeta(
+          file.toString("utf8"),
+          studioToken,
+          Boolean(options.hmr),
+        );
         return new Response(html, {
           status: 200,
           headers: { "content-type": CONTENT_TYPES.html! },

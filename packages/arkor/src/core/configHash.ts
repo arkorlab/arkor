@@ -2,22 +2,53 @@ import { createHash } from "node:crypto";
 import type { JobConfig } from "./types";
 
 /**
+ * Type-narrowing helper for "this value cannot be represented in JSON".
+ * Mirrors the cases JSON.stringify silently drops (when in object
+ * positions) or coerces to `null` (when in array positions): `undefined`,
+ * functions, and symbols.
+ */
+function isNonJsonRepresentable(v: unknown): boolean {
+  return v === undefined || typeof v === "function" || typeof v === "symbol";
+}
+
+/**
  * Deterministic JSON serialiser: keys sorted at every nesting level so
  * `{a:1, b:2}` and `{b:2, a:1}` produce the same string. Necessary because
  * `JSON.stringify` follows insertion order, which isn't stable across
  * `buildJobConfig` revisions or user-side spread-merge tricks.
+ *
+ * Mirrors the JSON wire-format exactly for non-representable values
+ * (`undefined`, functions, symbols): omitted in object positions,
+ * serialised as `null` in array positions. The previous implementation
+ * delegated to `JSON.stringify` which returns the literal value
+ * `undefined` (not a string) for those — concatenated into the output
+ * via template literals it became the substring `"undefined"`, which
+ * is not valid JSON and would silently change the hash if a
+ * `JobConfig` field ever held one of those values (notably the
+ * `unknown`-typed forwarder fields).
  */
 function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (value === null) return "null";
+  // Top-level non-representable: align with `JSON.stringify(undefined)`
+  // semantics by collapsing to "null" so the hash input stays valid
+  // JSON-shaped text rather than the literal substring "undefined".
+  if (isNonJsonRepresentable(value)) return "null";
+  if (typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
+    // Array slots: non-representable → "null" (matches JSON spec).
+    const items = value.map((v) =>
+      isNonJsonRepresentable(v) ? "null" : stableStringify(v),
+    );
+    return `[${items.join(",")}]`;
   }
-  const keys = Object.keys(value as Record<string, unknown>).sort();
+  // Object slots: drop non-representable values entirely (matches
+  // `JSON.stringify({a: undefined}) === "{}"`).
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj)
+    .filter((k) => !isNonJsonRepresentable(obj[k]))
+    .sort();
   const parts = keys.map(
-    (k) =>
-      `${JSON.stringify(k)}:${stableStringify(
-        (value as Record<string, unknown>)[k],
-      )}`,
+    (k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`,
   );
   return `{${parts.join(",")}}`;
 }
