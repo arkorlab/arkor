@@ -432,36 +432,37 @@ export function buildStudioApp(options: StudioServerOptions) {
       scope: { orgSlug: string; projectSlug: string };
     }) => Promise<T>,
   ): Promise<Response> {
+    // Read scope from local FS first. `readScopeFromState` does not touch
+    // credentials or the network, so on a fresh workspace we can answer
+    // read-only routes with a clean 404 *without* tripping `getCredentials()`
+    // — the latter throws when no token is on disk and `autoAnonymous` is
+    // off, which would otherwise turn a documented "no deployments yet"
+    // into an opaque 500.
+    const scope0 = await readScopeFromState().catch(() => null);
+    if (!scope0 && intent === "read") {
+      return new Response(
+        JSON.stringify({
+          error:
+            "No project state — this workspace has no deployments yet. Create one from the Endpoints page first.",
+        }),
+        { status: 404, headers: { "content-type": "application/json" } },
+      );
+    }
+
     let credentials: Credentials;
     let client: CloudApiClient;
-    let scope: { orgSlug: string; projectSlug: string } | null;
+    let scope: { orgSlug: string; projectSlug: string } | null = scope0;
     try {
-      // Read state first. `readState` only does a local FS read and can't
-      // fail in a way that exposes auth state, so it stays before
-      // `getCredentials()` to keep the read paths cheap.
-      scope = await readScopeFromState();
       credentials = await getCredentials();
       client = new CloudApiClient({ baseUrl, credentials });
       if (!scope) {
-        if (intent === "read") {
-          // Read-only routes must not provision remote state as a
-          // side effect — bookmarked detail / keys lookups should
-          // resolve to a clean 404, not create a remote project that
-          // sits around empty.
-          return new Response(
-            JSON.stringify({
-              error:
-                "No project state — this workspace has no deployments yet. Create one from the Endpoints page first.",
-            }),
-            { status: 404, headers: { "content-type": "application/json" } },
-          );
-        }
-        // intent === "write": anonymous credentials carry an `orgSlug`
-        // and we can derive a `projectSlug` from the cwd basename, so we
-        // bootstrap on demand. This mirrors `/api/inference/chat` and
-        // `arkor train`, which both call `ensureProjectState()` before
-        // issuing their first cloud call so a user can get something
-        // done from a fresh `arkor dev` without first running training.
+        // intent === "write" (the read-without-scope branch returned above):
+        // anonymous credentials carry an `orgSlug` and we can derive a
+        // `projectSlug` from the cwd basename, so we bootstrap on demand.
+        // This mirrors `/api/inference/chat` and `arkor train`, which both
+        // call `ensureProjectState()` before issuing their first cloud call
+        // so a user can get something done from a fresh `arkor dev` without
+        // first running training.
         if (credentials.mode === "anon") {
           const state = await ensureProjectState({
             cwd: trainCwd,
@@ -473,14 +474,15 @@ export function buildStudioApp(options: StudioServerOptions) {
             projectSlug: state.projectSlug,
           };
         } else {
-          // Auth0 callers cannot bootstrap automatically (we don't know
-          // which org / project a logged-in user wants the deployment in).
-          // Point them at `arkor init`, which is what
-          // `ensureProjectState()` would tell them anyway.
+          // Auth0 callers cannot bootstrap automatically — we don't know
+          // which org / project the logged-in user wants the deployment in,
+          // and neither `arkor login` nor `arkor init` populates
+          // `.arkor/state.json` today (see docs/concepts/project-structure).
+          // The only working path is to write the file by hand.
           return new Response(
             JSON.stringify({
               error:
-                "No project state. Run `arkor init` to scaffold the project, or create .arkor/state.json with { orgSlug, projectSlug, projectId }.",
+                "No .arkor/state.json found. Create it by hand with { orgSlug, projectSlug, projectId } pointing at the project you want to manage.",
             }),
             { status: 400, headers: { "content-type": "application/json" } },
           );

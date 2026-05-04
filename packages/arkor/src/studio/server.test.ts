@@ -1683,6 +1683,41 @@ process.exit(0);
       expect(calls).toBe(0);
     });
 
+    it("GET /api/deployments/:id on a fresh workspace returns 404 without calling getCredentials", async () => {
+      // Regression: the read-path short-circuit must run *before*
+      // `getCredentials()`. Otherwise on a fresh workspace where
+      // `~/.arkor/credentials.json` is absent and `autoAnonymous=false`,
+      // a bookmarked detail-page hit would surface a 500 ("Studio backend
+      // unavailable") instead of the documented "no deployments yet" 404.
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("should not call upstream when no scope");
+      }) as typeof fetch;
+      const app = build(); // build() pins autoAnonymous: false
+      const res = await app.request("/api/deployments/dep-1", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain("No project state");
+      expect(calls).toBe(0);
+    });
+
+    it("GET /api/deployments/:id/keys on a fresh workspace returns 404 without calling getCredentials", async () => {
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("should not call upstream when no scope");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1/keys", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(404);
+      expect(calls).toBe(0);
+    });
+
     it("opaque 500 envelope when the credentials read fails (no stack-trace leak)", async () => {
       // autoAnonymous: false + no credentials + project state present →
       // getCredentials() throws inside withDeploymentClient. The CodeQL
