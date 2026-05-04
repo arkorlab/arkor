@@ -160,5 +160,5 @@ npm run start    # runs the build artifact on the cloud
 - \`arkor.config.ts\` — training defaults. Project routing lives in
   \`.arkor/state.json\`, managed by the CLI.
 
-Requires Node.js >= 22.6.
+Requires Node.js >= 22.22.0.
 `;

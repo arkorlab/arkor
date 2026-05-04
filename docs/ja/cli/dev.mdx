@@ -5,9 +5,25 @@ description: "Arkor Studio をローカル起動する。"
 
 # `arkor dev`
 
-```bash
-pnpm exec arkor dev
+<CodeGroup>
+
+```bash pnpm
+pnpm dev
 ```
+
+```bash npm
+npm run dev
+```
+
+```bash yarn
+yarn dev
+```
+
+```bash bun
+bun dev
+```
+
+</CodeGroup>
 
 [Studio](/ja/concepts/studio)（ローカル Web UI）を `http://localhost:4000` で起動します。Studio は **Run training** をクリックして `src/arkor/index.ts` に対し `arkor start` をスポーンし、進捗をストリームで眺め、出来上がったアダプタと Playground でチャットする場所です。
 
@@ -69,12 +85,44 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 
 デフォルトポート。
 
-```bash
-pnpm exec arkor dev
+<CodeGroup>
+
+```bash pnpm
+pnpm dev
 ```
+
+```bash npm
+npm run dev
+```
+
+```bash yarn
+yarn dev
+```
+
+```bash bun
+bun dev
+```
+
+</CodeGroup>
 
 ポート指定と自動オープン。
 
-```bash
-pnpm exec arkor dev --port 5000 --open
+<CodeGroup>
+
+```bash pnpm
+pnpm dev --port 5000 --open
 ```
+
+```bash npm
+npm run dev -- --port 5000 --open
+```
+
+```bash yarn
+yarn dev --port 5000 --open
+```
+
+```bash bun
+bun dev --port 5000 --open
+```
+
+</CodeGroup>

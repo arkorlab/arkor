@@ -17,10 +17,14 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@fontsource-variable/geist": "^5.1.0",
+    "@fontsource-variable/geist-mono": "^5.1.0",
+    "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "@vitest/coverage-v8": "^4.1.5",
+    "tailwindcss": "^4.0.0",
     "typescript": "^5",
     "vite": "^6.0.0",
     "vitest": "^4.1.5"

@@ -9,9 +9,29 @@ description: "Arkor のマネージドバックエンドにサインインまた
 
 ## `arkor login`
 
-```bash
-pnpm exec arkor login
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor login
 ```
+
+```bash npm
+npm arkor login
+```
+
+```bash yarn
+yarn arkor login
+```
+
+```bash yarn-berry
+yarn run arkor login
+```
+
+```bash bun
+bun arkor login
+```
+
+</CodeGroup>
 
 マネージドバックエンドにサインインします。フラグなしの場合、CLI は Arkor Cloud の OAuth と匿名セッションのどちらを使うかを対話的に尋ねます。対話セレクタの初期選択は **Anonymous** なので、デフォルトを受け入れる（あるいは非 TTY にパイプする）と匿名パスに進みます。OAuth が走るのは明示的に選択するか `--oauth` を渡したときだけです。
 
@@ -49,9 +69,29 @@ arkor login [options]
 
 ## `arkor logout`
 
-```bash
-pnpm exec arkor logout
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor logout
 ```
+
+```bash npm
+npm arkor logout
+```
+
+```bash yarn
+yarn arkor logout
+```
+
+```bash yarn-berry
+yarn run arkor logout
+```
+
+```bash bun
+bun arkor logout
+```
+
+</CodeGroup>
 
 `~/.arkor/credentials.json` を削除します。デフォルトでは確認プロンプトが出ます。
 
@@ -75,9 +115,29 @@ arkor logout [options]
 
 ## `arkor whoami`
 
-```bash
-pnpm exec arkor whoami
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor whoami
 ```
+
+```bash npm
+npm arkor whoami
+```
+
+```bash yarn
+yarn arkor whoami
+```
+
+```bash yarn-berry
+yarn run arkor whoami
+```
+
+```bash bun
+bun arkor whoami
+```
+
+</CodeGroup>
 
 クラウド API の `/v1/me` から現在の identity を表示し、到達できる org slug も並べます。
 

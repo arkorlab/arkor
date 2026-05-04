@@ -11,9 +11,25 @@ Studio's **Run training** internally spawns `arkor start` (without an entry argu
 
 ## `arkor build`
 
-```bash
-pnpm exec arkor build
+<CodeGroup>
+
+```bash pnpm
+pnpm build
 ```
+
+```bash npm
+npm run build
+```
+
+```bash yarn
+yarn build
+```
+
+```bash bun
+bun run build
+```
+
+</CodeGroup>
 
 Bundles `src/arkor/index.ts` into `.arkor/build/index.mjs` using esbuild.
 
@@ -31,15 +47,31 @@ arkor build [entry]
 
 ### Output
 
-`.arkor/build/index.mjs` (`outDir` defaults to `.arkor/build`). The output is a single ESM file targeting Node 22.6, with `packages: "external"` so bare specifiers (`arkor`, anything from `node_modules`) stay external and the artifact resolves the runtime SDK from your installed `node_modules`. Only relative imports are bundled inline.
+`.arkor/build/index.mjs` (`outDir` defaults to `.arkor/build`). The output is a single ESM file targeting Node 22.22, with `packages: "external"` so bare specifiers (`arkor`, anything from `node_modules`) stay external and the artifact resolves the runtime SDK from your installed `node_modules`. Only relative imports are bundled inline.
 
 If the entry does not exist, `arkor build` throws with a hint to either create `src/arkor/index.ts` or pass an explicit entry.
 
 ## `arkor start`
 
-```bash
-pnpm exec arkor start
+<CodeGroup>
+
+```bash pnpm
+pnpm start
 ```
+
+```bash npm
+npm start
+```
+
+```bash yarn
+yarn start
+```
+
+```bash bun
+bun start
+```
+
+</CodeGroup>
 
 Runs `.arkor/build/index.mjs`. The runner imports the bundle, finds the registered trainer (preferring `export const arkor`, then `export const trainer`, then the default export), and calls `trainer.start()` followed by `trainer.wait()`.
 
@@ -91,18 +123,75 @@ The "reuse the artifact" path is what lets Studio surface trainer edits via its 
 ## Examples
 
 Build then start, two steps:
-```bash
-pnpm exec arkor build
-pnpm exec arkor start
+
+<CodeGroup>
+
+```bash pnpm
+pnpm build
+pnpm start
 ```
+
+```bash npm
+npm run build
+npm start
+```
+
+```bash yarn
+yarn build
+yarn start
+```
+
+```bash bun
+bun run build
+bun start
+```
+
+</CodeGroup>
 
 One step, force a rebuild from a different entry:
-```bash
-pnpm exec arkor start src/arkor/experiment.ts
+
+<CodeGroup>
+
+```bash pnpm
+pnpm start src/arkor/experiment.ts
 ```
 
-Rebuild stale artifact between trainer edits:
-```bash
-# After editing src/arkor/trainer.ts:
-pnpm exec arkor build && pnpm exec arkor start
+```bash npm
+npm start -- src/arkor/experiment.ts
 ```
+
+```bash yarn
+yarn start src/arkor/experiment.ts
+```
+
+```bash bun
+bun start src/arkor/experiment.ts
+```
+
+</CodeGroup>
+
+Rebuild stale artifact between trainer edits:
+
+<CodeGroup>
+
+```bash pnpm
+# After editing src/arkor/trainer.ts:
+pnpm build && pnpm start
+```
+
+```bash npm
+# After editing src/arkor/trainer.ts:
+npm run build && npm start
+```
+
+```bash yarn
+# After editing src/arkor/trainer.ts:
+yarn build && yarn start
+```
+
+```bash bun
+# After editing src/arkor/trainer.ts:
+bun run build && bun start
+```
+
+</CodeGroup>

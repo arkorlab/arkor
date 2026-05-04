@@ -9,9 +9,29 @@ Three short commands that read or write `~/.arkor/credentials.json`. None of the
 
 ## `arkor login`
 
-```bash
-pnpm exec arkor login
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor login
 ```
+
+```bash npm
+npm arkor login
+```
+
+```bash yarn
+yarn arkor login
+```
+
+```bash yarn-berry
+yarn run arkor login
+```
+
+```bash bun
+bun arkor login
+```
+
+</CodeGroup>
 
 Sign in to the managed backend. With no flags the CLI asks interactively whether to sign in via Arkor Cloud's OAuth or as an anonymous session. The interactive selector defaults to **Anonymous**, so accepting the default (or piping into a non-TTY) lands on the anonymous path; OAuth runs only when you explicitly select it or pass `--oauth`.
 
@@ -49,9 +69,29 @@ Both anonymous paths surface the new `anonymousId` and an explanation that the s
 
 ## `arkor logout`
 
-```bash
-pnpm exec arkor logout
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor logout
 ```
+
+```bash npm
+npm arkor logout
+```
+
+```bash yarn
+yarn arkor logout
+```
+
+```bash yarn-berry
+yarn run arkor logout
+```
+
+```bash bun
+bun arkor logout
+```
+
+</CodeGroup>
 
 Deletes `~/.arkor/credentials.json`. Prompts for confirmation by default.
 
@@ -75,9 +115,29 @@ arkor logout [options]
 
 ## `arkor whoami`
 
-```bash
-pnpm exec arkor whoami
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor whoami
 ```
+
+```bash npm
+npm arkor whoami
+```
+
+```bash yarn
+yarn arkor whoami
+```
+
+```bash yarn-berry
+yarn run arkor whoami
+```
+
+```bash bun
+bun arkor whoami
+```
+
+</CodeGroup>
 
 Prints the current identity from `/v1/me` on the cloud-api, plus the org slugs you can reach.
 

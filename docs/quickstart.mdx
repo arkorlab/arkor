@@ -7,18 +7,37 @@ In a few minutes you will go from zero to a fine-tuned model you can chat with i
 
 ## Prerequisites
 
-- **Node.js 22.6 or newer.** Node 24 is recommended.
-- **pnpm.** Other package managers (npm, yarn, bun) work too; the examples below use pnpm.
+- **Node.js 22.22.0 or newer.** Node 24 is recommended.
+- **A package manager.** pnpm, npm, yarn, and bun all work. Each snippet below ships as a tab group, so pick the one you use and the rest of the page follows.
 - A working internet connection. Training runs on Arkor's managed GPUs.
 
 No account, no credit card, no GPU on your machine.
 
 ## 1. Scaffold a project
 
-```bash
+<CodeGroup>
+
+```bash pnpm
 pnpm create arkor my-arkor-app
 cd my-arkor-app
 ```
+
+```bash npm
+npm create arkor@latest my-arkor-app
+cd my-arkor-app
+```
+
+```bash yarn
+yarn create arkor my-arkor-app
+cd my-arkor-app
+```
+
+```bash bun
+bun create arkor my-arkor-app
+cd my-arkor-app
+```
+
+</CodeGroup>
 
 The scaffolder asks which template you want. Pick the one closest to what you eventually want to build:
 
@@ -32,9 +51,25 @@ Each template pairs the same small open-weight base (`unsloth/gemma-4-E4B-it`) w
 
 To skip the prompt:
 
-```bash
+<CodeGroup>
+
+```bash pnpm
 pnpm create arkor my-arkor-app --template triage
 ```
+
+```bash npm
+npm create arkor@latest my-arkor-app -- --template triage
+```
+
+```bash yarn
+yarn create arkor my-arkor-app --template triage
+```
+
+```bash bun
+bun create arkor my-arkor-app --template triage
+```
+
+</CodeGroup>
 
 ## 2. Look at what was generated
 
@@ -57,9 +92,25 @@ Open `trainer.ts`. The shape is the same across templates; only the dataset, out
 
 ## 3. Open Studio and start a run
 
-```bash
+<CodeGroup>
+
+```bash pnpm
 pnpm dev
 ```
+
+```bash npm
+npm run dev
+```
+
+```bash yarn
+yarn dev
+```
+
+```bash bun
+bun dev
+```
+
+</CodeGroup>
 
 This runs `arkor dev`, which boots Studio at `http://localhost:4000`. Studio is the UI; `arkor dev` itself does not start training and does not watch your trainer files.
 
@@ -71,24 +122,44 @@ Once a run is in flight, three views matter:
 - **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
 - **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Use the mode toggle to switch between the base model and the adapter. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
 
-If you edit `src/arkor/` between runs, refresh the Run training page (or run `pnpm exec arkor build`) before the next click so the new code is what runs.
+If you edit `src/arkor/` between runs, refresh the Run training page (or run `arkor build`) before the next click so the new code is what runs.
 
 ## 4. Tie runs to an account (optional)
 
 Anonymous workspaces are useful for trying things out, but the work is tied to the anonymous token on this local machine and is not visible from another device or another account. To keep training under an account, sign in with OAuth **before** you start the next run:
 
-```bash
-pnpm exec arkor login --oauth
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor login --oauth
 ```
+
+```bash npm
+npm arkor login --oauth
+```
+
+```bash yarn
+yarn arkor login --oauth
+```
+
+```bash yarn-berry
+yarn run arkor login --oauth
+```
+
+```bash bun
+bun arkor login --oauth
+```
+
+</CodeGroup>
 
 This runs the Arkor Cloud OAuth (PKCE) flow on a loopback port and links your local credentials to an account. From then on, runs from this machine show up under that account on any device.
 
-The scaffolded project installs `arkor` as a local devDependency, so use your package manager's local-bin runner (e.g. `pnpm exec arkor <command>`, `npx arkor <command>`, `yarn arkor <command>`, or `bunx arkor <command>`) over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README walks through the equivalent setup for npm, pnpm, yarn, and bun.
+The scaffolded project installs `arkor` as a local devDependency, so use your package manager's local-bin runner over a bare `arkor` invocation unless you have installed the CLI globally. The generated project README walks through the equivalent setup for pnpm, npm, yarn, and bun.
 
-A few caveats. Running `pnpm exec arkor login` without a flag opens an interactive picker that defaults to `Anonymous`; accepting the default mints a brand-new anonymous token (a new `anonymousId`) and overwrites `~/.arkor/credentials.json`, so it lands you in a different workspace from the previous anonymous session, not a refresh of it. Switching to OAuth overwrites the same file and does not migrate prior anonymous workspaces or jobs into the account. Merging anonymous work into an OAuth account once you sign in is on the roadmap; until that lands, sign in before the runs you want associated with the account.
+A few caveats. Running `arkor login` without a flag opens an interactive picker that defaults to `Anonymous`; accepting the default mints a brand-new anonymous token (a new `anonymousId`) and overwrites `~/.arkor/credentials.json`, so it lands you in a different workspace from the previous anonymous session, not a refresh of it. Switching to OAuth overwrites the same file and does not migrate prior anonymous workspaces or jobs into the account. Merging anonymous work into an OAuth account once you sign in is on the roadmap; until that lands, sign in before the runs you want associated with the account.
 
 ## 5. Where to go next
 
 - **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
-- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Refresh the Run training page (or run `pnpm exec arkor build`) before the next click so your edits land.
-- **Try another template.** Run `pnpm create arkor` again with a different `--template` to compare.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Refresh the Run training page (or run `arkor build`) before the next click so your edits land.
+- **Try another template.** Re-run the scaffolder with a different `--template` to compare.

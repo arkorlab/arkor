@@ -89,22 +89,30 @@ describe("gitInitialCommit", () => {
     Object.assign(process.env, ORIG_ENV);
   });
 
-  it("creates a commit with the given message and reports no signing fallback", async () => {
-    writeFileSync(join(cwd, "README.md"), "# hello\n");
-    const result = await gitInitialCommit(cwd, "Initial commit from test");
-    expect(result.signingFallback).toBe(false);
+  it(
+    "creates a commit with the given message and reports no signing fallback",
+    async () => {
+      writeFileSync(join(cwd, "README.md"), "# hello\n");
+      const result = await gitInitialCommit(cwd, "Initial commit from test");
+      expect(result.signingFallback).toBe(false);
 
-    const subject = (
-      await runGit(["log", "-1", "--pretty=%s"], { cwd })
-    ).trim();
-    expect(subject).toBe("Initial commit from test");
+      const subject = (
+        await runGit(["log", "-1", "--pretty=%s"], { cwd })
+      ).trim();
+      expect(subject).toBe("Initial commit from test");
 
-    // The README was staged via `git add -A`.
-    const tracked = (
-      await runGit(["ls-files"], { cwd })
-    ).trim().split("\n");
-    expect(tracked).toContain("README.md");
-  });
+      // The README was staged via `git add -A`.
+      const tracked = (
+        await runGit(["ls-files"], { cwd })
+      ).trim().split("\n");
+      expect(tracked).toContain("README.md");
+    },
+    // Vitest's 5s default is too tight for GitHub Windows runners — git
+    // init+add+commit through three spawn() calls intermittently lands
+    // past 5s under Defender / file-locking pressure, even though sibling
+    // tests in this file pass in <1s. Not a real regression.
+    30_000,
+  );
 
   it("preserves an exotic message containing quotes and newlines", async () => {
     writeFileSync(join(cwd, "f.txt"), "x");

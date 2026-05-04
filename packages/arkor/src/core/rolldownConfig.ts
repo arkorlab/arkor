@@ -41,7 +41,9 @@ export function resolveBuildEntry(opts: BuildEntryOptions): ResolvedBuildEntry {
  * `process.execPath`), so the bundle can target precisely what will execute it.
  */
 export function resolveNodeTarget(): string {
-  const [major = "22", minor = "6"] = process.versions.node.split(".");
+  // Fallback aligns with the published `engines.node` floor — see
+  // [packages/arkor/package.json] / `AGENTS.md`'s "Node version" note.
+  const [major = "22", minor = "22"] = process.versions.node.split(".");
   return `node${major}.${minor}`;
 }
 

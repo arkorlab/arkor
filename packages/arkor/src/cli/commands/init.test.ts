@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Stub @clack/prompts so the interactive-prompt branch in maybeGitInit
+// Stub @clack/prompts so the interactive-prompt branch in decideGitInit
 // can be exercised without opening a real TUI. The default mock implementation
 // returns the prompt's resolved value (configured per-test via mockResolvedValueOnce).
 vi.mock("@clack/prompts", () => ({
@@ -254,7 +254,7 @@ describe("runInit", () => {
   });
 
   it("forwards a non-Error gitInitialCommit rejection through String() coercion", async () => {
-    // Branch coverage for the symmetric String() coercion in maybeGitInit.
+    // Branch coverage for the symmetric String() coercion in runGitInit.
     vi.mocked(gitInitialCommit).mockRejectedValueOnce(
       "git binary missing" as unknown as Error,
     );
@@ -287,6 +287,27 @@ describe("runInit", () => {
       template: "triage",
       packageManager: "pnpm",
     });
+    expect(gitInitialCommit).not.toHaveBeenCalled();
+  });
+
+  it("skips git init when the directory becomes a git repo during install", async () => {
+    // TOCTOU defence: `decideGitInit` runs before the long-running install
+    // step, so the user (or another tool — editor, autosave hook, parallel
+    // shell) can run `git init` themselves while install is going. Without
+    // the post-install re-check, we'd silently add a second commit on top
+    // of their repo. Mock isInGitRepo to return false on the pre-install
+    // call (so decideGitInit picks "yes") and true on the post-install
+    // call (so runGitInit skips).
+    vi.mocked(isInGitRepo)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    expect(isInGitRepo).toHaveBeenCalledTimes(2);
     expect(gitInitialCommit).not.toHaveBeenCalled();
   });
 
@@ -339,7 +360,7 @@ describe("runInit", () => {
 
   it("interactive: runs git init when promptConfirm resolves true", async () => {
     // Branch coverage for the `else if (isInteractive())` arm of
-    // maybeGitInit. Pretend we're in a TTY and arm the clack confirm
+    // decideGitInit. Pretend we're in a TTY and arm the clack confirm
     // mock to return `true`.
     delete process.env.CI;
     Object.defineProperty(process.stdout, "isTTY", {
@@ -376,5 +397,47 @@ describe("runInit", () => {
       skipInstall: true,
     });
     expect(gitInitialCommit).not.toHaveBeenCalled();
+  });
+
+  it("runs install before gitInitialCommit so the lockfile lands in the initial commit", async () => {
+    // Lockfile-in-initial-commit invariant: scaffolding writes package.json
+    // → install generates the lockfile → only then can git's initial commit
+    // include both. If git init ran first, the tree would be dirty and a
+    // re-run would produce a different commit.
+    await runInit({
+      yes: true,
+      name: "x",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const installOrder = vi.mocked(install).mock.invocationCallOrder[0];
+    const commitOrder = vi.mocked(gitInitialCommit).mock.invocationCallOrder[0];
+    expect(installOrder).toBeDefined();
+    expect(commitOrder).toBeDefined();
+    expect(installOrder).toBeLessThan(commitOrder!);
+  });
+
+  it("interactive: prompts for git init before install so the user can walk away", async () => {
+    // The whole point of ENG-625's swap: surface the git-init confirm before
+    // the multi-minute `<pm> install` so the user isn't blocked at an
+    // interactive question after they've already left the terminal.
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.text).mockResolvedValueOnce("interactive-app" as never);
+    vi.mocked(clack.select).mockResolvedValueOnce("triage" as never);
+    vi.mocked(clack.confirm).mockResolvedValueOnce(true as never);
+
+    await runInit({
+      packageManager: "pnpm",
+    });
+    const confirmOrder = vi.mocked(clack.confirm).mock.invocationCallOrder[0];
+    const installOrder = vi.mocked(install).mock.invocationCallOrder[0];
+    expect(confirmOrder).toBeDefined();
+    expect(installOrder).toBeDefined();
+    expect(confirmOrder).toBeLessThan(installOrder!);
   });
 });
