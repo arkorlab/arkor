@@ -23,8 +23,7 @@ For interactive day-to-day use, prefer Studio or the upcoming `arkor endpoints` 
 import { CloudApiClient, ensureCredentials } from "arkor";
 
 // `ensureCredentials` reads the existing `~/.arkor/credentials.json`
-// or bootstraps a fresh anonymous identity against the default cloud
-// API URL if none exists.
+// or bootstraps a fresh anonymous identity if none exists.
 const credentials = await ensureCredentials();
 
 const client = new CloudApiClient({

@@ -23,8 +23,7 @@ description: "CloudApiClient を使って *.arkor.app の推論 URL をプログ
 import { CloudApiClient, ensureCredentials } from "arkor";
 
 // `ensureCredentials` は既存の `~/.arkor/credentials.json` を読み、
-// 無ければ既定のクラウド API URL に対して新規の匿名アイデンティティを
-// ブートストラップして保存します。
+// 無ければ新規の匿名アイデンティティをブートストラップして保存します。
 const credentials = await ensureCredentials();
 
 const client = new CloudApiClient({

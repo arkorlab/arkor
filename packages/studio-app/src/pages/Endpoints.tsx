@@ -365,7 +365,13 @@ function NewEndpointForm({ onCreated }: { onCreated: () => void }) {
 export function EndpointDetail({ id }: { id: string }) {
   const [deployment, setDeployment] = useState<Deployment | null>(null);
   const [keys, setKeys] = useState<DeploymentKey[] | null>(null);
+  // Separate error tracks so a transient `/keys` failure doesn't black
+  // out the URL / settings / delete controls for an endpoint that
+  // actually exists. `error` is the deployment-fetch failure (gates the
+  // whole page); `keysError` is the keys-fetch failure (shown inline in
+  // the API keys card while the rest of the page stays usable).
   const [error, setError] = useState<string | null>(null);
+  const [keysError, setKeysError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [revealed, setRevealed] = useState<CreatedDeploymentKey | null>(null);
   const [newKeyLabel, setNewKeyLabel] = useState("");
@@ -388,29 +394,44 @@ export function EndpointDetail({ id }: { id: string }) {
     setDeployment(null);
     setKeys(null);
     setError(null);
+    setKeysError(null);
     setRevealed(null);
     setNewKeyLabel("");
     setBusy(false);
 
     const controller = new AbortController();
 
-    void (async () => {
-      try {
-        const [{ deployment }, { keys }] = await Promise.all([
-          fetchDeployment(id, { signal: controller.signal }),
-          fetchDeploymentKeys(id, { signal: controller.signal }),
-        ]);
-        if (controller.signal.aborted || activeIdRef.current !== id) return;
+    function isAbort(err: unknown): boolean {
+      return err instanceof DOMException && err.name === "AbortError";
+    }
+    function stillActive(): boolean {
+      return !controller.signal.aborted && activeIdRef.current === id;
+    }
+
+    // Fire both requests in parallel but resolve independently so a
+    // transient `/keys` failure doesn't take the whole detail page
+    // down with it. The deployment row drives the page (URL preview,
+    // settings, delete); the key list is auxiliary and degrades to an
+    // inline error in its own card.
+    void fetchDeployment(id, { signal: controller.signal })
+      .then(({ deployment }) => {
+        if (!stillActive()) return;
         setDeployment(deployment);
-        setKeys(keys);
-        setError(null);
-      } catch (err) {
-        if (controller.signal.aborted || activeIdRef.current !== id) return;
-        // AbortError is expected on navigation away — don't surface it.
-        if (err instanceof DOMException && err.name === "AbortError") return;
+      })
+      .catch((err: unknown) => {
+        if (!stillActive() || isAbort(err)) return;
         setError(asMessage(err));
-      }
-    })();
+      });
+
+    void fetchDeploymentKeys(id, { signal: controller.signal })
+      .then(({ keys }) => {
+        if (!stillActive()) return;
+        setKeys(keys);
+      })
+      .catch((err: unknown) => {
+        if (!stillActive() || isAbort(err)) return;
+        setKeysError(asMessage(err));
+      });
 
     return () => {
       // Effect cleanup runs on every `id` change AND on unmount. Abort
@@ -502,6 +523,10 @@ export function EndpointDetail({ id }: { id: string }) {
       const { key } = await createDeploymentKey(myId, { label });
       if (activeIdRef.current !== myId) return;
       setRevealed(key);
+      // A successful issue effectively invalidates a previous load
+      // failure: we now know at least one key (the new one) so the
+      // list should not stay in the "Failed to load keys" state.
+      setKeysError(null);
       setKeys((prev) => [
         ...(prev ?? []),
         {
@@ -682,7 +707,11 @@ export function EndpointDetail({ id }: { id: string }) {
             </div>
           )}
 
-          {keys === null ? (
+          {keysError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+              Failed to load keys: {keysError}
+            </p>
+          ) : keys === null ? (
             <Skeleton className="h-10 w-full" />
           ) : keys.length === 0 ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">

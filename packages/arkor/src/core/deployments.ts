@@ -76,27 +76,41 @@ export interface DeploymentKeyDto {
   lastUsedAt: string | null;
 }
 
+/**
+ * Run-retention configuration on the wire. `runRetentionDays` is required
+ * when `runRetentionMode` is `"days"` and meaningless otherwise; this
+ * union models that coupling at the type layer so a call site that
+ * passes `{ runRetentionMode: "days" }` without `runRetentionDays` (or
+ * `{ runRetentionDays: 7 }` without a mode) fails at compile time
+ * instead of bouncing back as a runtime 400.
+ *
+ * Omit both fields to use the server defaults (`days` / 7).
+ */
+type RunRetentionFields =
+  | { runRetentionMode?: undefined; runRetentionDays?: undefined }
+  | {
+      runRetentionMode: "unlimited" | "disabled";
+      runRetentionDays?: undefined;
+    }
+  | { runRetentionMode: "days"; runRetentionDays: number };
+
 /** Body for `createDeployment`. */
-export interface CreateDeploymentInput {
+export type CreateDeploymentInput = {
   /**
-   * Subdomain label. 2–50 chars, `[a-z0-9][a-z0-9-]*[a-z0-9]`. Reserved labels
-   * (`www`, `api`, `admin`, …) are rejected by the server.
+   * Subdomain label. 2-50 chars, `[a-z0-9][a-z0-9-]*[a-z0-9]`. Reserved
+   * labels (`www`, `api`, `admin`, etc.) are rejected by the server.
    */
   slug: string;
   target: DeploymentTarget;
   authMode: DeploymentAuthMode;
-  runRetentionMode?: DeploymentRunRetentionMode;
-  runRetentionDays?: number;
-}
+} & RunRetentionFields;
 
 /** Partial update for `updateDeployment`. Any field omitted is left untouched. */
-export interface UpdateDeploymentInput {
+export type UpdateDeploymentInput = {
   target?: DeploymentTarget;
   authMode?: DeploymentAuthMode;
   enabled?: boolean;
-  runRetentionMode?: DeploymentRunRetentionMode;
-  runRetentionDays?: number;
-}
+} & RunRetentionFields;
 
 /** Body for `createDeploymentKey`. */
 export interface CreateDeploymentKeyInput {
