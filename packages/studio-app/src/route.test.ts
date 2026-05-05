@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseRoute } from "./route";
+import { evaluateHashChange, parseRoute } from "./route";
 
 // `parseRoute` reads `window.location.hash` directly, so we stub
 // `window` per-test (vitest runs in a node environment by default —
@@ -166,5 +166,86 @@ describe("parseRoute — endpoints", () => {
     // than crash the SPA bootstrap.
     withHash("#/endpoints/%2");
     expect(parseRoute()).toEqual({ kind: "home" });
+  });
+});
+
+describe("evaluateHashChange", () => {
+  // The pure decision function used inside `useHashRoute`'s `hashchange`
+  // handler. Tests cover the three branches (`ignore` / `rollback` /
+  // `navigate`), the rollback recursion (a follow-up `hashchange` fired
+  // by `history.back()` lands here as `newHash === lastHash` and must
+  // resolve to `ignore` so the handler doesn't ping-pong), and the
+  // multi-guard short-circuit. The hook itself only adds the side
+  // effects (history.back() + setRoute), so unit-testing this function
+  // covers the routing-blocking semantics without a real DOM.
+  it("returns `navigate` with the parsed route when no guards are registered", () => {
+    withHash("#/endpoints");
+    expect(
+      evaluateHashChange({
+        newHash: "#/endpoints",
+        lastHash: "#/",
+        guards: [],
+      }),
+    ).toEqual({ kind: "navigate", route: { kind: "endpoints" } });
+  });
+
+  it("returns `navigate` when every guard accepts", () => {
+    withHash("#/jobs");
+    const result = evaluateHashChange({
+      newHash: "#/jobs",
+      lastHash: "#/",
+      guards: [() => true, () => true],
+    });
+    expect(result).toEqual({ kind: "navigate", route: { kind: "jobs" } });
+  });
+
+  it("returns `rollback` as soon as any guard refuses", () => {
+    withHash("#/jobs");
+    let secondCalled = false;
+    const result = evaluateHashChange({
+      newHash: "#/jobs",
+      lastHash: "#/endpoints/abc",
+      guards: [
+        () => false,
+        () => {
+          secondCalled = true;
+          return true;
+        },
+      ],
+    });
+    expect(result).toEqual({ kind: "rollback" });
+    // Short-circuit: once a guard says no, the rest don't run. Both for
+    // perf and to avoid double-prompting the user.
+    expect(secondCalled).toBe(false);
+  });
+
+  it("returns `ignore` when newHash matches lastHash (rollback recursion)", () => {
+    // After the handler triggers `history.back()` to roll back a blocked
+    // navigation, the browser fires another `hashchange` with the URL
+    // restored to `lastHash`. That hashchange MUST resolve to `ignore`,
+    // otherwise the guard would re-prompt indefinitely.
+    const result = evaluateHashChange({
+      newHash: "#/endpoints/abc",
+      lastHash: "#/endpoints/abc",
+      guards: [
+        () => {
+          throw new Error("guards must not run on the no-op hashchange");
+        },
+      ],
+    });
+    expect(result).toEqual({ kind: "ignore" });
+  });
+
+  it("ignores even when guards would block — equality check wins", () => {
+    // Defence-in-depth: the equality check happens before guards are
+    // consulted, so a guard that always returns false cannot lock the
+    // user into a state where every hashchange (including the rollback)
+    // is rejected.
+    const result = evaluateHashChange({
+      newHash: "#/x",
+      lastHash: "#/x",
+      guards: [() => false],
+    });
+    expect(result).toEqual({ kind: "ignore" });
   });
 });

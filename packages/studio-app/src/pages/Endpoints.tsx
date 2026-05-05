@@ -545,6 +545,10 @@ export function EndpointDetail({ id }: { id: string }) {
     setError(null);
     setKeysError(null);
     setRevealed(null);
+    // The plaintext from the previous endpoint (if any) has already been
+    // accepted as lost by the user passing the navigation guard. Clear
+    // the protection flag so it doesn't survive into this new endpoint.
+    pendingKeyIssueRef.current = false;
     setNewKeyLabel("");
     setBusy(false);
 
@@ -711,6 +715,7 @@ export function EndpointDetail({ id }: { id: string }) {
       const controller = new AbortController();
       keyIssueControllerRef.current = controller;
       pendingKeyIssueRef.current = true;
+      let succeeded = false;
       try {
         const { key } = await createDeploymentKey(
           myId,
@@ -720,6 +725,7 @@ export function EndpointDetail({ id }: { id: string }) {
         if (activeIdRef.current !== myId) return;
         setRevealed(key);
         setNewKeyLabel("");
+        succeeded = true;
         // Drop any in-flight initial keys fetch so it can't land later
         // and overwrite the just-issued / refreshed list.
         initialKeysSupersededRef.current = true;
@@ -741,15 +747,30 @@ export function EndpointDetail({ id }: { id: string }) {
           ]);
         }
       } finally {
-        // Always clear the pending flag so a subsequent tab close after
-        // this one settles (success or failure) does not get a stale
-        // confirm dialog.
-        pendingKeyIssueRef.current = false;
+        // On *failure* clear the flag so the next tab close / nav doesn't
+        // get a stale confirm dialog. On *success* keep it true: the
+        // plaintext is now on screen but un-recoverable, so the same nav
+        // guard that protected the in-flight POST must keep protecting
+        // the displayed key until the user clicks "I've saved it"
+        // (`dismissRevealed` below clears the flag at that moment).
+        if (!succeeded) {
+          pendingKeyIssueRef.current = false;
+        }
         if (keyIssueControllerRef.current === controller) {
           keyIssueControllerRef.current = null;
         }
       }
     });
+  }
+
+  /**
+   * Clear the displayed plaintext after the operator has copied it.
+   * Also releases the navigation guard, since there is no longer any
+   * un-recoverable secret on screen to protect.
+   */
+  function dismissRevealed() {
+    pendingKeyIssueRef.current = false;
+    setRevealed(null);
   }
 
   async function onRevoke(keyId: string) {
@@ -920,7 +941,7 @@ export function EndpointDetail({ id }: { id: string }) {
               </div>
               <button
                 type="button"
-                onClick={() => setRevealed(null)}
+                onClick={dismissRevealed}
                 className="mt-2 text-xs text-amber-900 underline dark:text-amber-300"
               >
                 I&apos;ve saved it

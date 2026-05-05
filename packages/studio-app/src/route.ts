@@ -55,12 +55,13 @@ export function parseRoute(): Route {
 }
 
 /**
- * A guard returns `false` to *block* a pending hash navigation (the
- * router will then snap the URL back to the previous hash and skip the
- * route update). Used by pages that hold un-recoverable state — the
- * `EndpointDetail` page registers a guard while a one-time API key
- * `plaintext` response is in flight, so any nav-tab click / back button
- * has to confirm before losing the secret.
+ * A guard returns `false` to *block* a pending hash navigation. The
+ * router then rolls the address bar back to the previous hash via
+ * `history.back()` and skips the route update. Used by pages that hold
+ * un-recoverable state — the `EndpointDetail` page registers a guard
+ * while a one-time API key `plaintext` response is in flight (or
+ * displayed but not yet acknowledged), so any nav-tab click / back
+ * button has to confirm before losing the secret.
  *
  * Guards run inside the same `hashchange` handler that drives
  * `useHashRoute`, so they fire *before* the route state updates and
@@ -81,33 +82,56 @@ export function registerNavigationGuard(
   };
 }
 
+/**
+ * Pure decision logic extracted from `useHashRoute` so unit tests can
+ * exercise the guard / rollback / pass-through branches without a real
+ * DOM. The hook adds the side effects (history rollback, setState).
+ */
+export type HashChangeDecision =
+  | { kind: "ignore" }
+  | { kind: "rollback" }
+  | { kind: "navigate"; route: Route };
+
+export function evaluateHashChange(opts: {
+  newHash: string;
+  lastHash: string;
+  guards: Iterable<NavigationGuard>;
+}): HashChangeDecision {
+  // The rollback below uses `history.back()`, which fires another
+  // `hashchange`. By the time it lands, the URL has returned to
+  // `lastHash` so this branch resolves to `ignore` and the handler does
+  // nothing — no need for a manual recursion flag.
+  if (opts.newHash === opts.lastHash) return { kind: "ignore" };
+  for (const guard of opts.guards) {
+    if (!guard()) return { kind: "rollback" };
+  }
+  return { kind: "navigate", route: parseRoute() };
+}
+
 export function useHashRoute(): Route {
   const [route, setRoute] = useState<Route>(parseRoute);
   useEffect(() => {
     let lastHash = window.location.hash;
     const handler = () => {
-      const newHash = window.location.hash;
-      // A guard's `replaceState` below restores `lastHash`; that change
-      // does not fire `hashchange`, but a subsequent user click on the
-      // *same* link would. Bail early when the URL matches what we
-      // already have so the same confirm dialog doesn't pop twice.
-      if (newHash === lastHash) return;
-      for (const guard of navigationGuards) {
-        if (!guard()) {
-          // Restore the previous hash without triggering another
-          // `hashchange` (and so without re-running this handler).
-          // `replaceState` is the only way to do that; assigning to
-          // `location.hash` would fire another event.
-          history.replaceState(
-            null,
-            "",
-            `${window.location.pathname}${window.location.search}${lastHash}`,
-          );
-          return;
-        }
+      const decision = evaluateHashChange({
+        newHash: window.location.hash,
+        lastHash,
+        guards: navigationGuards,
+      });
+      if (decision.kind === "ignore") return;
+      if (decision.kind === "rollback") {
+        // Move the history pointer back instead of `replaceState`-ing the
+        // current entry: `replaceState` would leave duplicate `#/...`
+        // entries in the back stack, so after a cancelled navigation the
+        // user would have to press Back twice to escape this page. With
+        // `history.back()` the URL bar restores to `lastHash` and the
+        // forward stack still holds the rejected destination — Forward
+        // re-prompts via the same guard if they change their mind.
+        history.back();
+        return;
       }
-      lastHash = newHash;
-      setRoute(parseRoute());
+      lastHash = window.location.hash;
+      setRoute(decision.route);
     };
     window.addEventListener("hashchange", handler);
     return () => window.removeEventListener("hashchange", handler);
