@@ -22,7 +22,7 @@ import {
   type DeploymentKey,
   type DeploymentTarget,
 } from "../lib/api";
-import { navigateReplace, registerNavigationGuard } from "../route";
+import { navigateBackOr, registerNavigationGuard } from "../route";
 import { Button } from "../components/ui/Button";
 import {
   Card,
@@ -837,11 +837,15 @@ export function EndpointDetail({ id }: { id: string }) {
       // change doesn't prompt a second confirm for a secret that's now
       // moot.
       pendingKeyIssueRef.current = false;
-      // *Replace* the current entry rather than push: a `pushState`
-      // (`location.hash = ...`) would leave the now-404 detail entry
-      // one Back press behind the user. `navigateReplace` swaps the
-      // hash in place and synchronously notifies `useHashRoute`.
-      navigateReplace("#/endpoints");
+      // Roll the user back to the list view they came from instead of
+      // replacing-in-place. A plain `navigateReplace("#/endpoints")`
+      // would leave the user with a stack that *also* has the original
+      // list entry at the previous step, so their first Back press
+      // would land on the same `#/endpoints` URL and appear to do
+      // nothing. `navigateBackOr` undoes the list→detail navigation
+      // when there's a previous in-document entry, and falls back to
+      // replace when this was a direct-link load.
+      navigateBackOr("#/endpoints");
     }
   }
 

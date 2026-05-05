@@ -30,7 +30,7 @@ Two client-side reducers narrow what the table renders:
 - **Search** (name or ID, case-insensitive). The text input filters rows where `Job.name` or `Job.id` contains the query.
 - **Status filter** chips: `All` / `Running` / `Completed` / `Queued` / `Failed` / `Cancelled`. Exactly one is active at a time.
 
-The empty state distinguishes the two cases: `No jobs yet` (the project genuinely has no runs — links you back to Overview to start one) vs `No matches` (the active search / filter hides every row — relax the filter or clear the query).
+The empty state distinguishes the two cases: `No jobs yet` (the project genuinely has no runs — the description points you at Overview as plain text, since the trigger lives there) vs `No matches` (the active search / filter hides every row — relax the filter or clear the query).
 
 | Column | Source |
 | --- | --- |

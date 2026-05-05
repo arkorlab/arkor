@@ -232,6 +232,37 @@ export function navigateReplace(hash: string): void {
   window.dispatchEvent(new Event("hashchange"));
 }
 
+/**
+ * Roll the user back to the entry they came from; if there isn't one
+ * inside this document, fall back to a `replaceState`-into-`fallbackHash`.
+ *
+ * Use this for "this page I'm on is gone, take me back where I was"
+ * flows. Calling `navigateReplace(fallbackHash)` instead would create
+ * a duplicate entry: a user who arrived via list → detail → delete
+ * would have `[…, list, detail-replaced-with-list]` and the first
+ * browser Back press would land on the same `fallbackHash` URL and
+ * appear to do nothing.
+ *
+ * `history.back()` either fires `hashchange` (in-document navigation)
+ * or silently no-ops (no previous entry, e.g. fresh tab opened
+ * directly to the deleted URL). We can't observe that distinction
+ * synchronously, so check the URL after a short tick and fall back if
+ * it didn't move.
+ */
+export function navigateBackOr(fallbackHash: string): void {
+  const startHash = window.location.hash;
+  window.history.back();
+  // 50 ms is comfortably longer than any browser's `hashchange`
+  // dispatch latency after `history.back()` — long enough to confirm
+  // the navigation actually happened, short enough that the user
+  // doesn't perceive a stutter in the post-delete redirect.
+  setTimeout(() => {
+    if (window.location.hash === startHash) {
+      navigateReplace(fallbackHash);
+    }
+  }, 50);
+}
+
 export function useHashRoute(): Route {
   const [route, setRoute] = useState<Route>(parseRoute);
   useEffect(() => {

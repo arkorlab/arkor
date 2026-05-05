@@ -21,9 +21,13 @@ export interface EnsureProjectStateOptions {
  * Shared by the trainer (`createTrainer().start()`) and every Studio
  * write-path that needs a scope: `/api/inference/chat` (Playground), and
  * the deployment-create route used by the Endpoints page (the
- * `withDeploymentClient("write", …)` helper in `studio/server.ts`).
- * That way a fresh anonymous launch can either chat with a base model
- * or publish its first `*.arkor.app` URL without any prior setup.
+ * `withDeploymentClient("create", …)` helper in `studio/server.ts`).
+ * Other deployment write paths (`"mutate"` — PATCH / DELETE / key
+ * CRUD) intentionally do NOT bootstrap; they 404 if the workspace has
+ * no scope yet. That way a fresh anonymous launch can either chat
+ * with a base model or publish its first `*.arkor.app` URL without
+ * any prior setup, but a stray PATCH / DELETE on a non-existent
+ * deployment id can't accidentally provision an orphan project.
  */
 export async function ensureProjectState(
   options: EnsureProjectStateOptions,
