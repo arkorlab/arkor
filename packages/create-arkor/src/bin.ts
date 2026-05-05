@@ -334,13 +334,29 @@ export async function run(options: RunOptions): Promise<void> {
   // `--skip-install --git` no-install-attempted case.
   const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
   const installSucceeded = !wouldHaveInstalled || installed;
+  // Round 39 (Copilot, PR #99): the previous "re-run this command"
+  // hint is only safe when re-invoking would actually merge into
+  // the same target. With no `[dir]` argument, `run()` derives a
+  // fresh subdir and the occupied-directory guard at the top of
+  // `run()` aborts on re-run instead of finishing the bootstrap.
+  // Tell those users to recover inside the existing directory; for
+  // explicit `[dir]` (and the `.` in-place case), the guard
+  // doesn't fire, so re-run still works.
+  const reRunIsSafe = options.dir !== undefined;
+  const recoverInDir = inPlace
+    ? `\`${pm} install\` (then \`git init\` + commit)`
+    : `\`cd ${cdTarget} && ${pm} install\` (then \`git init\` + commit)`;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(
-      "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
+      reRunIsSafe
+        ? "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit."
+        : `Skipping git init too — fix the advisory above, then run ${recoverInDir} to finish the bootstrap.`,
     );
   } else if (shouldInitGit && !installSucceeded) {
     clack.log.info(
-      `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
+      reRunIsSafe
+        ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
+        : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`,
     );
   } else if (shouldInitGit) {
     await runGitInit(cwd);

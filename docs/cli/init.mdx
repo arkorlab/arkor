@@ -85,7 +85,7 @@ If you genuinely need esbuild's postinstall to run (rare; usually a broken insta
 pnpm arkor init --yes --use-pnpm --allow-builds
 ```
 
-— or flip the entry to `true` in `pnpm-workspace.yaml` after the fact. We accept the flag regardless of `--use-<pm>` so a project scaffolded with `--use-npm` today and switched to pnpm later doesn't silently strip the earlier `--allow-builds` choice (it just has no effect until the file is actually emitted).
+— or flip the entry to `true` in `pnpm-workspace.yaml` after the fact. The flag is only consulted on runs that actually emit or patch `pnpm-workspace.yaml`, so passing it under `--use-npm` / `--use-yarn` / `--use-bun` is a no-op (those runs don't touch the file at all). Re-run `arkor init --use-pnpm --allow-builds` later if you switch to pnpm.
 
 ## Templates
 
