@@ -98,3 +98,52 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
     expect(out).not.toContain("YOUR_API_KEY");
   });
 });
+
+describe("buildQuickStartSample — base URL derivation", () => {
+  // The SDK languages (Python/JS) need `/v1`, not the full per-operation
+  // URL — the OpenAI SDK appends its own path. Derive that from `URL`
+  // parsing rather than a hard-coded suffix-strip so a future operation
+  // landing on a different path (e.g. `/v1/embeddings`) doesn't silently
+  // ship a 404-ing sample.
+  it("yields `/v1` even if the input URL doesn't end in /v1/chat/completions", () => {
+    const out = buildQuickStartSample({
+      language: "python",
+      operation: "chat",
+      // Imagine a future deployment shape where the dropdown also picks
+      // operation, and the operation's endpoint URL is e.g.
+      // `/v1/embeddings`. The base-URL derivation must still produce
+      // `/v1` — not leave the operation suffix in place.
+      endpointUrl: "https://mymodel.arkor.app/v1/embeddings",
+      authMode: "fixed_api_key",
+    });
+    expect(out).toContain('base_url="https://mymodel.arkor.app/v1"');
+    expect(out).not.toContain("/embeddings");
+  });
+
+  it("preserves the host when the input has a non-default port", () => {
+    // Defensive: `URL.toString()` re-emits the explicit port. The base
+    // URL must keep it so a dev pointing Studio at a tunnelled host
+    // (e.g. `host.tld:8443`) still gets a runnable sample.
+    const out = buildQuickStartSample({
+      language: "javascript",
+      operation: "chat",
+      endpointUrl: "https://mymodel.arkor.app:8443/v1/chat/completions",
+      authMode: "fixed_api_key",
+    });
+    expect(out).toContain('baseURL: "https://mymodel.arkor.app:8443/v1"');
+  });
+
+  it("falls back to suffix-strip when the input URL is malformed", () => {
+    // Defence-in-depth: if `endpointUrl` somehow isn't parseable by the
+    // browser's URL constructor, the function must not throw and crash
+    // the SPA — it should return a usable string built from the
+    // previous suffix-strip approach.
+    const out = buildQuickStartSample({
+      language: "python",
+      operation: "chat",
+      endpointUrl: "not-a-valid-url/v1/chat/completions",
+      authMode: "fixed_api_key",
+    });
+    expect(out).toContain('base_url="not-a-valid-url/v1"');
+  });
+});

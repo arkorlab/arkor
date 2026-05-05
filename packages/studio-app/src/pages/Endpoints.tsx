@@ -91,10 +91,30 @@ export function buildQuickStartSample(opts: {
   // The dropdown only carries `chat` today, but the operation arg is
   // kept so adding `embeddings` / `completions` later is just a new
   // entry in `SAMPLE_OPERATIONS` and a new branch here.
-  // `endpointUrl` already targets `/v1/chat/completions`. For the
-  // OpenAI-SDK languages we strip the trailing path so the SDK's own
-  // routing applies.
-  const baseUrl = endpointUrl.replace(/\/v1\/chat\/completions$/, "/v1");
+  //
+  // For the OpenAI-SDK languages the client appends its own operation
+  // path, so we hand it `/v1` rather than the full per-operation URL.
+  // Derive that by parsing `endpointUrl` and pinning `pathname` to
+  // `/v1` — a hard-coded suffix-strip (`endpointUrl.replace(/\/v1\/
+  // chat\/completions$/, "/v1")`) silently no-ops as soon as a future
+  // operation lands on a different path (e.g. `/v1/embeddings`),
+  // leaving the SDK with a base URL that still includes the operation
+  // segment and 404s on every call.
+  const baseUrl = (() => {
+    try {
+      const parsed = new URL(endpointUrl);
+      parsed.pathname = "/v1";
+      parsed.search = "";
+      parsed.hash = "";
+      // `URL.toString()` re-appends the trailing slash; strip it so the
+      // OpenAI SDK doesn't see `/v1//chat/completions`.
+      return parsed.toString().replace(/\/$/, "");
+    } catch {
+      // Defensive: if `endpointUrl` is malformed for any reason, fall
+      // back to the previous suffix-strip rather than crashing the SPA.
+      return endpointUrl.replace(/\/v1\/chat\/completions$/, "/v1");
+    }
+  })();
   const requiresAuth = authMode === "fixed_api_key";
   if (language === "curl") {
     const lines = [
@@ -243,7 +263,14 @@ function QuickStart({
           <a
             href="https://docs.arkor.ai/studio/endpoints"
             target="_blank"
-            rel="noreferrer"
+            // `noopener` defends against tabnabbing — without it, the
+            // opened docs page could read `window.opener` and navigate
+            // the Studio tab somewhere malicious. `noreferrer` is kept
+            // for `Referer`-header privacy. Modern browsers imply
+            // `noopener` for `target="_blank"`, but spelling it
+            // explicitly stays correct under older user agents and
+            // sidesteps the lint rule entirely.
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-sm text-teal-600 hover:underline dark:text-teal-400"
           >
             <BookOpen className="h-4 w-4" />
