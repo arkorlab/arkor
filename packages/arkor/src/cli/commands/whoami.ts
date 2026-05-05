@@ -24,7 +24,17 @@ export async function runWhoami(): Promise<void> {
     token: () =>
       creds.mode === "anon" ? creds.token : creds.accessToken,
     clientVersion: SDK_VERSION,
-    onDeprecation: recordDeprecation,
+    // Wrap the deprecation callback so we return `null` (not `void`) —
+    // `@arkor/cloud-api-client` alpha.2 feeds the handler's return into
+    // `typeof result.then === 'function'`, which throws on a `void`
+    // return and logs `[@arkor/cloud-api-client] onDeprecation handler
+    // threw; ignoring:` on every deprecated `/v1/me` response. Same
+    // workaround as `CloudApiClient` and Studio's `createRpc`. Drop
+    // when alpha.3+ ships the upstream fix.
+    onDeprecation: (notice) => {
+      recordDeprecation(notice);
+      return null;
+    },
   });
   const res = await rpc.v1.me.$get();
   if (!res.ok) {

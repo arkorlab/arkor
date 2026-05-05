@@ -1454,6 +1454,93 @@ process.exit(0);
       expect(body.error).toMatch(/already taken/);
     });
 
+    it("forwards upstream Deprecation / Warning / Sunset headers on success", async () => {
+      // The deployment proxy unwraps the upstream Response into a typed
+      // SDK result, then re-serialises it as JSON — that strips the
+      // upstream headers by default. `withDeploymentClient` re-emits
+      // `Deprecation` / `Warning` / `Sunset` from the per-request
+      // `onDeprecation` capture so the SPA gets the same upgrade /
+      // sunset signals it sees on `/api/me` and friends.
+      clearRecordedDeprecation();
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ deployments: [] }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            Deprecation: "true",
+            Warning: '299 - "endpoints API deprecated"',
+            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+          },
+        })) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Deprecation")).toBe("true");
+      expect(res.headers.get("Warning")).toContain("endpoints API deprecated");
+      expect(res.headers.get("Sunset")).toBe(
+        "Wed, 01 Jan 2030 00:00:00 GMT",
+      );
+      // Tee'd into the global recorder too so the CLI's end-of-run
+      // deprecation flush still surfaces the warning when the same
+      // SDK code path is exercised from a non-Studio context.
+      expect(getRecordedDeprecation()?.message).toBe(
+        "endpoints API deprecated",
+      );
+    });
+
+    it("forwards upstream Deprecation headers even on a 4xx error response", async () => {
+      // A deprecated cloud-api could surface a sunset header alongside
+      // a 4xx (e.g. on an `endpoints` route that's been replaced). The
+      // proxy must re-emit the headers in the error envelope too —
+      // dropping them on non-2xx would silently hide the deprecation
+      // signal from any request that happens to fail.
+      clearRecordedDeprecation();
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({ error: "Deployment slug is already taken" }),
+          {
+            status: 409,
+            headers: {
+              "content-type": "application/json",
+              Deprecation: "true",
+              Warning: '299 - "endpoints API deprecated"',
+            },
+          },
+        )) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          slug: "taken",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(409);
+      expect(res.headers.get("Deprecation")).toBe("true");
+      expect(res.headers.get("Warning")).toContain("endpoints API deprecated");
+    });
+
     it("rejects mutating /api/deployments without a studio token", async () => {
       const app = build();
       const res = await app.request("/api/deployments", {

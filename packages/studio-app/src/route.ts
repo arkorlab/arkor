@@ -141,7 +141,11 @@ export function evaluateHashChange(opts: {
 }
 
 function readSeqFromState(): number | null {
-  const state = (history.state ?? null) as { seq?: unknown } | null;
+  // Use `window.history` (rather than the bare `history` global) so
+  // tests that stub `window` see their stubbed history — `vi.stubGlobal`
+  // only redefines the named global, and `history` and `window.history`
+  // resolve to different bindings under that stub.
+  const state = (window.history.state ?? null) as { seq?: unknown } | null;
   return typeof state?.seq === "number" ? state.seq : null;
 }
 

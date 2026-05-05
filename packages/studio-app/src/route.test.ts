@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createHashRouter,
   evaluateHashChange,
+  navigateBackOr,
+  navigateReplace,
   parseRoute,
   type HashRouterDeps,
   type Route,
@@ -539,5 +541,199 @@ describe("createHashRouter (integration of side effects)", () => {
     expect(router.getLastSeq()).toBe(3);
     expect(rec.routes).toHaveLength(3);
     expect(rec.routes[2]).toEqual({ kind: "endpoints" });
+  });
+});
+
+describe("navigateReplace / navigateBackOr (history side effects)", () => {
+  // These helpers are the post-delete redirect path. The `seq` guard
+  // in `navigateBackOr` and the `setTimeout` fallback only fire in the
+  // browser, so without coverage here a regression would only surface
+  // on a real "Delete endpoint" click. The fake `window` below is the
+  // minimum surface the helpers touch — `location.hash`, `history.*`,
+  // `addEventListener` / `dispatchEvent`, plus a back-stack so
+  // `history.back()` can actually move the URL.
+  type StackEntry = { hash: string; state: unknown };
+  type FakeWindow = {
+    location: { hash: string };
+    history: {
+      state: unknown;
+      replaceState(state: unknown, _: string, url: string): void;
+      back(): void;
+    };
+    addEventListener(type: string, l: () => void): void;
+    removeEventListener(type: string, l: () => void): void;
+    dispatchEvent(e: Event): void;
+  };
+
+  function makeWindow(opts: {
+    initialHash: string;
+    initialState?: unknown;
+    backStack?: StackEntry[];
+  }): { fakeWindow: FakeWindow; calls: string[]; listenersFor: (t: string) => Set<() => void> } {
+    const listeners: Record<string, Set<() => void>> = {};
+    const calls: string[] = [];
+    const stack: StackEntry[] = [...(opts.backStack ?? [])];
+    let hash = opts.initialHash;
+    let state: unknown = opts.initialState ?? null;
+    const fakeWindow: FakeWindow = {
+      location: {
+        get hash() {
+          return hash;
+        },
+        set hash(v: string) {
+          hash = v;
+          calls.push(`location.hash=${v}`);
+        },
+      },
+      history: {
+        get state() {
+          return state;
+        },
+        replaceState(s: unknown, _t: string, url: string) {
+          // The helpers always pass a hash-only URL like `#/foo`.
+          if (url.startsWith("#")) hash = url;
+          state = s;
+          calls.push(`replaceState(${url})`);
+        },
+        back() {
+          calls.push("history.back");
+          const prev = stack.pop();
+          if (!prev) return; // no-op when there's nothing to go back to
+          hash = prev.hash;
+          state = prev.state ?? null;
+          // Mimic the browser firing `hashchange` after a same-document
+          // back navigation.
+          for (const l of listeners["hashchange"] ?? []) l();
+        },
+      },
+      addEventListener(type: string, l: () => void) {
+        (listeners[type] ??= new Set()).add(l);
+      },
+      removeEventListener(type: string, l: () => void) {
+        listeners[type]?.delete(l);
+      },
+      dispatchEvent(e: Event) {
+        calls.push(`dispatch(${e.type})`);
+        for (const l of listeners[e.type] ?? []) l();
+      },
+    };
+    return {
+      fakeWindow,
+      calls,
+      listenersFor: (t) => listeners[t] ?? new Set(),
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe("navigateReplace", () => {
+    it("no-ops when the hash already matches the target", () => {
+      const { fakeWindow, calls } = makeWindow({ initialHash: "#/foo" });
+      vi.stubGlobal("window", fakeWindow);
+      navigateReplace("#/foo");
+      expect(calls).toEqual([]);
+      expect(fakeWindow.location.hash).toBe("#/foo");
+    });
+
+    it("replaces the URL and dispatches `hashchange` so `useHashRoute` sees it", () => {
+      // `replaceState` doesn't fire `hashchange` on its own — the
+      // manual dispatch is what makes the SPA's router pick up the
+      // new URL. Without it the address bar would update but the
+      // route state would stay at the pre-replace value.
+      const { fakeWindow, calls, listenersFor } = makeWindow({
+        initialHash: "#/foo",
+      });
+      vi.stubGlobal("window", fakeWindow);
+      let firedFor: string | null = null;
+      fakeWindow.addEventListener("hashchange", () => {
+        firedFor = fakeWindow.location.hash;
+      });
+      navigateReplace("#/bar");
+      expect(fakeWindow.location.hash).toBe("#/bar");
+      expect(calls).toContain("replaceState(#/bar)");
+      expect(calls).toContain("dispatch(hashchange)");
+      // The listener must have observed the *new* hash, not the old.
+      expect(firedFor).toBe("#/bar");
+      // No leaked listener — `navigateReplace` adds none of its own.
+      expect(listenersFor("hashchange").size).toBe(1);
+    });
+  });
+
+  describe("navigateBackOr", () => {
+    it("skips `history.back()` when seq <= 0 and replaces directly", () => {
+      // `seq === 0` is `useHashRoute`'s anchor entry — there's no
+      // earlier in-document predecessor, so `history.back()` would
+      // exit the SPA and the post-back `setTimeout` would never get
+      // a chance to run the fallback. The pre-check on `seq` is what
+      // keeps the user in Studio.
+      const { fakeWindow, calls } = makeWindow({
+        initialHash: "#/endpoints/a",
+        initialState: { seq: 0 },
+      });
+      vi.stubGlobal("window", fakeWindow);
+      navigateBackOr("#/endpoints");
+      expect(calls).not.toContain("history.back");
+      expect(calls).toContain("replaceState(#/endpoints)");
+      expect(fakeWindow.location.hash).toBe("#/endpoints");
+    });
+
+    it("skips `history.back()` when state.seq is unset (null)", () => {
+      // A history entry that doesn't carry our seq tag at all (e.g.
+      // an external link landed on an `#/endpoints/...` URL before
+      // `useHashRoute` mounted to anchor it) is treated the same as
+      // seq=0 — no in-document predecessor we know of.
+      const { fakeWindow, calls } = makeWindow({
+        initialHash: "#/endpoints/a",
+        initialState: null,
+      });
+      vi.stubGlobal("window", fakeWindow);
+      navigateBackOr("#/endpoints");
+      expect(calls).not.toContain("history.back");
+      expect(calls).toContain("replaceState(#/endpoints)");
+    });
+
+    it("calls `history.back()` and skips the fallback when back actually moves the URL", () => {
+      const { fakeWindow, calls } = makeWindow({
+        initialHash: "#/endpoints/a",
+        initialState: { seq: 1 },
+        backStack: [{ hash: "#/endpoints", state: { seq: 0 } }],
+      });
+      vi.stubGlobal("window", fakeWindow);
+      navigateBackOr("#/endpoints");
+      // back() ran synchronously and the fake browser moved the URL
+      // to the previous entry. The fallback timer must NOT fire a
+      // second navigation on top of that.
+      expect(calls).toContain("history.back");
+      expect(fakeWindow.location.hash).toBe("#/endpoints");
+      vi.advanceTimersByTime(100);
+      expect(calls.filter((c) => c.startsWith("replaceState"))).toEqual([]);
+    });
+
+    it("falls back to `navigateReplace` when `history.back()` was a no-op (no in-document predecessor)", () => {
+      // seq says there's a previous entry, but the back-stack is
+      // empty (e.g. another tab pushed our state but the user hit
+      // direct-URL into a *different* document since). The post-back
+      // URL is unchanged, the timeout fires, and we replace into
+      // the fallback so the user never gets stuck on the deleted
+      // page.
+      const { fakeWindow, calls } = makeWindow({
+        initialHash: "#/endpoints/a",
+        initialState: { seq: 1 },
+        backStack: [],
+      });
+      vi.stubGlobal("window", fakeWindow);
+      navigateBackOr("#/endpoints");
+      expect(calls).toContain("history.back");
+      // Before the timer fires, fallback hasn't kicked in yet.
+      expect(calls).not.toContain("replaceState(#/endpoints)");
+      vi.advanceTimersByTime(60);
+      expect(calls).toContain("replaceState(#/endpoints)");
+      expect(fakeWindow.location.hash).toBe("#/endpoints");
+    });
   });
 });
