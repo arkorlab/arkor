@@ -105,4 +105,99 @@ describe("<Playground />", () => {
       await screen.findByText(/\[error\] upstream blew up/i),
     ).toBeInTheDocument();
   });
+
+  describe("adapter mode", () => {
+    it("opens directly in adapter mode when initialAdapterId is supplied", async () => {
+      // Reaching Playground via "Open in Playground" from JobDetail
+      // seeds the URL with `#/playground?adapter=<id>` and the route
+      // layer hands the id in as `initialAdapterId`. The page should
+      // render the adapter-mode subtitle instead of base-model copy.
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/jobs")
+          return jsonResponse({
+            jobs: [
+              {
+                id: "job-completed",
+                name: "completed-run",
+                status: "completed",
+                createdAt: "2026-04-01T00:00:00Z",
+              },
+            ],
+          });
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      }) as typeof fetch;
+
+      render(<Playground initialAdapterId="job-completed" />);
+      expect(
+        await screen.findByText(/chat with a completed adapter/i),
+      ).toBeInTheDocument();
+    });
+
+    it("shows the loading state while /api/jobs is in flight in adapter mode", async () => {
+      // Stall /api/jobs so the page never gets past `jobs === null`.
+      // The adapter branch must surface a Loading state rather than
+      // the misleading "No completed jobs yet" empty state, which is
+      // only honest once we know the list is really empty.
+      globalThis.fetch = vi.fn(
+        () => new Promise<Response>(() => {}),
+      ) as typeof fetch;
+
+      render(<Playground initialAdapterId="job-completed" />);
+      expect(await screen.findByText(/loading jobs/i)).toBeInTheDocument();
+    });
+
+    it("shows the no-completed-jobs empty state when /api/jobs returns nothing in adapter mode", async () => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/jobs") return jsonResponse({ jobs: [] });
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      }) as typeof fetch;
+
+      render(<Playground initialAdapterId="job-completed" />);
+      expect(
+        await screen.findByText(/no completed jobs yet/i),
+      ).toBeInTheDocument();
+    });
+
+    it("writes the selected adapter id back into the URL hash", async () => {
+      // Picking an adapter mirrors `mode` and the selected job id into
+      // the URL hash via replaceState, so a reload or copy-paste lands
+      // on the same view. Verify the hash matches once the picker
+      // selects a different adapter.
+      const user = userEvent.setup();
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/jobs")
+          return jsonResponse({
+            jobs: [
+              {
+                id: "job-a",
+                name: "alpha",
+                status: "completed",
+                createdAt: "2026-04-01T00:00:00Z",
+              },
+              {
+                id: "job-b",
+                name: "bravo",
+                status: "completed",
+                createdAt: "2026-04-02T00:00:00Z",
+              },
+            ],
+          });
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      }) as typeof fetch;
+
+      render(<Playground initialAdapterId="job-a" />);
+      await screen.findByText(/chat with a completed adapter/i);
+      // The URL starts at `/`; the page itself doesn't push the
+      // initial id (the route layer does), but selecting a different
+      // adapter must mirror the new id into the hash.
+      const adapterSelect = await screen.findByRole("combobox", {
+        name: "Adapter",
+      });
+      await user.selectOptions(adapterSelect, "job-b");
+
+      await waitFor(() => {
+        expect(window.location.hash).toBe("#/playground?adapter=job-b");
+      });
+    });
+  });
 });
