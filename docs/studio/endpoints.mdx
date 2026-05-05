@@ -64,9 +64,9 @@ The target itself is **not** editable from the UI today. To re-target a deployme
 
 - The list shows label and prefix (the first ~12 chars of the plaintext, e.g. `ark_live_abcd1234…`). Revoked keys appear struck-through.
 - **Issue key** prompts for a label (1-80 chars, e.g. `production`, `staging`) and on success shows the **plaintext exactly once** in an amber callout with a copy button. Save it now; neither Studio nor the cloud API will ever return it again.
-- **Revoke** flips `enabled` to false. Revoked keys stop authenticating within ~30 seconds (the edge cache TTL); requests with an already-cached revoked key may succeed for that window.
+- **Revoke** flips `enabled` to false. The edge service stops accepting the key shortly afterwards; the exact window isn't part of the public contract, so don't gate flows that need an immediate hard cutoff on this — pair revoke with a server-side block when the disable must be instantaneous.
 
-The cloud API also tracks a per-key `lastUsedAt` timestamp (best-effort, debounced ~1 minute) but Studio does not surface it in this list yet. Call [`listDeploymentKeys`](/sdk/deployments) from the SDK if you need to see it.
+The cloud API also tracks a per-key `lastUsedAt` timestamp (best-effort), but Studio does not surface it in this list yet. Call [`listDeploymentKeys`](/sdk/deployments) from the SDK if you need to see it. It's intended for "has anyone used this key recently?" rather than precise audit.
 
 ## Where Studio sits in the stack
 

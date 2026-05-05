@@ -122,12 +122,15 @@ await client.deleteDeployment(id, scope);
 const { keys } = await client.listDeploymentKeys(id, scope);
 // keys: [{ id, label, prefix, enabled, createdAt, lastUsedAt }, ...]
 
-// Revoke. enabled flips to false; new requests with this key 401 within
-// ~30s (the edge cache TTL).
+// Revoke. `enabled` flips to false on the row; the edge service
+// stops accepting the key shortly afterwards. The exact propagation
+// window is not part of the public contract, so don't gate sensitive
+// flows on it — pair revoke with a server-side block when the
+// disable must be immediate.
 await client.revokeDeploymentKey(id, keyId, scope);
 ```
 
-`lastUsedAt` is updated best-effort by the edge service; under traffic it lags by up to a minute (per-deployment-key debounce) and may never appear if the key has not been used since the last edge instance restart. Treat it as approximate.
+`lastUsedAt` is updated best-effort by the edge service. It may lag arbitrarily under traffic, may not appear at all between edge instance restarts, and is not part of any timing guarantee — treat it as approximate. Use it for "has anyone used this key recently?" rather than precise audit.
 
 ## Error handling
 

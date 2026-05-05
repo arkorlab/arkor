@@ -97,7 +97,19 @@ export class CloudApiClient {
       token: () => this.token,
       fetch: options.fetch,
       clientVersion: SDK_VERSION,
-      onDeprecation: recordDeprecation,
+      // The wrapper around `recordDeprecation` works around a bug in
+      // `@arkor/cloud-api-client` (alpha.2) where the runtime feeds the
+      // handler's `void` return into `typeof result.then === 'function'`
+      // and logs `[@arkor/cloud-api-client] onDeprecation handler
+      // threw; ignoring:` on every deprecated response. Returning
+      // `null` short-circuits that check (`null !== null` is false)
+      // without changing the recorded-deprecation behavior, and
+      // matches the wrapper applied in `studio/server.ts`. Drop this
+      // the next alpha that ships the upstream fix.
+      onDeprecation: (notice) => {
+        recordDeprecation(notice);
+        return null;
+      },
     });
   }
 

@@ -122,12 +122,14 @@ await client.deleteDeployment(id, scope);
 const { keys } = await client.listDeploymentKeys(id, scope);
 // keys: [{ id, label, prefix, enabled, createdAt, lastUsedAt }, ...]
 
-// Revoke。enabled が false に。新規リクエストは 30 秒程度（edge キャッシュ TTL）
-// 以内に 401 になります。
+// Revoke。行の `enabled` が false に切り替わり、edge サービスはその後
+// キーの受け入れを止めます。具体的な反映時間は公開契約に含めていな
+// いので、即時失効を保証したい用途ではここに依存せず、サーバー側で
+// もブロックを併用してください。
 await client.revokeDeploymentKey(id, keyId, scope);
 ```
 
-`lastUsedAt` は edge サービスが best-effort で更新します。トラフィック下では最大 1 分程度の遅延があり（per-deployment-key debounce）、edge インスタンス再起動以降にキーが使われていなければ表示されないことも。あくまで近似値として扱ってください。
+`lastUsedAt` は edge サービスが best-effort で更新します。トラフィック下で任意に遅延する可能性があり、edge インスタンス再起動を挟むと値が現れないこともあり、タイミング保証の対象には含まれません。あくまで近似値として扱い、「最近このキーが使われたか？」程度の用途に留めてください。
 
 ## エラーハンドリング
 

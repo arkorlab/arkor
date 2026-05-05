@@ -1802,7 +1802,7 @@ process.exit(0);
       });
       expect(res.status).toBe(404);
       const body = (await res.json()) as { error?: string };
-      expect(body.error).toContain("No project state");
+      expect(body.error).toContain(".arkor/state.json");
       expect(calls).toBe(0);
     });
 
