@@ -47,6 +47,12 @@ jobs:
           - '24.12.0'              # exact boundary version where type stripping became stable
           - '>=24.12.0 <25'        # stable Node 24 range after 24.12.0
 
+          # Node 26 (Current). Follow the same floor + latest pattern as
+          # Node 24: 26.0.0 catches initial-release behaviour, the open
+          # range pulls in patch updates without manual bumps.
+          - '26.0.0'               # exact 26.x floor (initial release)
+          - '>=26.0.0 <27'         # latest 26.x
+
     steps:
       - uses: actions/checkout@v6
 
@@ -152,6 +158,8 @@ jobs:
           - '24.0.0'              # exact 24.x floor (initial release; type-stripping default-on / Stability: RC)
           - '24.12.0'             # exact boundary where type stripping became Stable
           - '>=24.12.0 <25'       # latest 24.x
+          - '26.0.0'              # exact 26.x floor (initial release)
+          - '>=26.0.0 <27'        # latest 26.x
         id: [pnpm-9, pnpm-10, pnpm-11, npm, yarn, yarn-berry, bun]
     steps:
       - uses: actions/checkout@v6
