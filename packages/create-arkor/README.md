@@ -46,6 +46,7 @@ pnpm create arkor my-app \
 | `--skip-install` | Don't run `<pm> install` after scaffolding |
 | `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun` | Force a package manager (otherwise auto-detected from `npm_config_user_agent`) |
 | `--git` / `--skip-git` | Initialise a git repo with an initial commit, or skip the prompt |
+| `--allow-builds` | Opt esbuild's `postinstall` script into running on `pnpm install` (pnpm-only; default: deny). See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) below |
 
 ## What it writes
 
@@ -57,8 +58,25 @@ my-app/
 ├── arkor.config.ts
 ├── README.md
 ├── .gitignore          # node_modules/, dist/, .arkor/
-└── package.json        # scripts: dev / build / start
+├── package.json        # scripts: dev / build / start
+└── pnpm-workspace.yaml # pnpm 11 allowBuilds (yarn/npm/bun ignore it)
 ```
+
+`pnpm-workspace.yaml` is only emitted for fresh scaffolds where pnpm is plausibly the chosen package manager (`--use-pnpm` or no `--use-*` flag), and only when no ancestor directory already declares one. If you scaffold inside an existing pnpm monorepo, the parent's workspace file governs and we do not write a nested one.
+
+## Postinstall scripts (pnpm 11+)
+
+pnpm 11 errors with `ERR_PNPM_IGNORED_BUILDS` when an unapproved postinstall is encountered. esbuild ships such a script (verifying/fetching the platform-specific binary), so a vanilla `pnpm install` against a fresh scaffold would otherwise exit non-zero.
+
+The scaffolded `pnpm-workspace.yaml` pins:
+
+```yaml
+packages: []
+allowBuilds:
+  esbuild: false
+```
+
+`esbuild: false` is an explicit deny — pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. Pass `--allow-builds` to flip the entry to `true` if you genuinely need the postinstall (rare; typically a broken installer or unusual platform). yarn / npm / bun all ignore the workspace yaml.
 
 When `[dir]` is given explicitly, existing files are kept (never overwritten)
 and `package.json` is patched in place — only missing keys are added, so a

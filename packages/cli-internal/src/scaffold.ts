@@ -671,7 +671,7 @@ async function patchPackageJson(
   return "patched";
 }
 
-// Ensure `pnpm-workspace.yaml` exists with `allowBuilds: { esbuild: false }`
+// Ensure `pnpm-workspace.yaml` exists with `allowBuilds: { esbuild: <value> }`
 // so pnpm 11 doesn't refuse `pnpm install` over esbuild's postinstall.
 // See `PNPM_WORKSPACE_CONTENT` for the full per-version rationale.
 //
@@ -679,10 +679,18 @@ async function patchPackageJson(
 // in a YAML lib (the rest of `cli-internal` deliberately ships zero
 // runtime deps via tsdown's `deps.alwaysBundle`). The file is small
 // (key-value pairs at top level), and we only need to detect the
-// `allowBuilds:` block and merge `esbuild: false` into it. If the user
-// has already pinned an explicit value (true *or* false) we leave it
-// alone — overriding their decision either way would silently change
-// the install-time threat model of their project.
+// **top-level** `allowBuilds:` (block / inline / scalar) and merge
+// `esbuild: <value>` into it. If the user has already pinned an
+// explicit value — per-key OR a top-level scalar like
+// `allowBuilds: false` — we leave the file alone: overriding their
+// decision either way would silently change the install-time threat
+// model of their project, and a scalar form is a deliberate global
+// pin we must not stomp on.
+//
+// All regexes anchor with `^` (no leading whitespace) so a nested
+// `allowBuilds:` under some other key (round-37 Copilot review)
+// can't be mistaken for the top-level pnpm setting that pnpm 11
+// actually consults.
 async function patchPnpmWorkspace(
   cwd: string,
   allowEsbuild: boolean,
@@ -693,17 +701,22 @@ async function patchPnpmWorkspace(
     return "created";
   }
   const current = await readFile(path, "utf8");
-  const allowBuildsValue = readAllowBuildsValue(current, "esbuild");
-  if (allowBuildsValue !== undefined) return "ok";
+  // Already pinned per-key → trust the user.
+  if (readAllowBuildsValue(current, "esbuild") !== undefined) return "ok";
+  // Top-level `allowBuilds: <bool>` (scalar) → also a deliberate
+  // user pin (global allow / deny). Don't append a sibling block —
+  // that'd produce two top-level `allowBuilds` keys, which is
+  // ambiguous YAML.
+  if (hasTopLevelAllowBuildsScalar(current)) return "ok";
   const patched = appendEsbuildToAllowBuilds(current, allowEsbuild);
   if (patched === current) return "ok";
   await writeFile(path, patched);
   return "patched";
 }
 
-// Returns the explicit `esbuild:` value under the top-level
-// `allowBuilds:` mapping, or `undefined` if the key is absent.
-// Tolerates the two shapes `pnpm approve-builds` produces:
+// Returns the explicit `esbuild:` value under the **top-level**
+// `allowBuilds:` mapping, or `undefined` if esbuild isn't named
+// there. Tolerates the two shapes `pnpm approve-builds` produces:
 //
 //   allowBuilds:
 //     esbuild: false
@@ -712,9 +725,14 @@ async function patchPnpmWorkspace(
 //
 //   allowBuilds: { esbuild: false }
 //
-// Anything more exotic (e.g. anchors, multi-line strings) is rejected
-// and we fall back to "missing" so the patch path appends a fresh
-// block. We never mutate user-pinned `false` — see `patchPnpmWorkspace`.
+// Top-level only — `^` (column 0) anchors prevent mistaking a
+// nested `allowBuilds:` mapping (e.g. under another key) for the
+// pnpm setting pnpm itself reads, which would silently skip
+// patching while pnpm 11 keeps erroring (round-37 Copilot review).
+//
+// Scalar form (`allowBuilds: false` / `: true`) is intentionally
+// NOT detected here — it's a global pin not specifically about
+// esbuild. `hasTopLevelAllowBuildsScalar` handles that case.
 function readAllowBuildsValue(
   contents: string,
   pkg: string,
@@ -722,7 +740,7 @@ function readAllowBuildsValue(
   const escaped = pkg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Inline mapping: `allowBuilds: { esbuild: false, ... }`.
   const inlineMatch = contents.match(
-    /^[ \t]*allowBuilds:[ \t]*\{([^}]*)\}[ \t]*$/m,
+    /^allowBuilds:[ \t]*\{([^}]*)\}[ \t]*$/m,
   );
   if (inlineMatch) {
     const pairRe = new RegExp(`["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)`);
@@ -730,8 +748,9 @@ function readAllowBuildsValue(
     if (inner) return inner[1] === "true";
     return undefined;
   }
-  // Block mapping: an `allowBuilds:` line followed by `  pkg: <bool>` entries.
-  const blockHeaderRe = /^[ \t]*allowBuilds:[ \t]*$/m;
+  // Block mapping: a column-0 `allowBuilds:` line followed by
+  // `  pkg: <bool>` entries.
+  const blockHeaderRe = /^allowBuilds:[ \t]*$/m;
   const headerMatch = blockHeaderRe.exec(contents);
   if (!headerMatch) return undefined;
   const after = contents.slice(headerMatch.index + headerMatch[0].length);
@@ -749,36 +768,46 @@ function readAllowBuildsValue(
   return undefined;
 }
 
-// Append `esbuild: false` to an existing pnpm-workspace.yaml without
-// destructive rewrites. Three branches:
+// True when the file pins `allowBuilds` to a **top-level scalar**
+// (`allowBuilds: true` / `allowBuilds: false`) — pnpm's "approve all"
+// / "deny all" global form. The append path must bail in that case;
+// blindly writing a fresh `allowBuilds:` block would leave two
+// top-level `allowBuilds` keys (round-37 Copilot review).
+function hasTopLevelAllowBuildsScalar(contents: string): boolean {
+  return /^allowBuilds:[ \t]+(?:true|false)[ \t]*$/m.test(contents);
+}
+
+// Append `esbuild: <value>` to an existing pnpm-workspace.yaml
+// without destructive rewrites. Three branches:
 //
-//   1. Inline `allowBuilds: { ... }` — splice `esbuild: false` into
-//      the mapping.
-//   2. Block `allowBuilds:` with no esbuild entry — append an
-//      `  esbuild: false` line at the end of the block (keeping the
-//      block's indentation).
-//   3. No `allowBuilds:` key — append a fresh block with the standard
-//      two-space indent that pnpm uses.
+//   1. Inline `allowBuilds: { ... }` (top-level) — splice
+//      `esbuild: <value>` into the mapping.
+//   2. Block `allowBuilds:` (top-level) with no esbuild entry —
+//      append an `  esbuild: <value>` line at the end of the
+//      block, keeping the block's indentation.
+//   3. No top-level `allowBuilds:` key (and no scalar pin —
+//      `patchPnpmWorkspace` already gates that out via
+//      `hasTopLevelAllowBuildsScalar`) — append a fresh block.
 //
-// Returns the input unchanged if a structural edge case (e.g.
-// `allowBuilds: false`, anchored references) makes the splice
-// ambiguous — `patchPnpmWorkspace` then returns `ok` and the user
-// keeps whatever they had.
+// All matchers anchor with `^` (column 0) so a nested
+// `allowBuilds:` under some other key can't be edited; that file
+// would falsely report "patched" while pnpm 11 keeps erroring
+// (round-37 Copilot review).
 function appendEsbuildToAllowBuilds(
   contents: string,
   allowEsbuild: boolean,
 ): string {
   const value = allowEsbuild ? "true" : "false";
-  const inlineRe = /^([ \t]*)allowBuilds:[ \t]*\{([^}]*)\}[ \t]*$/m;
+  const inlineRe = /^allowBuilds:[ \t]*\{([^}]*)\}[ \t]*$/m;
   const inlineMatch = contents.match(inlineRe);
   if (inlineMatch) {
-    const inner = inlineMatch[2].trim();
+    const inner = inlineMatch[1].trim();
     const merged = inner.length > 0
       ? `${inner}, esbuild: ${value}`
       : `esbuild: ${value}`;
     return contents.replace(
       inlineRe,
-      `${inlineMatch[1]}allowBuilds: { ${merged} }`,
+      `allowBuilds: { ${merged} }`,
     );
   }
   // Match the header plus any indented body lines that follow. The
@@ -787,16 +816,15 @@ function appendEsbuildToAllowBuilds(
   // blank line, leaving any trailing siblings of `allowBuilds:`
   // untouched.
   const blockRe =
-    /^([ \t]*)allowBuilds:[ \t]*\n((?:[ \t]+[^\n]*\n)*)/m;
+    /^allowBuilds:[ \t]*\n((?:[ \t]+[^\n]*\n)*)/m;
   const blockMatch = contents.match(blockRe);
   if (blockMatch) {
-    const headerIndent = blockMatch[1];
-    const body = blockMatch[2];
+    const body = blockMatch[1];
     // Reuse the existing entry indent if there is one; otherwise
-    // default to the header indent + two spaces (pnpm's convention).
+    // default to two spaces (pnpm's convention).
     const entryIndentMatch = body.match(/^([ \t]+)/);
-    const entryIndent = entryIndentMatch?.[1] ?? `${headerIndent}  `;
-    const replacement = `${headerIndent}allowBuilds:\n${body}${entryIndent}esbuild: ${value}\n`;
+    const entryIndent = entryIndentMatch?.[1] ?? "  ";
+    const replacement = `allowBuilds:\n${body}${entryIndent}esbuild: ${value}\n`;
     return contents.replace(blockRe, replacement);
   }
   // No allowBuilds at all — append a fresh block.
@@ -882,10 +910,52 @@ export async function scaffold(
     path: PACKAGE_JSON_PATH,
     action: await patchPackageJson(cwd, options.name),
   });
-  files.push({
-    path: PNPM_WORKSPACE_PATH,
-    action: await patchPnpmWorkspace(cwd, options.allowBuilds === true),
-  });
+  // pnpm-workspace.yaml emission rules. Two axes:
+  //
+  //   (1) Should we *handle* the file at all (patch existing or
+  //       create fresh)? Skip when the chosen pm is explicitly NOT
+  //       pnpm — user picked a different toolchain, leave their
+  //       (or our) pnpm config untouched.
+  //   (2) Should we *create* the file when it's missing at cwd?
+  //       Mirror the yarn-config gating: `pm === "pnpm"` always,
+  //       OR `pm === undefined && !isExistingProject` (fresh
+  //       scaffold of unknown pm — emit defensively, yarn / npm /
+  //       bun ignore the file). Plus an extra "no ancestor
+  //       pnpm-workspace.yaml" guard so we never shadow a parent
+  //       monorepo: dropping `packages: []` into a pnpm subdir
+  //       redirects pnpm's workspace root and breaks
+  //       `workspace:*` resolution above (round-37 multi-reviewer
+  //       P1: Codex + Copilot 2x). `dirname(cwd)` walks strictly
+  //       ancestors — a pre-existing file at cwd is handled by
+  //       the patch path below, not this guard.
+  //
+  // If cwd already has the file we always patch it (regardless of
+  // (2)) — the user clearly has pnpm config locally and we just
+  // need to ensure `esbuild` is allow-listed, OR observe that the
+  // user already pinned a value and bow out.
+  const cwdHasPnpmWorkspace = existsSync(join(cwd, PNPM_WORKSPACE_PATH));
+  const enclosingPnpmWorkspaceAbove = hasEnclosingPath(
+    dirname(cwd),
+    PNPM_WORKSPACE_PATH,
+  );
+  const pmIsPnpmOrUndefined =
+    options.packageManager === "pnpm" ||
+    options.packageManager === undefined;
+  const shouldCreateFreshPnpmWorkspace =
+    !cwdHasPnpmWorkspace &&
+    !enclosingPnpmWorkspaceAbove &&
+    (options.packageManager === "pnpm" ||
+      (options.packageManager === undefined && !isExistingProject));
+  if (
+    pmIsPnpmOrUndefined &&
+    (cwdHasPnpmWorkspace || shouldCreateFreshPnpmWorkspace)
+  ) {
+    const action = await patchPnpmWorkspace(
+      cwd,
+      options.allowBuilds === true,
+    );
+    files.push({ path: PNPM_WORKSPACE_PATH, action });
+  }
   // Yarn-config emission rules:
   //
   //   - `pm === "yarn"` — the user explicitly opted into yarn. Always

@@ -299,6 +299,110 @@ describe("scaffold", () => {
     expect(entry?.action).toBe("ok");
   });
 
+  // Round 37 (PR #99 — multi-reviewer P1: Codex + Copilot 2x):
+  // dropping a fresh `pnpm-workspace.yaml` with `packages: []`
+  // into a subdirectory of an EXISTING pnpm monorepo would
+  // shadow the parent workspace root, so subsequent
+  // `pnpm install` would stop resolving `workspace:*` deps from
+  // the parent (`ERR_PNPM_WORKSPACE_PKG_NOT_FOUND`). The scaffold
+  // walks ancestors via `hasEnclosingPath` and skips creation in
+  // that case. Patching a file the user already has at cwd is
+  // still allowed — we only ever ADD esbuild to their existing
+  // allow-list, never reroute the workspace root.
+  it("does not create pnpm-workspace.yaml when an ancestor directory already has one", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "scaffold-monorepo-"));
+    writeFileSync(
+      join(parent, "pnpm-workspace.yaml"),
+      `packages:\n  - "packages/*"\n`,
+    );
+    const sub = join(parent, "packages", "new-pkg");
+    mkdirSync(sub, { recursive: true });
+    try {
+      const { files } = await scaffold({
+        cwd: sub,
+        name: "new-pkg",
+        template: "triage",
+        packageManager: "pnpm",
+      });
+      expect(existsSync(join(sub, "pnpm-workspace.yaml"))).toBe(false);
+      const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+      expect(entry).toBeUndefined();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("does not create pnpm-workspace.yaml when scaffolding into a non-empty existing project with no pm hint", async () => {
+    // Mirror of the yarn-config rule: when pm is undetected AND
+    // the dir already has content, treat it as someone else's
+    // project and don't drop in workspace-level config.
+    writeFileSync(join(cwd, "README.md"), "# pre-existing\n");
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+    });
+    expect(existsSync(join(cwd, "pnpm-workspace.yaml"))).toBe(false);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry).toBeUndefined();
+  });
+
+  it("does not create pnpm-workspace.yaml when the user explicitly picked a non-pnpm package manager", async () => {
+    // `--use-npm` / `--use-yarn` / `--use-bun` users don't need
+    // pnpm config, and writing one anyway noises up their tree.
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "npm",
+    });
+    expect(existsSync(join(cwd, "pnpm-workspace.yaml"))).toBe(false);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry).toBeUndefined();
+  });
+
+  it("ignores nested allowBuilds keys (only top-level governs pnpm 11)", async () => {
+    // pnpm 11 only consults the *top-level* `allowBuilds` key. A
+    // nested mapping under another field is not honoured by pnpm,
+    // so the scaffold must not be fooled into reporting "patched"
+    // (which would leave `pnpm install` still erroring) or into
+    // mutating that nested key (which would corrupt the user's
+    // unrelated config without fixing the actual problem).
+    const original = `packages: []\nsomeOtherKey:\n  allowBuilds:\n    esbuild: true\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    // The nested entry is left untouched.
+    expect(yaml).toContain("someOtherKey:\n  allowBuilds:\n    esbuild: true");
+    // A top-level `allowBuilds:` block is appended (deny by default).
+    expect(yaml).toMatch(/^allowBuilds:\n[ \t]+esbuild:[ \t]+false/m);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("patched");
+  });
+
+  it("preserves a top-level scalar allowBuilds pin (does not append a duplicate sibling)", async () => {
+    // `allowBuilds: false` (top-level scalar) is pnpm's "deny all"
+    // global pin. Appending a fresh `allowBuilds:` block alongside
+    // would yield two top-level keys — invalid/ambiguous YAML.
+    // The scaffold must observe the scalar and bow out as `ok`.
+    const original = `packages: []\nallowBuilds: false\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("ok");
+  });
+
   it("appends to an existing .gitignore only if the entry is missing", async () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
     const first = await scaffold({ cwd, name: "n", template: "triage" });
