@@ -1705,6 +1705,89 @@ process.exit(0);
       expect(fake.subscriberCount).toBe(1);
     });
 
+    it("dispatches HMR signals for `ready` events too (not only `rebuild`)", async () => {
+      // Regression: previously the dispatch fired only on
+      // `rebuild`, so a child started via `/api/train` *before*
+      // the watcher's first successful BUNDLE_END (the very first
+      // success is broadcast as `ready`, and the entry-wait recovery
+      // path also emits `ready`) would never get SIGUSR2/SIGTERM-
+      // routed when that build eventually landed — leaving it
+      // running a stale or empty artifact. Exercise the contract
+      // here by spawning a hanging child, then emitting `ready`
+      // with a different `configHash`; dispatch should pick up the
+      // mismatch and surface restart targets in the SSE frame.
+      await writeCredentials(ANON_CREDS);
+      const hangingBin = join(trainCwd, "hanging-bin.mjs");
+      // setInterval keeps the event loop alive without trapping
+      // SIGTERM, so dispatch's kill returns the child to the OS.
+      writeFileSync(hangingBin, "setInterval(() => {}, 1000);\n");
+
+      const fake = fakeHmr("h1");
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: hangingBin,
+        hmr: fake.coordinator,
+      });
+
+      const trainRes = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(trainRes.status).toBe(200);
+      const pid = Number(trainRes.headers.get("x-arkor-train-pid"));
+
+      const sseRes = await app.request(
+        `/api/dev/events?studioToken=${encodeURIComponent(STUDIO_TOKEN)}`,
+        { headers: { host: "127.0.0.1:4000" } },
+      );
+      const reader = sseRes.body!.getReader();
+      const decoder = new TextDecoder();
+
+      try {
+        // `configHash` = "h2" mismatches the spawn-time "h1" → SIGTERM
+        // path → `restartTargets` should be non-empty in the SSE frame.
+        fake.emit({
+          type: "ready",
+          outFile: "/tmp/x.mjs",
+          hash: "abc",
+          configHash: "h2",
+          trainerName: "t",
+        });
+
+        let received = "";
+        while (!received.includes("\n\n")) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          received += decoder.decode(value, { stream: true });
+        }
+        expect(received).toContain("event: ready");
+        // The dispatch augmentation marker — would be absent if the
+        // `event.type !== "error"` filter regressed back to gating on
+        // `=== "rebuild"`, and `restart`/`restartTargets` would never
+        // appear on a `ready` frame.
+        expect(received).toContain('"restart":true');
+        expect(received).toContain(`"pid":${pid}`);
+      } finally {
+        await reader.cancel();
+        // Best-effort cleanup if dispatch's SIGTERM hasn't reaped
+        // the child yet (signal delivery is async in the kernel).
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+    });
+
     it("forwards rebuild events as SSE frames", async () => {
       const fake = fakeHmr();
       const app = buildStudioApp({

@@ -141,6 +141,56 @@ describe("hashJobConfig", () => {
     expect(hashJobConfig(a)).toBe(hashJobConfig(b));
   });
 
+  it("omits an object property whose `toJSON(key)` returns undefined (JSON parity)", () => {
+    // Regression: `JSON.stringify({ a: { toJSON: () => undefined } })`
+    // produces `"{}"` — `toJSON` returning `undefined` is the spec's
+    // "skip me" signal in object position. The previous
+    // `stableStringify` collapsed every non-representable value to
+    // the literal string `"null"` at recursion time, so the same
+    // input hashed as `{"a":null}` instead of `{}`. That divergence
+    // forced unnecessary SIGTERM restarts whenever a `JobConfig`
+    // field's serialiser opted out — `configHash` would diverge from
+    // the wire-format payload (which DOES omit the field).
+    const omitting = {
+      toJSON() {
+        return undefined;
+      },
+    };
+    const a: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: omitting as unknown,
+    };
+    const b: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+    };
+    expect(hashJobConfig(a)).toBe(hashJobConfig(b));
+  });
+
+  it("substitutes `null` for an array element whose `toJSON(idx)` returns undefined (JSON parity)", () => {
+    // Sibling contract: in array position, `JSON.stringify` writes
+    // `null` for a `toJSON()→undefined` element (it can't drop the
+    // slot without shifting indices). The `stableStringify` boundary
+    // for arrays maps the omit sentinel to `"null"`.
+    const omitting = {
+      toJSON() {
+        return undefined;
+      },
+    };
+    const a: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      datasetFormat: ["a", omitting, "c"] as unknown,
+    };
+    const b: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      datasetFormat: ["a", null, "c"] as unknown,
+    };
+    expect(hashJobConfig(a)).toBe(hashJobConfig(b));
+  });
+
   it("ignores function / symbol properties (JSON parity)", () => {
     // `JSON.stringify` drops these too. The hash should be insensitive
     // to "transparent" callbacks accidentally landing in a forwarded

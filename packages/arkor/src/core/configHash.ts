@@ -2,51 +2,49 @@ import { createHash } from "node:crypto";
 import type { JobConfig } from "./types";
 
 /**
- * Type-narrowing helper for "this value cannot be represented in JSON".
- * Mirrors the cases JSON.stringify silently drops (when in object
- * positions) or coerces to `null` (when in array positions): `undefined`,
- * functions, and symbols.
- */
-function isNonJsonRepresentable(v: unknown): boolean {
-  return v === undefined || typeof v === "function" || typeof v === "symbol";
-}
-
-/**
  * Deterministic JSON serialiser: keys sorted at every nesting level so
  * `{a:1, b:2}` and `{b:2, a:1}` produce the same string. Necessary because
  * `JSON.stringify` follows insertion order, which isn't stable across
  * `buildJobConfig` revisions or user-side spread-merge tricks.
  *
- * Mirrors the JSON wire-format exactly for non-representable values
- * (`undefined`, functions, symbols): omitted in object positions,
- * serialised as `null` in array positions. The previous implementation
- * delegated to `JSON.stringify` which returns the literal value
- * `undefined` (not a string) for those — concatenated into the output
- * via template literals it became the substring `"undefined"`, which
- * is not valid JSON and would silently change the hash if a
- * `JobConfig` field ever held one of those values (notably the
- * `unknown`-typed forwarder fields).
+ * Returns `string | undefined`. `undefined` is the "omit me from my
+ * containing object" sentinel — it propagates from any value
+ * `JSON.stringify` would silently drop in object position
+ * (`undefined`, functions, symbols, *and* objects whose `toJSON(key)`
+ * returns one of those). Callers sit at three boundaries:
+ *
+ *   - Top level: `hashJobConfig` collapses `undefined` to `"null"`
+ *     so the digest input stays a valid hash string.
+ *   - Array slots: the map below substitutes `"null"` (matches
+ *     `JSON.stringify([undefined]) === "[null]"`).
+ *   - Object slots: the loop filters the key out entirely (matches
+ *     `JSON.stringify({a: undefined}) === "{}"`).
+ *
+ * The previous implementation collapsed every non-representable to
+ * the literal string `"null"` at recursion time, which leaked into
+ * object slots as `{"a":null}` instead of the JSON-correct `{}` —
+ * making `configHash` diverge from the wire-format payload for
+ * `JobConfig` fields whose `toJSON(key)` happened to return
+ * `undefined` (the spec-defined "skip me" signal). That divergence
+ * forces unnecessary SIGTERM restarts on every rebuild.
  */
-function stableStringify(value: unknown, key: string = ""): string {
+function stableStringify(value: unknown, key: string = ""): string | undefined {
   if (value === null) return "null";
-  // Top-level non-representable: align with `JSON.stringify(undefined)`
-  // semantics by collapsing to "null" so the hash input stays valid
-  // JSON-shaped text rather than the literal substring "undefined".
-  if (isNonJsonRepresentable(value)) return "null";
+  // Non-representable values: omit (undefined return) so each caller's
+  // boundary handler chooses the right substitution per its position.
+  if (value === undefined || typeof value === "function" || typeof value === "symbol") {
+    return undefined;
+  }
   if (typeof value !== "object") return JSON.stringify(value);
   // `JSON.stringify` calls `value.toJSON(key)` first when present
   // (passing `""` at the top level, the property name in object
   // positions, the index-as-string in array positions), then
-  // serialises the return value. The canonical example is `Date`,
-  // which becomes its ISO string. Without this branch a `Date`
-  // would hash as `{}` (no enumerable keys) and a `JobConfig` whose
-  // `unknown`-typed forwarder field happened to hold one would
-  // diverge from the wire-format payload — leading to bogus
-  // configHash drift and unnecessary SIGTERM restarts on every
-  // rebuild. The `key` argument is threaded through recursion so
+  // serialises the return value. Canonical example: `Date` → ISO
+  // string. The `key` argument is threaded through recursion so
   // user-side `toJSON(key)` implementations that branch on the
-  // hosting property/index see the same value JSON.stringify would
-  // give them.
+  // hosting property/index see the same value JSON.stringify would.
+  // If `toJSON` returns `undefined`, that propagates as the omit
+  // sentinel — the spec-defined "skip me" path.
   const maybeToJSON = (value as { toJSON?: unknown }).toJSON;
   if (typeof maybeToJSON === "function") {
     return stableStringify(
@@ -60,22 +58,20 @@ function stableStringify(value: unknown, key: string = ""): string {
     // array elements (per the ECMAScript spec, `SerializeJSONArray`
     // calls `SerializeJSONProperty` with the index converted to a
     // string).
-    const items = value.map((v, i) =>
-      isNonJsonRepresentable(v) ? "null" : stableStringify(v, String(i)),
-    );
+    const items = value.map((v, i) => stableStringify(v, String(i)) ?? "null");
     return `[${items.join(",")}]`;
   }
-  // Object slots: drop non-representable values entirely (matches
-  // `JSON.stringify({a: undefined}) === "{}"`). Property names are
-  // passed as the recursion key so a nested `toJSON(key)` sees the
-  // hosting field name.
+  // Object slots: skip keys whose serialised value is `undefined`
+  // (matches `JSON.stringify({a: undefined}) === "{}"`). Property
+  // names are passed as the recursion key so a nested `toJSON(key)`
+  // sees the hosting field name.
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj)
-    .filter((k) => !isNonJsonRepresentable(obj[k]))
-    .sort();
-  const parts = keys.map(
-    (k) => `${JSON.stringify(k)}:${stableStringify(obj[k], k)}`,
-  );
+  const parts: string[] = [];
+  for (const k of Object.keys(obj).sort()) {
+    const serialised = stableStringify(obj[k], k);
+    if (serialised === undefined) continue;
+    parts.push(`${JSON.stringify(k)}:${serialised}`);
+  }
   return `{${parts.join(",")}}`;
 }
 
@@ -86,8 +82,10 @@ function stableStringify(value: unknown, key: string = ""): string {
  * full restart with `requestEarlyStop`).
  */
 export function hashJobConfig(config: JobConfig): string {
-  return createHash("sha256")
-    .update(stableStringify(config))
-    .digest("hex")
-    .slice(0, 16);
+  // Top-level fallback to `"null"` so a pathological config that
+  // serialises to `undefined` (top-level `toJSON` returning
+  // undefined, etc.) still produces a deterministic digest input
+  // rather than crashing `createHash.update(undefined)`.
+  const serialised = stableStringify(config) ?? "null";
+  return createHash("sha256").update(serialised).digest("hex").slice(0, 16);
 }

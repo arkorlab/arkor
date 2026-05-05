@@ -545,7 +545,19 @@ export function buildStudioApp(options: StudioServerOptions) {
     // fresh signal pass against the same rebuild.
     hmr.subscribe((event) => {
       let augmented: AugmentedEvent = event;
-      if (event.type === "rebuild" && activeTrains.size > 0) {
+      // Route dispatch through every *successful* build event, not
+      // just `rebuild`. The coordinator emits the very first
+      // successful compile as `ready` (and the entry-wait recovery
+      // path also broadcasts `ready` when a fresh-scaffold project's
+      // entry file first appears). A child started via `/api/train`
+      // before the first `ready` (e.g. the SPA fired Run Training
+      // immediately after `arkor dev` booted, while the watcher's
+      // initial BUNDLE_END was still in flight) would otherwise
+      // never get SIGUSR2/SIGTERM-routed when that build lands —
+      // leaving it stuck on a stale or empty artifact until the
+      // next edit triggers a `rebuild`. Filtering by "not error"
+      // is forward-compatible with any new successful event types.
+      if (event.type !== "error" && activeTrains.size > 0) {
         // Single per-child decision pass: hash match → SIGUSR2 (with
         // a Windows fallback to SIGTERM since win32 doesn't deliver
         // SIGUSR2), hash mismatch → SIGTERM. The registry returns

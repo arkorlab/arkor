@@ -146,11 +146,15 @@ export function createTrainer(
   let scope: { orgSlug: string; projectSlug: string } | null = null;
   let clientPromise: Promise<CloudApiClient> | null = null;
 
-  // Mutable callbacks slot. Each `dispatch()` invocation reads this fresh,
-  // so `replaceCallbacks(...)` takes effect on the next event. Events
-  // already mid-await keep their old reference until they resolve, which
-  // matches the "replace, don't interrupt" contract documented on
-  // `Trainer.replaceCallbacks`.
+  // Mutable callbacks slot. Each `dispatch()` invocation reads this
+  // fresh, so the rotation triggered by the
+  // `Symbol.for("arkor.trainer.replaceCallbacks")` brand
+  // (`replaceTrainerCallbacks` in `core/trainerInspection.ts`) takes
+  // effect on the next event. Events already mid-await keep their
+  // old reference until they resolve, which matches the "replace,
+  // don't interrupt" contract. Public `Trainer` deliberately doesn't
+  // expose this — it's a dev-only HMR primitive driven by the
+  // SIGUSR2 path in `core/runnerSignals.ts`.
   let currentCallbacks: Partial<TrainerCallbacks> = input.callbacks ?? {};
 
   // Early-stop state. `requestEarlyStop()` arms the latch; the next
