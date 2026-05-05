@@ -47,11 +47,20 @@ The job UUID is a plain text field today: copy the id from the [Jobs](/studio/jo
 
 ## Detail
 
-The detail page (`#/endpoints/<id>`) groups three concerns:
+The detail page (`#/endpoints/<id>`) groups four concerns:
 
 ### Endpoint URL
 
-The full `https://<slug>.arkor.app/v1/chat/completions` URL with a copy button. Hand this to any OpenAI-compatible client.
+The full `https://<slug>.arkor.app/v1/chat/completions` URL with a copy button. This is the **per-operation** URL — paste it into cURL or any raw HTTP client. The OpenAI SDKs expect the **base URL** instead (`https://<slug>.arkor.app/v1`); pointing them at the full per-operation URL would have the SDK append its own route and 404. The Quick start card below shows the correct shape for each language so you don't have to choose.
+
+### Quick start
+
+A copy-pasteable code sample for the deployment with two dropdowns:
+
+- **Language**: cURL, Python (OpenAI SDK), JavaScript (OpenAI SDK).
+- **Operation**: `POST /v1/chat/completions` is the only entry today; the dropdown is structured so future OpenAI-format additions (e.g. `/v1/embeddings`) can slot in.
+
+The sample reflects the deployment's current `authMode`. With `fixed_api_key` it carries `Authorization: Bearer YOUR_API_KEY` (cURL) or `apiKey: "YOUR_API_KEY"` (SDKs); with `none` the auth header is dropped from cURL and the SDK samples use a `not-required` placeholder (the OpenAI SDKs refuse to construct without a non-empty key, even when the upstream doesn't enforce one). Hide the card with the **Hide** toggle to free up vertical space; nothing here makes upstream calls.
 
 ### Settings
 

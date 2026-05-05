@@ -35,6 +35,7 @@ import { CopyButton } from "../components/ui/CopyButton";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
 import { Inbox } from "../components/icons";
+import { QuickStart } from "./QuickStart";
 
 function describeTarget(target: DeploymentTarget): string {
   if (target.kind === "adapter") {
@@ -1019,6 +1020,8 @@ export function EndpointDetail({ id }: { id: string }) {
           </div>
         </CardContent>
       </Card>
+
+      <QuickStart endpointUrl={url} authMode={deployment.authMode} />
 
       <Card>
         <CardHeader
