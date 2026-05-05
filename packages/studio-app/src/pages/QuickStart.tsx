@@ -25,8 +25,8 @@ export type SampleOperation = "chat";
 
 const SAMPLE_LANGUAGES: { value: SampleLanguage; label: string }[] = [
   { value: "curl", label: "cURL" },
-  { value: "python", label: "Python (openai SDK)" },
-  { value: "javascript", label: "JavaScript (openai SDK)" },
+  { value: "python", label: "Python (OpenAI SDK)" },
+  { value: "javascript", label: "JavaScript (OpenAI SDK)" },
 ];
 
 const SAMPLE_OPERATIONS: {
@@ -85,12 +85,18 @@ export function buildQuickStartSample(opts: {
     // The cURL branch hits the per-operation URL directly; SDK base
     // URL derivation is *not* needed here, so don't pay for the URL
     // parse on every keystroke just to throw the result away.
+    //
+    // Quoting style matches `docs/studio/endpoints.mdx`: `-H` uses
+    // double quotes (so a user can drop a shell variable like
+    // `$ARK_KEY` in for the bearer token without re-quoting), and `-d`
+    // uses single quotes so the JSON body's double-quoted keys don't
+    // need shell-escaping.
     const lines = [
       `curl -X POST ${endpointUrl} \\`,
-      `  -H 'Content-Type: application/json' \\`,
+      `  -H "Content-Type: application/json" \\`,
     ];
     if (requiresAuth) {
-      lines.push(`  -H 'Authorization: Bearer YOUR_API_KEY' \\`);
+      lines.push(`  -H "Authorization: Bearer YOUR_API_KEY" \\`);
     }
     lines.push(
       `  -d '{"model":"ignored","messages":[{"role":"user","content":"${SAMPLE_PROMPT}"}]}'`,

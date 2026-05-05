@@ -30,6 +30,24 @@ describe("buildQuickStartSample — cURL", () => {
     expect(out).toContain('"model":"ignored"');
   });
 
+  it("uses double quotes for -H and single quotes for -d (matches docs/studio/endpoints.mdx)", () => {
+    // Quoting style is consistent with the canonical docs sample so a
+    // user who copies one and pastes the other doesn't end up with
+    // mixed conventions. Double-quoted `-H` lets the user drop a shell
+    // variable (`$ARK_KEY`) in for the bearer token without
+    // re-quoting; single-quoted `-d` keeps the JSON body's
+    // double-quoted keys from needing shell-escaping.
+    const out = buildQuickStartSample({
+      language: "curl",
+      operation: "chat",
+      endpointUrl: ENDPOINT_URL,
+      authMode: "fixed_api_key",
+    });
+    expect(out).toContain(`-H "Content-Type: application/json"`);
+    expect(out).toContain(`-H "Authorization: Bearer YOUR_API_KEY"`);
+    expect(out).toContain(`-d '{"model":"ignored"`);
+  });
+
   it("omits the Authorization header when authMode is none (per the task spec)", () => {
     // The Runpod-style Quick Start renders the api-key line only when
     // the endpoint actually enforces it. For an open deployment the
