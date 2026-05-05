@@ -55,6 +55,18 @@ export function RunTraining() {
   // `Timeout` object — explicit `number` so TS doesn't pick up the
   // Node typing from the global `setTimeout`.
   const hotSwapTimerRef = useRef<number | null>(null);
+  // SSE events that arrived during the startup window — after `run()`
+  // set `runningRef.current = true` but before `streamTraining`'s
+  // `onSpawn` populated `currentPidRef`. The per-pid filter would
+  // otherwise drop any HMR dispatch landing in this window because
+  // `myPid === null`, leaving the user on stale code: a config-
+  // changing rebuild fires immediately after the Run click → server
+  // SIGTERMs the just-started child → exit reaches us → no auto-
+  // restart latch. Buffer here, drain in `onSpawn` once we know our
+  // pid so the per-pid decision can run retroactively. Cleared in
+  // `run()`'s `finally` (and on unmount) so a failed spawn doesn't
+  // leak entries into the next run.
+  const pendingPreSpawnEventsRef = useRef<DevEvent[]>([]);
   // Tracks "is this React tree still mounted?". The HMR auto-restart
   // path schedules `queueMicrotask(() => run(...))` after the prior
   // run's `finally` — without this gate, navigating away during the
@@ -71,6 +83,7 @@ export function RunTraining() {
       // edits to React's effect ordering, future refactors), it
       // still finds nothing pending.
       restartPendingRef.current = false;
+      pendingPreSpawnEventsRef.current = [];
       trainingAbortRef.current?.abort();
       if (hotSwapTimerRef.current !== null) {
         clearTimeout(hotSwapTimerRef.current);
@@ -161,6 +174,14 @@ export function RunTraining() {
       // *my* child land in this bucket?" so a tab whose run was
       // hot-swapped doesn't latch onto a sibling tab's restart.
       const myPid = currentPidRef.current;
+      // Pre-spawn race: if we've started a run but `onSpawn` hasn't
+      // populated our pid yet, the dispatch result for our own child
+      // would be silently ignored. Stash the payload and let
+      // `onSpawn` re-run the per-pid decision once the pid arrives.
+      if (myPid === null && runningRef.current) {
+        pendingPreSpawnEventsRef.current.push(payload);
+        return;
+      }
       const myRestart =
         runningRef.current &&
         myPid !== null &&
@@ -240,6 +261,38 @@ export function RunTraining() {
           // "restarting" specifically — "early-stopping" / "hot-
           // swapped" should land via their own state transitions.
           setHmrStatus((s) => (s === "restarting" ? "idle" : s));
+          // Drain any HMR events that landed in the pre-spawn race
+          // window. Apply the same per-pid decision retroactively now
+          // that the pid is known. Restart wins over hot-swap (a
+          // stale child got SIGTERM'd → must re-spawn), so collapse
+          // the buffer's findings into a single decision rather than
+          // dispatching every buffered event verbatim.
+          const buffered = pendingPreSpawnEventsRef.current;
+          pendingPreSpawnEventsRef.current = [];
+          let restartHit = false;
+          let hotSwapHit = false;
+          for (const ev of buffered) {
+            if (ev.restartTargets?.some((t) => t.pid === pid)) {
+              restartHit = true;
+              break;
+            }
+            if (ev.hotSwapTargets?.some((t) => t.pid === pid)) {
+              hotSwapHit = true;
+            }
+          }
+          if (restartHit) {
+            restartPendingRef.current = true;
+            setHmrStatus("early-stopping");
+          } else if (hotSwapHit) {
+            setHmrStatus("hot-swapped");
+            if (hotSwapTimerRef.current !== null) {
+              clearTimeout(hotSwapTimerRef.current);
+            }
+            hotSwapTimerRef.current = window.setTimeout(() => {
+              setHmrStatus((s) => (s === "hot-swapped" ? "idle" : s));
+              hotSwapTimerRef.current = null;
+            }, 1500);
+          }
         },
       );
     } catch (err) {
@@ -255,6 +308,11 @@ export function RunTraining() {
     } finally {
       runningRef.current = false;
       currentPidRef.current = null;
+      // Drop any pre-spawn buffer entries that survived a failed
+      // run (spawn errored before `onSpawn` could drain). Without
+      // this they'd be carried into the next run and falsely match
+      // the new pid only by luck.
+      pendingPreSpawnEventsRef.current = [];
       if (trainingAbortRef.current === ac) trainingAbortRef.current = null;
       // Always release the running flag, including the user-initiated
       // abort path. setState on an already-unmounted component is a
