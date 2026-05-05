@@ -34,7 +34,7 @@ import {
 import { CopyButton } from "../components/ui/CopyButton";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
-import { Inbox } from "../components/icons";
+import { BookOpen, ExternalLink, Inbox, Sparkles } from "../components/icons";
 
 function describeTarget(target: DeploymentTarget): string {
   if (target.kind === "adapter") {
@@ -47,6 +47,222 @@ function describeTarget(target: DeploymentTarget): string {
 
 function deploymentUrl(slug: string): string {
   return `https://${slug}.arkor.app/v1/chat/completions`;
+}
+
+// ---------------------------------------------------------------------------
+// Quick start: language- and operation-keyed code samples.
+// ---------------------------------------------------------------------------
+//
+// `QuickStart` (below) renders a Runpod-style "click to copy a curl"
+// block on the endpoint detail page. The sample factory lives at module
+// scope so it can be unit-tested without rendering React.
+
+type SampleLanguage = "curl" | "python" | "javascript";
+type SampleOperation = "chat";
+
+const SAMPLE_LANGUAGES: { value: SampleLanguage; label: string }[] = [
+  { value: "curl", label: "cURL" },
+  { value: "python", label: "Python (openai SDK)" },
+  { value: "javascript", label: "JavaScript (openai SDK)" },
+];
+
+const SAMPLE_OPERATIONS: {
+  value: SampleOperation;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "chat",
+    label: "POST /v1/chat/completions",
+    description:
+      "Send a chat completion request. The body uses the OpenAI Chat Completions schema; `model` is ignored because the deployment pins the target adapter or base model.",
+  },
+];
+
+const SAMPLE_PROMPT = "Hello!";
+
+export function buildQuickStartSample(opts: {
+  language: SampleLanguage;
+  operation: SampleOperation;
+  endpointUrl: string;
+  authMode: DeploymentAuthMode;
+}): string {
+  const { language, endpointUrl, authMode } = opts;
+  // The dropdown only carries `chat` today, but the operation arg is
+  // kept so adding `embeddings` / `completions` later is just a new
+  // entry in `SAMPLE_OPERATIONS` and a new branch here.
+  // `endpointUrl` already targets `/v1/chat/completions`. For the
+  // OpenAI-SDK languages we strip the trailing path so the SDK's own
+  // routing applies.
+  const baseUrl = endpointUrl.replace(/\/v1\/chat\/completions$/, "/v1");
+  const requiresAuth = authMode === "fixed_api_key";
+  if (language === "curl") {
+    const lines = [
+      `curl -X POST ${endpointUrl} \\`,
+      `  -H 'Content-Type: application/json' \\`,
+    ];
+    if (requiresAuth) {
+      lines.push(`  -H 'Authorization: Bearer YOUR_API_KEY' \\`);
+    }
+    lines.push(
+      `  -d '{"model":"ignored","messages":[{"role":"user","content":"${SAMPLE_PROMPT}"}]}'`,
+    );
+    return lines.join("\n");
+  }
+  if (language === "python") {
+    const apiKeyLine = requiresAuth
+      ? `    api_key="YOUR_API_KEY",`
+      : `    # auth_mode=none on this deployment; the OpenAI SDK still\n    # requires a non-empty value but the server ignores it.\n    api_key="not-required",`;
+    return [
+      `from openai import OpenAI`,
+      ``,
+      `client = OpenAI(`,
+      `    base_url="${baseUrl}",`,
+      apiKeyLine,
+      `)`,
+      ``,
+      `response = client.chat.completions.create(`,
+      `    model="ignored",`,
+      `    messages=[{"role": "user", "content": "${SAMPLE_PROMPT}"}],`,
+      `)`,
+      `print(response.choices[0].message.content)`,
+    ].join("\n");
+  }
+  // javascript
+  const apiKeyLine = requiresAuth
+    ? `  apiKey: "YOUR_API_KEY",`
+    : `  // auth_mode=none on this deployment; the OpenAI SDK still\n  // requires a non-empty value but the server ignores it.\n  apiKey: "not-required",`;
+  return [
+    `import OpenAI from "openai";`,
+    ``,
+    `const client = new OpenAI({`,
+    `  baseURL: "${baseUrl}",`,
+    apiKeyLine,
+    `});`,
+    ``,
+    `const response = await client.chat.completions.create({`,
+    `  model: "ignored",`,
+    `  messages: [{ role: "user", content: "${SAMPLE_PROMPT}" }],`,
+    `});`,
+    `console.log(response.choices[0].message.content);`,
+  ].join("\n");
+}
+
+function QuickStart({
+  endpointUrl,
+  authMode,
+}: {
+  endpointUrl: string;
+  authMode: DeploymentAuthMode;
+}) {
+  const [language, setLanguage] = useState<SampleLanguage>("curl");
+  const [operation, setOperation] = useState<SampleOperation>("chat");
+  const [hidden, setHidden] = useState(false);
+
+  const sample = buildQuickStartSample({
+    language,
+    operation,
+    endpointUrl,
+    authMode,
+  });
+  const opMeta = SAMPLE_OPERATIONS.find((o) => o.value === operation);
+
+  return (
+    <Card>
+      <CardHeader
+        actions={
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setHidden((v) => !v)}
+            aria-expanded={!hidden}
+          >
+            {hidden ? "Show" : "Hide"}
+          </Button>
+        }
+      >
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+          <CardTitle>Quick start</CardTitle>
+        </div>
+        <CardDescription>
+          See examples of how to call this endpoint from your code.
+        </CardDescription>
+      </CardHeader>
+      {!hidden && (
+        <CardContent className="space-y-4">
+          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+            This deployment speaks the OpenAI Chat Completions wire format.
+            Point any OpenAI-compatible client at the URL above and it will
+            stream responses from the pinned model or adapter.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex flex-col gap-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              <span className="sr-only">Language</span>
+              <select
+                value={language}
+                onChange={(e) =>
+                  setLanguage(e.target.value as SampleLanguage)
+                }
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+                aria-label="Sample language"
+              >
+                {SAMPLE_LANGUAGES.map((l) => (
+                  <option key={l.value} value={l.value}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              <span className="sr-only">Operation</span>
+              <select
+                value={operation}
+                onChange={(e) =>
+                  setOperation(e.target.value as SampleOperation)
+                }
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+                aria-label="Operation"
+              >
+                {SAMPLE_OPERATIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {opMeta && (
+            <p className="text-sm text-zinc-700 dark:text-zinc-300">
+              {opMeta.description}
+            </p>
+          )}
+
+          <a
+            href="https://docs.arkor.ai/studio/endpoints"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-teal-600 hover:underline dark:text-teal-400"
+          >
+            <BookOpen className="h-4 w-4" />
+            Endpoints documentation
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+
+          <div className="relative rounded-lg bg-zinc-50 dark:bg-zinc-900">
+            <pre className="overflow-x-auto px-3 py-3 pr-12 font-mono text-xs leading-relaxed text-zinc-800 dark:text-zinc-200">
+              <code>{sample}</code>
+            </pre>
+            <div className="absolute right-2 top-2">
+              <CopyButton value={sample} />
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
 }
 
 function asMessage(err: unknown): string {
@@ -946,6 +1162,8 @@ export function EndpointDetail({ id }: { id: string }) {
           </div>
         </CardContent>
       </Card>
+
+      <QuickStart endpointUrl={url} authMode={deployment.authMode} />
 
       <Card>
         <CardHeader
