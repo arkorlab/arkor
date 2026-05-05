@@ -103,18 +103,20 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       // observable right after the handler returns" for sync
       // cleanups like `unlinkSync` (and the existing tests that
       // assert on it).
-      const my = run();
+      run();
       detach();
       if (!options.exitOnSignal) return;
-      // Wait for THIS hook's tail and every other in-flight cleanup
-      // (siblings registered in the same process) before exiting.
-      // Settled promises pass through Promise.allSettled in a single
-      // microtask, so a process whose hooks are all synchronous
-      // exits effectively immediately.
-      void Promise.allSettled([
-        my,
-        ...inFlightCleanups,
-      ]).then(() => process.exit(0));
+      // Wait for every in-flight cleanup (this hook's tail + any
+      // siblings registered in the same process) before exiting.
+      // The promise this hook's `run()` just produced is already in
+      // `inFlightCleanups` (added inside `run()` itself), so the
+      // spread captures it without us needing to also push the
+      // returned value separately. Settled promises pass through
+      // Promise.allSettled in a single microtask, so a process whose
+      // hooks are all synchronous exits effectively immediately.
+      void Promise.allSettled([...inFlightCleanups]).then(() =>
+        process.exit(0),
+      );
     });
   }
 
