@@ -488,6 +488,31 @@ export function buildStudioApp(options: StudioServerOptions) {
     // headers through verbatim, and we want browser callers to see
     // the same warnings here.
     let deprecationNotice: import("../core/deprecation").DeprecationNotice | null = null;
+
+    /**
+     * Build a JSON Response with the upstream deprecation headers
+     * re-emitted onto it, so browser callers can surface the same
+     * sunset / upgrade warnings the cloud-api raised. Mirrors the
+     * passthrough that `/api/jobs` and `/api/inference/chat` get for
+     * free by virtue of streaming the upstream Response straight
+     * through. Hoisted to the top of the handler body so the
+     * setup-side error returns below can also forward any deprecation
+     * captured during `ensureProjectState()` — without this, a 4xx /
+     * 5xx during bootstrap would silently drop a sunset notice the
+     * cloud-api just raised.
+     */
+    function jsonWithDeprecation(body: unknown, status: number): Response {
+      const headers = new Headers({ "content-type": "application/json" });
+      if (deprecationNotice) {
+        headers.set("Deprecation", "true");
+        // Match the cloud-api wire shape (RFC 7234 `Warning: 299 - "…"`).
+        headers.set("Warning", `299 - "${deprecationNotice.message}"`);
+        if (deprecationNotice.sunset) {
+          headers.set("Sunset", deprecationNotice.sunset);
+        }
+      }
+      return new Response(JSON.stringify(body), { status, headers });
+    }
     try {
       credentials = await getCredentials();
       client = new CloudApiClient({
@@ -542,13 +567,14 @@ export function buildStudioApp(options: StudioServerOptions) {
       // already user-facing copy ("Slug already taken", auth issues,
       // etc.). Forward it with the original status so the SPA can show
       // an actionable message instead of a generic "Studio backend
-      // unavailable" envelope. This mirrors the handler-side catch
-      // below.
+      // unavailable" envelope. Route it through `jsonWithDeprecation`
+      // so any `Deprecation` / `Warning` / `Sunset` headers the
+      // bootstrap upstream emitted alongside its 4xx / 5xx still
+      // surface to the SPA — `/api/jobs` and friends pass these
+      // through verbatim, and we want the deployment proxy's failure
+      // path to match. This mirrors the handler-side catch below.
       if (err instanceof CloudApiError) {
-        return new Response(JSON.stringify({ error: err.message }), {
-          status: err.status,
-          headers: { "content-type": "application/json" },
-        });
+        return jsonWithDeprecation({ error: err.message }, err.status);
       }
       // The "no credentials on file" guard from `getCredentials()` is a
       // recoverable setup problem (the operator just needs to log in or
@@ -562,40 +588,17 @@ export function buildStudioApp(options: StudioServerOptions) {
         err instanceof Error &&
         err.message.startsWith("No credentials on file")
       ) {
-        return new Response(JSON.stringify({ error: err.message }), {
-          status: 401,
-          headers: { "content-type": "application/json" },
-        });
+        return jsonWithDeprecation({ error: err.message }, 401);
       }
       // Local-side failures (anonymous-token bootstrap, FS error) can
       // leak filesystem paths and internal endpoint hostnames in
       // `err.message` / stack. Log full detail for the operator and
       // return an opaque 500 to the SPA.
       console.error("[studio] withDeploymentClient setup failed:", err);
-      return new Response(
-        JSON.stringify({ error: "Studio backend unavailable" }),
-        { status: 500, headers: { "content-type": "application/json" } },
+      return jsonWithDeprecation(
+        { error: "Studio backend unavailable" },
+        500,
       );
-    }
-    /**
-     * Build a JSON Response with the upstream deprecation headers
-     * re-emitted onto it, so browser callers can surface the same
-     * sunset / upgrade warnings the cloud-api raised. Mirrors the
-     * passthrough that `/api/jobs` and `/api/inference/chat` get for
-     * free by virtue of streaming the upstream Response straight
-     * through.
-     */
-    function jsonWithDeprecation(body: unknown, status: number): Response {
-      const headers = new Headers({ "content-type": "application/json" });
-      if (deprecationNotice) {
-        headers.set("Deprecation", "true");
-        // Match the cloud-api wire shape (RFC 7234 `Warning: 299 - "…"`).
-        headers.set("Warning", `299 - "${deprecationNotice.message}"`);
-        if (deprecationNotice.sunset) {
-          headers.set("Sunset", deprecationNotice.sunset);
-        }
-      }
-      return new Response(JSON.stringify(body), { status, headers });
     }
 
     try {
