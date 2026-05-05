@@ -22,6 +22,11 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
     <div id="hosted-inference-endpoint" />
     Surface a stable HTTPS endpoint URL for each fine-tuned model so you can call it from your product without going through the SDK.
   </Card>
+
+  <Card title="Bring your own dataset (JSONL)" icon="file-lines" href="/sdk/dataset">
+    <div id="jsonl-dataset" />
+    Upload a local JSONL file as the training dataset, alongside the existing HuggingFace name and blob URL paths.
+  </Card>
 </CardGroup>
 
 ## Up next
@@ -30,11 +35,6 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
   <Card title="Auth0 token auto-refresh" icon="key" href="/cli/auth">
     <div id="auth0-token-auto-refresh" />
     Silent refresh on expiry, so long-running sessions stop getting interrupted by re-login.
-  </Card>
-
-  <Card title="Bring your own dataset (JSONL)" icon="file-lines" href="/sdk/dataset">
-    <div id="jsonl-dataset" />
-    Upload a local JSONL file as the training dataset, alongside the existing HuggingFace name and blob URL paths.
   </Card>
 
   <Card title="Train on a local GPU" icon="microchip" href="/sdk/create-trainer">
