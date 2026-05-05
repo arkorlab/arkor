@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { type DeploymentAuthMode } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import {
@@ -29,16 +29,29 @@ const SAMPLE_LANGUAGES: { value: SampleLanguage; label: string }[] = [
   { value: "javascript", label: "JavaScript (OpenAI SDK)" },
 ];
 
+// `description` is a `ReactNode` rather than a plain string so we can
+// render real `<code>` elements inline. The earlier shape used
+// Markdown-style backticks in the string and rendered with
+// `{opMeta.description}`, which surfaced literal backticks in the UI.
 const SAMPLE_OPERATIONS: {
   value: SampleOperation;
   label: string;
-  description: string;
+  description: ReactNode;
 }[] = [
   {
     value: "chat",
     label: "POST /v1/chat/completions",
-    description:
-      "Send a chat completion request. The body uses the OpenAI Chat Completions schema; `model` is ignored because the deployment pins the target adapter or base model.",
+    description: (
+      <>
+        Send a chat completion request. The body uses the OpenAI Chat
+        Completions schema;{" "}
+        <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+          model
+        </code>{" "}
+        is ignored because the deployment pins the target adapter or
+        base model.
+      </>
+    ),
   },
 ];
 
@@ -60,9 +73,11 @@ function deriveSdkBaseUrl(endpointUrl: string): string {
     parsed.pathname = "/v1";
     parsed.search = "";
     parsed.hash = "";
-    // `URL.toString()` re-appends the trailing slash; strip it so the
-    // OpenAI SDK doesn't see `/v1//chat/completions`.
-    return parsed.toString().replace(/\/$/, "");
+    // Setting `pathname` to a non-empty value ("/v1") makes
+    // `toString()` emit `https://host/v1` with no trailing slash —
+    // exactly the shape the OpenAI SDK expects, so no extra
+    // normalisation is needed here.
+    return parsed.toString();
   } catch {
     // Defensive: if `endpointUrl` is malformed for any reason, fall
     // back to a simple suffix-strip rather than crashing the SPA.
