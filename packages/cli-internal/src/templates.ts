@@ -140,7 +140,7 @@ npm install && npm run dev
 Anonymous tokens are designed for one machine. The cloud-api enforces
 a single-device guard server-side, so copying
 \`~/.arkor/credentials.json\` to another device isn't a supported
-workflow — the issuing machine and the copy share one identity, and
+workflow. The issuing machine and the copy share one identity, and
 once either side forces a token rotation (today: a manual
 \`arkor login --anonymous\`; future: any auto-refresh) the other side
 starts failing with a single-device error on its next call. When
@@ -151,9 +151,16 @@ devices, run:
 npx arkor login --oauth
 \`\`\`
 
-The OAuth flow starts a *new* identity — existing anonymous work cannot
-be migrated, so future work created after sign-in is what ends up under
+The OAuth flow starts a *new* identity. Existing anonymous work cannot
+be migrated, so any work you create after sign-in is what ends up under
 the account.
+
+\`arkor login --oauth\` does not automatically reroute commands in an
+existing project directory: \`.arkor/state.json\` still pins this
+directory to the original anonymous \`(orgSlug, projectSlug)\`. Reset
+local state with \`rm -rf .arkor/state.json\` and run
+\`npx arkor init\` to bootstrap a project under the new OAuth
+account, or work from a fresh directory.
 
 CLI-only flow (no GUI):
 

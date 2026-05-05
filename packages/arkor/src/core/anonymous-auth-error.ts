@@ -60,7 +60,20 @@ export interface FormatAnonymousAuthErrorContext {
  * - `anonymous_account_not_found`: the `anonymous_users` row is gone
  *   (admin / cascade / explicit revocation). Token can't be salvaged;
  *   user has to either sign up (OAuth) or start fresh as anon.
+ *
+ * Every recovery branch ends with a STATE_RESET_NOTE because
+ * re-issuing credentials alone is not sufficient: `ensureProjectState`
+ * (`packages/arkor/src/core/projectState.ts`) reuses any existing
+ * `.arkor/state.json` unchanged, so a project directory left over
+ * from the now-defunct workspace would keep targeting the old
+ * `(orgSlug, projectSlug)` and either 401 again or quietly write
+ * into a workspace the user can't access. Telling users to delete
+ * the state file (or run `arkor init` for OAuth) is what actually
+ * closes the loop.
  */
+const STATE_RESET_NOTE =
+  "Local project state pins the working directory to the old workspace. Delete `.arkor/state.json` (or, for an OAuth account, re-run `arkor init`) before resuming work in this directory, otherwise commands here will keep targeting the previous identity's org/project.";
+
 export function formatAnonymousAuthError(
   err: unknown,
   ctx: FormatAnonymousAuthErrorContext = {},
@@ -96,6 +109,8 @@ export function formatAnonymousAuthError(
           "Anonymous accounts only work on one machine. Re-mint anonymous credentials to continue here (this CI environment can't run the OAuth browser flow; for a multi-device account, run `arkor login --oauth` from a developer machine):",
           "",
           "  arkor login --anonymous",
+          "",
+          STATE_RESET_NOTE,
         ].join("\n");
       }
       return [
@@ -103,6 +118,8 @@ export function formatAnonymousAuthError(
         "Anonymous accounts only work on one machine. Sign up for an account that supports multiple devices:",
         "",
         "  arkor login --oauth",
+        "",
+        STATE_RESET_NOTE,
       ].join("\n");
     }
     if (ctx.oauthAvailable === false) {
@@ -111,6 +128,8 @@ export function formatAnonymousAuthError(
         "Anonymous accounts only work on one machine. This deployment does not advertise OAuth, so the only recovery is to mint a new anonymous identity (your previous workspace data cannot be recovered):",
         "",
         "  arkor login --anonymous",
+        "",
+        STATE_RESET_NOTE,
       ].join("\n");
     }
     return [
@@ -118,6 +137,8 @@ export function formatAnonymousAuthError(
       "Anonymous accounts only work on one machine.",
       "",
       ...unknownTail,
+      "",
+      STATE_RESET_NOTE,
     ].join("\n");
   }
   if (err.code === ANONYMOUS_ACCOUNT_NOT_FOUND) {
@@ -128,6 +149,8 @@ export function formatAnonymousAuthError(
           "Mint a new anonymous identity to continue here (this CI environment can't run the OAuth browser flow; for a multi-device account, run `arkor login --oauth` from a developer machine):",
           "",
           "  arkor login --anonymous",
+          "",
+          STATE_RESET_NOTE,
         ].join("\n");
       }
       return [
@@ -135,6 +158,8 @@ export function formatAnonymousAuthError(
         "Sign up to continue:",
         "",
         "  arkor login --oauth",
+        "",
+        STATE_RESET_NOTE,
       ].join("\n");
     }
     if (ctx.oauthAvailable === false) {
@@ -143,12 +168,16 @@ export function formatAnonymousAuthError(
         "Mint a new anonymous identity to continue (your previous workspace data cannot be recovered):",
         "",
         "  arkor login --anonymous",
+        "",
+        STATE_RESET_NOTE,
       ].join("\n");
     }
     return [
       "Your anonymous credentials are no longer valid.",
       "",
       ...unknownTail,
+      "",
+      STATE_RESET_NOTE,
     ].join("\n");
   }
   return null;

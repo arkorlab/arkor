@@ -48,10 +48,19 @@ describe("formatAnonymousAuthError", () => {
       );
       expect(out).not.toBeNull();
       expect(out!).toMatch(/single-device/);
-      // Must direct at the OAuth flow specifically — `arkor login`
+      // Must direct at the OAuth flow specifically. `arkor login`
       // alone would launch an interactive picker that defaults to
-      // Anonymous and would just re-issue another single-device token.
+      // Anonymous and would just re-issue another single-device
+      // token.
       expect(out!).toMatch(/arkor login --oauth/);
+      // Re-issuing credentials alone isn't enough: ensureProjectState
+      // reuses any pre-existing `.arkor/state.json` unchanged, so a
+      // working directory left over from the now-defunct workspace
+      // would keep targeting the old (orgSlug, projectSlug). The
+      // formatter has to tell users to reset that local state, or
+      // the recovery they just performed appears not to take
+      // effect.
+      expect(out!).toMatch(/\.arkor\/state\.json/);
     });
 
     it("falls back to `arkor login --anonymous` when OAuth is not available", () => {
@@ -67,6 +76,7 @@ describe("formatAnonymousAuthError", () => {
       expect(out!).toMatch(/single-device/);
       expect(out!).toMatch(/arkor login --anonymous/);
       expect(out!).not.toMatch(/arkor login --oauth/);
+      expect(out!).toMatch(/\.arkor\/state\.json/);
     });
 
     it("hedges with both commands when probe is inconclusive (oauthAvailable === undefined)", () => {

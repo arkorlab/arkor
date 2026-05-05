@@ -113,8 +113,16 @@ fresh login (or auto-refresh ships and rotates the stored jti), every
 CLI directs the user at `arkor login --oauth` to start a real
 account; on anon-only deployments it points at `arkor login
 --anonymous` instead, since `--oauth` would fail there. Either path
-is a *new* identity — there is no migration of the existing
-anonymous workspace today.
+is a *new* identity. Existing anonymous workspaces are not migrated
+today.
+
+Re-issuing credentials alone is not enough to resume work in an
+existing project directory: `.arkor/state.json` still pins the
+directory to the previous `(orgSlug, projectSlug)`, so commands here
+will keep targeting the now-defunct workspace until the state file
+is reset. Delete `.arkor/state.json` before re-running anonymous
+flows, or run `arkor init` to bootstrap a fresh project under the
+OAuth account.
 
 Anonymous data isn't recoverable across re-issuance: deleting the
 credentials file or losing the single-device race means the org and
