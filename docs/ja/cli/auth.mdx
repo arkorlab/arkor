@@ -5,7 +5,7 @@ description: "Arkor のマネージドバックエンドにサインインまた
 
 # `arkor login`、`arkor logout`、`arkor whoami`
 
-`~/.arkor/credentials.json` を読み書きするだけの 3 つの短いコマンドです。いずれも `.arkor/state.json` には触りません。匿名ワークスペースでは、初回 `trainer.start()`（または初回推論呼び出し）でランタイムがプロジェクトルーティングを自動作成します。OAuth ワークスペースでは学習の前に `.arkor/state.json` が存在している必要があります。今のところ `arkor login` も `arkor init` もこれを作らないので、現実的なパスは `{ orgSlug, projectSlug, projectId }` を手で書くことです。状態ファイルが無くてランタイムがエラーを返すと、このフォールバックを案内します。
+`~/.arkor/credentials.json` を読み書きするだけの 3 つの短いコマンドです。いずれも `.arkor/state.json` には触りません。匿名ワークスペースでは、スコープを必要とする最初の呼び出し（`trainer.start()`、ベースモデル推論、Studio の [Endpoints](/ja/studio/endpoints) ページからの初回 `*.arkor.app` deployment 作成）でランタイムがプロジェクトルーティングを自動作成します。OAuth ワークスペースではこれらの呼び出しの前に `.arkor/state.json` が存在している必要があります。今のところ `arkor login` も `arkor init` もこれを作らないので、現実的なパスは `{ orgSlug, projectSlug, projectId }` を手で書くことです。状態ファイルが無くてランタイムがエラーを返すと、このフォールバックを案内します。
 
 ## `arkor login`
 
