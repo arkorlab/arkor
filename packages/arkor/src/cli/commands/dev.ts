@@ -205,11 +205,21 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   const studioToken = randomBytes(32).toString("base64url");
 
   // HMR coordinator: a long-lived rolldown watcher over the user's
-  // `src/arkor` graph. Lazy-started on first `/api/dev/events` connection so
-  // an `arkor dev` launched in an unbuilt project doesn't immediately fail.
-  // Registered before the studio-token cleanup so the latter remains the
-  // most-recently-attached signal listener (existing tests rely on this
-  // ordering to find the token-removal handler).
+  // `src/arkor` graph. The coordinator itself is lazy (`subscribe()`
+  // is what starts the watcher, not `createHmrCoordinator`), but
+  // `buildStudioApp` registers its per-rebuild signal-dispatch
+  // subscriber unconditionally — that subscriber needs to run on
+  // every BUNDLE_END regardless of whether any SSE client is
+  // connected, so it can SIGUSR2/SIGTERM active `/api/train`
+  // children and keep `lastSuccessConfigHash` warm for spawn-time
+  // capture. Net effect: the watcher starts at server boot. An
+  // `arkor dev` launched in an unbuilt project doesn't fail immediately
+  // because `startWatcher` falls through to a poll loop that waits
+  // for the entry file to appear (see `hmr.ts:entryWaitTimer`).
+  //
+  // Registered before the studio-token cleanup so the latter remains
+  // the most-recently-attached signal listener (existing tests rely
+  // on this ordering to find the token-removal handler).
   const hmr = createHmrCoordinator({ cwd: process.cwd() });
   scheduleHmrCleanup(hmr);
 
