@@ -149,6 +149,12 @@ export function buildQuickStartSample(opts: {
     ].join("\n");
   }
   // javascript
+  // Wrap the `await` in an `async function main()` rather than relying
+  // on top-level await: TLA only works under ESM / Node ≥ 14.8 with
+  // `"type": "module"`, and pasting a TLA snippet into a stock
+  // CommonJS script (the dominant Node setup users actually copy
+  // into) is a hard `SyntaxError`. The function form runs unchanged in
+  // both module systems.
   const apiKeyLine = requiresAuth
     ? `  apiKey: "YOUR_API_KEY",`
     : `  // auth_mode=none on this deployment; the OpenAI SDK still\n  // requires a non-empty value but the server ignores it.\n  apiKey: "not-required",`;
@@ -160,11 +166,15 @@ export function buildQuickStartSample(opts: {
     apiKeyLine,
     `});`,
     ``,
-    `const response = await client.chat.completions.create({`,
-    `  model: "ignored",`,
-    `  messages: [{ role: "user", content: "${SAMPLE_PROMPT}" }],`,
-    `});`,
-    `console.log(response.choices[0].message.content);`,
+    `async function main() {`,
+    `  const response = await client.chat.completions.create({`,
+    `    model: "ignored",`,
+    `    messages: [{ role: "user", content: "${SAMPLE_PROMPT}" }],`,
+    `  });`,
+    `  console.log(response.choices[0].message.content);`,
+    `}`,
+    ``,
+    `main();`,
   ].join("\n");
 }
 

@@ -97,6 +97,29 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
     expect(out).toContain('apiKey: "not-required"');
     expect(out).not.toContain("YOUR_API_KEY");
   });
+
+  it("wraps `await` in an async function instead of using top-level await", () => {
+    // TLA is a hard `SyntaxError` in CommonJS scripts and in any non-
+    // module-aware paste target (REPL, scratch file without
+    // `"type": "module"`, etc.). The sample is meant to be ready to
+    // copy into the dominant Node setup, so the await needs a
+    // function wrapper that runs in both module systems.
+    const out = buildQuickStartSample({
+      language: "javascript",
+      operation: "chat",
+      endpointUrl: URL,
+      authMode: "fixed_api_key",
+    });
+    expect(out).toContain("async function main()");
+    expect(out).toContain("main();");
+    // Defensive: catch a future regression that re-introduces TLA.
+    // The only `await` in the sample MUST live inside `async function
+    // main()` — i.e. it must come *after* the wrapper line.
+    const wrapperIdx = out.indexOf("async function main()");
+    const awaitIdx = out.indexOf("await ");
+    expect(wrapperIdx).toBeGreaterThan(-1);
+    expect(awaitIdx).toBeGreaterThan(wrapperIdx);
+  });
 });
 
 describe("buildQuickStartSample — base URL derivation", () => {
