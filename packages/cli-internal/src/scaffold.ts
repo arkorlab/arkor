@@ -100,7 +100,7 @@ const GITIGNORE_PATH = ".gitignore";
 const PACKAGE_JSON_PATH = "package.json";
 const YARNRC_YML_PATH = ".yarnrc.yml";
 const PNPM_WORKSPACE_PATH = "pnpm-workspace.yaml";
-const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.8";
+const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.9";
 
 // pnpm 11 errors out (`ERR_PNPM_IGNORED_BUILDS`, exit 1) on packages
 // with postinstall scripts unless the project either approves or
