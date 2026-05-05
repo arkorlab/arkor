@@ -40,12 +40,12 @@ const EMPTY: ManifestSummary = { trainer: null, configHash: null };
 export async function summariseBuiltManifest(
   outFile: string,
 ): Promise<ManifestSummary> {
-  // mtime+size cache-bust (vs `Date.now()`): the SPA polls
+  // mtime+ctime+size cache-bust (vs `Date.now()`): the SPA polls
   // `/api/manifest` every ~5 s, so a `Date.now()` suffix would
   // accumulate one ESM module record per poll across a long
   // `arkor dev` session — Node's loader has no eviction. Keying on
-  // the artefact bytes collapses unchanged-poll reads onto the
-  // existing record.
+  // the artefact bytes (via `moduleCacheBustUrl`) collapses
+  // unchanged-poll reads onto the existing record.
   const mod = (await import(moduleCacheBustUrl(outFile))) as Record<
     string,
     unknown

@@ -240,10 +240,10 @@ describe("createHmrCoordinator", () => {
       // routinely emits a 4th BUNDLE_END after the explicit edits
       // settle, producing a slightly different output byte (a
       // change in the bundled comment header is enough to bump
-      // mtime + size).
+      // mtime + ctime + size).
       await waitForStableEvents(events, 750);
       const stat = statSync(join(cwd, ".arkor/build/index.mjs"));
-      const expectedHash = `${stat.mtimeMs.toFixed(0)}-${stat.size}`;
+      const expectedHash = `${stat.mtimeMs}-${stat.ctimeMs}-${stat.size}`;
       expect(events[events.length - 1]?.hash).toBe(expectedHash);
     } finally {
       await hmr.dispose();

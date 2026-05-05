@@ -16,8 +16,9 @@ export interface HmrEvent {
   type: HmrEventType;
   outFile?: string;
   /**
-   * Short fingerprint of the bundle artefact (mtime + size). Subscribers
-   * use this to dedupe replays of the same successful build.
+   * Short fingerprint of the bundle artefact (mtime + ctime + size,
+   * mirroring `core/moduleCacheBust.ts`'s key shape). Subscribers use
+   * this to dedupe replays of the same successful build.
    */
   hash?: string;
   /**
@@ -57,8 +58,19 @@ export type HmrOptions = BuildEntryOptions;
 function fingerprint(outFile: string): string {
   try {
     const s = statSync(outFile);
-    return `${s.mtimeMs.toFixed(0)}-${s.size}`;
+    // Mirrors `moduleCacheBustKey`'s success-branch shape so the
+    // broadcast hash and the import URL move together — and so two
+    // distinct edits within the same millisecond that produce
+    // identically-sized output don't collide and silently dedup at
+    // the SPA layer. `ctimeMs` is the belt-and-braces guard for the
+    // (rare) `touch -m`-style case where mtime stays put.
+    return `${s.mtimeMs}-${s.ctimeMs}-${s.size}`;
   } catch {
+    // Different fallback than `moduleCacheBustKey`'s "0-0-0": that
+    // helper is for a URL query where the eventual `import()` is
+    // expected to surface its own missing-file error, but here a
+    // stable literal would let SPA dedup swallow genuinely-fresh
+    // events when stat racily fails. Force a unique value instead.
     return Date.now().toString(36);
   }
 }
@@ -80,23 +92,25 @@ type InspectionResult = {
  * null` and the SPA would unnecessarily SIGTERM-restart on every
  * rebuild.
  *
- * Cache-bust by file mtime+size rather than `Date.now()`:
+ * Cache-bust by file mtime+ctime+size (via `moduleCacheBustUrl`)
+ * rather than `Date.now()`:
  *
  *   - Node's ESM loader caches every dynamically-imported URL for the
  *     lifetime of the process and never evicts. A `?t=Date.now()`
  *     suffix produces a unique URL per call, so a long `arkor dev`
  *     session would accumulate one module record per BUNDLE_END —
  *     unbounded memory growth.
- *   - Mtime+size keys the cache to "the actual bytes in this file",
- *     so spurious watcher events that don't change content reuse the
- *     prior module record. The leak shrinks from "one entry per
- *     keystroke" to "one entry per actual rebuild", which for a
- *     realistic dev session (hundreds of saves over hours) is bounded
- *     by the number of distinct file states the user produces — and
- *     that's fundamentally what HMR has to track to surface up-to-
- *     date trainer state. There's no public Node API for evicting an
- *     ESM module record, so this is the tightest bound we can offer
- *     without spawning a child process per inspection.
+ *   - The composite key (`mtimeMs-ctimeMs-size`) keys the cache to
+ *     "the actual bytes in this file", so spurious watcher events
+ *     that don't change content reuse the prior module record. The
+ *     leak shrinks from "one entry per keystroke" to "one entry per
+ *     actual rebuild", which for a realistic dev session (hundreds
+ *     of saves over hours) is bounded by the number of distinct file
+ *     states the user produces — and that's fundamentally what HMR
+ *     has to track to surface up-to-date trainer state. There's no
+ *     public Node API for evicting an ESM module record, so this is
+ *     the tightest bound we can offer without spawning a child
+ *     process per inspection.
  *
  * Best-effort: a missing/malformed manifest or a thrown user
  * constructor returns `null` and the caller treats the rebuild as

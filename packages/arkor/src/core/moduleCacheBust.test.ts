@@ -24,7 +24,7 @@ describe("moduleCacheBustKey", () => {
     // a `Date.now()` cache-bust would produce a fresh URL on every
     // call → unbounded leak across long `arkor dev` sessions
     // (5 s `/api/manifest` polls + every save firing SIGUSR2).
-    // mtime+size keying must collapse repeat reads of unchanged
+    // mtime+ctime+size keying must collapse repeat reads of unchanged
     // bytes onto the same key so the loader serves from cache.
     const file = join(dir, "stable.mjs");
     writeFileSync(file, "export const v = 1;");
