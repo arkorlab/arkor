@@ -67,6 +67,22 @@ export function RunTraining() {
   // `run()`'s `finally` (and on unmount) so a failed spawn doesn't
   // leak entries into the next run.
   const pendingPreSpawnEventsRef = useRef<DevEvent[]>([]);
+  // Grace window after the train stream closes during which the SSE
+  // handler can still latch a *late* restart event onto our just-
+  // exited child. The `/api/train` stream and `/api/dev/events` SSE
+  // are independent connections — under the race where the child
+  // exits before the matching `rebuild` event lands on the SSE
+  // channel (fast child exit, network jitter), `run()`'s finally
+  // would synchronously settle "no restart" and the user would be
+  // left on stale code despite the server-side SIGTERM. This timer
+  // defers the no-restart decision and keeps `currentPidRef` set so
+  // the SSE handler can still match per-pid; if the late event
+  // arrives within the window it sets `restartPendingRef` and the
+  // timer's callback fires the auto-restart from there. The window
+  // is short (a few hundred ms) — well under user perception for
+  // the no-restart outcome but long enough to absorb realistic
+  // cross-connection delivery skew.
+  const restartGraceTimerRef = useRef<number | null>(null);
   // Tracks "is this React tree still mounted?". The HMR auto-restart
   // path schedules `queueMicrotask(() => run(...))` after the prior
   // run's `finally` — without this gate, navigating away during the
@@ -88,6 +104,10 @@ export function RunTraining() {
       if (hotSwapTimerRef.current !== null) {
         clearTimeout(hotSwapTimerRef.current);
         hotSwapTimerRef.current = null;
+      }
+      if (restartGraceTimerRef.current !== null) {
+        clearTimeout(restartGraceTimerRef.current);
+        restartGraceTimerRef.current = null;
       }
     };
   }, []);
@@ -182,8 +202,18 @@ export function RunTraining() {
         pendingPreSpawnEventsRef.current.push(payload);
         return;
       }
+      // Don't gate `myRestart` on `runningRef.current`: the
+      // `/api/train` stream and `/api/dev/events` SSE channel are
+      // independent connections, so a fast child exit can race the
+      // SSE delivery and flip `runningRef` to false JUST BEFORE the
+      // matching `rebuild` event lands here. Per-pid filtering via
+      // `currentPidRef` is what scopes the latch to *this tab's*
+      // child; `run()`'s finally keeps `currentPidRef` set during a
+      // brief grace window after the train stream closes for
+      // exactly this reason. Without dropping the `runningRef`
+      // gate, post-exit restart events would silently no-op and
+      // leave the tab on stale code.
       const myRestart =
-        runningRef.current &&
         myPid !== null &&
         (payload.restartTargets?.some((t) => t.pid === myPid) ?? false);
       const myHotSwap =
@@ -307,7 +337,14 @@ export function RunTraining() {
       );
     } finally {
       runningRef.current = false;
-      currentPidRef.current = null;
+      // DO NOT null `currentPidRef` here — the SSE handler needs to
+      // be able to match per-pid during the post-exit grace window
+      // below to catch a `rebuild` event that races behind the
+      // train stream's close on the separate connection. Captured
+      // here so the grace timer can detect "a new run started
+      // during the window" by comparing the current ref against
+      // `pidAtExit` and skipping its cleanup in that case.
+      const pidAtExit = currentPidRef.current;
       // Drop any pre-spawn buffer entries that survived a failed
       // run (spawn errored before `onSpawn` could drain). Without
       // this they'd be carried into the next run and falsely match
@@ -318,12 +355,27 @@ export function RunTraining() {
       // abort path. setState on an already-unmounted component is a
       // no-op in React 18+, so the unmount-cleanup case handles itself.
       setRunning(false);
-      if (restartPendingRef.current && !ac.signal.aborted) {
-        // HMR-driven auto-restart: the dev loop SIGTERM'd the previous
-        // run because the rebuild changed cloud-side config. Re-spawn
-        // with the same args after a microtask so React commits the
-        // `running=false` state first (otherwise the re-entry overlaps).
+
+      if (ac.signal.aborted) {
+        // User Stop wins over any pending or in-flight HMR restart —
+        // clear everything synchronously and skip the grace window
+        // so the tab really settles instead of bouncing back up.
         restartPendingRef.current = false;
+        currentPidRef.current = null;
+        setHmrStatus("idle");
+        if (restartGraceTimerRef.current !== null) {
+          clearTimeout(restartGraceTimerRef.current);
+          restartGraceTimerRef.current = null;
+        }
+        return;
+      }
+
+      if (restartPendingRef.current) {
+        // Fast path: SSE event already landed before exit. Fire the
+        // restart synchronously without waiting for the grace
+        // window so the common case has no perceptible delay.
+        restartPendingRef.current = false;
+        currentPidRef.current = null;
         setHmrStatus("restarting");
         const fileForRestart = lastTrainFileRef.current;
         queueMicrotask(() => {
@@ -336,12 +388,34 @@ export function RunTraining() {
           if (!isMountedRef.current) return;
           void run(fileForRestart);
         });
-      } else {
-        // User-initiated abort takes precedence over a pending HMR
-        // restart — clear the latch so a Stop click really stops.
-        restartPendingRef.current = false;
-        setHmrStatus("idle");
+        return;
       }
+
+      // Slow path: SSE rebuild event might still be in flight on a
+      // separate connection. Defer the "no restart" decision so the
+      // SSE handler has time to land and flip `restartPendingRef`.
+      // `currentPidRef` stays set for the grace window so that
+      // late event can still match per-pid.
+      if (restartGraceTimerRef.current !== null) {
+        clearTimeout(restartGraceTimerRef.current);
+      }
+      restartGraceTimerRef.current = window.setTimeout(() => {
+        restartGraceTimerRef.current = null;
+        // A new run started during the window (overwrote the pid).
+        // Leave its lifecycle alone — its own finally will manage
+        // the cleanup eventually.
+        if (currentPidRef.current !== pidAtExit) return;
+        currentPidRef.current = null;
+        if (!isMountedRef.current) return;
+        if (restartPendingRef.current) {
+          restartPendingRef.current = false;
+          setHmrStatus("restarting");
+          const fileForRestart = lastTrainFileRef.current;
+          void run(fileForRestart);
+        } else {
+          setHmrStatus("idle");
+        }
+      }, 250);
     }
   }
 
