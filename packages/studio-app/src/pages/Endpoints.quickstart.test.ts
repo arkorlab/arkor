@@ -98,6 +98,27 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
     expect(out).not.toContain("YOUR_API_KEY");
   });
 
+  it("flags the ESM requirement up front so a copy-paste user sees it before running", () => {
+    // The `import OpenAI from "openai"` line is ESM-only; pasting it
+    // into a default CommonJS `.js` script (the Node default without
+    // `"type": "module"`) is a `SyntaxError` before any request runs.
+    // The leading `// Requires ESM` comment travels with the snippet
+    // so the constraint is visible to anyone who only reads what they
+    // pasted.
+    const out = buildQuickStartSample({
+      language: "javascript",
+      operation: "chat",
+      endpointUrl: URL,
+      authMode: "fixed_api_key",
+    });
+    // The marker must come *before* the `import` so the reader sees
+    // the requirement before the line that fails to parse under CJS.
+    const markerIdx = out.indexOf("Requires ESM");
+    const importIdx = out.indexOf('import OpenAI from "openai"');
+    expect(markerIdx).toBeGreaterThanOrEqual(0);
+    expect(importIdx).toBeGreaterThan(markerIdx);
+  });
+
   it("wraps `await` in an async function instead of using top-level await", () => {
     // TLA is a hard `SyntaxError` in CommonJS scripts and in any non-
     // module-aware paste target (REPL, scratch file without

@@ -149,16 +149,20 @@ export function buildQuickStartSample(opts: {
     ].join("\n");
   }
   // javascript
-  // Wrap the `await` in an `async function main()` rather than relying
-  // on top-level await: TLA only works under ESM / Node ≥ 14.8 with
-  // `"type": "module"`, and pasting a TLA snippet into a stock
-  // CommonJS script (the dominant Node setup users actually copy
-  // into) is a hard `SyntaxError`. The function form runs unchanged in
-  // both module systems.
+  // The `openai` package itself ships ESM (`import OpenAI from
+  // "openai"`); a CommonJS-style `require("openai")` paste-target
+  // would have to use the dynamic-import workaround, which is more
+  // friction than just enabling ESM. Document the requirement at the
+  // top of the snippet itself so the constraint travels with the
+  // copy-paste, and wrap the `await` in `async function main()` so
+  // the snippet still parses in older Node ESM versions before
+  // top-level await landed (Node < 14.8) and in environments that
+  // disable TLA (some bundler configs).
   const apiKeyLine = requiresAuth
     ? `  apiKey: "YOUR_API_KEY",`
     : `  // auth_mode=none on this deployment; the OpenAI SDK still\n  // requires a non-empty value but the server ignores it.\n  apiKey: "not-required",`;
   return [
+    `// Requires ESM — save as .mjs, or set "type": "module" in package.json.`,
     `import OpenAI from "openai";`,
     ``,
     `const client = new OpenAI({`,
