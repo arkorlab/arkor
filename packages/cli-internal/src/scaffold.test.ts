@@ -403,6 +403,118 @@ describe("scaffold", () => {
     expect(entry?.action).toBe("ok");
   });
 
+  // Round 38 (Codex P1): CRLF input must round-trip without
+  // double-writing `allowBuilds:` (the patch regex previously
+  // hard-coded `\n` and a Windows-checked-in workspace yaml fell
+  // through to the "no allowBuilds at all" fallback even when one
+  // was present).
+  it("handles CRLF line endings when patching an existing block-form allowBuilds", async () => {
+    const original =
+      `packages: []\r\nallowBuilds:\r\n  sharp: true\r\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    // No duplicate top-level allowBuilds key: should still match
+    // exactly once with `^allowBuilds:` anchored to column 0.
+    expect(yaml.match(/^allowBuilds:/gm)).toHaveLength(1);
+    expect(yaml).toContain("sharp: true");
+    expect(yaml).toContain("esbuild: false");
+    // Output should preserve CRLF — no LF-only newlines introduced.
+    expect(yaml).not.toMatch(/[^\r]\n/);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("patched");
+  });
+
+  it("recognises esbuild already pinned even with a trailing YAML comment", async () => {
+    // `esbuild: false # documented` is valid YAML and pnpm treats
+    // it as a per-key pin. The reader must respect the user's
+    // decision; otherwise the patcher would append a duplicate
+    // entry under the same allowBuilds block.
+    const original =
+      `packages: []\nallowBuilds:\n  esbuild: false # documented deny\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("ok");
+  });
+
+  it("recognises top-level scalar allowBuilds with a trailing YAML comment", async () => {
+    // Same comment-tolerance requirement for the global scalar
+    // form. A duplicate `allowBuilds:` key would silently change
+    // install policy if we didn't see this as a pin.
+    const original = `packages: []\nallowBuilds: false # global pin\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("ok");
+  });
+
+  it("backfills packages:[] when patching a pnpm-workspace.yaml that omits it", async () => {
+    // pnpm 9 errors "packages field missing or empty" whenever
+    // pnpm-workspace.yaml exists without `packages:`. The patch
+    // path must fix that for cross-version compatibility, even
+    // when allowBuilds is already set up correctly.
+    const original = `allowBuilds:\n  esbuild: false\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/^packages:[ \t]*\[\]/m);
+    expect(yaml).toContain("esbuild: false");
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("patched");
+  });
+
+  // Round 38 (Codex P2): an ancestor `.yarnrc.yml` with
+  // `nodeLinker: node-modules` is the safe case the berry caveat
+  // is supposed to nudge users toward — the install runs without
+  // PnP, and the arkor runtime can resolve modules normally. The
+  // scaffold must NOT raise the caveat or set blockInstall in
+  // that case, even when the local cwd looks like a yarn-berry
+  // descendant (ancestor yarnrc + ancestor `.yarn/`).
+  it("does not raise the berry caveat when an ancestor .yarnrc.yml pins nodeLinker: node-modules", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "scaffold-yarn-safe-"));
+    writeFileSync(
+      join(parent, ".yarnrc.yml"),
+      "nodeLinker: node-modules\n",
+    );
+    const sub = join(parent, "packages", "new-pkg");
+    mkdirSync(sub, { recursive: true });
+    try {
+      const { warnings, blockInstall } = await scaffold({
+        cwd: sub,
+        name: "new-pkg",
+        template: "triage",
+        packageManager: "yarn",
+      });
+      expect(warnings).toEqual([]);
+      expect(blockInstall).toBe(false);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   it("appends to an existing .gitignore only if the entry is missing", async () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
     const first = await scaffold({ cwd, name: "n", template: "triage" });

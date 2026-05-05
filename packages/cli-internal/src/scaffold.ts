@@ -475,14 +475,54 @@ async function readPackageManagerField(
  * `monorepo/`.)
  */
 function hasEnclosingPath(cwd: string, name: string): boolean {
+  return findEnclosingPath(cwd, name) !== undefined;
+}
+
+/**
+ * Like `hasEnclosingPath` but returns the absolute path of the
+ * matched ancestor (or `undefined`). Lets callers inspect the
+ * matched file's contents — round-38 Codex P2 needs this to read
+ * the enclosing `.yarnrc.yml`'s `nodeLinker:` value before deciding
+ * whether the yarn-berry caveat should fire.
+ */
+function findEnclosingPath(cwd: string, name: string): string | undefined {
   let dir = cwd;
   for (let i = 0; i < 20; i++) {
-    if (existsSync(join(dir, name))) return true;
+    const candidate = join(dir, name);
+    if (existsSync(candidate)) return candidate;
     const parent = dirname(dir);
-    if (parent === dir) return false; // reached filesystem root
+    if (parent === dir) return undefined; // reached filesystem root
     dir = parent;
   }
-  return false;
+  return undefined;
+}
+
+/**
+ * Read the `nodeLinker:` value from the nearest enclosing
+ * `.yarnrc.yml` (cwd-or-above). Returns `undefined` when:
+ *
+ *   - No enclosing `.yarnrc.yml` exists, OR
+ *   - The file exists but has no `nodeLinker:` key, OR
+ *   - The file is unreadable.
+ *
+ * yarn-berry resolves `.yarnrc.yml` from the workspace root, so a
+ * `monorepo/packages/foo` subdir scaffold inherits whatever the
+ * root pins. Round-38 Codex P2 flagged that the existing yarn-berry
+ * caveat fires whenever an ancestor `.yarnrc.yml` exists, even when
+ * that file's `nodeLinker:` is `node-modules` (i.e. PnP isn't in
+ * play and the arkor runtime works fine). Reading the value lets
+ * the caller short-circuit the caveat in the safe case.
+ */
+async function readEnclosingYarnrcNodeLinker(
+  cwd: string,
+): Promise<string | undefined> {
+  const path = findEnclosingPath(cwd, YARNRC_YML_PATH);
+  if (path === undefined) return undefined;
+  try {
+    return readNodeLinkerValue(await readFile(path, "utf8"));
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -701,18 +741,48 @@ async function patchPnpmWorkspace(
     return "created";
   }
   const current = await readFile(path, "utf8");
+  let patched = current;
   // Already pinned per-key → trust the user.
-  if (readAllowBuildsValue(current, "esbuild") !== undefined) return "ok";
-  // Top-level `allowBuilds: <bool>` (scalar) → also a deliberate
-  // user pin (global allow / deny). Don't append a sibling block —
-  // that'd produce two top-level `allowBuilds` keys, which is
-  // ambiguous YAML.
-  if (hasTopLevelAllowBuildsScalar(current)) return "ok";
-  const patched = appendEsbuildToAllowBuilds(current, allowEsbuild);
+  // Top-level `allowBuilds: <bool>` (scalar) → also a deliberate user
+  // pin (global allow / deny). Don't append a sibling block — that'd
+  // produce two top-level `allowBuilds` keys, ambiguous YAML.
+  const esbuildAlreadyPinned =
+    readAllowBuildsValue(current, "esbuild") !== undefined ||
+    hasTopLevelAllowBuildsScalar(current);
+  if (!esbuildAlreadyPinned) {
+    patched = appendEsbuildToAllowBuilds(patched, allowEsbuild);
+  }
+  // pnpm 9 errors with "packages field missing or empty" whenever a
+  // `pnpm-workspace.yaml` exists without a `packages:` key, even
+  // when no actual workspace is intended. The fresh-create path
+  // already emits `packages: []` for that reason; the patch path
+  // must backfill it for the same cross-version compatibility, or
+  // pnpm 9 (and only pnpm 9) breaks on `pnpm install` against a
+  // user file like `allowBuilds: {}` (round-38 Copilot review).
+  if (!hasTopLevelPackagesKey(patched)) {
+    patched = prependPackagesEmptyList(patched);
+  }
   if (patched === current) return "ok";
   await writeFile(path, patched);
   return "patched";
 }
+
+// Detect the line-ending style used by `contents`. CRLF wins if it
+// appears anywhere — Windows editors sometimes leave a stray `\r`
+// even in mostly-LF files, but if even one `\r\n` is present the
+// file is canonically CRLF and we should preserve that on write.
+// Defaults to `\n` for empty files. (Round-38 Codex P1: regexes
+// previously hard-coded `\n` and silently double-wrote `allowBuilds:`
+// against Windows-checked-in workspace yamls.)
+function detectEol(contents: string): "\r\n" | "\n" {
+  return contents.includes("\r\n") ? "\r\n" : "\n";
+}
+
+// Allow trailing whitespace **and** an optional `# ...` YAML comment
+// before end-of-line. Used at the end of every "key: value" anchor
+// so `esbuild: false # documented` (round-38 Copilot review) doesn't
+// fall through to the no-match fallback and double-write.
+const TRAILING_COMMENT_AND_EOL = "[ \\t]*(?:#[^\\r\\n]*)?\\r?$";
 
 // Returns the explicit `esbuild:` value under the **top-level**
 // `allowBuilds:` mapping, or `undefined` if esbuild isn't named
@@ -730,9 +800,11 @@ async function patchPnpmWorkspace(
 // pnpm setting pnpm itself reads, which would silently skip
 // patching while pnpm 11 keeps erroring (round-37 Copilot review).
 //
-// Scalar form (`allowBuilds: false` / `: true`) is intentionally
-// NOT detected here — it's a global pin not specifically about
-// esbuild. `hasTopLevelAllowBuildsScalar` handles that case.
+// Tolerates CRLF line endings and trailing `# comment`s on entries
+// (round-38 reviewer feedback). Scalar form (`allowBuilds: false`)
+// is intentionally NOT detected here — it's a global pin not
+// specifically about esbuild. `hasTopLevelAllowBuildsScalar`
+// handles that.
 function readAllowBuildsValue(
   contents: string,
   pkg: string,
@@ -740,7 +812,7 @@ function readAllowBuildsValue(
   const escaped = pkg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Inline mapping: `allowBuilds: { esbuild: false, ... }`.
   const inlineMatch = contents.match(
-    /^allowBuilds:[ \t]*\{([^}]*)\}[ \t]*$/m,
+    new RegExp(`^allowBuilds:[ \\t]*\\{([^}]*)\\}${TRAILING_COMMENT_AND_EOL}`, "m"),
   );
   if (inlineMatch) {
     const pairRe = new RegExp(`["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)`);
@@ -750,18 +822,26 @@ function readAllowBuildsValue(
   }
   // Block mapping: a column-0 `allowBuilds:` line followed by
   // `  pkg: <bool>` entries.
-  const blockHeaderRe = /^allowBuilds:[ \t]*$/m;
+  const blockHeaderRe = new RegExp(
+    `^allowBuilds:${TRAILING_COMMENT_AND_EOL}`,
+    "m",
+  );
   const headerMatch = blockHeaderRe.exec(contents);
   if (!headerMatch) return undefined;
   const after = contents.slice(headerMatch.index + headerMatch[0].length);
-  const lines = after.split("\n");
+  // Split on either CRLF or LF; the `\r?` keeps the resulting line
+  // strings free of trailing `\r` so the per-entry regex can use
+  // `\r?$` consistently.
+  const lines = after.split(/\r?\n/);
   // Skip the empty trailing slice that comes from the header newline.
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (line === "") continue;
     if (!/^[ \t]/.test(line)) break; // dedent — block ended
     const m = line.match(
-      new RegExp(`^[ \\t]+["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)[ \\t]*$`),
+      new RegExp(
+        `^[ \\t]+["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)${TRAILING_COMMENT_AND_EOL}`,
+      ),
     );
     if (m) return m[1] === "true";
   }
@@ -773,8 +853,29 @@ function readAllowBuildsValue(
 // / "deny all" global form. The append path must bail in that case;
 // blindly writing a fresh `allowBuilds:` block would leave two
 // top-level `allowBuilds` keys (round-37 Copilot review).
+//
+// Tolerates CRLF + trailing comments (round-38 reviewer feedback).
 function hasTopLevelAllowBuildsScalar(contents: string): boolean {
-  return /^allowBuilds:[ \t]+(?:true|false)[ \t]*$/m.test(contents);
+  return new RegExp(
+    `^allowBuilds:[ \\t]+(?:true|false)${TRAILING_COMMENT_AND_EOL}`,
+    "m",
+  ).test(contents);
+}
+
+// True when the file declares a top-level `packages:` key (in any
+// form — inline `[]`, inline list, or block list). pnpm 9 errors
+// "packages field missing or empty" whenever `pnpm-workspace.yaml`
+// exists without it, so the patch path must backfill `packages: []`
+// when the user's existing file omits it (round-38 Copilot review).
+function hasTopLevelPackagesKey(contents: string): boolean {
+  return /^packages:/m.test(contents);
+}
+
+// Prepend `packages: []` to an existing pnpm-workspace.yaml that
+// lacks the key. Preserves the file's existing line-ending style.
+function prependPackagesEmptyList(contents: string): string {
+  const eol = detectEol(contents);
+  return `packages: []${eol}${contents}`;
 }
 
 // Append `esbuild: <value>` to an existing pnpm-workspace.yaml
@@ -793,30 +894,38 @@ function hasTopLevelAllowBuildsScalar(contents: string): boolean {
 // `allowBuilds:` under some other key can't be edited; that file
 // would falsely report "patched" while pnpm 11 keeps erroring
 // (round-37 Copilot review).
+//
+// Tolerates CRLF line endings (round-38 Codex P1) and trailing
+// `# comment`s on the header line (round-38 Copilot). Newly
+// appended content reuses the file's detected line-ending style
+// so we don't introduce mixed-EOL output.
 function appendEsbuildToAllowBuilds(
   contents: string,
   allowEsbuild: boolean,
 ): string {
+  const eol = detectEol(contents);
   const value = allowEsbuild ? "true" : "false";
-  const inlineRe = /^allowBuilds:[ \t]*\{([^}]*)\}[ \t]*$/m;
+  const inlineRe = new RegExp(
+    `^allowBuilds:[ \\t]*\\{([^}]*)\\}${TRAILING_COMMENT_AND_EOL}`,
+    "m",
+  );
   const inlineMatch = contents.match(inlineRe);
   if (inlineMatch) {
     const inner = inlineMatch[1].trim();
     const merged = inner.length > 0
       ? `${inner}, esbuild: ${value}`
       : `esbuild: ${value}`;
-    return contents.replace(
-      inlineRe,
-      `allowBuilds: { ${merged} }`,
-    );
+    return contents.replace(inlineRe, `allowBuilds: { ${merged} }`);
   }
   // Match the header plus any indented body lines that follow. The
-  // body subgroup captures `<indent><something>\n` repeated for each
-  // entry. The match deliberately stops at the first dedented or
-  // blank line, leaving any trailing siblings of `allowBuilds:`
-  // untouched.
+  // body subgroup captures `<indent><content>\r?\n` repeated for
+  // each entry. The match deliberately stops at the first dedented
+  // or blank line, leaving any trailing siblings of `allowBuilds:`
+  // untouched. `\r?\n` makes the matcher EOL-agnostic so a Windows
+  // workspace yaml isn't mistakenly treated as having no
+  // `allowBuilds:` block (round-38 Codex P1).
   const blockRe =
-    /^allowBuilds:[ \t]*\n((?:[ \t]+[^\n]*\n)*)/m;
+    /^allowBuilds:[ \t]*(?:#[^\r\n]*)?\r?\n((?:[ \t]+[^\r\n]*\r?\n)*)/m;
   const blockMatch = contents.match(blockRe);
   if (blockMatch) {
     const body = blockMatch[1];
@@ -824,12 +933,12 @@ function appendEsbuildToAllowBuilds(
     // default to two spaces (pnpm's convention).
     const entryIndentMatch = body.match(/^([ \t]+)/);
     const entryIndent = entryIndentMatch?.[1] ?? "  ";
-    const replacement = `allowBuilds:\n${body}${entryIndent}esbuild: ${value}\n`;
+    const replacement = `allowBuilds:${eol}${body}${entryIndent}esbuild: ${value}${eol}`;
     return contents.replace(blockRe, replacement);
   }
-  // No allowBuilds at all — append a fresh block.
-  const trailingNewline = contents.endsWith("\n") ? "" : "\n";
-  return `${contents}${trailingNewline}allowBuilds:\n  esbuild: ${value}\n`;
+  // No allowBuilds at all — append a fresh block, in the file's EOL.
+  const trailingNewline = /\r?\n$/.test(contents) ? "" : eol;
+  return `${contents}${trailingNewline}allowBuilds:${eol}  esbuild: ${value}${eol}`;
 }
 
 export async function scaffold(
@@ -1033,18 +1142,29 @@ export async function scaffold(
       // resolution (workspace root config governs descendant
       // packages), so a `monorepo/packages/foo` scaffold whose
       // root has either signal is unambiguously yarn-berry.
+      // Round 38 (Codex P2, PR #99): the round-34 walk-up fires the
+      // berry caveat whenever an ancestor `.yarnrc.yml` exists, but
+      // a workspace root that already pins `nodeLinker: node-modules`
+      // is *exactly* the safe case the caveat is supposed to nudge
+      // users toward. Reading the enclosing yarnrc's linker first
+      // lets us short-circuit the signal: if it's `node-modules`,
+      // install runs without trouble and any block here would be a
+      // false positive that misleads the user about their setup.
+      const enclosingNodeLinker = await readEnclosingYarnrcNodeLinker(cwd);
+      const enclosingLinkerIsSafe = enclosingNodeLinker === "node-modules";
       const yarnrcInTree = hasEnclosingPath(cwd, YARNRC_YML_PATH);
       const yarnDirInTree = hasEnclosingPath(cwd, ".yarn");
       let positiveBerrySignal =
-        yarnrcInTree ||
-        yarnDirInTree ||
-        declaresYarnBerry(
-          await resolveEnclosingPackageManagerField(
-            cwd,
-            preExistingPackageManagerField,
-          ),
-        );
-      if (!positiveBerrySignal) {
+        !enclosingLinkerIsSafe &&
+        (yarnrcInTree ||
+          yarnDirInTree ||
+          declaresYarnBerry(
+            await resolveEnclosingPackageManagerField(
+              cwd,
+              preExistingPackageManagerField,
+            ),
+          ));
+      if (!positiveBerrySignal && !enclosingLinkerIsSafe) {
         // Round 30 (Copilot, PR #99): runtime detection closes
         // the yarn-4-fresh-bootstrap gap by reporting the actual
         // yarn major.
@@ -1146,15 +1266,22 @@ export async function scaffold(
       // because the local dir doesn't have `.yarnrc.yml`, but
       // the parent workspace's `.yarnrc.yml` still governs
       // `yarn install` from this subdir.
-      const yarnrcInTree = hasEnclosingPath(cwd, YARNRC_YML_PATH);
-      const yarnDirInTree = hasEnclosingPath(cwd, ".yarn");
-      const declared = await resolveEnclosingPackageManagerField(
-        cwd,
-        preExistingPackageManagerField,
-      );
-      if (yarnrcInTree || yarnDirInTree || declaresYarnBerry(declared)) {
-        warnings.push(buildYarnBerryCaveatAdvisory());
-        blockInstall = true;
+      // Round 38 (Codex P2, PR #99): same enclosing-linker
+      // short-circuit as the patch path above. An ancestor
+      // workspace root that already pins `nodeLinker: node-modules`
+      // is the safe case — no caveat needed.
+      const enclosingNodeLinker = await readEnclosingYarnrcNodeLinker(cwd);
+      if (enclosingNodeLinker !== "node-modules") {
+        const yarnrcInTree = hasEnclosingPath(cwd, YARNRC_YML_PATH);
+        const yarnDirInTree = hasEnclosingPath(cwd, ".yarn");
+        const declared = await resolveEnclosingPackageManagerField(
+          cwd,
+          preExistingPackageManagerField,
+        );
+        if (yarnrcInTree || yarnDirInTree || declaresYarnBerry(declared)) {
+          warnings.push(buildYarnBerryCaveatAdvisory());
+          blockInstall = true;
+        }
       }
     }
   }
