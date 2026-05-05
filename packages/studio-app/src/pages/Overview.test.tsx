@@ -118,4 +118,41 @@ describe("<Overview />", () => {
       await screen.findByRole("button", { name: /run training: my-trainer/i }),
     ).toBeInTheDocument();
   });
+
+  it("polls /api/jobs every 5s after the initial load", async () => {
+    // Overview chains setTimeout(tick, 5000) instead of setInterval so a
+    // slow /api/jobs can't pile up overlapping in-flight requests. If
+    // that re-scheduling regresses (forgotten cleanup, missed finally,
+    // accidental setInterval) the recent-jobs tile silently goes stale.
+    // Drive fake timers explicitly: advanceTimersByTimeAsync(0) flushes
+    // the initial-mount microtask chain and `waitFor` would hang because
+    // it waits on real-clock setTimeout that we have stubbed.
+    vi.useFakeTimers();
+    try {
+      let jobsCalls = 0;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/jobs") {
+          jobsCalls++;
+          return jsonResponse({ jobs: [] });
+        }
+        if (url === "/api/manifest") {
+          return jsonResponse({ trainer: null });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }) as typeof fetch;
+
+      render(<Overview />);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(jobsCalls).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(jobsCalls).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(jobsCalls).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
