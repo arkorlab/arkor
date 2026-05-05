@@ -169,6 +169,43 @@ describe("installCallbackReloadHandler", () => {
     }
   });
 
+  it("returns a no-op disposer when SIGUSR2 registration throws (Windows fallback)", () => {
+    // Regression: `process.on("SIGUSR2", ...)` can throw at
+    // registration time on platforms that don't support the signal
+    // (notably Windows). Previously this would surface as a hard
+    // crash at `arkor start` boot. The handler now wraps the
+    // registration in try/catch and degrades to a no-op disposer so
+    // the rest of the runner stays up — the server's
+    // `safeKill(child, "SIGUSR2")` already detects the same
+    // condition and falls back to SIGTERM-restart there.
+    const trainer = makeTrainer();
+    const file = join(cwd, "entry.mjs");
+    writeFileSync(file, "export const x = 1;\n");
+
+    const realOn = process.on.bind(process);
+    const onSpy = vi
+      .spyOn(process, "on")
+      .mockImplementation(((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === "SIGUSR2") {
+          throw new Error("ENOSYS: function not implemented");
+        }
+        return realOn(event as never, listener as never);
+      }) as typeof process.on);
+
+    let dispose: (() => void) | undefined;
+    try {
+      // Must not throw despite the SIGUSR2 registration failure.
+      dispose = installCallbackReloadHandler(trainer, file);
+      expect(typeof dispose).toBe("function");
+      // No listener was attached, so the disposer is a no-op; calling
+      // it must not throw either (mirroring the success-path contract
+      // for tests that always invoke the disposer in `finally`).
+      expect(() => dispose?.()).not.toThrow();
+    } finally {
+      onSpy.mockRestore();
+    }
+  });
+
   it("logs a skip warning when the bundle has no inspectable trainer", async () => {
     const trainer = makeTrainer();
     const file = join(cwd, "no-trainer.mjs");

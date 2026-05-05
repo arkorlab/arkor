@@ -89,6 +89,28 @@ describe("hashJobConfig", () => {
     expect(hashJobConfig(a)).toBe(hashJobConfig(b));
   });
 
+  it("honors `toJSON()` like JSON.stringify (Date, etc.)", () => {
+    // Regression: `JSON.stringify({ d: new Date(0) })` serialises
+    // `d` as `"1970-01-01T00:00:00.000Z"`, but a naive recursive
+    // walker would serialise the Date as `{}` (no enumerable own
+    // keys). A `JobConfig` whose `unknown`-typed forwarder field
+    // ever holds a Date (or any object with `toJSON`) would then
+    // produce a hash that disagrees with the wire-format payload,
+    // causing spurious "configHash changed" → SIGTERM restarts.
+    const date = new Date("2024-01-01T00:00:00.000Z");
+    const a: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: date as unknown,
+    };
+    const b: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: "2024-01-01T00:00:00.000Z" as unknown,
+    };
+    expect(hashJobConfig(a)).toBe(hashJobConfig(b));
+  });
+
   it("ignores function / symbol properties (JSON parity)", () => {
     // `JSON.stringify` drops these too. The hash should be insensitive
     // to "transparent" callbacks accidentally landing in a forwarded

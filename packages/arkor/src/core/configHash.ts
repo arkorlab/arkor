@@ -34,6 +34,19 @@ function stableStringify(value: unknown): string {
   // JSON-shaped text rather than the literal substring "undefined".
   if (isNonJsonRepresentable(value)) return "null";
   if (typeof value !== "object") return JSON.stringify(value);
+  // `JSON.stringify` calls `value.toJSON(key)` first when present, then
+  // serialises the return value. The canonical example is `Date`, which
+  // becomes its ISO string. Without this branch a `Date` would hash as
+  // `{}` (no enumerable keys) and a `JobConfig` whose `unknown`-typed
+  // forwarder field happened to hold one would diverge from the
+  // wire-format payload — leading to bogus configHash drift and
+  // unnecessary SIGTERM restarts on every rebuild.
+  const maybeToJSON = (value as { toJSON?: unknown }).toJSON;
+  if (typeof maybeToJSON === "function") {
+    return stableStringify(
+      (maybeToJSON as (key?: string) => unknown).call(value),
+    );
+  }
   if (Array.isArray(value)) {
     // Array slots: non-representable → "null" (matches JSON spec).
     const items = value.map((v) =>

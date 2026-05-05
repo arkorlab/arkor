@@ -103,7 +103,22 @@ export function installCallbackReloadHandler(
       }
     })();
   };
-  process.on(CALLBACK_RELOAD_SIGNAL, handler);
+  // `process.on('SIGUSR2', ...)` can throw at registration time on
+  // platforms that don't support the signal (notably Windows: libuv's
+  // signal-wrap returns ENOSYS for SIGUSR2 on win32 and the error
+  // escapes to userland on some Node versions). The server-side
+  // `trainRegistry.safeKill(child, "SIGUSR2")` already detects this
+  // ("unsupported" → falls back to SIGTERM-restart), so an unarmed
+  // listener here is the documented contract on those platforms —
+  // quietly degrade to a no-op disposer rather than crashing
+  // `arkor start` at boot.
+  try {
+    process.on(CALLBACK_RELOAD_SIGNAL, handler);
+  } catch {
+    return () => {
+      // no-op: handler was never attached
+    };
+  }
   return () => {
     process.off(CALLBACK_RELOAD_SIGNAL, handler);
   };

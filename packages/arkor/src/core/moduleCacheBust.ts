@@ -12,11 +12,20 @@ import { pathToFileURL } from "node:url";
  * `BUNDLE_END` + SIGUSR2 — accumulates one module record per call,
  * unbounded.
  *
- * Keying on `mtime + size` collapses repeated reads of the same bytes
- * onto the same URL, which Node's loader then serves from its existing
- * cache record. The leak shrinks from "one entry per call" to "one
- * entry per actual file change", which is the tightest bound we can
- * offer without spawning a child process per import.
+ * Keying on `mtimeMs + ctimeMs + size` collapses repeated reads of the
+ * same bytes onto the same URL, which Node's loader then serves from
+ * its existing cache record. The leak shrinks from "one entry per
+ * call" to "one entry per actual file change", which is the tightest
+ * bound we can offer without spawning a child process per import.
+ *
+ * `mtimeMs` is kept at full sub-millisecond precision (no rounding):
+ * a previous `toFixed(0)` collapsed two distinct edits that landed in
+ * the same millisecond and produced an identically-sized output onto
+ * the same key, which made Node's loader return the *stale* module
+ * for the second edit (HMR/manifest staleness on fast filesystems).
+ * `ctimeMs` is included as belt-and-braces against the (rare) case
+ * where mtime collides but ctime moves — `touch -m` and some build
+ * tools update one without the other.
  *
  * Falls back to a stable literal on stat failure so the eventual
  * `import()` (which will throw on a missing file) gets to surface its
@@ -25,9 +34,9 @@ import { pathToFileURL } from "node:url";
 export function moduleCacheBustKey(filePath: string): string {
   try {
     const s = statSync(filePath);
-    return `${s.mtimeMs.toFixed(0)}-${s.size}`;
+    return `${s.mtimeMs}-${s.ctimeMs}-${s.size}`;
   } catch {
-    return "0-0";
+    return "0-0-0";
   }
 }
 

@@ -31,7 +31,9 @@ describe("moduleCacheBustKey", () => {
     const k1 = moduleCacheBustKey(file);
     const k2 = moduleCacheBustKey(file);
     expect(k1).toBe(k2);
-    expect(k1).toMatch(/^\d+-\d+$/);
+    // mtimeMs-ctimeMs-size; mtimeMs/ctimeMs may carry sub-ms precision
+    // (no `toFixed(0)`) so digits include an optional fractional part.
+    expect(k1).toMatch(/^[\d.]+-[\d.]+-\d+$/);
   });
 
   it("changes when the file content changes (different size)", () => {
@@ -43,12 +45,13 @@ describe("moduleCacheBustKey", () => {
     expect(after).not.toBe(before);
   });
 
-  it("returns a stable fallback (\"0-0\") for missing files instead of throwing", () => {
+  it("returns a stable fallback (\"0-0-0\") for missing files instead of throwing", () => {
     // The eventual `await import(url)` will throw on a missing
     // file; the helper itself should produce a value rather than
     // bubbling the stat error and turning every consumer into a
-    // try/catch site.
-    expect(moduleCacheBustKey(join(dir, "does-not-exist.mjs"))).toBe("0-0");
+    // try/catch site. Three zeros — one each for mtimeMs, ctimeMs,
+    // size — to keep the shape uniform with the success branch.
+    expect(moduleCacheBustKey(join(dir, "does-not-exist.mjs"))).toBe("0-0-0");
   });
 });
 
@@ -58,6 +61,6 @@ describe("moduleCacheBustUrl", () => {
     writeFileSync(file, "export const x = 1;");
     const url = moduleCacheBustUrl(file);
     expect(url.startsWith(pathToFileURL(file).href + "?t=")).toBe(true);
-    expect(url).toMatch(/\?t=\d+-\d+$/);
+    expect(url).toMatch(/\?t=[\d.]+-[\d.]+-\d+$/);
   });
 });
