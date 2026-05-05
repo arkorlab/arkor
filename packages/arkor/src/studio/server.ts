@@ -515,8 +515,20 @@ export function buildStudioApp(options: StudioServerOptions) {
     }
     try {
       credentials = await getCredentials();
+      // Resolve the deployment client's base URL *from the credentials*
+      // rather than the closure-captured `baseUrl`. The closure was
+      // resolved at startup (env / production fallback only), but
+      // anonymous credentials carry the URL they were issued against
+      // and OAuth credentials now do too (`arkor login` writes
+      // `arkorCloudApiUrl` since round 67). Without this, an operator
+      // who authed against a staging / self-hosted control plane and
+      // then ran `arkor dev` without re-setting `ARKOR_CLOUD_API_URL`
+      // would have Studio proxy `/api/deployments/*` to production
+      // and 401 on every call. `defaultArkorCloudApiUrl(credentials)`
+      // still honours the env var first when set.
+      const credentialsBaseUrl = defaultArkorCloudApiUrl(credentials);
       client = new CloudApiClient({
-        baseUrl,
+        baseUrl: credentialsBaseUrl,
         credentials,
         onDeprecation: (notice) => {
           deprecationNotice = notice;
