@@ -51,7 +51,7 @@ The detail page (`#/endpoints/<id>`) groups four concerns:
 
 ### Endpoint URL
 
-The full `https://<slug>.arkor.app/v1/chat/completions` URL with a copy button. Hand this to any OpenAI-compatible client.
+The full `https://<slug>.arkor.app/v1/chat/completions` URL with a copy button. This is the **per-operation** URL — paste it into cURL or any raw HTTP client. The OpenAI SDKs expect the **base URL** instead (`https://<slug>.arkor.app/v1`); pointing them at the full per-operation URL would have the SDK append its own route and 404. The Quick start card below shows the correct shape for each language so you don't have to choose.
 
 ### Quick start
 
