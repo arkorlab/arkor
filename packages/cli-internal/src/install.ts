@@ -83,12 +83,30 @@ export async function install(
   // and bypass the very immutability check the lockfile-present
   // branch is supposed to preserve. Keep the override only on
   // the fresh-scaffold branch where bypassing is intentional.
+  //
+  // Round 39 (Codex P2, PR #99): on Windows env-var lookup is
+  // case-insensitive (`PATH` == `Path` == `path`), and Node
+  // passes through whatever casing the parent shell used. A
+  // `yarn_enable_immutable_installs=false` (or any other
+  // casing) inherited from the parent would otherwise survive
+  // a case-exact `delete env.YARN_ENABLE_IMMUTABLE_INSTALLS`
+  // and yarn-berry on Windows would still honour it. Strip
+  // every case-insensitive match before deciding whether to
+  // re-set the canonical form. POSIX env vars are case-
+  // sensitive so the loop is a no-op outside Windows in
+  // practice, but the pattern is portable.
   if (packageManager === "yarn") {
-    if (hasEnclosingYarnLock(cwd)) {
-      delete env.YARN_ENABLE_IMMUTABLE_INSTALLS;
-    } else {
+    for (const key of Object.keys(env)) {
+      if (key.toUpperCase() === "YARN_ENABLE_IMMUTABLE_INSTALLS") {
+        delete env[key];
+      }
+    }
+    if (!hasEnclosingYarnLock(cwd)) {
       env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
     }
+    // else: keep it deleted — yarn-berry's default `CI=1` behaviour
+    // is to refuse a lockfile-rewriting install, exactly the safety
+    // we want with an enclosing lockfile.
   }
   return new Promise((resolve, reject) => {
     const child = spawn(packageManager, ["install"], {

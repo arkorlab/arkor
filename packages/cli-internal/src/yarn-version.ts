@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 
 /**
  * Detect the major version of the `yarn` binary on PATH (resolved
@@ -37,7 +37,7 @@ export async function detectYarnMajor(
       resolved = true;
       resolve(value);
     };
-    let child;
+    let child: ChildProcess;
     try {
       child = spawn("yarn", ["--version"], {
         cwd,

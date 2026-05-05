@@ -18,11 +18,19 @@ function makeFakePm(name: string, exitCode: number, marker: string): string {
   // round-17 split made YARN_ENABLE_IMMUTABLE_INSTALLS conditional —
   // the shim must tolerate the absent case without aborting before
   // the trailing `exit ${exitCode}` runs.
+  //
+  // Round 39 (Codex P2): also dump lowercase + mixed-case variants
+  // of YARN_ENABLE_IMMUTABLE_INSTALLS so the case-insensitive
+  // strip in install.ts can be exercised on POSIX (env vars are
+  // case-sensitive there, but the loop deletes any matching
+  // variant regardless).
   writeFileSync(
     path,
     `#!/usr/bin/env sh\necho "fake $@" >> "${marker}"\n` +
       `printenv ADBLOCK >> "${marker}"\nprintenv NODE_ENV >> "${marker}"\n` +
       `printenv YARN_ENABLE_IMMUTABLE_INSTALLS >> "${marker}"\n` +
+      `printenv yarn_enable_immutable_installs >> "${marker}"\n` +
+      `printenv Yarn_Enable_Immutable_Installs >> "${marker}"\n` +
       `exit ${exitCode}\n`,
     { mode: 0o755 },
   );
@@ -180,6 +188,44 @@ describe("install", () => {
       } finally {
         if (ORIG === undefined) delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
         else process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = ORIG;
+      }
+    },
+  );
+
+  // Round 39 (Codex P2, PR #99): on Windows, env-var lookup is
+  // case-insensitive — `YARN_ENABLE_IMMUTABLE_INSTALLS` and
+  // `yarn_enable_immutable_installs` are the same variable to
+  // the OS, and Node passes through whatever casing the parent
+  // shell used. A case-exact `delete env.YARN_ENABLE_IMMUTABLE_INSTALLS`
+  // would miss a `yarn_enable_immutable_installs=false` leaking in
+  // through `{ ...process.env }`, so install.ts loops every key
+  // and deletes any case-insensitive match. POSIX env vars are
+  // case-sensitive so we can simulate the leak by exporting the
+  // lowercase variant directly — if the strip is correct, the
+  // child's `printenv yarn_enable_immutable_installs` returns
+  // empty when an enclosing yarn.lock is present.
+  onPosix(
+    "strips lowercase / mixed-case variants of YARN_ENABLE_IMMUTABLE_INSTALLS from the child env when yarn.lock exists",
+    async () => {
+      writeFileSync(join(cwd, "yarn.lock"), "# pre-existing\n");
+      const ORIG_LOWER = process.env.yarn_enable_immutable_installs;
+      const ORIG_MIXED = process.env.Yarn_Enable_Immutable_Installs;
+      process.env.yarn_enable_immutable_installs = "false";
+      process.env.Yarn_Enable_Immutable_Installs = "false";
+      try {
+        const marker = join(cwd, "marker.log");
+        makeFakePm("yarn", 0, marker);
+
+        await install("yarn", cwd);
+
+        const log = (await import("node:fs")).readFileSync(marker, "utf8");
+        // None of the case variants survived to the child.
+        expect(log).not.toContain("\nfalse\n");
+      } finally {
+        if (ORIG_LOWER === undefined) delete process.env.yarn_enable_immutable_installs;
+        else process.env.yarn_enable_immutable_installs = ORIG_LOWER;
+        if (ORIG_MIXED === undefined) delete process.env.Yarn_Enable_Immutable_Installs;
+        else process.env.Yarn_Enable_Immutable_Installs = ORIG_MIXED;
       }
     },
   );
