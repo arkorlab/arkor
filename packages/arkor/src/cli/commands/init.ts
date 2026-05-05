@@ -3,6 +3,7 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  lockfileLandedAfterInstall,
   sanitise,
   scaffold,
   TEMPLATES,
@@ -244,7 +245,18 @@ export async function runInit(options: InitOptions): Promise<void> {
   // `--skip-install --git` honor case where no install was
   // attempted by design.
   const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
-  const installSucceeded = !wouldHaveInstalled || installed;
+  // Round 39 (Copilot, PR #99): pnpm 11 and bun on Windows have
+  // been observed exiting non-zero AFTER writing both
+  // `node_modules` and the lockfile. The round-35 gate keyed on
+  // the throw alone, which silently dropped a `--git` user's
+  // initial commit even though the bootstrap was effectively
+  // complete. Falling back to "is the lockfile on disk?" lets
+  // git proceed when the artefact actually landed; the user
+  // already saw whatever error message the install printed.
+  const installSucceeded =
+    !wouldHaveInstalled ||
+    installed ||
+    lockfileLandedAfterInstall(cwd, pm);
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(

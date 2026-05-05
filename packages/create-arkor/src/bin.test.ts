@@ -12,6 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@arkor/cli-internal", () => ({
   gitInitialCommit: vi.fn(async () => ({ signingFallback: false })),
   install: vi.fn(async () => undefined),
+  // Round 39: most tests don't simulate a real install, so the
+  // lockfile fallback must default to false. Tests that exercise
+  // the "install threw but lockfile landed" path can override
+  // per-call via `vi.mocked(lockfileLandedAfterInstall).mockReturnValueOnce(true)`.
+  lockfileLandedAfterInstall: vi.fn(() => false),
   isInGitRepo: vi.fn(async () => false),
   sanitise: (s: string) =>
     s

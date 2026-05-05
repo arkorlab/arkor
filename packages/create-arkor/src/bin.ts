@@ -10,6 +10,7 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  lockfileLandedAfterInstall,
   resolvePackageManager,
   sanitise,
   scaffold,
@@ -333,7 +334,16 @@ export async function run(options: RunOptions): Promise<void> {
   // wouldHaveInstalled gate (round 21) still honors the
   // `--skip-install --git` no-install-attempted case.
   const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
-  const installSucceeded = !wouldHaveInstalled || installed;
+  // Round 39 (Copilot, PR #99): mirror of `arkor init`'s
+  // lockfile-on-disk fallback. pnpm 11 and bun on Windows can
+  // exit non-zero AFTER writing both `node_modules` and the
+  // lockfile, so treating the throw alone as "install failed"
+  // silently dropped the requested initial commit even when the
+  // bootstrap was effectively complete.
+  const installSucceeded =
+    !wouldHaveInstalled ||
+    installed ||
+    lockfileLandedAfterInstall(cwd, pm);
   // Round 39 (Copilot, PR #99): the previous "re-run this command"
   // hint is only safe when re-invoking would actually merge into
   // the same target. With no `[dir]` argument, `run()` derives a

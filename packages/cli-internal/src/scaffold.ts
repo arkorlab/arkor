@@ -506,30 +506,46 @@ function findEnclosingPath(cwd: string, name: string): string | undefined {
 }
 
 /**
- * Read the `nodeLinker:` value from the nearest enclosing
- * `.yarnrc.yml` (cwd-or-above). Returns `undefined` when:
+ * Resolve the *effective* `nodeLinker:` value yarn-berry would
+ * see for `cwd`, walking every `.yarnrc.yml` from `cwd` up to
+ * the filesystem root and returning the FIRST one that defines
+ * the key. Returns `undefined` when no ancestor yarnrc names
+ * `nodeLinker:` at all.
  *
- *   - No enclosing `.yarnrc.yml` exists, OR
- *   - The file exists but has no `nodeLinker:` key, OR
- *   - The file is unreadable.
+ * Mirrors yarn's actual config merge: `cwd/.yarnrc.yml` wins
+ * for any key it defines, but a key it OMITS falls through to
+ * the closest ancestor yarnrc that defines it. The earlier
+ * helper (round 38) stopped at the first existing yarnrc and
+ * returned that file's `nodeLinker:` even when it was
+ * `undefined`, so the safe case "cwd yarnrc has no nodeLinker
+ * but parent pins `node-modules`" was misclassified as PnP and
+ * raised a false-positive caveat (round-39 Copilot review).
  *
- * yarn-berry resolves `.yarnrc.yml` from the workspace root, so a
- * `monorepo/packages/foo` subdir scaffold inherits whatever the
- * root pins. Round-38 Codex P2 flagged that the existing yarn-berry
- * caveat fires whenever an ancestor `.yarnrc.yml` exists, even when
- * that file's `nodeLinker:` is `node-modules` (i.e. PnP isn't in
- * play and the arkor runtime works fine). Reading the value lets
- * the caller short-circuit the caveat in the safe case.
+ * Used by the patch path's `kept + needsBerryCaveat` branch
+ * (cwd has yarnrc without nodeLinker) and by the inspect path's
+ * `berry-without-linker` and `no-config` branches. Returns
+ * `undefined` when the file is unreadable so the caller falls
+ * back to its other heuristics rather than asserting "safe"
+ * incorrectly.
  */
 async function readEnclosingYarnrcNodeLinker(
   cwd: string,
 ): Promise<string | undefined> {
-  const path = findEnclosingPath(cwd, YARNRC_YML_PATH);
-  if (path === undefined) return undefined;
-  try {
-    return readNodeLinkerValue(await readFile(path, "utf8"));
-  } catch {
-    return undefined;
+  let dir = cwd;
+  while (true) {
+    const candidate = join(dir, YARNRC_YML_PATH);
+    if (existsSync(candidate)) {
+      try {
+        const value = readNodeLinkerValue(await readFile(candidate, "utf8"));
+        if (value !== undefined) return value;
+      } catch {
+        // Unreadable yarnrc: keep walking. We never assert
+        // "safe" without a positive read.
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return undefined; // reached filesystem root
+    dir = parent;
   }
 }
 
@@ -1340,8 +1356,18 @@ export async function scaffold(
       warnings.push(buildYarnLinkerConflictWarning(status.value));
       blockInstall = true;
     } else if (status.kind === "berry-without-linker") {
-      warnings.push(buildYarnBerryCaveatAdvisory());
-      blockInstall = true;
+      // Round 39 (Copilot, PR #99): cwd's yarnrc has no
+      // `nodeLinker:` key, but yarn merges configs up the tree —
+      // an ancestor workspace root pinning `nodeLinker: node-modules`
+      // is the safe case the caveat is supposed to nudge users
+      // toward. `readEnclosingYarnrcNodeLinker` walks ancestor
+      // yarnrcs until it finds the first definitive `nodeLinker:`,
+      // so it correctly resolves the merged effective value here.
+      const merged = await readEnclosingYarnrcNodeLinker(cwd);
+      if (merged !== "node-modules") {
+        warnings.push(buildYarnBerryCaveatAdvisory());
+        blockInstall = true;
+      }
     } else if (status.kind === "no-config") {
       // Round 16 (Copilot, PR #99): consult the pre-patch
       // local snapshot AND the parent tree for the corepack

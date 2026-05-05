@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { install } from "./install";
+import { install, lockfileLandedAfterInstall } from "./install";
 
 let cwd: string;
 let fakeBin: string;
@@ -263,5 +263,43 @@ describe("install", () => {
     await expect(
       install("pnpm" as never, cwd),
     ).rejects.toThrow();
+  });
+});
+
+// Round 39 (Copilot, PR #99): pnpm 11 / bun on Windows can exit
+// non-zero AFTER writing the lockfile, so the CLI's git-init gate
+// needs an on-disk fallback to recognise the "install threw but
+// the bootstrap is effectively complete" case. These tests pin
+// the lockfile-name table per pm and the undefined-pm short-
+// circuit so a future shape change trips a unit test rather than
+// silently dropping the recovered git-init path.
+describe("lockfileLandedAfterInstall", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "lockfile-landed-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns false when pm is undefined (no lockfile to look for)", () => {
+    expect(lockfileLandedAfterInstall(dir, undefined)).toBe(false);
+  });
+
+  it.each([
+    { pm: "npm" as const, file: "package-lock.json" },
+    { pm: "pnpm" as const, file: "pnpm-lock.yaml" },
+    { pm: "yarn" as const, file: "yarn.lock" },
+    { pm: "bun" as const, file: "bun.lock" },
+  ])("returns true when $pm's lockfile ($file) is on disk", ({ pm, file }) => {
+    expect(lockfileLandedAfterInstall(dir, pm)).toBe(false);
+    writeFileSync(join(dir, file), "");
+    expect(lockfileLandedAfterInstall(dir, pm)).toBe(true);
+  });
+
+  it("does not match a different pm's lockfile (e.g. yarn.lock when pm=npm)", () => {
+    writeFileSync(join(dir, "yarn.lock"), "");
+    expect(lockfileLandedAfterInstall(dir, "npm")).toBe(false);
+    expect(lockfileLandedAfterInstall(dir, "yarn")).toBe(true);
   });
 });

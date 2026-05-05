@@ -3,6 +3,37 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { PackageManager } from "./package-manager";
 
+/** Lockfile filename a successful `<pm> install` writes into cwd. */
+const LOCKFILE_BY_PM: Record<PackageManager, string> = {
+  npm: "package-lock.json",
+  pnpm: "pnpm-lock.yaml",
+  yarn: "yarn.lock",
+  bun: "bun.lock",
+};
+
+/**
+ * True when `<pm> install` left its lockfile in `cwd`. Used by the
+ * CLI's git-init gate to recover from a non-zero install exit that
+ * still produced a complete tree — pnpm 11 and bun on Windows have
+ * been observed exiting non-zero AFTER writing both `node_modules`
+ * and the lockfile. Treating those as "install failed → skip git"
+ * (round 35) silently dropped the requested initial commit even
+ * though the bootstrap was effectively complete (round-39 Copilot
+ * review). Checking the lockfile on disk lets the caller proceed
+ * with git when the artefact actually landed.
+ *
+ * Returns `false` when `pm` is undefined so callers can use it as
+ * a single-condition fallback alongside the in-memory `installed`
+ * flag.
+ */
+export function lockfileLandedAfterInstall(
+  cwd: string,
+  pm: PackageManager | undefined,
+): boolean {
+  if (pm === undefined) return false;
+  return existsSync(join(cwd, LOCKFILE_BY_PM[pm]));
+}
+
 /**
  * Walk from `cwd` up to filesystem root looking for the first
  * `yarn.lock`. Mirrors yarn's own resolution: in a yarn-berry

@@ -692,6 +692,75 @@ describe("scaffold", () => {
     }
   });
 
+  // Round 39 (Copilot, PR #99): cwd's own `.yarnrc.yml` has no
+  // `nodeLinker:` key, but yarn merges configs up the tree —
+  // a parent yarnrc pinning `nodeLinker: node-modules` IS the
+  // effective linker for cwd, so the bootstrap is safe and no
+  // caveat / blockInstall should fire. The earlier helper bailed
+  // at the first existing yarnrc and treated "found but no
+  // nodeLinker" as `undefined`, raising a false-positive caveat
+  // for this common monorepo layout.
+  it("respects merged yarnrc nodeLinker: cwd has yarnrc without key, ancestor pins node-modules", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "scaffold-yarn-merged-"));
+    writeFileSync(
+      join(parent, ".yarnrc.yml"),
+      "nodeLinker: node-modules\n",
+    );
+    const sub = join(parent, "packages", "new-pkg");
+    mkdirSync(sub, { recursive: true });
+    // Pre-existing project content (so isExistingProject=true) +
+    // a cwd-local `.yarnrc.yml` WITHOUT `nodeLinker:`. This is
+    // the `kept + needsBerryCaveat` shape on the patch path.
+    writeFileSync(join(sub, "README.md"), "# pre-existing\n");
+    writeFileSync(
+      join(sub, ".yarnrc.yml"),
+      "# cache config but no linker\nenableImmutableCache: true\n",
+    );
+    try {
+      const { warnings, blockInstall } = await scaffold({
+        cwd: sub,
+        name: "new-pkg",
+        template: "triage",
+        packageManager: "yarn",
+      });
+      expect(warnings).toEqual([]);
+      expect(blockInstall).toBe(false);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  // Same merged-config logic but on the inspect-only path:
+  // pm undefined, existing project, cwd has yarnrc without
+  // nodeLinker. The `berry-without-linker` branch must consult
+  // the merged effective value before raising the caveat.
+  it("inspect path: merged ancestor nodeLinker: node-modules suppresses the berry-without-linker caveat", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "scaffold-yarn-inspect-"));
+    writeFileSync(
+      join(parent, ".yarnrc.yml"),
+      "nodeLinker: node-modules\n",
+    );
+    const sub = join(parent, "packages", "new-pkg");
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(sub, "README.md"), "# pre-existing\n");
+    writeFileSync(
+      join(sub, ".yarnrc.yml"),
+      "enableImmutableCache: true\n",
+    );
+    try {
+      const { warnings, blockInstall } = await scaffold({
+        cwd: sub,
+        name: "new-pkg",
+        template: "triage",
+        // pm undefined → inspect-only path runs.
+      });
+      expect(warnings).toEqual([]);
+      expect(blockInstall).toBe(false);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   it("appends to an existing .gitignore only if the entry is missing", async () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
     const first = await scaffold({ cwd, name: "n", template: "triage" });
