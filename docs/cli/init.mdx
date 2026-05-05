@@ -53,8 +53,31 @@ arkor init [options]
 | `--use-bun` | Force bun as the package manager. |
 | `--git` | Initialise a git repo and create an initial commit, without asking. |
 | `--skip-git` | Skip git init silently. |
+| `--allow-builds` | Opt esbuild's `postinstall` script into running on `pnpm install`. pnpm-only — yarn / npm / bun ignore the workspace yaml. Default: deny. See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) below. |
 
 `--git` and `--skip-git` are mutually exclusive; passing both throws.
+
+## Postinstall scripts (pnpm 11+)
+
+Every scaffold writes a small `pnpm-workspace.yaml` alongside `package.json`:
+
+```yaml
+packages: []
+allowBuilds:
+  esbuild: false
+```
+
+pnpm 11 changed the default for postinstall scripts to "deny unless explicitly approved", and exits with `ERR_PNPM_IGNORED_BUILDS` (code 1) when an unapproved script is encountered. esbuild ships such a script (`node install.js`, which verifies/downloads the platform-specific binary), so a vanilla `pnpm install` against a freshly scaffolded project would otherwise fail.
+
+The scaffolded `allowBuilds: { esbuild: false }` is an explicit deny — pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works, because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. yarn / npm / bun all ignore `pnpm-workspace.yaml`, so the file is inert under those package managers.
+
+If you genuinely need esbuild's postinstall to run (rare; usually a broken installer or unusual platform), pass `--allow-builds`:
+
+```bash
+pnpm arkor init --yes --use-pnpm --allow-builds
+```
+
+— or flip the entry to `true` in `pnpm-workspace.yaml` after the fact. We accept the flag regardless of `--use-<pm>` so a project scaffolded with `--use-npm` today and switched to pnpm later doesn't silently strip the earlier `--allow-builds` choice.
 
 ## Templates
 

@@ -33,6 +33,10 @@ export async function main(argv: string[]): Promise<void> {
       "Initialise a git repo and create an initial commit (skips the prompt)",
     )
     .option("--skip-git", "Skip the git init prompt and do not initialise git")
+    .option(
+      "--allow-builds",
+      "Opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
+    )
     .action(
       withTelemetry("init", async (opts: {
         yes?: boolean;
@@ -45,6 +49,7 @@ export async function main(argv: string[]): Promise<void> {
         useBun?: boolean;
         git?: boolean;
         skipGit?: boolean;
+        allowBuilds?: boolean;
       }) => {
         if (opts.git && opts.skipGit) {
           throw new Error("Pick one of --git / --skip-git, not both.");
@@ -63,6 +68,7 @@ export async function main(argv: string[]): Promise<void> {
           packageManager,
           git: opts.git,
           skipGit: opts.skipGit,
+          allowBuilds: opts.allowBuilds,
         });
       }),
     );

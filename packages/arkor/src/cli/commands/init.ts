@@ -29,6 +29,15 @@ export interface InitOptions {
   git?: boolean;
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
+  /**
+   * `true` when the user explicitly passed `--allow-builds`. Threads through
+   * to `scaffold()` so the emitted `pnpm-workspace.yaml#allowBuilds.esbuild`
+   * is `true` instead of the secure-by-default `false`. Only meaningful for
+   * pnpm (yarn / npm / bun ignore the workspace yaml), but we plumb the
+   * flag unconditionally — a user who scaffolds with `--use-npm` today and
+   * later switches to pnpm would otherwise have to re-run with the flag.
+   */
+  allowBuilds?: boolean;
 }
 
 const MANUAL_INSTALL_HINT =
@@ -143,6 +152,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     name: sanitise(projectName),
     template,
     packageManager: options.packageManager,
+    allowBuilds: options.allowBuilds,
   });
 
   ui.note(

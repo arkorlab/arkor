@@ -129,6 +129,36 @@ describe("arkor init (E2E)", () => {
     expect(log.stdout.trim()).toBe("Initial commit from `arkor init`");
   });
 
+  it("writes pnpm-workspace.yaml with allowBuilds esbuild=false by default (deny)", async () => {
+    const result = await runCli(
+      ARKOR_BIN,
+      ["init", "-y", "--skip-install", "--skip-git", "--use-pnpm"],
+      cwd,
+    );
+    expect(result.code).toBe(0);
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+false/);
+  });
+
+  it("flips allowBuilds esbuild=true when --allow-builds is set", async () => {
+    const result = await runCli(
+      ARKOR_BIN,
+      [
+        "init",
+        "-y",
+        "--skip-install",
+        "--skip-git",
+        "--use-pnpm",
+        "--allow-builds",
+      ],
+      cwd,
+    );
+    expect(result.code).toBe(0);
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+true/);
+    expect(yaml).not.toMatch(/esbuild:[ \t]+false/);
+  });
+
   it("rejects --git --skip-git with a clear error", async () => {
     const result = await runCli(
       ARKOR_BIN,

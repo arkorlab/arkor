@@ -261,6 +261,44 @@ describe("scaffold", () => {
     expect(yaml).toContain('packages:\n  - "packages/*"');
   });
 
+  // `--allow-builds` opts users into running esbuild's postinstall.
+  // The flag is plumbed through to `ScaffoldOptions.allowBuilds` and
+  // flips the scaffolded value `false` → `true`. Pinning these
+  // fresh-create + patch behaviours stops a future refactor from
+  // silently breaking the opt-in path.
+  it("emits allowBuilds esbuild=true on a fresh scaffold when --allow-builds is set", async () => {
+    await scaffold({ cwd, name: "fresh", template: "triage", allowBuilds: true });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+true/);
+    expect(yaml).not.toMatch(/esbuild:[ \t]+false/);
+  });
+
+  it("appends esbuild=true into an existing block-form allowBuilds when --allow-builds is set", async () => {
+    const original = `packages:\n  - "packages/*"\nallowBuilds:\n  sharp: true\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({ cwd, name: "ignored", template: "triage", allowBuilds: true });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("sharp: true");
+    expect(yaml).toContain("esbuild: true");
+  });
+
+  it("preserves a user-set esbuild=false even when --allow-builds is passed", async () => {
+    // The flag tells the scaffold what default to write, but never
+    // overrides an explicit user pin — silently flipping false →
+    // true would change the install-time threat model.
+    const original = `packages: []\nallowBuilds:\n  esbuild: false\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      allowBuilds: true,
+    });
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("ok");
+  });
+
   it("appends to an existing .gitignore only if the entry is missing", async () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
     const first = await scaffold({ cwd, name: "n", template: "triage" });

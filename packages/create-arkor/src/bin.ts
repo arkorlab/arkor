@@ -31,6 +31,13 @@ interface RunOptions {
   git?: boolean;
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
+  /**
+   * `true` when the user explicitly passed `--allow-builds`. Threads through
+   * to `scaffold()` so the emitted `pnpm-workspace.yaml#allowBuilds.esbuild`
+   * is `true` instead of the secure-by-default `false`. Mirror of the same
+   * field on `arkor init`'s `InitOptions` — see that interface for details.
+   */
+  allowBuilds?: boolean;
 }
 
 const MANUAL_INSTALL_HINT =
@@ -233,7 +240,13 @@ export async function run(options: RunOptions): Promise<void> {
   spin.start(`Scaffolding in ${cwd}`);
   // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
   // yarn-berry's PnP default which the arkor runtime can't load through).
-  const { files, warnings, blockInstall } = await scaffold({ cwd, name, template, packageManager: pm });
+  const { files, warnings, blockInstall } = await scaffold({
+    cwd,
+    name,
+    template,
+    packageManager: pm,
+    allowBuilds: options.allowBuilds,
+  });
   spin.stop("Done");
 
   clack.note(
@@ -379,6 +392,10 @@ program
     "initialise a git repo and create an initial commit (skips the prompt)",
   )
   .option("--skip-git", "skip the git init prompt and do not initialise git")
+  .option(
+    "--allow-builds",
+    "opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
+  )
   .action(
     async (
       dir: string | undefined,
@@ -393,6 +410,7 @@ program
         useBun?: boolean;
         git?: boolean;
         skipGit?: boolean;
+        allowBuilds?: boolean;
       },
     ) => {
       if (opts.git && opts.skipGit) {
@@ -426,6 +444,7 @@ program
         packageManager,
         git: opts.git,
         skipGit: opts.skipGit,
+        allowBuilds: opts.allowBuilds,
       });
     },
   );

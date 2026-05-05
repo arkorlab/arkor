@@ -53,8 +53,31 @@ arkor init [options]
 | `--use-bun` | パッケージマネージャに bun を強制。 |
 | `--git` | 確認なしで git リポジトリを初期化し、初回コミットを作成。 |
 | `--skip-git` | git init を黙ってスキップ。 |
+| `--allow-builds` | esbuild の `postinstall` スクリプトを `pnpm install` で実行することを許可（pnpm 専用 — yarn / npm / bun はワークスペース yaml を無視）。デフォルトは deny。下記 [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプトpnpm-11) を参照。 |
 
 `--git` と `--skip-git` は排他です。両方渡すと例外が発生します。
+
+## postinstall スクリプト（pnpm 11+）
+
+scaffold は `package.json` の隣に小さな `pnpm-workspace.yaml` を出力します。
+
+```yaml
+packages: []
+allowBuilds:
+  esbuild: false
+```
+
+pnpm 11 から postinstall スクリプトの既定が「明示的に承認しない限り実行しない」に変わり、未承認のスクリプトに当たると `ERR_PNPM_IGNORED_BUILDS`（exit code 1）で失敗するようになりました。esbuild はそうしたスクリプト（`node install.js`、プラットフォーム別バイナリの検証/取得）を持つため、scaffold したばかりのプロジェクトでそのまま `pnpm install` するとこのエラーになります。
+
+scaffold が書く `allowBuilds: { esbuild: false }` は明示的な deny です。pnpm は「決定済み」と判断してスクリプトをサイレントにスキップし、エラーになりません。esbuild 自身は動作します — pnpm が `@esbuild/<platform>` を `optionalDependency` としてすでにインストールしているからです。yarn / npm / bun は `pnpm-workspace.yaml` を読まないので、それらでは無効化されたファイルとして扱われます。
+
+esbuild の postinstall を実際に走らせる必要がある場合（まれ、通常は壊れたインストーラーや特殊なプラットフォーム）は `--allow-builds` を渡してください。
+
+```bash
+pnpm arkor init --yes --use-pnpm --allow-builds
+```
+
+— あるいは後から `pnpm-workspace.yaml` のエントリーを `true` に書き換えてください。`--use-<pm>` の指定にかかわらずこのフラグは受け付けます。`--use-npm` で scaffold して後から pnpm に切り替える場合に、過去の `--allow-builds` の指定が静かに失われないようにするためです。
 
 ## テンプレート
 
