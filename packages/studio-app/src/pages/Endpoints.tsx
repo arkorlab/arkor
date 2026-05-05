@@ -36,6 +36,10 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
 import { Inbox } from "../components/icons";
 import { QuickStart } from "./QuickStart";
+import {
+  pollDeploymentsForSlug,
+  setupKeyIssueGuards,
+} from "./Endpoints.helpers";
 
 function describeTarget(target: DeploymentTarget): string {
   if (target.kind === "adapter") {
@@ -98,51 +102,29 @@ export function EndpointsList() {
 
   /**
    * Reload after the create form was unmounted with a POST in flight
-   * (Cancel button, route change). A single immediate `load()` would
-   * race with the server: if the row commits a few hundred ms after our
-   * abort fires, the first reload returns the pre-create snapshot, the
-   * row stays invisible, and the user sees a mysterious 409 the next
-   * time they retry the same slug. Poll a handful of times until the
-   * specific slug appears — or give up after a few seconds (orphan
-   * row, the user can refresh manually).
-   *
-   * Detection is by *slug match* rather than count delta. A length-only
-   * heuristic stops too early when (a) the initial `/api/deployments`
-   * fetch hadn't returned yet so `baseline` is 0 despite existing rows,
-   * or (b) another tab / CLI added an unrelated deployment first —
-   * `length > baseline` would fire, the loop would exit, and we'd still
-   * miss the slug we actually care about.
+   * (Cancel button, route change). The polling logic itself lives in
+   * `pollDeploymentsForSlug` (`./Endpoints.helpers.ts`) so it can be
+   * unit-tested without React; this wrapper just wires up the
+   * AbortController and the React state setters. 6 attempts × 500 ms
+   * ≈ 3 s — long enough for a reasonable server commit window, short
+   * enough that a forgotten poll doesn't keep hammering the cloud API
+   * forever.
    */
   const pollAfterAbortedCreate = useCallback(async (slug: string) => {
     loadControllerRef.current?.abort();
     const controller = new AbortController();
     loadControllerRef.current = controller;
-    // 6 attempts × 500 ms ≈ 3 s. Long enough for a reasonable server
-    // commit window, short enough that a forgotten poll doesn't keep
-    // hammering the cloud API forever.
-    for (let attempt = 0; attempt < 6; attempt++) {
-      if (controller.signal.aborted) return;
-      if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      if (controller.signal.aborted) return;
-      try {
-        const { deployments: latest, scopeMissing: latestScopeMissing } =
-          await fetchDeployments({
-            signal: controller.signal,
-          });
-        if (controller.signal.aborted) return;
-        setDeployments(latest);
-        setScopeMissing(Boolean(latestScopeMissing));
+    await pollDeploymentsForSlug({
+      slug,
+      signal: controller.signal,
+      fetchDeployments,
+      onUpdate: ({ deployments, scopeMissing }) => {
+        setDeployments(deployments);
+        setScopeMissing(Boolean(scopeMissing));
         setError(null);
-        if (latest.some((d) => d.slug === slug)) return;
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(asMessage(err));
-        return;
-      }
-    }
+      },
+      onError: (msg) => setError(msg),
+    });
   }, []);
 
   useEffect(() => {
@@ -609,50 +591,26 @@ export function EndpointDetail({ id }: { id: string }) {
   const keyPostInFlightRef = useRef(false);
   const keyIssueControllerRef = useRef<AbortController | null>(null);
   useEffect(() => {
-    function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (!pendingKeyIssueRef.current) return;
-      // Modern browsers (Chrome 119+, Firefox, Safari) show the generic
-      // confirm dialog from `preventDefault()` alone — the custom message
-      // is no longer rendered, so we don't bother with the deprecated
-      // `returnValue`. Goal: stop the user from losing the one-time
-      // plaintext key by closing the tab mid-flight.
-      e.preventDefault();
-    }
-    // In-app navigation goes through `useHashRoute` (`route.ts`). A page
-    // listening to `hashchange` directly cannot reliably block: by spec,
-    // listeners run in registration order, so `useHashRoute`'s handler
-    // (registered at app mount) updates the route state before this
-    // page's handler ever runs, and React has already torn this
-    // component down by the time we could call `confirm()`. The
-    // navigation-guard registry in `route.ts` runs *inside*
-    // `useHashRoute`'s handler, before `setRoute()`, so a guard return
-    // of `false` actually stops the route change.
-    const unregisterGuard = registerNavigationGuard(() => {
-      if (!pendingKeyIssueRef.current) return true;
-      // Pick copy that matches the actual phase. A confirm dialog that
-      // claims the key is "being issued" while the plaintext is in fact
-      // already on screen would mislead the operator about what they're
-      // about to lose.
-      const message = keyPostInFlightRef.current
-        ? "An API key is being issued. Leaving now will lose the one-time secret. Continue anyway?"
-        : "The just-issued API key is shown on screen but you haven't confirmed you saved it. Leaving now will discard the only copy. Continue anyway?";
-      const proceed = window.confirm(message);
-      if (proceed) {
-        // User accepts losing the plaintext — release the guard so
-        // subsequent navigations flow through.
+    // The actual wiring (beforeunload listener, nav-guard registration,
+    // unmount abort) lives in `setupKeyIssueGuards` so it can be
+    // unit-tested without a DOM. Inject the side-effects through the
+    // helper's options so tests can swap `window.confirm`,
+    // `addEventListener`, etc. for stubs while still exercising the
+    // same registration / cleanup ordering that runs in the browser.
+    return setupKeyIssueGuards({
+      isPending: () => pendingKeyIssueRef.current,
+      isPostInFlight: () => keyPostInFlightRef.current,
+      getKeyIssueController: () => keyIssueControllerRef.current,
+      registerNavigationGuard,
+      addBeforeUnloadListener: (h) =>
+        window.addEventListener("beforeunload", h),
+      removeBeforeUnloadListener: (h) =>
+        window.removeEventListener("beforeunload", h),
+      confirm: (msg) => window.confirm(msg),
+      onAcceptedLoss: () => {
         pendingKeyIssueRef.current = false;
-      }
-      return proceed;
+      },
     });
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => {
-      unregisterGuard();
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      // Component is being torn down: best-effort abort the in-flight
-      // POST so the network layer drops the response. If the server
-      // already committed, the key will show up on the next visit.
-      keyIssueControllerRef.current?.abort();
-    };
   }, []);
 
   useEffect(() => {
