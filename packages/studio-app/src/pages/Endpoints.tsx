@@ -200,15 +200,22 @@ export function EndpointsList() {
         ) : deployments.length === 0 ? (
           // Two distinct empty states: "this project genuinely has no
           // deployments" vs "we don't know which project this Studio
-          // session is scoped to (no `.arkor/state.json`)". The latter
-          // is what an Auth0 user with stale local checkout would see;
-          // pointing them at "Create one" would still 400 against the
-          // missing state file, so surface the actual remediation.
+          // session is scoped to (no `.arkor/state.json`)". The
+          // unscoped branch covers three operator configurations and
+          // each needs a different next step — anonymous (the create
+          // path will bootstrap), Auth0 (must restore state.json), or
+          // not-signed-in / autoAnonymous=false (must `arkor login`
+          // first; the create attempt would otherwise 401 with a
+          // hint that's identical to what we surface here). The list
+          // route itself doesn't see the credentials state, so the
+          // copy has to enumerate all three remediations rather than
+          // single one out — the actual error you hit on the next
+          // create attempt narrows it down.
           scopeMissing ? (
             <EmptyState
               icon={<Inbox />}
               title="Workspace not scoped to a project yet"
-              description="Anonymous workspaces will bootstrap on the first endpoint create. Auth0 callers must restore .arkor/state.json by hand to point this Studio session at the project they want to manage."
+              description="The next endpoint create will bootstrap this for an anonymous session. If you're signed in via Auth0, restore .arkor/state.json by hand to point this Studio session at the project you want to manage. If neither applies (no credentials on disk), run `arkor login` first — Studio cannot reach the cloud API without one."
             />
           ) : (
             <EmptyState
