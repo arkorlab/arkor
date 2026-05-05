@@ -102,14 +102,20 @@ export function EndpointsList() {
    * abort fires, the first reload returns the pre-create snapshot, the
    * row stays invisible, and the user sees a mysterious 409 the next
    * time they retry the same slug. Poll a handful of times until the
-   * row count goes up — or give up after a few seconds (orphan row, the
-   * user can refresh manually).
+   * specific slug appears — or give up after a few seconds (orphan
+   * row, the user can refresh manually).
+   *
+   * Detection is by *slug match* rather than count delta. A length-only
+   * heuristic stops too early when (a) the initial `/api/deployments`
+   * fetch hadn't returned yet so `baseline` is 0 despite existing rows,
+   * or (b) another tab / CLI added an unrelated deployment first —
+   * `length > baseline` would fire, the loop would exit, and we'd still
+   * miss the slug we actually care about.
    */
-  const pollAfterAbortedCreate = useCallback(async () => {
+  const pollAfterAbortedCreate = useCallback(async (slug: string) => {
     loadControllerRef.current?.abort();
     const controller = new AbortController();
     loadControllerRef.current = controller;
-    const baseline = deploymentsRef.current?.length ?? 0;
     // 6 attempts × 500 ms ≈ 3 s. Long enough for a reasonable server
     // commit window, short enough that a forgotten poll doesn't keep
     // hammering the cloud API forever.
@@ -126,7 +132,7 @@ export function EndpointsList() {
         if (controller.signal.aborted) return;
         setDeployments(latest);
         setError(null);
-        if (latest.length > baseline) return;
+        if (latest.some((d) => d.slug === slug)) return;
       } catch (err) {
         if (controller.signal.aborted) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -171,16 +177,15 @@ export function EndpointsList() {
             setShowCreate(false);
             void load();
           }}
-          onMaybeCreated={() => {
+          onMaybeCreated={(slug) => {
             // The form was unmounted (Cancel button, navigation) while a
             // POST was in flight. The server may already have committed
             // the row even though the client aborted, but the commit can
             // land a few hundred ms after our abort fires — a single
             // immediate reload would return the pre-create snapshot and
             // the user would still hit a confusing 409 on retry. Poll
-            // until the row count goes up (or give up after a few
-            // seconds).
-            void pollAfterAbortedCreate();
+            // for the specific slug (or give up after a few seconds).
+            void pollAfterAbortedCreate(slug);
           }}
         />
       )}
@@ -260,7 +265,7 @@ function NewEndpointForm({
   onMaybeCreated,
 }: {
   onCreated: () => void;
-  onMaybeCreated: () => void;
+  onMaybeCreated: (slug: string) => void;
 }) {
   const [slug, setSlug] = useState("");
   const [authMode, setAuthMode] = useState<DeploymentAuthMode>("fixed_api_key");
@@ -276,20 +281,23 @@ function NewEndpointForm({
   // committed the row, so we tell the parent to refresh the list via
   // `onMaybeCreated` — otherwise the user clicks Cancel, retries with
   // the same slug, and sees a confusing 409 collision instead of the
-  // row that was actually created.
+  // row that was actually created. The slug we attempted is captured
+  // in a ref so the unmount cleanup hands the parent the exact value
+  // to poll for, regardless of what's still in the input box.
   //
   // Use refs (not closures) so the unmount cleanup sees the most recent
   // controller / "was a request in flight?" state without re-binding the
   // effect on every render.
   const submitControllerRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef(false);
+  const inFlightSlugRef = useRef<string>("");
   const onMaybeCreatedRef = useRef(onMaybeCreated);
   onMaybeCreatedRef.current = onMaybeCreated;
   useEffect(() => {
     return () => {
       if (inFlightRef.current) {
         submitControllerRef.current?.abort();
-        onMaybeCreatedRef.current();
+        onMaybeCreatedRef.current(inFlightSlugRef.current);
       }
     };
   }, []);
@@ -320,11 +328,17 @@ function NewEndpointForm({
       setError("Fill in the target details");
       return;
     }
-    const body: CreateDeploymentBody = { slug: slug.trim(), target, authMode };
+    const trimmedSlug = slug.trim();
+    const body: CreateDeploymentBody = {
+      slug: trimmedSlug,
+      target,
+      authMode,
+    };
     submitControllerRef.current?.abort();
     const controller = new AbortController();
     submitControllerRef.current = controller;
     inFlightRef.current = true;
+    inFlightSlugRef.current = trimmedSlug;
     setSubmitting(true);
     try {
       await createDeployment(body, { signal: controller.signal });

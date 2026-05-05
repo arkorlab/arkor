@@ -7,11 +7,12 @@ Studio is the local web UI you get when you run `arkor dev`. It is not a separat
 
 ## What Studio is for
 
-Three jobs:
+Four jobs:
 
 1. **Start a training run.** A "Run training" button submits the job to the managed backend by spawning `arkor start` under the hood. `arkor start` runs the existing `.arkor/build/index.mjs` artifact (and only auto-builds it when missing); see the dev-loop note below for how Studio keeps that artifact fresh.
 2. **See training happen.** A jobs list with live status, a loss chart that updates as the run streams in, and a tail of training events. You can leave it open in a tab while you work on other things.
 3. **Try a finished model.** A Playground page lets you pick the base model or the final adapter from any completed job and chat with it. The Playground does not load intermediate checkpoints; for mid-run inference, use [`onCheckpoint`](/concepts/lifecycle) callbacks in your trainer.
+4. **Publish a model behind a `*.arkor.app` URL.** An Endpoints page creates a per-deployment subdomain that serves OpenAI-compatible chat completions for a chosen adapter or base model, plus the API keys that authenticate calls to it. The same actions are available programmatically via [`CloudApiClient`](/sdk/deployments) — Studio is the interactive surface; the SDK is the lower-level one.
 
 A note on the dev loop: Studio's `/api/manifest` endpoint rebuilds and re-imports your trainer on every request (with a cache-bust query, see `packages/arkor/src/studio/manifest.ts`), but the UI only fetches it when the Run training page mounts. So if you edit `src/arkor/` and stay on the same Run training page, the next click reuses the existing `.arkor/build/index.mjs` and runs your old code. Refresh the page (or run `arkor build` from the terminal) between edits and clicks to pick up the new code reliably.
 
@@ -50,8 +51,9 @@ The current views are intentionally small:
 - **Jobs.** Status, name, created time, and ID, polled every few seconds.
 - **Job detail.** Loss chart, log tail (most recent events), and live status. Streamed via Server-Sent Events so it stays current without manual refresh.
 - **Playground.** Adapter selector (base model or the final adapter from any completed job), a chat UI, and a streaming response. Calls flow through the CLI, then to the managed inference endpoint. The Playground only lists jobs that have finished. To run inference against an intermediate checkpoint while a run is still in flight, use [`onCheckpoint`](/concepts/lifecycle) callbacks instead.
+- **Endpoints.** A per-deployment `*.arkor.app` URL bound to an adapter or base model, plus the API keys that authenticate it. Slug, target (final adapter / specific checkpoint / base model), auth mode, and key issue / revoke are all in the same view; deeper operations (re-targeting an existing deployment, custom run retention, bulk scripting) stay on the [SDK](/sdk/deployments).
 
-A walkthrough of each view (Run training, Job detail, Playground) lives in the [Studio](/studio/overview) section.
+A walkthrough of each view (Run training, Job detail, Playground, Endpoints) lives in the [Studio](/studio/overview) section.
 
 ## When not to use Studio
 
