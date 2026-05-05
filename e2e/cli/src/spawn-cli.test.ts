@@ -513,6 +513,22 @@ describe("runCli yarn cache plumbing", () => {
     expect(bunCache).toMatch(/[\\/]arkor-e2e-bun-cache-/);
   });
 
+  // Round 36 (PR #99 — CI run 25351227697): yarn-berry on
+  // Windows raced its global `%LOCALAPPDATA%\Yarn\Berry\cache`
+  // between workers and tarball renames failed with `EPERM:
+  // operation not permitted`. yarn-berry only honours
+  // `YARN_CACHE_FOLDER` when its global cache is disabled, so
+  // we force `YARN_ENABLE_GLOBAL_CACHE=false` to redirect into
+  // the per-spawn cache dir.
+  it("forwards YARN_ENABLE_GLOBAL_CACHE=false so yarn-berry honours YARN_CACHE_FOLDER", async () => {
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ code: 0, signal: null }),
+    );
+    await runCli("/fake/bin", [], cwd);
+
+    expect(lastSpawnEnv().YARN_ENABLE_GLOBAL_CACHE).toBe("false");
+  });
+
   it("uses a unique YARN_CACHE_FOLDER for each spawn (covers the retry case)", async () => {
     // Force a SIGKILL retry so spawn fires twice; assert the two
     // cache dirs are distinct paths (otherwise parallel workers

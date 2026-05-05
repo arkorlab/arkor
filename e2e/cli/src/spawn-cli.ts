@@ -324,6 +324,22 @@ function runCliOnce(
         // `networkConcurrency` from `.yarnrc.yml` instead, so the env
         // is a no-op for it.
         YARN_NETWORK_CONCURRENCY: "1",
+        // yarn-berry has its own cache layer (`enableGlobalCache:
+        // true` by default) that lives at
+        // `%LOCALAPPDATA%\Yarn\Berry\cache` on Windows and
+        // `~/.yarn/berry/cache` elsewhere — separate from
+        // `YARN_CACHE_FOLDER`, which yarn-berry only honours when
+        // global cache is disabled. Parallel vitest workers running
+        // `yarn install` against that shared dir race the same
+        // tarball-rename sequence as bun above and produce
+        // `EPERM: operation not permitted, rename '<pkg>.zip-<hash>.tmp'
+        // -> '<pkg>.zip'` (CI run 25351227697, install · yarn-berry ·
+        // windows-latest · node 24.12). Forcing
+        // `enableGlobalCache: false` flips the cache target to the
+        // per-spawn `cacheFolder` (== `YARN_CACHE_FOLDER` above), so
+        // each worker writes into its own tmp dir. yarn 1 ignores the
+        // env, npm / pnpm / bun ignore it.
+        YARN_ENABLE_GLOBAL_CACHE: "false",
         ...homeMirror,
         ...extraEnv,
       },

@@ -84,7 +84,61 @@ const README_PATH = "README.md";
 const GITIGNORE_PATH = ".gitignore";
 const PACKAGE_JSON_PATH = "package.json";
 const YARNRC_YML_PATH = ".yarnrc.yml";
+const PNPM_WORKSPACE_PATH = "pnpm-workspace.yaml";
 const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.8";
+
+// pnpm 11 errors out (`ERR_PNPM_IGNORED_BUILDS`, exit 1) on packages
+// with postinstall scripts unless the project either approves or
+// explicitly denies the dep. arkor's only flagged build script is
+// esbuild's, which downloads/verifies the platform-specific binary
+// — but pnpm already installs `@esbuild/<platform>` as an
+// optionalDependency, so `arkor build` works *without* the
+// postinstall in the common case. We therefore pin the scaffolded
+// default to "deny" rather than "allow" — running arbitrary install
+// scripts is a supply-chain hazard pnpm 11 deliberately makes the
+// user opt into.
+//
+// Allow-list location across pnpm versions:
+//
+//   - pnpm 9:  no allow-list — runs build scripts unconditionally.
+//              REQUIRES `packages:` if `pnpm-workspace.yaml` exists,
+//              else errors "packages field missing or empty".
+//   - pnpm 10: warns (but exits 0) on ignored builds. Honours
+//              `package.json#pnpm.onlyBuiltDependencies` AND
+//              `pnpm-workspace.yaml#allowBuilds`.
+//   - pnpm 11: ERRORS on ignored builds. Does NOT honour
+//              `package.json#pnpm.onlyBuiltDependencies` —
+//              configuration moved to `pnpm-workspace.yaml#allowBuilds`
+//              (map form: `{ <pkg>: true | false }`, what `pnpm
+//              approve-builds` writes). The package.json field is
+//              silently ignored. `false` counts as "considered" and
+//              suppresses the error.
+//
+// Hence: write `pnpm-workspace.yaml` with both `packages: []` (for
+// pnpm-9 compat — pnpm 10/11 don't require it but tolerate it) and
+// `allowBuilds: { esbuild: false }` (silences pnpm 11's error
+// without granting esbuild the right to run code at install time).
+// Tested against pnpm 9.15.9, 10.33.2, and 11.0.3. (PR #99 round
+// 36 — CI run 25351227697 showed `package.json#pnpm
+// .onlyBuiltDependencies` had no effect on pnpm 11.)
+//
+// yarn / npm / bun do not read `pnpm-workspace.yaml`, so the file is
+// inert for those package managers.
+const PNPM_WORKSPACE_CONTENT = `# pnpm config (yarn / npm / bun ignore this file).
+# \`packages: []\` keeps pnpm 9 from erroring on the workspace file
+# while leaving the project as a single non-workspace package.
+#
+# \`allowBuilds\` is pnpm 11's allow-list for postinstall scripts.
+# pnpm already installs esbuild's platform-specific binary as an
+# \`optionalDependency\`, so the postinstall script is unnecessary
+# in normal use — we explicitly deny it here as a supply-chain
+# precaution. If you hit a case where esbuild fails to find its
+# binary (rare; usually a broken installer or unusual platform),
+# flip the entry to \`true\` to let the script run.
+packages: []
+allowBuilds:
+  esbuild: false
+`;
 
 // Single-key config: `nodeLinker: node-modules` forces yarn-berry to
 // materialise a real node_modules tree instead of its Plug'n'Play default.
@@ -556,18 +610,6 @@ async function patchPackageJson(
   name: string,
 ): Promise<FileAction> {
   const path = join(cwd, PACKAGE_JSON_PATH);
-  // pnpm 11+ flipped the default for postinstall scripts: it now
-  // refuses to run them unless the project's `package.json#pnpm
-  // .onlyBuiltDependencies` allow-lists the dep, exiting with
-  // `ERR_PNPM_IGNORED_BUILDS` and code 1 otherwise. arkor's
-  // `arkor build` command depends on esbuild's postinstall having
-  // run (it downloads the platform-specific binary into
-  // `node_modules/@esbuild/<platform>/`), so the scaffold must
-  // pre-allow esbuild or every pnpm-11 user hits the install
-  // failure. yarn / npm / bun read this field harmlessly (npm
-  // ignores unknown top-level keys; yarn / bun honour their own
-  // settings instead). (PR #99 round 36 — CI run 25349847532.)
-  const PNPM_ALLOWED_BUILD_DEPS = ["esbuild"];
   if (!existsSync(path)) {
     await writeFile(
       path,
@@ -578,7 +620,6 @@ async function patchPackageJson(
           type: "module",
           scripts: { ...SCRIPT_DEFAULTS },
           devDependencies: { arkor: resolveArkorScaffoldSpec() },
-          pnpm: { onlyBuiltDependencies: PNPM_ALLOWED_BUILD_DEPS },
         },
         null,
         2,
@@ -607,32 +648,135 @@ async function patchPackageJson(
     current.devDependencies = devDeps;
     dirty = true;
   }
-  // Ensure the pnpm allow-list contains `esbuild`. We MERGE rather
-  // than overwrite: an existing project may already have
-  // `pnpm.onlyBuiltDependencies` for its own deps, and we don't
-  // want to clobber the user's allow-list — just ensure ours is
-  // present.
-  const pnpmConfig =
-    (current.pnpm as Record<string, unknown> | undefined) ?? {};
-  const existingAllowed = Array.isArray(pnpmConfig.onlyBuiltDependencies)
-    ? (pnpmConfig.onlyBuiltDependencies as unknown[]).filter(
-        (e): e is string => typeof e === "string",
-      )
-    : [];
-  const missingAllowed = PNPM_ALLOWED_BUILD_DEPS.filter(
-    (dep) => !existingAllowed.includes(dep),
-  );
-  if (missingAllowed.length > 0) {
-    pnpmConfig.onlyBuiltDependencies = [
-      ...existingAllowed,
-      ...missingAllowed,
-    ];
-    current.pnpm = pnpmConfig;
-    dirty = true;
-  }
   if (!dirty) return "ok";
   await writeFile(path, `${JSON.stringify(current, null, 2)}\n`);
   return "patched";
+}
+
+// Ensure `pnpm-workspace.yaml` exists with `allowBuilds: { esbuild: false }`
+// so pnpm 11 doesn't refuse `pnpm install` over esbuild's postinstall.
+// See `PNPM_WORKSPACE_CONTENT` for the full per-version rationale.
+//
+// Existing-file path uses regex-based YAML parsing rather than pulling
+// in a YAML lib (the rest of `cli-internal` deliberately ships zero
+// runtime deps via tsdown's `deps.alwaysBundle`). The file is small
+// (key-value pairs at top level), and we only need to detect the
+// `allowBuilds:` block and merge `esbuild: false` into it. If the user
+// has already pinned an explicit value (true *or* false) we leave it
+// alone — overriding their decision either way would silently change
+// the install-time threat model of their project.
+async function patchPnpmWorkspace(cwd: string): Promise<FileAction> {
+  const path = join(cwd, PNPM_WORKSPACE_PATH);
+  if (!existsSync(path)) {
+    await writeFile(path, PNPM_WORKSPACE_CONTENT);
+    return "created";
+  }
+  const current = await readFile(path, "utf8");
+  const allowBuildsValue = readAllowBuildsValue(current, "esbuild");
+  if (allowBuildsValue !== undefined) return "ok";
+  const patched = appendEsbuildToAllowBuilds(current);
+  if (patched === current) return "ok";
+  await writeFile(path, patched);
+  return "patched";
+}
+
+// Returns the explicit `esbuild:` value under the top-level
+// `allowBuilds:` mapping, or `undefined` if the key is absent.
+// Tolerates the two shapes `pnpm approve-builds` produces:
+//
+//   allowBuilds:
+//     esbuild: false
+//
+// and the inline-object form a user might hand-write:
+//
+//   allowBuilds: { esbuild: false }
+//
+// Anything more exotic (e.g. anchors, multi-line strings) is rejected
+// and we fall back to "missing" so the patch path appends a fresh
+// block. We never mutate user-pinned `false` — see `patchPnpmWorkspace`.
+function readAllowBuildsValue(
+  contents: string,
+  pkg: string,
+): boolean | undefined {
+  const escaped = pkg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Inline mapping: `allowBuilds: { esbuild: false, ... }`.
+  const inlineMatch = contents.match(
+    /^[ \t]*allowBuilds:[ \t]*\{([^}]*)\}[ \t]*$/m,
+  );
+  if (inlineMatch) {
+    const pairRe = new RegExp(`["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)`);
+    const inner = inlineMatch[1].match(pairRe);
+    if (inner) return inner[1] === "true";
+    return undefined;
+  }
+  // Block mapping: an `allowBuilds:` line followed by `  pkg: <bool>` entries.
+  const blockHeaderRe = /^[ \t]*allowBuilds:[ \t]*$/m;
+  const headerMatch = blockHeaderRe.exec(contents);
+  if (!headerMatch) return undefined;
+  const after = contents.slice(headerMatch.index + headerMatch[0].length);
+  const lines = after.split("\n");
+  // Skip the empty trailing slice that comes from the header newline.
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === "") continue;
+    if (!/^[ \t]/.test(line)) break; // dedent — block ended
+    const m = line.match(
+      new RegExp(`^[ \\t]+["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)[ \\t]*$`),
+    );
+    if (m) return m[1] === "true";
+  }
+  return undefined;
+}
+
+// Append `esbuild: false` to an existing pnpm-workspace.yaml without
+// destructive rewrites. Three branches:
+//
+//   1. Inline `allowBuilds: { ... }` — splice `esbuild: false` into
+//      the mapping.
+//   2. Block `allowBuilds:` with no esbuild entry — append an
+//      `  esbuild: false` line at the end of the block (keeping the
+//      block's indentation).
+//   3. No `allowBuilds:` key — append a fresh block with the standard
+//      two-space indent that pnpm uses.
+//
+// Returns the input unchanged if a structural edge case (e.g.
+// `allowBuilds: false`, anchored references) makes the splice
+// ambiguous — `patchPnpmWorkspace` then returns `ok` and the user
+// keeps whatever they had.
+function appendEsbuildToAllowBuilds(contents: string): string {
+  const inlineRe = /^([ \t]*)allowBuilds:[ \t]*\{([^}]*)\}[ \t]*$/m;
+  const inlineMatch = contents.match(inlineRe);
+  if (inlineMatch) {
+    const inner = inlineMatch[2].trim();
+    const merged = inner.length > 0
+      ? `${inner}, esbuild: false`
+      : "esbuild: false";
+    return contents.replace(
+      inlineRe,
+      `${inlineMatch[1]}allowBuilds: { ${merged} }`,
+    );
+  }
+  // Match the header plus any indented body lines that follow. The
+  // body subgroup captures `<indent><something>\n` repeated for each
+  // entry. The match deliberately stops at the first dedented or
+  // blank line, leaving any trailing siblings of `allowBuilds:`
+  // untouched.
+  const blockRe =
+    /^([ \t]*)allowBuilds:[ \t]*\n((?:[ \t]+[^\n]*\n)*)/m;
+  const blockMatch = contents.match(blockRe);
+  if (blockMatch) {
+    const headerIndent = blockMatch[1];
+    const body = blockMatch[2];
+    // Reuse the existing entry indent if there is one; otherwise
+    // default to the header indent + two spaces (pnpm's convention).
+    const entryIndentMatch = body.match(/^([ \t]+)/);
+    const entryIndent = entryIndentMatch?.[1] ?? `${headerIndent}  `;
+    const replacement = `${headerIndent}allowBuilds:\n${body}${entryIndent}esbuild: false\n`;
+    return contents.replace(blockRe, replacement);
+  }
+  // No allowBuilds at all — append a fresh block.
+  const trailingNewline = contents.endsWith("\n") ? "" : "\n";
+  return `${contents}${trailingNewline}allowBuilds:\n  esbuild: false\n`;
 }
 
 export async function scaffold(
@@ -712,6 +856,10 @@ export async function scaffold(
   files.push({
     path: PACKAGE_JSON_PATH,
     action: await patchPackageJson(cwd, options.name),
+  });
+  files.push({
+    path: PNPM_WORKSPACE_PATH,
+    action: await patchPnpmWorkspace(cwd),
   });
   // Yarn-config emission rules:
   //

@@ -53,12 +53,16 @@ describe("scaffold", () => {
   it("writes all starter files in an empty directory", async () => {
     const result = await scaffold({ cwd, name: "my-app", template: "triage" });
     // index.ts, trainer.ts, arkor.config.ts, README.md, .gitignore,
-    // package.json, .yarnrc.yml — the trailing `.yarnrc.yml` fires
-    // because `packageManager` is undefined here (no `--use-*` was
-    // simulated), and the manual-install-hint flow defensively emits
-    // the file so a yarn-berry user reading the hint and running
-    // `yarn install` doesn't land on PnP.
+    // package.json, pnpm-workspace.yaml, .yarnrc.yml — the trailing
+    // `.yarnrc.yml` fires because `packageManager` is undefined here
+    // (no `--use-*` was simulated), and the manual-install-hint flow
+    // defensively emits the file so a yarn-berry user reading the
+    // hint and running `yarn install` doesn't land on PnP.
+    // pnpm-workspace.yaml is unconditional (round 36): yarn / npm /
+    // bun all ignore it, so emitting it always avoids a stale-config
+    // pitfall if the user later switches to pnpm.
     expect(result.files.map((f) => f.action)).toEqual([
+      "created",
       "created",
       "created",
       "created",
@@ -155,86 +159,106 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("patched");
   });
 
-  // Round 36 (PR #99 — CI run 25349847532): pnpm 11 flipped the
-  // default for postinstall scripts to "deny unless explicitly
-  // allow-listed". `arkor build` depends on esbuild's
-  // postinstall having run (it fetches the platform-specific
-  // binary), so the scaffold pre-allows it via
-  // `pnpm.onlyBuiltDependencies`. yarn / npm / bun ignore the
-  // field. These tests pin both the create-fresh shape and the
-  // patch-existing merge so a future refactor that drops the
-  // allow-list trips a unit test rather than re-breaking pnpm-11
-  // CI.
-  it("includes pnpm.onlyBuiltDependencies = ['esbuild'] when creating package.json fresh", async () => {
+  // Round 36 (PR #99 — CI runs 25349847532, 25351227697): pnpm 11
+  // refuses postinstall scripts unless the project allow- or
+  // deny-lists the dep, exiting with `ERR_PNPM_IGNORED_BUILDS` and
+  // code 1. esbuild's postinstall is unnecessary in normal use —
+  // pnpm already installs `@esbuild/<platform>` as an optional dep
+  // — so the scaffolded default is `esbuild: false` (explicit
+  // deny). That silences pnpm 11 without granting esbuild the
+  // right to execute code at install time. Users who genuinely
+  // need the postinstall (rare) can flip the entry to `true`.
+  //
+  // The first attempt wrote `package.json#pnpm.onlyBuiltDependencies`
+  // — that works on pnpm 9/10 but pnpm 11 silently ignores the
+  // package.json field; the allow-list moved to
+  // `pnpm-workspace.yaml#allowBuilds`. These tests pin the
+  // pnpm-workspace.yaml shape so a future refactor that regresses
+  // back to the package.json approach (or silently flips deny to
+  // allow) trips a unit test rather than re-breaking pnpm-11 CI.
+  //
+  // pnpm 9 *requires* `packages:` to be present whenever
+  // `pnpm-workspace.yaml` exists or it errors "packages field
+  // missing or empty" — hence the empty list. pnpm 10/11 accept the
+  // file without `packages:` but tolerate `[]`. yarn / npm / bun
+  // do not read the file.
+  it("emits pnpm-workspace.yaml with packages:[] + allowBuilds esbuild=false (deny by default)", async () => {
     await scaffold({ cwd, name: "fresh", template: "triage" });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("packages: []");
+    // Deny — supply-chain default is "do not run install scripts".
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+false/);
+    expect(yaml).not.toMatch(/esbuild:[ \t]+true/);
+    // package.json no longer carries the legacy `pnpm` field — it
+    // had no effect on pnpm 11 anyway, and keeping a no-op there
+    // would muddy the "single source of truth" story.
     const pkg = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),
     ) as Record<string, unknown>;
-    const pnpmConfig = pkg.pnpm as
-      | { onlyBuiltDependencies?: string[] }
-      | undefined;
-    expect(pnpmConfig?.onlyBuiltDependencies).toEqual(["esbuild"]);
+    expect(pkg.pnpm).toBeUndefined();
   });
 
-  it("merges esbuild into an existing pnpm.onlyBuiltDependencies allow-list (preserves user entries)", async () => {
-    writeFileSync(
-      join(cwd, "package.json"),
-      JSON.stringify(
-        {
-          name: "already",
-          private: true,
-          // User has already allow-listed their own native dep.
-          // The scaffold must merge `esbuild` in WITHOUT
-          // dropping `sharp`.
-          pnpm: { onlyBuiltDependencies: ["sharp"] },
-        },
-        null,
-        2,
-      ),
-    );
+  it("preserves an existing user-set esbuild=true allow (does not silently flip to deny)", async () => {
+    // A user who explicitly opted INTO running esbuild's postinstall
+    // (perhaps because they hit a binary-resolution edge case)
+    // must keep their setting. Re-running the scaffold mustn't
+    // override a deliberate `true` back to `false`.
+    const original = `packages:\n  - "packages/*"\nallowBuilds:\n  esbuild: true\n  sharp: true\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({ cwd, name: "ignored", template: "triage" });
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("ok");
+  });
+
+  it("preserves an existing user-set esbuild=false deny (idempotent on re-run)", async () => {
+    // Re-running the scaffold against its own previous output must
+    // be a no-op — otherwise we'd churn the file on every `arkor
+    // init` into an existing project.
+    const original = `packages: []\nallowBuilds:\n  esbuild: false\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({ cwd, name: "ignored", template: "triage" });
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("ok");
+  });
+
+  it("appends esbuild=false into an existing block-form allowBuilds without dropping user entries", async () => {
+    // User already has a workspace with their own native dep
+    // allow-listed. The scaffold must merge `esbuild: false` in
+    // without rewriting the rest of the block.
+    const original = `packages:\n  - "packages/*"\nallowBuilds:\n  sharp: true\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({ cwd, name: "ignored", template: "triage" });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("sharp: true");
+    expect(yaml).toContain("esbuild: false");
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("patched");
+  });
+
+  it("appends esbuild=false into an existing inline-form allowBuilds without rewriting siblings", async () => {
+    // `pnpm approve-builds` writes the block form, but a user might
+    // have hand-written the inline-mapping shape. Both must merge
+    // safely.
+    const original = `packages:\n  - "packages/*"\nallowBuilds: { sharp: true }\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     await scaffold({ cwd, name: "ignored", template: "triage" });
-    const pkg = JSON.parse(
-      readFileSync(join(cwd, "package.json"), "utf8"),
-    ) as Record<string, unknown>;
-    const pnpmConfig = pkg.pnpm as
-      | { onlyBuiltDependencies?: string[] }
-      | undefined;
-    expect(pnpmConfig?.onlyBuiltDependencies).toEqual(["sharp", "esbuild"]);
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("sharp: true");
+    expect(yaml).toContain("esbuild: false");
   });
 
-  it("leaves pnpm.onlyBuiltDependencies untouched when esbuild is already allow-listed (idempotent)", async () => {
-    // Re-running the scaffold mustn't keep adding duplicate
-    // `esbuild` entries — also covers the second-scaffold case
-    // where the package.json was created by an earlier run.
-    writeFileSync(
-      join(cwd, "package.json"),
-      JSON.stringify(
-        {
-          name: "already",
-          private: true,
-          pnpm: { onlyBuiltDependencies: ["sharp", "esbuild"] },
-          devDependencies: { arkor: "^0.0.1-alpha.8" },
-          scripts: { dev: "arkor dev", build: "arkor build", start: "arkor start" },
-        },
-        null,
-        2,
-      ),
-    );
-    const { files } = await scaffold({
-      cwd,
-      name: "ignored",
-      template: "triage",
-    });
-    const pkg = JSON.parse(
-      readFileSync(join(cwd, "package.json"), "utf8"),
-    ) as Record<string, unknown>;
-    const pnpmConfig = pkg.pnpm as
-      | { onlyBuiltDependencies?: string[] }
-      | undefined;
-    expect(pnpmConfig?.onlyBuiltDependencies).toEqual(["sharp", "esbuild"]);
-    // No edit needed → action="ok".
-    const pkgEntry = files.find((f) => f.path === "package.json");
-    expect(pkgEntry?.action).toBe("ok");
+  it("appends a fresh allowBuilds block to a pnpm-workspace.yaml that has none", async () => {
+    // A workspace declared without any allowBuilds yet (e.g. on
+    // pnpm 9 where the field is unused) — append the whole block
+    // rather than trying to splice into a non-existent header.
+    const original = `packages:\n  - "packages/*"\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({ cwd, name: "ignored", template: "triage" });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+false/);
+    expect(yaml).toContain('packages:\n  - "packages/*"');
   });
 
   it("appends to an existing .gitignore only if the entry is missing", async () => {
