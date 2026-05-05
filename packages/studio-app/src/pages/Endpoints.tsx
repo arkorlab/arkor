@@ -214,7 +214,13 @@ function QuickStart({
           <p className="text-sm text-zinc-700 dark:text-zinc-300">
             This deployment speaks the OpenAI Chat Completions wire format.
             Point any OpenAI-compatible client at the URL above and it will
-            stream responses from the pinned model or adapter.
+            return responses from the pinned model or adapter. Pass
+            <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+              stream: true
+            </code>
+            in the request body (or set the SDK option) to receive SSE
+            token-by-token responses; the samples below are non-streaming
+            by default.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
