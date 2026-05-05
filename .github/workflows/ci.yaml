@@ -302,26 +302,33 @@ jobs:
             bun)            bun --version ;;
           esac
 
+      # `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC` is deliberately NOT
+      # set at the job level. The real-install matrix tests
+      # (`runs real <pm> install + git commit` in
+      # `e2e/cli/src/{arkor-init,create-arkor}.test.ts`) pack
+      # their own `arkor-*.tgz` in `beforeAll` and pass a per-case
+      # `file:../<tgz>` override into `runCli` / `runCreateArkor`,
+      # which is required because pnpm 10 rejects absolute
+      # Windows-drive `file:` URIs (`file:D:\…`) and bun on Windows
+      # skips `bun.lock` generation for multi-segment relative
+      # `file:` paths. Setting a job-wide absolute fallback here
+      # would mask that requirement — a future test that performs
+      # a real install without overriding would silently pass on
+      # Linux/macOS and break only on Windows × pnpm-10. (PR #99
+      # round-39 Copilot review — that earlier fallback predated
+      # the per-case override and is now vestigial.)
+      #
+      # `YARN_NETWORK_CONCURRENCY=1` (yarn 1 optionalDeps
+      # extraction race) lives in e2e/cli/src/spawn-cli.ts — set
+      # per spawn so local `ARKOR_E2E_PM=yarn-berry pnpm --filter
+      # @arkor/e2e-cli test` runs work without extra env-var
+      # threading. The round-13 yarn-4 immutable-install fix lives
+      # in `packages/cli-internal/src/install.ts` itself (the SDK
+      # forwards `YARN_ENABLE_IMMUTABLE_INSTALLS=false` to the
+      # spawned `yarn install`), so real users running `arkor init
+      # --use-yarn` in their CI no longer fail on the missing
+      # initial lockfile.
       - name: Run e2e suite under matrix pm
-        env:
-          # Point at the packed `arkor-*.tgz` so every pm under test
-          # exercises the same install surface a real
-          # `npm install arkor` would (i.e. honours the `files` field,
-          # carries pnpm's workspace-protocol substitutions). The build
-          # matrix keeps using `packages/arkor` directly because its
-          # npm/pnpm flow already skips file: devDeps and we want a
-          # canary that the in-workspace package.json itself is sane.
-          ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ steps.pack-arkor.outputs.tarball }}
-          # `YARN_NETWORK_CONCURRENCY=1` (yarn 1 optionalDeps extraction
-          # race) lives in e2e/cli/src/spawn-cli.ts — set per spawn so
-          # local `ARKOR_E2E_PM=yarn-berry pnpm --filter @arkor/e2e-cli
-          # test` runs work without extra env-var threading. The
-          # round-13 yarn-4 immutable-install fix lives in
-          # `packages/cli-internal/src/install.ts` itself (the SDK
-          # forwards `YARN_ENABLE_IMMUTABLE_INSTALLS=false` to the
-          # spawned `yarn install`), so real users running `arkor init
-          # --use-yarn` in their CI no longer fail on the missing
-          # initial lockfile.
         run: |
           # Derive the e2e install-test gate label from the matrix id.
           # yarn-berry and the pnpm-N entries share a common label

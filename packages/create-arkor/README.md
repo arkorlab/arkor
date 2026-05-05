@@ -62,7 +62,11 @@ my-app/
 └── pnpm-workspace.yaml # pnpm 11 allowBuilds — see "Postinstall scripts" below
 ```
 
-`pnpm-workspace.yaml` is only emitted when pnpm is the plausible package manager — i.e. `--use-pnpm` is set, or no `--use-<pm>` flag is set and the target is a fresh empty directory — AND no ancestor directory already declares one. Skipped for `--use-npm` / `--use-yarn` / `--use-bun` (those toolchains don't read it), for merges into existing non-empty projects without an explicit pm hint, and inside pnpm monorepo subdirs (the parent's workspace file governs).
+`pnpm-workspace.yaml` is gated on two axes — when to *create* it fresh, and when to *touch* it at all if one already exists at the target.
+
+- **Created** when pnpm is the plausible package manager (`--use-pnpm` set, or no `--use-*` flag with a fresh empty target) AND no ancestor directory already declares one.
+- **Patched** in place whenever the target already has a `pnpm-workspace.yaml` and pnpm is plausible (`--use-pnpm` or no `--use-*` flag) — `esbuild: false` is added to the existing top-level `allowBuilds:`, leaving any other keys, comments, and existing entries intact.
+- **Skipped entirely** for `--use-npm` / `--use-yarn` / `--use-bun` (those toolchains don't read it), and for fresh creation inside pnpm monorepo subdirs (the parent's workspace file governs — we never shadow it).
 
 ## Postinstall scripts (pnpm 11+)
 
