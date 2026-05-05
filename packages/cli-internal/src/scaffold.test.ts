@@ -155,6 +155,88 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("patched");
   });
 
+  // Round 36 (PR #99 — CI run 25349847532): pnpm 11 flipped the
+  // default for postinstall scripts to "deny unless explicitly
+  // allow-listed". `arkor build` depends on esbuild's
+  // postinstall having run (it fetches the platform-specific
+  // binary), so the scaffold pre-allows it via
+  // `pnpm.onlyBuiltDependencies`. yarn / npm / bun ignore the
+  // field. These tests pin both the create-fresh shape and the
+  // patch-existing merge so a future refactor that drops the
+  // allow-list trips a unit test rather than re-breaking pnpm-11
+  // CI.
+  it("includes pnpm.onlyBuiltDependencies = ['esbuild'] when creating package.json fresh", async () => {
+    await scaffold({ cwd, name: "fresh", template: "triage" });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const pnpmConfig = pkg.pnpm as
+      | { onlyBuiltDependencies?: string[] }
+      | undefined;
+    expect(pnpmConfig?.onlyBuiltDependencies).toEqual(["esbuild"]);
+  });
+
+  it("merges esbuild into an existing pnpm.onlyBuiltDependencies allow-list (preserves user entries)", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify(
+        {
+          name: "already",
+          private: true,
+          // User has already allow-listed their own native dep.
+          // The scaffold must merge `esbuild` in WITHOUT
+          // dropping `sharp`.
+          pnpm: { onlyBuiltDependencies: ["sharp"] },
+        },
+        null,
+        2,
+      ),
+    );
+    await scaffold({ cwd, name: "ignored", template: "triage" });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const pnpmConfig = pkg.pnpm as
+      | { onlyBuiltDependencies?: string[] }
+      | undefined;
+    expect(pnpmConfig?.onlyBuiltDependencies).toEqual(["sharp", "esbuild"]);
+  });
+
+  it("leaves pnpm.onlyBuiltDependencies untouched when esbuild is already allow-listed (idempotent)", async () => {
+    // Re-running the scaffold mustn't keep adding duplicate
+    // `esbuild` entries — also covers the second-scaffold case
+    // where the package.json was created by an earlier run.
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify(
+        {
+          name: "already",
+          private: true,
+          pnpm: { onlyBuiltDependencies: ["sharp", "esbuild"] },
+          devDependencies: { arkor: "^0.0.1-alpha.8" },
+          scripts: { dev: "arkor dev", build: "arkor build", start: "arkor start" },
+        },
+        null,
+        2,
+      ),
+    );
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+    });
+    const pkg = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const pnpmConfig = pkg.pnpm as
+      | { onlyBuiltDependencies?: string[] }
+      | undefined;
+    expect(pnpmConfig?.onlyBuiltDependencies).toEqual(["sharp", "esbuild"]);
+    // No edit needed → action="ok".
+    const pkgEntry = files.find((f) => f.path === "package.json");
+    expect(pkgEntry?.action).toBe("ok");
+  });
+
   it("appends to an existing .gitignore only if the entry is missing", async () => {
     writeFileSync(join(cwd, ".gitignore"), "node_modules/\n");
     const first = await scaffold({ cwd, name: "n", template: "triage" });

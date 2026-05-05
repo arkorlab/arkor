@@ -556,6 +556,18 @@ async function patchPackageJson(
   name: string,
 ): Promise<FileAction> {
   const path = join(cwd, PACKAGE_JSON_PATH);
+  // pnpm 11+ flipped the default for postinstall scripts: it now
+  // refuses to run them unless the project's `package.json#pnpm
+  // .onlyBuiltDependencies` allow-lists the dep, exiting with
+  // `ERR_PNPM_IGNORED_BUILDS` and code 1 otherwise. arkor's
+  // `arkor build` command depends on esbuild's postinstall having
+  // run (it downloads the platform-specific binary into
+  // `node_modules/@esbuild/<platform>/`), so the scaffold must
+  // pre-allow esbuild or every pnpm-11 user hits the install
+  // failure. yarn / npm / bun read this field harmlessly (npm
+  // ignores unknown top-level keys; yarn / bun honour their own
+  // settings instead). (PR #99 round 36 — CI run 25349847532.)
+  const PNPM_ALLOWED_BUILD_DEPS = ["esbuild"];
   if (!existsSync(path)) {
     await writeFile(
       path,
@@ -566,6 +578,7 @@ async function patchPackageJson(
           type: "module",
           scripts: { ...SCRIPT_DEFAULTS },
           devDependencies: { arkor: resolveArkorScaffoldSpec() },
+          pnpm: { onlyBuiltDependencies: PNPM_ALLOWED_BUILD_DEPS },
         },
         null,
         2,
@@ -592,6 +605,29 @@ async function patchPackageJson(
   if (!devDeps.arkor) {
     devDeps.arkor = resolveArkorScaffoldSpec();
     current.devDependencies = devDeps;
+    dirty = true;
+  }
+  // Ensure the pnpm allow-list contains `esbuild`. We MERGE rather
+  // than overwrite: an existing project may already have
+  // `pnpm.onlyBuiltDependencies` for its own deps, and we don't
+  // want to clobber the user's allow-list — just ensure ours is
+  // present.
+  const pnpmConfig =
+    (current.pnpm as Record<string, unknown> | undefined) ?? {};
+  const existingAllowed = Array.isArray(pnpmConfig.onlyBuiltDependencies)
+    ? (pnpmConfig.onlyBuiltDependencies as unknown[]).filter(
+        (e): e is string => typeof e === "string",
+      )
+    : [];
+  const missingAllowed = PNPM_ALLOWED_BUILD_DEPS.filter(
+    (dep) => !existingAllowed.includes(dep),
+  );
+  if (missingAllowed.length > 0) {
+    pnpmConfig.onlyBuiltDependencies = [
+      ...existingAllowed,
+      ...missingAllowed,
+    ];
+    current.pnpm = pnpmConfig;
     dirty = true;
   }
   if (!dirty) return "ok";

@@ -495,6 +495,24 @@ describe("runCli yarn cache plumbing", () => {
     expect(lastSpawnEnv().YARN_NETWORK_CONCURRENCY).toBe("1");
   });
 
+  // Round 36 (PR #99 — CI run 25349847532): bun on Windows
+  // raced its shared `~/.bun/install/cache/` between vitest
+  // workers, the rename of `.<hash>-<n>.<pkg>` →
+  // `<pkg>@<ver>@@@<n>` failed with `ENOTEMPTY
+  // (NtSetInformationFile)` and the install bailed with
+  // `error: InstallFailed extracting tarball from <pkg>`.
+  // Per-spawn `BUN_INSTALL_CACHE_DIR` mirrors the yarn fix.
+  it("forwards BUN_INSTALL_CACHE_DIR pointing at a fresh tmp dir per spawn", async () => {
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ code: 0, signal: null }),
+    );
+    await runCli("/fake/bin", [], cwd);
+
+    const bunCache = lastSpawnEnv().BUN_INSTALL_CACHE_DIR;
+    expect(bunCache).toBeDefined();
+    expect(bunCache).toMatch(/[\\/]arkor-e2e-bun-cache-/);
+  });
+
   it("uses a unique YARN_CACHE_FOLDER for each spawn (covers the retry case)", async () => {
     // Force a SIGKILL retry so spawn fires twice; assert the two
     // cache dirs are distinct paths (otherwise parallel workers
@@ -562,31 +580,37 @@ describe("runCli yarn cache plumbing", () => {
     }
   });
 
-  it("cleans up the yarn cache dir after a clean close", async () => {
-    let capturedCacheDir: string | undefined;
+  it("cleans up the yarn AND bun cache dirs after a clean close", async () => {
+    let capturedYarnCacheDir: string | undefined;
+    let capturedBunCacheDir: string | undefined;
     spawnMock.mockImplementationOnce((_execPath, _argv, opts) => {
-      capturedCacheDir = (opts as { env: NodeJS.ProcessEnv }).env
-        .YARN_CACHE_FOLDER;
-      // Inside the spawn impl the dir is freshly mkdtemp'd by the
-      // caller, so it should exist at this point.
-      expect(capturedCacheDir).toBeDefined();
-      expect(existsSync(capturedCacheDir!)).toBe(true);
+      const env = (opts as { env: NodeJS.ProcessEnv }).env;
+      capturedYarnCacheDir = env.YARN_CACHE_FOLDER;
+      capturedBunCacheDir = env.BUN_INSTALL_CACHE_DIR;
+      // Inside the spawn impl both dirs are freshly mkdtemp'd
+      // by the caller, so they should exist at this point.
+      expect(capturedYarnCacheDir).toBeDefined();
+      expect(capturedBunCacheDir).toBeDefined();
+      expect(existsSync(capturedYarnCacheDir!)).toBe(true);
+      expect(existsSync(capturedBunCacheDir!)).toBe(true);
       return makeFakeChild({ code: 0, signal: null });
     });
 
     await runCli("/fake/bin", [], cwd);
 
     // After runCli resolves, the close handler's cleanup should
-    // have removed the cache dir — no tmpdir pollution.
-    expect(capturedCacheDir).toBeDefined();
-    expect(existsSync(capturedCacheDir!)).toBe(false);
+    // have removed both dirs — no tmpdir pollution.
+    expect(existsSync(capturedYarnCacheDir!)).toBe(false);
+    expect(existsSync(capturedBunCacheDir!)).toBe(false);
   });
 
-  it("cleans up the yarn cache dir even when the child emits `error`", async () => {
-    let capturedCacheDir: string | undefined;
+  it("cleans up the yarn AND bun cache dirs even when the child emits `error`", async () => {
+    let capturedYarnCacheDir: string | undefined;
+    let capturedBunCacheDir: string | undefined;
     spawnMock.mockImplementationOnce((_execPath, _argv, opts) => {
-      capturedCacheDir = (opts as { env: NodeJS.ProcessEnv }).env
-        .YARN_CACHE_FOLDER;
+      const env = (opts as { env: NodeJS.ProcessEnv }).env;
+      capturedYarnCacheDir = env.YARN_CACHE_FOLDER;
+      capturedBunCacheDir = env.BUN_INSTALL_CACHE_DIR;
       const child = new EventEmitter();
       Object.assign(child, {
         stdout: new EventEmitter(),
@@ -605,8 +629,10 @@ describe("runCli yarn cache plumbing", () => {
     );
     // Error path also has to clean — otherwise a tight loop of
     // failed spawns would fill tmpdir on long CI runs.
-    expect(capturedCacheDir).toBeDefined();
-    expect(existsSync(capturedCacheDir!)).toBe(false);
+    expect(capturedYarnCacheDir).toBeDefined();
+    expect(capturedBunCacheDir).toBeDefined();
+    expect(existsSync(capturedYarnCacheDir!)).toBe(false);
+    expect(existsSync(capturedBunCacheDir!)).toBe(false);
   });
 
   it("lets extraEnv last-write-wins override YARN_CACHE_FOLDER", async () => {

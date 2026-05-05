@@ -285,6 +285,19 @@ function runCliOnce(
     // sidesteps the issue at the env layer for free, and yarn-berry /
     // npm / pnpm / bun all ignore the variable.
     const yarnCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-yarn-cache-"));
+    // Per-spawn bun install cache. Same parallel-worker race
+    // story as yarn above, observed concretely on Windows + CI:
+    // bun's tarball extraction does an
+    // NtSetInformationFile rename of a `.<hash>-<n>.<pkg>`
+    // staging dir into `<pkg>@<ver>@@@<n>`. When two vitest
+    // workers race the same staging dir under
+    // `~/.bun/install/cache/`, the rename fails with
+    // `ENOTEMPTY: Directory not empty (NtSetInformationFile)` →
+    // `error: InstallFailed extracting tarball from <pkg>`
+    // (CI run 25349847532, install · bun · windows-latest).
+    // Per-spawn `BUN_INSTALL_CACHE_DIR` isolates each worker
+    // (yarn / npm / pnpm all ignore the variable).
+    const bunCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-bun-cache-"));
     // Wall-clock start for the ENG-632 SIGKILL retry gate
     // (`elapsedMs` in RunResult — see shouldRetryAfterSigkill).
     const start = Date.now();
@@ -299,6 +312,7 @@ function runCliOnce(
         GIT_COMMITTER_NAME: "Arkor E2E",
         GIT_COMMITTER_EMAIL: "e2e@arkor.test",
         YARN_CACHE_FOLDER: yarnCacheDir,
+        BUN_INSTALL_CACHE_DIR: bunCacheDir,
         // yarn 1 has a long-standing race extracting esbuild-style
         // platform-specific optionalDependencies inside a single
         // process — the parent `node_modules/@<scope>/<arch>/` dir
@@ -320,10 +334,11 @@ function runCliOnce(
     child.stdout.on("data", (c: Buffer) => out.push(c));
     child.stderr.on("data", (c: Buffer) => err.push(c));
     const cleanup = () => {
-      // Per-spawn yarn cache is single-use; remove it on either close
-      // or error so we don't leak `arkor-e2e-yarn-cache-*` dirs into
+      // Per-spawn caches are single-use; remove on close or error
+      // so `arkor-e2e-{yarn,bun}-cache-*` dirs don't pile up in
       // tmpdir on long CI runs.
       rmSync(yarnCacheDir, { recursive: true, force: true });
+      rmSync(bunCacheDir, { recursive: true, force: true });
     };
     child.on("error", (err) => {
       cleanup();
