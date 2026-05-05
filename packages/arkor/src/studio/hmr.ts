@@ -296,7 +296,17 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
         // schedule point would be wrong under inspection races.
         void emitBuildSucceeded();
       } else if (event.code === "ERROR") {
-        event.result.close().catch(() => {});
+        // Rolldown's ERROR events don't always carry a `result` —
+        // when the failure is in the parse/resolve phase there's
+        // no per-build output to close, so `event.result` is
+        // `undefined`. Calling `.close()` then would throw
+        // synchronously, escape this listener, and permanently
+        // wedge the watcher so the SPA stays on the prior `error`
+        // state forever even after the user fixes their code.
+        // Optional-chain so we still close any result that *is*
+        // present (avoiding the leak rolldown warns about) without
+        // blowing up the watcher when none is.
+        event.result?.close().catch(() => {});
         // Bump the seq so a still-in-flight `emitBuildSucceeded`
         // from a *prior* BUNDLE_END drops its broadcast when its
         // inspection finally resolves. Without this, the older
