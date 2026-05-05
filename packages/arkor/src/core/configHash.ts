@@ -27,41 +27,54 @@ function isNonJsonRepresentable(v: unknown): boolean {
  * `JobConfig` field ever held one of those values (notably the
  * `unknown`-typed forwarder fields).
  */
-function stableStringify(value: unknown): string {
+function stableStringify(value: unknown, key: string = ""): string {
   if (value === null) return "null";
   // Top-level non-representable: align with `JSON.stringify(undefined)`
   // semantics by collapsing to "null" so the hash input stays valid
   // JSON-shaped text rather than the literal substring "undefined".
   if (isNonJsonRepresentable(value)) return "null";
   if (typeof value !== "object") return JSON.stringify(value);
-  // `JSON.stringify` calls `value.toJSON(key)` first when present, then
-  // serialises the return value. The canonical example is `Date`, which
-  // becomes its ISO string. Without this branch a `Date` would hash as
-  // `{}` (no enumerable keys) and a `JobConfig` whose `unknown`-typed
-  // forwarder field happened to hold one would diverge from the
-  // wire-format payload — leading to bogus configHash drift and
-  // unnecessary SIGTERM restarts on every rebuild.
+  // `JSON.stringify` calls `value.toJSON(key)` first when present
+  // (passing `""` at the top level, the property name in object
+  // positions, the index-as-string in array positions), then
+  // serialises the return value. The canonical example is `Date`,
+  // which becomes its ISO string. Without this branch a `Date`
+  // would hash as `{}` (no enumerable keys) and a `JobConfig` whose
+  // `unknown`-typed forwarder field happened to hold one would
+  // diverge from the wire-format payload — leading to bogus
+  // configHash drift and unnecessary SIGTERM restarts on every
+  // rebuild. The `key` argument is threaded through recursion so
+  // user-side `toJSON(key)` implementations that branch on the
+  // hosting property/index see the same value JSON.stringify would
+  // give them.
   const maybeToJSON = (value as { toJSON?: unknown }).toJSON;
   if (typeof maybeToJSON === "function") {
     return stableStringify(
-      (maybeToJSON as (key?: string) => unknown).call(value),
+      (maybeToJSON as (key: string) => unknown).call(value, key),
+      key,
     );
   }
   if (Array.isArray(value)) {
     // Array slots: non-representable → "null" (matches JSON spec).
-    const items = value.map((v) =>
-      isNonJsonRepresentable(v) ? "null" : stableStringify(v),
+    // Index-as-string keys mirror `JSON.stringify`'s behaviour for
+    // array elements (per the ECMAScript spec, `SerializeJSONArray`
+    // calls `SerializeJSONProperty` with the index converted to a
+    // string).
+    const items = value.map((v, i) =>
+      isNonJsonRepresentable(v) ? "null" : stableStringify(v, String(i)),
     );
     return `[${items.join(",")}]`;
   }
   // Object slots: drop non-representable values entirely (matches
-  // `JSON.stringify({a: undefined}) === "{}"`).
+  // `JSON.stringify({a: undefined}) === "{}"`). Property names are
+  // passed as the recursion key so a nested `toJSON(key)` sees the
+  // hosting field name.
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj)
     .filter((k) => !isNonJsonRepresentable(obj[k]))
     .sort();
   const parts = keys.map(
-    (k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`,
+    (k) => `${JSON.stringify(k)}:${stableStringify(obj[k], k)}`,
   );
   return `{${parts.join(",")}}`;
 }

@@ -111,6 +111,36 @@ describe("hashJobConfig", () => {
     expect(hashJobConfig(a)).toBe(hashJobConfig(b));
   });
 
+  it("threads the property key through to user-defined `toJSON(key)` (JSON parity)", () => {
+    // Regression: `JSON.stringify` calls `value.toJSON(key)` with
+    // the hosting property name (or array index as string), so a
+    // `toJSON` that branches on the key produces different output
+    // depending on where the value lives in the tree. The previous
+    // `stableStringify` called `toJSON()` without the key argument,
+    // so the hash diverged from the wire-format payload for any
+    // user object whose serialiser depends on context.
+    //
+    // The fixture's `toJSON(key)` returns `"key=<key>"`. Compare
+    // against an explicit string field holding what JSON.stringify
+    // would produce — matching hashes prove the key reached toJSON.
+    const ctx = {
+      toJSON(key: string) {
+        return `key=${key}`;
+      },
+    };
+    const a: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: ctx as unknown,
+    };
+    const b: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: "key=warmupSteps" as unknown,
+    };
+    expect(hashJobConfig(a)).toBe(hashJobConfig(b));
+  });
+
   it("ignores function / symbol properties (JSON parity)", () => {
     // `JSON.stringify` drops these too. The hash should be insensitive
     // to "transparent" callbacks accidentally landing in a forwarded

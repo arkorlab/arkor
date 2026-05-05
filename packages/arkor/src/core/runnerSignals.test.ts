@@ -25,10 +25,16 @@ afterEach(() => {
 
 function makeTrainer(): Trainer & {
   __earlyStop: { calls: number };
-  __replace: { lastCallbacks: Partial<TrainerCallbacks> | null };
+  __replace: {
+    lastCallbacks: Partial<TrainerCallbacks> | null;
+    calls: number;
+  };
 } {
   const earlyStop = { calls: 0 };
-  const replace = { lastCallbacks: null as Partial<TrainerCallbacks> | null };
+  const replace = {
+    lastCallbacks: null as Partial<TrainerCallbacks> | null,
+    calls: 0,
+  };
   const trainer: Trainer = {
     name: "n",
     async start() {
@@ -45,6 +51,7 @@ function makeTrainer(): Trainer & {
   // — there are no public methods on `Trainer` for either any more.
   attachTrainerCallbackReplacer(trainer, (cbs) => {
     replace.lastCallbacks = cbs;
+    replace.calls += 1;
   });
   attachTrainerEarlyStopper(trainer, async () => {
     earlyStop.calls += 1;
@@ -203,6 +210,61 @@ describe("installCallbackReloadHandler", () => {
       expect(() => dispose?.()).not.toThrow();
     } finally {
       onSpy.mockRestore();
+    }
+  });
+
+  it("drops a stale reload's result when a newer SIGUSR2 starts before the import resolves", async () => {
+    // Regression: each SIGUSR2 starts a fire-and-forget
+    // `import()` + `replaceTrainerCallbacks`. Two same-`configHash`
+    // rebuilds firing back-to-back can race — the earlier import's
+    // bytes sometimes resolve *after* the newer one, and
+    // `replaceTrainerCallbacks` overwrites the freshly-loaded
+    // callbacks with the prior version. The fix version-gates each
+    // reload via a monotonic `loadSeq`; this test pins the contract
+    // by firing two signals back-to-back and asserting that
+    // `replaceTrainerCallbacks` was invoked exactly **once** —
+    // proving the older IIFE dropped its result at the
+    // `seq !== loadSeq` check before reaching the replace call.
+    const trainer = makeTrainer();
+    attachTrainerInspection(trainer, () => ({
+      name: "n",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      callbacks: {},
+    }));
+
+    const file = writeUserBundle("v1");
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((() => true) as typeof process.stderr.write);
+    const dispose = installCallbackReloadHandler(trainer, file);
+    try {
+      // First signal — captures seq=1 inside the IIFE.
+      process.emit("SIGUSR2", "SIGUSR2");
+      // Rewrite the bundle to v2 BEFORE letting either import
+      // resolve. mtime+ctime+size change → distinct cache-bust URL.
+      writeUserBundle("v2");
+      // Second signal — captures seq=2, bumps loadSeq to 2.
+      process.emit("SIGUSR2", "SIGUSR2");
+      // Generous fixed wait so both imports definitely settle —
+      // we can't poll on `lastCallbacks !== null` because the v1
+      // IIFE might land first and short-circuit our wait, hiding
+      // the count assertion below.
+      await new Promise((r) => setTimeout(r, 200));
+      // Without the seq guard, both IIFEs would call
+      // `replaceTrainerCallbacks` and `calls` would be 2. With the
+      // guard, the older IIFE's `seq !== loadSeq` short-circuit
+      // skips the replace call entirely.
+      expect(trainer.__replace.calls).toBe(1);
+    } finally {
+      dispose();
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
     }
   });
 

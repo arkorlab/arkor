@@ -75,7 +75,24 @@ export function installCallbackReloadHandler(
   trainer: Trainer,
   entryPath: string,
 ): () => void {
+  /**
+   * Monotonic counter for sequencing concurrent SIGUSR2 reloads.
+   * Bumped synchronously inside the signal handler *before* the
+   * dynamic-import await begins, so each in-flight reload knows its
+   * arrival order. When the import resolves, the IIFE compares its
+   * captured `seq` against `loadSeq` and silently drops the result
+   * if a newer signal already started a newer reload — without this,
+   * two same-`configHash` rebuilds firing back-to-back can race on
+   * the import: the earlier import's bytes (now stale on disk)
+   * resolve *after* the newer one, and `replaceTrainerCallbacks`
+   * overwrites the freshly-loaded callbacks with the prior version,
+   * leaving the running job out of sync until the next rebuild.
+   * Mirrors the `buildSeq` guard in `studio/hmr.ts`'s
+   * `emitBuildSucceeded`.
+   */
+  let loadSeq = 0;
   const handler = (): void => {
+    const seq = ++loadSeq;
     // mtime+ctime+size cache-bust (vs `Date.now()`): Node's ESM
     // loader never evicts module records, so a long `arkor start`
     // session with frequent SIGUSR2 reloads would accumulate one
@@ -87,6 +104,9 @@ export function installCallbackReloadHandler(
     void (async () => {
       try {
         const mod = (await import(url)) as Record<string, unknown>;
+        // A newer SIGUSR2 already started its own import while we
+        // were awaiting; drop our result so the latest edit wins.
+        if (seq !== loadSeq) return;
         const callbacks = extractCallbacks(mod);
         if (!callbacks) {
           process.stderr.write(

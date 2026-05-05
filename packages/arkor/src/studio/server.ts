@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable, Writable } from "node:stream";
 import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
@@ -369,10 +370,32 @@ export function buildStudioApp(options: StudioServerOptions) {
       : null;
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
-    const child = spawn(process.execPath, args, {
-      stdio: "pipe",
-      cwd: trainCwd,
-    });
+    // `spawn()` is mostly async (filesystem failures surface as the
+    // child's `error` event), but Node can still throw synchronously
+    // for argument-shape problems (e.g. invalid stdio descriptor on
+    // unusual platforms). Catch both paths so an `/api/train` POST
+    // can never hang the SPA — sync throws return a clean 500, async
+    // 'error' events forward into the stream and close it (handled
+    // inside the ReadableStream `start()` below).
+    // `ChildProcessByStdio<Writable, Readable, Readable>` is the
+    // specific overload return for `stdio: "pipe"` — narrows
+    // `child.stdout` / `child.stderr` away from the nullable
+    // `Readable | null` of the general `ChildProcess` type.
+    // `ReturnType<typeof spawn>` would land on the union and force
+    // a `?.` everywhere downstream.
+    let child: ChildProcessByStdio<Writable, Readable, Readable>;
+    try {
+      child = spawn(process.execPath, args, {
+        stdio: "pipe",
+        cwd: trainCwd,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return c.json(
+        { error: `Failed to spawn training subprocess: ${msg}` },
+        500,
+      );
+    }
     activeTrains.register(child, { trainFile, configHash });
     // Hoisted out of the `ReadableStream` underlying-source so the
     // `start` handler can hand its closure-bound teardown helper to
@@ -421,14 +444,40 @@ export function buildStudioApp(options: StudioServerOptions) {
             // already cancelled; nothing more to do.
           }
         };
+        // `error` event fires when async spawn machinery surfaces a
+        // failure (ENOENT for the executable, EACCES, EAGAIN under
+        // resource exhaustion, etc.). Without this listener the
+        // ReadableStream would never close — the SPA would hang
+        // waiting for output that never arrives. Forward the error
+        // text into the stream body, close, and unregister the
+        // child. Node's contract is: if 'error' fires, 'close' may
+        // or may not follow — both paths are guarded by the `closed`
+        // flag and the `unregister` call is idempotent.
+        const onError = (err: Error): void => {
+          activeTrains.unregister(child.pid);
+          child.stdout.off("data", onChunk);
+          child.stderr.off("data", onChunk);
+          if (closed) return;
+          closed = true;
+          try {
+            controller.enqueue(
+              enc.encode(`\n---\nerror=${err.message}\n`),
+            );
+            controller.close();
+          } catch {
+            // already cancelled; nothing more to do.
+          }
+        };
         child.stdout.on("data", onChunk);
         child.stderr.on("data", onChunk);
         child.on("close", onClose);
+        child.on("error", onError);
         cancelTeardown = () => {
           closed = true;
           child.stdout.off("data", onChunk);
           child.stderr.off("data", onChunk);
           child.off("close", onClose);
+          child.off("error", onError);
         };
       },
       cancel() {
