@@ -322,13 +322,20 @@ function NewEndpointForm({
       setError("Fill in the target details");
       return;
     }
+    // Synchronous re-entrancy guard. `submitting` is React state and
+    // doesn't render the submit disabled until the next tick, so a fast
+    // double-click would otherwise abort the first POST and start a
+    // second one. If the first POST has already committed server-side
+    // by the time the abort arrives, the second submit gets a 409 for
+    // a slug that *did* land — a confusing failure for an action the
+    // user perceives as a single click.
+    if (inFlightRef.current) return;
     const trimmedSlug = slug.trim();
     const body: CreateDeploymentBody = {
       slug: trimmedSlug,
       target,
       authMode,
     };
-    submitControllerRef.current?.abort();
     const controller = new AbortController();
     submitControllerRef.current = controller;
     inFlightRef.current = true;
@@ -521,6 +528,11 @@ export function EndpointDetail({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [keysError, setKeysError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Synchronous mirror of `busy` so re-entrancy guards in `withBusy`
+  // can fire inside the same task as the click that started a mutation
+  // — the `busy` state itself only re-renders the controls disabled on
+  // the next React tick, which is too late to block a fast double-click.
+  const busyRef = useRef(false);
   const [revealed, setRevealed] = useState<CreatedDeploymentKey | null>(null);
   const [newKeyLabel, setNewKeyLabel] = useState("");
 
@@ -645,6 +657,7 @@ export function EndpointDetail({ id }: { id: string }) {
     keyIssueControllerRef.current = null;
     setNewKeyLabel("");
     setBusy(false);
+    busyRef.current = false;
 
     const controller = new AbortController();
 
@@ -698,8 +711,18 @@ export function EndpointDetail({ id }: { id: string }) {
    * new endpoint's state. The pattern: capture the id-at-call-time, run
    * the mutation, and only commit the optimistic state update if the
    * page is still showing the same endpoint when the response lands.
+   *
+   * `busyRef` is a synchronous mirror of the `busy` React state. We
+   * gate re-entry on the *ref*, not the state — `setBusy(true)` only
+   * re-renders on the next tick, so two clicks that fire inside the
+   * same task (a fast double-click on Delete, a quick auth-mode select
+   * change) would both see `busy === false` and run concurrently. The
+   * second response's `setDeployment` could then clobber the first's,
+   * leaving the UI in a state that disagrees with the cloud's record.
    */
   async function withBusy<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    if (busyRef.current) return undefined;
+    busyRef.current = true;
     const myId = id;
     setError(null);
     setBusy(true);
@@ -712,6 +735,11 @@ export function EndpointDetail({ id }: { id: string }) {
       setError(asMessage(err));
       return undefined;
     } finally {
+      // Always release the synchronous ref, even when the user has
+      // navigated away — otherwise the *next* endpoint's first
+      // mutation would think a request is already in flight and
+      // silently no-op.
+      busyRef.current = false;
       // Only clear `busy` if we're still on the endpoint that started
       // this mutation. Without the guard, a long-running A-mutation
       // settling after the user has navigated to B would flip B's busy
@@ -856,21 +884,31 @@ export function EndpointDetail({ id }: { id: string }) {
           ]);
         }
       } finally {
-        // The POST is no longer running regardless of outcome — switch
-        // the confirm-copy ref so any subsequent nav guard prompts use
-        // the "shown on screen" wording rather than "being issued".
-        keyPostInFlightRef.current = false;
-        // On *failure* clear the protection flag so the next tab close
-        // / nav doesn't get a stale confirm dialog. On *success* keep
-        // it true: the plaintext is now on screen but un-recoverable,
-        // so the same nav guard that protected the in-flight POST must
-        // keep protecting the displayed key until the user clicks
-        // "I've saved it" (`dismissRevealed` below clears the flag at
-        // that moment).
-        if (!succeeded) {
-          pendingKeyIssueRef.current = false;
-        }
+        // Only release the shared protection flags if we are STILL the
+        // active key-issue request. The per-id useEffect (after the
+        // user navigated A→B) or a fresh submit on this page would
+        // have replaced `keyIssueControllerRef.current` with a newer
+        // controller; in that case our finally is unwinding a
+        // superseded request and must NOT touch the shared state — B's
+        // own `onCreateKey` already set `keyPostInFlightRef = true` /
+        // `pendingKeyIssueRef = true`, and clearing them here would
+        // silently drop B's beforeunload + hash-navigation guard.
         if (keyIssueControllerRef.current === controller) {
+          // The POST is no longer running regardless of outcome —
+          // switch the confirm-copy ref so any subsequent nav guard
+          // prompts use the "shown on screen" wording rather than
+          // "being issued".
+          keyPostInFlightRef.current = false;
+          // On *failure* clear the protection flag so the next tab
+          // close / nav doesn't get a stale confirm dialog. On
+          // *success* keep it true: the plaintext is now on screen
+          // but un-recoverable, so the same nav guard that protected
+          // the in-flight POST must keep protecting the displayed key
+          // until the user clicks "I've saved it" (`dismissRevealed`
+          // below clears the flag at that moment).
+          if (!succeeded) {
+            pendingKeyIssueRef.current = false;
+          }
           keyIssueControllerRef.current = null;
         }
       }

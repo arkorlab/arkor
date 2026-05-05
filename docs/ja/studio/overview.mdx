@@ -47,7 +47,7 @@ Arkor マネージドバックエンド
 | 機能 | 補足 |
 | --- | --- |
 | **Run training** | Overview ページ (`#/`) のボタン。`POST /api/train` を呼ぶと `arkor start` がスポーンされ、stdout/stderr が生のテキストとしてページにストリームされます。 |
-| **Jobs リスト** | `#/jobs`。固定 5 秒間隔でポーリング。列: Status、Name（詳細へリンク）、Created、ID。 |
+| **Jobs リスト** | `#/jobs`。5 秒間隔の自動ポーリングに加えて手動 Refresh ボタン、名前 / ID での検索、status フィルタ（`All` / `Running` / `Completed` / `Queued` / `Failed` / `Cancelled`）を備えます。列: Status、Name（詳細へリンク）、Created、ID。 |
 | **Job 詳細** | `#/jobs/:id`。ライブステータスバッジ、SVG の Loss チャート、生イベントログ（直近 50 行）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
 | **Playground** | `#/playground` のチャット UI。2 モード: 1 つの対応ベースモデル、または任意の完了ジョブの最終アダプタ。 |
 | **Endpoints** | `#/endpoints` の `*.arkor.app` URL 管理。Deployment の作成、enabled / auth mode の切替、API キーの発行と revoke。SDK の [`CloudApiClient`](/ja/sdk/deployments) と等価で、UI で行えるすべての操作にプログラマティック呼び出しが対応。 |

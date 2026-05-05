@@ -1,11 +1,11 @@
 ---
 title: "Run training and watch jobs"
-description: "Studio's Home and Job detail pages: trigger a run, watch it stream, inspect a single job."
+description: "Studio's Overview, Jobs, and Job detail pages: trigger a run, browse the list, inspect a single job."
 ---
 
 # Run training and watch jobs
 
-Studio's Home page (`#/`) is split into two columns: **Run training** on the left, the **Jobs list** on the right. Clicking a job in the list navigates to **Job detail** (`#/jobs/:id`), which is where the live event stream and the loss chart live.
+The training surface is split across three routes: **Overview** (`#/`) hosts the **Run training** action, **Jobs** (`#/jobs`) is the searchable, filterable, auto-refreshing list of every run, and **Job detail** (`#/jobs/:id`) is where the live event stream and the loss chart live. Clicking a row in the list navigates to its detail page.
 
 ## Run training
 
@@ -23,7 +23,14 @@ There is no input form for picking the trainer or passing flags: Studio always r
 
 ## Jobs list
 
-The Jobs list polls `GET /api/jobs` once at mount, then every 5 seconds. There is no manual refresh button; the interval is fixed.
+The Jobs page (`#/jobs`) polls `GET /api/jobs` once at mount, then every 5 seconds. A **Refresh** icon in the card header forces an immediate reload between ticks (the icon spins while the request is in flight).
+
+Two client-side reducers narrow what the table renders:
+
+- **Search** (name or ID, case-insensitive). The text input filters rows where `Job.name` or `Job.id` contains the query.
+- **Status filter** chips: `All` / `Running` / `Completed` / `Queued` / `Failed` / `Cancelled`. Exactly one is active at a time.
+
+The empty state distinguishes the two cases: `No jobs yet` (the project genuinely has no runs — links you back to Overview to start one) vs `No matches` (the active search / filter hides every row — relax the filter or clear the query).
 
 | Column | Source |
 | --- | --- |
@@ -32,7 +39,7 @@ The Jobs list polls `GET /api/jobs` once at mount, then every 5 seconds. There i
 | Created | `new Date(Job.createdAt).toLocaleString()`. |
 | ID | `Job.id`, monospaced. |
 
-The list shows whatever order the backend returned. There is no client-side filter, search, or pagination. When the project has no jobs yet, the panel reads `No jobs yet.`.
+The list shows whatever order the backend returned. There is no client-side pagination — the visible-rows reducer relies on the server returning a complete list.
 
 ## Job detail
 
