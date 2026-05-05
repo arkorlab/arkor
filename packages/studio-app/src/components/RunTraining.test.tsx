@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+// @vitest-environment jsdom
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RunTraining } from "./RunTraining";
@@ -79,7 +80,7 @@ describe("<RunTraining />", () => {
     let cancelled = false;
     const enc = new TextEncoder();
 
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/manifest")
         return jsonResponse({ trainer: { name: "demo-trainer" } });
@@ -87,10 +88,9 @@ describe("<RunTraining />", () => {
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
             controller.enqueue(enc.encode("starting...\n"));
-            // Intentionally never close — the stream stays open until the
-            // caller cancels it via the abort signal. That's the realistic
-            // shape of the trainer process: it keeps streaming until the
-            // user stops it.
+            // Never close: the stream stays open until the caller
+            // cancels it via the abort signal. That mirrors the real
+            // trainer process, which keeps streaming until stopped.
           },
           cancel() {
             cancelled = true;
@@ -99,11 +99,7 @@ describe("<RunTraining />", () => {
         return new Response(body, {
           status: 200,
           headers: { "content-type": "text/plain" },
-          // Mirror the real abort behaviour: streamTraining wires an
-          // abort listener through to reader.cancel(), which surfaces
-          // here as the cancel callback firing.
         });
-        void init;
       }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as typeof fetch;

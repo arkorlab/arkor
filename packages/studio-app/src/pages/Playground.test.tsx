@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,6 +10,11 @@ import {
 } from "../test-utils/responses";
 
 const ORIG_FETCH = globalThis.fetch;
+// Save scrollTo so we can restore it in afterEach. `vi.restoreAllMocks()`
+// only undoes spies; a direct prototype assignment would otherwise leak
+// the mock into any later suite that expected jsdom's native behaviour
+// (or its absence).
+const ORIG_SCROLL_TO = Element.prototype.scrollTo;
 
 beforeEach(() => {
   // Some Playground children call scrollTo on textarea / message list.
@@ -18,6 +24,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = ORIG_FETCH;
+  Element.prototype.scrollTo = ORIG_SCROLL_TO;
   vi.restoreAllMocks();
   // Reset hash so successive tests don't inherit `?adapter=...` state
   // from URL syncing in earlier cases.
