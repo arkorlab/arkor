@@ -411,14 +411,24 @@ describe("create-arkor (E2E)", () => {
         // arkor-init.test.ts. Surface the captured output eagerly when
         // the install-matrix run is about to fail an assertion, so the
         // CI logs aren't bare `expected false to be true` lines.
+        //
+        // Round 35 (PR #99) added a follow-up failure mode: install
+        // can throw AFTER writing node_modules, create-arkor's catch
+        // fires, and git is now also skipped — leaving result.code===0
+        // + node_modules present + .git/HEAD missing. Trigger the
+        // diagnostic dump for that combination too.
+        const expectedGit = existsSync(join(targetDir, ".git/HEAD"));
         if (
           result.code !== 0 ||
-          !existsSync(join(targetDir, "node_modules"))
+          !existsSync(join(targetDir, "node_modules")) ||
+          !expectedGit
         ) {
           // eslint-disable-next-line no-console
           console.error(
-            `[install-matrix:${label}] create-arkor failed to produce node_modules:\n` +
+            `[install-matrix:${label}] create-arkor missing expected artefact:\n` +
               `  exit: ${result.code}\n` +
+              `  node_modules: ${existsSync(join(targetDir, "node_modules"))}\n` +
+              `  .git/HEAD: ${expectedGit}\n` +
               `  --- stdout ---\n${result.stdout}\n` +
               `  --- stderr ---\n${result.stderr}`,
           );
