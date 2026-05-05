@@ -81,6 +81,61 @@ describe("registerCleanupHook", () => {
     expect(codes).toEqual([0]);
   });
 
+  it("waits for sibling async cleanups even when the exit-owning hook is registered FIRST", async () => {
+    // Regression: even with the in-flight set in place, the
+    // exit-owning hook's signal handler used to take its
+    // `[...inFlightCleanups]` snapshot synchronously inside the
+    // listener body. Node's EventEmitter dispatches signal listeners
+    // in registration order, so when the exit-owning hook is wired
+    // up *first*, its handler takes the snapshot before any sibling
+    // hook (registered later) gets a chance to run its handler and
+    // add its own in-flight promise. Result: `Promise.allSettled`
+    // resolved on the snapshot of just-this-hook's promise → exit
+    // fired → siblings' async cleanup got cut off mid-flight.
+    //
+    // The order in the existing "waits for an async sibling
+    // cleanup" test happens to dodge this bug by registering the
+    // async hook first, so its handler runs first and seeds
+    // inFlightCleanups before the exit-owner takes its snapshot.
+    // This test inverts the order to actually exercise the
+    // queueMicrotask-deferred snapshot fix.
+    const order: string[] = [];
+    let resolveSlow!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      resolveSlow = resolve;
+    });
+
+    // Register exit-owner FIRST.
+    registerCleanupHook({
+      cleanup: () => {
+        order.push("sync-cleanup");
+      },
+      exitOnSignal: true,
+    });
+    // Sibling async cleanup registered AFTER. With the old code,
+    // its promise wouldn't make it into the exit-owner's snapshot.
+    registerCleanupHook({
+      cleanup: () =>
+        slow.then(() => {
+          order.push("async-cleanup-finished");
+        }),
+    });
+
+    const codes = mockExit();
+    process.emit("SIGINT", "SIGINT");
+
+    // Sync ran inline; async pending; exit must NOT have fired.
+    expect(order).toEqual(["sync-cleanup"]);
+    expect(codes).toEqual([]);
+
+    resolveSlow();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(order).toEqual(["sync-cleanup", "async-cleanup-finished"]);
+    expect(codes).toEqual([0]);
+  });
+
   it("auto-detaches its process listeners after firing so they don't accumulate", () => {
     // Regression: previously each `registerCleanupHook` call left
     // `process.on('exit', ...)` and per-signal listeners armed

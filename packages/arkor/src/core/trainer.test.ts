@@ -1526,6 +1526,120 @@ describe("createTrainer (early stop)", () => {
     expect(stopPromiseResult).toBe("resolved");
   });
 
+  it("resolves the early-stop latch when the run hits a terminal event before the next checkpoint", async () => {
+    // Regression: previously `requestEarlyStop()`'s deferred was
+    // only resolved by (a) the checkpoint-triggered cancel branch
+    // or (b) the timeout fallback. If the run reached
+    // `training.completed` / `training.failed` *before* another
+    // checkpoint landed (a common case for short jobs or runs that
+    // had already saved their last checkpoint when SIGTERM arrived),
+    // the deferred stayed pending until the (default 5-min) timeout
+    // fired — the SIGTERM handler in `installShutdownHandlers`
+    // awaits that promise before exit, so shutdown was delayed up to
+    // `timeoutMs`. Both terminal branches now settle the latch
+    // explicitly so the signal path completes immediately when the
+    // job is already terminal.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    // started → log (arms early-stop) → completed; no checkpoint.saved
+    // in between, so the checkpoint-triggered resolution path is *not*
+    // exercised — only the new terminal-branch settlement is.
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 3\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        artifacts: [],
+      })}\n\n`,
+    ];
+
+    let cancelCalls = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        cancelCalls += 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    let stopResolved = false;
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: () => {
+            // Long timeout: if the fix regresses, this test would
+            // hang for ~60s before the timer fires. With the
+            // terminal-branch settlement, the deferred resolves the
+            // moment `training.completed` lands.
+            void requestTrainerEarlyStop(trainer, {
+              timeoutMs: 60_000,
+            }).then(() => {
+              stopResolved = true;
+            });
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      const result = await trainer.wait();
+      // Flush microtasks so the .then() chain off `requestEarlyStop`
+      // observes the resolution before we assert.
+      await new Promise((r) => setImmediate(r));
+      expect(result.job.status).toBe("completed");
+      // No cancel POST was issued — the terminal branch just
+      // releases the latch; it doesn't cancel a run that already
+      // completed on its own.
+      expect(cancelCalls).toBe(0);
+      // The latch resolved via the terminal handler, not via the
+      // 60-second timeout. (The test would simply time out long
+      // before the timeout fired if this regressed.)
+      expect(stopResolved).toBe(true);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("falls back to immediate cancel when no checkpoint arrives within timeoutMs", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },

@@ -106,17 +106,30 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       run();
       detach();
       if (!options.exitOnSignal) return;
-      // Wait for every in-flight cleanup (this hook's tail + any
-      // siblings registered in the same process) before exiting.
-      // The promise this hook's `run()` just produced is already in
-      // `inFlightCleanups` (added inside `run()` itself), so the
-      // spread captures it without us needing to also push the
-      // returned value separately. Settled promises pass through
-      // Promise.allSettled in a single microtask, so a process whose
-      // hooks are all synchronous exits effectively immediately.
-      void Promise.allSettled([...inFlightCleanups]).then(() =>
-        process.exit(0),
-      );
+      // Snapshot `inFlightCleanups` AFTER every other signal listener
+      // for this signal has run. Node's EventEmitter dispatches
+      // listeners synchronously in registration order, so if the
+      // exit-owning hook happens to be registered *first*, taking the
+      // snapshot here in the listener body would miss promises that
+      // sibling hooks are about to add when their listeners run a
+      // few sync steps later. `queueMicrotask` defers past the end of
+      // the current sync turn (where `process.emit` finishes
+      // dispatching all listeners), so the snapshot includes every
+      // sibling's freshly-registered promise. Without this, an
+      // `arkor dev` whose `scheduleStudioTokenCleanup` (exitOnSignal:
+      // true) was registered before `scheduleHmrCleanup` (async
+      // dispose) would `process.exit(0)` mid-`hmr.dispose()` and
+      // leak the rolldown watcher.
+      //
+      // Settled promises pass through `Promise.allSettled` in a
+      // single microtask, so a process whose hooks are all
+      // synchronous still exits effectively immediately (one extra
+      // microtask round-trip).
+      queueMicrotask(() => {
+        void Promise.allSettled([...inFlightCleanups]).then(() =>
+          process.exit(0),
+        );
+      });
     });
   }
 

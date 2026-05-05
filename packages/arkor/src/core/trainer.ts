@@ -169,6 +169,29 @@ export function createTrainer(
   } | null = null;
   let earlyStopRequested = false;
 
+  /**
+   * Drop the early-stop latch (clear timer + resolve deferred + reset
+   * the request flag). Called from any path that means "wait()'s
+   * cancel-after-checkpoint promise is no longer waiting on anything"
+   * — the checkpoint-driven cancel branch, the terminal `completed`
+   * / `failed` branches, and the up-front guard in
+   * `requestEarlyStop()` when the job is already terminal. Without
+   * this called from terminal branches, a `requestEarlyStop()` armed
+   * mid-run that races a `training.completed` / `training.failed`
+   * before the next `checkpoint.saved` would leave the deferred
+   * pending until the (default 5-min) timeout fires — the SIGTERM
+   * handler in `installShutdownHandlers` would block on that promise
+   * and delay shutdown for up to `timeoutMs`.
+   */
+  function settleEarlyStopLatch(): void {
+    if (earlyStopDeferred) {
+      if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
+      earlyStopDeferred.resolve();
+      earlyStopDeferred = null;
+    }
+    earlyStopRequested = false;
+  }
+
   async function getClient(): Promise<CloudApiClient> {
     if (!clientPromise) {
       clientPromise = (async () => {
@@ -306,10 +329,7 @@ export function createTrainer(
             status: "cancelled",
             completedAt: event.timestamp,
           };
-          if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
-          earlyStopDeferred.resolve();
-          earlyStopDeferred = null;
-          earlyStopRequested = false;
+          settleEarlyStopLatch();
           return { terminal: true, artifacts: terminalResult?.artifacts ?? [] };
         }
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
@@ -322,6 +342,10 @@ export function createTrainer(
         };
         const artifacts = (event.artifacts ?? []) as unknown[];
         await callbacks.onCompleted?.({ job: startedJob, artifacts });
+        // Job already terminal — release any armed early-stop latch
+        // so a SIGTERM handler awaiting `requestEarlyStop()` settles
+        // immediately rather than blocking until the timeout fires.
+        settleEarlyStopLatch();
         return { terminal: true, artifacts };
       }
       case "training.failed": {
@@ -332,6 +356,9 @@ export function createTrainer(
           completedAt: event.timestamp,
         };
         await callbacks.onFailed?.({ job: startedJob, error: event.error });
+        // Symmetric to the `completed` branch above — terminal status
+        // settles the latch even though the run failed.
+        settleEarlyStopLatch();
         return { terminal: true, artifacts: [] };
       }
     }
@@ -473,12 +500,7 @@ export function createTrainer(
   ): Promise<void> {
     // Nothing in flight: cleanup any prior latch and resolve.
     if (!startedJob || !scope || TERMINAL_STATUSES.has(startedJob.status)) {
-      if (earlyStopDeferred) {
-        if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
-        earlyStopDeferred.resolve();
-        earlyStopDeferred = null;
-      }
-      earlyStopRequested = false;
+      settleEarlyStopLatch();
       return;
     }
     // Idempotent: a second call piggybacks on the first.
