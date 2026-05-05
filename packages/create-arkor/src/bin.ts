@@ -375,7 +375,16 @@ export async function run(options: RunOptions): Promise<void> {
     await runGitInit(cwd);
   }
 
-  const installLine = installed
+  // Round 39 (Copilot, PR #99): align the outro hint with the
+  // widened `installSucceeded` gate. Keying on `installed` alone
+  // would tell a recovered-install user (install threw but the
+  // lockfile is on disk) to run `<pm> install` again even though
+  // git init was already allowed to proceed. `installSucceeded
+  // && wouldHaveInstalled` captures both the in-memory success
+  // and the on-disk recovery while still pointing `--skip-install`
+  // / no-pm users at a manual install step.
+  const treeIsReady = installSucceeded && wouldHaveInstalled;
+  const installLine = treeIsReady
     ? null
     : pm
       ? `  ${pm} install`

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { PackageManager } from "./package-manager";
 
-/** Lockfile filename a successful `<pm> install` writes into cwd. */
+/** Lockfile filename a successful `<pm> install` writes. */
 const LOCKFILE_BY_PM: Record<PackageManager, string> = {
   npm: "package-lock.json",
   pnpm: "pnpm-lock.yaml",
@@ -12,26 +12,45 @@ const LOCKFILE_BY_PM: Record<PackageManager, string> = {
 };
 
 /**
- * True when `<pm> install` left its lockfile in `cwd`. Used by the
- * CLI's git-init gate to recover from a non-zero install exit that
- * still produced a complete tree — pnpm 11 and bun on Windows have
- * been observed exiting non-zero AFTER writing both `node_modules`
- * and the lockfile. Treating those as "install failed → skip git"
+ * True when `<pm> install` left its lockfile somewhere in the
+ * cwd-or-ancestor tree. Used by the CLI's git-init gate to
+ * recover from a non-zero install exit that still produced a
+ * complete tree — pnpm 11 and bun on Windows have been observed
+ * exiting non-zero AFTER writing both `node_modules` and the
+ * lockfile. Treating those as "install failed → skip git"
  * (round 35) silently dropped the requested initial commit even
- * though the bootstrap was effectively complete (round-39 Copilot
- * review). Checking the lockfile on disk lets the caller proceed
- * with git when the artefact actually landed.
+ * though the bootstrap was effectively complete (round-39
+ * Copilot review). Checking the lockfile on disk lets the caller
+ * proceed with git when the artefact actually landed.
  *
- * Returns `false` when `pm` is undefined so callers can use it as
- * a single-condition fallback alongside the in-memory `installed`
- * flag.
+ * Walks ancestors because a scaffold target inside an existing
+ * workspace (`monorepo/packages/foo`) has its lockfile at the
+ * workspace root, not in cwd. Mirrors `hasEnclosingYarnLock`'s
+ * walk policy — relevant for every pm: pnpm-workspace, yarn-
+ * berry workspace, npm workspace, and bun workspace all hoist
+ * the lockfile to the root. (Round-39 Copilot review flagged
+ * the cwd-only check as too narrow specifically for yarn-
+ * workspace subdir scaffolds; the same reasoning applies to
+ * the other pms so the helper is generic.) `dirname` terminates
+ * at filesystem root via `parent === dir`.
+ *
+ * Returns `false` when `pm` is undefined so callers can use it
+ * as a single-condition fallback alongside the in-memory
+ * `installed` flag.
  */
 export function lockfileLandedAfterInstall(
   cwd: string,
   pm: PackageManager | undefined,
 ): boolean {
   if (pm === undefined) return false;
-  return existsSync(join(cwd, LOCKFILE_BY_PM[pm]));
+  const lockfile = LOCKFILE_BY_PM[pm];
+  let dir = cwd;
+  while (true) {
+    if (existsSync(join(dir, lockfile))) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false; // reached filesystem root
+    dir = parent;
+  }
 }
 
 /**

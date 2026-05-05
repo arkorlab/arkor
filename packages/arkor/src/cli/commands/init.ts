@@ -303,8 +303,17 @@ export async function runInit(options: InitOptions): Promise<void> {
     );
     return;
   }
+  // Round 39 (Copilot, PR #99): the outro must use the SAME
+  // "effectively installed" signal as the git-init gate. Keying
+  // on `installed` alone tells a recovered-install user (install
+  // threw but lockfile is on disk) to run `<pm> install` again
+  // even though we've already accepted the bootstrap as complete
+  // and let git init proceed. `installSucceeded` captures both
+  // the in-memory success and the on-disk recovery, so they stay
+  // aligned.
+  const treeIsReady = installSucceeded && wouldHaveInstalled;
   ui.outro(
-    installed
+    treeIsReady
       ? `Next: \`${devCmd}\`${gitTail}`
       : pm
         ? `Next: \`${pm} install\`${gitTail}, then \`${devCmd}\``

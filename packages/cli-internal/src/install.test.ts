@@ -302,4 +302,27 @@ describe("lockfileLandedAfterInstall", () => {
     expect(lockfileLandedAfterInstall(dir, "npm")).toBe(false);
     expect(lockfileLandedAfterInstall(dir, "yarn")).toBe(true);
   });
+
+  // Round 39 (Copilot, PR #99): when the scaffold target is a
+  // workspace subdir (`monorepo/packages/foo`), every supported
+  // pm hoists the lockfile to the workspace root. A cwd-only
+  // check would miss the recovered-install signal and skip the
+  // requested git init even though the install effectively
+  // succeeded. `lockfileLandedAfterInstall` walks ancestors via
+  // the same `dirname() === self` termination as
+  // `hasEnclosingYarnLock`.
+  it.each([
+    { pm: "npm" as const, file: "package-lock.json" },
+    { pm: "pnpm" as const, file: "pnpm-lock.yaml" },
+    { pm: "yarn" as const, file: "yarn.lock" },
+    { pm: "bun" as const, file: "bun.lock" },
+  ])(
+    "finds $pm's $file in an ancestor (workspace-subdir scaffold)",
+    ({ pm, file }) => {
+      const sub = join(dir, "packages", "foo");
+      mkdirSync(sub, { recursive: true });
+      writeFileSync(join(dir, file), "");
+      expect(lockfileLandedAfterInstall(sub, pm)).toBe(true);
+    },
+  );
 });
