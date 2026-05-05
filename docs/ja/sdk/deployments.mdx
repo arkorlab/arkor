@@ -32,15 +32,15 @@ const credentials = await ensureCredentials();
 
 const client = new CloudApiClient({
   // `defaultArkorCloudApiUrl(credentials)` が control plane の URL を
-  // 解決します: 優先順位は `ARKOR_CLOUD_API_URL` 環境変数 →
-  // 匿名認証情報が発行された URL (staging / self-hosted エンドポイント
-  // で `arkor login` した場合は自動でそれに揃う) → 本番 fallback。
+  // 解決します: 優先順位は `ARKOR_CLOUD_API_URL` 環境変数 → 認証情報に
+  // 保存された URL（匿名は signup 時、OAuth は `arkor login` 時に保存）
+  // → 本番 fallback。
   baseUrl: defaultArkorCloudApiUrl(credentials),
   credentials,
 });
 ```
 
-`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります。OAuth のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。渡す `baseUrl` は credentials が発行された control plane と一致している必要があります — staging で発行された OAuth トークンを本番の `CloudApiClient` に渡すとトークン自体は形式的に正しくても 401 になります。
+`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります。OAuth のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。渡す `baseUrl` は credentials が発行された control plane と一致している必要があります — staging で発行された OAuth トークンを本番の `CloudApiClient` に渡すとトークン自体は形式的に正しくても 401 になります。`defaultArkorCloudApiUrl(credentials)` は認証時に credentials に押された URL を読むので通常はこれが自動で揃います。古い credentials（URL を保存する前に作成されたもの）は本番 fallback に落ちるので、再 login か `ARKOR_CLOUD_API_URL` の明示設定が必要です。
 
 deployment はすべて `(orgSlug, projectSlug)` スコープに属するので、毎回そのスコープを渡します:
 

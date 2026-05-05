@@ -13,6 +13,16 @@ export interface Auth0Credentials {
   auth0Domain: string;
   audience: string;
   clientId: string;
+  /**
+   * The cloud API base URL the user authenticated against. Captured at
+   * `arkor login` time so the SDK / Studio can keep targeting the same
+   * staging / self-hosted control plane on subsequent runs without
+   * needing `ARKOR_CLOUD_API_URL` re-set every time. Optional for
+   * backward compatibility with credentials persisted before this
+   * field was introduced — `defaultArkorCloudApiUrl` falls through to
+   * the production endpoint when it's missing.
+   */
+  arkorCloudApiUrl?: string;
 }
 
 export interface AnonymousCredentials {
@@ -117,7 +127,13 @@ export function defaultArkorCloudApiUrl(
   // exercise that exact behaviour to surface config bugs early.
   const fromEnv = process.env.ARKOR_CLOUD_API_URL?.replace(/\/$/, "");
   if (fromEnv !== undefined) return fromEnv;
-  if (credentials?.mode === "anon" && credentials.arkorCloudApiUrl) {
+  // Both shapes carry an optional `arkorCloudApiUrl`: anonymous since
+  // signup, OAuth since login. Falling back to production for the
+  // OAuth case (no field on tokens written before the addition, or by
+  // a CLI that doesn't write it yet) is safe — the *worst* outcome
+  // there is a 401 against the wrong control plane, which is exactly
+  // what the operator hits today.
+  if (credentials?.arkorCloudApiUrl) {
     return credentials.arkorCloudApiUrl.replace(/\/$/, "");
   }
   return "https://api.arkor.ai";

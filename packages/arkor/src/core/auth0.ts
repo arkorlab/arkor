@@ -219,7 +219,21 @@ export function buildAuthorizeUrl(
 }
 
 export function credentialsFromExchange(
-  config: { auth0Domain: string; clientId: string; audience: string },
+  config: {
+    auth0Domain: string;
+    clientId: string;
+    audience: string;
+    /**
+     * The cloud API base URL these credentials authenticate against.
+     * Captured into the persisted creds so subsequent `arkor` runs
+     * (and the SDK's `defaultArkorCloudApiUrl(credentials)`) target
+     * the same staging / self-hosted control plane without needing
+     * `ARKOR_CLOUD_API_URL` re-set every time. Optional only for
+     * defensive call sites that don't have the URL handy yet — the
+     * `arkor login` flow always passes it.
+     */
+    arkorCloudApiUrl?: string;
+  },
   exchange: ExchangeCodeResult,
 ): Auth0Credentials {
   return {
@@ -230,5 +244,8 @@ export function credentialsFromExchange(
     auth0Domain: config.auth0Domain,
     audience: config.audience,
     clientId: config.clientId,
+    ...(config.arkorCloudApiUrl
+      ? { arkorCloudApiUrl: config.arkorCloudApiUrl }
+      : {}),
   };
 }

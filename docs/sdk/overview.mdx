@@ -55,6 +55,7 @@ These are exported for code that drives Arkor outside the CLI flow, e.g. running
 | `isArkor(value)` | `core/arkor.ts` | Type guard for the manifest. |
 | [`CloudApiClient`](/sdk/deployments) | `core/client.ts` | Typed client for the cloud API. Exposes `listDeployments` / `createDeployment` / `createDeploymentKey` etc. for managing `*.arkor.app` inference URLs. See [Deployments](/sdk/deployments) for the full method list and examples. |
 | `CloudApiError` | `core/client.ts` | Error class thrown by `CloudApiClient` on non-2xx responses. Carries `.status` and the structured `{ error }` body verbatim — branch on `instanceof CloudApiError && err.status === 409` to handle slug collisions, etc. |
+| `defaultArkorCloudApiUrl(credentials?)` | `core/credentials.ts` | Resolve the cloud API base URL the SDK should target. Priority: `ARKOR_CLOUD_API_URL` env var → the URL stored on the loaded credentials (anonymous credentials carry it from signup; OAuth credentials carry it since `arkor login` was updated to persist the auth-time URL) → the production endpoint. Use this when constructing a `CloudApiClient` from `readCredentials()` / `ensureCredentials()` so a script keeps targeting the same staging / self-hosted control plane the user authenticated against. |
 
 ## Types
 
@@ -70,5 +71,5 @@ Deployment-related type-only exports (see [Deployments](/sdk/deployments)): `Clo
 
 These exist in the source tree but are intentionally not exported from `arkor`. Treat them as internal:
 
-- `SDK_VERSION`, `defaultArkorCloudApiUrl()`: used by the CLI and Studio server. Do not import via deep paths; the export contract may change.
+- `SDK_VERSION`: used by the CLI and Studio server for header / log purposes. Do not import via deep paths; the export contract may change.
 - The CLI command runners (`runBuild`, `runStart`, `runDev`, `runInit`, `runLogin`, `runLogout`, `runWhoami`): they live under `src/cli/commands/` and are CLI-private. If you need to drive a training run, use `runTrainer` (above) or call `trainer.start()` / `trainer.wait()` directly.

@@ -33,15 +33,15 @@ const credentials = await ensureCredentials();
 const client = new CloudApiClient({
   // `defaultArkorCloudApiUrl(credentials)` resolves the right control
   // plane: the `ARKOR_CLOUD_API_URL` env var first, then the URL the
-  // anonymous credentials were issued against (so the same client
-  // reuses your staging / self-hosted endpoint without any extra
-  // config), and finally the production endpoint as a fallback.
+  // credentials were issued against (anonymous tokens carry it from
+  // signup; OAuth tokens carry it from `arkor login`), then the
+  // production endpoint as a fallback.
   baseUrl: defaultArkorCloudApiUrl(credentials),
   credentials,
 });
 ```
 
-`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK: an OAuth access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both. The `baseUrl` you hand it must match the control plane the credentials were issued against — passing an OAuth token from staging into a production `CloudApiClient` (or vice versa) will 401 even though the token itself is well-formed.
+`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK: an OAuth access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both. The `baseUrl` you hand it must match the control plane the credentials were issued against — passing an OAuth token from staging into a production `CloudApiClient` (or vice versa) will 401 even though the token itself is well-formed. `defaultArkorCloudApiUrl(credentials)` reads the auth-time URL stamped onto the credentials so this is handled automatically; older credentials (persisted before the URL was stamped) fall through to the production default and need either a re-login or `ARKOR_CLOUD_API_URL` set explicitly.
 
 Every deployment lives inside a `(orgSlug, projectSlug)` scope; pass that scope on every call:
 

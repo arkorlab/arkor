@@ -55,6 +55,7 @@ CLI フローの外で Arkor を駆動するコード（自前のサーバーや
 | `isArkor(value)` | `core/arkor.ts` | マニフェストの型ガード。 |
 | [`CloudApiClient`](/ja/sdk/deployments) | `core/client.ts` | クラウド API の型付きクライアント。`*.arkor.app` 推論 URL を管理する `listDeployments` / `createDeployment` / `createDeploymentKey` などを公開。完全なメソッド一覧と使用例は [Deployments](/ja/sdk/deployments) を参照。 |
 | `CloudApiError` | `core/client.ts` | `CloudApiClient` が非 2xx レスポンスで投げる Error クラス。`.status` と構造化された `{ error }` body をそのまま保持するので、`instanceof CloudApiError && err.status === 409` で slug 衝突などを分岐できます。 |
+| `defaultArkorCloudApiUrl(credentials?)` | `core/credentials.ts` | SDK が使うクラウド API のベース URL を解決します。優先順位: `ARKOR_CLOUD_API_URL` 環境変数 → 渡された credentials に保存された URL（匿名は signup 時、OAuth は `arkor login` が認証時の URL を保存するように更新済み）→ 本番エンドポイント。`readCredentials()` / `ensureCredentials()` で得た credentials から `CloudApiClient` を作るときに使い、ユーザーが認証した staging / self-hosted control plane に追従させます。 |
 
 ## 型
 
@@ -70,5 +71,5 @@ Deployment 関連の型のみエクスポート（[Deployments](/ja/sdk/deployme
 
 ソースツリーには存在しますが意図的に `arkor` からエクスポートされていないもの。内部扱いです:
 
-- `SDK_VERSION`、`defaultArkorCloudApiUrl()`: CLI と Studio サーバーが使う。深いパスから import しないでください。エクスポート契約は変わり得ます。
+- `SDK_VERSION`: CLI と Studio サーバーがヘッダー / ログ用途で使います。深いパスから import しないでください。エクスポート契約は変わり得ます。
 - CLI コマンドランナー（`runBuild`、`runStart`、`runDev`、`runInit`、`runLogin`、`runLogout`、`runWhoami`）: `src/cli/commands/` 以下にあり、CLI 専用です。学習ランを駆動したいなら（上記の）`runTrainer` を使うか、`trainer.start()` / `trainer.wait()` を直接呼んでください。

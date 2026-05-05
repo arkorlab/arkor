@@ -139,7 +139,12 @@ describe("defaultArkorCloudApiUrl", () => {
     });
     expect(url).toBe("https://staging.arkor.ai");
   });
-  it("falls back to production for OAuth credentials (no baseUrl in token)", () => {
+  it("falls back to production for legacy OAuth credentials with no baseUrl", () => {
+    // Credentials persisted before `Auth0Credentials.arkorCloudApiUrl`
+    // was added (round 67). The graceful fallback is production —
+    // operators on staging / self-hosted who hit this would have to
+    // re-run `arkor login` to repopulate the field, or set
+    // `ARKOR_CLOUD_API_URL` to bridge.
     delete process.env.ARKOR_CLOUD_API_URL;
     const url = defaultArkorCloudApiUrl({
       mode: "auth0",
@@ -151,6 +156,22 @@ describe("defaultArkorCloudApiUrl", () => {
       clientId: "c",
     });
     expect(url).toBe("https://api.arkor.ai");
+  });
+  it("derives baseUrl from OAuth credentials when arkorCloudApiUrl is present", () => {
+    // `arkor login` writes `arkorCloudApiUrl` into the credentials so
+    // subsequent SDK calls keep targeting the same control plane.
+    delete process.env.ARKOR_CLOUD_API_URL;
+    const url = defaultArkorCloudApiUrl({
+      mode: "auth0",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "d",
+      audience: "a",
+      clientId: "c",
+      arkorCloudApiUrl: "https://staging-api.arkor.ai/",
+    });
+    expect(url).toBe("https://staging-api.arkor.ai");
   });
   it("env wins over credentials-derived URL", () => {
     // Operator override stays authoritative — useful for pointing a
