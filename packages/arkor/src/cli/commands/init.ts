@@ -268,9 +268,29 @@ export async function runInit(options: InitOptions): Promise<void> {
   // commit themselves once install succeeds. Without it, a `--git`
   // user following "Next: ..." verbatim ends up with install fixed
   // but no repository.
+  //
+  // Round 39 (Codex P2, PR #99): the commit message is wrapped in
+  // SINGLE quotes — POSIX shells expand backticks inside double
+  // quotes, so a copy-pasted `git commit -m "Initial commit from
+  // \`arkor init\`"` would shell-execute `arkor init` instead of
+  // committing. Single quotes preserve the backticks literally.
   const gitTail = gitInitSkipped
-    ? ', then `git init && git add -A && git commit -m "Initial commit from `arkor init`"`'
+    ? ", then `git init && git add -A && git commit -m 'Initial commit from `arkor init`'`"
     : "";
+  // Round 39 (Copilot, PR #99): the install-blocked branch already
+  // told the user to fix the yarn-config advisory first; printing
+  // the generic `Next: <pm> install` outro after that contradicts
+  // the warning. Repeat the fix-first recovery instead so the
+  // closing line stays consistent with the advisory above.
+  if (wouldHaveInstalled && blockInstall) {
+    const fixRetry = pm
+      ? `\`${pm} install\``
+      : MANUAL_INSTALL_HINT;
+    ui.outro(
+      `Next: fix the advisory above, then ${fixRetry}${gitTail}, then \`${devCmd}\``,
+    );
+    return;
+  }
   ui.outro(
     installed
       ? `Next: \`${devCmd}\`${gitTail}`

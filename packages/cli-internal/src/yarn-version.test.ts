@@ -179,7 +179,7 @@ describe("detectYarnMajor", () => {
     expect(killed).toBe(true);
   });
 
-  it("rejects multi-digit majors correctly (e.g. 10.x → 10)", async () => {
+  it("parses multi-digit majors correctly (e.g. 10.x → 10)", async () => {
     // Forward compatibility: `^(\d+)\.` is a greedy digit run, so
     // a hypothetical yarn 10 should parse to 10, not 1. Locked
     // down so a future regex tightening (e.g. accidental

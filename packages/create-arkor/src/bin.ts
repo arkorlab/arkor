@@ -381,11 +381,23 @@ export async function run(options: RunOptions): Promise<void> {
   const gitLine = gitInitSkipped
     ? `  git init && git add -A && git commit -m "Initial commit from Create Arkor"`
     : null;
+  // Round 39 (Copilot, PR #99): the install-blocked branch told
+  // the user to fix the yarn-config advisory before running
+  // install. Printing the generic `<pm> install` line in the
+  // closing outro right after that contradicts the warning and
+  // can lead users straight back into the same broken install.
+  // Prefix the install line with a "fix the advisory first"
+  // reminder so the closing summary stays consistent.
+  const fixFirstLine =
+    wouldHaveInstalled && blockInstall
+      ? `  # Fix the advisory above first, then:`
+      : null;
 
   clack.outro(
     [
       `Next steps:`,
       ...(inPlace ? [] : [`  cd ${cdTarget}`]),
+      ...(fixFirstLine ? [fixFirstLine] : []),
       ...(installLine ? [installLine] : []),
       ...(gitLine ? [gitLine] : []),
       devLine,
