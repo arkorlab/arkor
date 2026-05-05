@@ -332,6 +332,39 @@ describe("scaffold", () => {
     }
   });
 
+  // Round 39 (Codex P2): the previous 20-iteration cap on the
+  // ancestor walk was misclassifying real deep-monorepo subdirs
+  // as having no enclosing workspace, which would then create a
+  // nested `pnpm-workspace.yaml` and shadow the actual root.
+  // Walk to filesystem root (until `dirname()` returns the same
+  // path) and trust that to terminate.
+  it("finds an ancestor pnpm-workspace.yaml at depth > 20", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "scaffold-deep-monorepo-"));
+    writeFileSync(
+      join(parent, "pnpm-workspace.yaml"),
+      `packages:\n  - "packages/**"\n`,
+    );
+    // 25 nested dir levels under the parent — well past the
+    // previous 20-level cap.
+    const segments = Array.from({ length: 25 }, (_, i) => `lvl${i}`);
+    const sub = join(parent, ...segments, "new-pkg");
+    mkdirSync(sub, { recursive: true });
+    try {
+      const { files } = await scaffold({
+        cwd: sub,
+        name: "new-pkg",
+        template: "triage",
+        packageManager: "pnpm",
+      });
+      // Ancestor was found, so we DID NOT create a nested workspace yaml.
+      expect(existsSync(join(sub, "pnpm-workspace.yaml"))).toBe(false);
+      const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+      expect(entry).toBeUndefined();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   it("does not create pnpm-workspace.yaml when scaffolding into a non-empty existing project with no pm hint", async () => {
     // Mirror of the yarn-config rule: when pm is undetected AND
     // the dir already has content, treat it as someone else's
@@ -484,6 +517,62 @@ describe("scaffold", () => {
     expect(yaml).toContain("esbuild: false");
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("patched");
+  });
+
+  // Round 39 (Codex P1): `prependPackagesEmptyList` used to slap
+  // `packages: []` at byte 0. If the existing file opened with a
+  // YAML document marker (`---\n…`) or a `%YAML 1.2` directive,
+  // that produced a multi-document stream which pnpm rejects with
+  // "expected a single document". The fix walks past leading
+  // directives, document markers, comments and blank lines so the
+  // backfill lands inside the first document.
+  it("backfills packages:[] AFTER a leading YAML document marker", async () => {
+    const original = `---\nallowBuilds:\n  esbuild: false\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    // Marker stays on line 1, packages: [] is inserted after it.
+    expect(yaml.startsWith("---\n")).toBe(true);
+    expect(yaml).toMatch(/^---\npackages:[ \t]*\[\]/m);
+    // Still exactly one document (no bare `packages:` before `---`).
+    expect(yaml.match(/^---/gm)).toHaveLength(1);
+  });
+
+  it("backfills packages:[] AFTER a leading %YAML directive", async () => {
+    const original = `%YAML 1.2\n---\nallowBuilds:\n  esbuild: false\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml.startsWith("%YAML 1.2\n---\n")).toBe(true);
+    expect(yaml).toContain("packages: []");
+    // Directive + marker still come first, then the synthetic
+    // `packages: []` — one document, not two.
+    expect(yaml.match(/^---/gm)).toHaveLength(1);
+  });
+
+  it("backfills packages:[] AFTER a leading comment header (preserves user note)", async () => {
+    const original = `# pnpm config for the foo project\nallowBuilds:\n  esbuild: false\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    // Comment stays at the very top.
+    expect(yaml.startsWith("# pnpm config for the foo project\n")).toBe(true);
+    expect(yaml).toContain("packages: []");
   });
 
   // Round 39 (Copilot review): inline-form `allowBuilds: { ... }`

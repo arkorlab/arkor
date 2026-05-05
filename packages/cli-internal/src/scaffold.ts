@@ -484,17 +484,25 @@ function hasEnclosingPath(cwd: string, name: string): boolean {
  * matched file's contents — round-38 Codex P2 needs this to read
  * the enclosing `.yarnrc.yml`'s `nodeLinker:` value before deciding
  * whether the yarn-berry caveat should fire.
+ *
+ * Walks until `dirname()` returns the same path it was given —
+ * the canonical "reached filesystem root" signal — instead of
+ * capping at an arbitrary depth. The earlier 20-iteration limit
+ * was a defensive guard against pathological symlinks, but
+ * `dirname` is purely syntactic (doesn't follow links) so it
+ * terminates at `/` (POSIX) or the drive root (Windows) on its
+ * own. The cap was rejecting real deep monorepo layouts (PR #99
+ * round 39 Codex P2).
  */
 function findEnclosingPath(cwd: string, name: string): string | undefined {
   let dir = cwd;
-  for (let i = 0; i < 20; i++) {
+  while (true) {
     const candidate = join(dir, name);
     if (existsSync(candidate)) return candidate;
     const parent = dirname(dir);
     if (parent === dir) return undefined; // reached filesystem root
     dir = parent;
   }
-  return undefined;
 }
 
 /**
@@ -544,7 +552,11 @@ async function findEnclosingPackageManagerField(
   cwd: string,
 ): Promise<string | undefined> {
   let dir = dirname(cwd);
-  for (let i = 0; i < 20; i++) {
+  // Walk to filesystem root via `dirname() === self` — same
+  // termination signal as `findEnclosingPath`. The earlier
+  // 20-iteration cap was rejecting real deep monorepo layouts
+  // (PR #99 round 39 Codex P2).
+  while (true) {
     const declared = await readPackageManagerField(
       join(dir, PACKAGE_JSON_PATH),
     );
@@ -553,7 +565,6 @@ async function findEnclosingPackageManagerField(
     if (parent === dir) return undefined; // reached filesystem root
     dir = parent;
   }
-  return undefined;
 }
 
 /**
@@ -926,10 +937,39 @@ function hasTopLevelPackagesKey(contents: string): boolean {
 // lacks the key. Preserves the file's existing line-ending style
 // and document-root indent so the new key sits at the same column
 // as the rest of the root mapping (round-39 Copilot review).
+//
+// Inserts AFTER any leading YAML directives (`%YAML 1.2`,
+// `%TAG …`), document boundary markers (`---`), comments, and
+// blank lines. Inserting at byte 0 would push our key in front of
+// a `---` start marker, which YAML treats as a separate document
+// and pnpm rejects with "expected a single document in the stream"
+// (round-39 Codex P1). Leading comments are also skipped past so
+// a user's header comment stays at the top of the file rather than
+// being shoved below a synthetic `packages: []`.
 function prependPackagesEmptyList(contents: string): string {
   const eol = detectEol(contents);
   const root = detectYamlRootIndent(contents);
-  return `${root}packages: []${eol}${contents}`;
+  const insertion = `${root}packages: []${eol}`;
+  let offset = 0;
+  while (offset < contents.length) {
+    const nl = contents.indexOf("\n", offset);
+    const lineEnd = nl === -1 ? contents.length : nl + 1;
+    const trimmed = contents
+      .slice(offset, nl === -1 ? contents.length : nl)
+      .replace(/\r$/, "")
+      .trim();
+    if (
+      trimmed === "" ||
+      trimmed.startsWith("#") ||
+      trimmed === "---" ||
+      trimmed.startsWith("%")
+    ) {
+      offset = lineEnd;
+      continue;
+    }
+    break;
+  }
+  return `${contents.slice(0, offset)}${insertion}${contents.slice(offset)}`;
 }
 
 // Append `esbuild: <value>` to an existing pnpm-workspace.yaml

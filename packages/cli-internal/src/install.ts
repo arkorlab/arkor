@@ -8,8 +8,18 @@ import type { PackageManager } from "./package-manager";
  * `yarn.lock`. Mirrors yarn's own resolution: in a yarn-berry
  * workspace, `yarn install` from a subdirectory writes to the
  * ENCLOSING workspace's lockfile, so the immutable-install check
- * has to look at the ancestor tree, not just `cwd`. Bound to 20
- * iterations as a defensive cap against pathological symlinks.
+ * has to look at the ancestor tree, not just `cwd`.
+ *
+ * Walks until `dirname()` returns the same path it was given —
+ * the canonical "reached filesystem root" signal. The earlier
+ * 20-iteration cap (round 27 defensive symlink guard) was
+ * misclassifying real deeply-nested workspace paths as having
+ * no enclosing lockfile, then setting
+ * `YARN_ENABLE_IMMUTABLE_INSTALLS=false` and bypassing yarn-
+ * berry's CI immutability guard — exactly the rewrite hazard
+ * the round-27 walk was supposed to prevent (PR #99 round 39
+ * Codex P2). `dirname` is purely syntactic (doesn't follow
+ * symlinks) so it terminates at the root naturally.
  *
  * (PR #99 round 27 — Copilot flagged the cwd-only check as
  * unsafe in the workspace-subdir case: a user scaffolding into
@@ -19,13 +29,12 @@ import type { PackageManager } from "./package-manager";
  */
 function hasEnclosingYarnLock(cwd: string): boolean {
   let dir = cwd;
-  for (let i = 0; i < 20; i++) {
+  while (true) {
     if (existsSync(join(dir, "yarn.lock"))) return true;
     const parent = dirname(dir);
     if (parent === dir) return false; // reached filesystem root
     dir = parent;
   }
-  return false;
 }
 
 /**
