@@ -69,12 +69,6 @@ export function EndpointsList() {
   // with a stale snapshot. Each `load()` (and the post-abort poll) aborts
   // the previous one through this single controller.
   const loadControllerRef = useRef<AbortController | null>(null);
-  // Mirror the latest `deployments` value into a ref so the post-abort
-  // poll can compare row counts without triggering an effect re-run.
-  const deploymentsRef = useRef<Deployment[] | null>(null);
-  useEffect(() => {
-    deploymentsRef.current = deployments;
-  }, [deployments]);
 
   const load = useCallback(async () => {
     loadControllerRef.current?.abort();
@@ -343,6 +337,13 @@ function NewEndpointForm({
     try {
       await createDeployment(body, { signal: controller.signal });
       if (controller.signal.aborted) return;
+      // Mark the request as completed *before* `onCreated()` runs.
+      // `onCreated()` flips parent state that unmounts this form, and
+      // depending on React batching the unmount cleanup may run before
+      // we fall through to `finally` — which would see `inFlightRef`
+      // still true, mistake a successful create for an aborted one, and
+      // kick off the fallback poll on every successful submission.
+      inFlightRef.current = false;
       onCreated();
     } catch (err) {
       // AbortError fires when the form unmounts mid-flight; the unmount
@@ -353,6 +354,9 @@ function NewEndpointForm({
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(asMessage(err));
     } finally {
+      // Belt and braces for the catch / early-return paths above. The
+      // success path already cleared the flag before calling
+      // `onCreated()`; this catches the cases where we never got there.
       inFlightRef.current = false;
       // Only clear `submitting` if we're still the active controller.
       // After abort the component is being torn down, so a setState would
@@ -626,6 +630,19 @@ export function EndpointDetail({ id }: { id: string }) {
     // accepted as lost by the user passing the navigation guard. Clear
     // the protection flag so it doesn't survive into this new endpoint.
     pendingKeyIssueRef.current = false;
+    keyPostInFlightRef.current = false;
+    // Crucially, abort any *in-flight* `createDeploymentKey` POST that
+    // belonged to the previous endpoint. Without this the navigation
+    // (e.g. `#/endpoints/A` → `#/endpoints/B`) leaves the request
+    // running in the background; when it eventually succeeds, the
+    // `activeIdRef` guard skips `setRevealed`, the one-time plaintext
+    // is dropped on the floor, and the operator is left with an orphan
+    // active key for endpoint A that they cannot see the secret of.
+    // Aborting at least pushes the cancellation through the network
+    // layer; if the server has already committed, the key still shows
+    // up the next time the user opens A's detail page.
+    keyIssueControllerRef.current?.abort();
+    keyIssueControllerRef.current = null;
     setNewKeyLabel("");
     setBusy(false);
 
