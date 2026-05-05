@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { buildQuickStartSample } from "./QuickStart";
 
 // `buildQuickStartSample` powers the QuickStart card on the Endpoint
-// detail page. It's pure (no React), so unit testing it directly covers
-// the language / authMode / URL-shaping permutations without rendering
-// the SPA.
+// detail page. The function itself is a plain string-templating helper
+// — it doesn't render anything or call into React — so unit testing it
+// directly covers the language / authMode / URL-shaping permutations
+// without standing up the SPA. (The module it lives in does import
+// React for the `<QuickStart>` component sibling, so this test pulls
+// React in transitively; that's fine because we never invoke any hook
+// or component code from these tests.)
 //
 // Naming note: the constant below would normally just be `URL`, but that
 // shadows the global `URL` constructor (which `QuickStart.tsx` itself

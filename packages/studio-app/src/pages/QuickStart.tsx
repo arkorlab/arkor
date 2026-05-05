@@ -198,15 +198,27 @@ export function QuickStart({
       {!hidden && (
         <CardContent className="space-y-4">
           <p className="text-sm text-zinc-700 dark:text-zinc-300">
-            This deployment speaks the OpenAI Chat Completions wire format.
-            Point any OpenAI-compatible client at the URL above and it will
-            return responses from the pinned model or adapter. Pass
+            This deployment speaks the OpenAI Chat Completions wire
+            format. cURL hits the URL above directly; OpenAI-compatible
+            SDKs take the base URL ending in
+            <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+              /v1
+            </code>
+            (the samples below cover both shapes — pointing an SDK at
+            the full
+            <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+              /v1/chat/completions
+            </code>
+            URL would have it append its own route and 404). Add
+            <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+              {`"stream": true`}
+            </code>
+            to the request body, or set
             <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
               stream: true
             </code>
-            in the request body (or set the SDK option) to receive SSE
-            token-by-token responses; the samples below are non-streaming
-            by default.
+            on the SDK call, to receive SSE token-by-token responses;
+            the samples below are non-streaming by default.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
