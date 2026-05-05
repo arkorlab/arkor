@@ -145,48 +145,119 @@ function readSeqFromState(): number | null {
   return typeof state?.seq === "number" ? state.seq : null;
 }
 
-export function useHashRoute(): Route {
-  const [route, setRoute] = useState<Route>(parseRoute);
-  useEffect(() => {
-    let lastHash = window.location.hash;
-    // Anchor the initial entry with `seq: 0` so direction detection
-    // works for the very first navigation. Preserve any pre-existing
-    // state put there by other code (currently none, but cheap to do).
-    const existingState = (history.state ?? {}) as Record<string, unknown>;
-    let lastSeq =
-      typeof existingState.seq === "number" ? existingState.seq : 0;
-    if (typeof existingState.seq !== "number") {
-      history.replaceState({ ...existingState, seq: 0 }, "");
-    }
-    const handler = () => {
+/**
+ * Side-effect surface used by the hash router. Extracted into an
+ * interface so the per-`hashchange` handler can be unit-tested with
+ * mocks for `back` / `forward` / `replaceState` / `setRoute` — the
+ * actual integration-level logic that protects one-time API keys.
+ */
+export interface HashRouterDeps {
+  /** Read `window.location.hash` (or a test stub). */
+  getCurrentHash: () => string;
+  /** Read `history.state?.seq`, or `null` if absent. */
+  getCurrentSeq: () => number | null;
+  /** The active set of navigation guards. */
+  guards: Iterable<NavigationGuard>;
+  /** Apply the new route to React state. */
+  setRoute: (route: Route) => void;
+  /** Roll back a forward navigation (`history.back()` in production). */
+  goBack: () => void;
+  /** Roll back a backward navigation (`history.forward()` in production). */
+  goForward: () => void;
+  /** Stamp `seq` into the current entry's `history.state`. */
+  stampSeq: (seq: number) => void;
+}
+
+/**
+ * Create the per-`hashchange` handler used by `useHashRoute`. Returned
+ * as an object so tests can also inspect `lastHash` / `lastSeq` after
+ * dispatching synthetic events.
+ */
+export function createHashRouter(
+  initialHash: string,
+  initialSeq: number,
+  deps: HashRouterDeps,
+): {
+  onHashChange: () => void;
+  getLastHash: () => string;
+  getLastSeq: () => number;
+} {
+  let lastHash = initialHash;
+  let lastSeq = initialSeq;
+  return {
+    onHashChange: () => {
       const decision = evaluateHashChange({
-        newHash: window.location.hash,
+        newHash: deps.getCurrentHash(),
         lastHash,
-        currentSeq: readSeqFromState(),
+        currentSeq: deps.getCurrentSeq(),
         lastSeq,
-        guards: navigationGuards,
+        guards: deps.guards,
       });
       if (decision.kind === "ignore") return;
       if (decision.kind === "rollback") {
-        if (decision.direction === "back") history.back();
-        else history.forward();
+        if (decision.direction === "back") deps.goBack();
+        else deps.goForward();
         return;
       }
-      lastHash = window.location.hash;
+      lastHash = deps.getCurrentHash();
       lastSeq = decision.newSeq;
       // Stamp the seq only when this entry doesn't already have one
       // (i.e. it's a freshly-pushed entry, not a revisit via Back /
       // Forward). Re-stamping a previously-visited entry would break
       // direction detection on the next navigation; see the comment in
       // `evaluateHashChange` for the full A→B→C→Back→Forward example.
-      if (readSeqFromState() === null) {
-        const state = (history.state ?? {}) as Record<string, unknown>;
-        history.replaceState({ ...state, seq: decision.newSeq }, "");
+      if (deps.getCurrentSeq() === null) {
+        deps.stampSeq(decision.newSeq);
       }
-      setRoute(decision.route);
-    };
-    window.addEventListener("hashchange", handler);
-    return () => window.removeEventListener("hashchange", handler);
+      deps.setRoute(decision.route);
+    },
+    getLastHash: () => lastHash,
+    getLastSeq: () => lastSeq,
+  };
+}
+
+/**
+ * Replace the current history entry with `hash` and synchronously
+ * notify `useHashRoute` of the change. Use this for "the page I was on
+ * is gone, swap me to a sibling" flows (e.g. post-delete redirect):
+ * `pushState`-style navigation would leave the now-404 detail entry
+ * one Back press behind the user.
+ *
+ * `replaceState` does not fire `hashchange` on its own — the manual
+ * dispatch is what makes the SPA's router pick up the new URL.
+ */
+export function navigateReplace(hash: string): void {
+  if (window.location.hash === hash) return;
+  window.history.replaceState(null, "", hash);
+  window.dispatchEvent(new Event("hashchange"));
+}
+
+export function useHashRoute(): Route {
+  const [route, setRoute] = useState<Route>(parseRoute);
+  useEffect(() => {
+    // Anchor the initial entry with `seq: 0` so direction detection
+    // works for the very first navigation. Preserve any pre-existing
+    // state put there by other code (currently none, but cheap to do).
+    const existingState = (history.state ?? {}) as Record<string, unknown>;
+    const initialSeq =
+      typeof existingState.seq === "number" ? existingState.seq : 0;
+    if (typeof existingState.seq !== "number") {
+      history.replaceState({ ...existingState, seq: 0 }, "");
+    }
+    const router = createHashRouter(window.location.hash, initialSeq, {
+      getCurrentHash: () => window.location.hash,
+      getCurrentSeq: readSeqFromState,
+      guards: navigationGuards,
+      setRoute,
+      goBack: () => history.back(),
+      goForward: () => history.forward(),
+      stampSeq: (seq) => {
+        const state = (history.state ?? {}) as Record<string, unknown>;
+        history.replaceState({ ...state, seq }, "");
+      },
+    });
+    window.addEventListener("hashchange", router.onHashChange);
+    return () => window.removeEventListener("hashchange", router.onHashChange);
   }, []);
   return route;
 }

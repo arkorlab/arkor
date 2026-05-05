@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { evaluateHashChange, parseRoute } from "./route";
+import {
+  createHashRouter,
+  evaluateHashChange,
+  parseRoute,
+  type HashRouterDeps,
+  type Route,
+} from "./route";
 
 // `parseRoute` reads `window.location.hash` directly, so we stub
 // `window` per-test (vitest runs in a node environment by default —
@@ -333,5 +339,205 @@ describe("evaluateHashChange", () => {
       route: { kind: "endpoint", id: "b" },
       newSeq: 1,
     });
+  });
+});
+
+describe("createHashRouter (integration of side effects)", () => {
+  // Hook-level coverage that `evaluateHashChange` does NOT give us:
+  // verify that the side-effect callbacks (`goBack`, `goForward`,
+  // `stampSeq`, `setRoute`) are invoked at the right time and in the
+  // right order. The hook itself just wires this up to `history` /
+  // `window.location` / React's setRoute, and that wiring is trivial —
+  // the meaningful logic is here.
+
+  type Recorder = {
+    deps: HashRouterDeps;
+    routes: Route[];
+    goBackCalls: number;
+    goForwardCalls: number;
+    stampedSeqs: number[];
+    setHash: (hash: string) => void;
+    setSeq: (seq: number | null) => void;
+  };
+
+  function makeRecorder(
+    initialHash: string,
+    initialSeq: number | null,
+    guards: NavigationGuard[] = [],
+  ): Recorder {
+    let currentHash = initialHash;
+    let currentSeq: number | null = initialSeq;
+    const routes: Route[] = [];
+    const stampedSeqs: number[] = [];
+    const rec: Recorder = {
+      routes,
+      goBackCalls: 0,
+      goForwardCalls: 0,
+      stampedSeqs,
+      setHash: (h) => {
+        currentHash = h;
+        // Mock `withHash` so `parseRoute()` (which reads
+        // `window.location.hash` directly) returns the right route
+        // when `evaluateHashChange` calls it.
+        withHash(h);
+      },
+      setSeq: (s) => {
+        currentSeq = s;
+      },
+      deps: {
+        getCurrentHash: () => currentHash,
+        getCurrentSeq: () => currentSeq,
+        guards,
+        setRoute: (r) => routes.push(r),
+        goBack: () => {
+          rec.goBackCalls++;
+        },
+        goForward: () => {
+          rec.goForwardCalls++;
+        },
+        stampSeq: (seq) => {
+          stampedSeqs.push(seq);
+          currentSeq = seq;
+        },
+      },
+    };
+    return rec;
+  }
+
+  type NavigationGuard = () => boolean;
+
+  it("forwards a fresh push to setRoute and stamps the new seq", () => {
+    // User on `#/` (seq=0) clicks a link to `#/endpoints`. Browser
+    // pushes a new entry without our seq, so the hook must stamp
+    // `seq=1` into it (otherwise the next nav can't tell direction).
+    const rec = makeRecorder("#/", 0);
+    const router = createHashRouter("#/", 0, rec.deps);
+
+    // Browser-side: URL changes to the new hash, no seq yet.
+    rec.setHash("#/endpoints");
+    rec.setSeq(null);
+
+    router.onHashChange();
+
+    expect(rec.routes).toEqual([{ kind: "endpoints" }]);
+    expect(rec.stampedSeqs).toEqual([1]);
+    expect(rec.goBackCalls).toBe(0);
+    expect(rec.goForwardCalls).toBe(0);
+    expect(router.getLastHash()).toBe("#/endpoints");
+    expect(router.getLastSeq()).toBe(1);
+  });
+
+  it("does NOT re-stamp seq when landing on a previously-visited entry", () => {
+    // A→B→C visited (seqs 0, 1, 2), then Back to B (seq=1). The hook
+    // sees `currentSeq === 1` already on the entry, so it must NOT
+    // call `stampSeq` again — otherwise B would get bumped to 3 and
+    // direction detection on the next Forward would break.
+    const rec = makeRecorder("#/endpoints/c", 2);
+    const router = createHashRouter("#/endpoints/c", 2, rec.deps);
+
+    rec.setHash("#/endpoints/b");
+    rec.setSeq(1);
+
+    router.onHashChange();
+
+    expect(rec.routes).toEqual([{ kind: "endpoint", id: "b" }]);
+    expect(rec.stampedSeqs).toEqual([]);
+    expect(router.getLastSeq()).toBe(1);
+  });
+
+  it("rolls back a forward push (currentSeq=null) via goBack and skips setRoute", () => {
+    // The classic "guarded link click" path: a guard refuses, the URL
+    // already moved to the new entry, the hook must call goBack to
+    // restore the previous URL and must NOT update the React route
+    // state (that would render the destination page despite the
+    // refusal).
+    let denials = 0;
+    const guards: NavigationGuard[] = [
+      () => {
+        denials++;
+        return false;
+      },
+    ];
+    const rec = makeRecorder("#/endpoints/a", 5, guards);
+    const router = createHashRouter("#/endpoints/a", 5, rec.deps);
+
+    rec.setHash("#/endpoints");
+    rec.setSeq(null);
+
+    router.onHashChange();
+
+    expect(denials).toBe(1);
+    expect(rec.goBackCalls).toBe(1);
+    expect(rec.goForwardCalls).toBe(0);
+    expect(rec.routes).toEqual([]);
+    // lastHash / lastSeq stay frozen at the pre-navigation values, so
+    // the rollback hashchange the browser fires next resolves to
+    // `ignore` (newHash === lastHash).
+    expect(router.getLastHash()).toBe("#/endpoints/a");
+    expect(router.getLastSeq()).toBe(5);
+  });
+
+  it("rolls back a browser-Back press (currentSeq < lastSeq) via goForward", () => {
+    // User pressed browser Back from B(seq=2) to A(seq=1). The guard
+    // refuses. Calling `goBack()` here would step *further* back and
+    // could eject the user from the SPA — `goForward()` is what
+    // restores the URL to B.
+    const guards: NavigationGuard[] = [() => false];
+    const rec = makeRecorder("#/endpoints/b", 2, guards);
+    const router = createHashRouter("#/endpoints/b", 2, rec.deps);
+
+    rec.setHash("#/endpoints/a");
+    rec.setSeq(1);
+
+    router.onHashChange();
+
+    expect(rec.goForwardCalls).toBe(1);
+    expect(rec.goBackCalls).toBe(0);
+    expect(rec.routes).toEqual([]);
+  });
+
+  it("the rollback hashchange (newHash === lastHash) is a no-op", () => {
+    // After `goBack()` runs, the browser fires another hashchange with
+    // the URL restored to `lastHash`. That hashchange must NOT re-run
+    // guards or call setRoute — `evaluateHashChange` returns `ignore`
+    // and the router does literally nothing.
+    let guardCalls = 0;
+    const guards: NavigationGuard[] = [
+      () => {
+        guardCalls++;
+        return false;
+      },
+    ];
+    const rec = makeRecorder("#/endpoints/a", 5, guards);
+    const router = createHashRouter("#/endpoints/a", 5, rec.deps);
+
+    // Dispatch a no-op hashchange (URL hasn't actually changed since
+    // the last accepted navigation).
+    router.onHashChange();
+
+    expect(guardCalls).toBe(0);
+    expect(rec.goBackCalls).toBe(0);
+    expect(rec.goForwardCalls).toBe(0);
+    expect(rec.routes).toEqual([]);
+  });
+
+  it("threads multiple accepted forward navigations and bumps seq each time", () => {
+    // A→B→C→D, all forward link clicks. The hook should stamp 1, 2, 3
+    // sequentially, leaving `lastSeq` at 3 — so a later Back from D
+    // would land on C(seq=2), `currentSeq(2) < lastSeq(3)` → forward
+    // rollback if a guard refuses.
+    const rec = makeRecorder("#/", 0);
+    const router = createHashRouter("#/", 0, rec.deps);
+
+    for (const hash of ["#/jobs", "#/playground", "#/endpoints"]) {
+      rec.setHash(hash);
+      rec.setSeq(null);
+      router.onHashChange();
+    }
+
+    expect(rec.stampedSeqs).toEqual([1, 2, 3]);
+    expect(router.getLastSeq()).toBe(3);
+    expect(rec.routes).toHaveLength(3);
+    expect(rec.routes[2]).toEqual({ kind: "endpoints" });
   });
 });

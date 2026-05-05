@@ -18,9 +18,12 @@ export interface EnsureProjectStateOptions {
  * (we don't know which org / project they want); they must write
  * `.arkor/state.json` by hand.
  *
- * Shared by the trainer (`createTrainer().start()`) and Studio's
- * `/api/inference/chat` so a fresh anonymous launch can hit base-model
- * inference without any prior setup.
+ * Shared by the trainer (`createTrainer().start()`) and every Studio
+ * write-path that needs a scope: `/api/inference/chat` (Playground), and
+ * the deployment-create route used by the Endpoints page (the
+ * `withDeploymentClient("write", …)` helper in `studio/server.ts`).
+ * That way a fresh anonymous launch can either chat with a base model
+ * or publish its first `*.arkor.app` URL without any prior setup.
  */
 export async function ensureProjectState(
   options: EnsureProjectStateOptions,
