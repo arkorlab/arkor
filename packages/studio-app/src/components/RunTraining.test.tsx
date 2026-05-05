@@ -53,6 +53,34 @@ describe("<RunTraining />", () => {
     expect(btn).toBeEnabled();
   });
 
+  it("renders training errors inline when /api/train throws", async () => {
+    // RunTraining's catch branch appends `[error] <message>` to the
+    // log pane and flips the button back to idle. A regression in
+    // either half would silently swallow trainer-side failures.
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/manifest")
+        return jsonResponse({ trainer: { name: "demo-trainer" } });
+      if (url === "/api/train") throw new Error("network down");
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    render(<RunTraining />);
+    const runBtn = await screen.findByRole("button", {
+      name: /run training: demo-trainer/i,
+    });
+    await user.click(runBtn);
+
+    expect(
+      await screen.findByText(/\[error\] network down/i),
+    ).toBeInTheDocument();
+    // Button returns to the idle label once the catch branch settles.
+    await screen.findByRole("button", {
+      name: /run training: demo-trainer/i,
+    });
+  });
+
   it("streams trainer output into the log pane on click", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
