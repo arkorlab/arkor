@@ -43,8 +43,10 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
     );
     // Drive the trainer's internal early-stop entry point via the
     // `Symbol.for("arkor.trainer.requestEarlyStop")` brand attached by
-    // `createTrainer`. The runner only reaches this handler with a
-    // discovered SDK trainer, so the brand is guaranteed to be present.
+    // `createTrainer`. `runTrainer` also accepts hand-rolled
+    // `{ start, wait, cancel }` trainers; for those the brand is
+    // absent and `requestTrainerEarlyStop` transparently falls back
+    // to `trainer.cancel()` (best-effort, matches the public contract).
     requestTrainerEarlyStop(trainer)
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
