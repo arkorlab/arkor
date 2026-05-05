@@ -59,13 +59,21 @@ arkor init [options]
 
 ## Postinstall scripts (pnpm 11+)
 
-Every scaffold writes a small `pnpm-workspace.yaml` alongside `package.json`:
+When the chosen package manager is pnpm — explicitly via `--use-pnpm`, or implicitly because pm detection didn't resolve and the target is a fresh empty directory — the scaffold writes a small `pnpm-workspace.yaml` alongside `package.json`:
 
 ```yaml
 packages: []
 allowBuilds:
   esbuild: false
 ```
+
+The file is **not** written when:
+
+- `--use-npm` / `--use-yarn` / `--use-bun` is set (those toolchains don't read it).
+- The target directory already contains files and no `--use-*` flag is set (we don't drop workspace-level config into someone else's project on a guess).
+- An ancestor directory already has a `pnpm-workspace.yaml` (the parent monorepo workspace governs; creating a nested one here would shadow it and break `workspace:*` resolution above).
+
+If `pnpm-workspace.yaml` already exists at the target, the scaffold patches it: it appends `esbuild: false` to the existing top-level `allowBuilds:` block (or creates one) without touching unrelated keys, and bows out as a no-op when esbuild is already pinned (allow or deny) or when the file uses the global scalar form `allowBuilds: false` / `allowBuilds: true`.
 
 pnpm 11 changed the default for postinstall scripts to "deny unless explicitly approved", and exits with `ERR_PNPM_IGNORED_BUILDS` (code 1) when an unapproved script is encountered. esbuild ships such a script (`node install.js`, which verifies/downloads the platform-specific binary), so a vanilla `pnpm install` against a freshly scaffolded project would otherwise fail.
 
@@ -77,7 +85,7 @@ If you genuinely need esbuild's postinstall to run (rare; usually a broken insta
 pnpm arkor init --yes --use-pnpm --allow-builds
 ```
 
-— or flip the entry to `true` in `pnpm-workspace.yaml` after the fact. We accept the flag regardless of `--use-<pm>` so a project scaffolded with `--use-npm` today and switched to pnpm later doesn't silently strip the earlier `--allow-builds` choice.
+— or flip the entry to `true` in `pnpm-workspace.yaml` after the fact. We accept the flag regardless of `--use-<pm>` so a project scaffolded with `--use-npm` today and switched to pnpm later doesn't silently strip the earlier `--allow-builds` choice (it just has no effect until the file is actually emitted).
 
 ## Templates
 

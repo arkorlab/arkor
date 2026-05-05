@@ -59,10 +59,10 @@ my-app/
 ├── README.md
 ├── .gitignore          # node_modules/, dist/, .arkor/
 ├── package.json        # scripts: dev / build / start
-└── pnpm-workspace.yaml # pnpm 11 allowBuilds (yarn/npm/bun ignore it)
+└── pnpm-workspace.yaml # pnpm 11 allowBuilds — see "Postinstall scripts" below
 ```
 
-`pnpm-workspace.yaml` is only emitted for fresh scaffolds where pnpm is plausibly the chosen package manager (`--use-pnpm` or no `--use-*` flag), and only when no ancestor directory already declares one. If you scaffold inside an existing pnpm monorepo, the parent's workspace file governs and we do not write a nested one.
+`pnpm-workspace.yaml` is only emitted when pnpm is the plausible package manager — i.e. `--use-pnpm` is set, or no `--use-<pm>` flag is set and the target is a fresh empty directory — AND no ancestor directory already declares one. Skipped for `--use-npm` / `--use-yarn` / `--use-bun` (those toolchains don't read it), for merges into existing non-empty projects without an explicit pm hint, and inside pnpm monorepo subdirs (the parent's workspace file governs).
 
 ## Postinstall scripts (pnpm 11+)
 
