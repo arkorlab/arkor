@@ -1,22 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { buildQuickStartSample } from "./Endpoints";
+import { buildQuickStartSample } from "./QuickStart";
 
 // `buildQuickStartSample` powers the QuickStart card on the Endpoint
 // detail page. It's pure (no React), so unit testing it directly covers
 // the language / authMode / URL-shaping permutations without rendering
 // the SPA.
-
-const URL = "https://mymodel.arkor.app/v1/chat/completions";
+//
+// Naming note: the constant below would normally just be `URL`, but that
+// shadows the global `URL` constructor (which `QuickStart.tsx` itself
+// uses for SDK base-URL derivation), so `ENDPOINT_URL` keeps the
+// intent clear and avoids future-refactor surprises.
+const ENDPOINT_URL = "https://mymodel.arkor.app/v1/chat/completions";
 
 describe("buildQuickStartSample — cURL", () => {
   it("includes the Authorization header when authMode is fixed_api_key", () => {
     const out = buildQuickStartSample({
       language: "curl",
       operation: "chat",
-      endpointUrl: URL,
+      endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
     });
-    expect(out).toContain(`curl -X POST ${URL}`);
+    expect(out).toContain(`curl -X POST ${ENDPOINT_URL}`);
     expect(out).toContain("Authorization: Bearer YOUR_API_KEY");
     expect(out).toContain("Content-Type: application/json");
     expect(out).toContain('"model":"ignored"');
@@ -30,7 +34,7 @@ describe("buildQuickStartSample — cURL", () => {
     const out = buildQuickStartSample({
       language: "curl",
       operation: "chat",
-      endpointUrl: URL,
+      endpointUrl: ENDPOINT_URL,
       authMode: "none",
     });
     expect(out).not.toContain("Authorization");
@@ -47,7 +51,7 @@ describe("buildQuickStartSample — Python (openai SDK)", () => {
     const out = buildQuickStartSample({
       language: "python",
       operation: "chat",
-      endpointUrl: URL,
+      endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
     });
     expect(out).toContain('base_url="https://mymodel.arkor.app/v1"');
@@ -64,7 +68,7 @@ describe("buildQuickStartSample — Python (openai SDK)", () => {
     const out = buildQuickStartSample({
       language: "python",
       operation: "chat",
-      endpointUrl: URL,
+      endpointUrl: ENDPOINT_URL,
       authMode: "none",
     });
     expect(out).toContain('api_key="not-required"');
@@ -78,7 +82,7 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
     const out = buildQuickStartSample({
       language: "javascript",
       operation: "chat",
-      endpointUrl: URL,
+      endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
     });
     expect(out).toContain('baseURL: "https://mymodel.arkor.app/v1"');
@@ -91,7 +95,7 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
     const out = buildQuickStartSample({
       language: "javascript",
       operation: "chat",
-      endpointUrl: URL,
+      endpointUrl: ENDPOINT_URL,
       authMode: "none",
     });
     expect(out).toContain('apiKey: "not-required"');
@@ -108,7 +112,7 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
     const out = buildQuickStartSample({
       language: "javascript",
       operation: "chat",
-      endpointUrl: URL,
+      endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
     });
     // The marker must come *before* the `import` so the reader sees
@@ -128,7 +132,7 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
     const out = buildQuickStartSample({
       language: "javascript",
       operation: "chat",
-      endpointUrl: URL,
+      endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
     });
     expect(out).toContain("async function main()");
