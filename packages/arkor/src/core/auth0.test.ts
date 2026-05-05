@@ -79,6 +79,42 @@ describe("credentialsFromExchange", () => {
     expect(creds.expiresAt).toBeGreaterThanOrEqual(now + 3598);
     expect(creds.expiresAt).toBeLessThanOrEqual(now + 3602);
   });
+
+  it("persists `arkorCloudApiUrl` when supplied so SDK calls follow the auth-time host", () => {
+    // `arkor login --oauth` passes the cloud API base URL it
+    // authenticated against. Stamping it onto the persisted
+    // credentials is what lets `defaultArkorCloudApiUrl(creds)` (and
+    // therefore `runWhoami`, Studio, the SDK setup example) keep
+    // talking to the same staging / self-hosted control plane on the
+    // next run without `ARKOR_CLOUD_API_URL` re-set in the shell.
+    const creds = credentialsFromExchange(
+      {
+        auth0Domain: "tenant.auth0.com",
+        clientId: "abc",
+        audience: "https://staging-api.arkor.ai",
+        arkorCloudApiUrl: "https://staging-api.arkor.ai",
+      },
+      { accessToken: "at", refreshToken: "rt", expiresIn: 3600 },
+    );
+    expect(creds.arkorCloudApiUrl).toBe("https://staging-api.arkor.ai");
+  });
+
+  it("omits `arkorCloudApiUrl` when not supplied (legacy / defensive call sites)", () => {
+    // The persisted JSON shape stays minimal for older callers that
+    // don't have the URL handy yet. Reading code falls through to the
+    // production default in that case — see
+    // `defaultArkorCloudApiUrl`.
+    const creds = credentialsFromExchange(
+      {
+        auth0Domain: "tenant.auth0.com",
+        clientId: "abc",
+        audience: "https://api.arkor.ai",
+      },
+      { accessToken: "at", refreshToken: "rt", expiresIn: 3600 },
+    );
+    expect(creds.arkorCloudApiUrl).toBeUndefined();
+    expect("arkorCloudApiUrl" in creds).toBe(false);
+  });
 });
 
 describe("fetchCliConfig", () => {

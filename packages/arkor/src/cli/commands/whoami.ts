@@ -16,7 +16,13 @@ export async function runWhoami(): Promise<void> {
     );
     return;
   }
-  const baseUrl = defaultArkorCloudApiUrl();
+  // Pass the loaded credentials so `/v1/me` lands on the same control
+  // plane the user authenticated against — anonymous tokens carry the
+  // signup URL, OAuth tokens carry the login URL since round 67.
+  // Without this, an OAuth user who signed in against staging would
+  // see `arkor whoami` 401 against production unless they also kept
+  // `ARKOR_CLOUD_API_URL` set in their shell.
+  const baseUrl = defaultArkorCloudApiUrl(creds);
   // Use the RPC client directly for /v1/me rather than CloudApiClient so we
   // hit the typed surface and avoid duplicating the plumbing.
   const rpc = createClient({

@@ -175,9 +175,33 @@ export function buildStudioApp(options: StudioServerOptions) {
     return c.mode === "anon" ? c.token : c.accessToken;
   }
 
-  function createRpc() {
+  /**
+   * Load credentials and resolve the cloud API base URL from them.
+   * `defaultArkorCloudApiUrl(credentials)` picks `ARKOR_CLOUD_API_URL`
+   * env first, then the URL stamped onto the credentials at signup
+   * (anonymous) or login (OAuth, since round 67), then production.
+   * This is the supported way for every Studio route to follow the
+   * control plane the credentials came from — the closure-captured
+   * `baseUrl` only knows the env / production fallback (no creds at
+   * startup), so an OAuth user who logged in against staging without
+   * setting the env var would otherwise see Jobs / Playground /
+   * identity 401 against production while only the deployments proxy
+   * (which already resolves per-request) reaches the right host.
+   */
+  async function resolveCredentialsAndBaseUrl(): Promise<{
+    credentials: Credentials;
+    baseUrl: string;
+  }> {
+    const credentials = await getCredentials();
+    return {
+      credentials,
+      baseUrl: defaultArkorCloudApiUrl(credentials),
+    };
+  }
+
+  function createRpc(rpcBaseUrl: string) {
     return createClient({
-      baseUrl,
+      baseUrl: rpcBaseUrl,
       token: getToken,
       clientVersion: SDK_VERSION,
       // The wrapper around `recordDeprecation` is a workaround for a
@@ -197,20 +221,26 @@ export function buildStudioApp(options: StudioServerOptions) {
   // ---- API routes ---------------------------------------------------------
 
   app.get("/api/credentials", async (c) => {
-    const token = await getToken();
-    const creds = await getCredentials();
+    const { credentials: creds, baseUrl: credsBaseUrl } =
+      await resolveCredentialsAndBaseUrl();
+    const token = creds.mode === "anon" ? creds.token : creds.accessToken;
     const state = await readState(trainCwd);
     return c.json({
       token,
       mode: creds.mode,
-      baseUrl,
+      // Surface the credentials-derived URL (auth-time host) so the SPA
+      // identity chip + any debugger that reads this endpoint reflects
+      // the *actual* control plane the session talks to, not the
+      // startup-time fallback that `arkor dev` was launched with.
+      baseUrl: credsBaseUrl,
       orgSlug: state?.orgSlug ?? (creds.mode === "anon" ? creds.orgSlug : null),
       projectSlug: state?.projectSlug ?? null,
     });
   });
 
   app.get("/api/me", async (c) => {
-    const rpc = createRpc();
+    const { baseUrl: credsBaseUrl } = await resolveCredentialsAndBaseUrl();
+    const rpc = createRpc(credsBaseUrl);
     const res = await rpc.v1.me.$get();
     const body = await res.text();
     const headers = new Headers({ "content-type": "application/json" });
@@ -237,7 +267,10 @@ export function buildStudioApp(options: StudioServerOptions) {
   app.get("/api/jobs", async (c) => {
     const state = await readState(trainCwd);
     if (!state) return c.json({ jobs: [] });
-    const rpc = createRpc();
+    const { credentials, baseUrl: credsBaseUrl } =
+      await resolveCredentialsAndBaseUrl();
+    void credentials;
+    const rpc = createRpc(credsBaseUrl);
     const res = await rpc.v1.jobs.$get({
       query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
     });
@@ -254,8 +287,11 @@ export function buildStudioApp(options: StudioServerOptions) {
     const id = c.req.param("id");
     const state = await readState(trainCwd);
     if (!state) return c.json({ error: "No project state" }, 400);
-    const token = await getToken();
-    const url = `${baseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
+    const { credentials, baseUrl: credsBaseUrl } =
+      await resolveCredentialsAndBaseUrl();
+    const token =
+      credentials.mode === "anon" ? credentials.token : credentials.accessToken;
+    const url = `${credsBaseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
     const upstream = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -342,9 +378,15 @@ export function buildStudioApp(options: StudioServerOptions) {
   app.post("/api/inference/chat", async (c) => {
     let credentials: Credentials;
     let state: { orgSlug: string; projectSlug: string };
+    let credsBaseUrl: string;
     try {
-      credentials = await getCredentials();
-      const client = new CloudApiClient({ baseUrl, credentials });
+      const resolved = await resolveCredentialsAndBaseUrl();
+      credentials = resolved.credentials;
+      credsBaseUrl = resolved.baseUrl;
+      const client = new CloudApiClient({
+        baseUrl: credsBaseUrl,
+        credentials,
+      });
       state = await ensureProjectState({ cwd: trainCwd, client, credentials });
     } catch (err) {
       // Propagate cloud-api's status verbatim (e.g. 401 / 403 / 5xx) so the
@@ -366,7 +408,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     const token =
       credentials.mode === "anon" ? credentials.token : credentials.accessToken;
     const body = await c.req.text();
-    const url = `${baseUrl}/v1/inference/chat?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
+    const url = `${credsBaseUrl}/v1/inference/chat?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
     const upstream = await fetch(url, {
       method: "POST",
       headers: {
