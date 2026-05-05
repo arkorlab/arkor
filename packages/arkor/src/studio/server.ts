@@ -13,7 +13,10 @@ import {
 } from "../core/credentials";
 import { recordDeprecation, tapDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
-import { ensureProjectState } from "../core/projectState";
+import {
+  AUTH0_MISSING_STATE_MESSAGE,
+  ensureProjectState,
+} from "../core/projectState";
 import { readState } from "../core/state";
 import { readManifestSummary } from "./manifest";
 
@@ -523,12 +526,12 @@ export function buildStudioApp(options: StudioServerOptions) {
           // which org / project the logged-in user wants the deployment in,
           // and neither `arkor login` nor `arkor init` populates
           // `.arkor/state.json` today (see docs/concepts/project-structure).
-          // The only working path is to write the file by hand.
+          // The only working path is to write the file by hand. Reuse
+          // the single source-of-truth string from `core/projectState`
+          // so this surface and the trainer / Playground throw exactly
+          // the same instruction.
           return new Response(
-            JSON.stringify({
-              error:
-                "No .arkor/state.json found. Create it by hand with { orgSlug, projectSlug, projectId } pointing at the project you want to manage.",
-            }),
+            JSON.stringify({ error: AUTH0_MISSING_STATE_MESSAGE }),
             { status: 400, headers: { "content-type": "application/json" } },
           );
         }

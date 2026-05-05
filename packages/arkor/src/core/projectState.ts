@@ -10,6 +10,18 @@ export interface EnsureProjectStateOptions {
 }
 
 /**
+ * Single source of truth for the "Auth0 caller hit a write path with
+ * no `.arkor/state.json`" remediation copy. Studio's
+ * `withDeploymentClient` (in `studio/server.ts`) imports this and
+ * surfaces it verbatim on its 400 response so users see exactly the
+ * same instruction whether they came from training, Playground, or
+ * the Endpoints page. Wording drift between the two surfaces would
+ * make the same setup problem look like two different bugs.
+ */
+export const AUTH0_MISSING_STATE_MESSAGE =
+  "No .arkor/state.json found. Create it by hand with { orgSlug, projectSlug, projectId } pointing at the project you want to use.";
+
+/**
  * Resolve the project scope (`orgSlug` / `projectSlug`) used to address
  * cloud-api endpoints. Returns existing `.arkor/state.json` if present;
  * otherwise — for anonymous credentials only — derives a slug from the cwd
@@ -41,13 +53,13 @@ export async function ensureProjectState(
     // org / project the logged-in user wants. `arkor login` and `arkor
     // init` both leave `.arkor/state.json` untouched today (see
     // docs/concepts/project-structure), so the only working path is to
-    // write the file by hand. Keep this message in sync with the Studio
-    // server's identical guard in `studio/server.ts` so users hit the
-    // same instruction whether they came from the Playground / training
-    // / Endpoints flow.
-    throw new Error(
-      "No .arkor/state.json found. Create it by hand with { orgSlug, projectSlug, projectId } pointing at the project you want to use.",
-    );
+    // write the file by hand. The exact copy lives in the
+    // `AUTH0_MISSING_STATE_MESSAGE` constant above so Studio's
+    // server-side guard reuses the *same string* — in past rounds the
+    // two strings drifted ("use" vs "manage"), which made the same
+    // setup problem look like two different bugs depending on which
+    // path the user hit.
+    throw new Error(AUTH0_MISSING_STATE_MESSAGE);
   }
   const orgSlug = credentials.orgSlug;
 

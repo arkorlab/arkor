@@ -243,13 +243,25 @@ export function navigateReplace(hash: string): void {
  * browser Back press would land on the same `fallbackHash` URL and
  * appear to do nothing.
  *
- * `history.back()` either fires `hashchange` (in-document navigation)
- * or silently no-ops (no previous entry, e.g. fresh tab opened
- * directly to the deleted URL). We can't observe that distinction
- * synchronously, so check the URL after a short tick and fall back if
- * it didn't move.
+ * Predecessor detection uses `history.state.seq` — `useHashRoute`
+ * stamps `seq: 0` onto the SPA's anchor entry on mount and bumps it
+ * by 1 on every accepted in-document navigation. So `seq <= 0` (or
+ * unset) means we're sitting on that anchor and `history.back()`
+ * would leave Studio entirely (or land on an external page); in that
+ * case we skip the back() and replace in place. Otherwise we know
+ * there's at least one earlier Studio entry to roll back to.
  */
 export function navigateBackOr(fallbackHash: string): void {
+  // Without this guard a direct-linked detail page (no earlier in-
+  // document entry) would call `history.back()` → unload Studio →
+  // the post-back `setTimeout` never gets a chance to run, so the
+  // fallback `navigateReplace` is silently dropped and the user is
+  // pulled out of the SPA on what should be a same-tab redirect.
+  const currentSeq = readSeqFromState();
+  if (currentSeq === null || currentSeq <= 0) {
+    navigateReplace(fallbackHash);
+    return;
+  }
   const startHash = window.location.hash;
   window.history.back();
   // 50 ms is comfortably longer than any browser's `hashchange`
