@@ -172,21 +172,20 @@ describe("parseRoute — endpoints", () => {
 describe("evaluateHashChange", () => {
   // The pure decision function used inside `useHashRoute`'s `hashchange`
   // handler. Tests cover the three branches (`ignore` / `rollback` /
-  // `navigate`), the rollback recursion (a follow-up `hashchange` fired
-  // by `history.back()` lands here as `newHash === lastHash` and must
-  // resolve to `ignore` so the handler doesn't ping-pong), and the
-  // multi-guard short-circuit. The hook itself only adds the side
-  // effects (history.back() + setRoute), so unit-testing this function
-  // covers the routing-blocking semantics without a real DOM.
+  // `navigate`), the rollback recursion, the multi-guard short-circuit,
+  // and the direction detection (back vs forward) that picks
+  // `history.back()` vs `history.forward()` for the rollback.
   it("returns `navigate` with the parsed route when no guards are registered", () => {
     withHash("#/endpoints");
     expect(
       evaluateHashChange({
         newHash: "#/endpoints",
         lastHash: "#/",
+        currentSeq: null,
+        lastSeq: 0,
         guards: [],
       }),
-    ).toEqual({ kind: "navigate", route: { kind: "endpoints" } });
+    ).toEqual({ kind: "navigate", route: { kind: "endpoints" }, newSeq: 1 });
   });
 
   it("returns `navigate` when every guard accepts", () => {
@@ -194,17 +193,27 @@ describe("evaluateHashChange", () => {
     const result = evaluateHashChange({
       newHash: "#/jobs",
       lastHash: "#/",
+      currentSeq: null,
+      lastSeq: 0,
       guards: [() => true, () => true],
     });
-    expect(result).toEqual({ kind: "navigate", route: { kind: "jobs" } });
+    expect(result).toEqual({
+      kind: "navigate",
+      route: { kind: "jobs" },
+      newSeq: 1,
+    });
   });
 
-  it("returns `rollback` as soon as any guard refuses", () => {
+  it("rollback direction is `back` for forward navigation (push, no current seq)", () => {
+    // Forward link click pushes a new entry without our seq tag, so
+    // `currentSeq` is null. We undo with `history.back()`.
     withHash("#/jobs");
     let secondCalled = false;
     const result = evaluateHashChange({
       newHash: "#/jobs",
       lastHash: "#/endpoints/abc",
+      currentSeq: null,
+      lastSeq: 7,
       guards: [
         () => false,
         () => {
@@ -213,20 +222,53 @@ describe("evaluateHashChange", () => {
         },
       ],
     });
-    expect(result).toEqual({ kind: "rollback" });
+    expect(result).toEqual({ kind: "rollback", direction: "back" });
     // Short-circuit: once a guard says no, the rest don't run. Both for
     // perf and to avoid double-prompting the user.
     expect(secondCalled).toBe(false);
   });
 
+  it("rollback direction is `forward` for browser-Back navigation (currentSeq < lastSeq)", () => {
+    // Browser Back from B (seq=2) lands on A (seq=1). We need to undo
+    // with `history.forward()` — calling `history.back()` here would
+    // step further back and could eject the user from Studio.
+    withHash("#/endpoints");
+    const result = evaluateHashChange({
+      newHash: "#/endpoints",
+      lastHash: "#/endpoints/abc",
+      currentSeq: 1,
+      lastSeq: 2,
+      guards: [() => false],
+    });
+    expect(result).toEqual({ kind: "rollback", direction: "forward" });
+  });
+
+  it("rollback direction is `back` when currentSeq equals lastSeq", () => {
+    // Edge case: same seq, different hash (shouldn't happen in normal
+    // flow, but the function is defensively defined). Default to `back`,
+    // matching the "forward push" assumption.
+    withHash("#/x");
+    const result = evaluateHashChange({
+      newHash: "#/x",
+      lastHash: "#/y",
+      currentSeq: 3,
+      lastSeq: 3,
+      guards: [() => false],
+    });
+    expect(result).toEqual({ kind: "rollback", direction: "back" });
+  });
+
   it("returns `ignore` when newHash matches lastHash (rollback recursion)", () => {
-    // After the handler triggers `history.back()` to roll back a blocked
-    // navigation, the browser fires another `hashchange` with the URL
-    // restored to `lastHash`. That hashchange MUST resolve to `ignore`,
-    // otherwise the guard would re-prompt indefinitely.
+    // After the handler triggers `history.back()` / `history.forward()`
+    // to roll back a blocked navigation, the browser fires another
+    // `hashchange` with the URL restored to `lastHash`. That hashchange
+    // MUST resolve to `ignore`, otherwise the guard would re-prompt
+    // indefinitely.
     const result = evaluateHashChange({
       newHash: "#/endpoints/abc",
       lastHash: "#/endpoints/abc",
+      currentSeq: 5,
+      lastSeq: 5,
       guards: [
         () => {
           throw new Error("guards must not run on the no-op hashchange");
@@ -244,8 +286,29 @@ describe("evaluateHashChange", () => {
     const result = evaluateHashChange({
       newHash: "#/x",
       lastHash: "#/x",
+      currentSeq: 1,
+      lastSeq: 1,
       guards: [() => false],
     });
     expect(result).toEqual({ kind: "ignore" });
+  });
+
+  it("monotonically bumps newSeq from lastSeq on accepted navigation", () => {
+    // The hook stamps `newSeq` into `history.state` so that direction
+    // detection on the next `hashchange` knows whether the user clicked
+    // a link forward or pressed Back.
+    withHash("#/playground");
+    const result = evaluateHashChange({
+      newHash: "#/playground",
+      lastHash: "#/",
+      currentSeq: null,
+      lastSeq: 41,
+      guards: [],
+    });
+    expect(result).toEqual({
+      kind: "navigate",
+      route: { kind: "playground", adapterJobId: undefined },
+      newSeq: 42,
+    });
   });
 });

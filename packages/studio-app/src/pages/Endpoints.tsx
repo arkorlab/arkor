@@ -663,17 +663,27 @@ export function EndpointDetail({ id }: { id: string }) {
 
   async function onDelete() {
     if (!deployment) return;
-    if (
-      !window.confirm(`Delete endpoint ${deployment.slug}.arkor.app?`)
-    ) {
-      return;
-    }
+    // If a one-time plaintext is on screen, fold the warning into the
+    // delete confirm rather than two-step prompting after the delete
+    // already succeeded. Without this, the post-delete redirect would
+    // trip the navigation guard, the user would Cancel to keep the
+    // secret, and we'd be stuck on a stale detail view for a deployment
+    // that no longer exists server-side.
+    const message = revealed
+      ? `Delete endpoint ${deployment.slug}.arkor.app? The just-issued API key plaintext on screen will also be lost — copy it first if you still need it.`
+      : `Delete endpoint ${deployment.slug}.arkor.app?`;
+    if (!window.confirm(message)) return;
     const myId = id;
     const ok = await withBusy(async () => {
       await deleteDeployment(myId);
       return true;
     });
     if (ok && activeIdRef.current === myId) {
+      // The deployment (and its keys, server-side) are gone. Release the
+      // navigation guard before redirecting so the post-delete hash
+      // change doesn't prompt a second confirm for a secret that's now
+      // moot.
+      pendingKeyIssueRef.current = false;
       window.location.hash = "#/endpoints";
     }
   }
@@ -921,9 +931,20 @@ export function EndpointDetail({ id }: { id: string }) {
               onChange={(e) => setNewKeyLabel(e.target.value)}
               placeholder="Label (e.g. production)"
               maxLength={80}
-              className="flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+              // The plaintext for an already-issued key is held in
+              // `revealed` and is one-time. Re-enabling this input while
+              // it's on screen would let a second `Issue key` overwrite
+              // `revealed`, permanently losing the first key's secret
+              // even though that key remains active server-side. Keep
+              // both the input and the submit disabled until the
+              // operator acknowledges with "I've saved it".
+              disabled={busy || revealed !== null}
+              className="flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950"
             />
-            <Button type="submit" disabled={busy || !newKeyLabel.trim()}>
+            <Button
+              type="submit"
+              disabled={busy || revealed !== null || !newKeyLabel.trim()}
+            >
               Issue key
             </Button>
           </form>
