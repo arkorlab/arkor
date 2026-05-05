@@ -784,6 +784,44 @@ function detectEol(contents: string): "\r\n" | "\n" {
 // fall through to the no-match fallback and double-write.
 const TRAILING_COMMENT_AND_EOL = "[ \\t]*(?:#[^\\r\\n]*)?\\r?$";
 
+// Like `TRAILING_COMMENT_AND_EOL` but captures the trailing
+// whitespace + optional comment as a single group so a regex
+// replacement can re-emit it verbatim. Lets the inline / block
+// patchers preserve a user-authored explanation of their build-
+// script policy across re-runs (round-39 Copilot review:
+// `allowBuilds: { ... } # explanation` had its trailing comment
+// silently dropped on patch).
+const TRAILING_COMMENT_AND_EOL_CAPTURED = "([ \\t]*(?:#[^\\r\\n]*)?)\\r?$";
+
+// Returns the document root's leading whitespace (or `""` for
+// canonical column-0 YAML). YAML allows the root mapping to be
+// indented (e.g. `  packages: []\n  allowBuilds:\n    esbuild:
+// true`); without anchoring our matchers at the actual root
+// column, an indented file is misread as missing both keys and
+// the patcher writes a duplicate block instead of respecting the
+// existing config (round-39 Copilot review). Mirrors the
+// `rootIndent` logic in `readNodeLinkerValue` for `.yarnrc.yml`.
+//
+// Skips empty lines, comments, and YAML structural markers
+// (directives `%YAML 1.2`, document boundaries `---` / `...`)
+// so an explicit document boundary doesn't anchor `rootIndent`
+// to its column.
+function detectYamlRootIndent(contents: string): string {
+  for (const rawLine of contents.split(/\r?\n/)) {
+    if (!rawLine.trim() || /^\s*#/.test(rawLine)) continue;
+    const trimmed = rawLine.trim();
+    if (
+      trimmed === "---" ||
+      trimmed === "..." ||
+      trimmed.startsWith("%")
+    ) {
+      continue;
+    }
+    return /^(\s*)/.exec(rawLine)?.[1] ?? "";
+  }
+  return "";
+}
+
 // Returns the explicit `esbuild:` value under the **top-level**
 // `allowBuilds:` mapping, or `undefined` if esbuild isn't named
 // there. Tolerates the two shapes `pnpm approve-builds` produces:
@@ -809,10 +847,14 @@ function readAllowBuildsValue(
   contents: string,
   pkg: string,
 ): boolean | undefined {
+  const root = detectYamlRootIndent(contents);
   const escaped = pkg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Inline mapping: `allowBuilds: { esbuild: false, ... }`.
+  // Inline mapping at the document root: `allowBuilds: { esbuild: false, ... }`.
   const inlineMatch = contents.match(
-    new RegExp(`^allowBuilds:[ \\t]*\\{([^}]*)\\}${TRAILING_COMMENT_AND_EOL}`, "m"),
+    new RegExp(
+      `^${root}allowBuilds:[ \\t]*\\{([^}]*)\\}${TRAILING_COMMENT_AND_EOL}`,
+      "m",
+    ),
   );
   if (inlineMatch) {
     const pairRe = new RegExp(`["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)`);
@@ -820,10 +862,12 @@ function readAllowBuildsValue(
     if (inner) return inner[1] === "true";
     return undefined;
   }
-  // Block mapping: a column-0 `allowBuilds:` line followed by
-  // `  pkg: <bool>` entries.
+  // Block mapping: an `allowBuilds:` line at the document root
+  // followed by indented `pkg: <bool>` entries. Body indent must be
+  // strictly greater than the root indent so a sibling at the same
+  // column doesn't get mistaken for a body line.
   const blockHeaderRe = new RegExp(
-    `^allowBuilds:${TRAILING_COMMENT_AND_EOL}`,
+    `^${root}allowBuilds:${TRAILING_COMMENT_AND_EOL}`,
     "m",
   );
   const headerMatch = blockHeaderRe.exec(contents);
@@ -837,7 +881,8 @@ function readAllowBuildsValue(
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (line === "") continue;
-    if (!/^[ \t]/.test(line)) break; // dedent — block ended
+    const indentMatch = line.match(/^[ \t]+/);
+    if (!indentMatch || indentMatch[0].length <= root.length) break; // dedent
     const m = line.match(
       new RegExp(
         `^[ \\t]+["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)${TRAILING_COMMENT_AND_EOL}`,
@@ -848,34 +893,43 @@ function readAllowBuildsValue(
   return undefined;
 }
 
-// True when the file pins `allowBuilds` to a **top-level scalar**
+// True when the file pins `allowBuilds` to a **document-root scalar**
 // (`allowBuilds: true` / `allowBuilds: false`) — pnpm's "approve all"
 // / "deny all" global form. The append path must bail in that case;
 // blindly writing a fresh `allowBuilds:` block would leave two
-// top-level `allowBuilds` keys (round-37 Copilot review).
+// root-level `allowBuilds` keys (round-37 Copilot review).
 //
-// Tolerates CRLF + trailing comments (round-38 reviewer feedback).
+// Tolerates CRLF + trailing comments (round-38 reviewer feedback)
+// and indented document roots (round-39 Copilot review).
 function hasTopLevelAllowBuildsScalar(contents: string): boolean {
+  const root = detectYamlRootIndent(contents);
   return new RegExp(
-    `^allowBuilds:[ \\t]+(?:true|false)${TRAILING_COMMENT_AND_EOL}`,
+    `^${root}allowBuilds:[ \\t]+(?:true|false)${TRAILING_COMMENT_AND_EOL}`,
     "m",
   ).test(contents);
 }
 
-// True when the file declares a top-level `packages:` key (in any
-// form — inline `[]`, inline list, or block list). pnpm 9 errors
-// "packages field missing or empty" whenever `pnpm-workspace.yaml`
-// exists without it, so the patch path must backfill `packages: []`
-// when the user's existing file omits it (round-38 Copilot review).
+// True when the file declares a document-root `packages:` key (in
+// any form — inline `[]`, inline list, or block list). pnpm 9
+// errors "packages field missing or empty" whenever
+// `pnpm-workspace.yaml` exists without it, so the patch path must
+// backfill `packages: []` when the user's existing file omits it
+// (round-38 Copilot review). Anchored at the detected root indent
+// so a nested `packages:` key (e.g. inside a tool-specific
+// section) isn't mistaken for the pnpm-level one.
 function hasTopLevelPackagesKey(contents: string): boolean {
-  return /^packages:/m.test(contents);
+  const root = detectYamlRootIndent(contents);
+  return new RegExp(`^${root}packages:`, "m").test(contents);
 }
 
 // Prepend `packages: []` to an existing pnpm-workspace.yaml that
-// lacks the key. Preserves the file's existing line-ending style.
+// lacks the key. Preserves the file's existing line-ending style
+// and document-root indent so the new key sits at the same column
+// as the rest of the root mapping (round-39 Copilot review).
 function prependPackagesEmptyList(contents: string): string {
   const eol = detectEol(contents);
-  return `packages: []${eol}${contents}`;
+  const root = detectYamlRootIndent(contents);
+  return `${root}packages: []${eol}${contents}`;
 }
 
 // Append `esbuild: <value>` to an existing pnpm-workspace.yaml
@@ -904,41 +958,54 @@ function appendEsbuildToAllowBuilds(
   allowEsbuild: boolean,
 ): string {
   const eol = detectEol(contents);
+  const root = detectYamlRootIndent(contents);
   const value = allowEsbuild ? "true" : "false";
+  // Inline form. Captures the body of the inline mapping AND the
+  // trailing whitespace + optional `# comment` so we can re-emit
+  // the comment verbatim (round-39 Copilot review). Without the
+  // capture, a re-run of the scaffold silently dropped a user's
+  // explanation of their build-script policy.
   const inlineRe = new RegExp(
-    `^allowBuilds:[ \\t]*\\{([^}]*)\\}${TRAILING_COMMENT_AND_EOL}`,
+    `^${root}allowBuilds:[ \\t]*\\{([^}]*)\\}${TRAILING_COMMENT_AND_EOL_CAPTURED}`,
     "m",
   );
   const inlineMatch = contents.match(inlineRe);
   if (inlineMatch) {
     const inner = inlineMatch[1].trim();
+    const trailing = inlineMatch[2];
     const merged = inner.length > 0
       ? `${inner}, esbuild: ${value}`
       : `esbuild: ${value}`;
-    return contents.replace(inlineRe, `allowBuilds: { ${merged} }`);
+    return contents.replace(
+      inlineRe,
+      `${root}allowBuilds: { ${merged} }${trailing}`,
+    );
   }
-  // Match the header plus any indented body lines that follow. The
-  // body subgroup captures `<indent><content>\r?\n` repeated for
-  // each entry. The match deliberately stops at the first dedented
-  // or blank line, leaving any trailing siblings of `allowBuilds:`
-  // untouched. `\r?\n` makes the matcher EOL-agnostic so a Windows
-  // workspace yaml isn't mistakenly treated as having no
-  // `allowBuilds:` block (round-38 Codex P1).
-  const blockRe =
-    /^allowBuilds:[ \t]*(?:#[^\r\n]*)?\r?\n((?:[ \t]+[^\r\n]*\r?\n)*)/m;
+  // Block form. The header line tolerates a trailing comment
+  // (captured verbatim) and CRLF (round-38 Codex P1). The body
+  // capture runs as long as each line is indented strictly deeper
+  // than the document root, which lets the body live under any
+  // root indent and stops at the first dedent/blank/sibling.
+  const blockRe = new RegExp(
+    `^${root}allowBuilds:([ \\t]*(?:#[^\\r\\n]*)?)\\r?\\n((?:[ \\t]{${root.length + 1},}[^\\r\\n]*\\r?\\n)*)`,
+    "m",
+  );
   const blockMatch = contents.match(blockRe);
   if (blockMatch) {
-    const body = blockMatch[1];
+    const headerTrailing = blockMatch[1];
+    const body = blockMatch[2];
     // Reuse the existing entry indent if there is one; otherwise
-    // default to two spaces (pnpm's convention).
+    // default to root + two spaces (pnpm's convention).
     const entryIndentMatch = body.match(/^([ \t]+)/);
-    const entryIndent = entryIndentMatch?.[1] ?? "  ";
-    const replacement = `allowBuilds:${eol}${body}${entryIndent}esbuild: ${value}${eol}`;
+    const entryIndent = entryIndentMatch?.[1] ?? `${root}  `;
+    const replacement =
+      `${root}allowBuilds:${headerTrailing}${eol}${body}${entryIndent}esbuild: ${value}${eol}`;
     return contents.replace(blockRe, replacement);
   }
-  // No allowBuilds at all — append a fresh block, in the file's EOL.
+  // No allowBuilds at all — append a fresh block at the document
+  // root, in the file's EOL.
   const trailingNewline = /\r?\n$/.test(contents) ? "" : eol;
-  return `${contents}${trailingNewline}allowBuilds:${eol}  esbuild: ${value}${eol}`;
+  return `${contents}${trailingNewline}${root}allowBuilds:${eol}${root}  esbuild: ${value}${eol}`;
 }
 
 export async function scaffold(

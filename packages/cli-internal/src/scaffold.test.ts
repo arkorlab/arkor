@@ -486,6 +486,94 @@ describe("scaffold", () => {
     expect(entry?.action).toBe("patched");
   });
 
+  // Round 39 (Copilot review): inline-form `allowBuilds: { ... }`
+  // with a trailing YAML comment must keep the comment on patch.
+  // The previous regex replacement rewrote the whole line and
+  // silently dropped any post-`}` text, throwing away user-
+  // authored explanation of build-script policy.
+  it("preserves a trailing YAML comment on an inline-form allowBuilds when patching", async () => {
+    const original =
+      `packages: []\nallowBuilds: { sharp: true } # native deps approved\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("# native deps approved");
+    expect(yaml).toContain("sharp: true");
+    expect(yaml).toContain("esbuild: false");
+    // Still exactly one top-level allowBuilds.
+    expect(yaml.match(/^allowBuilds:/gm)).toHaveLength(1);
+  });
+
+  it("preserves a trailing YAML comment on a block-form allowBuilds header when patching", async () => {
+    // The block-header path also needs to keep an explanatory
+    // comment that lives on the `allowBuilds:` line itself.
+    const original =
+      `packages: []\nallowBuilds: # native deps approved\n  sharp: true\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("allowBuilds: # native deps approved");
+    expect(yaml).toContain("sharp: true");
+    expect(yaml).toContain("esbuild: false");
+  });
+
+  // Round 39 (Copilot review): YAML allows the document root to
+  // be indented. A file like `  packages: []\n  allowBuilds:\n
+  // esbuild: true` is valid, but the previous column-0 anchors
+  // misread it as missing both keys, so the patcher prepended a
+  // duplicate `packages:` and appended a duplicate `allowBuilds:`.
+  // The reader/writer now anchor at the detected document-root
+  // indent (mirroring `readNodeLinkerValue`).
+  it("respects an indented document root when reading allowBuilds (does not double-write)", async () => {
+    const original =
+      `  packages: []\n  allowBuilds:\n    esbuild: true\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    // esbuild already pinned at root → no edit needed.
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("ok");
+  });
+
+  it("appends esbuild at the indented document root when patching such a file", async () => {
+    // Same indented-root file but with esbuild missing from the
+    // existing allowBuilds block. The new entry must use the same
+    // body indent as the existing one (4 spaces here), and we must
+    // NOT introduce a column-0 duplicate.
+    const original =
+      `  packages: []\n  allowBuilds:\n    sharp: true\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("    sharp: true");
+    expect(yaml).toContain("    esbuild: false");
+    // No column-0 keys leaked in.
+    expect(yaml).not.toMatch(/^packages:/m);
+    expect(yaml).not.toMatch(/^allowBuilds:/m);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("patched");
+  });
+
   // Round 38 (Codex P2): an ancestor `.yarnrc.yml` with
   // `nodeLinker: node-modules` is the safe case the berry caveat
   // is supposed to nudge users toward — the install runs without
