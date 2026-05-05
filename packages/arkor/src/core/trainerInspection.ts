@@ -225,11 +225,17 @@ function isTrainerLike(value: unknown): value is TrainerLike {
  * manifest UI displays the trainer's `name` for hand-rolled trainers
  * too, even when HMR can't compute a `configHash` for them.
  *
- * The four supported shapes:
+ * The five supported shapes (mirroring `runner.ts`'s `extractTrainer`):
  *   1. `export const arkor = createArkor({ trainer })`
  *   2. `export const trainer = createTrainer(...)`  (bare named export)
  *   3. `export default createArkor({ trainer })`
- *   4. `export default { trainer: createTrainer(...) }`
+ *   4. `export default createTrainer(...)`           (default IS a Trainer)
+ *   5. `export default { trainer: createTrainer(...) }`
+ *
+ * Without shape #4 a project that default-exports a Trainer would run
+ * fine under `arkor start` but show as "no trainer" in Studio's
+ * manifest, with `configHash: null` forcing every HMR rebuild down the
+ * SIGTERM-restart path instead of the SIGUSR2 hot-swap path.
  */
 export function findTrainerInModule(
   mod: Record<string, unknown>,
@@ -245,7 +251,12 @@ export function findTrainerInModule(
   if (isArkor(mod.default) && (mod.default as Arkor).trainer) {
     candidates.push((mod.default as Arkor).trainer);
   }
-  // 4: default.trainer nested
+  // 4: default IS the Trainer itself. The `isTrainerLike` filter
+  // below sorts this out from cases 3/5 (an Arkor manifest doesn't
+  // have `start`/`wait`/`cancel`, nor does a plain `{ trainer }`
+  // wrapper), so pushing `mod.default` unconditionally is safe.
+  if (mod.default !== undefined) candidates.push(mod.default);
+  // 5: default.trainer nested
   if (
     mod.default &&
     typeof mod.default === "object" &&

@@ -112,7 +112,9 @@ describe("TrainRegistry", () => {
     const reg = new TrainRegistry();
     const dead = fakeChild(601);
     dead.kill.mockImplementation(() => {
-      throw new Error("ESRCH");
+      const err = new Error("kill ESRCH") as Error & { code?: string };
+      err.code = "ESRCH";
+      throw err;
     });
     reg.register(dead as unknown as ChildProcess, {
       configHash: "stale",
@@ -121,6 +123,36 @@ describe("TrainRegistry", () => {
     const result = reg.dispatchRebuild("fresh");
     expect(result.hotSwapTargets).toEqual([]);
     expect(result.restartTargets).toEqual([]);
+  });
+
+  it("dispatchRebuild classifies ESRCH on the hash-match branch as 'gone' (no SIGTERM fallback)", () => {
+    // Regression: `safeKill` previously treated any thrown error as
+    // `"unsupported"`, which on the hash-match branch triggers a
+    // SIGTERM fallback (intended for Windows + SIGUSR2 unsupported).
+    // POSIX `kill(2)` raises `ESRCH` for an already-exited child —
+    // classifying that as "unsupported" caused a needless SIGTERM
+    // attempt against a dead PID. Now ESRCH routes through the
+    // "gone" branch (no fallback, no restart-target push) so the
+    // child is dropped silently for the close handler to reap.
+    const reg = new TrainRegistry();
+    const goneOnSigusr2 = fakeChild(801);
+    goneOnSigusr2.kill.mockImplementation(() => {
+      const err = new Error("kill ESRCH") as Error & { code?: string };
+      err.code = "ESRCH";
+      throw err;
+    });
+    reg.register(goneOnSigusr2 as unknown as ChildProcess, {
+      configHash: "match",
+      trainFile: "/tmp/g.ts",
+    });
+    const result = reg.dispatchRebuild("match");
+    // No hot-swap (SIGUSR2 failed), no restart (correctly classified
+    // as gone, NOT routed into the SIGTERM fallback path).
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toEqual([]);
+    // Single SIGUSR2 attempt — no SIGTERM fallback was issued.
+    expect(goneOnSigusr2.kill).toHaveBeenCalledTimes(1);
+    expect(goneOnSigusr2.kill).toHaveBeenCalledWith("SIGUSR2");
   });
 
   it("dispatchRebuild omits dead-on-kill children when kill returns false (no throw)", () => {

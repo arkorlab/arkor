@@ -55,17 +55,29 @@ export interface DispatchResult {
  * Outcome of a single `child.kill(signal)` call.
  *
  * - `"ok"`: signal was delivered.
- * - `"gone"`: process was already exited (`kill` returned `false`); no
- *   real signal was sent.
+ * - `"gone"`: process was already exited. Surfaces both as `kill`
+ *   returning `false` (Node's mapped form) and as a thrown `ESRCH`
+ *   (a race where the child exits between the `entries` lookup and
+ *   the `kill` call — POSIX `kill(2)` raises `ESRCH` for
+ *   non-existent PIDs and Node propagates it on some versions).
  * - `"unsupported"`: the platform doesn't support this signal kind
- *   (Windows + `SIGUSR2`); `kill` threw.
+ *   (Windows + `SIGUSR2` → `ENOSYS`; bad signal name → `EINVAL`);
+ *   `kill` threw with that error code.
  */
 type KillResult = "ok" | "gone" | "unsupported";
 
 function safeKill(child: ChildProcess, signal: NodeJS.Signals): KillResult {
   try {
     return child.kill(signal) ? "ok" : "gone";
-  } catch {
+  } catch (err) {
+    // `ESRCH` ("no such process") means the child already exited —
+    // semantically identical to `kill returning false`. Mis-classifying
+    // it as `"unsupported"` would route a hash-match hot-swap candidate
+    // into the SIGTERM fallback, which then also no-ops (also gone) but
+    // costs a needless restart-bucket inclusion until the close handler
+    // unregisters the child.
+    const code = (err as NodeJS.ErrnoException | null)?.code;
+    if (code === "ESRCH") return "gone";
     return "unsupported";
   }
 }

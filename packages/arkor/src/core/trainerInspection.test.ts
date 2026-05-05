@@ -53,15 +53,29 @@ describe("findTrainerInModule (trainer-shape walk)", () => {
     expect(found).toBe(trainer);
   });
 
-  it("finds shape #4: default.trainer nested", () => {
+  it("finds shape #4: default IS the Trainer", () => {
+    // Regression: `runner.ts`'s `extractTrainer` accepts
+    // `export default createTrainer(...)` directly (the trainer
+    // object itself becomes `mod.default`), but Studio's manifest /
+    // HMR walk previously skipped this shape. Result: a project that
+    // ran fine under `arkor start` showed as "no trainer" in Studio
+    // and HMR forced a SIGTERM-restart on every rebuild because
+    // `configHash` came back null.
     const trainer = brandedTrainer("d");
+    const found = findTrainerInModule({ default: trainer });
+    expect(found).toBe(trainer);
+  });
+
+  it("finds shape #5: default.trainer nested", () => {
+    const trainer = brandedTrainer("e");
     const found = findTrainerInModule({ default: { trainer } });
     expect(found).toBe(trainer);
   });
 
-  it("works for hand-rolled (unbranded) trainers in any of the four shapes", () => {
+  it("works for hand-rolled (unbranded) trainers in any of the five shapes", () => {
     const trainer = unbrandedTrainer("manual");
     expect(findTrainerInModule({ trainer })?.name).toBe("manual");
+    expect(findTrainerInModule({ default: trainer })?.name).toBe("manual");
     expect(findTrainerInModule({ default: { trainer } })?.name).toBe("manual");
   });
 
