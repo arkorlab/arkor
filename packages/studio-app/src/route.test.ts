@@ -342,6 +342,28 @@ describe("evaluateHashChange", () => {
       newSeq: 1,
     });
   });
+
+  it("parses the route from `newHash` rather than `window.location.hash`", () => {
+    // The helper has to be self-contained: a back-to-back navigation
+    // can leave `window.location.hash` already pointing at a *later*
+    // URL by the time `parseRoute` runs, so coupling to the live
+    // global would let `evaluateHashChange` return a route for the
+    // wrong hash. Stage the global at a stale value and assert the
+    // returned route reflects the explicit `newHash` argument.
+    withHash("#/playground"); // stale — what the global currently says
+    const result = evaluateHashChange({
+      newHash: "#/jobs", // what the hashchange event reported
+      lastHash: "#/",
+      currentSeq: null,
+      lastSeq: 0,
+      guards: [],
+    });
+    expect(result).toEqual({
+      kind: "navigate",
+      route: { kind: "jobs" },
+      newSeq: 1,
+    });
+  });
 });
 
 describe("createHashRouter (integration of side effects)", () => {

@@ -8,13 +8,24 @@ export type Route =
   | { kind: "endpoints" }
   | { kind: "endpoint"; id: string };
 
-export function parseRoute(): Route {
+/**
+ * Parse a hash fragment (e.g. `"#/endpoints/foo"`) into a `Route`. The
+ * argument is optional — when omitted, the function falls back to
+ * `window.location.hash` for the legacy "snapshot the live URL" call
+ * sites (initial mount, callers that don't track their own URL state).
+ * `evaluateHashChange` always passes the `newHash` it received from
+ * the `hashchange` event so the helper stays self-contained: the
+ * returned `Route` reflects the input string, not whatever the live
+ * `window.location.hash` happens to be at the moment `parseRoute`
+ * runs (which may already differ on a fast back-to-back navigation).
+ */
+export function parseRoute(hash: string = window.location.hash): Route {
   // Split into path / query first; trimming trailing slashes from the
   // raw hash up front would leave them on the path when a query is
   // present (e.g. `#/playground/?adapter=foo` → `playground/?adapter=foo`,
   // since the `/` is no longer at the end of the string), and the
   // route would fall through to `home`. Trim the path-only segment.
-  const raw = window.location.hash.replace(/^#\/?/, "");
+  const raw = hash.replace(/^#\/?/, "");
   const queryStart = raw.indexOf("?");
   const rawPath = queryStart === -1 ? raw : raw.slice(0, queryStart);
   const path = rawPath.replace(/\/+$/, "");
@@ -133,9 +144,17 @@ export function evaluateHashChange(opts: {
   // an A→B→C→Back-to-B sequence would corrupt direction detection on
   // the next Forward and turn the rollback into another `forward()`,
   // ejecting the user further along the stack.
+  //
+  // Pass `opts.newHash` to `parseRoute` so the returned `Route`
+  // reflects *the hash that triggered this `hashchange`*, not whatever
+  // `window.location.hash` happens to be when the parse runs. Without
+  // this thread-through, the helper would silently couple to global
+  // state and a fast back-to-back navigation could feed a route for a
+  // *later* hash to the SPA — exactly the kind of bug this extraction
+  // was meant to remove.
   return {
     kind: "navigate",
-    route: parseRoute(),
+    route: parseRoute(opts.newHash),
     newSeq: opts.currentSeq ?? opts.lastSeq + 1,
   };
 }

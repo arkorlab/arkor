@@ -32,7 +32,7 @@ const client = new CloudApiClient({
 });
 ```
 
-`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK: an Auth0-issued access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both.
+`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK: an OAuth access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both.
 
 Every deployment lives inside a `(orgSlug, projectSlug)` scope; pass that scope on every call:
 

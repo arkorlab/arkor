@@ -32,7 +32,7 @@ const client = new CloudApiClient({
 });
 ```
 
-`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります。Auth0 由来のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。
+`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります。OAuth のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。
 
 deployment はすべて `(orgSlug, projectSlug)` スコープに属するので、毎回そのスコープを渡します:
 

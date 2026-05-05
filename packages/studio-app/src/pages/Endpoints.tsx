@@ -215,7 +215,7 @@ export function EndpointsList() {
             <EmptyState
               icon={<Inbox />}
               title="Workspace not scoped to a project yet"
-              description="The next endpoint create will bootstrap this for an anonymous session. If you're signed in via Auth0, restore .arkor/state.json by hand to point this Studio session at the project you want to manage. If neither applies (no credentials on disk), run `arkor login` first — Studio cannot reach the cloud API without one."
+              description="The next endpoint create will bootstrap this for an anonymous session. If you're signed in with OAuth, restore .arkor/state.json by hand to point this Studio session at the project you want to manage. If neither applies (no credentials on disk), run `arkor login` first — Studio cannot reach the cloud API without one."
             />
           ) : (
             <EmptyState

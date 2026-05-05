@@ -471,7 +471,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       return new Response(
         JSON.stringify({
           error:
-            "No .arkor/state.json on disk for this workspace. Create your first deployment to bootstrap one (anonymous), or restore the file by hand (Auth0).",
+            "No .arkor/state.json on disk for this workspace. Create your first deployment to bootstrap one (anonymous), or restore the file by hand (OAuth).",
         }),
         { status: 404, headers: { "content-type": "application/json" } },
       );
