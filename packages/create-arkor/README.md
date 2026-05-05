@@ -59,8 +59,10 @@ my-app/
 ├── README.md
 ├── .gitignore          # node_modules/, dist/, .arkor/
 ├── package.json        # scripts: dev / build / start
-└── pnpm-workspace.yaml # pnpm 11 allowBuilds — see "Postinstall scripts" below
+└── pnpm-workspace.yaml # OPTIONAL — pnpm 11 allowBuilds (see below)
 ```
+
+`pnpm-workspace.yaml` is the only conditional entry: it lands when pnpm is the plausible package manager, and is omitted for `--use-npm` / `--use-yarn` / `--use-bun` and a few existing-project cases (full rules below). The other six paths are always written.
 
 `pnpm-workspace.yaml` is gated on two axes — when to *create* it fresh, and when to *touch* it at all if one already exists at the target.
 

@@ -214,43 +214,15 @@ jobs:
           pnpm --filter create-arkor build
           pnpm --filter arkor build
 
-      # Pack arkor into a tarball for the install-matrix tests to point
-      # `file:` at. We deliberately use the same `pnpm pack` invocation
-      # the release workflow uses (release.yaml's "pre-pack" step) so
-      # the matrix exercises exactly the install surface a real `npm
-      # install arkor` would: only files listed in `package.json#files`,
-      # workspace protocols (`@arkor/cli-internal: workspace:*`)
-      # substituted by pnpm pack, and the on-disk layout the published
-      # tarball produces.
-      #
-      # Earlier rounds of PR #99 used a `cp -r packages/arkor` + manual
-      # `delete pkg.devDependencies['@arkor/cli-internal']` instead, but
-      # Copilot (round 14) flagged the gap: `file:` to a directory
-      # bypasses the pack-time `files` filter, so the matrix would
-      # silently keep passing if a generated asset (e.g. something
-      # missed from `files`) didn't make it into the published tarball.
-      # The tarball path closes that gap — and incidentally drops the
-      # workspace-devDeps node script that the cp path needed.
-      - name: Pack arkor into a scaffold tarball
-        id: pack-arkor
-        shell: bash
-        run: |
-          PACK_DIR="$RUNNER_TEMP/arkor-pack"
-          rm -rf "$PACK_DIR"
-          mkdir -p "$PACK_DIR"
-          (cd packages/arkor && pnpm pack --pack-destination "$PACK_DIR")
-          # Resolve the freshly-packed `arkor-*.tgz` without hard-coding
-          # the version — it shifts on every release. There must be
-          # exactly one match (we just cleaned the dir).
-          shopt -s nullglob
-          TARBALLS=("$PACK_DIR"/arkor-*.tgz)
-          if [ "${#TARBALLS[@]}" -ne 1 ]; then
-            echo "Expected exactly one arkor-*.tgz in $PACK_DIR, got ${#TARBALLS[@]}"
-            ls -la "$PACK_DIR"
-            exit 1
-          fi
-          echo "tarball=${TARBALLS[0]}" >> "$GITHUB_OUTPUT"
-          echo "Packed arkor: ${TARBALLS[0]}"
+      # NOTE: an earlier "Pack arkor into a scaffold tarball" step
+      # used to run `pnpm pack` and expose the result as a workflow
+      # output, fed into the now-removed `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC`
+      # job env. With the per-case `file:../<tgz>` override (the
+      # only viable shape on Windows + pnpm-10 / bun) the real-
+      # install tests now pack their own tarball in `beforeAll`,
+      # so the workflow-level pack was paying its `pnpm pack` cost
+      # on every leg of the (very large) matrix without anything
+      # consuming the output. PR #99 round-39 Copilot review.
 
       - name: Setup pm under test (${{ matrix.id }})
         if: ${{ matrix.id != 'bun' }}
