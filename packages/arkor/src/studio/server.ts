@@ -510,10 +510,27 @@ export function buildStudioApp(options: StudioServerOptions) {
           headers: { "content-type": "application/json" },
         });
       }
-      // Local-side failures (credentials file read, anonymous-token
-      // bootstrap, FS error) can leak filesystem paths and internal
-      // endpoint hostnames in `err.message` / stack. Log full detail
-      // for the operator and return an opaque 500 to the SPA.
+      // The "no credentials on file" guard from `getCredentials()` is a
+      // recoverable setup problem (the operator just needs to log in or
+      // enable autoAnonymous). Surface its message verbatim with a 401
+      // so the SPA can render a "Run `arkor login`" hint instead of an
+      // opaque 500 — `Endpoints.tsx` shows `err.message` directly in
+      // its error envelopes. This text is user-facing copy from
+      // `studio/server.ts`'s own throw, not user input or a filesystem
+      // path, so forwarding it carries no info-leak risk.
+      if (
+        err instanceof Error &&
+        err.message.startsWith("No credentials on file")
+      ) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      // Local-side failures (anonymous-token bootstrap, FS error) can
+      // leak filesystem paths and internal endpoint hostnames in
+      // `err.message` / stack. Log full detail for the operator and
+      // return an opaque 500 to the SPA.
       console.error("[studio] withDeploymentClient setup failed:", err);
       return new Response(
         JSON.stringify({ error: "Studio backend unavailable" }),

@@ -1820,11 +1820,12 @@ process.exit(0);
       expect(calls).toBe(0);
     });
 
-    it("opaque 500 envelope when the credentials read fails (no stack-trace leak)", async () => {
+    it("returns 401 with a log-in hint when the credentials file is missing", async () => {
       // autoAnonymous: false + no credentials + project state present →
-      // getCredentials() throws inside withDeploymentClient. The CodeQL
-      // alert flagged returning err.message verbatim; verify we surface
-      // a generic envelope here.
+      // getCredentials() throws "No credentials on file. Run `arkor
+      // login` first." This is a recoverable setup problem, not a
+      // backend outage, so the SPA gets the actionable message
+      // verbatim with a 401 instead of an opaque 500.
       await writeState(
         { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
         trainCwd,
@@ -1833,9 +1834,10 @@ process.exit(0);
       const res = await app.request("/api/deployments/dep-1", {
         headers: studioHeaders(),
       });
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(401);
       const body = (await res.json()) as { error?: string };
-      expect(body.error).toBe("Studio backend unavailable");
+      expect(body.error).toMatch(/no credentials on file/i);
+      expect(body.error).toMatch(/arkor login/);
     });
   });
 });

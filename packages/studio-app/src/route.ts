@@ -126,10 +126,17 @@ export function evaluateHashChange(opts: {
       return { kind: "rollback", direction };
     }
   }
+  // For brand-new entries pushed by a forward navigation, `currentSeq`
+  // is null and we mint `lastSeq + 1`. For revisited entries (Back /
+  // Forward landing on something we already stamped), preserve the
+  // existing seq — re-stamping `B` with a higher number than `C` after
+  // an A→B→C→Back-to-B sequence would corrupt direction detection on
+  // the next Forward and turn the rollback into another `forward()`,
+  // ejecting the user further along the stack.
   return {
     kind: "navigate",
     route: parseRoute(),
-    newSeq: opts.lastSeq + 1,
+    newSeq: opts.currentSeq ?? opts.lastSeq + 1,
   };
 }
 
@@ -167,12 +174,15 @@ export function useHashRoute(): Route {
       }
       lastHash = window.location.hash;
       lastSeq = decision.newSeq;
-      // Stamp the seq into the *current* entry (the one we just landed
-      // on via push) so a future Back from here lands on the previous
-      // entry's lower seq, and our direction detection picks "forward"
-      // to roll back correctly.
-      const state = (history.state ?? {}) as Record<string, unknown>;
-      history.replaceState({ ...state, seq: decision.newSeq }, "");
+      // Stamp the seq only when this entry doesn't already have one
+      // (i.e. it's a freshly-pushed entry, not a revisit via Back /
+      // Forward). Re-stamping a previously-visited entry would break
+      // direction detection on the next navigation; see the comment in
+      // `evaluateHashChange` for the full A→B→C→Back→Forward example.
+      if (readSeqFromState() === null) {
+        const state = (history.state ?? {}) as Record<string, unknown>;
+        history.replaceState({ ...state, seq: decision.newSeq }, "");
+      }
       setRoute(decision.route);
     };
     window.addEventListener("hashchange", handler);

@@ -293,10 +293,11 @@ describe("evaluateHashChange", () => {
     expect(result).toEqual({ kind: "ignore" });
   });
 
-  it("monotonically bumps newSeq from lastSeq on accepted navigation", () => {
+  it("monotonically bumps newSeq from lastSeq when landing on a fresh entry", () => {
     // The hook stamps `newSeq` into `history.state` so that direction
     // detection on the next `hashchange` knows whether the user clicked
-    // a link forward or pressed Back.
+    // a link forward or pressed Back. A freshly-pushed entry has
+    // `currentSeq === null` and is assigned `lastSeq + 1`.
     withHash("#/playground");
     const result = evaluateHashChange({
       newHash: "#/playground",
@@ -309,6 +310,28 @@ describe("evaluateHashChange", () => {
       kind: "navigate",
       route: { kind: "playground", adapterJobId: undefined },
       newSeq: 42,
+    });
+  });
+
+  it("preserves the existing seq when landing on a revisited entry", () => {
+    // A→B→C, then Back to B: the B entry already carries seq=1, and the
+    // hook MUST keep it at 1 (rather than re-stamp it as seq=3) so that
+    // a subsequent Forward to C still computes `currentSeq < lastSeq`
+    // correctly. The reviewer-flagged regression: re-stamping B with a
+    // higher seq than C broke direction detection and turned the
+    // rollback into a `forward()` that ejected the user past C.
+    withHash("#/endpoints/b");
+    const result = evaluateHashChange({
+      newHash: "#/endpoints/b",
+      lastHash: "#/endpoints/c",
+      currentSeq: 1,
+      lastSeq: 2,
+      guards: [],
+    });
+    expect(result).toEqual({
+      kind: "navigate",
+      route: { kind: "endpoint", id: "b" },
+      newSeq: 1,
     });
   });
 });

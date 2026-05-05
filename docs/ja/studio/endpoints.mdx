@@ -29,7 +29,7 @@ curl https://support-bot.arkor.app/v1/chat/completions \
 
 行をクリックすると詳細ページが開きます。検索／フィルタや自動更新は今のところ無いので、別タブや CLI / SDK での変更を取り込むにはページを再読み込みしてください。
 
-`.arkor/state.json` がディスクに無いときは一覧が空のまま表示され、Studio は upstream を呼びません（`orgSlug` / `projectSlug` のスコープが解決できないため）。state ファイルはスコープが必要になった最初の呼び出し（学習の開始、ベースモデル推論、匿名ワークスペースならこのページから初の deployment 作成）で遅延的に作られます。`arkor dev` 単体では state は書かれないので、Studio 起動直後の空一覧は想定どおりの状態です。
+`.arkor/state.json` がディスクに無いときは deployments 一覧そのものは upstream を呼ばずに空のまま表示されます（`orgSlug` / `projectSlug` のスコープが解決できないため）。ただし `~/.arkor/credentials.json` も無い場合は Studio 起動時に `/api/credentials` 経由でクラウド API を 1 回呼び、匿名トークンを発行することがあります（空一覧が表示されるまでに走る唯一の outbound）。state ファイル自体はスコープが必要になった最初の呼び出し（学習の開始、ベースモデル推論、匿名ワークスペースならこのページから初の deployment 作成）で遅延的に作られます。`arkor dev` 単体では state は書かれないので、Studio 起動直後の空一覧は想定どおりの状態です。
 
 ## 作成
 

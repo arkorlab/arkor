@@ -66,8 +66,15 @@ export function EndpointsList() {
   // Track the currently-active in-flight `fetchDeployments` so a slower
   // earlier load (e.g. the initial mount fetch) can't land after a
   // user-triggered reload (post-create) and overwrite the fresh list
-  // with a stale snapshot. Each `load()` aborts the previous one.
+  // with a stale snapshot. Each `load()` (and the post-abort poll) aborts
+  // the previous one through this single controller.
   const loadControllerRef = useRef<AbortController | null>(null);
+  // Mirror the latest `deployments` value into a ref so the post-abort
+  // poll can compare row counts without triggering an effect re-run.
+  const deploymentsRef = useRef<Deployment[] | null>(null);
+  useEffect(() => {
+    deploymentsRef.current = deployments;
+  }, [deployments]);
 
   const load = useCallback(async () => {
     loadControllerRef.current?.abort();
@@ -88,11 +95,53 @@ export function EndpointsList() {
     }
   }, []);
 
+  /**
+   * Reload after the create form was unmounted with a POST in flight
+   * (Cancel button, route change). A single immediate `load()` would
+   * race with the server: if the row commits a few hundred ms after our
+   * abort fires, the first reload returns the pre-create snapshot, the
+   * row stays invisible, and the user sees a mysterious 409 the next
+   * time they retry the same slug. Poll a handful of times until the
+   * row count goes up — or give up after a few seconds (orphan row, the
+   * user can refresh manually).
+   */
+  const pollAfterAbortedCreate = useCallback(async () => {
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+    const baseline = deploymentsRef.current?.length ?? 0;
+    // 6 attempts × 500 ms ≈ 3 s. Long enough for a reasonable server
+    // commit window, short enough that a forgotten poll doesn't keep
+    // hammering the cloud API forever.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      if (controller.signal.aborted) return;
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (controller.signal.aborted) return;
+      try {
+        const { deployments: latest } = await fetchDeployments({
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        setDeployments(latest);
+        setError(null);
+        if (latest.length > baseline) return;
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(asMessage(err));
+        return;
+      }
+    }
+  }, []);
+
   useEffect(() => {
     void load();
     // The controller created by load() is closed when this effect tears
     // down (component unmount or `load` identity change), aborting any
-    // still-in-flight fetch so it can't setState on an unmounted view.
+    // still-in-flight fetch (or post-abort poll) so it can't setState
+    // on an unmounted view.
     return () => {
       loadControllerRef.current?.abort();
     };
@@ -125,10 +174,13 @@ export function EndpointsList() {
           onMaybeCreated={() => {
             // The form was unmounted (Cancel button, navigation) while a
             // POST was in flight. The server may already have committed
-            // the row even though the client aborted, so reload the list
-            // — otherwise the user sees their cancel "succeed", retries
-            // with the same slug, and gets a mysterious 409 collision.
-            void load();
+            // the row even though the client aborted, but the commit can
+            // land a few hundred ms after our abort fires — a single
+            // immediate reload would return the pre-create snapshot and
+            // the user would still hit a confusing 409 on retry. Poll
+            // until the row count goes up (or give up after a few
+            // seconds).
+            void pollAfterAbortedCreate();
           }}
         />
       )}
@@ -478,16 +530,22 @@ export function EndpointDetail({ id }: { id: string }) {
   // Track in-flight `createDeploymentKey` calls separately from the rest
   // of the mutations because the response carries the *one-time*
   // plaintext: if the user navigates away or closes the tab while it's
-  // pending, the server may still commit the row but we lose the only
-  // chance to show the secret. Two layers of defence:
-  //   1. `pendingKeyIssueRef` tracks "is there an in-flight POST whose
-  //      plaintext we cannot recover?" — used to register a
-  //      `beforeunload` warning so the browser confirms before tab close.
-  //   2. `keyIssueControllerRef` lets the unmount cleanup abort the
+  // pending — or before they acknowledge the displayed plaintext — the
+  // server may still commit the row but we lose the only chance to
+  // surface the secret. Three layers of defence:
+  //   1. `pendingKeyIssueRef` tracks "is there an un-recoverable secret
+  //      to protect?" — true while the POST is in flight AND while the
+  //      plaintext is on screen but not yet acknowledged. Used to gate
+  //      the `beforeunload` warning and the navigation guard below.
+  //   2. `keyPostInFlightRef` is the narrower flag — true only while
+  //      the POST is *actively running*. Used to pick the right confirm
+  //      copy ("being issued" vs "shown but not yet saved").
+  //   3. `keyIssueControllerRef` lets the unmount cleanup abort the
   //      fetch (the server may still commit, in which case the orphan
   //      key shows up the next time the user opens this endpoint and is
   //      revocable from the list).
   const pendingKeyIssueRef = useRef(false);
+  const keyPostInFlightRef = useRef(false);
   const keyIssueControllerRef = useRef<AbortController | null>(null);
   useEffect(() => {
     function onBeforeUnload(e: BeforeUnloadEvent) {
@@ -510,9 +568,14 @@ export function EndpointDetail({ id }: { id: string }) {
     // of `false` actually stops the route change.
     const unregisterGuard = registerNavigationGuard(() => {
       if (!pendingKeyIssueRef.current) return true;
-      const proceed = window.confirm(
-        "An API key is being issued. Leaving now will lose the one-time secret. Continue anyway?",
-      );
+      // Pick copy that matches the actual phase. A confirm dialog that
+      // claims the key is "being issued" while the plaintext is in fact
+      // already on screen would mislead the operator about what they're
+      // about to lose.
+      const message = keyPostInFlightRef.current
+        ? "An API key is being issued. Leaving now will lose the one-time secret. Continue anyway?"
+        : "The just-issued API key is shown on screen but you haven't confirmed you saved it. Leaving now will discard the only copy. Continue anyway?";
+      const proceed = window.confirm(message);
       if (proceed) {
         // User accepts losing the plaintext — release the guard so
         // subsequent navigations flow through.
@@ -725,6 +788,7 @@ export function EndpointDetail({ id }: { id: string }) {
       const controller = new AbortController();
       keyIssueControllerRef.current = controller;
       pendingKeyIssueRef.current = true;
+      keyPostInFlightRef.current = true;
       let succeeded = false;
       try {
         const { key } = await createDeploymentKey(
@@ -757,12 +821,17 @@ export function EndpointDetail({ id }: { id: string }) {
           ]);
         }
       } finally {
-        // On *failure* clear the flag so the next tab close / nav doesn't
-        // get a stale confirm dialog. On *success* keep it true: the
-        // plaintext is now on screen but un-recoverable, so the same nav
-        // guard that protected the in-flight POST must keep protecting
-        // the displayed key until the user clicks "I've saved it"
-        // (`dismissRevealed` below clears the flag at that moment).
+        // The POST is no longer running regardless of outcome — switch
+        // the confirm-copy ref so any subsequent nav guard prompts use
+        // the "shown on screen" wording rather than "being issued".
+        keyPostInFlightRef.current = false;
+        // On *failure* clear the protection flag so the next tab close
+        // / nav doesn't get a stale confirm dialog. On *success* keep
+        // it true: the plaintext is now on screen but un-recoverable,
+        // so the same nav guard that protected the in-flight POST must
+        // keep protecting the displayed key until the user clicks
+        // "I've saved it" (`dismissRevealed` below clears the flag at
+        // that moment).
         if (!succeeded) {
           pendingKeyIssueRef.current = false;
         }
