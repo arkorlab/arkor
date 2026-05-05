@@ -89,11 +89,38 @@ export async function getToken(credentials: Credentials): Promise<string> {
     : credentials.accessToken;
 }
 
-export function defaultArkorCloudApiUrl(): string {
-  return (
-    process.env.ARKOR_CLOUD_API_URL?.replace(/\/$/, "") ??
-    "https://api.arkor.ai"
-  );
+/**
+ * Resolve the cloud API base URL the SDK / CLI should target.
+ *
+ * Priority order:
+ *   1. `ARKOR_CLOUD_API_URL` env var (trailing slash stripped).
+ *   2. `arkorCloudApiUrl` from anonymous credentials (set at signup).
+ *      This is preferred over the production default for callers that
+ *      have already loaded credentials, because anonymous tokens are
+ *      bound to the endpoint that issued them — handing one to a
+ *      different control plane would 401.
+ *   3. The production endpoint `https://api.arkor.ai`.
+ *
+ * Exposed as a public helper because `CloudApiClient` requires an
+ * explicit `baseUrl` and OAuth credentials don't carry one — without a
+ * supported way to recover it, scripts that reuse `readCredentials()`
+ * after `arkor login` would have no way to target the same staging /
+ * self-hosted control plane the user actually authenticated against.
+ */
+export function defaultArkorCloudApiUrl(
+  credentials?: Credentials | null,
+): string {
+  // `!= null` (not truthy) preserves the original env-handling: an
+  // explicitly empty `ARKOR_CLOUD_API_URL = ""` still propagates so a
+  // misconfigured env triggers the URL-parse error at startup instead
+  // of being silently substituted with the production fallback. Tests
+  // exercise that exact behaviour to surface config bugs early.
+  const fromEnv = process.env.ARKOR_CLOUD_API_URL?.replace(/\/$/, "");
+  if (fromEnv !== undefined) return fromEnv;
+  if (credentials?.mode === "anon" && credentials.arkorCloudApiUrl) {
+    return credentials.arkorCloudApiUrl.replace(/\/$/, "");
+  }
+  return "https://api.arkor.ai";
 }
 
 /**

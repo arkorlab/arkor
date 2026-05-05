@@ -20,19 +20,28 @@ For interactive day-to-day use, prefer Studio or the upcoming `arkor endpoints` 
 ## Setup
 
 ```ts
-import { CloudApiClient, ensureCredentials } from "arkor";
+import {
+  CloudApiClient,
+  defaultArkorCloudApiUrl,
+  ensureCredentials,
+} from "arkor";
 
 // `ensureCredentials` reads the existing `~/.arkor/credentials.json`
 // or bootstraps a fresh anonymous identity if none exists.
 const credentials = await ensureCredentials();
 
 const client = new CloudApiClient({
-  baseUrl: "https://api.arkor.ai",
+  // `defaultArkorCloudApiUrl(credentials)` resolves the right control
+  // plane: the `ARKOR_CLOUD_API_URL` env var first, then the URL the
+  // anonymous credentials were issued against (so the same client
+  // reuses your staging / self-hosted endpoint without any extra
+  // config), and finally the production endpoint as a fallback.
+  baseUrl: defaultArkorCloudApiUrl(credentials),
   credentials,
 });
 ```
 
-`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK: an OAuth access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both.
+`CloudApiClient` accepts the same `Credentials` shape used everywhere else in the SDK: an OAuth access token (after `arkor login`) or an anonymous CLI token. The API surface is identical for both. The `baseUrl` you hand it must match the control plane the credentials were issued against — passing an OAuth token from staging into a production `CloudApiClient` (or vice versa) will 401 even though the token itself is well-formed.
 
 Every deployment lives inside a `(orgSlug, projectSlug)` scope; pass that scope on every call:
 

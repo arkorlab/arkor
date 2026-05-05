@@ -115,6 +115,57 @@ describe("defaultArkorCloudApiUrl", () => {
     delete process.env.ARKOR_CLOUD_API_URL;
     expect(defaultArkorCloudApiUrl()).toBe("https://api.arkor.ai");
   });
+  it("propagates an explicitly-empty ARKOR_CLOUD_API_URL (config-error surface)", () => {
+    // `arkor dev`'s startup test relies on `""` reaching the URL parser
+    // so a misconfigured env throws at startup instead of silently
+    // falling through to the production endpoint. The env wins over
+    // both the production fallback and any credentials-derived URL.
+    process.env.ARKOR_CLOUD_API_URL = "";
+    expect(defaultArkorCloudApiUrl()).toBe("");
+  });
+  it("derives baseUrl from anonymous credentials when env is unset", () => {
+    // `CloudApiClient` requires an explicit `baseUrl`. OAuth
+    // credentials don't carry one; anonymous credentials do, captured
+    // at signup against whatever cloud the token was issued by. This
+    // lets a script reuse `readCredentials()` to talk to the same
+    // staging / self-hosted endpoint the user authenticated against.
+    delete process.env.ARKOR_CLOUD_API_URL;
+    const url = defaultArkorCloudApiUrl({
+      mode: "anon",
+      token: "t",
+      anonymousId: "a",
+      arkorCloudApiUrl: "https://staging.arkor.ai/",
+      orgSlug: "anon-x",
+    });
+    expect(url).toBe("https://staging.arkor.ai");
+  });
+  it("falls back to production for OAuth credentials (no baseUrl in token)", () => {
+    delete process.env.ARKOR_CLOUD_API_URL;
+    const url = defaultArkorCloudApiUrl({
+      mode: "auth0",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "d",
+      audience: "a",
+      clientId: "c",
+    });
+    expect(url).toBe("https://api.arkor.ai");
+  });
+  it("env wins over credentials-derived URL", () => {
+    // Operator override stays authoritative — useful for pointing a
+    // production-credentials script at a staging mirror for a one-off
+    // debug session without re-issuing the token.
+    process.env.ARKOR_CLOUD_API_URL = "https://override.example.com";
+    const url = defaultArkorCloudApiUrl({
+      mode: "anon",
+      token: "t",
+      anonymousId: "a",
+      arkorCloudApiUrl: "https://staging.arkor.ai",
+      orgSlug: "anon-x",
+    });
+    expect(url).toBe("https://override.example.com");
+  });
 });
 
 describe("requestAnonymousToken", () => {

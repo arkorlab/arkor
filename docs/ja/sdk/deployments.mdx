@@ -20,19 +20,27 @@ description: "CloudApiClient を使って *.arkor.app の推論 URL をプログ
 ## セットアップ
 
 ```ts
-import { CloudApiClient, ensureCredentials } from "arkor";
+import {
+  CloudApiClient,
+  defaultArkorCloudApiUrl,
+  ensureCredentials,
+} from "arkor";
 
 // `ensureCredentials` は既存の `~/.arkor/credentials.json` を読み、
 // 無ければ新規の匿名アイデンティティをブートストラップして保存します。
 const credentials = await ensureCredentials();
 
 const client = new CloudApiClient({
-  baseUrl: "https://api.arkor.ai",
+  // `defaultArkorCloudApiUrl(credentials)` が control plane の URL を
+  // 解決します: 優先順位は `ARKOR_CLOUD_API_URL` 環境変数 →
+  // 匿名認証情報が発行された URL (staging / self-hosted エンドポイント
+  // で `arkor login` した場合は自動でそれに揃う) → 本番 fallback。
+  baseUrl: defaultArkorCloudApiUrl(credentials),
   credentials,
 });
 ```
 
-`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります。OAuth のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。
+`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります。OAuth のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。渡す `baseUrl` は credentials が発行された control plane と一致している必要があります — staging で発行された OAuth トークンを本番の `CloudApiClient` に渡すとトークン自体は形式的に正しくても 401 になります。
 
 deployment はすべて `(orgSlug, projectSlug)` スコープに属するので、毎回そのスコープを渡します:
 

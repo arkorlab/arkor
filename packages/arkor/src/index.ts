@@ -20,6 +20,7 @@ export {
   readCredentials,
   writeCredentials,
   credentialsPath,
+  defaultArkorCloudApiUrl,
   requestAnonymousToken,
   ensureCredentials,
   type Auth0Credentials,
