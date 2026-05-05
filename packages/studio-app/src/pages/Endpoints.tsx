@@ -62,6 +62,11 @@ function asMessage(err: unknown): string {
 
 export function EndpointsList() {
   const [deployments, setDeployments] = useState<Deployment[] | null>(null);
+  // True when `/api/deployments` returned 200 but the workspace has no
+  // `.arkor/state.json` yet, so the empty list is a "we don't know
+  // which project to scope to" rather than "this project is empty".
+  // The empty-state copy branches on this.
+  const [scopeMissing, setScopeMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Track the currently-active in-flight `fetchDeployments` so a slower
@@ -76,11 +81,12 @@ export function EndpointsList() {
     const controller = new AbortController();
     loadControllerRef.current = controller;
     try {
-      const { deployments } = await fetchDeployments({
+      const { deployments, scopeMissing } = await fetchDeployments({
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
       setDeployments(deployments);
+      setScopeMissing(Boolean(scopeMissing));
       setError(null);
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -121,11 +127,13 @@ export function EndpointsList() {
       }
       if (controller.signal.aborted) return;
       try {
-        const { deployments: latest } = await fetchDeployments({
-          signal: controller.signal,
-        });
+        const { deployments: latest, scopeMissing: latestScopeMissing } =
+          await fetchDeployments({
+            signal: controller.signal,
+          });
         if (controller.signal.aborted) return;
         setDeployments(latest);
+        setScopeMissing(Boolean(latestScopeMissing));
         setError(null);
         if (latest.some((d) => d.slug === slug)) return;
       } catch (err) {
@@ -208,11 +216,25 @@ export function EndpointsList() {
             ))}
           </div>
         ) : deployments.length === 0 ? (
-          <EmptyState
-            icon={<Inbox />}
-            title="No endpoints yet"
-            description="Create one to expose a model at https://<slug>.arkor.app/v1/chat/completions."
-          />
+          // Two distinct empty states: "this project genuinely has no
+          // deployments" vs "we don't know which project this Studio
+          // session is scoped to (no `.arkor/state.json`)". The latter
+          // is what an Auth0 user with stale local checkout would see;
+          // pointing them at "Create one" would still 400 against the
+          // missing state file, so surface the actual remediation.
+          scopeMissing ? (
+            <EmptyState
+              icon={<Inbox />}
+              title="Workspace not scoped to a project yet"
+              description="Anonymous workspaces will bootstrap on the first endpoint create. Auth0 callers must restore .arkor/state.json by hand to point this Studio session at the project they want to manage."
+            />
+          ) : (
+            <EmptyState
+              icon={<Inbox />}
+              title="No endpoints yet"
+              description="Create one to expose a model at https://<slug>.arkor.app/v1/chat/completions."
+            />
+          )
         ) : (
           <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
             {deployments.map((d) => (
@@ -393,7 +415,15 @@ function NewEndpointForm({
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Slug
             </span>
-            <div className="mt-1 flex items-center rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            {/*
+              The slug input intentionally drops its own focus ring
+              (`focus-visible:outline-none`) so the suffix span stays
+              flush with the input. The wrapper picks the focus ring
+              up via `focus-within:*` so keyboard users still see a
+              visible focus indicator on the whole control — without
+              this they get *no* focus signal at all.
+            */}
+            <div className="mt-1 flex items-center rounded-lg border border-zinc-200 bg-white focus-within:border-teal-400 focus-within:ring-2 focus-within:ring-teal-500/30 dark:border-zinc-800 dark:bg-zinc-950">
               <input
                 type="text"
                 required

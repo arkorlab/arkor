@@ -80,6 +80,15 @@ export interface CloudApiClientOptions {
   baseUrl: string;
   credentials: Credentials;
   fetch?: typeof fetch;
+  /**
+   * Override the per-response deprecation callback. Defaults to the
+   * SDK-global `recordDeprecation`, which the CLI flushes once at the
+   * end of `main()`. Studio overrides this so it can capture the
+   * notice per-request and re-emit it as `Deprecation` / `Warning` /
+   * `Sunset` headers on the proxy response, matching the passthrough
+   * behavior of `/api/jobs` and friends.
+   */
+  onDeprecation?: (notice: import("./deprecation").DeprecationNotice) => void;
 }
 
 export class CloudApiClient {
@@ -97,17 +106,17 @@ export class CloudApiClient {
       token: () => this.token,
       fetch: options.fetch,
       clientVersion: SDK_VERSION,
-      // The wrapper around `recordDeprecation` works around a bug in
-      // `@arkor/cloud-api-client` (alpha.2) where the runtime feeds the
-      // handler's `void` return into `typeof result.then === 'function'`
-      // and logs `[@arkor/cloud-api-client] onDeprecation handler
-      // threw; ignoring:` on every deprecated response. Returning
-      // `null` short-circuits that check (`null !== null` is false)
-      // without changing the recorded-deprecation behavior, and
+      // The wrapper around the deprecation callback works around a bug
+      // in `@arkor/cloud-api-client` (alpha.2) where the runtime feeds
+      // the handler's `void` return into `typeof result.then ===
+      // 'function'` and logs `[@arkor/cloud-api-client] onDeprecation
+      // handler threw; ignoring:` on every deprecated response.
+      // Returning `null` short-circuits that check (`null !== null` is
+      // false) without changing the recorded-deprecation behavior, and
       // matches the wrapper applied in `studio/server.ts`. Drop this
       // the next alpha that ships the upstream fix.
       onDeprecation: (notice) => {
-        recordDeprecation(notice);
+        (options.onDeprecation ?? recordDeprecation)(notice);
         return null;
       },
     });

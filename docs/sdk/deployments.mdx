@@ -173,4 +173,6 @@ Common statuses:
 | `createDeploymentKey(id, scope, input)` | `{ key: CreateDeploymentKeyResult }` (plaintext **only** here) |
 | `revokeDeploymentKey(id, keyId, scope)` | `void` (HTTP 204) |
 
-Public types: `CloudApiClient`, `CloudApiError`, `CloudApiClientOptions`, `DeploymentTarget`, `DeploymentAuthMode`, `DeploymentRunRetentionMode`, `DeploymentDto`, `DeploymentKeyDto`, `DeploymentScope`, `CreateDeploymentInput`, `UpdateDeploymentInput`, `CreateDeploymentKeyInput`, `CreateDeploymentKeyResult`.
+Runtime exports (classes, importable as values): `CloudApiClient`, `CloudApiError`.
+
+Type-only exports (importable with `import type`): `CloudApiClientOptions`, `DeploymentTarget`, `DeploymentAuthMode`, `DeploymentRunRetentionMode`, `DeploymentDto`, `DeploymentKeyDto`, `DeploymentScope`, `CreateDeploymentInput`, `UpdateDeploymentInput`, `CreateDeploymentKeyInput`, `CreateDeploymentKeyResult`.

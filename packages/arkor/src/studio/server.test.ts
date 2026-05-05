@@ -1368,7 +1368,10 @@ process.exit(0);
         },
       });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ deployments: [] });
+      expect(await res.json()).toEqual({
+        deployments: [],
+        scopeMissing: true,
+      });
       expect(calls).toBe(0);
     });
 
@@ -1781,7 +1784,10 @@ process.exit(0);
         headers: studioHeaders(),
       });
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ deployments: [] });
+      expect(await res.json()).toEqual({
+        deployments: [],
+        scopeMissing: true,
+      });
       expect(calls).toBe(0);
     });
 

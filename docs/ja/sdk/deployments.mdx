@@ -172,4 +172,6 @@ try {
 | `createDeploymentKey(id, scope, input)` | `{ key: CreateDeploymentKeyResult }`（平文はここでのみ返る） |
 | `revokeDeploymentKey(id, keyId, scope)` | `void`（HTTP 204） |
 
-公開型: `CloudApiClient`、`CloudApiError`、`CloudApiClientOptions`、`DeploymentTarget`、`DeploymentAuthMode`、`DeploymentRunRetentionMode`、`DeploymentDto`、`DeploymentKeyDto`、`DeploymentScope`、`CreateDeploymentInput`、`UpdateDeploymentInput`、`CreateDeploymentKeyInput`、`CreateDeploymentKeyResult`。
+ランタイム export（値として import できるクラス）: `CloudApiClient`、`CloudApiError`。
+
+型のみの export（`import type` で import できるもの）: `CloudApiClientOptions`、`DeploymentTarget`、`DeploymentAuthMode`、`DeploymentRunRetentionMode`、`DeploymentDto`、`DeploymentKeyDto`、`DeploymentScope`、`CreateDeploymentInput`、`UpdateDeploymentInput`、`CreateDeploymentKeyInput`、`CreateDeploymentKeyResult`。

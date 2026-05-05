@@ -414,18 +414,26 @@ export function buildStudioApp(options: StudioServerOptions) {
   /**
    * Intent of the route calling `withDeploymentClient`:
    *   - `"read"` — pure GET. If `.arkor/state.json` is missing, return
-   *     404 ("no deployments could exist on this fresh workspace") rather
-   *     than provisioning a remote project as a side effect of a read.
-   *     Bookmarked detail-page hits and `/keys` lookups must NOT silently
-   *     create empty cloud projects.
-   *   - `"write"` — POST/PATCH/DELETE that the user explicitly initiated.
-   *     If state is missing, run `ensureProjectState()` to lazily provision
-   *     the project (anonymous workspaces only). For Auth0 callers we don't
-   *     know which org/project to use; neither `arkor login` nor `arkor init`
-   *     populates `.arkor/state.json` today, so we tell the user to write
-   *     the file by hand. (See docs/concepts/project-structure.)
+   *     404 without provisioning a remote project. Bookmarked detail
+   *     pages and `/keys` lookups must NOT silently create empty cloud
+   *     projects as a side effect.
+   *   - `"create"` — `POST /api/deployments` only. This is the one
+   *     route that can legitimately bootstrap a fresh workspace: an
+   *     anonymous user clicks "New endpoint", we lazily run
+   *     `ensureProjectState()`, persist `.arkor/state.json`, and
+   *     forward the deployment create. Auth0 callers without state get
+   *     a 400 with the manual-state remediation.
+   *   - `"mutate"` — PATCH / DELETE on `:id`, key CRUD. These need an
+   *     existing deployment, which by definition needs an existing
+   *     scope. If `.arkor/state.json` is missing, the deployment id in
+   *     the URL cannot resolve to anything in a project that doesn't
+   *     exist yet, so we 404 *without bootstrapping* — provisioning a
+   *     fresh project here would leave it orphaned (the PATCH /
+   *     DELETE / key request would still 404 against the empty
+   *     project). Adding a deployment first via the create flow is the
+   *     only way these can succeed on a fresh workspace.
    */
-  type ScopeIntent = "read" | "write";
+  type ScopeIntent = "read" | "create" | "mutate";
 
   async function withDeploymentClient<T>(
     intent: ScopeIntent,
@@ -441,7 +449,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     // off, which would otherwise turn a documented "no deployments yet"
     // into an opaque 500.
     const scope0 = await readScopeFromState().catch(() => null);
-    if (!scope0 && intent === "read") {
+    if (!scope0 && (intent === "read" || intent === "mutate")) {
       // Stay neutral about whether deployments exist. For anonymous
       // workspaces the first deployment-create POST will bootstrap
       // `.arkor/state.json` automatically; for Auth0 workspaces there
@@ -450,10 +458,17 @@ export function buildStudioApp(options: StudioServerOptions) {
       // "no deployments yet" misdiagnoses bookmarked detail / keys
       // URLs hit by an Auth0 user — the actual fix is to put
       // `.arkor/state.json` back in place.
+      //
+      // `"mutate"` lands here for the same reason: a PATCH / DELETE /
+      // key-CRUD on a fresh workspace cannot resolve the deployment id
+      // in a project that doesn't exist, and bootstrapping a brand-new
+      // remote project just to 404 against it would leave the project
+      // orphaned. Only `"create"` (POST /api/deployments) is allowed
+      // through to the bootstrap branch below.
       return new Response(
         JSON.stringify({
           error:
-            "No .arkor/state.json on disk for this workspace. Trigger any write action (or restore the file by hand) to scope this Studio session to a project before opening deployment URLs.",
+            "No .arkor/state.json on disk for this workspace. Create your first deployment to bootstrap one (anonymous), or restore the file by hand (Auth0).",
         }),
         { status: 404, headers: { "content-type": "application/json" } },
       );
@@ -462,17 +477,37 @@ export function buildStudioApp(options: StudioServerOptions) {
     let credentials: Credentials;
     let client: CloudApiClient;
     let scope: { orgSlug: string; projectSlug: string } | null = scope0;
+    // Capture any deprecation notice the SDK observes during this
+    // request so we can re-emit it as `Deprecation` / `Warning` /
+    // `Sunset` headers on the outgoing Response. Without this the
+    // deployment proxy would silently swallow upstream deprecation
+    // signals — `/api/jobs` and `/api/inference/chat` stream the
+    // headers through verbatim, and we want browser callers to see
+    // the same warnings here.
+    let deprecationNotice: import("../core/deprecation").DeprecationNotice | null = null;
     try {
       credentials = await getCredentials();
-      client = new CloudApiClient({ baseUrl, credentials });
+      client = new CloudApiClient({
+        baseUrl,
+        credentials,
+        onDeprecation: (notice) => {
+          deprecationNotice = notice;
+          // Also tee the notice into the global recorder so the CLI's
+          // end-of-`main()` flush still surfaces deprecation hints
+          // when the same SDK is used from a non-Studio context that
+          // happens to share this code path.
+          recordDeprecation(notice);
+        },
+      });
       if (!scope) {
-        // intent === "write" (the read-without-scope branch returned above):
-        // anonymous credentials carry an `orgSlug` and we can derive a
-        // `projectSlug` from the cwd basename, so we bootstrap on demand.
-        // This mirrors `/api/inference/chat` and `arkor train`, which both
-        // call `ensureProjectState()` before issuing their first cloud call
-        // so a user can get something done from a fresh `arkor dev` without
-        // first running training.
+        // intent === "create" (read / mutate without scope returned
+        // above): anonymous credentials carry an `orgSlug` and we can
+        // derive a `projectSlug` from the cwd basename, so we
+        // bootstrap on demand. This mirrors `/api/inference/chat` and
+        // `arkor train`, which both call `ensureProjectState()` before
+        // issuing their first cloud call so a user can get something
+        // done from a fresh `arkor dev` without first running
+        // training.
         if (credentials.mode === "anon") {
           const state = await ensureProjectState({
             cwd: trainCwd,
@@ -539,43 +574,63 @@ export function buildStudioApp(options: StudioServerOptions) {
         { status: 500, headers: { "content-type": "application/json" } },
       );
     }
+    /**
+     * Build a JSON Response with the upstream deprecation headers
+     * re-emitted onto it, so browser callers can surface the same
+     * sunset / upgrade warnings the cloud-api raised. Mirrors the
+     * passthrough that `/api/jobs` and `/api/inference/chat` get for
+     * free by virtue of streaming the upstream Response straight
+     * through.
+     */
+    function jsonWithDeprecation(body: unknown, status: number): Response {
+      const headers = new Headers({ "content-type": "application/json" });
+      if (deprecationNotice) {
+        headers.set("Deprecation", "true");
+        // Match the cloud-api wire shape (RFC 7234 `Warning: 299 - "…"`).
+        headers.set("Warning", `299 - "${deprecationNotice.message}"`);
+        if (deprecationNotice.sunset) {
+          headers.set("Sunset", deprecationNotice.sunset);
+        }
+      }
+      return new Response(JSON.stringify(body), { status, headers });
+    }
+
     try {
       const result = await handler({ client, scope });
-      return new Response(JSON.stringify(result), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return jsonWithDeprecation(result, 200);
     } catch (err) {
       if (err instanceof CloudApiError) {
         // Cloud API errors are intentionally forwarded — `err.message` is
         // the structured `{ error }` body cloud-api returned, which is
         // already user-facing copy ("Slug already taken", etc.).
-        return new Response(JSON.stringify({ error: err.message }), {
-          status: err.status,
-          headers: { "content-type": "application/json" },
-        });
+        return jsonWithDeprecation({ error: err.message }, err.status);
       }
       // Anything else (a thrown plain Error from the handler, an unhandled
       // network failure) is logged with full detail and returned opaque
       // to the SPA so we don't leak stack traces / filesystem paths.
       console.error("[studio] withDeploymentClient handler failed:", err);
-      return new Response(
-        JSON.stringify({ error: "Studio backend error" }),
-        { status: 500, headers: { "content-type": "application/json" } },
-      );
+      return jsonWithDeprecation({ error: "Studio backend error" }, 500);
     }
   }
 
   app.get("/api/deployments", async () => {
     // List view doesn't require credentials when there's no scope yet —
     // mirror `/api/jobs`'s local-only empty-list path so the Endpoints
-    // tab loads cleanly on fresh workspaces and offline.
+    // tab loads cleanly on fresh workspaces and offline. Surface
+    // `scopeMissing: true` so the SPA can distinguish "this project
+    // genuinely has no deployments" from "we don't know which project
+    // to look at" — the latter needs different remediation copy
+    // ("create your first endpoint" for anonymous; "restore
+    // .arkor/state.json" for Auth0).
     const scope = await readScopeFromState();
     if (!scope) {
-      return new Response(JSON.stringify({ deployments: [] }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ deployments: [], scopeMissing: true }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }
     return withDeploymentClient("read", ({ client, scope }) =>
       client.listDeployments(scope),
@@ -589,7 +644,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     if (!body) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    return await withDeploymentClient("write", async ({ client, scope }) =>
+    return await withDeploymentClient("create", async ({ client, scope }) =>
       await client.createDeployment(scope, body),
     );
   });
@@ -609,14 +664,14 @@ export function buildStudioApp(options: StudioServerOptions) {
     if (!body) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    return await withDeploymentClient("write", async ({ client, scope }) =>
+    return await withDeploymentClient("mutate", async ({ client, scope }) =>
       await client.updateDeployment(id, scope, body),
     );
   });
 
   app.delete("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    return await withDeploymentClient("write", async ({ client, scope }) => {
+    return await withDeploymentClient("mutate", async ({ client, scope }) => {
       await client.deleteDeployment(id, scope);
       // 204 has no body in the cloud API; the Studio API normalises this to
       // `{}` so the SPA's JSON parsing path is uniform across every route.
@@ -639,7 +694,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     if (!body) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    return await withDeploymentClient("write", async ({ client, scope }) =>
+    return await withDeploymentClient("mutate", async ({ client, scope }) =>
       await client.createDeploymentKey(id, scope, body),
     );
   });
@@ -647,7 +702,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   app.delete("/api/deployments/:id/keys/:keyId", async (c) => {
     const id = c.req.param("id");
     const keyId = c.req.param("keyId");
-    return await withDeploymentClient("write", async ({ client, scope }) => {
+    return await withDeploymentClient("mutate", async ({ client, scope }) => {
       await client.revokeDeploymentKey(id, keyId, scope);
       return {};
     });

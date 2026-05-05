@@ -377,7 +377,7 @@ async function deploymentJson<T>(res: Response): Promise<T> {
 
 export async function fetchDeployments(
   options: { signal?: AbortSignal } = {},
-): Promise<{ deployments: Deployment[] }> {
+): Promise<{ deployments: Deployment[]; scopeMissing?: boolean }> {
   return deploymentJson(
     await apiFetch("/api/deployments", { signal: options.signal }),
   );
