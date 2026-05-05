@@ -59,16 +59,14 @@ my-app/
 ├── README.md
 ├── .gitignore          # node_modules/, dist/, .arkor/
 ├── package.json        # scripts: dev / build / start
+├── .yarnrc.yml         # OPTIONAL — yarn-berry nodeLinker pin (see below)
 └── pnpm-workspace.yaml # OPTIONAL — pnpm 11 allowBuilds (see below)
 ```
 
-`pnpm-workspace.yaml` is the only conditional entry: it lands when pnpm is the plausible package manager, and is omitted for `--use-npm` / `--use-yarn` / `--use-bun` and a few existing-project cases (full rules below). The other six paths are always written.
+`src/arkor/`, `arkor.config.ts`, `README.md`, `.gitignore`, and `package.json` are always written. The two yaml files are conditional:
 
-`pnpm-workspace.yaml` is gated on two axes — when to *create* it fresh, and when to *touch* it at all if one already exists at the target.
-
-- **Created** when pnpm is the plausible package manager (`--use-pnpm` set, or no `--use-*` flag with a fresh empty target) AND no ancestor directory already declares one.
-- **Patched** in place whenever the target already has a `pnpm-workspace.yaml` and pnpm is plausible (`--use-pnpm` or no `--use-*` flag) — `esbuild: false` is added to the existing top-level `allowBuilds:`, leaving any other keys, comments, and existing entries intact.
-- **Skipped entirely** for `--use-npm` / `--use-yarn` / `--use-bun` (those toolchains don't read it), and for fresh creation inside pnpm monorepo subdirs (the parent's workspace file governs — we never shadow it).
+- **`.yarnrc.yml`** lands on `--use-yarn` and on fresh scaffolds where no `--use-<pm>` flag is set — pinning `nodeLinker: node-modules` so a yarn-berry user reading the manual-install hint and running `yarn install` doesn't hit the PnP default (the arkor runtime can't resolve modules through PnP). Skipped for explicit non-yarn pms and for merges into existing non-empty projects (we don't flip the install mode of an enclosing yarn-berry workspace).
+- **`pnpm-workspace.yaml`** is created when pnpm is the plausible package manager (`--use-pnpm`, or no `--use-<pm>` flag with a fresh empty target) AND no ancestor directory already declares one. When a target already has the file and pnpm is plausible, it is *patched* in place: `esbuild: false` is merged into the existing top-level `allowBuilds:` (other keys, comments, and entries are preserved). Skipped for `--use-npm` / `--use-yarn` / `--use-bun` and inside pnpm monorepo subdirs (the parent's workspace file governs — we never shadow it).
 
 ## Postinstall scripts (pnpm 11+)
 

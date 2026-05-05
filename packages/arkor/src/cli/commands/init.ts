@@ -245,25 +245,37 @@ export async function runInit(options: InitOptions): Promise<void> {
   // attempted by design.
   const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
   const installSucceeded = !wouldHaveInstalled || installed;
+  let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(
       "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
     );
+    gitInitSkipped = true;
   } else if (shouldInitGit && !installSucceeded) {
     ui.log.info(
       `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
     );
+    gitInitSkipped = true;
   } else if (shouldInitGit) {
     await runGitInit(cwd);
   }
 
   const devCmd =
     pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
+  // Round 39 (Copilot, PR #99): when git init was skipped (install
+  // blocked or threw) but the user originally requested `--git`,
+  // the closing outro must remind them to create the repo + initial
+  // commit themselves once install succeeds. Without it, a `--git`
+  // user following "Next: ..." verbatim ends up with install fixed
+  // but no repository.
+  const gitTail = gitInitSkipped
+    ? ', then `git init && git add -A && git commit -m "Initial commit from `arkor init`"`'
+    : "";
   ui.outro(
     installed
-      ? `Next: \`${devCmd}\``
+      ? `Next: \`${devCmd}\`${gitTail}`
       : pm
-        ? `Next: \`${pm} install\`, then \`${devCmd}\``
-        : `Next: ${MANUAL_INSTALL_HINT}, then \`${devCmd}\``,
+        ? `Next: \`${pm} install\`${gitTail}, then \`${devCmd}\``
+        : `Next: ${MANUAL_INSTALL_HINT}${gitTail}, then \`${devCmd}\``,
   );
 }

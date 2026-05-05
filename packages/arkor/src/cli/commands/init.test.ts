@@ -115,12 +115,20 @@ describe("runInit", () => {
     // sanitise() mock lowercases + dashes the explicit name. The pm
     // is forwarded to scaffold so it can emit pm-specific config (most
     // notably `.yarnrc.yml` with `nodeLinker: node-modules` for yarn).
-    expect(scaffold).toHaveBeenCalledWith({
-      cwd,
-      name: "my-app",
-      template: "triage",
-      packageManager: "pnpm",
-    });
+    // `objectContaining` so the assertion stays robust against
+    // ScaffoldOptions gaining new optional fields (round-39 Copilot
+    // review re-flagged this twice — vitest currently treats missing
+    // keys and `undefined` as equal in deep equality, but a partial
+    // matcher makes the intent explicit and won't break under a
+    // future matcher tightening).
+    expect(scaffold).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd,
+        name: "my-app",
+        template: "triage",
+        packageManager: "pnpm",
+      }),
+    );
     expect(install).toHaveBeenCalledWith("pnpm", cwd);
     expect(gitInitialCommit).toHaveBeenCalledWith(
       cwd,

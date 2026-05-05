@@ -84,15 +84,23 @@ describe("main (CLI Commander wiring)", () => {
       "triage",
       "--skip-install",
     ]);
-    expect(runInit).toHaveBeenCalledWith({
-      yes: true,
-      name: "my-app",
-      template: "triage",
-      skipInstall: true,
-      packageManager: "pnpm",
-      git: undefined,
-      skipGit: undefined,
-    });
+    // `objectContaining` so the assertion stays robust against
+    // commander parsing widening the option object (round-39 Copilot
+    // review re-flagged the previous exact-shape assertion after
+    // `--allow-builds` was added). Vitest currently treats missing
+    // keys and `undefined` as equal, but the partial matcher makes
+    // the contract explicit.
+    expect(runInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        yes: true,
+        name: "my-app",
+        template: "triage",
+        skipInstall: true,
+        packageManager: "pnpm",
+        git: undefined,
+        skipGit: undefined,
+      }),
+    );
   });
 
   it("forwards --use-* flags to the package-manager resolver", async () => {

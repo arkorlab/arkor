@@ -346,18 +346,21 @@ export async function run(options: RunOptions): Promise<void> {
   const recoverInDir = inPlace
     ? `\`${pm} install\` (then \`git init\` + commit)`
     : `\`cd ${cdTarget} && ${pm} install\` (then \`git init\` + commit)`;
+  let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(
       reRunIsSafe
         ? "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit."
         : `Skipping git init too — fix the advisory above, then run ${recoverInDir} to finish the bootstrap.`,
     );
+    gitInitSkipped = true;
   } else if (shouldInitGit && !installSucceeded) {
     clack.log.info(
       reRunIsSafe
         ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
         : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`,
     );
+    gitInitSkipped = true;
   } else if (shouldInitGit) {
     await runGitInit(cwd);
   }
@@ -369,12 +372,22 @@ export async function run(options: RunOptions): Promise<void> {
       : `  ${MANUAL_INSTALL_HINT}`;
   const devLine =
     pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
+  // Round 39 (Copilot, PR #99): when git init was skipped (install
+  // blocked or threw) but the user originally requested `--git`,
+  // remind them in the closing outro that they still need to
+  // create the repo + initial commit themselves once install
+  // succeeds. Without this step, a `--git` user following the
+  // outro verbatim ends up with the install fixed but no repo.
+  const gitLine = gitInitSkipped
+    ? `  git init && git add -A && git commit -m "Initial commit from Create Arkor"`
+    : null;
 
   clack.outro(
     [
       `Next steps:`,
       ...(inPlace ? [] : [`  cd ${cdTarget}`]),
       ...(installLine ? [installLine] : []),
+      ...(gitLine ? [gitLine] : []),
       devLine,
     ].join("\n"),
   );
