@@ -7,7 +7,12 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
 
 ## In progress
 
-Nothing actively in development on the public surface this cycle. Current effort is on stabilizing what's already shipped (CLI, Studio, scaffolder).
+<CardGroup cols={2}>
+  <Card title="Broader base model support" icon="cubes" href="/sdk/create-trainer">
+    <div id="more-base-models" />
+    Expand support beyond Gemma 4 to additional open-weight model families, so the `model` field becomes a real menu instead of a single supported value.
+  </Card>
+</CardGroup>
 
 ## Up next
 
@@ -44,11 +49,6 @@ Nothing actively in development on the public surface this cycle. Current effort
   <Card title="deploy and eval slots" icon="rocket" href="/sdk/create-arkor">
     <div id="deploy-and-eval-slots" />
     Grow `createArkor` into an umbrella for shipping and evaluating models, not only training.
-  </Card>
-
-  <Card title="More base models" icon="cubes" href="/sdk/create-trainer">
-    <div id="more-base-models" />
-    Expand support beyond Gemma to additional open-weight model families.
   </Card>
 
   <Card title="Download trained models" icon="download">
