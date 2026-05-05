@@ -86,51 +86,93 @@ export function registerNavigationGuard(
  * Pure decision logic extracted from `useHashRoute` so unit tests can
  * exercise the guard / rollback / pass-through branches without a real
  * DOM. The hook adds the side effects (history rollback, setState).
+ *
+ * Direction matters for the rollback. The router stamps a monotonic
+ * `seq` into `history.state` on every accepted navigation, then compares
+ * the live `currentSeq` against the previously-stored `lastSeq` on the
+ * next `hashchange`:
+ *   - `currentSeq < lastSeq` → user pressed Back / Forward-was-Back →
+ *     undo with `history.forward()`. Calling `history.back()` here would
+ *     step *further* back and could eject the user from Studio.
+ *   - otherwise (forward push from a link click, or a fresh entry whose
+ *     `state.seq` is null) → undo with `history.back()`.
  */
 export type HashChangeDecision =
   | { kind: "ignore" }
-  | { kind: "rollback" }
-  | { kind: "navigate"; route: Route };
+  | { kind: "rollback"; direction: "back" | "forward" }
+  | { kind: "navigate"; route: Route; newSeq: number };
 
 export function evaluateHashChange(opts: {
   newHash: string;
   lastHash: string;
+  /** `history.state?.seq` at the moment `hashchange` fired, or `null`
+   * if the entry was created without our seq tag (e.g. a link click
+   * pushed a fresh entry). */
+  currentSeq: number | null;
+  /** The seq we last stored as the "current" entry. */
+  lastSeq: number;
   guards: Iterable<NavigationGuard>;
 }): HashChangeDecision {
-  // The rollback below uses `history.back()`, which fires another
-  // `hashchange`. By the time it lands, the URL has returned to
-  // `lastHash` so this branch resolves to `ignore` and the handler does
-  // nothing — no need for a manual recursion flag.
+  // The rollback fires another `hashchange`. By the time it lands, the
+  // URL has returned to `lastHash` so this branch resolves to `ignore`
+  // and the handler does nothing — no manual recursion flag needed.
   if (opts.newHash === opts.lastHash) return { kind: "ignore" };
   for (const guard of opts.guards) {
-    if (!guard()) return { kind: "rollback" };
+    if (!guard()) {
+      const direction =
+        opts.currentSeq !== null && opts.currentSeq < opts.lastSeq
+          ? "forward"
+          : "back";
+      return { kind: "rollback", direction };
+    }
   }
-  return { kind: "navigate", route: parseRoute() };
+  return {
+    kind: "navigate",
+    route: parseRoute(),
+    newSeq: opts.lastSeq + 1,
+  };
+}
+
+function readSeqFromState(): number | null {
+  const state = (history.state ?? null) as { seq?: unknown } | null;
+  return typeof state?.seq === "number" ? state.seq : null;
 }
 
 export function useHashRoute(): Route {
   const [route, setRoute] = useState<Route>(parseRoute);
   useEffect(() => {
     let lastHash = window.location.hash;
+    // Anchor the initial entry with `seq: 0` so direction detection
+    // works for the very first navigation. Preserve any pre-existing
+    // state put there by other code (currently none, but cheap to do).
+    const existingState = (history.state ?? {}) as Record<string, unknown>;
+    let lastSeq =
+      typeof existingState.seq === "number" ? existingState.seq : 0;
+    if (typeof existingState.seq !== "number") {
+      history.replaceState({ ...existingState, seq: 0 }, "");
+    }
     const handler = () => {
       const decision = evaluateHashChange({
         newHash: window.location.hash,
         lastHash,
+        currentSeq: readSeqFromState(),
+        lastSeq,
         guards: navigationGuards,
       });
       if (decision.kind === "ignore") return;
       if (decision.kind === "rollback") {
-        // Move the history pointer back instead of `replaceState`-ing the
-        // current entry: `replaceState` would leave duplicate `#/...`
-        // entries in the back stack, so after a cancelled navigation the
-        // user would have to press Back twice to escape this page. With
-        // `history.back()` the URL bar restores to `lastHash` and the
-        // forward stack still holds the rejected destination — Forward
-        // re-prompts via the same guard if they change their mind.
-        history.back();
+        if (decision.direction === "back") history.back();
+        else history.forward();
         return;
       }
       lastHash = window.location.hash;
+      lastSeq = decision.newSeq;
+      // Stamp the seq into the *current* entry (the one we just landed
+      // on via push) so a future Back from here lands on the previous
+      // entry's lower seq, and our direction detection picks "forward"
+      // to roll back correctly.
+      const state = (history.state ?? {}) as Record<string, unknown>;
+      history.replaceState({ ...state, seq: decision.newSeq }, "");
       setRoute(decision.route);
     };
     window.addEventListener("hashchange", handler);
