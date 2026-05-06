@@ -43,7 +43,13 @@ afterEach(() => {
 });
 
 describe("<Playground />", () => {
-  it("renders the empty state once /api/jobs resolves", async () => {
+  it("renders the base-mode empty state on mount", async () => {
+    // Both `jobs === null` (pre-fetch) and `jobs === []` (post-fetch)
+    // flow to the `messages.length === 0` branch in base mode, so the
+    // empty-state copy is visible regardless of whether /api/jobs has
+    // settled. This case is just a smoke check that the base-mode
+    // ready-when-you-are copy renders on mount; the adapter-mode loading
+    // and error-banner paths are covered by the cases below.
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === "/api/jobs") return jsonResponse({ jobs: [] });
       throw new Error(`Unexpected fetch: ${String(input)}`);
