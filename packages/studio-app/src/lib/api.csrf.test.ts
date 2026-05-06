@@ -6,6 +6,12 @@ const ORIG_FETCH = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = ORIG_FETCH;
   vi.restoreAllMocks();
+  // `restoreAllMocks` does not undo `vi.stubGlobal`. The EventSource
+  // case below uses stubGlobal, so without an explicit unstub the fake
+  // class would bleed into any later test that touches the real
+  // EventSource. Mirrors the cleanup in `route.test.ts` /
+  // `lib/theme.test.ts`.
+  vi.unstubAllGlobals();
 });
 
 describe("api CSRF token wiring", () => {
