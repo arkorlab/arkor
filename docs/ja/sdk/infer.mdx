@@ -28,27 +28,85 @@ type Infer = (args: InferArgs) => Promise<Response>;
 
 ```ts
 interface InferArgs {
-  messages: Array<{
-    role: "system" | "user" | "assistant";
-    content: string;
-  }>;
+  messages: ChatMessage[];
   temperature?: number;
   topP?: number;
   maxTokens?: number;
   /** デフォルト: true。SSE ではなく単一 JSON ボディが欲しいなら false に。 */
   stream?: boolean;
+  /** OpenAI 互換の Function Calling のためのツール定義。 */
+  tools?: ToolDefinition[];
+  /** "auto" | "none" | "required" | { type: "function", function: { name } } */
+  toolChoice?: ToolChoice;
+  /** OpenAI 互換の response_format（text / json_object / json_schema）。 */
+  responseFormat?: ResponseFormat;
+  /** responseFormat で表現できない制約（regex / choice / grammar）用の vLLM 拡張。 */
+  structuredOutputs?: StructuredOutputs;
   signal?: AbortSignal;
 }
 ```
 
 | フィールド | 型 | 補足 |
 | --- | --- | --- |
-| `messages` | `{ role, content }` の配列 | チャット履歴。role は OpenAI / HuggingFace の chat-template 慣例に揃えています。 |
+| `messages` | `ChatMessage[]` | チャット履歴。`system` / `user` / `assistant`（任意の `tool_calls` 付き）/ `tool`（`tool_call_id` 付き）の判別共用体で、OpenAI のメッセージ形と完全互換 — Function Calling を含む履歴をそのまま往復できます。 |
 | `temperature` | `number?` | サンプリング温度。省略時はバックエンドのデフォルト。 |
 | `topP` | `number?` | Nucleus サンプリング。省略時はバックエンドのデフォルト。 |
 | `maxTokens` | `number?` | 応答トークンの最大値。省略時はバックエンドのデフォルト。 |
 | `stream` | `boolean?` | デフォルトは **true**（SSE）。単一 JSON ボディが欲しければ `false`。 |
+| `tools` | `ToolDefinition[]?` | モデルが呼び出せる関数定義。`toolChoice` を明示しない場合は OpenAI 仕様どおり既定 `"auto"` が適用されます。エンドポイントが auto-tool 抽出に未対応なら `400 tool_calling_not_configured` が返ります。 |
+| `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }`。auto-extraction のパーサが必要なのは `"auto"`（と `tools` 指定時の既定）のみで、それ以外は guided-decoding 経路を通ります。 |
+| `responseFormat` | `ResponseFormat?` | OpenAI 標準の構造化出力スイッチ。`{ type: "text" }` / `{ type: "json_object" }` / `{ type: "json_schema", json_schema: { name, schema, strict? } }`。表現できる制約はこちらを優先。 |
+| `structuredOutputs` | `StructuredOutputs?` | `responseFormat` で表せない制約のための vLLM 拡張。`json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` のうち高々 1 つを指定（相互排他）。フィールド名は vLLM の wire 形式に合わせ snake_case（`json_object`、`structural_tag`、`disable_any_whitespace`、`whitespace_pattern`）。 |
 | `signal` | `AbortSignal?` | ローカル fetch を Abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
+
+### Function Calling の例
+
+```ts
+onCheckpoint: async ({ infer }) => {
+  const res = await infer({
+    messages: [
+      { role: "user", content: "東京の天気は？" },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "get_weather",
+          parameters: {
+            type: "object",
+            properties: { city: { type: "string" } },
+            required: ["city"],
+          },
+        },
+      },
+    ],
+    toolChoice: "auto",
+    stream: false,
+  });
+  const data = (await res.json()) as { choices: Array<{ message: ChatMessage }> };
+  // data.choices[0].message は { role: "assistant", tool_calls: [...] } になり得ます。
+};
+```
+
+### 構造化出力の例
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "ユーザーのメールアドレスを抽出。" }],
+  responseFormat: {
+    type: "json_schema",
+    json_schema: {
+      name: "user",
+      schema: {
+        type: "object",
+        properties: { email: { type: "string", format: "email" } },
+        required: ["email"],
+      },
+      strict: true,
+    },
+  },
+});
+```
 
 ## 戻り値
 

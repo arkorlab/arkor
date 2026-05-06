@@ -28,27 +28,85 @@ type Infer = (args: InferArgs) => Promise<Response>;
 
 ```ts
 interface InferArgs {
-  messages: Array<{
-    role: "system" | "user" | "assistant";
-    content: string;
-  }>;
+  messages: ChatMessage[];
   temperature?: number;
   topP?: number;
   maxTokens?: number;
   /** Default: true. Set false to get a single JSON body instead of SSE. */
   stream?: boolean;
+  /** OpenAI-compatible function-calling tool definitions. */
+  tools?: ToolDefinition[];
+  /** "auto" | "none" | "required" | { type: "function", function: { name } } */
+  toolChoice?: ToolChoice;
+  /** OpenAI-compatible response_format (text / json_object / json_schema). */
+  responseFormat?: ResponseFormat;
+  /** vLLM structured outputs (regex / choice / grammar) for cases response_format can't express. */
+  structuredOutputs?: StructuredOutputs;
   signal?: AbortSignal;
 }
 ```
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `messages` | array of `{ role, content }` | Chat history. The roles match the OpenAI / HuggingFace chat-template convention. |
+| `messages` | `ChatMessage[]` | Chat history. Discriminated union over `system` / `user` / `assistant` (with optional `tool_calls`) / `tool` (with `tool_call_id`) — matches the OpenAI message shape so a tool-calling history can round-trip. |
 | `temperature` | `number?` | Sampling temperature. Backend default if omitted. |
 | `topP` | `number?` | Nucleus sampling. Backend default if omitted. |
 | `maxTokens` | `number?` | Maximum response tokens. Backend default if omitted. |
 | `stream` | `boolean?` | Default **true** (SSE). Set `false` for a single JSON body. |
+| `tools` | `ToolDefinition[]?` | Function declarations the model is allowed to call. When set without an explicit `toolChoice`, the OpenAI-compatible default `"auto"` applies; the underlying endpoint must be configured for auto-tool extraction or the request returns `400 tool_calling_not_configured`. |
+| `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }` — only `"auto"` (and the default when `tools` is present) needs the auto-extraction parser; the rest go through the guided-decoding path. |
+| `responseFormat` | `ResponseFormat?` | OpenAI's standard structured-output knob: `{ type: "text" }`, `{ type: "json_object" }`, or `{ type: "json_schema", json_schema: { name, schema, strict? } }`. Prefer this when expressible. |
+| `structuredOutputs` | `StructuredOutputs?` | vLLM extension for constraints `responseFormat` can't express. Mutually-exclusive: pick at most one of `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag`. Field names are snake_case (`json_object`, `structural_tag`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format. |
 | `signal` | `AbortSignal?` | Aborts the local fetch. Does not stop work on the backend; the model finishes generating but you stop reading. |
+
+### Tool calling example
+
+```ts
+onCheckpoint: async ({ infer }) => {
+  const res = await infer({
+    messages: [
+      { role: "user", content: "What's the weather in Tokyo?" },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "get_weather",
+          parameters: {
+            type: "object",
+            properties: { city: { type: "string" } },
+            required: ["city"],
+          },
+        },
+      },
+    ],
+    toolChoice: "auto",
+    stream: false,
+  });
+  const data = (await res.json()) as { choices: Array<{ message: ChatMessage }> };
+  // data.choices[0].message may be { role: "assistant", tool_calls: [...] }
+};
+```
+
+### Structured-output example
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Extract the user's email." }],
+  responseFormat: {
+    type: "json_schema",
+    json_schema: {
+      name: "user",
+      schema: {
+        type: "object",
+        properties: { email: { type: "string", format: "email" } },
+        required: ["email"],
+      },
+      strict: true,
+    },
+  },
+});
+```
 
 ## Returns
 

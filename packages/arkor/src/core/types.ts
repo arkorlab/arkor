@@ -89,16 +89,122 @@ export interface TrainingLogContext {
   job: TrainingJob;
 }
 
+/**
+ * One entry in a tool-call delta or completed assistant message.
+ *
+ * Snake-case (`tool_calls`, `tool_call_id`) matches the OpenAI / vLLM wire
+ * format and is forwarded verbatim through every layer (SDK → cloud-api →
+ * control-plane → vLLM worker), so messages can round-trip a chat history
+ * without re-keying.
+ */
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    /** JSON-encoded arguments string — partial deltas may be streamed. */
+    arguments: string;
+  };
+}
+
+/**
+ * Discriminated union over the four OpenAI message roles, including tool-
+ * calling shapes. Assistant messages may carry `tool_calls` and omit
+ * `content` (the common "pure tool call" turn shape). Tool messages are
+ * the model's view of a tool's response and are paired with the
+ * originating `tool_call_id`.
+ */
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | {
+      role: "assistant";
+      /** May be `null` (or omitted) when the turn is purely a tool call. */
+      content?: string | null;
+      tool_calls?: ToolCall[];
+    }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    /** JSON Schema object describing the tool arguments. */
+    parameters?: Record<string, unknown>;
+    strict?: boolean;
+  };
+}
+
+/**
+ * OpenAI-compatible tool selection. `"auto"` (the documented default when
+ * `tools` is present) lets the model decide; `"required"` forces it to
+ * call one of the supplied tools; `"none"` keeps tools in context but
+ * disables calling. The object form pins the call to a specific function.
+ */
+export type ToolChoice =
+  | "auto"
+  | "none"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        name: string;
+        description?: string;
+        schema: Record<string, unknown>;
+        strict?: boolean;
+      };
+    };
+
+/**
+ * vLLM's `StructuredOutputsParams` — used for constraints that
+ * `response_format` can't express (regex, choice lists, custom grammars).
+ * Mutually-exclusive: pick at most one of `json` / `regex` / `choice` /
+ * `grammar` / `json_object` / `structural_tag`. The remaining knobs tune
+ * backend-specific behaviour. Field names are snake_case to match vLLM's
+ * wire format exactly so the worker forwards verbatim.
+ */
+export interface StructuredOutputs {
+  json?: string | Record<string, unknown>;
+  regex?: string;
+  choice?: string[];
+  grammar?: string;
+  json_object?: boolean;
+  structural_tag?: string;
+  disable_any_whitespace?: boolean;
+  disable_additional_properties?: boolean;
+  whitespace_pattern?: string;
+}
+
 export interface InferArgs {
-  messages: Array<{
-    role: "system" | "user" | "assistant";
-    content: string;
-  }>;
+  messages: ChatMessage[];
   temperature?: number;
   topP?: number;
   maxTokens?: number;
   /** Default: true. Set false to get a single JSON body instead of SSE. */
   stream?: boolean;
+  /**
+   * Function-calling tool definitions. When present without an explicit
+   * `toolChoice`, the OpenAI-compatible default `"auto"` applies; the
+   * underlying endpoint must be configured for auto-tool extraction or
+   * the request returns a `400 tool_calling_not_configured`.
+   */
+  tools?: ToolDefinition[];
+  toolChoice?: ToolChoice;
+  /** OpenAI-compatible response_format (e.g. JSON Schema). */
+  responseFormat?: ResponseFormat;
+  /**
+   * vLLM-specific structured outputs (regex / choice / grammar) for
+   * constraints not covered by `responseFormat`. `responseFormat` is
+   * preferred when both can express the same constraint, since it's the
+   * cross-provider standard.
+   */
+  structuredOutputs?: StructuredOutputs;
   signal?: AbortSignal;
 }
 
