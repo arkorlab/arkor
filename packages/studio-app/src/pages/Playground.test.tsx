@@ -10,10 +10,17 @@ import {
 } from "../test-utils/responses";
 
 const ORIG_FETCH = globalThis.fetch;
-// Save scrollTo so we can restore it in afterEach. `vi.restoreAllMocks()`
-// only undoes spies; a direct prototype assignment would otherwise leak
-// the mock into any later suite that expected jsdom's native behaviour
-// (or its absence).
+// Snapshot scrollTo so we can restore it in afterEach. `vi.restoreAllMocks()`
+// only undoes spies; a direct prototype assignment would otherwise leak the
+// mock into any later suite that expected jsdom's native behaviour (or its
+// absence). `hadScrollTo` distinguishes "jsdom didn't define it" from "jsdom
+// did define it as undefined" so the teardown can `delete` rather than write
+// `undefined`, which would otherwise leave an own property on the prototype
+// detectable via `'scrollTo' in Element.prototype`.
+const HAD_SCROLL_TO = Object.prototype.hasOwnProperty.call(
+  Element.prototype,
+  "scrollTo",
+);
 const ORIG_SCROLL_TO = Element.prototype.scrollTo;
 
 beforeEach(() => {
@@ -24,7 +31,11 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = ORIG_FETCH;
-  Element.prototype.scrollTo = ORIG_SCROLL_TO;
+  if (HAD_SCROLL_TO) {
+    Element.prototype.scrollTo = ORIG_SCROLL_TO;
+  } else {
+    delete (Element.prototype as { scrollTo?: unknown }).scrollTo;
+  }
   vi.restoreAllMocks();
   // Reset hash so successive tests don't inherit `?adapter=...` state
   // from URL syncing in earlier cases.
