@@ -169,6 +169,150 @@ describe("<Playground />", () => {
       ).toBeInTheDocument();
     });
 
+    it("re-syncs mode and selection when initialAdapterId prop changes", async () => {
+      // Browser back/forward between two `#/playground?adapter=<id>`
+      // entries flips the prop without a remount; the sync-from-prop
+      // effect must pick that up so the picker reflects the URL.
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/jobs")
+          return jsonResponse({
+            jobs: [
+              {
+                id: "job-a",
+                name: "alpha",
+                status: "completed",
+                createdAt: "2026-04-01T00:00:00Z",
+              },
+              {
+                id: "job-b",
+                name: "bravo",
+                status: "completed",
+                createdAt: "2026-04-02T00:00:00Z",
+              },
+            ],
+          });
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      }) as typeof fetch;
+
+      const { rerender } = render(<Playground initialAdapterId="job-a" />);
+      const adapterSelect = (await screen.findByRole("combobox", {
+        name: "Adapter",
+      })) as HTMLSelectElement;
+      expect(adapterSelect.value).toBe("job-a");
+
+      rerender(<Playground initialAdapterId="job-b" />);
+      await waitFor(() => {
+        expect(adapterSelect.value).toBe("job-b");
+      });
+    });
+
+    it("falls back to base mode when initialAdapterId is dropped", async () => {
+      // Navigating from `#/playground?adapter=<id>` back to the bare
+      // `#/playground` URL drops the prop. The page must mirror the
+      // URL by flipping mode back to base, otherwise the user is
+      // stranded on the adapter picker with a URL that says base.
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/jobs")
+          return jsonResponse({
+            jobs: [
+              {
+                id: "job-a",
+                name: "alpha",
+                status: "completed",
+                createdAt: "2026-04-01T00:00:00Z",
+              },
+            ],
+          });
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      }) as typeof fetch;
+
+      const { rerender } = render(<Playground initialAdapterId="job-a" />);
+      await screen.findByText(/chat with a completed adapter/i);
+
+      rerender(<Playground />);
+      expect(
+        await screen.findByText(/chat with a supported base model/i),
+      ).toBeInTheDocument();
+    });
+
+    it("holds the prop change while a stream is in flight, then applies it on settle", async () => {
+      // streamInferenceContent's fetch is held open below, so streaming
+      // stays true across the rerender. The sync-from-prop effect's
+      // streaming gate must defer the prop change so we don't yank the
+      // user out of an active conversation; once the stream aborts and
+      // streaming flips false, the effect re-runs and the deferred
+      // change lands.
+      let releaseInference: (value: Response) => void = () => {};
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/jobs")
+          return jsonResponse({
+            jobs: [
+              {
+                id: "job-a",
+                name: "alpha",
+                status: "completed",
+                createdAt: "2026-04-01T00:00:00Z",
+              },
+              {
+                id: "job-b",
+                name: "bravo",
+                status: "completed",
+                createdAt: "2026-04-02T00:00:00Z",
+              },
+            ],
+          });
+        if (url === "/api/inference/chat")
+          return new Promise<Response>((resolve) => {
+            releaseInference = resolve;
+          });
+        throw new Error(`Unexpected fetch: ${url}`);
+      }) as typeof fetch;
+
+      const user = userEvent.setup();
+      const { rerender, unmount } = render(
+        <Playground initialAdapterId="job-a" />,
+      );
+      const adapterSelect = (await screen.findByRole("combobox", {
+        name: "Adapter",
+      })) as HTMLSelectElement;
+      expect(adapterSelect.value).toBe("job-a");
+
+      const composer = screen.getByLabelText("Message");
+      await user.type(composer, "hold me");
+      await user.click(screen.getByRole("button", { name: /send message/i }));
+
+      // Composer disables once streaming flips on, giving us a
+      // synchronous handle on the gate state without leaning on timing.
+      await waitFor(() => {
+        expect(composer).toBeDisabled();
+      });
+
+      // Prop change while streaming: the picker must NOT snap to job-b
+      // because the gate defers the re-sync.
+      rerender(<Playground initialAdapterId="job-b" />);
+      // Give React a tick to run the sync effect (which should bail at
+      // the streaming guard).
+      await Promise.resolve();
+      expect(adapterSelect.value).toBe("job-a");
+
+      // Settle the stream so streaming flips off; the sync effect
+      // re-runs with the updated dep and finally applies the change.
+      releaseInference(
+        new Response("", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      );
+      await waitFor(() => {
+        expect(adapterSelect.value).toBe("job-b");
+      });
+
+      // Unmount before afterEach so the inference AbortController's
+      // cleanup runs deterministically rather than racing the next test.
+      unmount();
+    });
+
     it("writes the selected adapter id back into the URL hash", async () => {
       // Picking an adapter mirrors `mode` and the selected job id into
       // the URL hash via replaceState, so a reload or copy-paste lands

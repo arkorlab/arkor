@@ -39,8 +39,9 @@ export function sseResponse(frames: string[]): Response {
 }
 
 /**
- * Build a single `data: {choices:[{delta:{content}}]}\n\n` SSE frame —
- * the OpenAI-style envelope `streamInferenceContent` is built to parse.
+ * Build a single OpenAI-style SSE frame
+ * (`data: {choices:[{delta:{content}}]}\n\n`) matching the envelope
+ * `streamInferenceContent` parses.
  */
 export function sseDeltaFrame(content: string, event = "token"): string {
   const data = JSON.stringify({ choices: [{ delta: { content } }] });

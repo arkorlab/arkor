@@ -103,6 +103,46 @@ describe("<RunTraining />", () => {
     await screen.findByRole("button", { name: /run training: demo-trainer/i });
   });
 
+  it("polls /api/manifest every 5s and reflects a trainer added mid-session", async () => {
+    // RunTraining chains setTimeout(tick, 5000) instead of setInterval so
+    // a slow /api/manifest can't pile up overlapping calls. The point of
+    // the polling loop is that adding `createTrainer(...)` to
+    // src/arkor/index.ts mid-session enables the Run button without a
+    // page reload; verify both halves (the second fetch fires and the
+    // button label updates) so a regression to setInterval or to the
+    // wrong dependency wiring is caught here.
+    vi.useFakeTimers();
+    try {
+      let manifestCalls = 0;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/manifest") {
+          manifestCalls++;
+          if (manifestCalls === 1) return jsonResponse({ trainer: null });
+          return jsonResponse({ trainer: { name: "late-trainer" } });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }) as typeof fetch;
+
+      render(<RunTraining />);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(manifestCalls).toBe(1);
+      expect(
+        screen.getByRole("button", { name: /run training/i }),
+      ).toBeDisabled();
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(manifestCalls).toBe(2);
+
+      const enabled = screen.getByRole("button", {
+        name: /run training: late-trainer/i,
+      });
+      expect(enabled).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("aborts the in-flight stream when the user clicks Stop training", async () => {
     const user = userEvent.setup();
     let cancelled = false;
