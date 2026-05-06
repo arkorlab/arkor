@@ -7,7 +7,27 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
 
 ## In progress
 
-Nothing actively in development on the public surface this cycle. Current effort is on stabilizing what's already shipped (CLI, Studio, scaffolder).
+<CardGroup cols={2}>
+  <Card title="Broader base model support" icon="cubes" href="/sdk/create-trainer">
+    <div id="more-base-models" />
+    Expand support beyond Gemma 4 to additional open-weight model families, so the `model` field becomes a real menu instead of a single supported value.
+  </Card>
+
+  <Card title="Structured output" icon="brackets-curly" href="/sdk/create-trainer">
+    <div id="structured-output" />
+    Let a fine-tuned model return typed fields (for example `{ urgency, nextAction }` from a triage run) instead of free-form text, with the output schema declared in your project as a TypeScript type.
+  </Card>
+
+  <Card title="Hosted inference endpoint URL" icon="plug" href="/sdk/infer">
+    <div id="hosted-inference-endpoint" />
+    Surface a stable HTTPS endpoint URL for each fine-tuned model so you can call it from your product without going through the SDK.
+  </Card>
+
+  <Card title="Template-free project creation" icon="file-circle-plus" href="/cli/init">
+    <div id="template-free-projects" />
+    Scaffold a project without picking a starter template. Today `create-arkor` and `arkor init` require choosing `triage`, `translate`, or `redaction`; this opens the door to starting from a blank trainer.
+  </Card>
+</CardGroup>
 
 ## Up next
 
@@ -46,11 +66,6 @@ Nothing actively in development on the public surface this cycle. Current effort
     Grow `createArkor` into an umbrella for shipping and evaluating models, not only training.
   </Card>
 
-  <Card title="More base models" icon="cubes" href="/sdk/create-trainer">
-    <div id="more-base-models" />
-    Expand support beyond Gemma to additional open-weight model families.
-  </Card>
-
   <Card title="Download trained models" icon="download">
     <div id="download-trained-models" />
     Export a trained model as a file you can run on your own machine or deploy target, instead of staying on Arkor's managed inference.
@@ -69,5 +84,10 @@ Nothing actively in development on the public surface this cycle. Current effort
   <Card title="On-device model templates" icon="mobile-screen">
     <div id="on-device-templates" />
     Templates aimed at small models suitable for WebGPU and mobile targets.
+  </Card>
+
+  <Card title="Multimodal training" icon="images" href="/sdk/create-trainer">
+    <div id="multimodal-training" />
+    Fine-tune on image (and eventually audio) inputs alongside text. Today every template is text-in, text-out.
   </Card>
 </CardGroup>
