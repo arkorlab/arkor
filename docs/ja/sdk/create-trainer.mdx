@@ -19,7 +19,7 @@ export const trainer = createTrainer({
 
 `createTrainer` は `start` / `wait` / `cancel` メソッドを持つ `Trainer` オブジェクトを返します（[トレーナー制御](/ja/sdk/trainer-control) を参照）。この関数は `TrainerInput` のクライアント側バリデーションを **しません**: TypeScript が型付きフィールドをコンパイル時にチェックし、それ以外は `start()` 実行時にクラウド API へ転送されます。不正な値は構築時のクライアント側 throw ではなく、学習中にバックエンドエラーとして現れます。
 
-## シグネチャ
+## シグネチャー
 
 ```ts
 function createTrainer(input: TrainerInput): Trainer;
