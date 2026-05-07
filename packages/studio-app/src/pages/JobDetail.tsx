@@ -72,10 +72,13 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     // Clear per-job state when navigating between jobs so events, loss
-    // points, terminal status, and event-id counter don't leak across
-    // routes.
+    // points, terminal status, advanced toggle, and event-id counter
+    // don't leak across routes. Resetting `advanced` matters: leaving
+    // it on would immediately start computing stats during the new
+    // job's live stream the moment its first points arrive.
     setEvents([]);
     setPoints([]);
+    setAdvanced(false);
     setTerminal(null);
     setEventErr(null);
     setLiveStatus(null);

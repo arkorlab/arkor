@@ -46,22 +46,29 @@ export function stddev(values: number[]): number {
   return Math.sqrt(variance(values));
 }
 
-// Linear-interpolated percentile — same convention as numpy's default
-// (`linear`). `q` is clamped to [0, 1]; out-of-range values would
-// otherwise compute lo/hi outside the sorted-array bounds and trip the
-// non-null assertions below.
-export function percentile(values: number[], q: number): number {
-  const n = values.length;
+// Linear-interpolated percentile lookup against an already-sorted
+// array. Extracted so `summarize()` can sort once and pull both
+// p90 and p95 from the same sorted view instead of sorting twice.
+function percentileFromSorted(sorted: number[], q: number): number {
+  const n = sorted.length;
   if (n === 0) return NaN;
-  if (n === 1) return values[0]!;
+  if (n === 1) return sorted[0]!;
   const clamped = Math.min(1, Math.max(0, q));
-  const sorted = [...values].sort((a, b) => a - b);
   const rank = clamped * (n - 1);
   const lo = Math.floor(rank);
   const hi = Math.ceil(rank);
   if (lo === hi) return sorted[lo]!;
   const frac = rank - lo;
   return sorted[lo]! * (1 - frac) + sorted[hi]! * frac;
+}
+
+// Linear-interpolated percentile — same convention as numpy's default
+// (`linear`). `q` is clamped to [0, 1]; out-of-range values would
+// otherwise compute lo/hi outside the sorted-array bounds and trip the
+// non-null assertions below.
+export function percentile(values: number[], q: number): number {
+  if (values.length === 0) return NaN;
+  return percentileFromSorted([...values].sort((a, b) => a - b), q);
 }
 
 // Two-tailed 95% Student's t critical values for df 1..30. For df > 30
@@ -91,14 +98,54 @@ export function confidenceInterval95(values: number[]): number {
   return tCritical95(n - 1) * (sd / Math.sqrt(n));
 }
 
+// Single-pass aggregator. The standalone `mean` / `variance` /
+// `stddev` / `confidenceInterval95` / `percentile` helpers compose
+// each other, which means a naive `summarize()` ends up walking the
+// array four times and sorting it twice. This version walks once for
+// mean, once for the squared-deviation sum, and sorts a single time
+// to derive both p90 and p95 — material when `advanced` is on and
+// `points` updates land every training.log frame.
 export function summarize(values: number[]): LossStats {
+  const n = values.length;
+  if (n === 0) {
+    return {
+      count: 0,
+      mean: NaN,
+      variance: NaN,
+      stddev: NaN,
+      ci95HalfWidth: 0,
+      p90: NaN,
+      p95: NaN,
+    };
+  }
+
+  let sum = 0;
+  for (const v of values) sum += v;
+  const m = sum / n;
+
+  let varv: number;
+  if (n === 1) {
+    varv = 0;
+  } else {
+    let sq = 0;
+    for (const v of values) {
+      const d = v - m;
+      sq += d * d;
+    }
+    varv = sq / (n - 1);
+  }
+  const sd = Math.sqrt(varv);
+  const ciHalf = n <= 1 ? 0 : tCritical95(n - 1) * (sd / Math.sqrt(n));
+
+  const sorted = [...values].sort((a, b) => a - b);
+
   return {
-    count: values.length,
-    mean: mean(values),
-    variance: variance(values),
-    stddev: stddev(values),
-    ci95HalfWidth: confidenceInterval95(values),
-    p90: percentile(values, 0.9),
-    p95: percentile(values, 0.95),
+    count: n,
+    mean: m,
+    variance: varv,
+    stddev: sd,
+    ci95HalfWidth: ciHalf,
+    p90: percentileFromSorted(sorted, 0.9),
+    p95: percentileFromSorted(sorted, 0.95),
   };
 }
