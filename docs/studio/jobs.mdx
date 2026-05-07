@@ -49,7 +49,7 @@ In every row below, the event log renders the event name in its own column next 
 | `training.failed` | Status flips to `failed`. The event log message is the `error` string from the payload, and a red banner with the same text is rendered above the chart. |
 | `end` | The page closes the EventSource. No reconnect. |
 
-Stream errors are surfaced as a separate `Event stream interrupted.` banner above the event log (not as a log entry); the banner clears the next time an SSE frame arrives, and reconnect is left to the browser's `EventSource` retry behaviour.
+Stream errors are surfaced as a separate `Event stream interrupted.` banner above the loss-chart and events-log cards (not as a log entry); the banner clears the next time an SSE frame arrives, and reconnect is left to the browser's `EventSource` retry behaviour.
 
 The event log keeps only the **last 500 entries** (older entries drop off as new ones arrive). It is a scrolling list rendered from named SSE events, intended for quick inspection rather than full forensic logs; for the complete history, look at the cloud-api directly.
 
