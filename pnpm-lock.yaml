@@ -23,9 +23,15 @@ importers:
       '@types/node':
         specifier: ^24
         version: 24.12.2
+      arkor:
+        specifier: workspace:*
+        version: link:../../packages/arkor
       c8:
         specifier: ^10.1.3
         version: 10.1.3
+      create-arkor:
+        specifier: workspace:*
+        version: link:../../packages/create-arkor
       typescript:
         specifier: ^5
         version: 5.9.3
@@ -41,6 +47,9 @@ importers:
       '@types/node':
         specifier: ^24
         version: 24.12.2
+      arkor:
+        specifier: workspace:*
+        version: link:../../packages/arkor
       typescript:
         specifier: ^5
         version: 5.9.3

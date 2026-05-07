@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "pretest": "pnpm --filter @arkor/studio-app bundle && pnpm --filter arkor build",
+    "pretest": "pnpm exec turbo run build --filter=arkor",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
     "test": "playwright test",
@@ -15,6 +15,7 @@
   "devDependencies": {
     "@playwright/test": "^1.50.0",
     "@types/node": "^24",
+    "arkor": "workspace:*",
     "typescript": "^5"
   }
 }
