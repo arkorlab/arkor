@@ -5,8 +5,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "pretest": "pnpm exec turbo run build --filter=create-arkor --filter=arkor",
-    "pretest:coverage": "CREATE_ARKOR_BUILD_SOURCEMAP=1 pnpm exec turbo run build --filter=create-arkor --filter=arkor",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
     "test": "vitest run",

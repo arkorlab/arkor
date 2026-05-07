@@ -59,12 +59,17 @@ pnpm --filter create-arkor dev        # スキャフォルダーを tsdown --wat
 | [`e2e/cli`](e2e/cli) | `arkor` / `create-arkor` CLI 表面 — spawn・スキャフォルド・ビルド・終了コード・stdout/stderr | ビルド済み `dist/bin.mjs` を vitest で起動 |
 | [`e2e/studio`](e2e/studio) | `arkor dev` が配信する Studio SPA — `<meta>` トークン注入、`/api/*` 認可契約、ページレベル描画、SSE ストリーミング | 実 `arkor dev` + 同一プロセス内 fake cloud-api に対し Playwright で Chromium を駆動 |
 
+どちらのスイートも `arkor`（CLI スイートはさらに `create-arkor`）のビルド済み `dist/bin.mjs` を消費します。リポジトリ ルートで `pnpm test` を回した場合は Turbo の `^build` で自動的に揃いますが、スタンドアロン (`pnpm --filter @arkor/e2e-* test`) で実行する場合は事前にビルドしておく必要があります。
+
 CLI スイート (遅い。一時ディレクトリで実 CLI を起動) を実行するには:
 
 ```bash
+pnpm build  # packages/{arkor,create-arkor}/dist/bin.mjs を生成
 pnpm --filter @arkor/e2e-cli test
 # フィクスチャ内の `<pm> install` ステップをスキップ:
 SKIP_E2E_INSTALL=1 pnpm --filter @arkor/e2e-cli test
+# create-arkor 側の coverage 属性付けにはソースマップが必須:
+CREATE_ARKOR_BUILD_SOURCEMAP=1 pnpm build && pnpm --filter @arkor/e2e-cli test:coverage
 ```
 
 Studio スイート (初回のみブラウザインストールが必要) を実行するには:

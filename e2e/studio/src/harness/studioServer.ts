@@ -142,13 +142,15 @@ async function spawnStudio(
 
   const stderr: string[] = [];
   const stdout: string[] = [];
-  // Forward child stderr/stdout to the Playwright reporter when a test
-  // fails — `console.error` lines are captured into the trace's logs.
+  // Always buffer the child's stdio into `stderr` / `stdout` so the
+  // ready-detector below and the failure-tail in error messages have
+  // something to inspect. Mirroring those buffers to the parent's
+  // stderr is opt-in via `STUDIO_E2E_DEBUG` to keep CI logs quiet by
+  // default — set the env var while iterating on the harness or
+  // chasing a flake; turbo.json declares it so toggling busts the
+  // task cache.
   child.stderr?.setEncoding("utf8");
   child.stdout?.setEncoding("utf8");
-  // Forwarding child stdio through Playwright's reporter is gated on
-  // STUDIO_E2E_DEBUG to keep test logs quiet by default. Set the env
-  // var when iterating on the harness or debugging a flake.
   child.stderr?.on("data", (d: string) => {
     stderr.push(d);
     if (process.env.STUDIO_E2E_DEBUG) {

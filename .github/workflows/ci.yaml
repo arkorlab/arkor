@@ -207,6 +207,14 @@ jobs:
       - name: Test with coverage
         env:
           ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
+          # `create-arkor`'s tsdown only emits sourcemaps when this is
+          # set; e2e/cli's c8 needs them to remap V8 coverage from the
+          # spawned scaffolder back to packages/create-arkor/src/**.
+          # Replaces the inline `CREATE_ARKOR_BUILD_SOURCEMAP=1 ...`
+          # that lived in e2e/cli's pretest:coverage hook before
+          # workspace deps + turbo's `^build` made that pretest
+          # redundant.
+          CREATE_ARKOR_BUILD_SOURCEMAP: "1"
         run: pnpm exec turbo run test:coverage --continue
 
       - name: Upload arkor coverage

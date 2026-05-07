@@ -59,12 +59,17 @@ There are two private E2E suites, with different scopes:
 | [`e2e/cli`](e2e/cli) | The `arkor` and `create-arkor` CLI surfaces — spawning, scaffolding, build, exit codes, stdout/stderr | vitest spawning the built `dist/bin.mjs` |
 | [`e2e/studio`](e2e/studio) | The Studio SPA served by `arkor dev` — `<meta>` token injection, `/api/*` auth contract, page-level rendering, SSE streaming | Playwright driving Chromium against a real `arkor dev` + an in-process fake cloud-api |
 
+Both suites consume the built `dist/bin.mjs` of `arkor` (and, for `e2e/cli`, `create-arkor`). When you run `pnpm test` from the repo root, Turbo's `^build` already produces those artifacts, but standalone (`pnpm --filter @arkor/e2e-* test`) needs them up front.
+
 To run the CLI suite (slow; spawns real CLIs in temp dirs):
 
 ```bash
+pnpm build  # produces packages/{arkor,create-arkor}/dist/bin.mjs
 pnpm --filter @arkor/e2e-cli test
 # Skip the `<pm> install` step inside fixtures:
 SKIP_E2E_INSTALL=1 pnpm --filter @arkor/e2e-cli test
+# Coverage attribution into create-arkor needs sourcemaps:
+CREATE_ARKOR_BUILD_SOURCEMAP=1 pnpm build && pnpm --filter @arkor/e2e-cli test:coverage
 ```
 
 To run the Studio suite (one-time browser install required):

@@ -3,7 +3,11 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "env": ["ARKOR_POSTHOG_KEY", "ARKOR_POSTHOG_HOST"],
+      "env": [
+        "ARKOR_POSTHOG_KEY",
+        "ARKOR_POSTHOG_HOST",
+        "CREATE_ARKOR_BUILD_SOURCEMAP"
+      ],
       "outputs": ["dist/**"]
     },
     "dev": {
@@ -21,6 +25,7 @@
         "ARKOR_POSTHOG_HOST",
         "ARKOR_TELEMETRY_DISABLED",
         "ARKOR_CLOUD_API_URL",
+        "CREATE_ARKOR_BUILD_SOURCEMAP",
         "PLAYWRIGHT_BROWSERS_PATH",
         "PWDEBUG",
         "SKIP_E2E_INSTALL",
@@ -36,6 +41,7 @@
         "ARKOR_POSTHOG_HOST",
         "ARKOR_TELEMETRY_DISABLED",
         "ARKOR_CLOUD_API_URL",
+        "CREATE_ARKOR_BUILD_SOURCEMAP",
         "PLAYWRIGHT_BROWSERS_PATH",
         "PWDEBUG",
         "SKIP_E2E_INSTALL",
