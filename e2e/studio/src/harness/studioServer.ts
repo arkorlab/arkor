@@ -92,6 +92,10 @@ function makeKill(child: ChildProcess): () => Promise<void> {
 interface SpawnedStudio {
   child: ChildProcess;
   url: string;
+  /** Idempotent teardown for `child` — exposed so `startStudio` reuses
+   *  the same instance instead of allocating a second wrapper around
+   *  the same process. */
+  kill: () => Promise<void>;
   stderr: string[];
   stdout: string[];
 }
@@ -170,35 +174,59 @@ async function spawnStudio(
   // Wait for the ready line on stdout; surface stderr on hang so a
   // failed launch (missing assets, port collision after the eph-port
   // race, OAuth-only deployment, …) shows up as a useful error.
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const tail = stderr.concat(stdout).join("").slice(-2_000);
-      reject(
-        new Error(
-          `Timed out waiting for "${READY_LINE_PATTERN}" on stdout from arkor dev.\n--- last output ---\n${tail}`,
-        ),
-      );
-    }, READY_TIMEOUT_MS);
-    const onData = (chunk: string) => {
-      if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.join(""))) {
+  //
+  // Settling cleanup applies to all three exits: success, timeout,
+  // premature child exit. Listeners are removed every time so the
+  // already-settled promise can't fire again, and on rejection we
+  // tear the child down via `makeKill` — otherwise a timeout would
+  // throw out of `spawnStudio()` before the caller could obtain a
+  // handle, leaving an orphaned `arkor dev` running on the runner.
+  const kill = makeKill(child);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onData = (chunk: string) => {
+        if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.join(""))) {
+          settle(resolve);
+        }
+      };
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        const tail = stderr.concat(stdout).join("").slice(-2_000);
+        settle(() =>
+          reject(
+            new Error(
+              `arkor dev exited before signalling ready (code=${code}, signal=${signal}).\n--- last output ---\n${tail}`,
+            ),
+          ),
+        );
+      };
+      const timer = setTimeout(() => {
+        const tail = stderr.concat(stdout).join("").slice(-2_000);
+        settle(() =>
+          reject(
+            new Error(
+              `Timed out waiting for "${READY_LINE_PATTERN}" on stdout from arkor dev.\n--- last output ---\n${tail}`,
+            ),
+          ),
+        );
+      }, READY_TIMEOUT_MS);
+      let settled = false;
+      function settle(action: () => void): void {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         child.stdout?.off("data", onData);
-        resolve();
+        child.off("exit", onExit);
+        action();
       }
-    };
-    child.stdout?.on("data", onData);
-    child.once("exit", (code, signal) => {
-      clearTimeout(timer);
-      const tail = stderr.concat(stdout).join("").slice(-2_000);
-      reject(
-        new Error(
-          `arkor dev exited before signalling ready (code=${code}, signal=${signal}).\n--- last output ---\n${tail}`,
-        ),
-      );
+      child.stdout?.on("data", onData);
+      child.on("exit", onExit);
     });
-  });
+  } catch (err) {
+    await kill();
+    throw err;
+  }
 
-  return { child, url, stderr, stdout };
+  return { child, url, kill, stderr, stdout };
 }
 
 /**
@@ -229,8 +257,7 @@ async function readMetaToken(url: string): Promise<string> {
 export async function startStudio(
   opts: StartStudioOptions,
 ): Promise<StudioHandle> {
-  const { child, url } = await spawnStudio(opts);
-  const kill = makeKill(child);
+  const { url, kill } = await spawnStudio(opts);
   let token: string;
   try {
     // `arkor dev` writes the ready line before `http.Server.listen()`
