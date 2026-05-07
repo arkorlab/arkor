@@ -47,9 +47,9 @@ The list shows whatever order the backend returned. There is no client-side filt
 | `training.failed` | Status flips to `failed`. The error message from the event payload is shown beneath the status. |
 | `end` | The page closes the EventSource. No reconnect. |
 
-Stream errors append `[stream error]` to the log; reconnect is left to the browser's `EventSource` retry behaviour.
+Stream errors are surfaced as a separate `Event stream interrupted.` banner above the event log (not as a log entry); the banner clears the next time an SSE frame arrives, and reconnect is left to the browser's `EventSource` retry behaviour.
 
-The event log keeps only the **last 50 lines** (older lines drop off as new ones arrive). It is a raw `<pre>` block, intended for quick inspection rather than full forensic logs; for the complete history, look at the cloud-api directly.
+The event log keeps only the **last 500 entries** (older entries drop off as new ones arrive). It is a scrolling list rendered from named SSE events, intended for quick inspection rather than full forensic logs; for the complete history, look at the cloud-api directly.
 
 The loss chart is an SVG plot drawn from `training.log` events. It uses min-max scaling on the y-axis and the step number on the x-axis, and shows up to two series:
 
