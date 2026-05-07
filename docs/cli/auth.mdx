@@ -166,7 +166,7 @@ Both modes write to the same file at `~/.arkor/credentials.json` and are tagged 
 
 ## Token expiry
 
-For OAuth sessions, the credentials file records both the access token and the issued refresh token, plus the `expiresAt` timestamp returned by the token exchange. The refresh token is stored today, but the CLI does **not** yet auto-refresh expired access tokens; that path is [on the roadmap](/roadmap#auth0-token-auto-refresh).
+For OAuth sessions, the credentials file records both the access token and the issued refresh token, plus the `expiresAt` timestamp returned by the token exchange. The refresh token is stored today, but the CLI does **not** yet auto-refresh expired access tokens; that path is [on the roadmap](/roadmap#oauth-token-auto-refresh).
 
 In practice that means:
 
@@ -182,7 +182,7 @@ Anonymous tokens have no client-side expiry tracking; the cloud-api decides when
 | `Pick one of --oauth / --anonymous, not both.` | `arkor login` | Both mode flags were passed. | Pass at most one. |
 | `--oauth needs a browser callback that CI runners can't complete. Use --anonymous in CI.` | `arkor login --oauth` (with `process.env.CI` set) | PKCE depends on a loopback redirect from a browser, which CI cannot satisfy. | Use `--anonymous` in CI. For local headless flows that still have a reachable browser (e.g. `... --no-browser \| tee logs`), unset `CI` for the run. |
 | `State mismatch — aborting to prevent CSRF` | `arkor login --oauth` | The `state` returned to the loopback callback does not match the one the CLI generated (almost always because the browser hit a stale tab from a previous login attempt). | Re-run `arkor login --oauth` and complete the flow in the freshly opened tab. |
-| `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login --oauth` | The OAuth token exchange succeeded but the response had no `refresh_token`, so the CLI cannot keep the session alive past the access token's lifetime. Usually a deployment-side misconfiguration. | Enable the `offline_access` scope on the OAuth (Auth0) application, then re-run `arkor login --oauth`. |
+| `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login --oauth` | The OAuth token exchange succeeded but the response had no `refresh_token`, so the CLI cannot keep the session alive past the access token's lifetime. Usually a deployment-side misconfiguration. | Enable the `offline_access` scope on the OAuth application, then re-run `arkor login --oauth`. |
 | `No credentials on file.` | `arkor logout` | `~/.arkor/credentials.json` does not exist. Nothing to delete. | Run `arkor login` first if you wanted to sign in. |
 | `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.` | `arkor whoami` | Same condition as above, surfaced from a different command. | Same fix. |
 | `Failed to fetch /v1/me (<status>). Token may be expired.` | `arkor whoami` | The cloud-api rejected the request with a non-200, non-426 status. Most often expired access tokens. | Re-run `arkor login` matching the current `mode`: `arkor login --oauth` for `mode: "auth0"`, `arkor login --anonymous` for `mode: "anon"` (the latter mints a new `anonymousId`, so it lands in a new workspace). The exit code stays `0` so wrapper scripts can inspect the message. |
