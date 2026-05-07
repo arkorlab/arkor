@@ -4,8 +4,13 @@ import { render, screen } from "@testing-library/react";
 import { LossChart, type LossPoint } from "./LossChart";
 
 describe("<LossChart />", () => {
-  it("shows the empty hint when no point carries a numeric loss", () => {
-    render(<LossChart points={[{ step: 0, loss: null }]} />);
+  it("shows the empty hint when no point carries a numeric loss or evalLoss", () => {
+    // Both fields null on every point → the chart's `unified` builder
+    // drops them entirely, so the empty placeholder shows. Spelling
+    // out `evalLoss: null` in the fixture also documents that the
+    // chart's empty condition is "neither field is finite", not just
+    // "loss is missing".
+    render(<LossChart points={[{ step: 0, loss: null, evalLoss: null }]} />);
     expect(
       screen.getByText(/waiting for training\.log events/i),
     ).toBeInTheDocument();

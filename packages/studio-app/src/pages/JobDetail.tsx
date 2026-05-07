@@ -184,6 +184,13 @@ export function JobDetail({ jobId }: { jobId: string }) {
           typeof d.evalLoss === "number" && Number.isFinite(d.evalLoss)
             ? d.evalLoss
             : null;
+        // Skip frames that carry neither a numeric loss nor a numeric
+        // evalLoss. LossChart's `unified` filter would drop them on
+        // render anyway, but they'd still consume a `MAX_LOSS_POINTS`
+        // retention slot here — a long stream of no-loss frames could
+        // evict earlier real loss points and degrade chart/stats
+        // fidelity.
+        if (safeLoss === null && safeEvalLoss === null) return;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
         // chart's visual resolution at any reasonable width.
