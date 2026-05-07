@@ -85,9 +85,14 @@ function seedManifest(projectDir: string): void {
   // `createArkor` factory.
   writeFileSync(
     join(dir, "index.ts"),
+    // Keep `name` aligned with `cloudApiMock.ts`'s default jobs body so
+    // the manifest tile, the jobs list, and any debugging dump all
+    // surface the same identifier; otherwise it's easy to mistake a
+    // missed manifest fetch for a missed jobs fetch when reading
+    // failing test output.
     [
       "const trainer = {",
-      '  name: "e2e-studio-trainer",',
+      '  name: "studio-e2e-trainer",',
       "  start: async () => ({ id: 'e2e-job', url: '' }),",
       "  wait: async () => ({ status: 'completed' as const }),",
       "  cancel: async () => {},",

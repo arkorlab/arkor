@@ -43,9 +43,61 @@ function keyOf(req: IncomingMessage): RouteKey {
   return { method: req.method ?? "GET", path };
 }
 
+/**
+ * The scope the seeded `.arkor/state.json` carries — see
+ * `seedFixture.ts`. `arkor dev`'s Studio proxy threads these through
+ * every cloud-api call as `?orgSlug=…&projectSlug=…`; the default
+ * handlers below 400 on a mismatch so a regression in the proxy URL
+ * construction (drop a query param, double-encode, swap order, …)
+ * surfaces as a real failure instead of a silent canned-200 response.
+ */
+const EXPECTED_ORG_SLUG = "studio-e2e-org";
+const EXPECTED_PROJECT_SLUG = "studio-e2e-project";
+
+function readScope(req: IncomingMessage): {
+  orgSlug: string | null;
+  projectSlug: string | null;
+} {
+  // The base URL is throw-away — `URL` requires an absolute reference
+  // for parsing relative paths but we only need `searchParams`.
+  const url = new URL(req.url ?? "", "http://x");
+  return {
+    orgSlug: url.searchParams.get("orgSlug"),
+    projectSlug: url.searchParams.get("projectSlug"),
+  };
+}
+
+/**
+ * Returns true when the scope query params match the seeded fixture.
+ * Writes a 400 response and returns false otherwise — caller should
+ * just `return` after a false result.
+ */
+function requireExpectedScope(
+  req: IncomingMessage,
+  res: ServerResponse,
+): boolean {
+  const { orgSlug, projectSlug } = readScope(req);
+  if (orgSlug === EXPECTED_ORG_SLUG && projectSlug === EXPECTED_PROJECT_SLUG) {
+    return true;
+  }
+  res.statusCode = 400;
+  res.setHeader("content-type", "application/json");
+  res.end(
+    JSON.stringify({
+      error: "scope mismatch",
+      expected: {
+        orgSlug: EXPECTED_ORG_SLUG,
+        projectSlug: EXPECTED_PROJECT_SLUG,
+      },
+      received: { orgSlug, projectSlug },
+    }),
+  );
+  return false;
+}
+
 const DEFAULT_ME_BODY = {
   user: { id: "user_e2e", email: null },
-  orgs: [{ id: "org_e2e", slug: "studio-e2e-org", name: "Studio E2E" }],
+  orgs: [{ id: "org_e2e", slug: EXPECTED_ORG_SLUG, name: "Studio E2E" }],
 };
 
 const DEFAULT_JOBS_BODY = {
@@ -87,6 +139,7 @@ export async function startFakeCloudApi(): Promise<CloudApiMock> {
       return;
     }
     if (key.method === "GET" && key.path === "/v1/jobs") {
+      if (!requireExpectedScope(req, res)) return;
       res.statusCode = 200;
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify(DEFAULT_JOBS_BODY));
@@ -96,6 +149,7 @@ export async function startFakeCloudApi(): Promise<CloudApiMock> {
       key.method === "GET" &&
       /^\/v1\/jobs\/[^/]+\/events\/stream$/.test(key.path)
     ) {
+      if (!requireExpectedScope(req, res)) return;
       // Minimum viable SSE: send one frame, leave the connection open
       // so the SPA's EventSource shows "connected" without firing
       // onerror. Tests that need richer streams override this route.
@@ -109,6 +163,7 @@ export async function startFakeCloudApi(): Promise<CloudApiMock> {
       return;
     }
     if (key.method === "POST" && key.path === "/v1/inference/chat") {
+      if (!requireExpectedScope(req, res)) return;
       // OpenAI-style streaming envelope so `extractInferenceDelta`
       // pulls `choices[0].delta.content` cleanly.
       res.statusCode = 200;
