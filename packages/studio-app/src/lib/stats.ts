@@ -90,10 +90,15 @@ function tCritical95(df: number): number {
 }
 
 // Half-width of the 95% confidence interval for the mean: t * (s / √n).
-// Returns 0 for n ≤ 1 since a single sample has no spread to bound.
+// Empty input returns NaN — consistent with `mean([])` / `variance([])`
+// / `percentile([])` — so callers can't misread "no data" as "zero
+// uncertainty around an undefined mean". A single-sample input keeps
+// `0`: there is a defined mean (the sample itself) but no spread to
+// bound it, so reporting half-width 0 is accurate.
 export function confidenceInterval95(values: number[]): number {
   const n = values.length;
-  if (n <= 1) return 0;
+  if (n === 0) return NaN;
+  if (n === 1) return 0;
   const sd = stddev(values);
   return tCritical95(n - 1) * (sd / Math.sqrt(n));
 }
@@ -113,7 +118,7 @@ export function summarize(values: number[]): LossStats {
       mean: NaN,
       variance: NaN,
       stddev: NaN,
-      ci95HalfWidth: 0,
+      ci95HalfWidth: NaN,
       p90: NaN,
       p95: NaN,
     };

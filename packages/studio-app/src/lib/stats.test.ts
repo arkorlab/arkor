@@ -96,8 +96,15 @@ describe("stats", () => {
       expect(ci).toBeCloseTo(1.96 * (sd / Math.sqrt(xs.length)), 6);
     });
 
-    it("returns 0 for n ≤ 1 (no spread to bound)", () => {
-      expect(confidenceInterval95([])).toBe(0);
+    it("returns NaN for an empty array — consistent with mean / variance / percentile", () => {
+      // A CI is undefined with no samples; reporting `0` would read as
+      // "zero uncertainty" and silently mask missing-data bugs. The
+      // single-sample case below keeps `0` because the mean is defined
+      // (the sample itself) and the half-width really is zero spread.
+      expect(Number.isNaN(confidenceInterval95([]))).toBe(true);
+    });
+
+    it("returns 0 for a single-sample input (defined mean, no spread)", () => {
       expect(confidenceInterval95([7])).toBe(0);
     });
   });
@@ -112,6 +119,21 @@ describe("stats", () => {
       expect(s.ci95HalfWidth).toBeGreaterThan(0);
       expect(s.p90).toBeCloseTo(4.6, 10);
       expect(s.p95).toBeCloseTo(4.8, 10);
+    });
+
+    it("returns NaN for every numeric field on empty input", () => {
+      // No-data signaling should be consistent across the bundle:
+      // every numeric field is NaN, including ci95HalfWidth (callers
+      // that previously read `0` here couldn't distinguish "empty"
+      // from "single sample").
+      const s = summarize([]);
+      expect(s.count).toBe(0);
+      expect(Number.isNaN(s.mean)).toBe(true);
+      expect(Number.isNaN(s.variance)).toBe(true);
+      expect(Number.isNaN(s.stddev)).toBe(true);
+      expect(Number.isNaN(s.ci95HalfWidth)).toBe(true);
+      expect(Number.isNaN(s.p90)).toBe(true);
+      expect(Number.isNaN(s.p95)).toBe(true);
     });
   });
 });
