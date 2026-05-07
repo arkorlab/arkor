@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { summarize, type LossStats } from "../../lib/stats";
 
 export interface LossPoint {
   step: number;
   loss: number | null;
+  evalLoss?: number | null;
 }
 
 // Narrowed view of `LossPoint` once a missing-loss point has been
@@ -10,12 +12,25 @@ export interface LossPoint {
 // path doesn't have to repeatedly assert `loss as number` — `setHover`
 // is only ever called with elements of `numeric`, which already has
 // this shape.
-type NumericLossPoint = { step: number; loss: number };
+type NumericLossPoint = {
+  step: number;
+  loss: number;
+  evalLoss: number | null;
+};
 
 const HEIGHT = 240;
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
 
-export function LossChart({ points }: { points: LossPoint[] }) {
+const TRAIN_STROKE = "rgb(20 184 166)"; // teal-500
+const EVAL_STROKE = "rgb(244 114 182)"; // pink-400
+
+export function LossChart({
+  points,
+  advanced = false,
+}: {
+  points: LossPoint[];
+  advanced?: boolean;
+}) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
   const [hover, setHover] = useState<NumericLossPoint | null>(null);
@@ -40,8 +55,33 @@ export function LossChart({ points }: { points: LossPoint[] }) {
     return () => ro.disconnect();
   }, []);
 
-  const numeric = points.filter(
-    (p): p is NumericLossPoint => typeof p.loss === "number",
+  const numeric = useMemo<NumericLossPoint[]>(
+    () =>
+      points
+        .filter((p): p is LossPoint & { loss: number } => typeof p.loss === "number")
+        .map((p) => ({
+          step: p.step,
+          loss: p.loss,
+          evalLoss: typeof p.evalLoss === "number" ? p.evalLoss : null,
+        })),
+    [points],
+  );
+
+  // Eval-loss series is the subset of points that carry a numeric
+  // evalLoss. Trainers typically log eval at a coarser cadence
+  // (`evalSteps`), so this is sparse compared to the training series.
+  const evalSeries = useMemo(
+    () => numeric.filter((p): p is NumericLossPoint & { evalLoss: number } => typeof p.evalLoss === "number"),
+    [numeric],
+  );
+
+  const trainStats = useMemo(
+    () => (numeric.length > 0 ? summarize(numeric.map((p) => p.loss)) : null),
+    [numeric],
+  );
+  const evalStats = useMemo(
+    () => (evalSeries.length > 0 ? summarize(evalSeries.map((p) => p.evalLoss)) : null),
+    [evalSeries],
   );
 
   if (numeric.length === 0) {
@@ -55,8 +95,14 @@ export function LossChart({ points }: { points: LossPoint[] }) {
     );
   }
 
-  const minLoss = Math.min(...numeric.map((p) => p.loss));
-  const maxLoss = Math.max(...numeric.map((p) => p.loss));
+  // Range covers both series so eval-loss spikes don't get clipped when
+  // they live outside the training-loss range.
+  const allLossValues =
+    evalSeries.length > 0
+      ? [...numeric.map((p) => p.loss), ...evalSeries.map((p) => p.evalLoss)]
+      : numeric.map((p) => p.loss);
+  const minLoss = Math.min(...allLossValues);
+  const maxLoss = Math.max(...allLossValues);
   const span = Math.max(0.0001, maxLoss - minLoss);
   // Anchor the x-axis on the observed step range (firstStep..lastStep),
   // not 0..lastStep — otherwise a trainer that emits its first
@@ -80,6 +126,16 @@ export function LossChart({ points }: { points: LossPoint[] }) {
     .map((p, i) => `${i === 0 ? "M" : "L"}${xFor(p.step).toFixed(2)},${yFor(p.loss).toFixed(2)}`)
     .join(" ");
   const areaPath = `${linePath} L${xFor(numeric[numeric.length - 1]!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(numeric[0]!.step).toFixed(2)},${PADDING.top + innerH} Z`;
+
+  const evalPath =
+    evalSeries.length > 0
+      ? evalSeries
+          .map(
+            (p, i) =>
+              `${i === 0 ? "M" : "L"}${xFor(p.step).toFixed(2)},${yFor(p.evalLoss).toFixed(2)}`,
+          )
+          .join(" ")
+      : "";
 
   const gridSteps = 4;
   const yTicks = Array.from({ length: gridSteps + 1 }).map((_, i) => {
@@ -186,11 +242,33 @@ export function LossChart({ points }: { points: LossPoint[] }) {
         <path
           d={linePath}
           fill="none"
-          stroke="rgb(20 184 166)"
+          stroke={TRAIN_STROKE}
           strokeWidth={1.5}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+
+        {evalPath ? (
+          <path
+            d={evalPath}
+            fill="none"
+            stroke={EVAL_STROKE}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="4 3"
+          />
+        ) : null}
+
+        {evalSeries.map((p) => (
+          <circle
+            key={`eval-${p.step}`}
+            cx={xFor(p.step)}
+            cy={yFor(p.evalLoss)}
+            r={2.5}
+            fill={EVAL_STROKE}
+          />
+        ))}
 
         {hover ? (
           <g>
@@ -207,9 +285,19 @@ export function LossChart({ points }: { points: LossPoint[] }) {
               cy={yFor(hover.loss)}
               r={3.5}
               fill="white"
-              stroke="rgb(20 184 166)"
+              stroke={TRAIN_STROKE}
               strokeWidth={2}
             />
+            {typeof hover.evalLoss === "number" ? (
+              <circle
+                cx={xFor(hover.step)}
+                cy={yFor(hover.evalLoss)}
+                r={3.5}
+                fill="white"
+                stroke={EVAL_STROKE}
+                strokeWidth={2}
+              />
+            ) : null}
           </g>
         ) : null}
 
@@ -223,6 +311,8 @@ export function LossChart({ points }: { points: LossPoint[] }) {
           onMouseLeave={() => setHover(null)}
         />
       </svg>
+
+      <Legend hasEval={evalSeries.length > 0} />
 
       {hover ? (
         <div
@@ -239,8 +329,125 @@ export function LossChart({ points }: { points: LossPoint[] }) {
           <span className="text-teal-600 dark:text-teal-300">
             {hover.loss.toFixed(4)}
           </span>
+          {typeof hover.evalLoss === "number" ? (
+            <>
+              <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
+              <span className="text-zinc-500 dark:text-zinc-400">eval </span>
+              <span className="text-pink-600 dark:text-pink-300">
+                {hover.evalLoss.toFixed(4)}
+              </span>
+            </>
+          ) : null}
         </div>
       ) : null}
+
+      {advanced ? (
+        <AdvancedStats train={trainStats} evalStats={evalStats} />
+      ) : null}
     </div>
+  );
+}
+
+function Legend({ hasEval }: { hasEval: boolean }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-zinc-600 dark:text-zinc-400">
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className="inline-block h-0.5 w-4 rounded-full"
+          style={{ backgroundColor: TRAIN_STROKE }}
+        />
+        Training loss
+      </span>
+      {hasEval ? (
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-block h-0.5 w-4 rounded-full"
+            style={{
+              backgroundImage: `linear-gradient(to right, ${EVAL_STROKE} 60%, transparent 60%)`,
+              backgroundSize: "6px 100%",
+            }}
+          />
+          Eval loss
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function AdvancedStats({
+  train,
+  evalStats,
+}: {
+  train: LossStats | null;
+  evalStats: LossStats | null;
+}) {
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <StatsCard label="Training loss" tone="train" stats={train} />
+      <StatsCard
+        label="Eval loss"
+        tone="eval"
+        stats={evalStats}
+        emptyHint="Awaiting training.log events with evalLoss…"
+      />
+    </div>
+  );
+}
+
+function StatsCard({
+  label,
+  tone,
+  stats,
+  emptyHint,
+}: {
+  label: string;
+  tone: "train" | "eval";
+  stats: LossStats | null;
+  emptyHint?: string;
+}) {
+  const accent =
+    tone === "train"
+      ? "text-teal-600 dark:text-teal-300"
+      : "text-pink-600 dark:text-pink-300";
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div className="mb-2 flex items-center justify-between">
+        <span className={`text-[11px] font-medium uppercase tracking-wide ${accent}`}>
+          {label}
+        </span>
+        <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+          n = {stats?.count ?? 0}
+        </span>
+      </div>
+      {stats === null ? (
+        <div className="py-2 text-center text-[11px] text-zinc-500 dark:text-zinc-400">
+          {emptyHint ?? "No data yet."}
+        </div>
+      ) : (
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
+          <Row term="Mean CE" value={`${stats.mean.toFixed(4)} ± ${stats.ci95.toFixed(4)}`} hint="95% CI" />
+          <Row term="Std dev" value={stats.stddev.toFixed(4)} />
+          <Row term="Variance" value={stats.variance.toFixed(4)} />
+          <Row term="p90" value={stats.p90.toFixed(4)} />
+          <Row term="p95" value={stats.p95.toFixed(4)} />
+        </dl>
+      )}
+    </div>
+  );
+}
+
+function Row({ term, value, hint }: { term: string; value: string; hint?: string }) {
+  return (
+    <>
+      <dt className="text-zinc-500 dark:text-zinc-400">
+        {term}
+        {hint ? (
+          <span className="ml-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+            ({hint})
+          </span>
+        ) : null}
+      </dt>
+      <dd className="text-right text-zinc-900 dark:text-zinc-100">{value}</dd>
+    </>
   );
 }

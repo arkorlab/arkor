@@ -27,6 +27,7 @@ const MAX_LOSS_POINTS = 2000;
 export function JobDetail({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [points, setPoints] = useState<LossPoint[]>([]);
+  const [advanced, setAdvanced] = useState(false);
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [terminal, setTerminal] = useState<{
     status: "completed" | "failed";
@@ -101,9 +102,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
       if (parsed && typeof parsed === "object") {
         const p = parsed as Record<string, unknown>;
         if (event === "training.log") {
-          message = `step=${p.step ?? "—"} loss=${
+          const lossPart = `loss=${
             typeof p.loss === "number" ? p.loss.toFixed(4) : "—"
           }`;
+          const evalPart =
+            typeof p.evalLoss === "number"
+              ? ` evalLoss=${p.evalLoss.toFixed(4)}`
+              : "";
+          message = `step=${p.step ?? "—"} ${lossPart}${evalPart}`;
         } else if (event === "training.failed") {
           message = String(p.error ?? "failed");
         } else if (event === "training.completed") {
@@ -140,7 +146,11 @@ export function JobDetail({ jobId }: { jobId: string }) {
       const parsed = safeParse(ev.data);
       pushEvent("training.log", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
-        const d = parsed as { step?: number; loss?: number | null };
+        const d = parsed as {
+          step?: number;
+          loss?: number | null;
+          evalLoss?: number | null;
+        };
         if (typeof d.step !== "number") return;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
@@ -148,7 +158,11 @@ export function JobDetail({ jobId }: { jobId: string }) {
         setPoints((prev) => {
           const next = [
             ...prev,
-            { step: d.step!, loss: d.loss ?? null },
+            {
+              step: d.step!,
+              loss: d.loss ?? null,
+              evalLoss: typeof d.evalLoss === "number" ? d.evalLoss : null,
+            },
           ];
           return next.length > MAX_LOSS_POINTS
             ? next.slice(next.length - MAX_LOSS_POINTS)
@@ -338,14 +352,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Loss curve</CardTitle>
-              <CardDescription>
-                Each <code className="font-mono">training.log</code> event from
-                the trainer. Hover to inspect a step.
-              </CardDescription>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <CardTitle>Loss curve</CardTitle>
+                  <CardDescription>
+                    Each <code className="font-mono">training.log</code> event
+                    from the trainer. Hover to inspect a step.
+                  </CardDescription>
+                </div>
+                <AdvancedToggle
+                  enabled={advanced}
+                  onChange={setAdvanced}
+                />
+              </div>
             </CardHeader>
             <CardContent>
-              <LossChart points={points} />
+              <LossChart points={points} advanced={advanced} />
             </CardContent>
           </Card>
 
@@ -373,6 +395,40 @@ export function JobDetail({ jobId }: { jobId: string }) {
         </Card>
       </div>
     </div>
+  );
+}
+
+function AdvancedToggle({
+  enabled,
+  onChange,
+}: {
+  enabled: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label="Advanced metrics"
+      onClick={() => onChange(!enabled)}
+      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+    >
+      <span
+        className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+          enabled
+            ? "bg-teal-500"
+            : "bg-zinc-300 dark:bg-zinc-700"
+        }`}
+      >
+        <span
+          className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${
+            enabled ? "translate-x-3.5" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      Advanced
+    </button>
   );
 }
 
