@@ -98,9 +98,14 @@ jobs:
       # Playwright bundles its own browser binaries (~150 MB). Cache by
       # OS and the lockfile hash so a `@playwright/test` upgrade busts
       # the cache automatically. Cache locations are OS-specific:
-      # Linux/macOS use $HOME/.cache/ms-playwright; Windows uses
-      # %USERPROFILE%\AppData\Local\ms-playwright. The third path
-      # below covers the unlikely macOS-arm64 fallback location.
+      # Linux uses ~/.cache/ms-playwright, macOS uses
+      # ~/Library/Caches/ms-playwright, Windows uses
+      # %USERPROFILE%/AppData/Local/ms-playwright. `actions/cache`
+      # expands `~` through Node's `os.homedir()` and only treats `/`
+      # as a path separator on Windows runners — `~\AppData\…` would
+      # not resolve, so all three patterns use POSIX separators.
+      # `actions/cache` silently skips paths that don't exist on the
+      # current runner, so listing all three is safe.
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v5
@@ -108,7 +113,7 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/Library/Caches/ms-playwright
-            ~\AppData\Local\ms-playwright
+            ~/AppData/Local/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             playwright-${{ runner.os }}-
