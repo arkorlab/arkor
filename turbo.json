@@ -23,7 +23,8 @@
         "ARKOR_CLOUD_API_URL",
         "PLAYWRIGHT_BROWSERS_PATH",
         "PWDEBUG",
-        "SKIP_E2E_INSTALL"
+        "SKIP_E2E_INSTALL",
+        "STUDIO_E2E_DEBUG"
       ],
       "outputs": []
     },
@@ -37,7 +38,8 @@
         "ARKOR_CLOUD_API_URL",
         "PLAYWRIGHT_BROWSERS_PATH",
         "PWDEBUG",
-        "SKIP_E2E_INSTALL"
+        "SKIP_E2E_INSTALL",
+        "STUDIO_E2E_DEBUG"
       ],
       "cache": false
     },

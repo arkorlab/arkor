@@ -40,16 +40,53 @@ async function waitForPort(port: number): Promise<void> {
   while (Date.now() < deadline) {
     const ok = await new Promise<boolean>((resolve) => {
       const sock = createConnection({ host: "127.0.0.1", port });
+      // `sock.unref()` keeps a hanging connect attempt from holding the
+      // event loop open if the test caller decides to bail out before
+      // we resolve.
+      sock.unref();
       sock.once("connect", () => {
         sock.end();
         resolve(true);
       });
-      sock.once("error", () => resolve(false));
+      sock.once("error", () => {
+        // `destroy()` releases the underlying TCP handle immediately;
+        // without it a stream of refused-connect retries can pile up
+        // half-open sockets in the parent process and complicate
+        // debugging when a real connection problem follows.
+        sock.destroy();
+        resolve(false);
+      });
     });
     if (ok) return;
     await new Promise((r) => setTimeout(r, PORT_POLL_INTERVAL_MS));
   }
   throw new Error(`Port ${port} did not become ready within ${PORT_POLL_TIMEOUT_MS}ms`);
+}
+
+/**
+ * Build an idempotent killer that sends SIGINT (mirrors Ctrl-C, lets
+ * `dev.ts` signal handlers clean up `~/.arkor/studio-token`) and falls
+ * back to SIGKILL after 5s. Used by both the returned `StudioHandle`
+ * and the startup error path so a failed `waitForPort` /
+ * `readMetaToken` can't leave an orphaned `arkor dev` running.
+ */
+function makeKill(child: ChildProcess): () => Promise<void> {
+  let killed = false;
+  return async () => {
+    if (killed) return;
+    killed = true;
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise<void>((resolve) => {
+      const fallback = setTimeout(() => {
+        if (!child.killed) child.kill("SIGKILL");
+      }, 5_000);
+      child.once("exit", () => {
+        clearTimeout(fallback);
+        resolve();
+      });
+      child.kill("SIGINT");
+    });
+  };
 }
 
 interface SpawnedStudio {
@@ -193,6 +230,7 @@ export async function startStudio(
   opts: StartStudioOptions,
 ): Promise<StudioHandle> {
   const { child, url } = await spawnStudio(opts);
+  const kill = makeKill(child);
   let token: string;
   try {
     // `arkor dev` writes the ready line before `http.Server.listen()`
@@ -202,29 +240,12 @@ export async function startStudio(
     await waitForPort(port);
     token = await readMetaToken(url);
   } catch (err) {
-    child.kill("SIGINT");
+    // Reuse the same SIGINT + SIGKILL-fallback teardown the handle
+    // exposes; awaiting it prevents an orphaned `arkor dev` from
+    // surviving a failed setup and interfering with the next test.
+    await kill();
     throw err;
   }
-
-  let killed = false;
-  const kill = async (): Promise<void> => {
-    if (killed) return;
-    killed = true;
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    await new Promise<void>((resolve) => {
-      // SIGINT mirrors a user's Ctrl-C and lets `dev.ts`'s signal
-      // handlers run (cleans up `~/.arkor/studio-token`). Fall back to
-      // SIGKILL after 5s in case the child hangs.
-      const fallback = setTimeout(() => {
-        if (!child.killed) child.kill("SIGKILL");
-      }, 5_000);
-      child.once("exit", () => {
-        clearTimeout(fallback);
-        resolve();
-      });
-      child.kill("SIGINT");
-    });
-  };
 
   return { url, token, kill };
 }

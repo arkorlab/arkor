@@ -141,7 +141,13 @@ export async function startFakeCloudApi(): Promise<CloudApiMock> {
     });
     const key = keyOf(req);
     const route = routes.get(`${key.method} ${key.path}`);
-    if (route) {
+    // The `Map<string, CloudApiHandler>` type already guarantees `route`
+    // is a function when present, but the lookup key derives from
+    // request-controlled `req.method` / `req.url`. CodeQL flags any
+    // dispatch through that path as "unvalidated dynamic method call"
+    // — the explicit `typeof === "function"` guard is the documented
+    // remediation and clarifies the contract for readers.
+    if (typeof route === "function") {
       route(req, res);
       return;
     }
