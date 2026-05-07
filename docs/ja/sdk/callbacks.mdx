@@ -127,7 +127,7 @@ onFailed: ({ job, error }) => {
 最小例: すべてのイベントをログに出す。
 
 ```ts
-createTrainer({
+const trainer = createTrainer({
   name: "support-bot-v1",
   model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
@@ -146,6 +146,9 @@ createTrainer({
     onFailed: ({ error }) => console.error(`failed: ${error}`),
   },
 });
+
+await trainer.start();
+await trainer.wait();
 ```
 
 コールバック内で catch して失敗をローカルに閉じ込め、SSE 再接続を起こさないようにする:

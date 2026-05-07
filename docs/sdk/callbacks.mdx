@@ -127,7 +127,7 @@ For deterministic error handling, catch inside the callback (see the second exam
 Minimal: log every event.
 
 ```ts
-createTrainer({
+const trainer = createTrainer({
   name: "support-bot-v1",
   model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
@@ -146,6 +146,9 @@ createTrainer({
     onFailed: ({ error }) => console.error(`failed: ${error}`),
   },
 });
+
+await trainer.start();
+await trainer.wait();
 ```
 
 Catch inside a callback to keep failures local instead of letting them trigger an SSE reconnect:
