@@ -25,6 +25,42 @@ const READY_LINE_PATTERN = /Arkor Studio running on/;
 const READY_TIMEOUT_MS = 30_000;
 const PORT_POLL_INTERVAL_MS = 50;
 const PORT_POLL_TIMEOUT_MS = 10_000;
+/**
+ * Cap on the rolling stdio buffers below. ~4 KiB is well above the
+ * ready line (~50 bytes) and the 2000-char error tail we surface on
+ * failure, while preventing the buffer from growing unboundedly under
+ * `STUDIO_E2E_DEBUG` runs (where the child can emit lots of output).
+ */
+const STDIO_BUFFER_CAP = 4_096;
+
+/**
+ * Bounded string buffer that appends in amortised O(1) and exposes
+ * the most-recent ~`cap` bytes via `toString()`. Used in place of an
+ * unbounded `string[]` so the ready-line detector — which runs on
+ * every stdout chunk — doesn't pay O(n²) for `Array.join("")` as the
+ * child accumulates output.
+ */
+class TailBuffer {
+  private buf = "";
+  private readonly cap: number;
+  constructor(cap: number) {
+    this.cap = cap;
+  }
+  append(chunk: string): void {
+    this.buf += chunk;
+    // Truncate lazily once we cross 2× the cap so the slice is
+    // amortised O(cap) per append, not O(buf.length).
+    if (this.buf.length > this.cap * 2) {
+      this.buf = this.buf.slice(-this.cap);
+    }
+  }
+  toString(): string {
+    return this.buf;
+  }
+  tail(n: number): string {
+    return this.buf.slice(-n);
+  }
+}
 
 /**
  * `arkor dev`'s [@hono/node-server] writes the "Arkor Studio running on …"
@@ -75,12 +111,28 @@ function makeKill(child: ChildProcess): () => Promise<void> {
   return async () => {
     if (killed) return;
     killed = true;
-    if (child.exitCode !== null || child.signalCode !== null) return;
     await new Promise<void>((resolve) => {
-      // `child.killed` flips true the moment Node *delivers* a signal,
-      // not when the child actually exits. Gating SIGKILL on
-      // `!child.killed` would therefore never fire — we just sent
-      // SIGINT, so `killed` is already true. Probe the actual
+      // Register `exit` *before* re-checking termination state and
+      // *before* delivering SIGINT. If the child happens to exit in
+      // the gap between the early-return check and the listener
+      // attach, `once("exit")` would miss the event and this promise
+      // would hang forever, stalling the whole Playwright run.
+      // Registering first lets the listener catch any exit that
+      // arrives concurrently; the post-register `exitCode/signalCode`
+      // check covers the case where the child had already exited
+      // before this callback ran.
+      const onExit = () => {
+        clearTimeout(fallback);
+        resolve();
+      };
+      child.once("exit", onExit);
+      if (child.exitCode !== null || child.signalCode !== null) {
+        child.off("exit", onExit);
+        resolve();
+        return;
+      }
+      // `child.killed` flips true the moment Node *delivers* a
+      // signal, not when the child actually exits. Probe the real
       // termination state via `exitCode` / `signalCode`; both stay
       // null until the child reports `exit`.
       const fallback = setTimeout(() => {
@@ -88,10 +140,6 @@ function makeKill(child: ChildProcess): () => Promise<void> {
           child.kill("SIGKILL");
         }
       }, 5_000);
-      child.once("exit", () => {
-        clearTimeout(fallback);
-        resolve();
-      });
       child.kill("SIGINT");
     });
   };
@@ -104,8 +152,8 @@ interface SpawnedStudio {
    *  the same instance instead of allocating a second wrapper around
    *  the same process. */
   kill: () => Promise<void>;
-  stderr: string[];
-  stdout: string[];
+  stderr: TailBuffer;
+  stdout: TailBuffer;
 }
 
 async function spawnStudio(
@@ -148,25 +196,26 @@ async function spawnStudio(
     },
   );
 
-  const stderr: string[] = [];
-  const stdout: string[] = [];
-  // Always buffer the child's stdio into `stderr` / `stdout` so the
+  const stderr = new TailBuffer(STDIO_BUFFER_CAP);
+  const stdout = new TailBuffer(STDIO_BUFFER_CAP);
+  // Always buffer the child's stdio into bounded `TailBuffer`s so the
   // ready-detector below and the failure-tail in error messages have
-  // something to inspect. Mirroring those buffers to the parent's
-  // stderr is opt-in via `STUDIO_E2E_DEBUG` to keep CI logs quiet by
-  // default — set the env var while iterating on the harness or
-  // chasing a flake; turbo.json declares it so toggling busts the
-  // task cache.
+  // something to inspect without paying O(n²) for repeated
+  // `Array.join("")` over a growing chunk array. Mirroring the buffers
+  // to the parent's stderr is opt-in via `STUDIO_E2E_DEBUG` to keep CI
+  // logs quiet by default — set the env var while iterating on the
+  // harness or chasing a flake; turbo.json declares it so toggling
+  // busts the task cache.
   child.stderr?.setEncoding("utf8");
   child.stdout?.setEncoding("utf8");
   child.stderr?.on("data", (d: string) => {
-    stderr.push(d);
+    stderr.append(d);
     if (process.env.STUDIO_E2E_DEBUG) {
       process.stderr.write(`[arkor dev:err pid=${child.pid}] ${d}`);
     }
   });
   child.stdout?.on("data", (d: string) => {
-    stdout.push(d);
+    stdout.append(d);
     if (process.env.STUDIO_E2E_DEBUG) {
       process.stderr.write(`[arkor dev:out pid=${child.pid}] ${d}`);
     }
@@ -192,29 +241,35 @@ async function spawnStudio(
   // throw out of `spawnStudio()` before the caller could obtain a
   // handle, leaving an orphaned `arkor dev` running on the runner.
   const kill = makeKill(child);
+  // Combine the two tail buffers into a 2 KiB error excerpt. Reading
+  // both via `tail()` is O(cap), not O(total bytes), so this stays
+  // cheap regardless of how chatty the child has been.
+  const errorTail = (): string =>
+    `${stderr.tail(1_000)}${stdout.tail(1_000)}`;
   try {
     await new Promise<void>((resolve, reject) => {
       const onData = (chunk: string) => {
-        if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.join(""))) {
+        // Test the chunk first (handles the line landing in one read)
+        // and fall back to the rolling buffer (handles the rare split
+        // where "Arkor Studio" and "running on" arrive in two chunks).
+        if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.toString())) {
           settle(resolve);
         }
       };
       const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-        const tail = stderr.concat(stdout).join("").slice(-2_000);
         settle(() =>
           reject(
             new Error(
-              `arkor dev exited before signalling ready (code=${code}, signal=${signal}).\n--- last output ---\n${tail}`,
+              `arkor dev exited before signalling ready (code=${code}, signal=${signal}).\n--- last output ---\n${errorTail()}`,
             ),
           ),
         );
       };
       const timer = setTimeout(() => {
-        const tail = stderr.concat(stdout).join("").slice(-2_000);
         settle(() =>
           reject(
             new Error(
-              `Timed out waiting for "${READY_LINE_PATTERN}" on stdout from arkor dev.\n--- last output ---\n${tail}`,
+              `Timed out waiting for "${READY_LINE_PATTERN}" on stdout from arkor dev.\n--- last output ---\n${errorTail()}`,
             ),
           ),
         );
