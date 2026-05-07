@@ -77,8 +77,16 @@ function makeKill(child: ChildProcess): () => Promise<void> {
     killed = true;
     if (child.exitCode !== null || child.signalCode !== null) return;
     await new Promise<void>((resolve) => {
+      // `child.killed` flips true the moment Node *delivers* a signal,
+      // not when the child actually exits. Gating SIGKILL on
+      // `!child.killed` would therefore never fire — we just sent
+      // SIGINT, so `killed` is already true. Probe the actual
+      // termination state via `exitCode` / `signalCode`; both stay
+      // null until the child reports `exit`.
       const fallback = setTimeout(() => {
-        if (!child.killed) child.kill("SIGKILL");
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+        }
       }, 5_000);
       child.once("exit", () => {
         clearTimeout(fallback);
