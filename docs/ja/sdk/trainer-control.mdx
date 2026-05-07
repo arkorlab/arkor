@@ -7,7 +7,7 @@ description: "start、wait、cancel、abortSignal、再接続の仕組み。"
 
 `createTrainer` は 3 メソッドを持つ `Trainer` オブジェクトを返します。`arkor start` と Studio の "Run training" ボタンはどちらも `start()` の後に `wait()` を呼びます。これらを自分で呼ぶのは、学習を自前のコード（サーバー、スクリプト、独自 CLI）に組み込むときだけです。
 
-## シグネチャ
+## シグネチャー
 
 ```ts
 interface Trainer {
