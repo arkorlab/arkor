@@ -32,16 +32,19 @@ test.describe("Studio pages", () => {
     studio,
     cloudApi,
   }) => {
-    // Override the SSE route so we can deterministically assert on
-    // payloads the SPA renders. Default handler also streams a single
-    // status frame, but pinning it here makes the test independent of
-    // the default's exact wording.
-    //
-    // The override re-implements the scope check the default handler
-    // does (`requireExpectedScope`) — without it, a regression where
-    // the Studio proxy drops `orgSlug`/`projectSlug` on the events
-    // stream URL would slip past this spec, since `setRoute` matches
-    // on path-only.
+    // What this test actually checks: that JobDetail mounts an
+    // `EventSource` against `/api/jobs/:id/events` and that the
+    // Studio server proxies it to cloud-api with the correct scope
+    // query params — i.e. the SSE attach + URL-construction contract.
+    // It does NOT exercise the page's reaction to specific event
+    // payloads (UI rendering of `training.log` step/loss is covered
+    // by the studio-app unit tests). The override exists to (a) make
+    // the assertion deterministic by replacing the default handler
+    // (which keeps the socket open with a different framing), and
+    // (b) re-enforce the scope check that `setRoute` would otherwise
+    // bypass — `setRoute` matches on path-only, so without this a
+    // regression that drops `orgSlug`/`projectSlug` could still
+    // succeed against the registered route handler.
     cloudApi.setRoute(
       "GET",
       "/v1/jobs/job-e2e-1/events/stream",
