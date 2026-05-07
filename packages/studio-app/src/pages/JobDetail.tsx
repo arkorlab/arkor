@@ -108,14 +108,17 @@ export function JobDetail({ jobId }: { jobId: string }) {
           // Omit each `key=…` segment when the corresponding field is
           // missing/non-numeric so eval-only frames render cleanly as
           // `step=<n> evalLoss=…` instead of being padded with a noisy
-          // `loss=—` placeholder. The two fields are treated
-          // symmetrically.
-          const lossPart =
-            typeof p.loss === "number" ? ` loss=${p.loss.toFixed(4)}` : "";
-          const evalPart =
-            typeof p.evalLoss === "number"
-              ? ` evalLoss=${p.evalLoss.toFixed(4)}`
-              : "";
+          // `loss=—` placeholder. `Number.isFinite` (rather than
+          // `typeof === "number"`) also keeps `Infinity` / `NaN` —
+          // which JSON-parsed exponent forms like `1e309` yield — out
+          // of the rendered message, matching the boundary validation
+          // used when appending chart points.
+          const lossPart = Number.isFinite(p.loss)
+            ? ` loss=${(p.loss as number).toFixed(4)}`
+            : "";
+          const evalPart = Number.isFinite(p.evalLoss)
+            ? ` evalLoss=${(p.evalLoss as number).toFixed(4)}`
+            : "";
           message = `step=${p.step ?? "—"}${lossPart}${evalPart}`;
         } else if (event === "training.failed") {
           message = String(p.error ?? "failed");
