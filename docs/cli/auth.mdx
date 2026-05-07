@@ -166,7 +166,7 @@ Both modes write to the same file at `~/.arkor/credentials.json` and are tagged 
 
 ## Token expiry
 
-For OAuth sessions, the credentials file records both the access token and the issued refresh token, plus the `expiresAt` timestamp returned by the token exchange. The refresh token is stored today, but the CLI does **not** yet auto-refresh expired access tokens; that path is [on the roadmap](/roadmap#auth0-token-auto-refresh).
+For OAuth sessions, the credentials file records both the access token and the issued refresh token, plus the `expiresAt` timestamp returned by the token exchange. The refresh token is stored today, but the CLI does **not** yet auto-refresh expired access tokens; that path is [on the roadmap](/roadmap#oauth-token-auto-refresh).
 
 In practice that means:
 
