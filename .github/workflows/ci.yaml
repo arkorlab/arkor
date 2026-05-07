@@ -95,10 +95,53 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Playwright bundles its own browser binaries (~150 MB). Cache by
+      # OS and the lockfile hash so a `@playwright/test` upgrade busts
+      # the cache automatically. Cache locations are OS-specific:
+      # Linux/macOS use $HOME/.cache/ms-playwright; Windows uses
+      # %USERPROFILE%\AppData\Local\ms-playwright. The third path
+      # below covers the unlikely macOS-arm64 fallback location.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~\AppData\Local\ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      # `--with-deps` installs apt packages that Chromium needs at
+      # runtime (libnss3, libxkbcommon0, etc.). It's Linux-only — the
+      # action no-ops it on macOS/Windows but warns; gating on runner.os
+      # keeps the log clean.
+      - name: Install Playwright (Linux)
+        if: runner.os == 'Linux'
+        run: pnpm --filter @arkor/e2e-studio exec playwright install --with-deps chromium
+
+      - name: Install Playwright (macOS/Windows)
+        if: runner.os != 'Linux'
+        run: pnpm --filter @arkor/e2e-studio exec playwright install chromium
+
       - name: Test
         env:
           ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: pnpm test
+
+      # Surface Playwright's HTML report + traces / videos / screenshots
+      # whenever a test fails. The report directory is small when green
+      # so we keep it limited to failure paths only. OS + node tag in
+      # the artifact name avoids collisions across the matrix.
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ runner.os }}-node${{ matrix.node }}
+          path: |
+            e2e/studio/playwright-report
+            e2e/studio/test-results
 
       - name: Build
         run: pnpm build
@@ -138,6 +181,20 @@ jobs:
 
       - name: Install
         run: pnpm install
+
+      # Mirror the matrix job's Playwright cache so the coverage run
+      # also reuses the previously-downloaded browsers.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright
+        run: pnpm --filter @arkor/e2e-studio exec playwright install --with-deps chromium
 
       # Tests must keep going on failure so every package still produces
       # its lcov.info / junit.xml; turbo's default `--continue=never` would
@@ -261,4 +318,19 @@ jobs:
           report_type: test_results
           files: ./e2e/cli/coverage/junit.xml
           flags: e2e-cli
+          fail_ci_if_error: false
+
+      # Studio E2E reports JUnit XML produced by the Playwright junit
+      # reporter (see e2e/studio/playwright.config.ts). No lcov: browser
+      # tests don't collect server-side V8 coverage, so we only feed
+      # Test Analytics for pass/fail trend tracking.
+      - name: Upload e2e-studio test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v6
+        with:
+          use_oidc: true
+          disable_search: true
+          report_type: test_results
+          files: ./e2e/studio/coverage/junit.xml
+          flags: e2e-studio
           fail_ci_if_error: false

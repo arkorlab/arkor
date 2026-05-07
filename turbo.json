@@ -20,6 +20,9 @@
         "ARKOR_POSTHOG_KEY",
         "ARKOR_POSTHOG_HOST",
         "ARKOR_TELEMETRY_DISABLED",
+        "ARKOR_CLOUD_API_URL",
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "PWDEBUG",
         "SKIP_E2E_INSTALL"
       ],
       "outputs": []
@@ -31,6 +34,9 @@
         "ARKOR_POSTHOG_KEY",
         "ARKOR_POSTHOG_HOST",
         "ARKOR_TELEMETRY_DISABLED",
+        "ARKOR_CLOUD_API_URL",
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "PWDEBUG",
         "SKIP_E2E_INSTALL"
       ],
       "cache": false

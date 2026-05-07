@@ -22,11 +22,12 @@ arkor/
 │   ├── cli-internal/       # private helpers shared by arkor + create-arkor
 │   └── studio-app/         # Vite + React SPA bundled into `arkor`
 ├── e2e/cli/                # vitest-driven E2E suite for the scaffolder & build
+├── e2e/studio/             # Playwright E2E suite for the Studio SPA
 ├── assets/                 # README / OG images
 └── turbo.json              # build / test orchestration
 ```
 
-`cli-internal`, `studio-app`, and `e2e/cli` are private and never published.
+`cli-internal`, `studio-app`, `e2e/cli`, and `e2e/studio` are private and never published.
 
 ## Development setup
 
@@ -49,12 +50,32 @@ pnpm --filter @arkor/studio-app dev   # vite dev server for the Studio SPA
 pnpm --filter create-arkor dev   # tsdown --watch on the scaffolder
 ```
 
-To run the E2E scaffolder/build suite (slow; spawns real CLIs in temp dirs):
+## E2E suites
+
+There are two private E2E suites, with different scopes:
+
+| Suite | Scope | Tooling |
+| --- | --- | --- |
+| [`e2e/cli`](e2e/cli) | The `arkor` and `create-arkor` CLI surfaces — spawning, scaffolding, build, exit codes, stdout/stderr | vitest spawning the built `dist/bin.mjs` |
+| [`e2e/studio`](e2e/studio) | The Studio SPA served by `arkor dev` — `<meta>` token injection, `/api/*` auth contract, page-level rendering, SSE streaming | Playwright driving Chromium against a real `arkor dev` + an in-process fake cloud-api |
+
+To run the CLI suite (slow; spawns real CLIs in temp dirs):
 
 ```bash
 pnpm --filter @arkor/e2e-cli test
 # Skip the `<pm> install` step inside fixtures:
 SKIP_E2E_INSTALL=1 pnpm --filter @arkor/e2e-cli test
+```
+
+To run the Studio suite (one-time browser install required):
+
+```bash
+pnpm build  # arkor's dist/bin.mjs and the Studio bundle must exist
+pnpm --filter @arkor/e2e-studio exec playwright install chromium
+pnpm --filter @arkor/e2e-studio test
+# Debugging:
+pnpm --filter @arkor/e2e-studio exec playwright test --ui   # GUI runner
+pnpm --filter @arkor/e2e-studio exec playwright show-report # last HTML report
 ```
 
 ## Trying your local build
