@@ -162,7 +162,7 @@ Requires Node.js 22.22.0+.
 
 Works with pnpm / npm / yarn / bun.
 
-## Contributions are Welcomed
+## Contributions are welcome
 
 - **[File an issue](https://github.com/arkorlab/arkor/issues/new)** with the model + dataset + workflow you wish worked. We read everything.
 - **Star the repo** if you want updates as we move toward `0.1`.
