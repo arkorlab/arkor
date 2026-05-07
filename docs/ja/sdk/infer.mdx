@@ -18,7 +18,13 @@ onCheckpoint: async ({ step, infer }) => {
 }
 ```
 
-## 入力
+## シグネチャー
+
+```ts
+type Infer = (args: InferArgs) => Promise<Response>;
+```
+
+## パラメータ
 
 ```ts
 interface InferArgs {
@@ -44,7 +50,7 @@ interface InferArgs {
 | `stream` | `boolean?` | デフォルトは **true**（SSE）。単一 JSON ボディが欲しければ `false`。 |
 | `signal` | `AbortSignal?` | ローカル fetch を Abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
 
-## 出力
+## 戻り値
 
 `infer` は `Promise<Response>` を返します: 生の Fetch `Response`。SDK はボディをパースしません。消費の仕方はあなたが決めます:
 
@@ -76,3 +82,10 @@ const data = await res.json();
 - **学習中のサニティーチェック。** ステップ 50 のチェックポイントとステップ 100 のチェックポイントを固定プロンプトで比較。Loss（モデルの誤差を表す指標）の曲線は問題なく見えても出力が劣化していれば、学習完了前に気付けます。
 - **カスタム Early Stopping（学習の自動打ち切り）。** 簡単な eval プロンプトと組み合わせて、出力が逸脱したら `controller.abort()`（[`abortSignal`](/ja/sdk/trainer-control#abortsignal) を参照）で学習を止め、`trainer.cancel()` でバックエンドを停止。詳しくは [Early Stopping レシピ](/ja/cookbook/early-stopping) を参照。
 - **自前 UI へのライブプレビュー。** チェックポイントの出力を Slack、社内レビューキュー、自前アプリのプレビューチャネルに送る。
+
+## 関連項目
+
+- [`onCheckpoint`](/ja/sdk/callbacks#oncheckpoint-step-adapter-job-infer-artifacts-): `infer` を渡してくれるコールバック
+- [ミッドラン評価レシピ](/ja/cookbook/mid-run-eval): エンドツーエンドのパターン
+- [Early Stopping レシピ](/ja/cookbook/early-stopping): `infer` の出力を `abortSignal` + `cancel()` に繋ぐ
+- [トレーナー制御](/ja/sdk/trainer-control): `abortSignal` と `cancel()`

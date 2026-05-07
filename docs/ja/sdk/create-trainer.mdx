@@ -19,6 +19,14 @@ export const trainer = createTrainer({
 
 `createTrainer` は `start` / `wait` / `cancel` メソッドを持つ `Trainer` オブジェクトを返します（[トレーナー制御](/ja/sdk/trainer-control) を参照）。この関数は `TrainerInput` のクライアント側バリデーションを **しません**: TypeScript が型付きフィールドをコンパイル時にチェックし、それ以外は `start()` 実行時にクラウド API へ転送されます。不正な値は構築時のクライアント側 throw ではなく、学習中にバックエンドエラーとして現れます。
 
+## シグネチャー
+
+```ts
+function createTrainer(input: TrainerInput): Trainer;
+```
+
+`TrainerInput` の全体は下記のパラメータで説明します。返ってくる `Trainer` は [トレーナー制御](/ja/sdk/trainer-control) ページにあります。
+
 ## 必須フィールド
 
 | フィールド | 型 | 補足 |
@@ -83,6 +91,13 @@ createTrainer({
 
 これらのフィールドは明示的に **安定ではありません**: バックエンド契約はリリース間で変わり得て、渡す値にコンパイル時チェックもありません。上記の型付きフィールドを優先し、他で賄えないときだけ手を出してください。
 
-## まだないもの
+## ロードマップ
 
 - マルチトレーナープロジェクト。`createArkor` は単一の `trainer` を受け付けます。配列形はありません。2 つ目のトレーナーを登録するには、エクスポートをランタイムで切り替えるか、API がその形を獲得するのを待つことになります。
+
+## 関連項目
+
+- [トレーナー制御](/ja/sdk/trainer-control): `Trainer` オブジェクトの `start` / `wait` / `cancel`
+- [ライフサイクルコールバック](/ja/sdk/callbacks): `callbacks` フィールド
+- [`DatasetSource`](/ja/sdk/dataset): `dataset` フィールドの形
+- [`createArkor`](/ja/sdk/create-arkor): トレーナーをプロジェクトマニフェストにラップ

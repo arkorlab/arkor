@@ -1,0 +1,45 @@
+---
+title: "コールバック"
+description: "コードから学習ランを観測する。"
+---
+
+# コールバック
+
+SDK は学習ランがストリームされる間に 5 つのタイミングでコールバックを発火します: started、log、checkpoint、completed、failed。TypeScript から離れずにメトリックスの転送、途中チェックポイントの評価、独自の通知などができます。
+
+```ts
+import { createTrainer } from "arkor";
+
+const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  callbacks: {
+    onStarted: ({ job }) => console.log("started", job.id),
+    onLog: ({ step, loss }) => console.log("step", step, "loss", loss),
+    onCheckpoint: async ({ step, infer }) => {
+      const r = await infer({ messages: [{ role: "user", content: "Hi" }] });
+      console.log("checkpoint", step, await r.text());
+    },
+    onCompleted: ({ job }) => console.log("done", job.id),
+    onFailed: ({ error }) => console.error("failed", error),
+  },
+});
+
+await trainer.start();
+await trainer.wait();
+```
+
+5 つすべてオプションです。各コールバックは Promise を返してよく、SDK は次のイベントを発火する前にそれを await します。
+
+## よくある用途
+
+- **メトリックスの転送**: `onLog` で `step` と `loss` を自前のパイプライン（PostHog、Datadog など）に送る。
+- **学習中の評価**: `onCheckpoint` で `infer()` を取り置いたプロンプトに対して呼び、サンプルをログに残せば、ランが正しい方向に向かっているか早めに判断できる。
+- **完了時の通知**: `onCompleted` や `onFailed` から Slack に投稿、メールを送る。
+
+より詳しいレシピは [ミッドラン評価](/ja/cookbook/mid-run-eval)、[Early Stopping](/ja/cookbook/early-stopping)、[通知](/ja/cookbook/notifications) を参照。
+
+## リファレンス
+
+完全な型シグネチャー、コールバック内で throw すると通常の reject ではなく SSE 再接続をトリガーするルール、各コールバックのパラメータ一覧は [コールバックリファレンス](/ja/sdk/callbacks) を参照してください。ランの概念的な流れは [実行ライフサイクル](/ja/concepts/lifecycle) にあります。

@@ -35,15 +35,17 @@ interface Arkor {
 
 返ってくるオブジェクトは `Object.freeze` 済み。メソッドはありません。フレームワークは `_kind` と `trainer` を直接読みます。
 
-## 今日できること
+## パラメータ
 
 - `trainer`: [`createTrainer`](/ja/sdk/create-trainer) で作った `Trainer` を渡す。型上はオプショナルですが、`trainer` のないマニフェストは `arkor start` で実行できません（ランナーが ``Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.`` で例外が発生します）。
 
-## まだないもの
+## 予約フィールド
 
 - `deploy` と `eval` スロット。`ArkorInput` と `Arkor` ではコメントアウトされた予約フィールドとして現れます。今日それらを渡すと型エラーになり、ランタイムパスもありません。前方互換 API ではなく[ロードマップマーカー](/ja/roadmap#deploy-and-eval-slots)として扱ってください。
 
-## 認識されるエクスポート形
+## 振る舞い
+
+### 認識されるエクスポート形
 
 `arkor start`（経由 `runTrainer`）は `src/arkor/index.ts` を次の 3 つのエクスポートのいずれかについて、優先順位順に検査します:
 
@@ -64,3 +66,9 @@ if (isArkor(value)) {
 ```
 
 マニフェストを動的に消費するコードのために `createArkor` と一緒にエクスポートされている小さな型ガードです。値が null でないオブジェクトで `_kind === "arkor"` であることをチェックします（`Object.isFrozen` は確認 **しません**。`createArkor` 自体は frozen な値を生成するにもかかわらず）。普通に使う場面は限られます。通常のコードでは `index.ts` からの型付きエクスポートが既に正しい形を与えてくれます。
+
+## 関連項目
+
+- [`createTrainer`](/ja/sdk/create-trainer): ラップする `Trainer`
+- [プロジェクト構成 § `src/arkor/`](/ja/concepts/project-structure#srcarkor): マニフェストが読まれる場所
+- [ロードマップ § Deploy と eval スロット](/ja/roadmap#deploy-and-eval-slots): 予約フィールドの方向性

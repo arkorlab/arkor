@@ -1,0 +1,64 @@
+---
+title: "arkor dev"
+description: "Launch Studio in the browser."
+---
+
+# `arkor dev`
+
+`arkor dev` boots [Studio](/concepts/studio) on `http://localhost:4000`. Studio is the local web UI where you trigger training runs, watch the run stream, and chat with the resulting model in the Playground.
+
+## Run it
+
+<CodeGroup>
+
+```bash pnpm
+pnpm dev
+```
+
+```bash npm
+npm run dev
+```
+
+```bash yarn
+yarn dev
+```
+
+```bash bun
+bun dev
+```
+
+</CodeGroup>
+
+Open the URL the CLI prints. Click **Run training** to spawn a training run against `src/arkor/index.ts`. Live metrics stream in; once a checkpoint lands, the Playground lets you chat with it.
+
+`arkor dev` does **not** start a training run on its own. It only serves the UI plus the small loopback API the SPA talks to. Training is triggered from the UI.
+
+## Need a different port?
+
+Pass `--port`:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm dev --port 5000
+```
+
+```bash npm
+npm run dev -- --port 5000
+```
+
+```bash yarn
+yarn dev --port 5000
+```
+
+```bash bun
+bun dev --port 5000
+```
+
+</CodeGroup>
+
+Add `--open` to open the browser automatically.
+
+## Reference
+
+For the full flag list, the loopback / CSRF security model, and the troubleshooting catalog (port collisions, anonymous bootstrap, token expiry, 403 reasons), see the [`arkor dev` reference](/cli/dev).

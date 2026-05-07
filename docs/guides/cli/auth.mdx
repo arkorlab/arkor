@@ -1,0 +1,100 @@
+---
+title: "Sign in"
+description: "arkor login, logout, whoami."
+---
+
+# Sign in to Arkor Cloud
+
+You can use Arkor anonymously without ever signing in: `arkor dev` bootstraps an anonymous identity for you on first launch. To tie work to your Arkor Cloud account instead, use `arkor login`.
+
+## Sign in
+
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor login
+```
+
+```bash npm
+npm arkor login
+```
+
+```bash yarn
+yarn arkor login
+```
+
+```bash yarn-berry
+yarn run arkor login
+```
+
+```bash bun
+bun arkor login
+```
+
+</CodeGroup>
+
+The CLI prompts you to pick **OAuth (browser)** or **Anonymous**. Pick OAuth to sign in to your Arkor Cloud account; the CLI opens a browser, you authorize, and credentials land in `~/.arkor/credentials.json`.
+
+To skip the picker:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor login --oauth
+```
+
+```bash npm
+npm arkor login --oauth
+```
+
+```bash yarn
+yarn arkor login --oauth
+```
+
+```bash yarn-berry
+yarn run arkor login --oauth
+```
+
+```bash bun
+bun arkor login --oauth
+```
+
+</CodeGroup>
+
+In CI, use `--anonymous` instead; OAuth needs a browser.
+
+## Check who you are
+
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor whoami
+```
+
+```bash npm
+npm arkor whoami
+```
+
+```bash yarn
+yarn arkor whoami
+```
+
+```bash yarn-berry
+yarn run arkor whoami
+```
+
+```bash bun
+bun arkor whoami
+```
+
+</CodeGroup>
+
+Prints the current identity and the orgs you can reach.
+
+## Sign out
+
+`arkor logout` deletes `~/.arkor/credentials.json`. The next `arkor dev` will bootstrap a fresh anonymous identity, or you can `arkor login --oauth` again.
+
+## Reference
+
+For the full picker / flag matrix, the anonymous-vs-OAuth tradeoffs, token expiry behavior, and every error message, see the [auth reference](/cli/auth).

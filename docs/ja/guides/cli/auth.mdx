@@ -1,0 +1,100 @@
+---
+title: "サインイン"
+description: "arkor login、logout、whoami。"
+---
+
+# Arkor Cloud にサインイン
+
+Arkor は一度もサインインせずに匿名で使えます。`arkor dev` は初回起動時に匿名 identity をブートストラップしてくれます。作業を Arkor Cloud アカウントに紐付けたいときは `arkor login` を使います。
+
+## サインイン
+
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor login
+```
+
+```bash npm
+npm arkor login
+```
+
+```bash yarn
+yarn arkor login
+```
+
+```bash yarn-berry
+yarn run arkor login
+```
+
+```bash bun
+bun arkor login
+```
+
+</CodeGroup>
+
+CLI が **OAuth (browser)** か **Anonymous** を選ぶよう尋ねます。OAuth を選ぶと Arkor Cloud アカウントでサインインできます。CLI がブラウザーを開き、認可すると認証情報が `~/.arkor/credentials.json` に保存されます。
+
+ピッカーをスキップしたい場合:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor login --oauth
+```
+
+```bash npm
+npm arkor login --oauth
+```
+
+```bash yarn
+yarn arkor login --oauth
+```
+
+```bash yarn-berry
+yarn run arkor login --oauth
+```
+
+```bash bun
+bun arkor login --oauth
+```
+
+</CodeGroup>
+
+CI では `--anonymous` を使ってください。OAuth はブラウザーが必要です。
+
+## 自分が誰か確認
+
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor whoami
+```
+
+```bash npm
+npm arkor whoami
+```
+
+```bash yarn
+yarn arkor whoami
+```
+
+```bash yarn-berry
+yarn run arkor whoami
+```
+
+```bash bun
+bun arkor whoami
+```
+
+</CodeGroup>
+
+現在の identity と到達できる org を表示します。
+
+## サインアウト
+
+`arkor logout` は `~/.arkor/credentials.json` を削除します。次の `arkor dev` は新しい匿名 identity をブートストラップしますし、`arkor login --oauth` で再ログインもできます。
+
+## リファレンス
+
+全ピッカー / フラグ行列、匿名と OAuth のトレードオフ、トークン期限の挙動、各エラーメッセージは [認証リファレンス](/ja/cli/auth) を参照してください。

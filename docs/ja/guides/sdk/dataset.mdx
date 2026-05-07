@@ -1,0 +1,37 @@
+---
+title: "データセット"
+description: "トレーナーにデータの所在を伝える。"
+---
+
+# データセット
+
+[`createTrainer`](/ja/guides/sdk/create-trainer) の `dataset` フィールドは 2 つの形のいずれかを受け取ります: HuggingFace リポジトリ名、または blob URL。
+
+## HuggingFace（多くのプロジェクト）
+
+```ts
+dataset: {
+  type: "huggingface",
+  name: "arkorlab/triage-demo",
+}
+```
+
+公開 Hub リポジトリは追加認証なしで動きます。同梱テンプレート（`triage`、`translate`、`redaction`）はすべてこの形を使います。`split` と `subset` で特定の split や subset を指定できます。
+
+## Blob URL（自前のデータ）
+
+```ts
+dataset: {
+  type: "blob",
+  url: "https://example.com/data.jsonl",
+  token: process.env.DATASET_TOKEN, // 任意
+}
+```
+
+自分が管理する場所にデータがあるとき（署名付き S3 URL、社内 CDN、バックエンドが学習開始時に `GET` で取れる任意の場所）に使います。
+
+ローカルファイルは今のところ `DatasetSource` にありません。使うには blob URL としてホストするか、プライベート HuggingFace リポジトリにアップロードしてください。
+
+## リファレンス
+
+完全な discriminated union、各フィールド、`token` の意味、各形を選ぶ理由は [`DatasetSource` リファレンス](/ja/sdk/dataset) を参照してください。

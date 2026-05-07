@@ -1,0 +1,37 @@
+---
+title: "Dataset"
+description: "Tell the trainer where data comes from."
+---
+
+# Dataset
+
+The `dataset` field on [`createTrainer`](/guides/sdk/create-trainer) takes one of two shapes: a HuggingFace repository name or a blob URL.
+
+## HuggingFace (most projects)
+
+```ts
+dataset: {
+  type: "huggingface",
+  name: "arkorlab/triage-demo",
+}
+```
+
+Public Hub repos work without further auth. The bundled templates (`triage`, `translate`, `redaction`) all use this form. Optional `split` and `subset` let you target a specific split or named subset.
+
+## Blob URL (your own data)
+
+```ts
+dataset: {
+  type: "blob",
+  url: "https://example.com/data.jsonl",
+  token: process.env.DATASET_TOKEN, // optional
+}
+```
+
+Use this when the data lives somewhere you control: a signed S3 URL, an internal CDN, anything the backend can `GET` once at the start of the run.
+
+Local files are not in `DatasetSource` today. To use one, host it as a blob URL or upload it to a private HuggingFace repo first.
+
+## Reference
+
+For the full discriminated union, every field, the `token` semantics, and the rationale behind picking each form, see the [`DatasetSource` reference](/sdk/dataset).
