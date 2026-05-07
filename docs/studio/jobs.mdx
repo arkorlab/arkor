@@ -62,7 +62,7 @@ Hovering shows the nearest step and whichever of `loss` / `evalLoss` are present
 
 The **Advanced** toggle in the chart's header reveals a per-series statistics panel. Each card reports:
 
-- **Mean CE ± 95% CI** — sample mean of the loss values together with the half-width of the 95% confidence interval (Student's t-distribution; falls back to z = 1.96 for n > 31).
+- **Mean loss ± 95% CI** — sample mean of the loss values together with the half-width of the 95% confidence interval (Student's t-distribution; falls back to z = 1.96 for n > 31).
 - **Std dev** and **Variance** — Bessel-corrected sample estimates (`ddof=1`).
 - **p90** and **p95** — linearly interpolated percentiles, matching numpy's default convention.
 

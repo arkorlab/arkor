@@ -52,14 +52,14 @@ describe("<LossChart />", () => {
     expect(screen.queryByText(/mean ce/i)).toBeNull();
   });
 
-  it("shows mean CE ± 95% CI, std dev, variance, p90, and p95 in advanced mode", () => {
+  it("shows mean loss ± 95% CI, std dev, variance, p90, and p95 in advanced mode", () => {
     const points: LossPoint[] = [1, 2, 3, 4, 5].map((loss, i) => ({
       step: i,
       loss,
     }));
     render(<LossChart points={points} advanced />);
     // Advanced panel surfaces all the requested summary fields.
-    expect(screen.getByText("Mean CE")).toBeInTheDocument();
+    expect(screen.getByText("Mean loss")).toBeInTheDocument();
     expect(screen.getByText(/95% CI/)).toBeInTheDocument();
     expect(screen.getByText("Std dev")).toBeInTheDocument();
     expect(screen.getByText("Variance")).toBeInTheDocument();

@@ -21,10 +21,13 @@ export function mean(values: number[]): number {
 
 // Sample variance (Bessel-corrected, divides by n-1) so the stddev /
 // CI we report match the unbiased estimate stats packages produce.
-// Single-sample input has no spread, so we report 0 instead of NaN.
+// Empty input returns NaN — consistent with `mean([])` / `percentile([])`
+// — so callers don't silently treat a no-data state as zero spread.
+// Single-sample input has no spread to estimate, so we report 0.
 export function variance(values: number[]): number {
   const n = values.length;
-  if (n <= 1) return 0;
+  if (n === 0) return NaN;
+  if (n === 1) return 0;
   const m = mean(values);
   let sq = 0;
   for (const v of values) {
@@ -39,13 +42,16 @@ export function stddev(values: number[]): number {
 }
 
 // Linear-interpolated percentile — same convention as numpy's default
-// (`linear`). `q` is in [0, 1].
+// (`linear`). `q` is clamped to [0, 1]; out-of-range values would
+// otherwise compute lo/hi outside the sorted-array bounds and trip the
+// non-null assertions below.
 export function percentile(values: number[], q: number): number {
   const n = values.length;
   if (n === 0) return NaN;
   if (n === 1) return values[0]!;
+  const clamped = Math.min(1, Math.max(0, q));
   const sorted = [...values].sort((a, b) => a - b);
-  const rank = q * (n - 1);
+  const rank = clamped * (n - 1);
   const lo = Math.floor(rank);
   const hi = Math.ceil(rank);
   if (lo === hi) return sorted[lo]!;

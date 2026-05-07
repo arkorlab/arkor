@@ -25,8 +25,9 @@ describe("stats", () => {
     it("uses Bessel correction (divides by n-1)", () => {
       // Sample variance of [1,2,3,4,5] is 10 / 4 = 2.5; population
       // variance would be 10 / 5 = 2. We explicitly want the unbiased
-      // sample estimate so stats here match numpy / pandas / scipy
-      // with `ddof=1` (their default for sample stats).
+      // sample estimate so stats match pandas' default and numpy /
+      // scipy when configured with `ddof=1` (numpy's own default for
+      // `var` / `std` is `ddof=0`, i.e. population).
       expect(variance([1, 2, 3, 4, 5])).toBeCloseTo(2.5, 10);
       expect(stddev([1, 2, 3, 4, 5])).toBeCloseTo(Math.sqrt(2.5), 10);
     });
@@ -34,6 +35,14 @@ describe("stats", () => {
     it("returns 0 for a single-sample input rather than NaN", () => {
       expect(variance([1.5])).toBe(0);
       expect(stddev([1.5])).toBe(0);
+    });
+
+    it("returns NaN for an empty array — consistent with mean([])", () => {
+      // Returning 0 here would silently mask "no data" as "no spread";
+      // NaN is the same convention `mean` and `percentile` use, so all
+      // three short-circuit the same way.
+      expect(Number.isNaN(variance([]))).toBe(true);
+      expect(Number.isNaN(stddev([]))).toBe(true);
     });
   });
 
@@ -54,6 +63,16 @@ describe("stats", () => {
 
     it("returns the single value for a one-element input", () => {
       expect(percentile([42], 0.95)).toBe(42);
+    });
+
+    it("clamps q to [0, 1] so out-of-range values return min / max", () => {
+      // Out-of-range q would otherwise compute lo/hi outside the
+      // sorted-array bounds and trip the non-null assertions inside
+      // the function. Clamping pins `q < 0` to the min and `q > 1`
+      // to the max element instead of throwing.
+      const xs = [10, 20, 30, 40];
+      expect(percentile(xs, -0.5)).toBe(10);
+      expect(percentile(xs, 1.5)).toBe(40);
     });
   });
 
