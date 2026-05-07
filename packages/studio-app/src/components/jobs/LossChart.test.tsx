@@ -135,4 +135,31 @@ describe("<LossChart />", () => {
     expect(screen.getByText("n = 3")).toBeInTheDocument();
     expect(screen.getByText("n = 0")).toBeInTheDocument();
   });
+
+  it("drops non-finite loss / evalLoss values rather than NaN-poisoning the chart", () => {
+    // JSON allows exponent forms like `1e309` that parse to `Infinity`,
+    // and explicit `NaN` can also slip in. Letting either through
+    // would corrupt min/max/span and leave NaN coordinates in the SVG
+    // path. The chart should treat them like nulls — the surrounding
+    // finite points still render as a normal series.
+    const points: LossPoint[] = [
+      { step: 0, loss: 1.0 },
+      { step: 1, loss: Infinity },
+      { step: 2, loss: NaN, evalLoss: Infinity },
+      { step: 3, loss: 0.9, evalLoss: 1.1 },
+    ];
+    const { container } = render(<LossChart points={points} advanced />);
+    // Training-stats card sees only the two finite loss values
+    // (steps 0 and 3), so n = 2. Eval-stats card sees only one finite
+    // value (step 3), so n = 1.
+    expect(screen.getByText("n = 2")).toBeInTheDocument();
+    expect(screen.getByText("n = 1")).toBeInTheDocument();
+    // Mean of [1.0, 0.9] is 0.95 → "0.9500 ± …".
+    expect(screen.getByText(/0\.9500 ± /)).toBeInTheDocument();
+    // No path's `d` attribute carries `NaN` — the rendered SVG would
+    // be unusable otherwise.
+    for (const path of container.querySelectorAll("svg path")) {
+      expect(path.getAttribute("d")).not.toMatch(/NaN/);
+    }
+  });
 });

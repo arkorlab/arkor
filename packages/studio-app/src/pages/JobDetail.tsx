@@ -158,7 +158,17 @@ export function JobDetail({ jobId }: { jobId: string }) {
           loss?: number | null;
           evalLoss?: number | null;
         };
-        if (typeof d.step !== "number") return;
+        if (!Number.isFinite(d.step)) return;
+        // Validate loss / evalLoss with `Number.isFinite` rather than
+        // `typeof === "number"` so JSON exponent forms that parse to
+        // `Infinity` (e.g. `1e309`) or an explicit `NaN` are coerced
+        // to null at the boundary. LossChart and `stats.ts` both
+        // assume finite inputs — letting non-finite values through
+        // would NaN-poison min/max/span and the rendered SVG paths.
+        const safeLoss = Number.isFinite(d.loss) ? (d.loss as number) : null;
+        const safeEvalLoss = Number.isFinite(d.evalLoss)
+          ? (d.evalLoss as number)
+          : null;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
         // chart's visual resolution at any reasonable width.
@@ -167,8 +177,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
             ...prev,
             {
               step: d.step!,
-              loss: d.loss ?? null,
-              evalLoss: typeof d.evalLoss === "number" ? d.evalLoss : null,
+              loss: safeLoss,
+              evalLoss: safeEvalLoss,
             },
           ];
           return next.length > MAX_LOSS_POINTS

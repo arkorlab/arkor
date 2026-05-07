@@ -60,11 +60,17 @@ export function LossChart({
   // still appear in the eval line, legend, hover, and stats. Training
   // and eval series are derived from this union so both views agree
   // on which steps exist.
+  //
+  // Membership uses `Number.isFinite` rather than `typeof === "number"`
+  // so JSON-parsed `Infinity` / `NaN` (from exponent forms like `1e309`
+  // or an explicit `"NaN"` upstream) cannot enter the series. Letting
+  // them through would NaN-poison `minLoss` / `maxLoss` / `span` below
+  // and break `stats.ts`, which is documented to assume finite inputs.
   const unified = useMemo<ChartPoint[]>(() => {
     const byStep = new Map<number, ChartPoint>();
     for (const p of points) {
-      const hasLoss = typeof p.loss === "number";
-      const hasEval = typeof p.evalLoss === "number";
+      const hasLoss = Number.isFinite(p.loss);
+      const hasEval = Number.isFinite(p.evalLoss);
       if (!hasLoss && !hasEval) continue;
       const existing = byStep.get(p.step);
       if (existing) {
@@ -86,7 +92,7 @@ export function LossChart({
   const trainSeries = useMemo(
     () =>
       unified.filter(
-        (p): p is ChartPoint & { loss: number } => typeof p.loss === "number",
+        (p): p is ChartPoint & { loss: number } => Number.isFinite(p.loss),
       ),
     [unified],
   );
@@ -95,7 +101,7 @@ export function LossChart({
     () =>
       unified.filter(
         (p): p is ChartPoint & { evalLoss: number } =>
-          typeof p.evalLoss === "number",
+          Number.isFinite(p.evalLoss),
       ),
     [unified],
   );
