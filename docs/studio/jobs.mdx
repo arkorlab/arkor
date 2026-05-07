@@ -41,7 +41,7 @@ The list shows whatever order the backend returned. There is no client-side filt
 | Event | Effect on the page |
 | --- | --- |
 | `training.started` | Status flips to `running`. The raw line `[started] <data>` is appended to the event log. |
-| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The raw line `[log] step=<n> loss=<value> evalLoss=<value>` joins the event log; the `evalLoss=` segment is omitted on steps without one. |
+| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The event log row reads `step=<n> loss=<value> evalLoss=<value>` (the event name is rendered in its own column); the `evalLoss=` segment is omitted on steps without one. |
 | `checkpoint.saved` | Raw line `[checkpoint] <data>` joins the event log. The chart is not affected. |
 | `training.completed` | Status flips to `completed`. Artifact count is shown below the status (`artifacts: <n>`). |
 | `training.failed` | Status flips to `failed`. The error message from the event payload is shown beneath the status. |
@@ -51,12 +51,12 @@ Stream errors append `[stream error]` to the log; reconnect is left to the brows
 
 The event log keeps only the **last 50 lines** (older lines drop off as new ones arrive). It is a raw `<pre>` block, intended for quick inspection rather than full forensic logs; for the complete history, look at the cloud-api directly.
 
-The loss chart is an SVG plot drawn from `training.log` events that include a numeric `loss`. It uses min-max scaling on the y-axis and the step number on the x-axis, and shows two series:
+The loss chart is an SVG plot drawn from `training.log` events. It uses min-max scaling on the y-axis and the step number on the x-axis, and shows up to two series:
 
-- **Training loss** — solid teal line, one vertex per `training.log` event.
-- **Eval loss** — dashed pink line with point markers, drawn from the subset of events that carry a numeric `evalLoss` (typically every `evalSteps` ticks). The legend hides this entry until at least one eval point arrives.
+- **Training loss** — solid teal line, one vertex per event with a numeric `loss`.
+- **Eval loss** — dashed pink line with point markers, drawn from events that carry a numeric `evalLoss` (typically every `evalSteps` ticks). The series is built from the events directly, so eval-only frames (numeric `evalLoss` with `loss` omitted) still appear in the line, legend, and stats. The legend hides this entry until at least one eval point arrives.
 
-Hovering shows the nearest step and both loss values. If no `training.log` event has arrived yet, the chart slot reads `Waiting for training.log events…`.
+Hovering shows the nearest step and whichever of `loss` / `evalLoss` are present at that step (eval-only steps don't show a `loss` value, and vice-versa). If no `training.log` event has arrived yet, the chart slot reads `Waiting for training.log events…`.
 
 ### Advanced metrics
 

@@ -41,7 +41,7 @@ Jobs リストはマウント時に 1 度、その後 5 秒ごとに `GET /api/j
 | イベント | ページへの効果 |
 | --- | --- |
 | `training.started` | ステータスが `running` に変わる。生行 `[started] <data>` がイベントログに追加。 |
-| `training.log` | `step`、`loss`、そして（含まれていれば）`evalLoss` が Loss チャートのデータ配列に追加。生行 `[log] step=<n> loss=<value> evalLoss=<value>` がイベントログに加わる。`evalLoss` を伴わないステップでは `evalLoss=` の部分は省略される。 |
+| `training.log` | `step`、`loss`、そして（含まれていれば）`evalLoss` が Loss チャートのデータ配列に追加。イベントログ行は `step=<n> loss=<value> evalLoss=<value>`（イベント名は別カラムに表示される）。`evalLoss` を伴わないステップでは `evalLoss=` の部分は省略される。 |
 | `checkpoint.saved` | 生行 `[checkpoint] <data>` がイベントログに加わる。チャートには影響なし。 |
 | `training.completed` | ステータスが `completed` に変わる。artifact 数がステータス下に表示（`artifacts: <n>`）。 |
 | `training.failed` | ステータスが `failed` に変わる。イベントペイロードのエラーメッセージがステータス下に表示。 |
@@ -51,12 +51,12 @@ Jobs リストはマウント時に 1 度、その後 5 秒ごとに `GET /api/j
 
 イベントログは **直近 50 行** だけを保持します（新着につれて古い行が消えていきます）。生の `<pre>` ブロックで、フォレンジック用ではなく素早い目視確認のためのものです。完全な履歴はクラウド API を直接見てください。
 
-Loss チャートは数値 `loss` を含む `training.log` イベントから描画される SVG プロットです。Y 軸は最小値と最大値によるスケーリング、X 軸はステップ番号で、2 つの系列を表示します:
+Loss チャートは `training.log` イベントから描画される SVG プロットです。Y 軸は最小値と最大値によるスケーリング、X 軸はステップ番号で、最大 2 系列を表示します:
 
-- **Training loss** — 実線のティール色。`training.log` イベントごとに 1 頂点。
-- **Eval loss** — 破線のピンク色（点マーカー付き）。数値 `evalLoss` を含むイベントのサブセット（通常は `evalSteps` 刻み）から描画。Eval ポイントが 1 つも来ていない間は凡例にも表示されません。
+- **Training loss** — 実線のティール色。数値 `loss` を含むイベントごとに 1 頂点。
+- **Eval loss** — 破線のピンク色（点マーカー付き）。数値 `evalLoss` を含むイベント（通常は `evalSteps` 刻み）から描画。系列はイベントから直接構築するため、`evalLoss` のみを持ち `loss` を含まない eval-only フレームも線・凡例・統計に反映されます。Eval ポイントが 1 つも来ていない間は凡例にも表示されません。
 
-ホバーすると最寄りステップと両系列の loss 値が出ます。`training.log` イベントが 1 つも来ていなければ、チャート枠は `Waiting for training.log events…`（`training.log` イベント待ち）と読みます。
+ホバーすると最寄りステップと、そのステップに含まれる `loss` / `evalLoss` のうち存在する値が表示されます（eval-only ステップでは `loss` 値は出ず、その逆も同様）。`training.log` イベントが 1 つも来ていなければ、チャート枠は `Waiting for training.log events…`（`training.log` イベント待ち）と読みます。
 
 ### 上級モード（Advanced metrics）
 

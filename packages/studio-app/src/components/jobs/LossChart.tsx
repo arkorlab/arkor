@@ -7,14 +7,13 @@ export interface LossPoint {
   evalLoss?: number | null;
 }
 
-// Narrowed view of `LossPoint` once a missing-loss point has been
-// filtered out. Used as the hover state's type so the chart's render
-// path doesn't have to repeatedly assert `loss as number` — `setHover`
-// is only ever called with elements of `numeric`, which already has
-// this shape.
-type NumericLossPoint = {
+// One vertex on the chart. At least one of `loss` / `evalLoss` is
+// non-null (the union pass below drops points that contribute
+// neither), but either may be missing on a given step — the trainer
+// is allowed to log eval-only or train-only frames.
+type ChartPoint = {
   step: number;
-  loss: number;
+  loss: number | null;
   evalLoss: number | null;
 };
 
@@ -33,7 +32,7 @@ export function LossChart({
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
-  const [hover, setHover] = useState<NumericLossPoint | null>(null);
+  const [hover, setHover] = useState<ChartPoint | null>(null);
 
   useEffect(() => {
     const el = wrapperRef.current;
@@ -55,36 +54,66 @@ export function LossChart({
     return () => ro.disconnect();
   }, []);
 
-  const numeric = useMemo<NumericLossPoint[]>(
-    () =>
-      points
-        .filter((p): p is LossPoint & { loss: number } => typeof p.loss === "number")
-        .map((p) => ({
+  // Unified series keyed by step. Building this from `points` (rather
+  // than from the training-loss subset) is what lets eval-only frames
+  // — `training.log` events that omit `loss` but carry `evalLoss` —
+  // still appear in the eval line, legend, hover, and stats. Training
+  // and eval series are derived from this union so both views agree
+  // on which steps exist.
+  const unified = useMemo<ChartPoint[]>(() => {
+    const byStep = new Map<number, ChartPoint>();
+    for (const p of points) {
+      const hasLoss = typeof p.loss === "number";
+      const hasEval = typeof p.evalLoss === "number";
+      if (!hasLoss && !hasEval) continue;
+      const existing = byStep.get(p.step);
+      if (existing) {
+        // Later frames at the same step (rare, but possible if a
+        // trainer re-emits) win for whichever field they fill in.
+        if (hasLoss) existing.loss = p.loss as number;
+        if (hasEval) existing.evalLoss = p.evalLoss as number;
+      } else {
+        byStep.set(p.step, {
           step: p.step,
-          loss: p.loss,
-          evalLoss: typeof p.evalLoss === "number" ? p.evalLoss : null,
-        })),
-    [points],
+          loss: hasLoss ? (p.loss as number) : null,
+          evalLoss: hasEval ? (p.evalLoss as number) : null,
+        });
+      }
+    }
+    return [...byStep.values()].sort((a, b) => a.step - b.step);
+  }, [points]);
+
+  const trainSeries = useMemo(
+    () =>
+      unified.filter(
+        (p): p is ChartPoint & { loss: number } => typeof p.loss === "number",
+      ),
+    [unified],
   );
 
-  // Eval-loss series is the subset of points that carry a numeric
-  // evalLoss. Trainers typically log eval at a coarser cadence
-  // (`evalSteps`), so this is sparse compared to the training series.
   const evalSeries = useMemo(
-    () => numeric.filter((p): p is NumericLossPoint & { evalLoss: number } => typeof p.evalLoss === "number"),
-    [numeric],
+    () =>
+      unified.filter(
+        (p): p is ChartPoint & { evalLoss: number } =>
+          typeof p.evalLoss === "number",
+      ),
+    [unified],
   );
 
   const trainStats = useMemo(
-    () => (numeric.length > 0 ? summarize(numeric.map((p) => p.loss)) : null),
-    [numeric],
+    () =>
+      trainSeries.length > 0 ? summarize(trainSeries.map((p) => p.loss)) : null,
+    [trainSeries],
   );
   const evalStats = useMemo(
-    () => (evalSeries.length > 0 ? summarize(evalSeries.map((p) => p.evalLoss)) : null),
+    () =>
+      evalSeries.length > 0
+        ? summarize(evalSeries.map((p) => p.evalLoss))
+        : null,
     [evalSeries],
   );
 
-  if (numeric.length === 0) {
+  if (unified.length === 0) {
     return (
       <div
         ref={wrapperRef}
@@ -97,10 +126,11 @@ export function LossChart({
 
   // Range covers both series so eval-loss spikes don't get clipped when
   // they live outside the training-loss range.
-  const allLossValues =
-    evalSeries.length > 0
-      ? [...numeric.map((p) => p.loss), ...evalSeries.map((p) => p.evalLoss)]
-      : numeric.map((p) => p.loss);
+  const allLossValues: number[] = [];
+  for (const p of unified) {
+    if (p.loss !== null) allLossValues.push(p.loss);
+    if (p.evalLoss !== null) allLossValues.push(p.evalLoss);
+  }
   const minLoss = Math.min(...allLossValues);
   const maxLoss = Math.max(...allLossValues);
   const span = Math.max(0.0001, maxLoss - minLoss);
@@ -109,8 +139,8 @@ export function LossChart({
   // training.log at step 1 leaves an empty gap from PADDING.left to
   // the line's first vertex and tick labels at the left edge would
   // disagree with where the line actually starts.
-  const firstStep = numeric[0]!.step;
-  const lastStep = Math.max(firstStep + 1, numeric[numeric.length - 1]!.step);
+  const firstStep = unified[0]!.step;
+  const lastStep = Math.max(firstStep + 1, unified[unified.length - 1]!.step);
   const xSpan = lastStep - firstStep;
   const innerW = Math.max(50, width - PADDING.left - PADDING.right);
   const innerH = HEIGHT - PADDING.top - PADDING.bottom;
@@ -122,10 +152,16 @@ export function LossChart({
     return PADDING.top + (1 - (loss - minLoss) / span) * innerH;
   }
 
-  const linePath = numeric
-    .map((p, i) => `${i === 0 ? "M" : "L"}${xFor(p.step).toFixed(2)},${yFor(p.loss).toFixed(2)}`)
+  const linePath = trainSeries
+    .map(
+      (p, i) =>
+        `${i === 0 ? "M" : "L"}${xFor(p.step).toFixed(2)},${yFor(p.loss).toFixed(2)}`,
+    )
     .join(" ");
-  const areaPath = `${linePath} L${xFor(numeric[numeric.length - 1]!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(numeric[0]!.step).toFixed(2)},${PADDING.top + innerH} Z`;
+  const areaPath =
+    trainSeries.length > 0
+      ? `${linePath} L${xFor(trainSeries[trainSeries.length - 1]!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0]!.step).toFixed(2)},${PADDING.top + innerH} Z`
+      : "";
 
   const evalPath =
     evalSeries.length > 0
@@ -145,7 +181,7 @@ export function LossChart({
   });
   // De-dupe via Set so a small span (e.g. lastStep === 3 with
   // xTickCount === 6) doesn't render the same step number twice.
-  const xTickCount = Math.min(6, numeric.length);
+  const xTickCount = Math.min(6, unified.length);
   const xTicks = Array.from(
     new Set(
       Array.from({ length: xTickCount }).map((_, i) => {
@@ -168,26 +204,35 @@ export function LossChart({
       Math.min(1, (e.clientX - rect.left) / rect.width),
     );
     const targetStep = Math.round(firstStep + fraction * xSpan);
-    // training.log events arrive in step order, so `numeric` is sorted
-    // by `.step` — binary search for the insertion point and then pick
-    // whichever neighbour is closer (O(log n) vs the previous O(n)
-    // sweep that was running on every mousemove against up to
-    // MAX_LOSS_POINTS=2000 entries).
+    // `unified` is sorted by step (see useMemo above) — binary search
+    // for the insertion point and pick whichever neighbour is closer.
+    // O(log n) vs the previous O(n) sweep that was running on every
+    // mousemove against up to MAX_LOSS_POINTS=2000 entries.
     let lo = 0;
-    let hi = numeric.length - 1;
+    let hi = unified.length - 1;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (numeric[mid]!.step < targetStep) lo = mid + 1;
+      if (unified[mid]!.step < targetStep) lo = mid + 1;
       else hi = mid;
     }
-    const candidate = numeric[lo]!;
-    const before = lo > 0 ? numeric[lo - 1]! : candidate;
+    const candidate = unified[lo]!;
+    const before = lo > 0 ? unified[lo - 1]! : candidate;
     const nearest =
       Math.abs(before.step - targetStep) <= Math.abs(candidate.step - targetStep)
         ? before
         : candidate;
     setHover(nearest);
   }
+
+  // Tooltip y-anchor: prefer the training-loss vertex when present,
+  // otherwise pin to the eval-loss vertex so eval-only steps still
+  // get a sensibly-placed tooltip.
+  const hoverAnchorLoss =
+    hover === null
+      ? 0
+      : hover.loss !== null
+        ? hover.loss
+        : (hover.evalLoss as number);
 
   return (
     <div ref={wrapperRef} className="relative w-full">
@@ -238,15 +283,17 @@ export function LossChart({
           </text>
         ))}
 
-        <path d={areaPath} fill="url(#loss-area)" />
-        <path
-          d={linePath}
-          fill="none"
-          stroke={TRAIN_STROKE}
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        {areaPath ? <path d={areaPath} fill="url(#loss-area)" /> : null}
+        {linePath ? (
+          <path
+            d={linePath}
+            fill="none"
+            stroke={TRAIN_STROKE}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : null}
 
         {evalPath ? (
           <path
@@ -280,15 +327,17 @@ export function LossChart({
               className="stroke-zinc-300 dark:stroke-zinc-700"
               strokeDasharray="2 3"
             />
-            <circle
-              cx={xFor(hover.step)}
-              cy={yFor(hover.loss)}
-              r={3.5}
-              fill="white"
-              stroke={TRAIN_STROKE}
-              strokeWidth={2}
-            />
-            {typeof hover.evalLoss === "number" ? (
+            {hover.loss !== null ? (
+              <circle
+                cx={xFor(hover.step)}
+                cy={yFor(hover.loss)}
+                r={3.5}
+                fill="white"
+                stroke={TRAIN_STROKE}
+                strokeWidth={2}
+              />
+            ) : null}
+            {hover.evalLoss !== null ? (
               <circle
                 cx={xFor(hover.step)}
                 cy={yFor(hover.evalLoss)}
@@ -312,24 +361,31 @@ export function LossChart({
         />
       </svg>
 
-      <Legend hasEval={evalSeries.length > 0} />
+      <Legend
+        hasTrain={trainSeries.length > 0}
+        hasEval={evalSeries.length > 0}
+      />
 
       {hover ? (
         <div
           className="pointer-events-none absolute -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] font-mono shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
           style={{
             left: xFor(hover.step),
-            top: Math.max(0, yFor(hover.loss) - 36),
+            top: Math.max(0, yFor(hoverAnchorLoss) - 36),
           }}
         >
           <span className="text-zinc-500 dark:text-zinc-400">step </span>
           <span className="text-zinc-900 dark:text-zinc-100">{hover.step}</span>
-          <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
-          <span className="text-zinc-500 dark:text-zinc-400">loss </span>
-          <span className="text-teal-600 dark:text-teal-300">
-            {hover.loss.toFixed(4)}
-          </span>
-          {typeof hover.evalLoss === "number" ? (
+          {hover.loss !== null ? (
+            <>
+              <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
+              <span className="text-zinc-500 dark:text-zinc-400">loss </span>
+              <span className="text-teal-600 dark:text-teal-300">
+                {hover.loss.toFixed(4)}
+              </span>
+            </>
+          ) : null}
+          {hover.evalLoss !== null ? (
             <>
               <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
               <span className="text-zinc-500 dark:text-zinc-400">eval </span>
@@ -348,16 +404,25 @@ export function LossChart({
   );
 }
 
-function Legend({ hasEval }: { hasEval: boolean }) {
+function Legend({
+  hasTrain,
+  hasEval,
+}: {
+  hasTrain: boolean;
+  hasEval: boolean;
+}) {
+  if (!hasTrain && !hasEval) return null;
   return (
     <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-zinc-600 dark:text-zinc-400">
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          className="inline-block h-0.5 w-4 rounded-full"
-          style={{ backgroundColor: TRAIN_STROKE }}
-        />
-        Training loss
-      </span>
+      {hasTrain ? (
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-block h-0.5 w-4 rounded-full"
+            style={{ backgroundColor: TRAIN_STROKE }}
+          />
+          Training loss
+        </span>
+      ) : null}
       {hasEval ? (
         <span className="inline-flex items-center gap-1.5">
           <span

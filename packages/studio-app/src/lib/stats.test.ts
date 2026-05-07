@@ -67,8 +67,10 @@ describe("stats", () => {
     });
 
     it("falls back to the normal-distribution z=1.96 for n > 31", () => {
-      // 32 identical values + one outlier so stddev is non-zero;
-      // the actual numbers don't matter, just that df=31 > 30.
+      // 31 identical values + one outlier (n=32, df=31) so stddev is
+      // non-zero. The actual numbers don't matter; what matters is
+      // that df is above the t-table cutoff (30) and we exercise the
+      // z=1.96 fallback path.
       const xs = Array.from({ length: 31 }, () => 1).concat([2]);
       const ci = confidenceInterval95(xs);
       const sd = stddev(xs);

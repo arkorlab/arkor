@@ -92,4 +92,42 @@ describe("<LossChart />", () => {
     // Eval-mean of [2.0, 1.8, 1.6] is 1.8 → "1.8000 ± …".
     expect(screen.getByText(/1\.8000 ± /)).toBeInTheDocument();
   });
+
+  it("still renders the eval series when training.log frames omit `loss`", () => {
+    // Eval-only logging shape: trainer reports `evalLoss` on a coarser
+    // cadence and elides `loss` on those frames. The chart must still
+    // surface these in the eval line, legend, and stats — earlier
+    // versions filtered the eval series through the training-loss
+    // numeric subset and dropped them entirely.
+    const points: LossPoint[] = [
+      { step: 0, loss: null, evalLoss: 1.5 },
+      { step: 1, loss: null, evalLoss: 1.4 },
+      { step: 2, loss: null, evalLoss: 1.3 },
+    ];
+    const { container } = render(<LossChart points={points} />);
+    // Eval line is drawn; the training line and its area gradient are
+    // omitted entirely (no `loss` data to draw).
+    const paths = container.querySelectorAll("svg path");
+    expect(paths.length).toBe(1);
+    // One eval marker per point.
+    expect(container.querySelectorAll("svg circle").length).toBe(3);
+    // Legend hides the training entry when no training data is present
+    // but still surfaces the eval entry.
+    expect(screen.queryByText(/training loss/i)).toBeNull();
+    expect(screen.getByText(/eval loss/i)).toBeInTheDocument();
+  });
+
+  it("computes eval stats from eval-only frames in advanced mode", () => {
+    const points: LossPoint[] = [
+      { step: 0, loss: null, evalLoss: 1.5 },
+      { step: 1, loss: null, evalLoss: 1.4 },
+      { step: 2, loss: null, evalLoss: 1.3 },
+    ];
+    render(<LossChart points={points} advanced />);
+    // Eval-mean of [1.5, 1.4, 1.3] is 1.4 → "1.4000 ± …".
+    expect(screen.getByText(/1\.4000 ± /)).toBeInTheDocument();
+    // Eval card has n=3; training card sits in its empty state with n=0.
+    expect(screen.getByText("n = 3")).toBeInTheDocument();
+    expect(screen.getByText("n = 0")).toBeInTheDocument();
+  });
 });
