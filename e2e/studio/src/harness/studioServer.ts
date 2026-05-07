@@ -276,6 +276,22 @@ async function spawnStudio(
           ),
         );
       };
+      // `ChildProcess` emits `error` for spawn-time failures (ENOENT,
+      // EACCES, EINVAL on the bin path) — these don't trigger `exit`
+      // and would otherwise become an unhandled exception that kills
+      // the Playwright worker. Reject with the OS error so the
+      // failure surfaces as a useful message instead of a 30s
+      // timeout-or-crash.
+      const onError = (err: Error) => {
+        settle(() =>
+          reject(
+            new Error(
+              `Failed to spawn arkor dev: ${err.message}\n--- last output ---\n${errorTail()}`,
+              { cause: err },
+            ),
+          ),
+        );
+      };
       const timer = setTimeout(() => {
         settle(() =>
           reject(
@@ -292,10 +308,12 @@ async function spawnStudio(
         clearTimeout(timer);
         child.stdout?.off("data", onData);
         child.off("exit", onExit);
+        child.off("error", onError);
         action();
       }
       child.stdout?.on("data", onData);
       child.on("exit", onExit);
+      child.on("error", onError);
       // The buffering `child.stdout.on("data", …)` listener attached
       // earlier may have already absorbed the "Arkor Studio running
       // on …" line by the time we get here — when the child writes

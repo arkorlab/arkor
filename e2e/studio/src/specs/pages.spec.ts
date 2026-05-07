@@ -36,10 +36,34 @@ test.describe("Studio pages", () => {
     // payloads the SPA renders. Default handler also streams a single
     // status frame, but pinning it here makes the test independent of
     // the default's exact wording.
+    //
+    // The override re-implements the scope check the default handler
+    // does (`requireExpectedScope`) — without it, a regression where
+    // the Studio proxy drops `orgSlug`/`projectSlug` on the events
+    // stream URL would slip past this spec, since `setRoute` matches
+    // on path-only.
     cloudApi.setRoute(
       "GET",
       "/v1/jobs/job-e2e-1/events/stream",
-      (_req, res) => {
+      (req, res) => {
+        const url = new URL(req.url ?? "", "http://x");
+        if (
+          url.searchParams.get("orgSlug") !== "studio-e2e-org" ||
+          url.searchParams.get("projectSlug") !== "studio-e2e-project"
+        ) {
+          res.statusCode = 400;
+          res.setHeader("content-type", "application/json");
+          res.end(
+            JSON.stringify({
+              error: "scope mismatch on events stream override",
+              received: {
+                orgSlug: url.searchParams.get("orgSlug"),
+                projectSlug: url.searchParams.get("projectSlug"),
+              },
+            }),
+          );
+          return;
+        }
         res.statusCode = 200;
         res.setHeader("content-type", "text/event-stream");
         res.setHeader("cache-control", "no-cache, no-transform");
@@ -57,13 +81,20 @@ test.describe("Studio pages", () => {
     );
 
     await page.goto(`${studio.url}/#/jobs/job-e2e-1`);
-    // The detail page should mount and start the SSE — the request
-    // mock above will record at least one /v1/jobs/.../events/stream
-    // hit if the SPA's openJobEvents() ran.
-    await expect.poll(() =>
-      cloudApi.requests.some((r) =>
-        /^\/v1\/jobs\/job-e2e-1\/events\/stream/.test(r.url),
-      ),
-    ).toBe(true);
+    // The detail page should mount and start the SSE. Assert against
+    // the recorded URL with both required scope params present so a
+    // proxy regression that drops them is caught here even though
+    // the override above already 400s on mismatch (defence in depth
+    // against the override being relaxed in the future).
+    await expect
+      .poll(() =>
+        cloudApi.requests.some(
+          (r) =>
+            /^\/v1\/jobs\/job-e2e-1\/events\/stream\?/.test(r.url) &&
+            r.url.includes("orgSlug=studio-e2e-org") &&
+            r.url.includes("projectSlug=studio-e2e-project"),
+        ),
+      )
+      .toBe(true);
   });
 });
