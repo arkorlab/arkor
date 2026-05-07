@@ -43,7 +43,7 @@ In every row below, the event log renders the event name in its own column next 
 | Event | Effect on the page |
 | --- | --- |
 | `training.started` | Status flips to `running`. The event log row's message is the raw JSON payload (no per-event formatting). |
-| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The event log message reads `step=<n> loss=<value> evalLoss=<value>`; the ` evalLoss=…` segment is omitted on steps without one. |
+| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The event log message starts with `step=<n>` and appends ` loss=<value>` and/or ` evalLoss=<value>` for whichever fields are numeric on that step — either segment is omitted when its field is null/missing, so eval-only frames render as `step=<n> evalLoss=<value>`. |
 | `checkpoint.saved` | The event log message is `step=<n>`. The chart is not affected. |
 | `training.completed` | Status flips to `completed`. The event log message is `<n> artifact[s]`; the artifact count itself is rendered in the Metadata sidebar's `Artifacts` row. |
 | `training.failed` | Status flips to `failed`. The event log message is the `error` string from the payload, and a red banner with the same text is rendered above the chart. |

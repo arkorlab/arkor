@@ -43,7 +43,7 @@ Jobs リストはマウント時に 1 度、その後 5 秒ごとに `GET /api/j
 | イベント | ページへの効果 |
 | --- | --- |
 | `training.started` | ステータスが `running` に変わる。イベントログのメッセージは生の JSON ペイロード（イベントごとの整形なし）。 |
-| `training.log` | `step`、`loss`、そして（含まれていれば）`evalLoss` が Loss チャートのデータ配列に追加。イベントログのメッセージは `step=<n> loss=<value> evalLoss=<value>`。`evalLoss` を伴わないステップでは ` evalLoss=…` の部分は省略される。 |
+| `training.log` | `step`、`loss`、そして（含まれていれば）`evalLoss` が Loss チャートのデータ配列に追加。イベントログのメッセージは `step=<n>` で始まり、そのステップで数値である方だけ ` loss=<value>` と ` evalLoss=<value>` が追記される（null / 非数値のフィールドはセグメントごと省略）。eval-only フレームでは `step=<n> evalLoss=<value>` のように描画される。 |
 | `checkpoint.saved` | イベントログのメッセージは `step=<n>`。チャートには影響なし。 |
 | `training.completed` | ステータスが `completed` に変わる。イベントログのメッセージは `<n> artifact[s]`。artifact 数自体は Metadata サイドバーの `Artifacts` 行に表示される。 |
 | `training.failed` | ステータスが `failed` に変わる。イベントログのメッセージはペイロードの `error` 文字列で、同じテキストの赤いバナーがチャート上部にも表示される。 |

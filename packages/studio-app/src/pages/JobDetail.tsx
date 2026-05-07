@@ -105,14 +105,18 @@ export function JobDetail({ jobId }: { jobId: string }) {
       if (parsed && typeof parsed === "object") {
         const p = parsed as Record<string, unknown>;
         if (event === "training.log") {
-          const lossPart = `loss=${
-            typeof p.loss === "number" ? p.loss.toFixed(4) : "—"
-          }`;
+          // Omit each `key=…` segment when the corresponding field is
+          // missing/non-numeric so eval-only frames render cleanly as
+          // `step=<n> evalLoss=…` instead of being padded with a noisy
+          // `loss=—` placeholder. The two fields are treated
+          // symmetrically.
+          const lossPart =
+            typeof p.loss === "number" ? ` loss=${p.loss.toFixed(4)}` : "";
           const evalPart =
             typeof p.evalLoss === "number"
               ? ` evalLoss=${p.evalLoss.toFixed(4)}`
               : "";
-          message = `step=${p.step ?? "—"} ${lossPart}${evalPart}`;
+          message = `step=${p.step ?? "—"}${lossPart}${evalPart}`;
         } else if (event === "training.failed") {
           message = String(p.error ?? "failed");
         } else if (event === "training.completed") {
