@@ -46,9 +46,11 @@ function keyOf(req: IncomingMessage): RouteKey {
 /**
  * The scope the seeded `.arkor/state.json` carries — see
  * `seedFixture.ts`. `arkor dev`'s Studio proxy threads these through
- * every cloud-api call as `?orgSlug=…&projectSlug=…`; the default
- * handlers below 400 on a mismatch so a regression in the proxy URL
- * construction (drop a query param, double-encode, swap order, …)
+ * scope-dependent cloud-api calls as `?orgSlug=…&projectSlug=…`:
+ * `/v1/jobs`, `/v1/jobs/:id/events/stream`, and `/v1/inference/chat`.
+ * Account-level routes like `/v1/me` proxy without scope. The default
+ * handlers below 400 on a scope mismatch so a regression in the proxy
+ * URL construction (drop a query param, double-encode, swap order, …)
  * surfaces as a real failure instead of a silent canned-200 response.
  */
 const EXPECTED_ORG_SLUG = "studio-e2e-org";
