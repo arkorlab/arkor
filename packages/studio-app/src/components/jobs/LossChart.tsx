@@ -100,17 +100,23 @@ export function LossChart({
     [unified],
   );
 
+  // Stats are gated on `advanced` so the per-`points`-update sort
+  // baked into `summarize()` (for percentiles) doesn't run during a
+  // live training stream when the panel isn't visible. Toggling
+  // `advanced` on triggers a fresh useMemo evaluation.
   const trainStats = useMemo(
     () =>
-      trainSeries.length > 0 ? summarize(trainSeries.map((p) => p.loss)) : null,
-    [trainSeries],
+      advanced && trainSeries.length > 0
+        ? summarize(trainSeries.map((p) => p.loss))
+        : null,
+    [advanced, trainSeries],
   );
   const evalStats = useMemo(
     () =>
-      evalSeries.length > 0
+      advanced && evalSeries.length > 0
         ? summarize(evalSeries.map((p) => p.evalLoss))
         : null,
-    [evalSeries],
+    [advanced, evalSeries],
   );
 
   if (unified.length === 0) {

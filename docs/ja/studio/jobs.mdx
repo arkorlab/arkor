@@ -56,7 +56,7 @@ Loss チャートは `training.log` イベントから描画される SVG プロ
 - **Training loss** — 実線のティール色。数値 `loss` を含むイベントごとに 1 頂点。
 - **Eval loss** — 破線のピンク色（点マーカー付き）。数値 `evalLoss` を含むイベント（通常は `evalSteps` 刻み）から描画。系列はイベントから直接構築するため、`evalLoss` のみを持ち `loss` を含まない eval-only フレームも線・凡例・統計に反映されます。Eval ポイントが 1 つも来ていない間は凡例にも表示されません。
 
-ホバーすると最寄りステップと、そのステップに含まれる `loss` / `evalLoss` のうち存在する値が表示されます（eval-only ステップでは `loss` 値は出ず、その逆も同様）。`training.log` イベントが 1 つも来ていなければ、チャート枠は `Waiting for training.log events…`（`training.log` イベント待ち）と読みます。
+ホバーすると最寄りステップと、そのステップに含まれる `loss` / `evalLoss` のうち存在する値が表示されます（eval-only ステップでは `loss` 値は出ず、その逆も同様）。チャートは `loss` または `evalLoss` のいずれかが数値であるイベントが 1 件以上届くまで `Waiting for training.log events…`（`training.log` イベント待ち）プレースホルダーを表示します。両方とも null / 省略の `training.log` フレームはカウントされません。
 
 ### 上級モード（Advanced metrics）
 

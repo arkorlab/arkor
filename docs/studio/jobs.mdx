@@ -56,7 +56,7 @@ The loss chart is an SVG plot drawn from `training.log` events. It uses min-max 
 - **Training loss** — solid teal line, one vertex per event with a numeric `loss`.
 - **Eval loss** — dashed pink line with point markers, drawn from events that carry a numeric `evalLoss` (typically every `evalSteps` ticks). The series is built from the events directly, so eval-only frames (numeric `evalLoss` with `loss` omitted) still appear in the line, legend, and stats. The legend hides this entry until at least one eval point arrives.
 
-Hovering shows the nearest step and whichever of `loss` / `evalLoss` are present at that step (eval-only steps don't show a `loss` value, and vice-versa). If no `training.log` event has arrived yet, the chart slot reads `Waiting for training.log events…`.
+Hovering shows the nearest step and whichever of `loss` / `evalLoss` are present at that step (eval-only steps don't show a `loss` value, and vice-versa). The chart shows the `Waiting for training.log events…` placeholder until at least one event with a numeric `loss` or `evalLoss` arrives — `training.log` frames where both fields are null/omitted don't count.
 
 ### Advanced metrics
 
