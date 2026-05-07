@@ -38,13 +38,15 @@ Jobs リストはマウント時に 1 度、その後 5 秒ごとに `GET /api/j
 
 `#/jobs/:id` は `EventSource` 経由で `GET /api/jobs/:id/events` への `Server-Sent Events` 接続を開きます。ページは 5 つの名前付きイベントとストリーム終端を待ち受けます。
 
+下の各行で、イベントログはイベント名をメッセージとは別カラムで表示します。表内の「メッセージ」は `JobDetail.pushEvent()` が SSE ペイロードから生成する文字列です。
+
 | イベント | ページへの効果 |
 | --- | --- |
-| `training.started` | ステータスが `running` に変わる。生行 `[started] <data>` がイベントログに追加。 |
-| `training.log` | `step`、`loss`、そして（含まれていれば）`evalLoss` が Loss チャートのデータ配列に追加。イベントログ行は `step=<n> loss=<value> evalLoss=<value>`（イベント名は別カラムに表示される）。`evalLoss` を伴わないステップでは `evalLoss=` の部分は省略される。 |
-| `checkpoint.saved` | 生行 `[checkpoint] <data>` がイベントログに加わる。チャートには影響なし。 |
-| `training.completed` | ステータスが `completed` に変わる。artifact 数がステータス下に表示（`artifacts: <n>`）。 |
-| `training.failed` | ステータスが `failed` に変わる。イベントペイロードのエラーメッセージがステータス下に表示。 |
+| `training.started` | ステータスが `running` に変わる。イベントログのメッセージは生の JSON ペイロード（イベントごとの整形なし）。 |
+| `training.log` | `step`、`loss`、そして（含まれていれば）`evalLoss` が Loss チャートのデータ配列に追加。イベントログのメッセージは `step=<n> loss=<value> evalLoss=<value>`。`evalLoss` を伴わないステップでは ` evalLoss=…` の部分は省略される。 |
+| `checkpoint.saved` | イベントログのメッセージは `step=<n>`。チャートには影響なし。 |
+| `training.completed` | ステータスが `completed` に変わる。イベントログのメッセージは `<n> artifact[s]`。artifact 数自体は Metadata サイドバーの `Artifacts` 行に表示される。 |
+| `training.failed` | ステータスが `failed` に変わる。イベントログのメッセージはペイロードの `error` 文字列で、同じテキストの赤いバナーがチャート上部にも表示される。 |
 | `end` | ページが EventSource をクローズ。再接続なし。 |
 
 ストリームエラーは `Event stream interrupted.` という別バナーがイベントログの上に表示され（ログ行としては追加されません）、次の SSE フレーム到着でバナーは消えます。再接続はブラウザーの `EventSource` の retry 挙動に任されます。

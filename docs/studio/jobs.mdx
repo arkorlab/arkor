@@ -38,13 +38,15 @@ The list shows whatever order the backend returned. There is no client-side filt
 
 `#/jobs/:id` opens a Server-Sent Events connection to `GET /api/jobs/:id/events` via `EventSource`. The page listens for five named events plus a stream sentinel:
 
+In every row below, the event log renders the event name in its own column next to the message; the message text shown is what `JobDetail.pushEvent()` builds from the SSE payload.
+
 | Event | Effect on the page |
 | --- | --- |
-| `training.started` | Status flips to `running`. The raw line `[started] <data>` is appended to the event log. |
-| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The event log row reads `step=<n> loss=<value> evalLoss=<value>` (the event name is rendered in its own column); the `evalLoss=` segment is omitted on steps without one. |
-| `checkpoint.saved` | Raw line `[checkpoint] <data>` joins the event log. The chart is not affected. |
-| `training.completed` | Status flips to `completed`. Artifact count is shown below the status (`artifacts: <n>`). |
-| `training.failed` | Status flips to `failed`. The error message from the event payload is shown beneath the status. |
+| `training.started` | Status flips to `running`. The event log row's message is the raw JSON payload (no per-event formatting). |
+| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The event log message reads `step=<n> loss=<value> evalLoss=<value>`; the ` evalLoss=…` segment is omitted on steps without one. |
+| `checkpoint.saved` | The event log message is `step=<n>`. The chart is not affected. |
+| `training.completed` | Status flips to `completed`. The event log message is `<n> artifact[s]`; the artifact count itself is rendered in the Metadata sidebar's `Artifacts` row. |
+| `training.failed` | Status flips to `failed`. The event log message is the `error` string from the payload, and a red banner with the same text is rendered above the chart. |
 | `end` | The page closes the EventSource. No reconnect. |
 
 Stream errors are surfaced as a separate `Event stream interrupted.` banner above the event log (not as a log entry); the banner clears the next time an SSE frame arrives, and reconnect is left to the browser's `EventSource` retry behaviour.
