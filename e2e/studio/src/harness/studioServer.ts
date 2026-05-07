@@ -296,6 +296,18 @@ async function spawnStudio(
       }
       child.stdout?.on("data", onData);
       child.on("exit", onExit);
+      // The buffering `child.stdout.on("data", …)` listener attached
+      // earlier may have already absorbed the "Arkor Studio running
+      // on …" line by the time we get here — when the child writes
+      // it on the very first event-loop tick after spawn, the data
+      // can land in `stdout` before this promise body runs. If no
+      // further stdout follows (the steady-state for `arkor dev`),
+      // `onData` would never fire and we'd hang until
+      // `READY_TIMEOUT_MS`. Probe the rolling buffer once after
+      // attaching listeners to catch that pre-buffered line.
+      if (READY_LINE_PATTERN.test(stdout.toString())) {
+        settle(resolve);
+      }
     });
   } catch (err) {
     await kill();
