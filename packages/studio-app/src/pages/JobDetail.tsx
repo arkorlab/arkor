@@ -108,17 +108,21 @@ export function JobDetail({ jobId }: { jobId: string }) {
           // Omit each `key=…` segment when the corresponding field is
           // missing/non-numeric so eval-only frames render cleanly as
           // `step=<n> evalLoss=…` instead of being padded with a noisy
-          // `loss=—` placeholder. `Number.isFinite` (rather than
-          // `typeof === "number"`) also keeps `Infinity` / `NaN` —
-          // which JSON-parsed exponent forms like `1e309` yield — out
-          // of the rendered message, matching the boundary validation
-          // used when appending chart points.
-          const lossPart = Number.isFinite(p.loss)
-            ? ` loss=${(p.loss as number).toFixed(4)}`
-            : "";
-          const evalPart = Number.isFinite(p.evalLoss)
-            ? ` evalLoss=${(p.evalLoss as number).toFixed(4)}`
-            : "";
+          // `loss=—` placeholder. `Number.isFinite` also keeps
+          // `Infinity` / `NaN` — which JSON-parsed exponent forms like
+          // `1e309` yield — out of the rendered message. The
+          // `typeof === "number"` precondition lets TypeScript narrow
+          // `p.loss` / `p.evalLoss` from `unknown` (the
+          // `Record<string, unknown>` cast above) so `.toFixed` is
+          // called on a typed `number` without an `as` assertion.
+          const lossPart =
+            typeof p.loss === "number" && Number.isFinite(p.loss)
+              ? ` loss=${p.loss.toFixed(4)}`
+              : "";
+          const evalPart =
+            typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss)
+              ? ` evalLoss=${p.evalLoss.toFixed(4)}`
+              : "";
           message = `step=${p.step ?? "—"}${lossPart}${evalPart}`;
         } else if (event === "training.failed") {
           message = String(p.error ?? "failed");
@@ -161,17 +165,25 @@ export function JobDetail({ jobId }: { jobId: string }) {
           loss?: number | null;
           evalLoss?: number | null;
         };
-        if (!Number.isFinite(d.step)) return;
-        // Validate loss / evalLoss with `Number.isFinite` rather than
-        // `typeof === "number"` so JSON exponent forms that parse to
-        // `Infinity` (e.g. `1e309`) or an explicit `NaN` are coerced
-        // to null at the boundary. LossChart and `stats.ts` both
-        // assume finite inputs — letting non-finite values through
-        // would NaN-poison min/max/span and the rendered SVG paths.
-        const safeLoss = Number.isFinite(d.loss) ? (d.loss as number) : null;
-        const safeEvalLoss = Number.isFinite(d.evalLoss)
-          ? (d.evalLoss as number)
-          : null;
+        // Validate every numeric field with `typeof === "number"` first
+        // so TypeScript narrows the union (`number | null | undefined`
+        // for the loss fields, `number | undefined` for step) before
+        // the `Number.isFinite` check, eliminating the need for `as
+        // number` casts in the assignments below. The finite check
+        // additionally rejects `Infinity` / `NaN` — JSON exponent
+        // forms like `1e309` parse to those, and LossChart / stats.ts
+        // both assume finite inputs (otherwise min/max/span and the
+        // rendered SVG paths would be NaN-poisoned).
+        if (typeof d.step !== "number" || !Number.isFinite(d.step)) return;
+        const step = d.step;
+        const safeLoss =
+          typeof d.loss === "number" && Number.isFinite(d.loss)
+            ? d.loss
+            : null;
+        const safeEvalLoss =
+          typeof d.evalLoss === "number" && Number.isFinite(d.evalLoss)
+            ? d.evalLoss
+            : null;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
         // chart's visual resolution at any reasonable width.
@@ -179,7 +191,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
           const next = [
             ...prev,
             {
-              step: d.step!,
+              step,
               loss: safeLoss,
               evalLoss: safeEvalLoss,
             },

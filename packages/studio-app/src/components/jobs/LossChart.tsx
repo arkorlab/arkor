@@ -69,20 +69,27 @@ export function LossChart({
   const unified = useMemo<ChartPoint[]>(() => {
     const byStep = new Map<number, ChartPoint>();
     for (const p of points) {
-      const hasLoss = Number.isFinite(p.loss);
-      const hasEval = Number.isFinite(p.evalLoss);
-      if (!hasLoss && !hasEval) continue;
+      // Narrow to a finite `number` in two steps so the surrounding
+      // assignments don't need `as number` casts: TypeScript carries
+      // the narrowing into the branch arms automatically.
+      const finiteLoss =
+        typeof p.loss === "number" && Number.isFinite(p.loss) ? p.loss : null;
+      const finiteEval =
+        typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss)
+          ? p.evalLoss
+          : null;
+      if (finiteLoss === null && finiteEval === null) continue;
       const existing = byStep.get(p.step);
       if (existing) {
         // Later frames at the same step (rare, but possible if a
         // trainer re-emits) win for whichever field they fill in.
-        if (hasLoss) existing.loss = p.loss as number;
-        if (hasEval) existing.evalLoss = p.evalLoss as number;
+        if (finiteLoss !== null) existing.loss = finiteLoss;
+        if (finiteEval !== null) existing.evalLoss = finiteEval;
       } else {
         byStep.set(p.step, {
           step: p.step,
-          loss: hasLoss ? (p.loss as number) : null,
-          evalLoss: hasEval ? (p.evalLoss as number) : null,
+          loss: finiteLoss,
+          evalLoss: finiteEval,
         });
       }
     }
@@ -92,7 +99,8 @@ export function LossChart({
   const trainSeries = useMemo(
     () =>
       unified.filter(
-        (p): p is ChartPoint & { loss: number } => Number.isFinite(p.loss),
+        (p): p is ChartPoint & { loss: number } =>
+          typeof p.loss === "number" && Number.isFinite(p.loss),
       ),
     [unified],
   );
@@ -101,7 +109,7 @@ export function LossChart({
     () =>
       unified.filter(
         (p): p is ChartPoint & { evalLoss: number } =>
-          Number.isFinite(p.evalLoss),
+          typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss),
       ),
     [unified],
   );
