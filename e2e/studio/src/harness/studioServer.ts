@@ -112,6 +112,17 @@ function makeKill(child: ChildProcess): () => Promise<void> {
     if (killed) return;
     killed = true;
     await new Promise<void>((resolve) => {
+      // Declare the SIGKILL fallback handle *before* defining
+      // `onExit`. The exit listener is attached before SIGINT so it
+      // can't miss a concurrent exit, but if the child happens to
+      // exit between attaching the listener and the `setTimeout(...)`
+      // call below, `onExit` runs while `fallback` is still in its
+      // temporal dead zone — accessing it would throw a
+      // `ReferenceError` and hang the teardown. Pre-declared `let`
+      // (initialised to `null`) sidesteps the TDZ; the
+      // `clearTimeout(null)` short-circuit makes the no-fallback
+      // path harmless.
+      let fallback: ReturnType<typeof setTimeout> | null = null;
       // Register `exit` *before* re-checking termination state and
       // *before* delivering SIGINT. If the child happens to exit in
       // the gap between the early-return check and the listener
@@ -122,7 +133,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
       // check covers the case where the child had already exited
       // before this callback ran.
       const onExit = () => {
-        clearTimeout(fallback);
+        if (fallback !== null) clearTimeout(fallback);
         resolve();
       };
       child.once("exit", onExit);
@@ -135,7 +146,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
       // signal, not when the child actually exits. Probe the real
       // termination state via `exitCode` / `signalCode`; both stay
       // null until the child reports `exit`.
-      const fallback = setTimeout(() => {
+      fallback = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
           child.kill("SIGKILL");
         }
