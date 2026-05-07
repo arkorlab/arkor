@@ -5,19 +5,21 @@ description: "The five callbacks Arkor fires while a training run streams from t
 
 # Lifecycle callbacks
 
-Pass callbacks under `createTrainer({ callbacks: { ... } })`. All five are optional; the SDK type is `Partial<TrainerCallbacks>`. They run inside `trainer.wait()`, dispatched from the backend's SSE event stream.
+Pass callbacks under `createTrainer({ callbacks: { ... } })`. They run inside `trainer.wait()`, dispatched from the backend's SSE event stream.
 
 ## Signature
 
 ```ts
-type TrainerCallbacks = {
-  onStarted?:    (ctx: { job: TrainingJob }) => void | Promise<void>;
-  onLog?:        (ctx: TrainingLogContext) => void | Promise<void>;
-  onCheckpoint?: (ctx: CheckpointContext) => void | Promise<void>;
-  onCompleted?:  (ctx: { job: TrainingJob; artifacts?: unknown[] }) => void | Promise<void>;
-  onFailed?:     (ctx: { job: TrainingJob; error: string }) => void | Promise<void>;
-};
+interface TrainerCallbacks {
+  onStarted:    (ctx: { job: TrainingJob }) => unknown | Promise<unknown>;
+  onLog:        (ctx: TrainingLogContext) => unknown | Promise<unknown>;
+  onCheckpoint: (ctx: CheckpointContext) => unknown | Promise<unknown>;
+  onCompleted:  (ctx: { job: TrainingJob; artifacts: unknown[] }) => unknown | Promise<unknown>;
+  onFailed:     (ctx: { job: TrainingJob; error: string }) => unknown | Promise<unknown>;
+}
 ```
+
+The interface itself has all five properties as required. The `callbacks` field on `createTrainer` is typed `Partial<TrainerCallbacks>`, so you only specify the events you actually care about. Return values from a callback are discarded; the `unknown | Promise<unknown>` shape just means TypeScript will not complain if you `return` something.
 
 ## When each callback fires
 
