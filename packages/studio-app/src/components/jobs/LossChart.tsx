@@ -496,7 +496,7 @@ function StatsCard({
         </div>
       ) : (
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
-          <Row term="Mean loss" value={`${stats.mean.toFixed(4)} ± ${stats.ci95.toFixed(4)}`} hint="95% CI" />
+          <Row term="Mean loss" value={`${stats.mean.toFixed(4)} ± ${stats.ci95HalfWidth.toFixed(4)}`} hint="95% CI" />
           <Row term="Std dev" value={stats.stddev.toFixed(4)} />
           <Row term="Variance" value={stats.variance.toFixed(4)} />
           <Row term="p90" value={stats.p90.toFixed(4)} />

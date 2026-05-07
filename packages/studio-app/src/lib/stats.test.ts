@@ -109,7 +109,7 @@ describe("stats", () => {
       expect(s.mean).toBe(3);
       expect(s.variance).toBeCloseTo(2.5, 10);
       expect(s.stddev).toBeCloseTo(Math.sqrt(2.5), 10);
-      expect(s.ci95).toBeGreaterThan(0);
+      expect(s.ci95HalfWidth).toBeGreaterThan(0);
       expect(s.p90).toBeCloseTo(4.6, 10);
       expect(s.p95).toBeCloseTo(4.8, 10);
     });

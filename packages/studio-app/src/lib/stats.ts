@@ -7,7 +7,12 @@ export interface LossStats {
   mean: number;
   variance: number;
   stddev: number;
-  ci95: number;
+  /**
+   * Half-width of the 95 % confidence interval for the mean — i.e. the
+   * `±` term, not the full interval width or an upper/lower bound. The
+   * UI renders this directly as `mean ± ci95HalfWidth`.
+   */
+  ci95HalfWidth: number;
   p90: number;
   p95: number;
 }
@@ -92,7 +97,7 @@ export function summarize(values: number[]): LossStats {
     mean: mean(values),
     variance: variance(values),
     stddev: stddev(values),
-    ci95: confidenceInterval95(values),
+    ci95HalfWidth: confidenceInterval95(values),
     p90: percentile(values, 0.9),
     p95: percentile(values, 0.95),
   };

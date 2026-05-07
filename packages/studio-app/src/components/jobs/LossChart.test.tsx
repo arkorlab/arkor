@@ -49,7 +49,12 @@ describe("<LossChart />", () => {
       { step: 1, loss: 0.9 },
     ];
     render(<LossChart points={points} />);
-    expect(screen.queryByText(/mean ce/i)).toBeNull();
+    // Assert against text that actually appears in the advanced panel
+    // — "Mean loss" is the row label and "95% CI" is the hint beside
+    // it. The earlier check used a stale "Mean CE" string which would
+    // have stayed green even if the panel started leaking through.
+    expect(screen.queryByText("Mean loss")).toBeNull();
+    expect(screen.queryByText(/95% CI/)).toBeNull();
   });
 
   it("shows mean loss ± 95% CI, std dev, variance, p90, and p95 in advanced mode", () => {
