@@ -62,10 +62,13 @@ export function LossChart({
   // on which steps exist.
   //
   // Membership uses `Number.isFinite` rather than `typeof === "number"`
-  // so JSON-parsed `Infinity` / `NaN` (from exponent forms like `1e309`
-  // or an explicit `"NaN"` upstream) cannot enter the series. Letting
-  // them through would NaN-poison `minLoss` / `maxLoss` / `span` below
-  // and break `stats.ts`, which is documented to assume finite inputs.
+  // so non-finite numerics cannot enter the series. The realistic case
+  // is `Infinity` from `JSON.parse` overflowing out-of-range exponent
+  // forms like `1e309` (RFC 8259 grammar can't represent `NaN`, so it
+  // can't arrive from the wire); `NaN` is still rejected as cheap
+  // defense against in-process computation. Letting non-finite values
+  // through would NaN-poison `minLoss` / `maxLoss` / `span` below and
+  // break `stats.ts`, which is documented to assume finite inputs.
   const unified = useMemo<ChartPoint[]>(() => {
     const byStep = new Map<number, ChartPoint>();
     for (const p of points) {

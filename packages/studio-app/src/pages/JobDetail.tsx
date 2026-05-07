@@ -108,9 +108,12 @@ export function JobDetail({ jobId }: { jobId: string }) {
           // Omit each `key=…` segment when the corresponding field is
           // missing/non-numeric so eval-only frames render cleanly as
           // `step=<n> evalLoss=…` instead of being padded with a noisy
-          // `loss=—` placeholder. `Number.isFinite` also keeps
-          // `Infinity` / `NaN` — which JSON-parsed exponent forms like
-          // `1e309` yield — out of the rendered message. The
+          // `loss=—` placeholder. `Number.isFinite` additionally
+          // rejects non-finite numerics — `JSON.parse` overflows
+          // out-of-range exponent forms like `1e309` to `Infinity`
+          // (RFC 8259 grammar can't express `NaN`, so it can't arrive
+          // from the wire), and we keep the `NaN` rejection as cheap
+          // defense for in-process computation. The
           // `typeof === "number"` precondition lets TypeScript narrow
           // `p.loss` / `p.evalLoss` from `unknown` (the
           // `Record<string, unknown>` cast above) so `.toFixed` is
@@ -170,10 +173,13 @@ export function JobDetail({ jobId }: { jobId: string }) {
         // for the loss fields, `number | undefined` for step) before
         // the `Number.isFinite` check, eliminating the need for `as
         // number` casts in the assignments below. The finite check
-        // additionally rejects `Infinity` / `NaN` — JSON exponent
-        // forms like `1e309` parse to those, and LossChart / stats.ts
-        // both assume finite inputs (otherwise min/max/span and the
-        // rendered SVG paths would be NaN-poisoned).
+        // additionally rejects non-finite numerics so they don't
+        // reach LossChart / stats.ts, which both assume finite inputs
+        // (otherwise min/max/span and the rendered SVG paths would
+        // be NaN-poisoned). `JSON.parse` overflows out-of-range
+        // exponent forms like `1e309` to `Infinity`; `NaN` cannot be
+        // expressed in valid JSON but is still rejected as cheap
+        // defense for in-process computation.
         if (typeof d.step !== "number" || !Number.isFinite(d.step)) return;
         const step = d.step;
         const safeLoss =
