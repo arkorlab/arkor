@@ -1019,6 +1019,21 @@ function appendEsbuildToAllowBuilds(
   const eol = detectEol(contents);
   const root = detectYamlRootIndent(contents);
   const value = allowEsbuild ? "true" : "false";
+  // Round 39 (Copilot, PR #99): the block-form matcher below
+  // requires `\r?\n` after the header AND after every body
+  // line. A hand-edited `pnpm-workspace.yaml` that ends without
+  // a trailing newline (e.g. `…\n  sharp: true<EOF>`) would
+  // otherwise miss the body line and slip past the block
+  // matcher entirely, falling through to "no allowBuilds at
+  // all" and appending a duplicate top-level `allowBuilds:`
+  // key. Normalize the input by appending a single newline so
+  // every existing entry is properly terminated; the inline
+  // and block patches then preserve the user's content
+  // unchanged, and the file gains a single conventional
+  // trailing newline as a side-effect.
+  if (!/\r?\n$/.test(contents)) {
+    contents = `${contents}${eol}`;
+  }
   // Inline form. Captures the body of the inline mapping AND the
   // trailing whitespace + optional `# comment` so we can re-emit
   // the comment verbatim (round-39 Copilot review). Without the
@@ -1062,9 +1077,10 @@ function appendEsbuildToAllowBuilds(
     return contents.replace(blockRe, replacement);
   }
   // No allowBuilds at all — append a fresh block at the document
-  // root, in the file's EOL.
-  const trailingNewline = /\r?\n$/.test(contents) ? "" : eol;
-  return `${contents}${trailingNewline}${root}allowBuilds:${eol}${root}  esbuild: ${value}${eol}`;
+  // root, in the file's EOL. The trailing-newline normalization
+  // at the top of the function guarantees `contents` already
+  // ends with one, so we don't need to insert a separator.
+  return `${contents}${root}allowBuilds:${eol}${root}  esbuild: ${value}${eol}`;
 }
 
 export async function scaffold(

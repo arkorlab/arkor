@@ -261,6 +261,52 @@ describe("scaffold", () => {
     expect(yaml).toContain('packages:\n  - "packages/*"');
   });
 
+  // Round 39 (Copilot, PR #99): hand-edited pnpm-workspace.yaml
+  // files often omit the trailing newline. The block-form
+  // matcher in `appendEsbuildToAllowBuilds` requires `\r?\n`
+  // after the header AND each body line, so the last entry
+  // (`  sharp: true<EOF>`) would otherwise slip past the body
+  // capture and the function would fall through to "no
+  // allowBuilds at all" — appending a duplicate top-level
+  // `allowBuilds:` block. The fix normalizes the input by
+  // appending a newline if missing.
+  it("merges esbuild into an existing allowBuilds block when the file lacks a trailing newline", async () => {
+    const original =
+      `packages: []\nallowBuilds:\n  sharp: true`; // no trailing \n
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("sharp: true");
+    expect(yaml).toContain("esbuild: false");
+    // Critical: only ONE top-level `allowBuilds:` key. Without
+    // the trailing-newline normalization, the fallback would
+    // append a second block.
+    expect(yaml.match(/^allowBuilds:/gm)).toHaveLength(1);
+    const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
+    expect(entry?.action).toBe("patched");
+  });
+
+  it("appends a fresh allowBuilds block when the file lacks a trailing newline and has no allowBuilds yet", async () => {
+    const original = `packages: []`; // no trailing \n, no allowBuilds
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/^allowBuilds:\n[ \t]+esbuild:[ \t]+false/m);
+    // Original packages: [] line is intact and properly
+    // separated from the new block by the normalizing newline.
+    expect(yaml).toMatch(/^packages: \[\]\nallowBuilds:/m);
+  });
+
   // `--allow-builds` opts users into running esbuild's postinstall.
   // The flag is plumbed through to `ScaffoldOptions.allowBuilds` and
   // flips the scaffolded value `false` → `true`. Pinning these
