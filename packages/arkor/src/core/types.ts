@@ -109,19 +109,30 @@ export interface ToolCall {
 
 /**
  * Discriminated union over the four OpenAI message roles, including tool-
- * calling shapes. Assistant messages may carry `tool_calls` and omit
- * `content` (the common "pure tool call" turn shape). Tool messages are
- * the model's view of a tool's response and are paired with the
- * originating `tool_call_id`.
+ * calling shapes. Tool messages are the model's view of a tool's response
+ * and are paired with the originating `tool_call_id`.
+ *
+ * The assistant role is split across two sub-shapes so that
+ * `{ role: "assistant" }` (no content, no tool_calls — a meaningless
+ * empty turn) does NOT type-check: at least one of `content` (string) or
+ * a non-empty `tool_calls` tuple must be present. `[ToolCall, ...ToolCall[]]`
+ * encodes the non-empty constraint at the type level. This mirrors the
+ * Zod refine on the cloud-api side so SDK callers get the same guarantee
+ * at compile time as the API enforces at runtime.
  */
 export type ChatMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: string }
   | {
       role: "assistant";
+      content: string;
+      tool_calls?: ToolCall[];
+    }
+  | {
+      role: "assistant";
       /** May be `null` (or omitted) when the turn is purely a tool call. */
       content?: string | null;
-      tool_calls?: ToolCall[];
+      tool_calls: [ToolCall, ...ToolCall[]];
     }
   | { role: "tool"; content: string; tool_call_id: string };
 
@@ -162,24 +173,42 @@ export type ResponseFormat =
     };
 
 /**
- * vLLM's `StructuredOutputsParams` — used for constraints that
- * `response_format` can't express (regex, choice lists, custom grammars).
- * Mutually-exclusive: pick at most one of `json` / `regex` / `choice` /
- * `grammar` / `json_object` / `structural_tag`. The remaining knobs tune
- * backend-specific behaviour. Field names are snake_case to match vLLM's
- * wire format exactly so the worker forwards verbatim.
+ * Map a record of constraint fields to a union where exactly one key is
+ * required and every sibling is forbidden (typed as `never`). Lets the
+ * type encode vLLM's "must specify exactly one constraint" invariant.
  */
-export interface StructuredOutputs {
-  json?: string | Record<string, unknown>;
-  regex?: string;
-  choice?: string[];
-  grammar?: string;
-  json_object?: boolean;
-  structural_tag?: string;
+type ExactlyOne<T> = {
+  [K in keyof T]: { [P in K]: T[K] } & {
+    [P in Exclude<keyof T, K>]?: never;
+  };
+}[keyof T];
+
+/** Backend-tuning knobs that can be combined with any constraint. */
+interface StructuredOutputsCommon {
   disable_any_whitespace?: boolean;
   disable_additional_properties?: boolean;
   whitespace_pattern?: string;
 }
+
+/**
+ * vLLM's `StructuredOutputsParams` — used for constraints that
+ * `response_format` can't express (regex, choice lists, custom grammars).
+ * Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object` /
+ * `structural_tag` must be set; vLLM's `__post_init__` raises if zero or
+ * more than one constraint is supplied. The `ExactlyOne` helper encodes
+ * that mutual-exclusivity invariant at the type level so callers can't
+ * accidentally combine two constraints. Field names are snake_case to
+ * match vLLM's wire format exactly so the worker forwards verbatim.
+ */
+export type StructuredOutputs = ExactlyOne<{
+  json: string | Record<string, unknown>;
+  regex: string;
+  choice: string[];
+  grammar: string;
+  json_object: boolean;
+  structural_tag: string;
+}> &
+  StructuredOutputsCommon;
 
 export interface InferArgs {
   messages: ChatMessage[];

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudApiClient, CloudApiError } from "./client";
 import type { AnonymousCredentials } from "./credentials";
+import type { ChatMessage } from "./types";
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
@@ -413,7 +414,7 @@ describe("CloudApiClient.chat", () => {
       unknown
     >;
     // The SDK is a thin pass-through over JSON.stringify — every field on
-    // ``input.body`` must appear under the same key on the wire so cloud-api
+    // `input.body` must appear under the same key on the wire so cloud-api
     // can route it to control-plane → vLLM.
     expect(parsed.tools).toEqual(tools);
     expect(parsed.toolChoice).toBe("auto");
@@ -431,22 +432,24 @@ describe("CloudApiClient.chat", () => {
       fetch: f,
     });
     // Mirrors the OpenAI history shape: an assistant turn that's purely
-    // a tool call, followed by the tool's response. The client must not
-    // narrow `messages` to a single role/content pair.
-    const messages = [
-      { role: "user" as const, content: "weather?" },
+    // a tool call, followed by the tool's response. The `ChatMessage[]`
+    // annotation lets TS narrow each entry to the right discriminated
+    // variant — in particular, the assistant entry's `tool_calls` has to
+    // satisfy the non-empty-tuple `[ToolCall, ...ToolCall[]]` shape.
+    const messages: ChatMessage[] = [
+      { role: "user", content: "weather?" },
       {
-        role: "assistant" as const,
+        role: "assistant",
         tool_calls: [
           {
             id: "call_1",
-            type: "function" as const,
+            type: "function",
             function: { name: "get_weather", arguments: '{"city":"Tokyo"}' },
           },
         ],
       },
       {
-        role: "tool" as const,
+        role: "tool",
         content: '{"tempC":21}',
         tool_call_id: "call_1",
       },
