@@ -362,6 +362,53 @@ describe("streamTraining", () => {
     expect(JSON.parse(captured)).toEqual({});
   });
 
+  it("throws with the response body when /api/train returns non-2xx", async () => {
+    // Regression: previously `streamTraining` ignored `res.ok` and
+    // proceeded to call `onSpawn` + read the body even on 403/500
+    // failures. The SPA would treat a failed spawn (auth rejection,
+    // server-side EACCES surfacing as 500, etc.) as a normal
+    // completion — `onChunk` got nothing, `onSpawn` was called with
+    // a `null` pid, and `run()` resolved cleanly. The user saw an
+    // idle UI with no log line and no clue what went wrong. Fail
+    // fast so the caller's catch path surfaces the server's reason.
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response("anonymous tokens disabled", {
+          status: 403,
+          statusText: "Forbidden",
+        }),
+    ) as typeof fetch;
+    const onChunkCalls: string[] = [];
+    let onSpawnCalls = 0;
+    await expect(
+      streamTraining(
+        (t) => onChunkCalls.push(t),
+        undefined,
+        undefined,
+        () => {
+          onSpawnCalls += 1;
+        },
+      ),
+    ).rejects.toThrow(/403.*anonymous tokens disabled/);
+    // The body must NOT have been streamed and `onSpawn` must NOT
+    // have been called with the bogus null pid — both would mislead
+    // the SPA into treating the failure as a successful run.
+    expect(onChunkCalls).toEqual([]);
+    expect(onSpawnCalls).toBe(0);
+  });
+
+  it("falls back to the bare status when the error response body is empty", async () => {
+    // Belt-and-braces for upstreams that return non-2xx with no
+    // body. The status code is enough to surface the failure to
+    // the user; we just don't want a `: undefined` suffix.
+    globalThis.fetch = vi.fn(
+      async () => new Response(null, { status: 500, statusText: "Server Error" }),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).rejects.toThrow(
+      /^\/api\/train failed \(500 Server Error\)$/,
+    );
+  });
+
   it("returns silently when the response has no body (e.g. 204 from upstream)", async () => {
     globalThis.fetch = vi.fn(
       async () => new Response(null, { status: 204 }),

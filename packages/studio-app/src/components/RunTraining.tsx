@@ -92,6 +92,17 @@ export function RunTraining() {
   const isMountedRef = useRef(true);
 
   useEffect(() => {
+    // Re-arm the mounted flag every time the effect (re-)runs.
+    // React StrictMode (enabled in `main.tsx` for dev) intentionally
+    // runs setup → cleanup → setup once on mount to surface
+    // ordering bugs; without this re-arm the cleanup's
+    // `isMountedRef.current = false` would persist into the second
+    // setup, making the ref permanently false while the component
+    // is actually mounted. The HMR auto-restart paths guarded by
+    // `isMountedRef.current` would then silently no-op in every
+    // Vite dev session even though they work fine in `vite build`
+    // output (StrictMode's double-effect is a dev-only behaviour).
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       // Defense in depth: clearing the latch here means even if a

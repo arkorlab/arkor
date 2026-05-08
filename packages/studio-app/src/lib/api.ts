@@ -306,6 +306,30 @@ export async function streamTraining(
     body: JSON.stringify({ ...(file ? { file } : {}) }),
     signal,
   });
+  // Fail fast on non-2xx so a failed spawn (auth 403, validation 400,
+  // server-side spawn EACCES surfacing as 500, etc.) doesn't slip
+  // through as a "successful" silent run. Without this, the SPA
+  // would call `onSpawn(null)` (the failure response carries no
+  // `X-Arkor-Train-Pid`), then hit `!res.body` or read an empty
+  // body and resolve as if the run completed cleanly — leaving the
+  // user looking at an idle UI and no log output. Read the body
+  // text for diagnostics so the caller's error log shows the
+  // server's reason instead of a bare status code.
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = (await res.text()).trim();
+    } catch {
+      // Body unreadable (already consumed, network gone, etc.) —
+      // surface the status alone rather than masking the failure
+      // entirely.
+    }
+    throw new Error(
+      detail
+        ? `/api/train failed (${res.status} ${res.statusText}): ${detail}`
+        : `/api/train failed (${res.status} ${res.statusText})`,
+    );
+  }
   if (onSpawn) {
     const raw = res.headers.get("x-arkor-train-pid");
     const parsed = raw ? Number.parseInt(raw, 10) : NaN;
