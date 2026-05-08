@@ -35,13 +35,24 @@ import { __resetCleanupHooksForTests } from "../cleanupHooks";
 import { ensureCredentialsForStudio, runDev } from "./dev";
 
 /**
- * Yield long enough for the cleanupHooks coordinator to settle its
- * `Promise.allSettled(...)` chain and dispatch `process.exit(0)`. Two
- * `setImmediate`-equivalent ticks cover the typical case (one for the
- * `Promise.resolve(...)` wrapping inside `run()`, one for the
- * `.then(() => process.exit(0))`); using `setImmediate` instead of
- * `Promise.resolve` ensures the exit microtask actually runs before
- * we resume.
+ * Yield one `setImmediate` tick — enough for the cleanupHooks
+ * coordinator's `Promise.allSettled(...).then(() => process.exit(0))`
+ * chain to drain when there are no async cleanups in flight (the
+ * common case in this file: signal handler → queueMicrotask →
+ * already-resolved `allSettled` → `.then` → `process.exit(0)`,
+ * which all collapses into the single macrotask boundary that
+ * `setImmediate` yields to).
+ *
+ * `setImmediate` is the right primitive (vs `Promise.resolve` /
+ * `queueMicrotask`) because we need the event loop to actually
+ * turn — the `process.exit` mock fires inside a `.then` callback
+ * scheduled from a previous microtask checkpoint, and a microtask-
+ * only flush would resume *before* that callback gets to run.
+ *
+ * Tests that drive a chain with extra microtask hops (e.g. async
+ * sibling cleanups whose promises also pass through
+ * `Promise.allSettled`) await this helper twice in a row — see
+ * the cleanupHooks tests.
  */
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
