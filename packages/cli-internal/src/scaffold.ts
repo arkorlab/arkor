@@ -48,7 +48,7 @@ export interface ScaffoldOptions {
    * `pnpm-workspace.yaml`. Default `false` (deny) is the supply-chain
    * safe choice and is sufficient because pnpm already ships
    * `@esbuild/<platform>` as an `optionalDependency` (see
-   * `PNPM_WORKSPACE_CONTENT`'s comment for the exception cases).
+   * `pnpmWorkspaceContent()`'s comment for the exception cases).
    *
    * Wired only through `pnpm-workspace.yaml` — yarn / npm / bun ignore
    * the file, so this flag has no observable effect for those package
@@ -740,7 +740,7 @@ async function patchPackageJson(
 
 // Ensure `pnpm-workspace.yaml` exists with `allowBuilds: { esbuild: <value> }`
 // so pnpm 11 doesn't refuse `pnpm install` over esbuild's postinstall.
-// See `PNPM_WORKSPACE_CONTENT` for the full per-version rationale.
+// See `pnpmWorkspaceContent()` for the full per-version rationale.
 //
 // Existing-file path uses regex-based YAML parsing rather than pulling
 // in a YAML lib (the rest of `cli-internal` deliberately ships zero
@@ -1190,10 +1190,24 @@ export async function scaffold(
   }
   // Yarn-config emission rules:
   //
-  //   - `pm === "yarn"` — the user explicitly opted into yarn. Always
-  //     write/patch `.yarnrc.yml`, even when scaffolding into an
-  //     existing project (the conflict warning above handles the
-  //     case where they've already pinned a non-`node-modules` linker).
+  //   - `pm === "yarn"` — the user explicitly opted into yarn.
+  //     Run `patchYarnConfig` so it can either:
+  //       (a) Create `.yarnrc.yml` with `nodeLinker: node-modules`
+  //           when the cwd was empty pre-scaffold (`!isExistingProject`).
+  //       (b) Patch / leave-alone an existing `.yarnrc.yml`:
+  //           `node-modules` already pinned → no-op; non-default
+  //           value → keep + emit conflict warning (round 5/8);
+  //           no `nodeLinker:` key + `isExistingProject` → keep +
+  //           emit berry caveat (the round-15 widening folds this
+  //           into the same advisory as the no-file case).
+  //       (c) DECLINE to create when `.yarnrc.yml` is missing AND
+  //           `isExistingProject` is true (round 14): writing
+  //           `nodeLinker: node-modules` at the root of an
+  //           unfamiliar project could flip install mode for an
+  //           enclosing yarn-berry workspace deliberately on PnP.
+  //           In that case the function returns `kept +
+  //           needsBerryCaveat` and the caller surfaces the
+  //           caveat instead of an emitted file.
   //   - `pm === undefined` and the cwd was EMPTY pre-scaffold
   //     (`!isExistingProject`) — this is a fresh scaffold where
   //     we don't yet know which pm the user will pick. The
