@@ -34,14 +34,15 @@ const PORT_POLL_TIMEOUT_MS = 10_000;
 const STDIO_BUFFER_CAP = 4_096;
 
 /**
- * Bounded string buffer that appends in amortised O(1). `toString()`
- * may return up to ~`2 * cap` bytes — truncation is lazy (every time
- * the buffer crosses `2 * cap` we slice back to `cap`), which keeps
- * `append` amortised O(cap) per call rather than O(buf.length). The
- * upper bound is still constant, so the ready-line detector — which
- * runs on every stdout chunk — avoids the O(n²) cost of joining a
- * growing `string[]` while paying at most a single fixed-size slice
- * per chunk.
+ * Rolling string buffer with a bounded memory footprint. Memory is
+ * capped at ~`2 * cap` bytes — every time `append` lifts the buffer
+ * past `2 * cap` it slices back to the most-recent `cap`, so
+ * `toString()` may return up to ~`2 * cap` bytes. Total append work
+ * is linear in the bytes written (the lazy truncation amortises the
+ * O(cap) slice across `cap` worth of appends). Used in place of an
+ * unbounded `string[]` so the ready-line detector — which runs on
+ * every stdout chunk — avoids the O(n²) cost of `Array.join("")`
+ * over a growing chunk list.
  */
 class TailBuffer {
   private buf = "";

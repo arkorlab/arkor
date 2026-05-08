@@ -149,6 +149,15 @@ jobs:
           path: |
             e2e/studio/playwright-report
             e2e/studio/test-results
+          # Turbo may cancel `@arkor/e2e-studio#test` when an earlier
+          # task fails (e.g. a unit test failure in `arkor:test`),
+          # leaving Playwright with no chance to write its report.
+          # `actions/upload-artifact@v4` defaults to failing the step
+          # when no files match — that would convert "test step
+          # failed for an unrelated reason" into "upload step also
+          # failed" and noise up the CI summary. `ignore` makes the
+          # upload silently no-op when there's nothing to publish.
+          if-no-files-found: ignore
 
       - name: Build
         run: pnpm build
