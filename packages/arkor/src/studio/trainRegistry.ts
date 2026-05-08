@@ -60,9 +60,17 @@ export interface DispatchResult {
  *   (a race where the child exits between the `entries` lookup and
  *   the `kill` call — POSIX `kill(2)` raises `ESRCH` for
  *   non-existent PIDs and Node propagates it on some versions).
- * - `"unsupported"`: the platform doesn't support this signal kind
- *   (Windows + `SIGUSR2` → `ENOSYS`; bad signal name → `EINVAL`);
- *   `kill` threw with that error code.
+ * - `"unsupported"`: any *other* `kill` throw — i.e. the signal
+ *   couldn't be delivered for a reason that isn't "process is gone".
+ *   The motivating case is the platform not supporting this signal
+ *   kind (Windows + `SIGUSR2` → `ENOSYS`; bad signal name →
+ *   `EINVAL`), which `dispatchRebuild` falls back to SIGTERM-restart
+ *   for. The bucket is intentionally a catch-all rather than a
+ *   whitelist of error codes: rare cases like `EPERM` (lost the
+ *   right to signal a re-parented child) and platform-specific
+ *   surprises take the same conservative fallback — try the next
+ *   signal, otherwise drop the entry — which is what callers want
+ *   from "kill failed for some non-recoverable reason".
  */
 type KillResult = "ok" | "gone" | "unsupported";
 
@@ -75,7 +83,8 @@ function safeKill(child: ChildProcess, signal: NodeJS.Signals): KillResult {
     // it as `"unsupported"` would route a hash-match hot-swap candidate
     // into the SIGTERM fallback, which then also no-ops (also gone) but
     // costs a needless restart-bucket inclusion until the close handler
-    // unregisters the child.
+    // unregisters the child. Every other throw collapses into
+    // `"unsupported"` per the type doc above.
     const code = (err as NodeJS.ErrnoException | null)?.code;
     if (code === "ESRCH") return "gone";
     return "unsupported";
