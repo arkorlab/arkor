@@ -861,6 +861,16 @@ export function EndpointDetail({ id }: { id: string }) {
         );
         if (activeIdRef.current !== myId) return;
         setRevealed(key);
+        // The POST has settled — switch the nav-guard copy from
+        // "being issued" to "shown but not yet saved" *now*, before
+        // the await on `refreshKeysIfStale` below. Without this, a
+        // user who navigates during the keys refetch sees the wrong
+        // prompt for the actual phase (the plaintext is on screen
+        // already), which defeats the in-flight / displayed
+        // distinction the two refs exist to preserve.
+        if (keyIssueControllerRef.current === controller) {
+          keyPostInFlightRef.current = false;
+        }
         setNewKeyLabel("");
         succeeded = true;
         // Drop any in-flight initial keys fetch so it can't land later

@@ -783,6 +783,51 @@ process.exit(0);
       expect(getRecordedDeprecation()?.message).toBe("jobs endpoint deprecated");
     });
 
+    it("targets the credentials-stamped host instead of the startup baseUrl", async () => {
+      // Regression: every Studio route used to use the closure-captured
+      // `baseUrl` (resolved at startup, env / production fallback only).
+      // For an OAuth user who logged into staging without keeping
+      // `ARKOR_CLOUD_API_URL` set, that meant Studio's `/api/jobs` hit
+      // production while only the deployments proxy reached the right
+      // host. Threading the loaded credentials through
+      // `defaultArkorCloudApiUrl(creds)` aligns every route on the
+      // auth-time URL — assert that here by writing creds whose
+      // `arkorCloudApiUrl` is *different* from `build()`'s baseUrl
+      // (`http://mock`) and verifying the upstream call goes there.
+      await writeCredentials({
+        mode: "auth0",
+        accessToken: "at-staging",
+        refreshToken: "rt",
+        expiresAt: 0,
+        auth0Domain: "tenant.auth0.com",
+        audience: "https://staging.example/",
+        clientId: "cid",
+        arkorCloudApiUrl: "https://staging.example",
+      });
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      let upstreamUrl = "";
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        upstreamUrl = input instanceof Request ? input.url : input.toString();
+        return new Response(JSON.stringify({ jobs: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(upstreamUrl).toMatch(/^https:\/\/staging\.example\/v1\/jobs/);
+    });
+
     it("uses the Studio training cwd for job event streams", async () => {
       await writeCredentials(ANON_CREDS);
       await writeState(

@@ -704,6 +704,37 @@ export function buildStudioApp(options: StudioServerOptions) {
     if (!body) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
+    // Sanity-check the *shape* before entering `withDeploymentClient`'s
+    // bootstrap branch. Without this, an empty `{}` (or `[]`, or a
+    // body that's missing every required field) would still fall
+    // through to `ensureProjectState()` on a fresh anonymous workspace
+    // and create + persist an `.arkor/state.json` + remote project as
+    // a side effect — even though the create call itself would
+    // immediately 400. Bad request bodies must NOT mutate scope state
+    // they had no business creating; the cloud API's full validation
+    // still fires for any shape we let through here.
+    const draft = body as Record<string, unknown>;
+    const targetOk =
+      draft.target !== null &&
+      typeof draft.target === "object" &&
+      !Array.isArray(draft.target);
+    if (
+      !draft ||
+      typeof draft !== "object" ||
+      Array.isArray(draft) ||
+      typeof draft.slug !== "string" ||
+      !draft.slug ||
+      typeof draft.authMode !== "string" ||
+      !targetOk
+    ) {
+      return c.json(
+        {
+          error:
+            "Deployment create body must include `slug` (string), `target` (object), and `authMode` (string).",
+        },
+        400,
+      );
+    }
     return await withDeploymentClient("create", async ({ client, scope }) =>
       await client.createDeployment(scope, body),
     );
