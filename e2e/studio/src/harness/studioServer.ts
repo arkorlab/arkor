@@ -116,13 +116,11 @@ function makeKill(child: ChildProcess): () => Promise<void> {
     if (killed) return;
     killed = true;
     await new Promise<void>((resolve) => {
-      // Pre-declared `let` (initialised to `null`) sidesteps the
-      // temporal dead zone — `onClose` is wired up *before* the
-      // SIGKILL `setTimeout(...)` runs, and if `onClose` fires while
-      // `fallback` is still null (impossible between two synchronous
-      // statements in single-threaded JS, but cheap to be explicit
-      // about) the `null` guard short-circuits the `clearTimeout`.
-      let fallback: ReturnType<typeof setTimeout> | null = null;
+      // Pre-declared with `undefined` rather than `null` so
+      // `clearTimeout(fallback)` is always type-correct (Node's
+      // `clearTimeout` accepts `undefined` as a no-op) — no null
+      // guard needed in `onClose` or the defensive re-check below.
+      let fallback: ReturnType<typeof setTimeout> | undefined;
       // Wait on `close`, not `exit`: Node skips `exit` when the
       // process fails to spawn (it emits `error` then `close`) and
       // some failure paths skip `exit` while still emitting `close`.
@@ -133,7 +131,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
       // delivering SIGINT so a concurrent termination can't race the
       // listener attach.
       const onClose = () => {
-        if (fallback !== null) clearTimeout(fallback);
+        clearTimeout(fallback);
         resolve();
       };
       child.once("close", onClose);
@@ -162,9 +160,10 @@ function makeKill(child: ChildProcess): () => Promise<void> {
       // early-return check above and `fallback` being assigned (not
       // possible in single-threaded JS, but spelled out so the
       // invariant is self-evident to readers and static analyzers),
-      // `onClose` would have already fired with `fallback === null`
-      // and skipped the `clearTimeout`, leaving an orphan timer.
-      // Clear it explicitly on that path.
+      // `onClose` would have already fired with `fallback` still
+      // `undefined` and the `clearTimeout(undefined)` no-op — clear
+      // the now-set timer explicitly on that path so it can't fire
+      // later.
       if (child.exitCode !== null || child.signalCode !== null) {
         clearTimeout(fallback);
       }
