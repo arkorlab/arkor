@@ -56,7 +56,7 @@ interface InferArgs {
 | `tools` | `ToolDefinition[]?` | モデルが呼び出せる関数定義。`toolChoice` を明示しない場合は OpenAI 仕様どおり既定 `"auto"` が適用されます。エンドポイントが auto-tool 抽出に未対応なら `400 tool_calling_not_configured` が返ります。 |
 | `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }`。auto-extraction のパーサが必要なのは `"auto"`（と `tools` 指定時の既定）のみで、それ以外は guided-decoding 経路を通ります。 |
 | `responseFormat` | `ResponseFormat?` | OpenAI 標準の構造化出力スイッチ。`{ type: "text" }` / `{ type: "json_object" }` / `{ type: "json_schema", json_schema: { name, schema, strict? } }`。表現できる制約はこちらを優先。 |
-| `structuredOutputs` | `StructuredOutputs?` | `responseFormat` で表せない制約のための vLLM 拡張。`json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` のうち高々 1 つを指定（相互排他）。フィールド名は vLLM の wire 形式に合わせ snake_case（`json_object`、`structural_tag`、`disable_any_whitespace`、`whitespace_pattern`）。 |
+| `structuredOutputs` | `StructuredOutputs?` | `responseFormat` で表せない制約のための vLLM 拡張。フィールド自体は省略可ですが、**指定する場合は** `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` のうち **ちょうど 1 つ** を設定する必要があります（vLLM の `__post_init__` が 0 個 / 2 個以上を拒否し、型側でも `ExactlyOne` で同じ不変条件を強制）。フィールド名は vLLM の wire 形式に合わせ snake_case（`json_object`、`structural_tag`、`disable_any_whitespace`、`whitespace_pattern`）。 |
 | `signal` | `AbortSignal?` | ローカル fetch を Abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
 
 ### Function Calling の例
