@@ -125,7 +125,6 @@ function makeKill(child: ChildProcess): () => Promise<void> {
   return async () => {
     if (killed) return;
     killed = true;
-    if (closed) return;
     await new Promise<void>((resolve) => {
       // Pre-declared with `undefined` rather than `null` so
       // `clearTimeout(fallback)` is always type-correct (Node's
@@ -143,6 +142,20 @@ function makeKill(child: ChildProcess): () => Promise<void> {
         resolve();
       };
       child.once("close", onClose);
+      // Race-free closed check: the listener is attached *before*
+      // we read the flag. If `close` already fired (`closed === true`,
+      // set by the constructor-time tracker above), our listener
+      // can't re-fire — detach it and resolve immediately. If
+      // `close` hasn't fired yet, the listener is in place and will
+      // catch the event whenever it does. Checking the flag *after*
+      // the attach (instead of returning early before `new Promise`)
+      // closes the theoretical "fired between check and attach"
+      // window.
+      if (closed) {
+        child.off("close", onClose);
+        resolve();
+        return;
+      }
       // `child.killed` flips true the moment Node *delivers* a
       // signal, not when the child actually exits. Probe the real
       // termination state via `exitCode` / `signalCode`; both stay
