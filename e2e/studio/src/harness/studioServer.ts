@@ -117,28 +117,35 @@ function makeKill(child: ChildProcess): () => Promise<void> {
     killed = true;
     await new Promise<void>((resolve) => {
       // Pre-declared `let` (initialised to `null`) sidesteps the
-      // temporal dead zone — `onExit` is wired up *before* the
-      // SIGKILL `setTimeout(...)` runs, and if `onExit` fires while
+      // temporal dead zone — `onClose` is wired up *before* the
+      // SIGKILL `setTimeout(...)` runs, and if `onClose` fires while
       // `fallback` is still null (impossible between two synchronous
       // statements in single-threaded JS, but cheap to be explicit
       // about) the `null` guard short-circuits the `clearTimeout`.
       let fallback: ReturnType<typeof setTimeout> | null = null;
-      // Register `exit` *before* re-checking termination state and
-      // *before* delivering SIGINT. If the child happens to exit in
-      // the gap between the early-return check and the listener
-      // attach, `once("exit")` would miss the event and this promise
-      // would hang forever, stalling the whole Playwright run.
-      // Registering first lets the listener catch any exit that
-      // arrives concurrently; the post-register `exitCode/signalCode`
-      // check covers the case where the child had already exited
-      // before this callback ran.
-      const onExit = () => {
+      // Wait on `close`, not `exit`: Node skips `exit` when the
+      // process fails to spawn (it emits `error` then `close`) and
+      // some failure paths skip `exit` while still emitting `close`.
+      // `close` always fires after stdio is fully drained — once for
+      // every spawn outcome (success, error, signal-killed) — so it
+      // is the only universally reliable teardown signal. Register
+      // it *before* re-checking termination state and *before*
+      // delivering SIGINT so a concurrent termination can't race the
+      // listener attach.
+      const onClose = () => {
         if (fallback !== null) clearTimeout(fallback);
         resolve();
       };
-      child.once("exit", onExit);
+      child.once("close", onClose);
+      // Cheap escape hatch when the child already exited before this
+      // callback ran. `exitCode`/`signalCode` are set on `exit`
+      // (which precedes `close`), so a non-null pair means `close`
+      // is queued or imminent — but treating that as "done" lets us
+      // skip waiting on it and detach the listener cleanly. Spawn
+      // failures (no exit, only error+close) leave both null, which
+      // is fine — we fall through and let `onClose` resolve us.
       if (child.exitCode !== null || child.signalCode !== null) {
-        child.off("exit", onExit);
+        child.off("close", onClose);
         resolve();
         return;
       }
@@ -155,7 +162,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
       // early-return check above and `fallback` being assigned (not
       // possible in single-threaded JS, but spelled out so the
       // invariant is self-evident to readers and static analyzers),
-      // `onExit` would have already fired with `fallback === null`
+      // `onClose` would have already fired with `fallback === null`
       // and skipped the `clearTimeout`, leaving an orphan timer.
       // Clear it explicitly on that path.
       if (child.exitCode !== null || child.signalCode !== null) {
