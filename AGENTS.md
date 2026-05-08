@@ -36,8 +36,8 @@ pnpm --filter @arkor/studio-app dev    # Vite dev server (5173, proxies /api →
 pnpm --filter create-arkor dev         # tsdown --watch on the scaffolder
 pnpm --filter @arkor/e2e-cli test      # E2E (slow; spawns real CLIs)
 SKIP_E2E_INSTALL=1 pnpm --filter @arkor/e2e-cli test   # skip `<pm> install` inside fixtures
+pnpm --filter @arkor/e2e-studio exec playwright install chromium   # one-time browser install (run first on a fresh checkout)
 pnpm --filter @arkor/e2e-studio test   # Studio E2E in Chromium (Playwright)
-pnpm --filter @arkor/e2e-studio exec playwright install chromium   # one-time browser install
 ```
 
 Run a single test file: `pnpm --filter <pkg> exec vitest run path/to/file.test.ts`. Use `vitest run -t "name"` to filter by test name.
