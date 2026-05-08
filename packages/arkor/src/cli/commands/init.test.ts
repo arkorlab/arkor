@@ -26,12 +26,16 @@ vi.mock("@arkor/cli-internal", () => {
   return {
     gitInitialCommit: vi.fn(async () => ({ signingFallback: false })),
     install: vi.fn(async () => undefined),
-    // Round 39: defaults to false so tests exercising the
-    // install-failure path keep their git-skip semantics. Tests
-    // that need the "install threw but lockfile landed" recovery
-    // path can override via
-    // `vi.mocked(lockfileLandedAfterInstall).mockReturnValueOnce(true)`.
-    lockfileLandedAfterInstall: vi.fn(() => false),
+    // Round 39 follow-up: `snapshotLockfile` returns "no lockfile
+    // yet" by default (mirrors a fresh-scaffold cwd) and
+    // `lockfileChangedSince` returns false unless explicitly
+    // overridden, so tests exercising the install-failure path
+    // keep their git-skip semantics. Tests that need the
+    // "install threw but lockfile landed" recovery path can
+    // override via
+    // `vi.mocked(lockfileChangedSince).mockReturnValueOnce(true)`.
+    snapshotLockfile: vi.fn(() => ({ exists: false, mtimeMs: 0 })),
+    lockfileChangedSince: vi.fn(() => false),
     isInGitRepo: vi.fn(async () => false),
     sanitise: (s: string) =>
       s

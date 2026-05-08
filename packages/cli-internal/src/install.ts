@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { PackageManager } from "./package-manager";
 
@@ -12,45 +12,80 @@ const LOCKFILE_BY_PM: Record<PackageManager, string> = {
 };
 
 /**
- * True when `<pm> install` left its lockfile somewhere in the
- * cwd-or-ancestor tree. Used by the CLI's git-init gate to
- * recover from a non-zero install exit that still produced a
- * complete tree — pnpm 11 and bun on Windows have been observed
- * exiting non-zero AFTER writing both `node_modules` and the
- * lockfile. Treating those as "install failed → skip git"
- * (round 35) silently dropped the requested initial commit even
- * though the bootstrap was effectively complete (round-39
- * Copilot review). Checking the lockfile on disk lets the caller
- * proceed with git when the artefact actually landed.
- *
- * Walks ancestors because a scaffold target inside an existing
- * workspace (`monorepo/packages/foo`) has its lockfile at the
- * workspace root, not in cwd. Mirrors `hasEnclosingYarnLock`'s
- * walk policy — relevant for every pm: pnpm-workspace, yarn-
- * berry workspace, npm workspace, and bun workspace all hoist
- * the lockfile to the root. (Round-39 Copilot review flagged
- * the cwd-only check as too narrow specifically for yarn-
- * workspace subdir scaffolds; the same reasoning applies to
- * the other pms so the helper is generic.) `dirname` terminates
- * at filesystem root via `parent === dir`.
- *
- * Returns `false` when `pm` is undefined so callers can use it
- * as a single-condition fallback alongside the in-memory
- * `installed` flag.
+ * Snapshot of the closest-enclosing `<pm>` lockfile at a moment
+ * in time. The pre-install snapshot is what the round-39 git-
+ * init gate compares against to decide whether a non-zero
+ * install exit still produced a usable tree.
  */
-export function lockfileLandedAfterInstall(
+export interface LockfileSnapshot {
+  /** True when a lockfile of the expected name was on disk. */
+  exists: boolean;
+  /** `mtime` in ms; `0` when the file didn't exist or was unreadable. */
+  mtimeMs: number;
+}
+
+/**
+ * Find the closest-enclosing `<pm>` lockfile (cwd-or-above) and
+ * record its existence + mtime. Walks ancestors because scaffold
+ * targets inside an existing workspace (`monorepo/packages/foo`)
+ * install against a root-hoisted lockfile, not a cwd-local one.
+ * Mirrors `hasEnclosingYarnLock`'s walk policy and applies the
+ * same termination signal (`dirname() === self`).
+ *
+ * Returns `{ exists: false, mtimeMs: 0 }` when `pm` is
+ * `undefined`, no lockfile exists anywhere up the tree, or the
+ * file is unreadable (rare permissions edge — falls through to
+ * "no snapshot" so the comparison can't assert a stale mtime).
+ */
+export function snapshotLockfile(
   cwd: string,
   pm: PackageManager | undefined,
-): boolean {
-  if (pm === undefined) return false;
+): LockfileSnapshot {
+  if (pm === undefined) return { exists: false, mtimeMs: 0 };
   const lockfile = LOCKFILE_BY_PM[pm];
   let dir = cwd;
   while (true) {
-    if (existsSync(join(dir, lockfile))) return true;
+    const candidate = join(dir, lockfile);
+    if (existsSync(candidate)) {
+      try {
+        return { exists: true, mtimeMs: statSync(candidate).mtimeMs };
+      } catch {
+        return { exists: false, mtimeMs: 0 };
+      }
+    }
     const parent = dirname(dir);
-    if (parent === dir) return false; // reached filesystem root
+    if (parent === dir) return { exists: false, mtimeMs: 0 };
     dir = parent;
   }
+}
+
+/**
+ * True when the closest-enclosing lockfile state at `cwd` is
+ * materially different from `before` — either freshly created or
+ * with a forward-moving `mtime`. Used by the CLI's git-init gate
+ * to recover from a non-zero install exit that still produced a
+ * complete tree (pnpm 11 and bun on Windows have been observed
+ * exiting non-zero AFTER writing both `node_modules` and the
+ * lockfile — round-39 Copilot review).
+ *
+ * Comparing against a *pre-install* snapshot is what closes the
+ * round-39-follow-up Codex P1 hazard: a workspace-subdir scaffold
+ * has a pre-existing root lockfile, so any `existsSync`-only
+ * check would treat a totally failed install as "lockfile
+ * landed" and proceed with `git init` over an untouched tree.
+ * Forward-moving mtime is the proof we need; equal mtime + same
+ * existence means "install didn't change anything" and the
+ * caller should NOT recover.
+ */
+export function lockfileChangedSince(
+  cwd: string,
+  pm: PackageManager | undefined,
+  before: LockfileSnapshot,
+): boolean {
+  const after = snapshotLockfile(cwd, pm);
+  if (!before.exists && after.exists) return true;
+  if (after.mtimeMs > before.mtimeMs) return true;
+  return false;
 }
 
 /**

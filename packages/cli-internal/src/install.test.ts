@@ -1,8 +1,19 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { install, lockfileLandedAfterInstall } from "./install";
+import {
+  install,
+  lockfileChangedSince,
+  snapshotLockfile,
+  type LockfileSnapshot,
+} from "./install";
 
 let cwd: string;
 let fakeBin: string;
@@ -269,11 +280,13 @@ describe("install", () => {
 // Round 39 (Copilot, PR #99): pnpm 11 / bun on Windows can exit
 // non-zero AFTER writing the lockfile, so the CLI's git-init gate
 // needs an on-disk fallback to recognise the "install threw but
-// the bootstrap is effectively complete" case. These tests pin
-// the lockfile-name table per pm and the undefined-pm short-
-// circuit so a future shape change trips a unit test rather than
-// silently dropping the recovered git-init path.
-describe("lockfileLandedAfterInstall", () => {
+// the bootstrap is effectively complete" case. The pre-install
+// snapshot + post-install change check is what closes the round-39-
+// follow-up Codex P1 hazard: a workspace-subdir scaffold has a
+// stale ancestor lockfile, so a bare existence check would treat
+// a totally failed install as "lockfile landed". Forward-moving
+// mtime is the proof we need.
+describe("snapshotLockfile + lockfileChangedSince", () => {
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "lockfile-landed-"));
@@ -282,8 +295,11 @@ describe("lockfileLandedAfterInstall", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("returns false when pm is undefined (no lockfile to look for)", () => {
-    expect(lockfileLandedAfterInstall(dir, undefined)).toBe(false);
+  it("snapshotLockfile returns no-existence when pm is undefined", () => {
+    expect(snapshotLockfile(dir, undefined)).toEqual({
+      exists: false,
+      mtimeMs: 0,
+    });
   });
 
   it.each([
@@ -291,16 +307,21 @@ describe("lockfileLandedAfterInstall", () => {
     { pm: "pnpm" as const, file: "pnpm-lock.yaml" },
     { pm: "yarn" as const, file: "yarn.lock" },
     { pm: "bun" as const, file: "bun.lock" },
-  ])("returns true when $pm's lockfile ($file) is on disk", ({ pm, file }) => {
-    expect(lockfileLandedAfterInstall(dir, pm)).toBe(false);
-    writeFileSync(join(dir, file), "");
-    expect(lockfileLandedAfterInstall(dir, pm)).toBe(true);
-  });
+  ])(
+    "snapshotLockfile records existence + mtime for $pm's $file when present",
+    ({ pm, file }) => {
+      expect(snapshotLockfile(dir, pm).exists).toBe(false);
+      writeFileSync(join(dir, file), "");
+      const snap = snapshotLockfile(dir, pm);
+      expect(snap.exists).toBe(true);
+      expect(snap.mtimeMs).toBeGreaterThan(0);
+    },
+  );
 
-  it("does not match a different pm's lockfile (e.g. yarn.lock when pm=npm)", () => {
+  it("snapshotLockfile does not match a different pm's lockfile (e.g. yarn.lock when pm=npm)", () => {
     writeFileSync(join(dir, "yarn.lock"), "");
-    expect(lockfileLandedAfterInstall(dir, "npm")).toBe(false);
-    expect(lockfileLandedAfterInstall(dir, "yarn")).toBe(true);
+    expect(snapshotLockfile(dir, "npm").exists).toBe(false);
+    expect(snapshotLockfile(dir, "yarn").exists).toBe(true);
   });
 
   // Round 39 (Copilot, PR #99): when the scaffold target is a
@@ -308,21 +329,51 @@ describe("lockfileLandedAfterInstall", () => {
   // pm hoists the lockfile to the workspace root. A cwd-only
   // check would miss the recovered-install signal and skip the
   // requested git init even though the install effectively
-  // succeeded. `lockfileLandedAfterInstall` walks ancestors via
-  // the same `dirname() === self` termination as
-  // `hasEnclosingYarnLock`.
+  // succeeded. `snapshotLockfile` walks ancestors via the same
+  // `dirname() === self` termination as `hasEnclosingYarnLock`.
   it.each([
     { pm: "npm" as const, file: "package-lock.json" },
     { pm: "pnpm" as const, file: "pnpm-lock.yaml" },
     { pm: "yarn" as const, file: "yarn.lock" },
     { pm: "bun" as const, file: "bun.lock" },
   ])(
-    "finds $pm's $file in an ancestor (workspace-subdir scaffold)",
+    "snapshotLockfile finds $pm's $file in an ancestor (workspace-subdir scaffold)",
     ({ pm, file }) => {
       const sub = join(dir, "packages", "foo");
       mkdirSync(sub, { recursive: true });
       writeFileSync(join(dir, file), "");
-      expect(lockfileLandedAfterInstall(sub, pm)).toBe(true);
+      expect(snapshotLockfile(sub, pm).exists).toBe(true);
     },
   );
+
+  // Round 39 follow-up (Codex P1): existence alone isn't enough.
+  // A stale ancestor lockfile present BEFORE install and unchanged
+  // AFTER must NOT be treated as "install landed", or a workspace-
+  // subdir scaffold with a totally failed install would slip the
+  // git-init gate. Forward-moving mtime is the only positive
+  // signal; equal mtime + same existence is "nothing changed".
+  it("lockfileChangedSince returns false when the lockfile pre-existed and was untouched", () => {
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+    const before: LockfileSnapshot = snapshotLockfile(dir, "pnpm");
+    expect(lockfileChangedSince(dir, "pnpm", before)).toBe(false);
+  });
+
+  it("lockfileChangedSince returns true when the lockfile is newly created", () => {
+    const before: LockfileSnapshot = snapshotLockfile(dir, "pnpm");
+    expect(before.exists).toBe(false);
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+    expect(lockfileChangedSince(dir, "pnpm", before)).toBe(true);
+  });
+
+  it("lockfileChangedSince returns true when the lockfile mtime advances", () => {
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "v1\n");
+    const before: LockfileSnapshot = snapshotLockfile(dir, "pnpm");
+    // Advance the file's mtime explicitly — `writeFileSync` on the
+    // same path within the same millisecond can leave mtime
+    // unchanged on coarse-resolution filesystems, which would mask
+    // the assertion. Using `utimesSync` is deterministic.
+    const newer = (before.mtimeMs + 5_000) / 1000;
+    utimesSync(join(dir, "pnpm-lock.yaml"), newer, newer);
+    expect(lockfileChangedSince(dir, "pnpm", before)).toBe(true);
+  });
 });

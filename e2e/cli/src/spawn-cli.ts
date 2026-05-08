@@ -298,10 +298,26 @@ function runCliOnce(
     // Per-spawn `BUN_INSTALL_CACHE_DIR` isolates each worker
     // (yarn / npm / pnpm all ignore the variable).
     const bunCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-bun-cache-"));
+    // Cleanup closure declared up-front so a synchronous `spawn`
+    // throw (invalid `binPath`, exec-time platform error, etc.)
+    // can run the same teardown the close/error events use.
+    // Without this, the per-spawn yarn / bun cache tmp dirs leak
+    // every time spawn rejects synchronously — CI accumulates
+    // `arkor-e2e-{yarn,bun}-cache-*` indefinitely on retry-heavy
+    // matrices. Round-39 Copilot review.
+    const cleanup = () => {
+      // Per-spawn caches are single-use; remove on close or error
+      // so `arkor-e2e-{yarn,bun}-cache-*` dirs don't pile up in
+      // tmpdir on long CI runs.
+      rmSync(yarnCacheDir, { recursive: true, force: true });
+      rmSync(bunCacheDir, { recursive: true, force: true });
+    };
     // Wall-clock start for the ENG-632 SIGKILL retry gate
     // (`elapsedMs` in RunResult — see shouldRetryAfterSigkill).
     const start = Date.now();
-    const child = spawn(process.execPath, [binPath, ...argv], {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(process.execPath, [binPath, ...argv], {
       cwd,
       env: {
         ...cleanEnv,
@@ -344,18 +360,19 @@ function runCliOnce(
         ...extraEnv,
       },
       stdio: ["ignore", "pipe", "pipe"],
-    });
+      });
+    } catch (err) {
+      // Synchronous spawn failure — clean the per-spawn cache
+      // tmp dirs before propagating, otherwise they leak on
+      // every retry. (Round-39 Copilot review.)
+      cleanup();
+      reject(err);
+      return;
+    }
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    child.stdout.on("data", (c: Buffer) => out.push(c));
-    child.stderr.on("data", (c: Buffer) => err.push(c));
-    const cleanup = () => {
-      // Per-spawn caches are single-use; remove on close or error
-      // so `arkor-e2e-{yarn,bun}-cache-*` dirs don't pile up in
-      // tmpdir on long CI runs.
-      rmSync(yarnCacheDir, { recursive: true, force: true });
-      rmSync(bunCacheDir, { recursive: true, force: true });
-    };
+    child.stdout?.on("data", (c: Buffer) => out.push(c));
+    child.stderr?.on("data", (c: Buffer) => err.push(c));
     child.on("error", (err) => {
       cleanup();
       reject(err);

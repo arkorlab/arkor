@@ -17,7 +17,12 @@ export {
   type PackageManager,
   type PackageManagerFlags,
 } from "./package-manager";
-export { install, lockfileLandedAfterInstall } from "./install";
+export {
+  install,
+  lockfileChangedSince,
+  snapshotLockfile,
+  type LockfileSnapshot,
+} from "./install";
 export {
   gitInitialCommit,
   isInGitRepo,

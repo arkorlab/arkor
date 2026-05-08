@@ -620,6 +620,39 @@ describe("runCli yarn cache plumbing", () => {
     expect(existsSync(capturedBunCacheDir!)).toBe(false);
   });
 
+  // Round 39 (Copilot, PR #99): the per-spawn cache dirs were
+  // mkdtemp'd before `spawn(...)` was called, so a SYNCHRONOUS
+  // spawn throw (invalid `binPath`, exec-time platform error,
+  // EACCES on the cwd, etc.) leaked them — the close/error
+  // listeners that fire `cleanup()` never got a chance to
+  // attach. The fix wraps `spawn` in a try/catch and runs the
+  // same teardown before propagating. Without this, a tight
+  // loop of failed spawns fills tmpdir on long CI runs.
+  it("cleans up the yarn AND bun cache dirs when spawn() throws synchronously", async () => {
+    // Capture the env spawn() would have received so the test
+    // can read the cache-dir paths back even though spawn never
+    // returns a child. We do this by stashing the env on the
+    // first call and then throwing.
+    let capturedYarnCacheDir: string | undefined;
+    let capturedBunCacheDir: string | undefined;
+    spawnMock.mockImplementationOnce((_execPath, _argv, opts) => {
+      const env = (opts as { env: NodeJS.ProcessEnv }).env;
+      capturedYarnCacheDir = env.YARN_CACHE_FOLDER;
+      capturedBunCacheDir = env.BUN_INSTALL_CACHE_DIR;
+      throw new Error("spawn EACCES (synthetic)");
+    });
+
+    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(
+      /spawn EACCES/,
+    );
+    expect(capturedYarnCacheDir).toBeDefined();
+    expect(capturedBunCacheDir).toBeDefined();
+    // Both dirs must be gone — without the try/catch around
+    // spawn(), the unhandled throw would leak them.
+    expect(existsSync(capturedYarnCacheDir!)).toBe(false);
+    expect(existsSync(capturedBunCacheDir!)).toBe(false);
+  });
+
   it("cleans up the yarn AND bun cache dirs even when the child emits `error`", async () => {
     let capturedYarnCacheDir: string | undefined;
     let capturedBunCacheDir: string | undefined;

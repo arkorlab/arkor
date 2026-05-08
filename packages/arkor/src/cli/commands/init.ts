@@ -3,9 +3,10 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
-  lockfileLandedAfterInstall,
+  lockfileChangedSince,
   sanitise,
   scaffold,
+  snapshotLockfile,
   TEMPLATES,
   templateChoices,
   type PackageManager,
@@ -183,6 +184,14 @@ export async function runInit(options: InitOptions): Promise<void> {
   const pm = options.packageManager;
 
   let installed = false;
+  // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
+  // lockfile BEFORE install so the post-install gate can prove
+  // install actually changed something on disk. Without the
+  // pre-snapshot, a workspace-subdir scaffold with a stale
+  // ancestor lockfile would treat any failed install as
+  // "lockfile landed" via existsSync alone — letting the CLI
+  // run git init over an untouched tree.
+  const lockfileBefore = snapshotLockfile(cwd, pm);
   if (!options.skipInstall && pm) {
     if (blockInstall) {
       // Round 17 (Copilot, PR #99): the yarn-config advisories above
@@ -250,13 +259,19 @@ export async function runInit(options: InitOptions): Promise<void> {
   // `node_modules` and the lockfile. The round-35 gate keyed on
   // the throw alone, which silently dropped a `--git` user's
   // initial commit even though the bootstrap was effectively
-  // complete. Falling back to "is the lockfile on disk?" lets
-  // git proceed when the artefact actually landed; the user
-  // already saw whatever error message the install printed.
+  // complete.
+  //
+  // Round 39 follow-up (Codex P1, PR #99): falling back to
+  // `existsSync(lockfile)` alone is too loose — a workspace-
+  // subdir scaffold with a stale ancestor lockfile would let a
+  // totally failed install pass the gate. Compare against the
+  // pre-install snapshot so only a forward-moving mtime (or a
+  // freshly created lockfile) counts as "install touched
+  // something material on disk".
   const installSucceeded =
     !wouldHaveInstalled ||
     installed ||
-    lockfileLandedAfterInstall(cwd, pm);
+    lockfileChangedSince(cwd, pm, lockfileBefore);
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(

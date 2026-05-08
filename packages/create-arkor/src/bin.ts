@@ -10,7 +10,8 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
-  lockfileLandedAfterInstall,
+  lockfileChangedSince,
+  snapshotLockfile,
   resolvePackageManager,
   sanitise,
   scaffold,
@@ -272,6 +273,11 @@ export async function run(options: RunOptions): Promise<void> {
   const shouldInitGit = await decideGitInit(cwd, options);
 
   let installed = false;
+  // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
+  // lockfile BEFORE install so the post-install gate can prove
+  // install actually changed something on disk. See `arkor init`
+  // for the full rationale.
+  const lockfileBefore = snapshotLockfile(cwd, pm);
   if (!options.skipInstall && pm) {
     if (blockInstall) {
       // Round 17 (Copilot, PR #99): the yarn-config advisories above
@@ -340,10 +346,17 @@ export async function run(options: RunOptions): Promise<void> {
   // lockfile, so treating the throw alone as "install failed"
   // silently dropped the requested initial commit even when the
   // bootstrap was effectively complete.
+  //
+  // Round 39 follow-up (Codex P1, PR #99): compare against the
+  // pre-install snapshot rather than `existsSync` alone — a
+  // workspace-subdir scaffold has a stale ancestor lockfile, so
+  // the loose existence check would treat a totally failed
+  // install as "lockfile landed" and proceed with `git init`
+  // over an untouched tree.
   const installSucceeded =
     !wouldHaveInstalled ||
     installed ||
-    lockfileLandedAfterInstall(cwd, pm);
+    lockfileChangedSince(cwd, pm, lockfileBefore);
   // Round 39 (Copilot, PR #99): the previous "re-run this command"
   // hint is only safe when re-invoking would actually merge into
   // the same target. With no `[dir]` argument, `run()` derives a
