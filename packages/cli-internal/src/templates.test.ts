@@ -19,13 +19,16 @@ describe("templates", () => {
     });
 
     it("destructures evalLoss in the onLog callback so it's printed when present", () => {
-      // The onLog body needs to actually consume `evalLoss` — not just
-      // accept it in the signature — otherwise users wouldn't see
-      // anything new in their terminal even with eval enabled. The
-      // template uses a conditional append so `evalLoss=null` rows
-      // (the majority) stay terse.
-      expect(trainer).toMatch(/onLog:\s*\(\{\s*step,\s*loss,\s*evalLoss\s*\}\)/);
-      expect(trainer).toContain("evalLoss !== null");
+      // Observable contract: `evalLoss` is destructured into the
+      // callback signature AND surfaces in the rendered output as an
+      // `evalLoss=` segment. We don't pin the exact null-check
+      // expression (`!== null` vs `Number.isFinite(...)` etc.) so the
+      // template can change its guard style without breaking the
+      // test, as long as the user-visible behavior is preserved.
+      expect(trainer).toMatch(
+        /onLog:\s*\(\{[^}]*\bevalLoss\b[^}]*\}\)/,
+      );
+      expect(trainer).toContain("evalLoss=");
     });
   });
 });

@@ -46,11 +46,21 @@ export const trainer = createTrainer({
   // Set dryRun: true for a fast end-to-end smoke test before a full run.
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss, evalLoss }) =>
-      console.log(
-        \`step=\${step} loss=\${loss}\` +
-          (evalLoss !== null ? \` evalLoss=\${evalLoss}\` : ""),
-      ),
+    onLog: ({ step, loss, evalLoss }) => {
+      // Omit each \`field=…\` segment when its value isn't a finite number
+      // so the line stays readable on eval-only steps (where \`loss\` is
+      // null) and on training-only steps (where \`evalLoss\` is null) —
+      // matches the format Studio's event log uses.
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? \` loss=\${loss.toFixed(4)}\`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? \` evalLoss=\${evalLoss.toFixed(4)}\`
+          : "";
+      console.log(\`step=\${step}\${lossPart}\${evalPart}\`);
+    },
   },
 });
 `;
@@ -67,11 +77,21 @@ export const trainer = createTrainer({
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss, evalLoss }) =>
-      console.log(
-        \`step=\${step} loss=\${loss}\` +
-          (evalLoss !== null ? \` evalLoss=\${evalLoss}\` : ""),
-      ),
+    onLog: ({ step, loss, evalLoss }) => {
+      // Omit each \`field=…\` segment when its value isn't a finite number
+      // so the line stays readable on eval-only steps (where \`loss\` is
+      // null) and on training-only steps (where \`evalLoss\` is null) —
+      // matches the format Studio's event log uses.
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? \` loss=\${loss.toFixed(4)}\`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? \` evalLoss=\${evalLoss.toFixed(4)}\`
+          : "";
+      console.log(\`step=\${step}\${lossPart}\${evalPart}\`);
+    },
   },
 });
 `;
@@ -88,11 +108,21 @@ export const trainer = createTrainer({
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss, evalLoss }) =>
-      console.log(
-        \`step=\${step} loss=\${loss}\` +
-          (evalLoss !== null ? \` evalLoss=\${evalLoss}\` : ""),
-      ),
+    onLog: ({ step, loss, evalLoss }) => {
+      // Omit each \`field=…\` segment when its value isn't a finite number
+      // so the line stays readable on eval-only steps (where \`loss\` is
+      // null) and on training-only steps (where \`evalLoss\` is null) —
+      // matches the format Studio's event log uses.
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? \` loss=\${loss.toFixed(4)}\`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? \` evalLoss=\${evalLoss.toFixed(4)}\`
+          : "";
+      console.log(\`step=\${step}\${lossPart}\${evalPart}\`);
+    },
   },
 });
 `;

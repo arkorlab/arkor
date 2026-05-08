@@ -103,7 +103,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -134,10 +134,10 @@ Pick the ones that match your run. The trainer file is just TypeScript; you can 
 
 ## 4. Change the base model
 
-The `model` field is forwarded to the cloud API as a string. Today the curated path uses `unsloth/gemma-4-E4B-it`, which is what every starter template ships with. The cloud API decides what other identifiers it accepts; sending an unsupported value produces a 4xx from upstream and a `training.failed` event with the backend's error message.
+The `model` field is forwarded to the cloud API as a string. Today the curated path uses `unsloth/gemma-4-e4b-it`, which is what every starter template ships with. The cloud API decides what other identifiers it accepts; sending an unsupported value produces a 4xx from upstream and a `training.failed` event with the backend's error message.
 
 ```ts
-model: "unsloth/gemma-4-E4B-it",   // curated; this is the supported path today
+model: "unsloth/gemma-4-e4b-it",   // curated; this is the supported path today
 ```
 
 Trying a different base is something the roadmap explicitly calls out (see the project README's "What's coming next"). Until that lands, treat the `model` field as a single supported value rather than an open menu.
@@ -167,7 +167,7 @@ async function postSlack(text: string): Promise<void> {
 
 export const trainer = createTrainer({
   name: "support-bot-v2",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 32, alpha: 64, maxLength: 2048, loadIn4bit: true },
   maxSteps: 500,
