@@ -38,20 +38,37 @@ The list shows whatever order the backend returned. There is no client-side filt
 
 `#/jobs/:id` opens a Server-Sent Events connection to `GET /api/jobs/:id/events` via `EventSource`. The page listens for five named events plus a stream sentinel:
 
+In every row below, the event log renders the event name in its own column next to the message; the message text shown is what `JobDetail.pushEvent()` builds from the SSE payload.
+
 | Event | Effect on the page |
 | --- | --- |
-| `training.started` | Status flips to `running`. The raw line `[started] <data>` is appended to the event log. |
-| `training.log` | The `step` and `loss` are appended to the loss chart's data array. The raw line `[log] step=<n> loss=<value>` joins the event log. |
-| `checkpoint.saved` | Raw line `[checkpoint] <data>` joins the event log. The chart is not affected. |
-| `training.completed` | Status flips to `completed`. Artifact count is shown below the status (`artifacts: <n>`). |
-| `training.failed` | Status flips to `failed`. The error message from the event payload is shown beneath the status. |
+| `training.started` | Status flips to `running`. The event log row's message is the raw JSON payload (no per-event formatting). |
+| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The event log message starts with `step=<n>` and appends ` loss=<value>` and/or ` evalLoss=<value>` for whichever fields are numeric on that step — either segment is omitted when its field is null/missing, so eval-only frames render as `step=<n> evalLoss=<value>`. |
+| `checkpoint.saved` | The event log message is `step=<n>`. The chart is not affected. |
+| `training.completed` | Status flips to `completed`. The event log message is `<n> artifact[s]`; the artifact count itself is rendered in the Metadata sidebar's `Artifacts` row. |
+| `training.failed` | Status flips to `failed`. The event log message is the `error` string from the payload, and a red banner with the same text is rendered above the chart. |
 | `end` | The page closes the EventSource. No reconnect. |
 
-Stream errors append `[stream error]` to the log; reconnect is left to the browser's `EventSource` retry behaviour.
+Stream errors are surfaced as a separate `Event stream interrupted.` banner above the loss-chart and events-log cards (not as a log entry); the banner clears the next time an SSE frame arrives, and reconnect is left to the browser's `EventSource` retry behaviour.
 
-The event log keeps only the **last 50 lines** (older lines drop off as new ones arrive). It is a raw `<pre>` block, intended for quick inspection rather than full forensic logs; for the complete history, look at the cloud-api directly.
+The event log keeps only the **last 500 entries** (older entries drop off as new ones arrive). It is a scrolling list rendered from named SSE events, intended for quick inspection rather than full forensic logs; for the complete history, look at the cloud-api directly.
 
-The loss chart is a single SVG path (`640 × 200`) drawn from `training.log` events that include a numeric `loss`. It uses min-max scaling on the y-axis and the step number on the x-axis. There is no zoom, no tooltip, and no export. If no `training.log` event has arrived yet, the chart slot reads `No training.log events yet.`.
+The loss chart is an SVG plot drawn from `training.log` events. It uses min-max scaling on the y-axis and the step number on the x-axis, and shows up to two series:
+
+- **Training loss** — solid teal line, one vertex per event with a numeric `loss`.
+- **Eval loss** — dashed pink line with point markers, drawn from events that carry a numeric `evalLoss` (typically every `evalSteps` ticks). The series is built from the events directly, so eval-only frames (numeric `evalLoss` with `loss` omitted) still appear in the line, legend, and stats. The legend hides this entry until at least one eval point arrives.
+
+Hovering shows the nearest step and whichever of `loss` / `evalLoss` are present at that step (eval-only steps don't show a `loss` value, and vice-versa). The chart shows the `Waiting for training.log events…` placeholder until at least one event with a numeric `loss` or `evalLoss` arrives — `training.log` frames where both fields are null/omitted don't count.
+
+### Advanced metrics
+
+The **Advanced** toggle in the chart's header reveals a per-series statistics panel. Each card reports:
+
+- **Mean loss ± 95% CI** — sample mean of the loss values together with the half-width of the 95% confidence interval (Student's t-distribution; falls back to z = 1.96 for n > 31).
+- **Std dev** and **Variance** — Bessel-corrected sample estimates (`ddof=1`).
+- **p90** and **p95** — linearly interpolated percentiles, matching numpy's default convention.
+
+The eval card stays empty until a `training.log` event with a numeric `evalLoss` arrives.
 
 ## Things this page does not do
 

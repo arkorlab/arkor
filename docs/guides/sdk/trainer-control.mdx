@@ -1,0 +1,41 @@
+---
+title: "Trainer control"
+description: "Drive a run from your own code: start, wait, cancel."
+---
+
+# Trainer control
+
+The `Trainer` returned by [`createTrainer`](/guides/sdk/create-trainer) has three methods: `start`, `wait`, `cancel`. `arkor start` and Studio's **Run training** button call `start()` followed by `wait()` for you. You only call them yourself when wiring training into your own code (a server, a script, a custom CLI).
+
+```ts
+const { jobId } = await trainer.start();
+const { artifacts } = await trainer.wait();
+```
+
+- `start()` submits the job and resolves once the backend accepts it.
+- `wait()` opens the SSE event stream, dispatches your callbacks, and resolves when the run finishes.
+- `cancel()` asks the backend to stop the run.
+
+If you only need callbacks, you do not need to handle `start` / `wait` directly: `arkor start` does it. Reach for these methods when you are running outside the CLI.
+
+## Stopping a wait early
+
+Pass an `abortSignal` to `createTrainer` if you need a way to stop your local `wait()` loop without waiting for the backend:
+
+```ts
+const controller = new AbortController();
+
+const trainer = createTrainer({
+  /* ... */
+  abortSignal: controller.signal,
+});
+
+// from somewhere else:
+controller.abort();
+```
+
+`abortSignal` only stops your local loop. To also stop the GPU on the backend, call `await trainer.cancel()` afterwards.
+
+## Reference
+
+For the exact reject vs resolve behavior, the SSE reconnect rules (`initialReconnectDelayMs`, `maxReconnectDelayMs`, `maxReconnectAttempts`), the idempotency guarantee on `start()`, and the full two-process pattern with `SIGINT` handling, see the [Trainer control reference](/sdk/trainer-control).

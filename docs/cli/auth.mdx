@@ -9,6 +9,14 @@ Three short commands that read or write `~/.arkor/credentials.json`. None of the
 
 ## `arkor login`
 
+Sign in to the managed backend. With no flags the CLI asks interactively whether to sign in via Arkor Cloud's OAuth or as an anonymous session. The interactive selector defaults to **Anonymous**, so accepting the default (or piping into a non-TTY) lands on the anonymous path; OAuth runs only when you explicitly select it or pass `--oauth`.
+
+### Synopsis
+
+```
+arkor login [options]
+```
+
 <CodeGroup>
 
 ```bash pnpm
@@ -33,14 +41,6 @@ bun arkor login
 
 </CodeGroup>
 
-Sign in to the managed backend. With no flags the CLI asks interactively whether to sign in via Arkor Cloud's OAuth or as an anonymous session. The interactive selector defaults to **Anonymous**, so accepting the default (or piping into a non-TTY) lands on the anonymous path; OAuth runs only when you explicitly select it or pass `--oauth`.
-
-### Synopsis
-
-```
-arkor login [options]
-```
-
 ### Options
 
 | Flag | Description |
@@ -49,7 +49,7 @@ arkor login [options]
 | `--anonymous` | Skip the picker and request a throwaway anonymous token. Mutually exclusive with `--oauth`. This is also what `arkor dev` does at launch when no credentials exist on disk: it always bootstraps anonymous first. |
 | `--no-browser` | Disable the automatic `open(url)` call. The authorization URL is printed either way (`Browser: <url>` line); this flag only stops the CLI from launching a browser for you. Useful in headless environments (SSH, Docker). It only affects the OAuth path. |
 
-### What happens
+### Behavior
 
 1. The CLI calls `/v1/auth/cli/config` on the cloud-api to read the deployment's OAuth settings.
 2. If `--anonymous` is passed, the CLI requests an anonymous token from `/v1/auth/anonymous` and writes it to `~/.arkor/credentials.json` with `mode: "anon"`.
@@ -59,15 +59,23 @@ arkor login [options]
 
 The loopback server is closed in a `finally` block so it does not stick around if login fails.
 
-### Anonymous mode in one paragraph
+#### Anonymous mode in one paragraph
 
 Anonymous credentials let you try Arkor without an account: training runs, jobs, and any work you do are tied to the local machine via the anonymous token. The anonymous path always mints a brand-new token (and a new `anonymousId`) and overwrites `~/.arkor/credentials.json`, so re-running `arkor login --anonymous` does not refresh the existing identity. Switching to OAuth (`arkor login --oauth`, or selecting `OAuth (browser)` in the picker) overwrites the credentials file the same way and does not migrate prior anonymous workspaces or jobs into the account. Merging anonymous work into an OAuth account once you sign in is on the roadmap; until that lands, run `arkor login --oauth` **before** you start the runs you want associated with the account.
 
-### Anonymous issuance output
+#### Anonymous issuance output
 
 Both anonymous paths surface the new `anonymousId` and an explanation that the same id is how Arkor Cloud recognises this client across sessions, though the line shape differs by entry point. `arkor login` (`--anonymous` flag or picker → **Anonymous**) prints `Anonymous id: <id>` as the spinner stop and then a separate info line saying that keeping the credentials file (`credentialsPath()`, typically `~/.arkor/credentials.json` on Linux and macOS) is what preserves the identity. `arkor dev`'s auto-bootstrap skips the spinner and emits a single info line that already embeds the id and the same explanation. The picker → **Anonymous** path additionally surfaces a one-line warn alongside the success message — ``Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to tie future work to your Arkor Cloud account.`` — so the upgrade hint is visible at issuance time. The explicit `--anonymous` shortcut suppresses that warn because it skips the `/v1/auth/cli/config` fetch and so cannot tell whether `arkor login --oauth` would succeed on this deployment; pointing at it on a rare anon-only deployment would steer users at a command that fails.
 
 ## `arkor logout`
+
+Deletes `~/.arkor/credentials.json`. Prompts for confirmation by default.
+
+### Synopsis
+
+```
+arkor logout [options]
+```
 
 <CodeGroup>
 
@@ -93,14 +101,6 @@ bun arkor logout
 
 </CodeGroup>
 
-Deletes `~/.arkor/credentials.json`. Prompts for confirmation by default.
-
-### Synopsis
-
-```
-arkor logout [options]
-```
-
 ### Options
 
 | Flag | Description |
@@ -114,6 +114,14 @@ arkor logout [options]
 - `arkor logout` does not touch `.arkor/state.json` or the `.arkor/build/` artifact. To start fully fresh, remove `.arkor/` manually as well.
 
 ## `arkor whoami`
+
+Prints the current identity from `/v1/me` on the cloud-api, plus the org slugs you can reach.
+
+### Synopsis
+
+```
+arkor whoami
+```
 
 <CodeGroup>
 
@@ -139,14 +147,6 @@ bun arkor whoami
 
 </CodeGroup>
 
-Prints the current identity from `/v1/me` on the cloud-api, plus the org slugs you can reach.
-
-### Synopsis
-
-```
-arkor whoami
-```
-
 No flags.
 
 ### Output
@@ -166,7 +166,7 @@ Both modes write to the same file at `~/.arkor/credentials.json` and are tagged 
 
 ## Token expiry
 
-For OAuth sessions, the credentials file records both the access token and the issued refresh token, plus the `expiresAt` timestamp returned by the token exchange. The refresh token is stored today, but the CLI does **not** yet auto-refresh expired access tokens; that path is [on the roadmap](/roadmap#auth0-token-auto-refresh).
+For OAuth sessions, the credentials file records both the access token and the issued refresh token, plus the `expiresAt` timestamp returned by the token exchange. The refresh token is stored today, but the CLI does **not** yet auto-refresh expired access tokens; that path is [on the roadmap](/roadmap#oauth-token-auto-refresh).
 
 In practice that means:
 
@@ -175,15 +175,21 @@ In practice that means:
 
 Anonymous tokens have no client-side expiry tracking; the cloud-api decides when they stop working. If an anonymous session starts failing, run `arkor login --anonymous` to mint a new one (this issues a new `anonymousId`, so it is effectively a different workspace).
 
-## Common errors
+## Errors
 
 | Message | Where | What it means | Fix |
 | --- | --- | --- | --- |
 | `Pick one of --oauth / --anonymous, not both.` | `arkor login` | Both mode flags were passed. | Pass at most one. |
 | `--oauth needs a browser callback that CI runners can't complete. Use --anonymous in CI.` | `arkor login --oauth` (with `process.env.CI` set) | PKCE depends on a loopback redirect from a browser, which CI cannot satisfy. | Use `--anonymous` in CI. For local headless flows that still have a reachable browser (e.g. `... --no-browser \| tee logs`), unset `CI` for the run. |
 | `State mismatch — aborting to prevent CSRF` | `arkor login --oauth` | The `state` returned to the loopback callback does not match the one the CLI generated (almost always because the browser hit a stale tab from a previous login attempt). | Re-run `arkor login --oauth` and complete the flow in the freshly opened tab. |
-| `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login --oauth` | The OAuth token exchange succeeded but the response had no `refresh_token`, so the CLI cannot keep the session alive past the access token's lifetime. Usually a deployment-side misconfiguration. | Enable the `offline_access` scope on the OAuth (Auth0) application, then re-run `arkor login --oauth`. |
+| `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login --oauth` | The OAuth token exchange succeeded but the response had no `refresh_token`, so the CLI cannot keep the session alive past the access token's lifetime. Usually a deployment-side misconfiguration. | Enable the `offline_access` scope on the OAuth application, then re-run `arkor login --oauth`. |
 | `No credentials on file.` | `arkor logout` | `~/.arkor/credentials.json` does not exist. Nothing to delete. | Run `arkor login` first if you wanted to sign in. |
 | `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.` | `arkor whoami` | Same condition as above, surfaced from a different command. | Same fix. |
 | `Failed to fetch /v1/me (<status>). Token may be expired.` | `arkor whoami` | The cloud-api rejected the request with a non-200, non-426 status. Most often expired access tokens. | Re-run `arkor login` matching the current `mode`: `arkor login --oauth` for `mode: "auth0"`, `arkor login --anonymous` for `mode: "anon"` (the latter mints a new `anonymousId`, so it lands in a new workspace). The exit code stays `0` so wrapper scripts can inspect the message. |
 | `426 Upgrade Required` (with upgrade hint) | `arkor whoami` (and other cloud-api calls) | The deployment requires a newer SDK version. The CLI prints the upgrade command for your detected package manager and sets `process.exitCode = 1`. | Upgrade the `arkor` package and re-run. |
+
+## See also
+
+- [Project structure](/concepts/project-structure) for the credentials file location and `state.json`
+- [`arkor dev`](/cli/dev) for the auto-bootstrap path that uses the same anonymous flow
+- [Roadmap § Auth0 token auto-refresh](/roadmap#auth0-token-auto-refresh)
