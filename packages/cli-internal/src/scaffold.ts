@@ -220,6 +220,21 @@ async function patchGitignore(
   //     starter — `node_modules/`, `dist/`, `.arkor/`, plus the
   //     yarn-cache lines under the round-14 #2 / 15 gate. We own
   //     the file in this case, so a sensible baseline is fine.
+  //     This branch ALSO fires when scaffolding into an existing
+  //     repo that simply has no `.gitignore` yet (e.g. a fresh
+  //     `git init` + README pre-existing project — round-15
+  //     widening's `isExistingProject=true`). That's intentional:
+  //     the round-16 conservatism applies to the PATCH path's
+  //     "don't flip an existing ignore policy"; if there's no
+  //     gitignore at all, dropping the standard four-entry
+  //     starter is strictly additive (we never DROP a track from
+  //     git, only add ignores). Users who deliberately track
+  //     `node_modules/` / `dist/` already have a `.gitignore`
+  //     that excludes those entries, which sends us down the
+  //     PATCH path and leaves their policy alone. The
+  //     yarn-cache extras are still gated by `isExistingProject`
+  //     so we don't add them when merging into someone else's
+  //     repo (round 14 #2 / 15 — even on the CREATE branch).
   //
   //   - On PATCH (pre-existing `.gitignore`): only ensure
   //     `.arkor/` is present. `node_modules/` and `dist/` are NOT
@@ -235,8 +250,8 @@ async function patchGitignore(
   //     trainer cache, build cache, and credentials would all
   //     leak into commits.
   //
-  // The `packageManager` and `isExistingProject` arguments are
-  // therefore only consulted on CREATE; the PATCH path is
+  // The `packageManager` and `isExistingProject` arguments drive
+  // the yarn-cache extras on CREATE; the PATCH path is
   // pm-agnostic.
   if (!existsSync(path)) {
     const initial = ["node_modules/", "dist/", ".arkor/"];

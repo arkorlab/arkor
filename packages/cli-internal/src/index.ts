@@ -18,11 +18,13 @@ export {
   type PackageManagerFlags,
 } from "./package-manager";
 export {
-  hasEnclosingNodeModules,
   install,
   lockfileChangedSince,
+  nodeModulesChangedSince,
   snapshotLockfile,
+  snapshotNodeModules,
   type LockfileSnapshot,
+  type NodeModulesSnapshot,
 } from "./install";
 export {
   gitInitialCommit,

@@ -102,36 +102,60 @@ export function lockfileChangedSince(
 }
 
 /**
- * True when a `node_modules` directory is present in `cwd` or any
- * ancestor — same walk policy as `hasEnclosingYarnLock` and
- * `snapshotLockfile`. Used by the CLI's git-init recovery gate
- * alongside `lockfileChangedSince`: a non-zero install that
- * rewrote the lockfile but failed BEFORE populating
- * `node_modules` (preinstall / install lifecycle failure on an
- * existing project) would otherwise pass the lockfile-only
- * check and be misclassified as a recovered success — round-39
- * Codex P1. Requiring `node_modules` to exist as well keeps
- * the heuristic biased towards the round-39 safe case (pnpm 11
- * / bun-Windows post-install exit, where `node_modules` is
- * already populated when the throw happens) without admitting
- * partial-bootstrap states.
+ * Snapshot of `cwd`'s `node_modules` directory at a moment in
+ * time. Mirrors `LockfileSnapshot`: existence + mtime captured
+ * BEFORE install so the recovery gate can prove install
+ * actually populated dependencies on disk.
  *
- * Returns `false` when `pm` is undefined for symmetry with the
- * lockfile helpers — callers can then use it as a single
- * additional condition without an extra null check.
+ * Cwd-only (no ancestor walk) on purpose — round-39 Codex P1
+ * follow-up flagged that walking ancestors lets a pre-existing
+ * monorepo `node_modules` (set up by an earlier root install)
+ * satisfy the gate even when the current scaffold's install
+ * never ran. The snapshot/diff pair compares the SAME path
+ * before and after, so a parent-hoisted `node_modules` is
+ * irrelevant to whether THIS install touched anything.
  */
-export function hasEnclosingNodeModules(
-  cwd: string,
-  pm: PackageManager | undefined,
-): boolean {
-  if (pm === undefined) return false;
-  let dir = cwd;
-  while (true) {
-    if (existsSync(join(dir, "node_modules"))) return true;
-    const parent = dirname(dir);
-    if (parent === dir) return false;
-    dir = parent;
+export interface NodeModulesSnapshot {
+  /** True when a `node_modules` directory was present at `cwd`. */
+  exists: boolean;
+  /** `mtime` in ms; `0` when the directory didn't exist or was unreadable. */
+  mtimeMs: number;
+}
+
+export function snapshotNodeModules(cwd: string): NodeModulesSnapshot {
+  const path = join(cwd, "node_modules");
+  if (!existsSync(path)) return { exists: false, mtimeMs: 0 };
+  try {
+    return { exists: true, mtimeMs: statSync(path).mtimeMs };
+  } catch {
+    return { exists: false, mtimeMs: 0 };
   }
+}
+
+/**
+ * True when `cwd`'s `node_modules` is materially different from
+ * the `before` snapshot — either freshly created or with a
+ * forward-moving `mtime`. Paired with `lockfileChangedSince` in
+ * the CLI's git-init recovery gate: BOTH must hold for a
+ * non-zero `<pm> install` exit to be treated as "install
+ * effectively succeeded".
+ *
+ * Round-39 Codex P1 follow-up: an `existsSync(node_modules)`
+ * static ancestor check (the previous attempt) returned `true`
+ * for any pre-existing parent `node_modules`, so a failed
+ * install that rewrote the lockfile but never populated
+ * dependencies still passed the gate. The before/after diff at
+ * cwd specifically catches the "install touched THIS project"
+ * case and ignores ambient ancestor state.
+ */
+export function nodeModulesChangedSince(
+  cwd: string,
+  before: NodeModulesSnapshot,
+): boolean {
+  const after = snapshotNodeModules(cwd);
+  if (!before.exists && after.exists) return true;
+  if (after.mtimeMs > before.mtimeMs) return true;
+  return false;
 }
 
 /**

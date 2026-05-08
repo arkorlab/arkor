@@ -9,11 +9,13 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  hasEnclosingNodeModules,
   install,
   lockfileChangedSince,
+  nodeModulesChangedSince,
   snapshotLockfile,
+  snapshotNodeModules,
   type LockfileSnapshot,
+  type NodeModulesSnapshot,
 } from "./install";
 
 let cwd: string;
@@ -379,40 +381,81 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
   });
 });
 
-// Round 39 follow-up #2 (Codex P1, PR #99): the install-recovery
-// gate pairs `lockfileChangedSince` with `hasEnclosingNodeModules`
-// so a preinstall / install-hook failure that rewrote the
-// lockfile but never populated `node_modules` doesn't slip
-// through as a recovered success. These tests pin the
-// node-modules helper's per-pm + ancestor-walk shape so the
-// pairing in `arkor init` / `create-arkor` stays robust.
-describe("hasEnclosingNodeModules", () => {
+// Round 39 follow-up #2 (Codex P1, PR #99): the install-
+// recovery gate pairs `lockfileChangedSince` with a
+// `node_modules` BEFORE/AFTER diff. The earlier
+// `hasEnclosingNodeModules` static-existence check (initial
+// follow-up) false-positived against an ambient ancestor
+// `node_modules` from a prior root install — a failed install
+// in a monorepo subdir that never populated dependencies
+// would still pass the gate. The snapshot/diff at cwd
+// specifically catches the "install touched THIS project"
+// case while ignoring the parent-hoisted state.
+describe("snapshotNodeModules + nodeModulesChangedSince", () => {
   let dir: string;
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "node-modules-walk-"));
+    dir = mkdtempSync(join(tmpdir(), "node-modules-snapshot-"));
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("returns false when pm is undefined (mirrors snapshotLockfile's short-circuit)", () => {
+  it("snapshotNodeModules records no-existence when cwd has no node_modules", () => {
+    expect(snapshotNodeModules(dir)).toEqual({ exists: false, mtimeMs: 0 });
+  });
+
+  it("snapshotNodeModules records existence + mtime when cwd has node_modules", () => {
     mkdirSync(join(dir, "node_modules"));
-    expect(hasEnclosingNodeModules(dir, undefined)).toBe(false);
+    const snap = snapshotNodeModules(dir);
+    expect(snap.exists).toBe(true);
+    expect(snap.mtimeMs).toBeGreaterThan(0);
   });
 
-  it("returns false when no ancestor has a node_modules dir", () => {
-    expect(hasEnclosingNodeModules(dir, "pnpm")).toBe(false);
-  });
-
-  it("returns true when cwd has a node_modules dir", () => {
-    mkdirSync(join(dir, "node_modules"));
-    expect(hasEnclosingNodeModules(dir, "pnpm")).toBe(true);
-  });
-
-  it("walks ancestors (workspace-subdir scaffold)", () => {
+  it("snapshotNodeModules ignores ancestor node_modules (cwd-only)", () => {
+    // Round 39 P1 follow-up: the previous helper walked
+    // ancestors, which let a prior root install satisfy the
+    // recovery gate even when the current install never ran.
+    // The cwd-only snapshot is what makes the diff meaningful.
     const sub = join(dir, "packages", "foo");
     mkdirSync(sub, { recursive: true });
     mkdirSync(join(dir, "node_modules"));
-    expect(hasEnclosingNodeModules(sub, "pnpm")).toBe(true);
+    expect(snapshotNodeModules(sub).exists).toBe(false);
+  });
+
+  it("nodeModulesChangedSince returns false when nothing changed", () => {
+    mkdirSync(join(dir, "node_modules"));
+    const before: NodeModulesSnapshot = snapshotNodeModules(dir);
+    expect(nodeModulesChangedSince(dir, before)).toBe(false);
+  });
+
+  it("nodeModulesChangedSince returns true when node_modules is newly created", () => {
+    const before: NodeModulesSnapshot = snapshotNodeModules(dir);
+    expect(before.exists).toBe(false);
+    mkdirSync(join(dir, "node_modules"));
+    expect(nodeModulesChangedSince(dir, before)).toBe(true);
+  });
+
+  it("nodeModulesChangedSince returns true when node_modules mtime advances", () => {
+    mkdirSync(join(dir, "node_modules"));
+    const before: NodeModulesSnapshot = snapshotNodeModules(dir);
+    const newer = (before.mtimeMs + 5_000) / 1000;
+    utimesSync(join(dir, "node_modules"), newer, newer);
+    expect(nodeModulesChangedSince(dir, before)).toBe(true);
+  });
+
+  // Round 39 P1 follow-up regression test: even with an
+  // ancestor `node_modules` already on disk, the snapshot/diff
+  // at cwd correctly reports "install didn't touch the
+  // project" when nothing changed there.
+  it("nodeModulesChangedSince ignores ancestor node_modules churn", () => {
+    const sub = join(dir, "packages", "foo");
+    mkdirSync(sub, { recursive: true });
+    mkdirSync(join(dir, "node_modules"));
+    const before: NodeModulesSnapshot = snapshotNodeModules(sub);
+    // Touch the parent's node_modules — the cwd-scoped
+    // snapshot must not see this as "install succeeded".
+    const newer = (snapshotNodeModules(dir).mtimeMs + 5_000) / 1000;
+    utimesSync(join(dir, "node_modules"), newer, newer);
+    expect(nodeModulesChangedSince(sub, before)).toBe(false);
   });
 });

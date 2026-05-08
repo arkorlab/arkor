@@ -1,13 +1,14 @@
 import { basename } from "node:path";
 import {
   gitInitialCommit,
-  hasEnclosingNodeModules,
   install,
   isInGitRepo,
   lockfileChangedSince,
+  nodeModulesChangedSince,
   sanitise,
   scaffold,
   snapshotLockfile,
+  snapshotNodeModules,
   TEMPLATES,
   templateChoices,
   type PackageManager,
@@ -193,6 +194,15 @@ export async function runInit(options: InitOptions): Promise<void> {
   // "lockfile landed" via existsSync alone — letting the CLI
   // run git init over an untouched tree.
   const lockfileBefore = snapshotLockfile(cwd, pm);
+  // Round 39 follow-up #2 (Codex P1, PR #99): pair the
+  // lockfile-changed signal with `node_modules` change. The
+  // earlier `hasEnclosingNodeModules` static-existence check
+  // false-positived against pre-existing parent `node_modules`
+  // (monorepo subdir scaffolds), so a failed install that
+  // never populated the project's deps still passed the gate.
+  // Snapshot at cwd specifically so the after-install diff
+  // proves THIS install did the work.
+  const nodeModulesBefore = snapshotNodeModules(cwd);
   if (!options.skipInstall && pm) {
     if (blockInstall) {
       // Round 17 (Copilot, PR #99): the yarn-config advisories above
@@ -275,16 +285,19 @@ export async function runInit(options: InitOptions): Promise<void> {
   // rewrote the lockfile but errored BEFORE populating
   // `node_modules` (preinstall / install lifecycle hook
   // failure on an existing project). Pair the lockfile-changed
-  // signal with `hasEnclosingNodeModules` so the recovery path
-  // only fires when both artefacts are on disk — that matches
-  // the round-39 safe case (pnpm 11 / bun-Windows
-  // post-install exit, where `node_modules` is already
-  // populated when the throw happens).
+  // signal with a `node_modules` before/after diff so the
+  // recovery path only fires when BOTH artefacts moved during
+  // this install. The earlier `hasEnclosingNodeModules` static
+  // check (round 39 follow-up #2 first attempt) false-
+  // positived against ambient ancestor `node_modules` from a
+  // prior root install — the snapshot/diff at cwd
+  // specifically proves this install did the work, not a
+  // hoisted parent install from earlier.
   const installSucceeded =
     !wouldHaveInstalled ||
     installed ||
     (lockfileChangedSince(cwd, pm, lockfileBefore) &&
-      hasEnclosingNodeModules(cwd, pm));
+      nodeModulesChangedSince(cwd, nodeModulesBefore));
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(

@@ -8,11 +8,12 @@ import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
   gitInitialCommit,
-  hasEnclosingNodeModules,
   install,
   isInGitRepo,
   lockfileChangedSince,
+  nodeModulesChangedSince,
   snapshotLockfile,
+  snapshotNodeModules,
   resolvePackageManager,
   sanitise,
   scaffold,
@@ -85,23 +86,40 @@ function collisionMessage(name: string): string {
  *     escaped via the standard `'\''` close-literal-open
  *     sequence — the bytes `'`, `\`, `'`, `'` parse as
  *     end-quote, literal `'`, start-quote.
- *   - Windows (cmd.exe / PowerShell): double quotes. `cmd.exe`
- *     treats `'` as a literal character, so a POSIX-style
- *     `cd 'My App' && pnpm install` would copy-paste-fail
- *     there. Inside the quoted run we backtick-escape the
- *     PowerShell metacharacters (`` ` `` itself, `$`, `"`) so
- *     a path containing `$()` or `$VAR` doesn't trigger
- *     subexpression evaluation / variable expansion when the
- *     hint is pasted into a PowerShell prompt — round-39
- *     Copilot flagged this as a copy-paste injection vector
- *     since Windows directory names can contain `$` and
- *     parentheses. Backslashes are also escaped (`\` → `\\`)
- *     for `_setargv` / msvcrt argv parsing when the quoted
- *     path is forwarded to a child program. cmd.exe renders
- *     `` ` ``-prefixed bytes literally, so a path containing
- *     those rare metachars looks slightly mangled in cmd but
- *     is no longer a security hazard in PS — paths with
- *     literal `$` / backtick are vanishingly rare in practice.
+ *   - Windows (cmd.exe / PowerShell): double quotes with a
+ *     MIXED escape strategy — there is no single quoting form
+ *     that's clean for both shells, so we pick the safer
+ *     escape per metacharacter:
+ *       * `` ` `` (backtick) and `$`: PS-style backtick prefix
+ *         (`` ` `` → `` `` ``, `$` → `` `$ ``). PowerShell
+ *         interpolates `$VAR` / `$()` inside double quotes, so
+ *         a path containing those would let a copy-pasted
+ *         `cd "..." && <pm> install` evaluate a subexpression
+ *         when pasted into a PS prompt (round-39 Copilot
+ *         flagged this as the copy-paste injection vector). In
+ *         cmd these chars are literal so the backtick-prefix
+ *         is just a cosmetic mismatch.
+ *       * `\` and `"`: backslash-style (`\` → `\\`, `"` → `\"`).
+ *         These match the `_setargv` / msvcrt argv parsing
+ *         convention used when the quoted path is forwarded to
+ *         a child program from cmd. PS doesn't honour `\` as an
+ *         escape inside double quotes (the literal text is
+ *         what `Set-Location` sees), but `cd "C:\\foo\\bar"`
+ *         still resolves to `C:\foo\bar` because NTFS
+ *         normalizes adjacent separators. PS-style would be
+ *         `` `" `` for embedded `"`; we keep `\"` because cmd
+ *         users with literal `"` in a path are no rarer than
+ *         PS users with the same, and the cmd msvcrt
+ *         convention is what gets the path correctly through
+ *         to programs spawned via argv.
+ *     `cmd.exe` users with paths containing `` ` `` or `$` see a
+ *     slightly mangled but not-injection-vector hint; PS users
+ *     with paths containing `"` see a broken-but-not-injection
+ *     hint. Paths with these metachars are vanishingly rare in
+ *     practice. The single-line cd-recovery print is a
+ *     pragmatic compromise — emitting separate cmd / PS lines
+ *     would more than double the closing summary length for
+ *     a hazard most users will never hit.
  */
 export function shellQuoteIfNeeded(value: string): string {
   if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
@@ -332,6 +350,14 @@ export async function run(options: RunOptions): Promise<void> {
   // install actually changed something on disk. See `arkor init`
   // for the full rationale.
   const lockfileBefore = snapshotLockfile(cwd, pm);
+  // Round 39 follow-up #2 (Codex P1, PR #99): mirror of
+  // `arkor init`'s `node_modules` snapshot. The earlier
+  // `hasEnclosingNodeModules` static check false-positived on
+  // ambient ancestor `node_modules` from a prior root install
+  // — snapshot at cwd before install so the post-install diff
+  // proves THIS install touched the project's deps, not the
+  // monorepo's hoisted node_modules.
+  const nodeModulesBefore = snapshotNodeModules(cwd);
   if (!options.skipInstall && pm) {
     if (blockInstall) {
       // Round 17 (Copilot, PR #99): the yarn-config advisories above
@@ -409,15 +435,17 @@ export async function run(options: RunOptions): Promise<void> {
   // over an untouched tree.
   //
   // Round 39 follow-up #2 (Codex P1, PR #99): pair the
-  // lockfile-changed signal with `hasEnclosingNodeModules` so
-  // a preinstall / install-hook failure that rewrote the
-  // lockfile but never populated `node_modules` doesn't slip
-  // through. See `arkor init` for the full rationale.
+  // lockfile-changed signal with a `node_modules` before/after
+  // diff so a preinstall / install-hook failure that rewrote
+  // the lockfile but never populated `node_modules` doesn't
+  // slip through, AND so an ambient ancestor `node_modules`
+  // (monorepo subdir) doesn't false-positive the gate. See
+  // `arkor init` for the full rationale.
   const installSucceeded =
     !wouldHaveInstalled ||
     installed ||
     (lockfileChangedSince(cwd, pm, lockfileBefore) &&
-      hasEnclosingNodeModules(cwd, pm));
+      nodeModulesChangedSince(cwd, nodeModulesBefore));
   // Round 39 (Copilot, PR #99): the previous "re-run this command"
   // hint is only safe when re-invoking would actually merge into
   // the same target. With no `[dir]` argument, `run()` derives a
