@@ -18,6 +18,7 @@ export {
   type PackageManagerFlags,
 } from "./package-manager";
 export {
+  hasEnclosingNodeModules,
   install,
   lockfileChangedSince,
   snapshotLockfile,

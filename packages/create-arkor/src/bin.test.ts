@@ -475,5 +475,45 @@ describe("shellQuoteIfNeeded", () => {
         expect(shellQuoteIfNeeded('a\\"b')).toBe('"a\\\\\\"b"');
       });
     });
+
+    // Round 39 (Copilot, PR #99): PowerShell interpolates `$VAR`
+    // and `$()` inside double quotes, so a Windows directory
+    // containing `$` (e.g. `My$App`) would let a copy-pasted
+    // `cd "..." && pnpm install` evaluate a subexpression.
+    // Backtick-escape `$` and `` ` `` itself so PowerShell sees
+    // them as literal text. cmd.exe renders the backtick
+    // literally, but cmd doesn't interpolate `$` in the first
+    // place — paths with literal `$` / backtick are vanishingly
+    // rare in practice.
+    it("backtick-escapes `$` so PowerShell doesn't interpolate the path", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("My$App")).toBe('"My`$App"');
+      });
+    });
+
+    it("backtick-escapes `$()` so PowerShell doesn't run subexpressions", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("foo$(rm -rf /)")).toBe(
+          '"foo`$(rm -rf /)"',
+        );
+      });
+    });
+
+    it("doubles a literal backtick (PowerShell escape char) so it stays literal", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("foo`bar")).toBe('"foo``bar"');
+      });
+    });
+
+    it("escapes backtick FIRST so a `$` in the input doesn't get re-escaped", () => {
+      // Run order matters: if `$` were escaped before the
+      // backtick step, the `` ` `` we just inserted would itself
+      // be doubled to `` `` ``. The implementation escapes
+      // backtick first so the synthetic `` ` `` survives the
+      // following `$` replace step intact.
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("a`$b")).toBe('"a```$b"');
+      });
+    });
   });
 });

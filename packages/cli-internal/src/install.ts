@@ -102,6 +102,39 @@ export function lockfileChangedSince(
 }
 
 /**
+ * True when a `node_modules` directory is present in `cwd` or any
+ * ancestor — same walk policy as `hasEnclosingYarnLock` and
+ * `snapshotLockfile`. Used by the CLI's git-init recovery gate
+ * alongside `lockfileChangedSince`: a non-zero install that
+ * rewrote the lockfile but failed BEFORE populating
+ * `node_modules` (preinstall / install lifecycle failure on an
+ * existing project) would otherwise pass the lockfile-only
+ * check and be misclassified as a recovered success — round-39
+ * Codex P1. Requiring `node_modules` to exist as well keeps
+ * the heuristic biased towards the round-39 safe case (pnpm 11
+ * / bun-Windows post-install exit, where `node_modules` is
+ * already populated when the throw happens) without admitting
+ * partial-bootstrap states.
+ *
+ * Returns `false` when `pm` is undefined for symmetry with the
+ * lockfile helpers — callers can then use it as a single
+ * additional condition without an extra null check.
+ */
+export function hasEnclosingNodeModules(
+  cwd: string,
+  pm: PackageManager | undefined,
+): boolean {
+  if (pm === undefined) return false;
+  let dir = cwd;
+  while (true) {
+    if (existsSync(join(dir, "node_modules"))) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
+/**
  * Walk from `cwd` up to filesystem root looking for the first
  * `yarn.lock`. Mirrors yarn's own resolution: in a yarn-berry
  * workspace, `yarn install` from a subdirectory writes to the

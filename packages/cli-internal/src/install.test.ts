@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  hasEnclosingNodeModules,
   install,
   lockfileChangedSince,
   snapshotLockfile,
@@ -375,5 +376,43 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
     const newer = (before.mtimeMs + 5_000) / 1000;
     utimesSync(join(dir, "pnpm-lock.yaml"), newer, newer);
     expect(lockfileChangedSince(dir, "pnpm", before)).toBe(true);
+  });
+});
+
+// Round 39 follow-up #2 (Codex P1, PR #99): the install-recovery
+// gate pairs `lockfileChangedSince` with `hasEnclosingNodeModules`
+// so a preinstall / install-hook failure that rewrote the
+// lockfile but never populated `node_modules` doesn't slip
+// through as a recovered success. These tests pin the
+// node-modules helper's per-pm + ancestor-walk shape so the
+// pairing in `arkor init` / `create-arkor` stays robust.
+describe("hasEnclosingNodeModules", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "node-modules-walk-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns false when pm is undefined (mirrors snapshotLockfile's short-circuit)", () => {
+    mkdirSync(join(dir, "node_modules"));
+    expect(hasEnclosingNodeModules(dir, undefined)).toBe(false);
+  });
+
+  it("returns false when no ancestor has a node_modules dir", () => {
+    expect(hasEnclosingNodeModules(dir, "pnpm")).toBe(false);
+  });
+
+  it("returns true when cwd has a node_modules dir", () => {
+    mkdirSync(join(dir, "node_modules"));
+    expect(hasEnclosingNodeModules(dir, "pnpm")).toBe(true);
+  });
+
+  it("walks ancestors (workspace-subdir scaffold)", () => {
+    const sub = join(dir, "packages", "foo");
+    mkdirSync(sub, { recursive: true });
+    mkdirSync(join(dir, "node_modules"));
+    expect(hasEnclosingNodeModules(sub, "pnpm")).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import {
   gitInitialCommit,
+  hasEnclosingNodeModules,
   install,
   isInGitRepo,
   lockfileChangedSince,
@@ -268,10 +269,22 @@ export async function runInit(options: InitOptions): Promise<void> {
   // pre-install snapshot so only a forward-moving mtime (or a
   // freshly created lockfile) counts as "install touched
   // something material on disk".
+  //
+  // Round 39 follow-up #2 (Codex P1, PR #99): mtime change
+  // alone still admits a failed-mid-install case where the pm
+  // rewrote the lockfile but errored BEFORE populating
+  // `node_modules` (preinstall / install lifecycle hook
+  // failure on an existing project). Pair the lockfile-changed
+  // signal with `hasEnclosingNodeModules` so the recovery path
+  // only fires when both artefacts are on disk — that matches
+  // the round-39 safe case (pnpm 11 / bun-Windows
+  // post-install exit, where `node_modules` is already
+  // populated when the throw happens).
   const installSucceeded =
     !wouldHaveInstalled ||
     installed ||
-    lockfileChangedSince(cwd, pm, lockfileBefore);
+    (lockfileChangedSince(cwd, pm, lockfileBefore) &&
+      hasEnclosingNodeModules(cwd, pm));
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(

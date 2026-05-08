@@ -8,6 +8,7 @@ import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
   gitInitialCommit,
+  hasEnclosingNodeModules,
   install,
   isInGitRepo,
   lockfileChangedSince,
@@ -86,22 +87,37 @@ function collisionMessage(name: string): string {
  *     end-quote, literal `'`, start-quote.
  *   - Windows (cmd.exe / PowerShell): double quotes. `cmd.exe`
  *     treats `'` as a literal character, so a POSIX-style
- *     `cd 'My App' && pnpm install` would copy-paste-fail there.
- *     Backslashes are escaped first (`\` → `\\`) and then
- *     embedded `"` (`"` → `\"`); applying the quote-escape
- *     before the backslash-escape would double-encode literal
- *     `\\` runs. This matches the Windows `_setargv` / msvcrt
- *     parser conventions used by both PowerShell and the
- *     standard `cmd.exe` invocation path. Paths containing
- *     literal double quotes are vanishingly rare in practice,
- *     but the backslash-then-quote pair keeps `foo\"bar` round-
- *     tripping correctly (round-39 CodeQL: missing backslash
- *     escape).
+ *     `cd 'My App' && pnpm install` would copy-paste-fail
+ *     there. Inside the quoted run we backtick-escape the
+ *     PowerShell metacharacters (`` ` `` itself, `$`, `"`) so
+ *     a path containing `$()` or `$VAR` doesn't trigger
+ *     subexpression evaluation / variable expansion when the
+ *     hint is pasted into a PowerShell prompt — round-39
+ *     Copilot flagged this as a copy-paste injection vector
+ *     since Windows directory names can contain `$` and
+ *     parentheses. Backslashes are also escaped (`\` → `\\`)
+ *     for `_setargv` / msvcrt argv parsing when the quoted
+ *     path is forwarded to a child program. cmd.exe renders
+ *     `` ` ``-prefixed bytes literally, so a path containing
+ *     those rare metachars looks slightly mangled in cmd but
+ *     is no longer a security hazard in PS — paths with
+ *     literal `$` / backtick are vanishingly rare in practice.
  */
 export function shellQuoteIfNeeded(value: string): string {
   if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
   if (process.platform === "win32") {
-    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+    // Order matters: backtick first (it's the PS escape
+    // character for the others, so escaping it first prevents
+    // double-decoding), then the metachars it protects (`$`,
+    // `"`). Backslash escape is independent — it's for
+    // `_setargv` / msvcrt argv parsing when the quoted path
+    // is forwarded to a child program.
+    const escaped = value
+      .replace(/`/g, "``")
+      .replace(/\$/g, "`$")
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"');
+    return `"${escaped}"`;
   }
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -391,10 +407,17 @@ export async function run(options: RunOptions): Promise<void> {
   // the loose existence check would treat a totally failed
   // install as "lockfile landed" and proceed with `git init`
   // over an untouched tree.
+  //
+  // Round 39 follow-up #2 (Codex P1, PR #99): pair the
+  // lockfile-changed signal with `hasEnclosingNodeModules` so
+  // a preinstall / install-hook failure that rewrote the
+  // lockfile but never populated `node_modules` doesn't slip
+  // through. See `arkor init` for the full rationale.
   const installSucceeded =
     !wouldHaveInstalled ||
     installed ||
-    lockfileChangedSince(cwd, pm, lockfileBefore);
+    (lockfileChangedSince(cwd, pm, lockfileBefore) &&
+      hasEnclosingNodeModules(cwd, pm));
   // Round 39 (Copilot, PR #99): the previous "re-run this command"
   // hint is only safe when re-invoking would actually merge into
   // the same target. With no `[dir]` argument, `run()` derives a

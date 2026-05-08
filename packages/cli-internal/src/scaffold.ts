@@ -887,7 +887,17 @@ function readAllowBuildsValue(
     ),
   );
   if (inlineMatch) {
-    const pairRe = new RegExp(`["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)`);
+    // Round 39 (Codex P2, PR #99): anchor the key match at a
+    // mapping-start boundary so `esbuild` doesn't match as a
+    // substring of another key (e.g. `myesbuild: false`). Valid
+    // contexts for a key inside `{ … }` are: start of inner
+    // text, comma-then-whitespace, or an opening quote
+    // immediately preceded by either of those. The lookbehind
+    // matches "start of string OR a non-key character (`{`, `,`,
+    // whitespace)" so we don't false-match into another key.
+    const pairRe = new RegExp(
+      `(?:^|[\\s,{])["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)`,
+    );
     const inner = inlineMatch[1].match(pairRe);
     if (inner) return inner[1] === "true";
     return undefined;
@@ -1045,7 +1055,14 @@ function appendEsbuildToAllowBuilds(
   );
   const inlineMatch = contents.match(inlineRe);
   if (inlineMatch) {
-    const inner = inlineMatch[1].trim();
+    // Round 39 (Codex P2, PR #99): a hand-written
+    // `allowBuilds: { sharp: true, }` (trailing comma) would
+    // otherwise produce `sharp: true,, esbuild: false` after
+    // the merge — invalid YAML pnpm rejects on parse. Strip a
+    // trailing comma (with optional whitespace) before joining
+    // so the result is well-formed regardless of how the
+    // original was written.
+    const inner = inlineMatch[1].trim().replace(/,\s*$/, "");
     const trailing = inlineMatch[2];
     const merged = inner.length > 0
       ? `${inner}, esbuild: ${value}`

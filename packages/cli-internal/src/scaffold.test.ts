@@ -249,6 +249,52 @@ describe("scaffold", () => {
     expect(yaml).toContain("esbuild: false");
   });
 
+  // Round 39 (Codex P2, PR #99): the inline-key reader used an
+  // unbounded match for the package name, so `myesbuild: false`
+  // would falsely satisfy the `esbuild` lookup and skip the
+  // patch — leaving pnpm 11 to keep erroring on the real
+  // (missing) `esbuild` entry. Anchor the lookup at a
+  // mapping-start boundary (`{`, `,`, whitespace, or string
+  // start) so substring keys aren't a false positive.
+  it("does not treat `myesbuild` as a pinned `esbuild` in inline form", async () => {
+    const original =
+      `packages: []\nallowBuilds: { myesbuild: false }\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toContain("myesbuild: false");
+    expect(yaml).toContain("esbuild: false");
+    // The merge keeps the `myesbuild` sibling and ADDS `esbuild`.
+    expect(yaml).toMatch(/myesbuild: false, esbuild: false/);
+  });
+
+  // Round 39 (Codex P2, PR #99): hand-written
+  // `allowBuilds: { sharp: true, }` with a trailing comma
+  // would otherwise produce `sharp: true,, esbuild: false`
+  // after the merge — invalid YAML pnpm rejects on parse. The
+  // inline writer now strips a trailing comma (with optional
+  // whitespace) before joining.
+  it("strips a trailing comma in inline form before appending esbuild", async () => {
+    const original =
+      `packages: []\nallowBuilds: { sharp: true, }\n`;
+    writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      packageManager: "pnpm",
+    });
+    const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
+    // No double-comma in the merged output.
+    expect(yaml).not.toContain(",,");
+    expect(yaml).toContain("sharp: true, esbuild: false");
+  });
+
   it("appends a fresh allowBuilds block to a pnpm-workspace.yaml that has none", async () => {
     // A workspace declared without any allowBuilds yet (e.g. on
     // pnpm 9 where the field is unused) — append the whole block
