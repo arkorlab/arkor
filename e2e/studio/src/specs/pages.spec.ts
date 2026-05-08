@@ -89,15 +89,13 @@ test.describe("Studio pages", () => {
     // proxy regression that drops them is caught here even though
     // the override above already 400s on mismatch (defence in depth
     // against the override being relaxed in the future).
-    await expect
-      .poll(() =>
-        cloudApi.requests.some(
-          (r) =>
-            /^\/v1\/jobs\/job-e2e-1\/events\/stream\?/.test(r.url) &&
-            r.url.includes("orgSlug=studio-e2e-org") &&
-            r.url.includes("projectSlug=studio-e2e-project"),
-        ),
-      )
-      .toBe(true);
+    await expect.poll(() =>
+      cloudApi.requests.some(
+        (r) =>
+          /^\/v1\/jobs\/job-e2e-1\/events\/stream\?/.test(r.url) &&
+          r.url.includes("orgSlug=studio-e2e-org") &&
+          r.url.includes("projectSlug=studio-e2e-project"),
+      ),
+    ).toBe(true);
   });
 });
