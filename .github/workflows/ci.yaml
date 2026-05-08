@@ -90,6 +90,17 @@ jobs:
           echo "**Resolved Node:** \`$(node --version)\` (matrix: \`${{ matrix.node }}\`)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install
+        # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
+        # already gates which packages may run postinstall, and
+        # `playwright` is not in that list — so `pnpm install` won't
+        # invoke Playwright's browser-download script today. Setting
+        # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` here keeps that
+        # contract explicit so a future `allowBuilds` change can't
+        # silently re-enable a 150 MB postinstall download that the
+        # following cache + `playwright install` steps are meant to
+        # satisfy.
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install
 
       - name: Typecheck
@@ -196,6 +207,17 @@ jobs:
             turbo-${{ runner.os }}-coverage-
 
       - name: Install
+        # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
+        # already gates which packages may run postinstall, and
+        # `playwright` is not in that list — so `pnpm install` won't
+        # invoke Playwright's browser-download script today. Setting
+        # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` here keeps that
+        # contract explicit so a future `allowBuilds` change can't
+        # silently re-enable a 150 MB postinstall download that the
+        # following cache + `playwright install` steps are meant to
+        # satisfy.
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install
 
       # Mirror the matrix job's Playwright cache so the coverage run
