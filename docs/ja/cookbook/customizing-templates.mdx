@@ -22,16 +22,22 @@ export const trainer = createTrainer({
   evalSteps: 25,
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   callbacks: {
-    onLog: ({ step, loss, evalLoss }) =>
-      console.log(
-        `step=${step} loss=${loss}` +
-          (evalLoss !== null ? ` evalLoss=${evalLoss}` : ""),
-      ),
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
+    },
   },
 });
 ```
 
-`evalSteps: 25` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます — Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 分岐も合わせて削ってください。
+`evalSteps: 25` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます — Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。各 `field=…` セグメントは `Number.isFinite` でガードされているので、eval-only ステップで `loss=null` が出たり、training-only ステップで `evalLoss=null` / `evalLoss=undefined` が出ることはありません。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 関連も合わせて削ってください。
 
 ## 1. データセットを差し替える
 

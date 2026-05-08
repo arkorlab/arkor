@@ -15,7 +15,13 @@ describe("templates", () => {
       // contract, but having SOME `evalSteps` set is what surfaces
       // eval to the UI — leaving it out would silently regress the
       // out-of-the-box eval experience.
-      expect(trainer).toMatch(/^\s*evalSteps:\s*\d+,\s*$/m);
+      //
+      // Match `evalSteps: <number>` anywhere it appears so a future
+      // formatter or refactor (changed indentation, trailing comma
+      // dropped, fields reordered) doesn't break the test as long as
+      // the contract — "some numeric evalSteps is configured" — is
+      // preserved.
+      expect(trainer).toMatch(/\bevalSteps:\s*\d+/);
     });
 
     it("destructures evalLoss in the onLog callback so it's printed when present", () => {

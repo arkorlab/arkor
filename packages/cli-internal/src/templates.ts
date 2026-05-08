@@ -33,20 +33,17 @@ export interface Template {
 // Use `dryRun: true` for a 2-3 minute smoke test (50 rows, max_steps=10) before
 // committing to a full run.
 
-const REDACTION_TRAINER = `import { createTrainer } from "arkor";
-
-export const trainer = createTrainer({
-  name: "redaction-run",
-  model: "unsloth/gemma-4-e4b-it",
-  dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
-  datasetFormat: { type: "chatml" },
-  maxSteps: 100,
-  evalSteps: 25,
-  lora: { r: 16, alpha: 16, loadIn4bit: false },
-  // Set dryRun: true for a fast end-to-end smoke test before a full run.
-  // dryRun: true,
-  callbacks: {
-    onLog: ({ step, loss, evalLoss }) => {
+// Shared `onLog` body interpolated into every trainer template below so
+// the formatter stays in lock-step across `triage` / `translate` /
+// `redaction`. Indentation is baked in (`    ` for the `onLog:` line,
+// `      ` for the body) so the result lines up under `callbacks: {`.
+//
+// Escaping note: this string is itself a JS template literal whose
+// product is the *runtime* trainer-source backticks/interpolations. So
+// `\`` and `\${...}` here become `` ` `` and `${...}` in the emitted
+// source code — exactly what the user-visible `console.log` template
+// literal needs.
+const ONLOG_BODY = `    onLog: ({ step, loss, evalLoss }) => {
       // Omit each \`field=…\` segment when its value isn't a finite number
       // so the line stays readable on eval-only steps (where \`loss\` is
       // null) and on training-only steps (where \`evalLoss\` is null) —
@@ -60,7 +57,22 @@ export const trainer = createTrainer({
           ? \` evalLoss=\${evalLoss.toFixed(4)}\`
           : "";
       console.log(\`step=\${step}\${lossPart}\${evalPart}\`);
-    },
+    },`;
+
+const REDACTION_TRAINER = `import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "redaction-run",
+  model: "unsloth/gemma-4-e4b-it",
+  dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
+  datasetFormat: { type: "chatml" },
+  maxSteps: 100,
+  evalSteps: 25,
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
+  // Set dryRun: true for a fast end-to-end smoke test before a full run.
+  // dryRun: true,
+  callbacks: {
+${ONLOG_BODY}
   },
 });
 `;
@@ -77,21 +89,7 @@ export const trainer = createTrainer({
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss, evalLoss }) => {
-      // Omit each \`field=…\` segment when its value isn't a finite number
-      // so the line stays readable on eval-only steps (where \`loss\` is
-      // null) and on training-only steps (where \`evalLoss\` is null) —
-      // matches the format Studio's event log uses.
-      const lossPart =
-        typeof loss === "number" && Number.isFinite(loss)
-          ? \` loss=\${loss.toFixed(4)}\`
-          : "";
-      const evalPart =
-        typeof evalLoss === "number" && Number.isFinite(evalLoss)
-          ? \` evalLoss=\${evalLoss.toFixed(4)}\`
-          : "";
-      console.log(\`step=\${step}\${lossPart}\${evalPart}\`);
-    },
+${ONLOG_BODY}
   },
 });
 `;
@@ -108,21 +106,7 @@ export const trainer = createTrainer({
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss, evalLoss }) => {
-      // Omit each \`field=…\` segment when its value isn't a finite number
-      // so the line stays readable on eval-only steps (where \`loss\` is
-      // null) and on training-only steps (where \`evalLoss\` is null) —
-      // matches the format Studio's event log uses.
-      const lossPart =
-        typeof loss === "number" && Number.isFinite(loss)
-          ? \` loss=\${loss.toFixed(4)}\`
-          : "";
-      const evalPart =
-        typeof evalLoss === "number" && Number.isFinite(evalLoss)
-          ? \` evalLoss=\${evalLoss.toFixed(4)}\`
-          : "";
-      console.log(\`step=\${step}\${lossPart}\${evalPart}\`);
-    },
+${ONLOG_BODY}
   },
 });
 `;
