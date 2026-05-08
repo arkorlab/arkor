@@ -112,61 +112,48 @@ async function waitForPort(port: number): Promise<void> {
  */
 function makeKill(child: ChildProcess): () => Promise<void> {
   let killed = false;
+  // Track `close` from the moment `makeKill` is constructed so a
+  // late `kill()` call (e.g. teardown invoked after a spawn error)
+  // doesn't attach a fresh listener for an event that's already
+  // fired and never returns. `close` is universal — it follows
+  // `exit` for normal terminations and `error` for spawn failures,
+  // and always fires exactly once per child.
+  let closed = false;
+  child.once("close", () => {
+    closed = true;
+  });
   return async () => {
     if (killed) return;
     killed = true;
+    if (closed) return;
     await new Promise<void>((resolve) => {
       // Pre-declared with `undefined` rather than `null` so
       // `clearTimeout(fallback)` is always type-correct (Node's
       // `clearTimeout` accepts `undefined` as a no-op) — no null
-      // guard needed in `onClose` or the defensive re-check below.
+      // guard needed in `onClose` below.
       let fallback: ReturnType<typeof setTimeout> | undefined;
       // Wait on `close`, not `exit`: Node skips `exit` when the
       // process fails to spawn (it emits `error` then `close`) and
       // some failure paths skip `exit` while still emitting `close`.
       // `close` always fires after stdio is fully drained — once for
       // every spawn outcome (success, error, signal-killed) — so it
-      // is the only universally reliable teardown signal. Register
-      // it *before* re-checking termination state and *before*
-      // delivering SIGINT so a concurrent termination can't race the
-      // listener attach.
+      // is the only universally reliable teardown signal.
       const onClose = () => {
         clearTimeout(fallback);
         resolve();
       };
       child.once("close", onClose);
-      // Cheap escape hatch when the child already exited before this
-      // callback ran. `exitCode`/`signalCode` are set on `exit`
-      // (which precedes `close`), so a non-null pair means `close`
-      // is queued or imminent — but treating that as "done" lets us
-      // skip waiting on it and detach the listener cleanly. Spawn
-      // failures (no exit, only error+close) leave both null, which
-      // is fine — we fall through and let `onClose` resolve us.
-      if (child.exitCode !== null || child.signalCode !== null) {
-        child.off("close", onClose);
-        resolve();
-        return;
-      }
       // `child.killed` flips true the moment Node *delivers* a
       // signal, not when the child actually exits. Probe the real
       // termination state via `exitCode` / `signalCode`; both stay
-      // null until the child reports `exit`.
+      // null until the child reports `exit` (and stay null forever
+      // for spawn failures), so this guard fires SIGKILL only when
+      // we're genuinely still waiting on a live process.
       fallback = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
           child.kill("SIGKILL");
         }
       }, 5_000);
-      // Defensive re-check: if the child somehow exited between the
-      // early-return check above and `fallback` being assigned (not
-      // possible in single-threaded JS, but spelled out so the
-      // invariant is self-evident to readers and static analyzers),
-      // `onClose` would have already fired with `fallback` still
-      // `undefined` and the `clearTimeout(undefined)` no-op — clear
-      // the now-set timer explicitly on that path so it can't fire
-      // later.
-      if (child.exitCode !== null || child.signalCode !== null) {
-        clearTimeout(fallback);
-      }
       child.kill("SIGINT");
     });
   };
