@@ -69,19 +69,35 @@ function collisionMessage(name: string): string {
 }
 
 /**
- * POSIX-shell-quote a path so the `cd ${path}` recovery hints
- * survive paths with spaces or metacharacters. Round-39 Copilot
- * review: `create-arkor "My App"` would otherwise emit a copy-
- * paste-broken `cd My App && pnpm install`.
+ * Shell-quote a path so the `cd ${path}` recovery hints survive
+ * paths with spaces or metacharacters. Round-39 Copilot review:
+ * `create-arkor "My App"` would otherwise emit a copy-paste-
+ * broken `cd My App && pnpm install`.
  *
  * Skips quoting for the common safe case (alphanumerics + a few
  * unambiguous extras like `-_./+@:,`) so the printed hint stays
- * clean for typical project names. Wraps in single quotes
- * otherwise and escapes any embedded `'` as the standard
- * `'\''` close-quote / literal-quote / open-quote sequence.
+ * clean for typical project names.
+ *
+ * Quoting style is platform-aware (round-39 Codex P2 / Copilot):
+ *
+ *   - POSIX (Linux / macOS): single quotes. Embedded `'` is
+ *     escaped via the standard `'\''` close-literal-open
+ *     sequence — the bytes `'`, `\`, `'`, `'` parse as
+ *     end-quote, literal `'`, start-quote.
+ *   - Windows (cmd.exe / PowerShell): double quotes.
+ *     `cmd.exe` treats `'` as a literal character, so a POSIX-
+ *     style `cd 'My App' && pnpm install` would copy-paste-
+ *     fail there. Embedded `"` is escaped as `\"`, which works
+ *     in PowerShell and the common cmd.exe parser path; paths
+ *     containing literal double quotes are vanishingly rare in
+ *     practice, so we don't try to handle every cmd.exe
+ *     quoting edge case.
  */
 export function shellQuoteIfNeeded(value: string): string {
   if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
+  if (process.platform === "win32") {
+    return `"${value.replace(/"/g, '\\"')}"`;
+  }
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 

@@ -358,31 +358,92 @@ describe("shouldRunAsCli", () => {
 // shell metacharacters would otherwise emit a broken
 // `cd My App && pnpm install`. `shellQuoteIfNeeded` keeps the
 // safe-character common case unquoted (so "my-app" stays clean)
-// and POSIX-quotes the rest with the standard `'\''` escape for
-// embedded single quotes.
+// and POSIX-quotes / Windows-double-quotes the rest depending on
+// `process.platform` (round-39 Codex P2 / Copilot follow-up:
+// `cmd.exe` treats single quotes as literal characters, so a
+// blanket POSIX strategy broke copy-paste on Windows).
 describe("shellQuoteIfNeeded", () => {
-  it("leaves alphanumeric / dotted / slashed paths unquoted", () => {
-    expect(shellQuoteIfNeeded("my-app")).toBe("my-app");
-    expect(shellQuoteIfNeeded("apps/foo")).toBe("apps/foo");
-    expect(shellQuoteIfNeeded("./packages/bar")).toBe("./packages/bar");
-    expect(shellQuoteIfNeeded("v1.2.3")).toBe("v1.2.3");
-    expect(shellQuoteIfNeeded("@scope/pkg")).toBe("@scope/pkg");
+  // Helper: temporarily override `process.platform` for one
+  // assertion. Node's `process.platform` is a non-writable
+  // string by default; `Object.defineProperty` with
+  // `configurable: true` lets us swap and restore.
+  function withPlatform(platform: NodeJS.Platform, fn: () => void) {
+    const orig = process.platform;
+    Object.defineProperty(process, "platform", {
+      value: platform,
+      configurable: true,
+    });
+    try {
+      fn();
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: orig,
+        configurable: true,
+      });
+    }
+  }
+
+  it("leaves alphanumeric / dotted / slashed paths unquoted (any platform)", () => {
+    for (const platform of ["linux", "darwin", "win32"] as NodeJS.Platform[]) {
+      withPlatform(platform, () => {
+        expect(shellQuoteIfNeeded("my-app")).toBe("my-app");
+        expect(shellQuoteIfNeeded("apps/foo")).toBe("apps/foo");
+        expect(shellQuoteIfNeeded("./packages/bar")).toBe("./packages/bar");
+        expect(shellQuoteIfNeeded("v1.2.3")).toBe("v1.2.3");
+        expect(shellQuoteIfNeeded("@scope/pkg")).toBe("@scope/pkg");
+      });
+    }
   });
 
-  it("single-quotes paths containing spaces", () => {
-    expect(shellQuoteIfNeeded("My App")).toBe("'My App'");
+  describe("POSIX (linux / darwin)", () => {
+    it("single-quotes paths containing spaces", () => {
+      withPlatform("linux", () => {
+        expect(shellQuoteIfNeeded("My App")).toBe("'My App'");
+      });
+    });
+
+    it("single-quotes paths containing shell metacharacters", () => {
+      withPlatform("linux", () => {
+        expect(shellQuoteIfNeeded("foo;rm -rf /")).toBe("'foo;rm -rf /'");
+        expect(shellQuoteIfNeeded("foo$bar")).toBe("'foo$bar'");
+        expect(shellQuoteIfNeeded("foo`whoami`")).toBe("'foo`whoami`'");
+        expect(shellQuoteIfNeeded("foo&bar")).toBe("'foo&bar'");
+      });
+    });
+
+    it("escapes embedded single quotes with the '\\'' close-literal-open sequence", () => {
+      // Standard POSIX trick: 'foo'\''bar' parses as 'foo' + \' + 'bar'.
+      withPlatform("linux", () => {
+        expect(shellQuoteIfNeeded("it's")).toBe("'it'\\''s'");
+        expect(shellQuoteIfNeeded("a'b'c")).toBe("'a'\\''b'\\''c'");
+      });
+    });
   });
 
-  it("single-quotes paths containing shell metacharacters", () => {
-    expect(shellQuoteIfNeeded("foo;rm -rf /")).toBe("'foo;rm -rf /'");
-    expect(shellQuoteIfNeeded("foo$bar")).toBe("'foo$bar'");
-    expect(shellQuoteIfNeeded("foo`whoami`")).toBe("'foo`whoami`'");
-    expect(shellQuoteIfNeeded("foo&bar")).toBe("'foo&bar'");
-  });
+  describe("Windows (win32)", () => {
+    // `cmd.exe` and PowerShell both honour double quotes for
+    // grouping a path with spaces. Single quotes would copy-
+    // paste-fail in `cmd.exe` (it treats `'` as a literal).
+    it("double-quotes paths containing spaces", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("My App")).toBe('"My App"');
+      });
+    });
 
-  it("escapes embedded single quotes with the '\\'' close-literal-open sequence", () => {
-    // Standard POSIX trick: 'foo'\''bar' parses as 'foo' + \' + 'bar'.
-    expect(shellQuoteIfNeeded("it's")).toBe("'it'\\''s'");
-    expect(shellQuoteIfNeeded("a'b'c")).toBe("'a'\\''b'\\''c'");
+    it("double-quotes paths containing shell metacharacters", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("foo;bar")).toBe('"foo;bar"');
+        expect(shellQuoteIfNeeded("foo&bar")).toBe('"foo&bar"');
+      });
+    });
+
+    it("escapes embedded double quotes as \\\"", () => {
+      // Practically rare, but pin the escape so a future tweak
+      // doesn't drop the backslash and silently corrupt the
+      // copy-paste command.
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded('a"b')).toBe('"a\\"b"');
+      });
+    });
   });
 });
