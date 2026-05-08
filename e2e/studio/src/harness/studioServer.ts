@@ -116,16 +116,12 @@ function makeKill(child: ChildProcess): () => Promise<void> {
     if (killed) return;
     killed = true;
     await new Promise<void>((resolve) => {
-      // Declare the SIGKILL fallback handle *before* defining
-      // `onExit`. The exit listener is attached before SIGINT so it
-      // can't miss a concurrent exit, but if the child happens to
-      // exit between attaching the listener and the `setTimeout(...)`
-      // call below, `onExit` runs while `fallback` is still in its
-      // temporal dead zone — accessing it would throw a
-      // `ReferenceError` and hang the teardown. Pre-declared `let`
-      // (initialised to `null`) sidesteps the TDZ; the
-      // `clearTimeout(null)` short-circuit makes the no-fallback
-      // path harmless.
+      // Pre-declared `let` (initialised to `null`) sidesteps the
+      // temporal dead zone — `onExit` is wired up *before* the
+      // SIGKILL `setTimeout(...)` runs, and if `onExit` fires while
+      // `fallback` is still null (impossible between two synchronous
+      // statements in single-threaded JS, but cheap to be explicit
+      // about) the `null` guard short-circuits the `clearTimeout`.
       let fallback: ReturnType<typeof setTimeout> | null = null;
       // Register `exit` *before* re-checking termination state and
       // *before* delivering SIGINT. If the child happens to exit in
@@ -155,6 +151,16 @@ function makeKill(child: ChildProcess): () => Promise<void> {
           child.kill("SIGKILL");
         }
       }, 5_000);
+      // Defensive re-check: if the child somehow exited between the
+      // early-return check above and `fallback` being assigned (not
+      // possible in single-threaded JS, but spelled out so the
+      // invariant is self-evident to readers and static analyzers),
+      // `onExit` would have already fired with `fallback === null`
+      // and skipped the `clearTimeout`, leaving an orphan timer.
+      // Clear it explicitly on that path.
+      if (child.exitCode !== null || child.signalCode !== null) {
+        clearTimeout(fallback);
+      }
       child.kill("SIGINT");
     });
   };
