@@ -22,10 +22,14 @@ export const trainer = createTrainer({
 ## シグネチャー
 
 ```ts
-function createTrainer(input: TrainerInput): Trainer;
+function createTrainer(
+  input: TrainerInput,
+  /** @internal */
+  context?: TrainerInternalContext,
+): Trainer;
 ```
 
-`TrainerInput` の全体は下記のパラメータで説明します。返ってくる `Trainer` は [トレーナー制御](/ja/sdk/trainer-control) ページにあります。
+`TrainerInput` の全体は下記のパラメータで説明します。返ってくる `Trainer` は [トレーナー制御](/ja/sdk/trainer-control) ページにあります。第 2 引数 `context` は `@internal` 注釈付きで、テストと高度なオーバーライド用に予約されています。`TrainerInternalContext` 自体は形状が安定していないため `arkor` から export されていません。設定可能な既知のフィールド (`reconnectDelayMs` / `maxReconnectDelayMs` / `maxReconnectAttempts`) は [ライフサイクルコールバック > 例外ハンドリング](/ja/sdk/callbacks#例外ハンドリング) を参照してください。
 
 ## 必須フィールド
 
