@@ -158,6 +158,26 @@ export class TrainRegistry {
     for (const [pid, entry] of this.entries) {
       if (entry.earlyStopRequested) continue;
       const target: RestartTarget = { pid, trainFile: entry.trainFile };
+      // Pre-ready spawn: this child was registered via `/api/train`
+      // *before* the HMR watcher's first successful build, so its
+      // recorded `configHash` is `null`. Now that a real hash has
+      // arrived, treat the current build as the child's baseline:
+      // backfill the hash and skip signal dispatch entirely. The
+      // alternative (treating `null !== nextHash` as a real
+      // mismatch) would SIGTERM-restart the just-started child even
+      // though the config never actually changed — a spurious
+      // cancel+restart cycle that costs GPU budget for no benefit
+      // and that's triggered purely by startup timing (user clicked
+      // Run before the watcher's initial BUNDLE_END landed). The
+      // SIGUSR2 path is also wrong here: the child might still be
+      // mid-flight on its initial bundle import, and racing a
+      // reload signal against that load wastes work. Future rebuilds
+      // against this entry now compare against the backfilled hash
+      // like any other child.
+      if (entry.configHash === null && nextConfigHash !== null) {
+        entry.configHash = nextConfigHash;
+        continue;
+      }
       const matches =
         nextConfigHash !== null &&
         entry.configHash !== null &&

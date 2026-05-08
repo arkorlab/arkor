@@ -431,10 +431,26 @@ export function buildStudioApp(options: StudioServerOptions) {
           }
         };
         const enc = new TextEncoder();
-        const onClose = (code: number | null): void => {
-          activeTrains.unregister(child.pid);
+        // Detach every listener this stream wired onto `child`. Called
+        // from `onClose` / `onError` themselves (so once one fires the
+        // closure references — controller, TextEncoder — drop and the
+        // subprocess record can be GC'd promptly even if the other
+        // event also queues), and from `cancelTeardown` for the
+        // client-side cancel path. Removing only the `data` listeners
+        // (as the previous code did) left `close` / `error` attached
+        // to the dead ChildProcess, which kept their closures pinned
+        // until the process object itself was reaped — meaningful
+        // memory pressure for an `arkor dev` session that spawns many
+        // children over hours.
+        const detachListeners = (): void => {
           child.stdout.off("data", onChunk);
           child.stderr.off("data", onChunk);
+          child.off("close", onClose);
+          child.off("error", onError);
+        };
+        const onClose = (code: number | null): void => {
+          activeTrains.unregister(child.pid);
+          detachListeners();
           if (closed) return;
           closed = true;
           try {
@@ -455,8 +471,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         // flag and the `unregister` call is idempotent.
         const onError = (err: Error): void => {
           activeTrains.unregister(child.pid);
-          child.stdout.off("data", onChunk);
-          child.stderr.off("data", onChunk);
+          detachListeners();
           if (closed) return;
           closed = true;
           try {
@@ -474,10 +489,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         child.on("error", onError);
         cancelTeardown = () => {
           closed = true;
-          child.stdout.off("data", onChunk);
-          child.stderr.off("data", onChunk);
-          child.off("close", onClose);
-          child.off("error", onError);
+          detachListeners();
         };
       },
       cancel() {

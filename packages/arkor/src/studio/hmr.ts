@@ -330,7 +330,26 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
   return {
     subscribe(fn) {
       subscribers.add(fn);
-      if (lastEvent) fn(lastEvent);
+      // Replay the last broadcast so a late-mounting subscriber (an
+      // `/api/dev/events` SSE client opening after the first BUNDLE_END,
+      // or `buildStudioApp`'s dispatch subscriber registering after
+      // entry-wait recovery) sees current state without waiting for
+      // the next rebuild.
+      //
+      // Wrapped in the same defensive try/catch as `broadcast` so a
+      // throw inside the subscriber (typically an SSE controller that
+      // closed mid-replay — `controller.enqueue` on a closed stream
+      // throws) doesn't propagate out of `subscribe()` and crash
+      // whoever just registered. One bad subscriber must not be able
+      // to break HMR initialisation for the rest of the process.
+      if (lastEvent) {
+        try {
+          fn(lastEvent);
+        } catch {
+          // Swallow — subscribers own their own teardown; we just
+          // shouldn't poison their `subscribe()` call site.
+        }
+      }
       startWatcher();
       return () => {
         subscribers.delete(fn);

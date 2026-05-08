@@ -64,18 +64,48 @@ describe("TrainRegistry", () => {
     expect(b.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
-  it("dispatchRebuild SIGTERMs children whose stored hash is null", () => {
-    // A spawn that raced an in-flight build can land with `configHash:
-    // null`. It must not be hot-swapped — even if the new bundle's hash
-    // is known, we have no proof the spawned subprocess is running the
-    // same config.
+  it("dispatchRebuild backfills the hash and skips dispatch when the spawn-time hash was null", () => {
+    // Regression: previously a child registered with `configHash:
+    // null` (spawn happened *before* the HMR watcher emitted its
+    // first successful build, so `getCurrentConfigHash()` returned
+    // null) was treated as a hash mismatch on the next event with
+    // a real hash and SIGTERM-restarted. Since the dispatch now
+    // fires on `ready` events too, that turned every "click Run
+    // before the watcher's first BUNDLE_END" into a spurious
+    // cancel+restart cycle (extra GPU spend / job churn) triggered
+    // purely by startup timing rather than any actual code change.
+    // The fix backfills the entry's hash with the first known value
+    // and skips signal dispatch — the child either already loaded
+    // the right bundle or surfaces its own load error; future
+    // rebuilds compare against the backfilled hash like any other.
     const reg = new TrainRegistry();
-    const a = fakeChild(301);
-    reg.register(a as unknown as ChildProcess, { configHash: null });
-    const result = reg.dispatchRebuild("h");
+    const c = fakeChild(401);
+    reg.register(c as unknown as ChildProcess, {
+      configHash: null,
+      trainFile: "/tmp/preready.ts",
+    });
+    const result = reg.dispatchRebuild("first-real-hash");
+    // Neither bucket — no signal sent, nothing for the SPA to react to.
     expect(result.hotSwapTargets).toEqual([]);
-    expect(result.restartTargets).toHaveLength(1);
-    expect(a.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(result.restartTargets).toEqual([]);
+    expect(c.kill).not.toHaveBeenCalled();
+    // A subsequent dispatch with the SAME hash must take the hot-
+    // swap path (proves the backfill landed; without it this would
+    // STILL be null vs "first-real-hash" → SIGTERM).
+    const second = reg.dispatchRebuild("first-real-hash");
+    expect(second.hotSwapTargets).toEqual([
+      { pid: 401, trainFile: "/tmp/preready.ts" },
+    ]);
+    expect(second.restartTargets).toEqual([]);
+    expect(c.kill).toHaveBeenCalledWith("SIGUSR2");
+    // And a different hash on a later rebuild now correctly routes
+    // to SIGTERM-restart (backfilled hash is real).
+    c.kill.mockClear();
+    const third = reg.dispatchRebuild("second-hash");
+    expect(third.restartTargets).toEqual([
+      { pid: 401, trainFile: "/tmp/preready.ts" },
+    ]);
+    expect(c.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
   it("unregister removes the child from the policy decisions", () => {

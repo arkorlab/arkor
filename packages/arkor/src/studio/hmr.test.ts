@@ -182,6 +182,46 @@ describe("createHmrCoordinator", () => {
     }
   });
 
+  it("subscribe()'s lastEvent replay swallows a throwing subscriber so initialization keeps working", async () => {
+    // Regression: `subscribe()` synchronously replays `lastEvent` to
+    // a fresh subscriber for the late-mount-cached-state contract.
+    // Previously the replay had no try/catch, so a subscriber that
+    // threw during that one call (typical case: an SSE controller
+    // that closed mid-replay — `controller.enqueue` on a closed
+    // stream throws) propagated out of `subscribe()` and broke
+    // whoever just registered. `broadcast()` already swallowed
+    // subscriber throws defensively; this test pins the symmetric
+    // contract on `subscribe()`.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+
+    const firstEvents: HmrEvent[] = [];
+    const hmr = createHmrCoordinator({ cwd });
+    hmr.subscribe((e) => firstEvents.push(e));
+    try {
+      await nextEvent(firstEvents, (e) => e.type === "ready");
+      // A subscriber whose body throws on the cached-state replay.
+      const throwingSubscriber = (): void => {
+        throw new Error("controller closed");
+      };
+      // Must not throw out of subscribe(); must still return a
+      // working unsubscribe.
+      let unsubscribe: () => void = () => undefined;
+      expect(() => {
+        unsubscribe = hmr.subscribe(throwingSubscriber);
+      }).not.toThrow();
+      expect(typeof unsubscribe).toBe("function");
+      // Confirm the coordinator is still healthy: a *new* subscriber
+      // (after the throwing one) still receives the cached replay.
+      const recoveryEvents: HmrEvent[] = [];
+      hmr.subscribe((e) => recoveryEvents.push(e));
+      expect(recoveryEvents.length).toBeGreaterThanOrEqual(1);
+      unsubscribe();
+    } finally {
+      await hmr.dispose();
+    }
+  });
+
   it("stops broadcasting after dispose()", async () => {
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
