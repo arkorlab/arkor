@@ -551,9 +551,12 @@ async function readEnclosingYarnrcNodeLinker(
 
 /**
  * Walk from `cwd`'s parent up toward filesystem root looking for the
- * first `package.json` that declares a `packageManager` field. Bound
- * to 20 iterations as a defensive cap against pathological symlinks
- * (a realistic monorepo subdir is at most a handful of levels deep).
+ * first `package.json` that declares a `packageManager` field. Walks
+ * until `dirname()` returns the same path it was given — the
+ * canonical "reached filesystem root" signal. (PR #99 round 39
+ * Codex P2 removed the earlier 20-iteration cap, which was
+ * misclassifying real deeply-nested monorepo subdirs as having no
+ * enclosing declaration.)
  *
  * Used by `resolveEnclosingPackageManagerField` below to cover the
  * round-16 (Copilot, PR #99) hazard: an `arkor init` scaffolded into
