@@ -24,6 +24,12 @@ export interface Template {
 // prompt baked into the conversation - so `datasetFormat: { type: "chatml" }`
 // hands the right shape to the trainer's apply_chat_template step.
 //
+// `evalSteps: 25` is wired in by default so a fresh scaffold produces both
+// training and eval loss out of the box — Studio's loss chart picks the
+// `evalLoss` series up automatically, and `onLog` prints it on the steps
+// where the trainer actually evaluates (`evalLoss` is null on non-eval
+// steps, so the segment is omitted there).
+//
 // Use `dryRun: true` for a 2-3 minute smoke test (50 rows, max_steps=10) before
 // committing to a full run.
 
@@ -35,11 +41,16 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // Set dryRun: true for a fast end-to-end smoke test before a full run.
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    onLog: ({ step, loss, evalLoss }) =>
+      console.log(
+        \`step=\${step} loss=\${loss}\` +
+          (evalLoss !== null ? \` evalLoss=\${evalLoss}\` : ""),
+      ),
   },
 });
 `;
@@ -52,10 +63,15 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/translate-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    onLog: ({ step, loss, evalLoss }) =>
+      console.log(
+        \`step=\${step} loss=\${loss}\` +
+          (evalLoss !== null ? \` evalLoss=\${evalLoss}\` : ""),
+      ),
   },
 });
 `;
@@ -68,10 +84,15 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    onLog: ({ step, loss, evalLoss }) =>
+      console.log(
+        \`step=\${step} loss=\${loss}\` +
+          (evalLoss !== null ? \` evalLoss=\${evalLoss}\` : ""),
+      ),
   },
 });
 `;

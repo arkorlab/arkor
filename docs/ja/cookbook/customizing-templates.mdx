@@ -14,13 +14,24 @@ description: "生成されたテンプレートを起点として扱う。デー
 import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
-  name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  name: "triage-run",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
-  lora: { r: 16, alpha: 16 },
+  datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
+  callbacks: {
+    onLog: ({ step, loss, evalLoss }) =>
+      console.log(
+        `step=${step} loss=${loss}` +
+          (evalLoss !== null ? ` evalLoss=${evalLoss}` : ""),
+      ),
+  },
 });
 ```
+
+`evalSteps: 25` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます — Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 分岐も合わせて削ってください。
 
 ## 1. データセットを差し替える
 
