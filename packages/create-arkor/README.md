@@ -80,7 +80,9 @@ allowBuilds:
   esbuild: false
 ```
 
-`esbuild: false` is an explicit deny — pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. Pass `--allow-builds` to flip the entry to `true` if you genuinely need the postinstall (rare; typically a broken installer or unusual platform). yarn / npm / bun all ignore the workspace yaml.
+`esbuild: false` is an explicit deny — pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. yarn / npm / bun all ignore the workspace yaml.
+
+If you genuinely need the postinstall to run (rare; typically a broken installer or unusual platform), pass `--allow-builds`. The flag controls only the value the scaffold *writes*: a fresh-scaffold run emits `esbuild: true` instead of `esbuild: false`, and a patch-into-existing-file run that adds a new `esbuild` entry uses `true`. An *existing* explicit pin is always preserved — if the file already has `allowBuilds.esbuild: false` (or `: true`), the scaffold leaves it untouched even when `--allow-builds` is passed. To change a prior explicit deny, edit `pnpm-workspace.yaml` by hand.
 
 When `[dir]` is given explicitly, existing files are kept (never overwritten)
 and `package.json` is patched in place — only missing keys are added, so a
