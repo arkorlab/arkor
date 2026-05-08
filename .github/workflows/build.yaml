@@ -1,0 +1,103 @@
+name: Build (reusable)
+
+# SLSA Build L3 trusted builder.
+#
+# Scope (intentionally minimal): install → build → pack → attest → publish.
+# Everything that is not strictly required to produce and sign the
+# artifact lives in the caller — tests (which execute arbitrary
+# user-controlled code), tag-shape validation, version reconciliation
+# against package.json, the npm-not-yet-published guard, and the dry-run
+# verification path. Keeping those out of the reusable workflow shrinks
+# the trust boundary that downstream verifiers pin via the OIDC
+# `job_workflow_ref` claim, so a compromise of caller-side checks cannot
+# leak into the publish identity.
+#
+# The npm provenance attached by `npm publish --provenance` is signed via
+# Sigstore using this job's GitHub OIDC token, whose `job_workflow_ref`
+# claim resolves to this file's path + ref. Verifiers (e.g.
+# `npm audit signatures`, slsa-verifier) can therefore require provenance
+# signed by this exact reusable workflow as a separately-lockable trust
+# principal — branch-protect this file and the publish identity is safe
+# even if a caller workflow is compromised.
+
+on:
+  workflow_call:
+    inputs:
+      npm_tag:
+        description: "Resolved npm dist-tag."
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      attestations: write
+
+    environment: npm-publish
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          ARKOR_POSTHOG_KEY: ${{ secrets.ARKOR_POSTHOG_KEY }}
+          ARKOR_POSTHOG_HOST: ${{ secrets.ARKOR_POSTHOG_HOST }}
+        run: pnpm run build
+
+      - name: Pack release tarballs
+        run: |
+          PACK_DIR="$RUNNER_TEMP/npm-pack"
+          rm -rf "$PACK_DIR"
+          mkdir -p "$PACK_DIR"
+
+          for PKG_DIR in packages/arkor packages/create-arkor; do
+            (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
+          done
+
+      - name: Generate GitHub artifact attestations for release tarballs
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ runner.temp }}/npm-pack/*.tgz
+
+      # Publish from the package directory (not from the pre-packed tarball)
+      # so npm CLI reads README.md at publish time and embeds it in the
+      # registry packument's `readme` field. `npm publish <tarball>` does
+      # not perform that injection, which leaves the page on npmjs.com
+      # blank.
+      - name: Publish arkor to npm
+        working-directory: packages/arkor
+        run: |
+          npm publish \
+            --access public \
+            --tag "${{ inputs.npm_tag }}" \
+            --provenance
+
+      - name: Publish create-arkor to npm
+        working-directory: packages/create-arkor
+        run: |
+          npm publish \
+            --access public \
+            --tag "${{ inputs.npm_tag }}" \
+            --provenance
+
+      - name: Upload release tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarballs
+          path: ${{ runner.temp }}/npm-pack/*.tgz
+          retention-days: 1
+          if-no-files-found: error

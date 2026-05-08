@@ -68,3 +68,9 @@ These exist in the source tree but are intentionally not exported from `arkor`. 
 
 - `SDK_VERSION`, `defaultArkorCloudApiUrl()`: used by the CLI and Studio server. Do not import via deep paths; the export contract may change.
 - The CLI command runners (`runBuild`, `runStart`, `runDev`, `runInit`, `runLogin`, `runLogout`, `runWhoami`): they live under `src/cli/commands/` and are CLI-private. If you need to drive a training run, use `runTrainer` (above) or call `trainer.start()` / `trainer.wait()` directly.
+
+## See also
+
+- [Run lifecycle](/concepts/lifecycle) for what `start()` / `wait()` actually do
+- [Project structure](/concepts/project-structure) for where the manifest and trainer live in a project
+- [CLI overview](/cli/overview) for the surface that drives the SDK from the shell

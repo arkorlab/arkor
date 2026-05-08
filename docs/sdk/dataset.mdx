@@ -5,7 +5,9 @@ description: "Where the trainer pulls data from: HuggingFace name or blob URL."
 
 # `DatasetSource`
 
-`createTrainer` accepts one dataset, expressed as a discriminated union on `type`:
+`createTrainer` accepts one dataset, expressed as a discriminated union on `type`.
+
+## Signature
 
 ```ts
 type DatasetSource =
@@ -13,7 +15,9 @@ type DatasetSource =
   | { type: "blob";        url: string;  token?: string };
 ```
 
-## HuggingFace
+## Variants
+
+### HuggingFace
 
 ```ts
 dataset: {
@@ -33,7 +37,7 @@ dataset: {
 
 This is the form the bundled templates (`triage` / `translate` / `redaction`) use. Most projects start here.
 
-## Blob URL
+### Blob URL
 
 ```ts
 dataset: {
@@ -51,9 +55,16 @@ dataset: {
 
 Use this for datasets you host yourself (signed S3 URL, internal CDN, etc.). The backend pulls the URL once at the start of the run.
 
-## Picking a form
+## Behavior
+
+### Picking a form
 
 - Reach for `huggingface` when the dataset is already on the Hub. It is the most-tested path.
 - Reach for `blob` when you need a dataset that cannot live on the Hub (proprietary content, signed URL, internal-only).
 
 Local files (`{ type: "file", path: "./data.jsonl" }`) are not in `DatasetSource` today. To use one, host it as a blob URL or upload it to a private HuggingFace repo first.
+
+## See also
+
+- [`createTrainer`](/sdk/create-trainer) for the `dataset` field that consumes this type
+- [Customizing templates recipe](/cookbook/customizing-templates) for swapping the bundled HuggingFace dataset

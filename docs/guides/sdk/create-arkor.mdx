@@ -1,0 +1,26 @@
+---
+title: "createArkor"
+description: "Wrap a trainer so the CLI and Studio can find it."
+---
+
+# `createArkor`
+
+`createArkor` produces the project manifest that `arkor dev`, `arkor start`, and Studio look for in `src/arkor/index.ts`. In a typical project, you write it once and never touch it again.
+
+```ts
+// src/arkor/index.ts
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+The `trainer` you pass comes from [`createTrainer`](/guides/sdk/create-trainer). The scaffolder generates this file for you in [`arkor init`](/guides/cli/init).
+
+## Why have a manifest at all?
+
+Today the manifest only carries a `Trainer`, but the type reserves space for `deploy` and `eval` slots so future pieces can sit alongside training without changing the entry-file shape. Always export `arkor` (not just `trainer`) from `src/arkor/index.ts` so your project keeps working when those slots land.
+
+## Reference
+
+For the full `ArkorInput` / `Arkor` type shape, the three export shapes the runner accepts (`arkor`, `trainer`, default), the `isArkor` companion type guard, and the reserved fields' direction, see the [`createArkor` reference](/sdk/create-arkor).

@@ -1,0 +1,21 @@
+---
+title: "CLI overview"
+description: "The day-to-day shape of the Arkor CLI."
+---
+
+# CLI overview
+
+The `arkor` CLI is the surface around an Arkor project. After `arkor init`, four commands cover almost everything you do day to day.
+
+| Command | What you do with it |
+| --- | --- |
+| [`arkor init`](/guides/cli/init) | Drop Arkor into the current directory. Run once per project. |
+| [`arkor dev`](/guides/cli/dev) | Launch Studio in the browser. The main interactive loop. |
+| [`arkor build` / `arkor start`](/guides/cli/build-and-start) | Run a trainer headlessly: in CI, on a server, or from a script. |
+| [`arkor login` / `logout` / `whoami`](/guides/cli/auth) | Sign in to Arkor Cloud or check who you are. |
+
+Run any command with `--help` to see flags. Use a script form when one exists in `package.json` (e.g. `pnpm dev`); otherwise use the package-manager-specific Arkor command shown in the docs for your chosen tab.
+
+## Reference
+
+For all flags, exit codes, error messages, environment variables, and behavior detail per command, see the [CLI Reference](/cli/overview).

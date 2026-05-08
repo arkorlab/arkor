@@ -1,0 +1,26 @@
+---
+title: "createArkor"
+description: "トレーナーを CLI / Studio が発見できるようラップする。"
+---
+
+# `createArkor`
+
+`createArkor` は `arkor dev`、`arkor start`、Studio が `src/arkor/index.ts` で探すプロジェクトマニフェストを生成します。普通のプロジェクトでは一度書けば二度と触りません。
+
+```ts
+// src/arkor/index.ts
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+渡している `trainer` は [`createTrainer`](/ja/guides/sdk/create-trainer) で作ります。このファイル自体は [`arkor init`](/ja/guides/cli/init) のスキャフォルダーが生成します。
+
+## なぜマニフェストがあるのか
+
+今のところマニフェストが運ぶのは `Trainer` だけですが、型は `deploy` と `eval` のスロットを予約しているので、将来のピースが学習と並んで座れるようエントリーファイルの形を変えずに済みます。`trainer` だけでなく必ず `arkor` を `src/arkor/index.ts` から export してください。スロットが追加されてもプロジェクトが壊れません。
+
+## リファレンス
+
+`ArkorInput` / `Arkor` の完全な型形、ランナーが受け付ける 3 つのエクスポート形（`arkor`、`trainer`、default）、`isArkor` という併設の型ガード、予約フィールドの方向性は [`createArkor` リファレンス](/ja/sdk/create-arkor) を参照してください。

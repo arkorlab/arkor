@@ -75,7 +75,7 @@ We err on the side of accepting PRs, even rough ones. Tiny contributions — a t
 
 - **Size doesn't matter.** Huge diffs are fine — please don't hold back on opening a PR because it grew. We'd much rather read a sprawling PR than have you not send it, and we're happy to split it up on our side if that helps review.
 - **Unclear description is OK.** A messy or sparse PR description is better than no PR. We'll ask follow-ups in review rather than bouncing the patch.
-- **Tests aren't required.** A vitest case for SDK / CLI / scaffolder logic, or a screenshot / short clip for Studio UI changes, is appreciated but not a blocker. We're happy to add tests ourselves as part of merging.
+- **Tests aren't required.** A vitest case for SDK / CLI / scaffolder logic, a jsdom-based Testing Library case for Studio components (run with `pnpm --filter @arkor/studio-app test`), or a screenshot / short clip for visual UI tweaks: any of them is appreciated, none are blockers. We're happy to add tests ourselves as part of merging.
 - **Breaking changes are fine** during alpha. We don't ship compatibility shims between `0.0.x` versions, so just note them in the PR description and the [release notes](https://github.com/arkorlab/arkor/releases) stay honest.
 
 ## Reporting bugs and security issues

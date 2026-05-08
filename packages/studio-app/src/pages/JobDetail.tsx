@@ -27,6 +27,7 @@ const MAX_LOSS_POINTS = 2000;
 export function JobDetail({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [points, setPoints] = useState<LossPoint[]>([]);
+  const [advanced, setAdvanced] = useState(false);
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [terminal, setTerminal] = useState<{
     status: "completed" | "failed";
@@ -71,10 +72,13 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     // Clear per-job state when navigating between jobs so events, loss
-    // points, terminal status, and event-id counter don't leak across
-    // routes.
+    // points, terminal status, advanced toggle, and event-id counter
+    // don't leak across routes. Resetting `advanced` matters: leaving
+    // it on would immediately start computing stats during the new
+    // job's live stream the moment its first points arrive.
     setEvents([]);
     setPoints([]);
+    setAdvanced(false);
     setTerminal(null);
     setEventErr(null);
     setLiveStatus(null);
@@ -101,9 +105,28 @@ export function JobDetail({ jobId }: { jobId: string }) {
       if (parsed && typeof parsed === "object") {
         const p = parsed as Record<string, unknown>;
         if (event === "training.log") {
-          message = `step=${p.step ?? "—"} loss=${
-            typeof p.loss === "number" ? p.loss.toFixed(4) : "—"
-          }`;
+          // Omit each `key=…` segment when the corresponding field is
+          // missing/non-numeric so eval-only frames render cleanly as
+          // `step=<n> evalLoss=…` instead of being padded with a noisy
+          // `loss=—` placeholder. `Number.isFinite` additionally
+          // rejects non-finite numerics — `JSON.parse` overflows
+          // out-of-range exponent forms like `1e309` to `Infinity`
+          // (RFC 8259 grammar can't express `NaN`, so it can't arrive
+          // from the wire), and we keep the `NaN` rejection as cheap
+          // defense for in-process computation. The
+          // `typeof === "number"` precondition lets TypeScript narrow
+          // `p.loss` / `p.evalLoss` from `unknown` (the
+          // `Record<string, unknown>` cast above) so `.toFixed` is
+          // called on a typed `number` without an `as` assertion.
+          const lossPart =
+            typeof p.loss === "number" && Number.isFinite(p.loss)
+              ? ` loss=${p.loss.toFixed(4)}`
+              : "";
+          const evalPart =
+            typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss)
+              ? ` evalLoss=${p.evalLoss.toFixed(4)}`
+              : "";
+          message = `step=${p.step ?? "—"}${lossPart}${evalPart}`;
         } else if (event === "training.failed") {
           message = String(p.error ?? "failed");
         } else if (event === "training.completed") {
@@ -140,15 +163,51 @@ export function JobDetail({ jobId }: { jobId: string }) {
       const parsed = safeParse(ev.data);
       pushEvent("training.log", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
-        const d = parsed as { step?: number; loss?: number | null };
-        if (typeof d.step !== "number") return;
+        const d = parsed as {
+          step?: number;
+          loss?: number | null;
+          evalLoss?: number | null;
+        };
+        // Validate every numeric field with `typeof === "number"` first
+        // so TypeScript narrows the union (`number | null | undefined`
+        // for the loss fields, `number | undefined` for step) before
+        // the `Number.isFinite` check, eliminating the need for `as
+        // number` casts in the assignments below. The finite check
+        // additionally rejects non-finite numerics so they don't
+        // reach LossChart / stats.ts, which both assume finite inputs
+        // (otherwise min/max/span and the rendered SVG paths would
+        // be NaN-poisoned). `JSON.parse` overflows out-of-range
+        // exponent forms like `1e309` to `Infinity`; `NaN` cannot be
+        // expressed in valid JSON but is still rejected as cheap
+        // defense for in-process computation.
+        if (typeof d.step !== "number" || !Number.isFinite(d.step)) return;
+        const step = d.step;
+        const safeLoss =
+          typeof d.loss === "number" && Number.isFinite(d.loss)
+            ? d.loss
+            : null;
+        const safeEvalLoss =
+          typeof d.evalLoss === "number" && Number.isFinite(d.evalLoss)
+            ? d.evalLoss
+            : null;
+        // Skip frames that carry neither a numeric loss nor a numeric
+        // evalLoss. LossChart's `unified` filter would drop them on
+        // render anyway, but they'd still consume a `MAX_LOSS_POINTS`
+        // retention slot here — a long stream of no-loss frames could
+        // evict earlier real loss points and degrade chart/stats
+        // fidelity.
+        if (safeLoss === null && safeEvalLoss === null) return;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
         // chart's visual resolution at any reasonable width.
         setPoints((prev) => {
           const next = [
             ...prev,
-            { step: d.step!, loss: d.loss ?? null },
+            {
+              step,
+              loss: safeLoss,
+              evalLoss: safeEvalLoss,
+            },
           ];
           return next.length > MAX_LOSS_POINTS
             ? next.slice(next.length - MAX_LOSS_POINTS)
@@ -338,14 +397,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Loss curve</CardTitle>
-              <CardDescription>
-                Each <code className="font-mono">training.log</code> event from
-                the trainer. Hover to inspect a step.
-              </CardDescription>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <CardTitle>Loss curve</CardTitle>
+                  <CardDescription>
+                    Each <code className="font-mono">training.log</code> event
+                    from the trainer. Hover to inspect a step.
+                  </CardDescription>
+                </div>
+                <AdvancedToggle
+                  enabled={advanced}
+                  onChange={setAdvanced}
+                />
+              </div>
             </CardHeader>
             <CardContent>
-              <LossChart points={points} />
+              <LossChart points={points} advanced={advanced} />
             </CardContent>
           </Card>
 
@@ -373,6 +440,40 @@ export function JobDetail({ jobId }: { jobId: string }) {
         </Card>
       </div>
     </div>
+  );
+}
+
+function AdvancedToggle({
+  enabled,
+  onChange,
+}: {
+  enabled: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label="Advanced metrics"
+      onClick={() => onChange(!enabled)}
+      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+    >
+      <span
+        className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+          enabled
+            ? "bg-teal-500"
+            : "bg-zinc-300 dark:bg-zinc-700"
+        }`}
+      >
+        <span
+          className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${
+            enabled ? "translate-x-3.5" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      Advanced
+    </button>
   );
 }
 
