@@ -341,11 +341,19 @@ export function createTrainer(
           completedAt: event.timestamp,
         };
         const artifacts = (event.artifacts ?? []) as unknown[];
-        await callbacks.onCompleted?.({ job: startedJob, artifacts });
-        // Job already terminal — release any armed early-stop latch
-        // so a SIGTERM handler awaiting `requestEarlyStop()` settles
-        // immediately rather than blocking until the timeout fires.
-        settleEarlyStopLatch();
+        // `try/finally` so the latch settles even when the user's
+        // `onCompleted` callback throws: otherwise a thrown
+        // callback would leave `earlyStopDeferred` pending and the
+        // SIGTERM handler awaiting `requestEarlyStop()` would block
+        // until the timeout (default 5 min). The throw still
+        // propagates through `dispatch()` → `wait()` so callers see
+        // the original error — we just don't strand the shutdown
+        // path along with it.
+        try {
+          await callbacks.onCompleted?.({ job: startedJob, artifacts });
+        } finally {
+          settleEarlyStopLatch();
+        }
         return { terminal: true, artifacts };
       }
       case "training.failed": {
@@ -355,10 +363,14 @@ export function createTrainer(
           error: event.error,
           completedAt: event.timestamp,
         };
-        await callbacks.onFailed?.({ job: startedJob, error: event.error });
-        // Symmetric to the `completed` branch above — terminal status
-        // settles the latch even though the run failed.
-        settleEarlyStopLatch();
+        // Symmetric to the `completed` branch above — terminal
+        // status settles the latch even when the run failed *and*
+        // the user's `onFailed` callback itself throws.
+        try {
+          await callbacks.onFailed?.({ job: startedJob, error: event.error });
+        } finally {
+          settleEarlyStopLatch();
+        }
         return { terminal: true, artifacts: [] };
       }
     }

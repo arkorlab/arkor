@@ -116,6 +116,23 @@ export class TrainRegistry {
     if (typeof pid === "number") this.entries.delete(pid);
   }
 
+  /**
+   * Whether `dispatchRebuild` has already issued a graceful-restart
+   * SIGTERM to this child as part of an HMR cycle. Consulted by
+   * `/api/train`'s ReadableStream `cancel()` handler so a client-
+   * driven cancel (tab close, navigation, aborted fetch) doesn't
+   * pile a second SIGTERM on top of an in-progress early-stop —
+   * the runner's `installShutdownHandlers` interprets a second
+   * SIGTERM as the emergency `exit(143)` fast-path, which bypasses
+   * the checkpoint-preserving early-stop + `cancel()` flow and
+   * leaves the cloud-side run live while the local subprocess
+   * dies. Defeats the main safety goal of the HMR restart logic.
+   */
+  isEarlyStopRequested(pid: number | undefined): boolean {
+    if (typeof pid !== "number") return false;
+    return this.entries.get(pid)?.earlyStopRequested ?? false;
+  }
+
   get size(): number {
     return this.entries.size;
   }

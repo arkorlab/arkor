@@ -1640,6 +1640,129 @@ describe("createTrainer (early stop)", () => {
     }
   });
 
+  it("settles the early-stop latch even when the user's onCompleted callback throws", async () => {
+    // Regression: previously `settleEarlyStopLatch()` was called
+    // *after* awaiting `callbacks.onCompleted` / `onFailed`. A
+    // thrown user callback propagated out of `dispatch()` before
+    // the settle ran, leaving `earlyStopDeferred` pending — the
+    // SIGTERM handler in `installShutdownHandlers` would block on
+    // that promise until the (default 5-min) timeout fired,
+    // delaying shutdown for a user-code bug. Wrapping in
+    // `try/finally` ensures the latch is released regardless,
+    // while preserving the throw's propagation through `wait()` so
+    // callers still see the original error.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 3\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        artifacts: [],
+      })}\n\n`,
+    ];
+
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    let stopResolved = false;
+    let stopRejected = false;
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: () => {
+            // Arm early-stop with a long timeout — if the latch
+            // isn't released by `finally`, this would hang for the
+            // full 60 seconds.
+            void requestTrainerEarlyStop(trainer, {
+              timeoutMs: 60_000,
+            }).then(
+              () => {
+                stopResolved = true;
+              },
+              () => {
+                stopRejected = true;
+              },
+            );
+          },
+          onCompleted: () => {
+            throw new Error("user callback boom");
+          },
+        },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        // `wait()` catches dispatch throws and routes them through
+        // its reconnect loop; with the default unbounded retry the
+        // user-callback throw above would loop forever and the test
+        // would just time out. Cap retries at 0 so the first thrown
+        // dispatch surfaces as a `wait()` rejection — that lets us
+        // observe the *latch* settlement (the actual contract under
+        // test) cleanly.
+        maxReconnectAttempts: 0,
+      },
+    );
+
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      // The user-callback throw is wrapped by `handleFailure` after
+      // `maxReconnectAttempts: 0` exhausts; the original error is
+      // preserved as `cause`. We just need wait() to settle so the
+      // test doesn't hang — the *body* of the assertion is the
+      // latch state below.
+      await expect(trainer.wait()).rejects.toThrow();
+      // The latch must have settled (via `finally`) BEFORE wait()
+      // rejected. Without the `try/finally` around `onCompleted`
+      // the latch would still be armed → `stopResolved` stays
+      // false → the test fails (rather than timing out, since
+      // `maxReconnectAttempts: 0` already unblocks wait()).
+      await new Promise((r) => setImmediate(r));
+      expect(stopResolved).toBe(true);
+      expect(stopRejected).toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("falls back to immediate cancel when no checkpoint arrives within timeoutMs", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },

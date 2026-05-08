@@ -108,6 +108,33 @@ describe("TrainRegistry", () => {
     expect(c.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
+  it("isEarlyStopRequested reflects the dispatchRebuild SIGTERM flag", () => {
+    // Regression: `/api/train`'s ReadableStream `cancel()` consults
+    // this flag to avoid sending a *second* SIGTERM to a child that
+    // HMR's `dispatchRebuild` already SIGTERMed for early-stop. A
+    // double-SIGTERM hits `installShutdownHandlers`' emergency
+    // `exit(143)` fast-path, bypassing the checkpoint-preserving
+    // cancel flow and potentially leaving the cloud run alive.
+    const reg = new TrainRegistry();
+    const a = fakeChild(901);
+    reg.register(a as unknown as ChildProcess, {
+      configHash: "h1",
+      trainFile: "/tmp/a.ts",
+    });
+    expect(reg.isEarlyStopRequested(901)).toBe(false);
+    // Mismatched hash → SIGTERM → flag flips on.
+    reg.dispatchRebuild("h2");
+    expect(reg.isEarlyStopRequested(901)).toBe(true);
+    // Defensive cases: non-numeric / unknown / never-registered pid.
+    expect(reg.isEarlyStopRequested(undefined)).toBe(false);
+    expect(reg.isEarlyStopRequested(99999)).toBe(false);
+    // Once the child unregisters (close handler) the flag effectively
+    // resets — subsequent queries return false rather than retaining
+    // stale state.
+    reg.unregister(901);
+    expect(reg.isEarlyStopRequested(901)).toBe(false);
+  });
+
   it("unregister removes the child from the policy decisions", () => {
     const reg = new TrainRegistry();
     const a = fakeChild(401);

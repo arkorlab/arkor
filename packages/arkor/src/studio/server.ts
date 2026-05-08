@@ -493,8 +493,21 @@ export function buildStudioApp(options: StudioServerOptions) {
         };
       },
       cancel() {
+        // Capture the early-stop flag *before* unregistering: the
+        // unregister wipes the entry, after which we can't tell
+        // whether HMR's `dispatchRebuild` had already SIGTERMed
+        // this child. If it had, sending another SIGTERM here
+        // would land as the *second* signal on the runner side and
+        // trigger `installShutdownHandlers`' emergency `exit(143)`
+        // fast-path — which bypasses the checkpoint-preserving
+        // early-stop + cloud `cancel()` flow and can leave the
+        // cloud run alive while the local subprocess dies. The HMR
+        // path is already driving the child to a clean exit, so we
+        // just unregister + detach listeners and let it run.
+        const earlyStopInFlight = activeTrains.isEarlyStopRequested(child.pid);
         activeTrains.unregister(child.pid);
         cancelTeardown?.();
+        if (earlyStopInFlight) return;
         // `ChildProcess.kill()` can throw (ESRCH if the process has
         // already exited between this handler's invocation and the
         // signal delivery). A throw here would surface as an unhandled
