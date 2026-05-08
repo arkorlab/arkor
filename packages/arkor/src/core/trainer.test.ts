@@ -1865,6 +1865,101 @@ describe("createTrainer (early stop)", () => {
     await requestTrainerEarlyStop(trainer, { timeoutMs: 1 });
   });
 
+  it("waits out an in-flight start() so a SIGTERM during create-job can still cancel the new job", async () => {
+    // Codex P1 regression: `start()` sets `scope` *before* awaiting
+    // `client.createJob`, so there's a real window where the cloud
+    // job is being created but `startedJob` is still null. If a
+    // runner-side SIGTERM lands in that window, an immediate
+    // "no-op" early-stop would let `installShutdownHandlers` exit
+    // the process — leaving the just-created cloud job running
+    // with no cancel POST. The fix is to await the in-flight
+    // `start()` promise inside `requestEarlyStop()` so the cancel
+    // path sees a definite job id (or a definite start failure).
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    let cancelCalls = 0;
+    let releaseCreateJob!: () => void;
+    const createJobReleased = new Promise<void>((resolve) => {
+      releaseCreateJob = resolve;
+    });
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        // Hold createJob open so we can fire `requestEarlyStop`
+        // mid-flight. Once the test releases the gate, return a
+        // valid job — that establishes the post-create state
+        // requestEarlyStop should then act on (cancel POST).
+        await createJobReleased;
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        cancelCalls += 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      // Fire start() but DON'T await — its createJob is gated.
+      const startPromise = trainer.start();
+      // Yield once so the start microtasks queue up to the
+      // `await client.createJob`.
+      await new Promise((r) => setImmediate(r));
+      // requestEarlyStop fires while start() is mid-flight. With
+      // the fix it awaits start() rather than no-op'ing immediately.
+      // Tiny `timeoutMs` so once `start()` resolves the latch's
+      // timeout-fallback fires the cancel POST quickly — there's no
+      // SSE stream in this test, so the checkpoint-driven path
+      // never arrives. We're testing the "stop awaited start()" leg
+      // of the contract, not the checkpoint plumbing.
+      const stopPromise = requestTrainerEarlyStop(trainer, {
+        timeoutMs: 50,
+      });
+      // Sanity: stop hasn't resolved yet — it's blocked on
+      // start() which is blocked on createJob.
+      let stopSettled = false;
+      void stopPromise.then(() => {
+        stopSettled = true;
+      });
+      await new Promise((r) => setImmediate(r));
+      expect(stopSettled).toBe(false);
+      // Release createJob → start() resolves → stop() proceeds.
+      releaseCreateJob();
+      await startPromise;
+      await stopPromise;
+      // The deciding behaviour: cancel POST was issued because the
+      // stop awaited start() and saw a real job id. Without the
+      // in-flight gate, stop would have returned immediately on
+      // the null `startedJob`, no cancel POST, cloud job orphaned.
+      expect(cancelCalls).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("replaceTrainerCallbacks (internal HMR brand) swaps the dispatched callbacks on the next event", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },

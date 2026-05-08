@@ -368,6 +368,19 @@ export function buildStudioApp(options: StudioServerOptions) {
     const configHash: string | null = options.hmr
       ? options.hmr.getCurrentConfigHash()
       : null;
+    // Spawn-time fingerprint of the on-disk build artefact. Only the
+    // pre-ready-spawn case in `dispatchRebuild` consults it: when a
+    // rebuild lands while the child's `configHash` is still null,
+    // backfilling the new hash is only safe if the artefact bytes
+    // the child loaded (= the bytes on disk *now*, at spawn) are
+    // the same bytes the new hash describes. Without this gate, an
+    // edit landing between spawn and the watcher's first BUNDLE_END
+    // would silently align the registry with a config the child
+    // never actually loaded → cloud-side `JobConfig` drift on
+    // subsequent same-hash hot-swaps.
+    const spawnArtifactHash: string | null = options.hmr
+      ? options.hmr.getCurrentArtifactHash()
+      : null;
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
     // `spawn()` is mostly async (filesystem failures surface as the
@@ -396,7 +409,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         500,
       );
     }
-    activeTrains.register(child, { trainFile, configHash });
+    activeTrains.register(child, { trainFile, configHash, spawnArtifactHash });
     // Hoisted out of the `ReadableStream` underlying-source so the
     // `start` handler can hand its closure-bound teardown helper to
     // the `cancel` handler. `cancel` runs in a separate invocation,
@@ -608,8 +621,15 @@ export function buildStudioApp(options: StudioServerOptions) {
         // both buckets so the SPA can react per-child rather than
         // assuming one global outcome.
         const nextHash = event.configHash ?? null;
+        // The artefact fingerprint travels in the same broadcast
+        // (`event.hash`). Pass it through so the registry can gate
+        // the pre-ready-spawn backfill on whether the bytes the
+        // child loaded match what this rebuild's hash describes
+        // — see `dispatchRebuild`'s comment for why a null entry
+        // hash + matching artefact is the only safe backfill path.
+        const nextArtifactHash = event.hash ?? null;
         const { hotSwapTargets, restartTargets } =
-          activeTrains.dispatchRebuild(nextHash);
+          activeTrains.dispatchRebuild(nextHash, nextArtifactHash);
         augmented = {
           ...event,
           hotSwap: hotSwapTargets.length > 0,

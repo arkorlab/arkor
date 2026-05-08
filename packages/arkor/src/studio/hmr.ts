@@ -50,6 +50,21 @@ export interface HmrCoordinator {
    * scaffold) or the latest event was an `error`.
    */
   getCurrentConfigHash(): string | null;
+  /**
+   * Synchronous fingerprint of the on-disk build artefact RIGHT NOW
+   * (fresh stat, not cached). Used by `/api/train`'s registry entry
+   * so HMR routing in the pre-ready-spawn case (`configHash === null`)
+   * can compare against the rebuild's `event.hash` to tell whether
+   * the child read the same bytes. Without this gate, an edit
+   * landing between spawn and the watcher's first BUNDLE_END would
+   * silently teach the registry to use the post-edit `configHash`
+   * as the child's baseline — later same-hash rebuilds would then
+   * hot-swap callbacks into a child whose cloud-side `JobConfig`
+   * was actually spawned against an older version, leaving the
+   * cloud run on a stale config. `null` when stat fails (artefact
+   * doesn't exist yet, fresh project never built).
+   */
+  getCurrentArtifactHash(): string | null;
   dispose(): Promise<void>;
 }
 
@@ -367,6 +382,26 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       // correctly. `null` only before the first successful build (or
       // a build that wasn't inspectable).
       return lastSuccessConfigHash;
+    },
+    getCurrentArtifactHash() {
+      // Fresh stat — not the cached `lastEvent.hash`. The cached
+      // hash describes the bytes the watcher last broadcast about,
+      // but the on-disk artefact may be newer (a BUNDLE_END is
+      // queued, file already written, inspection still pending) or
+      // older (next BUNDLE_END hasn't fired yet but the user just
+      // edited and saved). For the registry's pre-ready-spawn gate
+      // we want "what bytes will the child's `await import()` see
+      // RIGHT NOW", which only the live `fingerprint(outFile)`
+      // gives. Null falls through `fingerprint`'s catch when the
+      // file doesn't exist yet — equivalent to "child can't load
+      // anything", which dispatchRebuild treats as a forced
+      // SIGTERM-restart.
+      try {
+        statSync(resolved.outFile);
+      } catch {
+        return null;
+      }
+      return fingerprint(resolved.outFile);
     },
     async dispose() {
       disposed = true;

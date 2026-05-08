@@ -152,6 +152,7 @@ describe("Studio server", () => {
     const fakeHmr = {
       subscribe: () => () => undefined,
       getCurrentConfigHash: () => null,
+      getCurrentArtifactHash: () => null,
       async dispose() {},
     };
     const app = buildStudioApp({
@@ -611,6 +612,7 @@ process.exit(0);
           getCurrentCalls += 1;
           return "spawn-time-hash";
         },
+        getCurrentArtifactHash: () => "spawn-artefact-hash",
         async dispose() {},
       };
       const fakeBin = join(trainCwd, "fake-bin.mjs");
@@ -691,9 +693,16 @@ process.exit(0);
       // ReadableStream, those handlers kept firing — and calling
       // `enqueue` / `close` on a closed controller throws "Invalid
       // state". The throw escaped the request pipeline as an
-      // unhandled exception. The fix tracks a `closed` flag, removes
-      // the child listeners on cancel, and try/catches the post-
-      // cancel enqueue paths defensively.
+      // unhandled exception. The fix flips a `closed` flag in
+      // `cancelTeardown` and try/catches the post-cancel enqueue
+      // paths defensively. NOTE: cancel intentionally does NOT
+      // detach the `data` listeners — leaving them attached keeps
+      // the OS pipe draining while the child checkpoints / exits
+      // gracefully (otherwise a full pipe back-pressures and
+      // deadlocks the very graceful exit we're preserving).
+      // `onClose` / `onError` detach all listeners when the child
+      // finally exits. See `cancelTeardown` in `studio/server.ts`
+      // for the full backpressure rationale.
       await writeCredentials(ANON_CREDS);
       const fakeBin = join(trainCwd, "fake-bin.mjs");
       // Bin spits a chunk every ~5 ms forever. We cancel while it's
@@ -1552,6 +1561,11 @@ process.exit(0);
       // spawned-config snapshot.
       const subs = new Set<(e: HmrEvent) => void>();
       let currentConfigHash: string | null = initialConfigHash;
+      // Match the real coordinator's behaviour: a stable artefact
+      // fingerprint at spawn time. Tests that exercise the
+      // pre-ready-spawn path (configHash null, then a real hash)
+      // can override via `setArtifactHash`.
+      let currentArtifactHash: string | null = "fake-artefact-hash";
       const coordinator: HmrCoordinator = {
         subscribe(fn) {
           subs.add(fn);
@@ -1561,6 +1575,9 @@ process.exit(0);
         },
         getCurrentConfigHash() {
           return currentConfigHash;
+        },
+        getCurrentArtifactHash() {
+          return currentArtifactHash;
         },
         async dispose() {
           subs.clear();
@@ -1573,6 +1590,9 @@ process.exit(0);
         },
         setConfigHash(hash: string | null) {
           currentConfigHash = hash;
+        },
+        setArtifactHash(hash: string | null) {
+          currentArtifactHash = hash;
         },
         get subscriberCount() {
           return subs.size;

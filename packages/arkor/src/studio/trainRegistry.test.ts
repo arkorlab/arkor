@@ -64,46 +64,97 @@ describe("TrainRegistry", () => {
     expect(b.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
-  it("dispatchRebuild backfills the hash and skips dispatch when the spawn-time hash was null", () => {
-    // Regression: previously a child registered with `configHash:
-    // null` (spawn happened *before* the HMR watcher emitted its
-    // first successful build, so `getCurrentConfigHash()` returned
-    // null) was treated as a hash mismatch on the next event with
-    // a real hash and SIGTERM-restarted. Since the dispatch now
-    // fires on `ready` events too, that turned every "click Run
-    // before the watcher's first BUNDLE_END" into a spurious
-    // cancel+restart cycle (extra GPU spend / job churn) triggered
-    // purely by startup timing rather than any actual code change.
-    // The fix backfills the entry's hash with the first known value
-    // and skips signal dispatch — the child either already loaded
-    // the right bundle or surfaces its own load error; future
-    // rebuilds compare against the backfilled hash like any other.
+  it("dispatchRebuild backfills the hash and skips dispatch when the spawn-time artefact matches the new build", () => {
+    // Pre-ready spawn (configHash: null) is the "user clicked Run
+    // before the watcher's first BUNDLE_END" case. Whether it's
+    // safe to backfill the new hash as the child's baseline depends
+    // on whether the on-disk artefact has changed between spawn
+    // and now: if `spawnArtifactHash === nextArtifactHash`, the
+    // child read exactly the bytes the new hash describes →
+    // backfill + skip dispatch (no spurious cancel+restart cycle).
+    // Otherwise — see the next test — SIGTERM-restart so cloud
+    // and child stay aligned.
     const reg = new TrainRegistry();
     const c = fakeChild(401);
     reg.register(c as unknown as ChildProcess, {
       configHash: null,
       trainFile: "/tmp/preready.ts",
+      spawnArtifactHash: "art-v1",
     });
-    const result = reg.dispatchRebuild("first-real-hash");
+    const result = reg.dispatchRebuild("first-real-hash", "art-v1");
     // Neither bucket — no signal sent, nothing for the SPA to react to.
     expect(result.hotSwapTargets).toEqual([]);
     expect(result.restartTargets).toEqual([]);
     expect(c.kill).not.toHaveBeenCalled();
-    // A subsequent dispatch with the SAME hash must take the hot-
-    // swap path (proves the backfill landed; without it this would
-    // STILL be null vs "first-real-hash" → SIGTERM).
-    const second = reg.dispatchRebuild("first-real-hash");
+    // A subsequent dispatch with the SAME config hash must take the
+    // hot-swap path (proves the backfill landed; without it this
+    // would STILL be null vs "first-real-hash" → SIGTERM).
+    const second = reg.dispatchRebuild("first-real-hash", "art-v2");
     expect(second.hotSwapTargets).toEqual([
       { pid: 401, trainFile: "/tmp/preready.ts" },
     ]);
     expect(second.restartTargets).toEqual([]);
     expect(c.kill).toHaveBeenCalledWith("SIGUSR2");
-    // And a different hash on a later rebuild now correctly routes
-    // to SIGTERM-restart (backfilled hash is real).
+    // And a different config hash on a later rebuild now correctly
+    // routes to SIGTERM-restart (backfilled hash is real).
     c.kill.mockClear();
-    const third = reg.dispatchRebuild("second-hash");
+    const third = reg.dispatchRebuild("second-hash", "art-v3");
     expect(third.restartTargets).toEqual([
       { pid: 401, trainFile: "/tmp/preready.ts" },
+    ]);
+    expect(c.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("dispatchRebuild SIGTERM-restarts a pre-ready spawn when the artefact has changed since spawn", () => {
+    // Codex P2 regression: an edit landing between spawn and the
+    // watcher's first BUNDLE_END means the bytes the child loaded
+    // differ from what the new `configHash` describes. Backfilling
+    // unconditionally would silently teach the registry to use the
+    // post-edit hash as the child's baseline — later same-hash
+    // rebuilds would then hot-swap callbacks into a child whose
+    // cloud-side `JobConfig` was actually spawned against an older
+    // version, leaving the cloud run on a stale config. The artefact
+    // fingerprint mismatch (`art-stale` vs `art-fresh`) is the
+    // signal that the child loaded older bytes; SIGTERM-restart
+    // forces a clean re-spawn against the freshly-built artefact.
+    const reg = new TrainRegistry();
+    const c = fakeChild(411);
+    reg.register(c as unknown as ChildProcess, {
+      configHash: null,
+      trainFile: "/tmp/preready-stale.ts",
+      spawnArtifactHash: "art-stale",
+    });
+    const result = reg.dispatchRebuild("real-hash", "art-fresh");
+    // SIGTERM-restart: the child's bytes are stale relative to the
+    // new build. Hot-swap would be unsafe (config drift); skip
+    // would leave the child running with no future correction
+    // path (the registry would treat "real-hash" as the baseline
+    // even though the child never loaded that build).
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toEqual([
+      { pid: 411, trainFile: "/tmp/preready-stale.ts" },
+    ]);
+    expect(c.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("dispatchRebuild SIGTERM-restarts a pre-ready spawn when no artefact existed at spawn time", () => {
+    // Companion to the "artefact has changed" test: a fresh project
+    // never built before spawn means `coordinator.getCurrentArtifactHash()`
+    // returned `null`. The child's `await import` likely failed; we
+    // can't prove its config matches anything. Conservative
+    // SIGTERM-restart so the SPA re-spawns once the new bundle is
+    // on disk.
+    const reg = new TrainRegistry();
+    const c = fakeChild(421);
+    reg.register(c as unknown as ChildProcess, {
+      configHash: null,
+      trainFile: "/tmp/preready-fresh.ts",
+      spawnArtifactHash: null, // no artefact when /api/train fired
+    });
+    const result = reg.dispatchRebuild("first-real-hash", "art-fresh");
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toEqual([
+      { pid: 421, trainFile: "/tmp/preready-fresh.ts" },
     ]);
     expect(c.kill).toHaveBeenCalledWith("SIGTERM");
   });

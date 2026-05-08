@@ -145,6 +145,16 @@ export function createTrainer(
   let startedJob: TrainingJob | null = null;
   let scope: { orgSlug: string; projectSlug: string } | null = null;
   let clientPromise: Promise<CloudApiClient> | null = null;
+  // In-flight `start()` promise: non-null between the first
+  // `client.createJob` call and the `startedJob` assignment. Lets
+  // `requestEarlyStop()` detect the "scope set but startedJob still
+  // null" window (`scope` is needed by `client.createJob` so we set
+  // it before the await) and wait out the create-job POST so a
+  // SIGTERM landing in that window can still drive a clean cancel
+  // once the job id materialises. Without this gate the early-stop
+  // path would no-op, the runner would `process.exit(0)`, and the
+  // newly created cloud job would orphan with no cancel POST.
+  let startInFlight: Promise<TrainingJob> | null = null;
 
   // Mutable callbacks slot. Each `dispatch()` invocation reads this
   // fresh, so the rotation triggered by the
@@ -381,18 +391,46 @@ export function createTrainer(
 
     async start() {
       if (startedJob) return { jobId: startedJob.id };
-      const client = await getClient();
-      const state = await resolveProjectState(client);
-      scope = { orgSlug: state.orgSlug, projectSlug: state.projectSlug };
-
-      const { job } = await client.createJob({
-        orgSlug: state.orgSlug,
-        projectSlug: state.projectSlug,
-        name: input.name,
-        config,
-      });
-      startedJob = job;
-      return { jobId: job.id };
+      // Already-pending start: reuse the in-flight promise so a
+      // concurrent caller (notably `requestEarlyStop` awaiting it
+      // to close the SIGTERM-during-create-job race) doesn't issue
+      // a second `client.createJob` POST. `Promise.resolve` returns
+      // the existing promise unchanged when it's already a thenable.
+      if (startInFlight) {
+        const job = await startInFlight;
+        return { jobId: job.id };
+      }
+      // Track the pending creation so `requestEarlyStop()` can
+      // detect the "started but not yet recorded" window and wait
+      // out the `client.createJob` POST. We set `scope` *before*
+      // the await (it's needed by the await itself), so a SIGTERM
+      // landing during the await would otherwise see
+      // `!startedJob && scope` and exit immediately — leaving the
+      // newly created cloud job uncancelled.
+      const startPromise = (async () => {
+        const client = await getClient();
+        const state = await resolveProjectState(client);
+        scope = { orgSlug: state.orgSlug, projectSlug: state.projectSlug };
+        const { job } = await client.createJob({
+          orgSlug: state.orgSlug,
+          projectSlug: state.projectSlug,
+          name: input.name,
+          config,
+        });
+        startedJob = job;
+        return job;
+      })();
+      startInFlight = startPromise;
+      try {
+        const job = await startPromise;
+        return { jobId: job.id };
+      } finally {
+        // Clear regardless of resolve/reject so a failed start can
+        // be retried (the caller decides), and a successful one
+        // doesn't pin a stale promise on the trainer for the rest
+        // of its lifetime.
+        startInFlight = null;
+      }
     },
 
     async wait(): Promise<TrainingResult> {
@@ -510,6 +548,24 @@ export function createTrainer(
   async function requestEarlyStop(
     opts: RequestEarlyStopOptions = {},
   ): Promise<void> {
+    // SIGTERM-during-create-job race: a runner-side SIGTERM can land
+    // between `start()`'s `scope = { … }` assignment and its
+    // `client.createJob(...)` resolution, with `startedJob` still
+    // null but a real cloud job about to exist. Treating that window
+    // as "nothing in flight" would `process.exit(0)` immediately
+    // after this returns, leaving the newly created cloud job
+    // running with no cancel POST. Awaiting `startInFlight` collapses
+    // the race onto a definite startedJob (success) or a definite
+    // start failure (rejection) — either way the branches below
+    // can decide on real state. Swallow the rejection: if `start()`
+    // failed there's nothing to cancel anyway.
+    if (startInFlight) {
+      try {
+        await startInFlight;
+      } catch {
+        // intentionally ignored — failed start has no job to cancel
+      }
+    }
     // Nothing in flight: cleanup any prior latch and resolve.
     if (!startedJob || !scope || TERMINAL_STATUSES.has(startedJob.status)) {
       settleEarlyStopLatch();
