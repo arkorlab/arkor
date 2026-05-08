@@ -488,8 +488,24 @@ export function buildStudioApp(options: StudioServerOptions) {
         child.on("close", onClose);
         child.on("error", onError);
         cancelTeardown = () => {
+          // Don't detach data listeners here: the child stays alive
+          // for some time after the SPA cancels — either because
+          // we're skipping `child.kill()` for an in-progress
+          // HMR early-stop, or because `child.kill()`'s SIGTERM
+          // triggers a graceful checkpoint+exit that takes
+          // seconds. During that window the child keeps writing
+          // logs to its stdout/stderr pipes; if our `data`
+          // listeners are gone, Node stops draining the OS pipe,
+          // the buffer fills, and the child's next `write()`
+          // blocks indefinitely — deadlocking the very graceful
+          // exit we're trying to preserve. The `closed` flag
+          // already makes `enqueue`/`close` a no-op so the
+          // controller-closed race stays safe; the eventual
+          // `onClose` / `onError` listeners detach everything
+          // (via `detachListeners()`) when the child finally
+          // exits. That timing — at-exit, not at-cancel — is the
+          // correct moment to break the closure refs for GC.
           closed = true;
-          detachListeners();
         };
       },
       cancel() {
@@ -503,7 +519,10 @@ export function buildStudioApp(options: StudioServerOptions) {
         // early-stop + cloud `cancel()` flow and can leave the
         // cloud run alive while the local subprocess dies. The HMR
         // path is already driving the child to a clean exit, so we
-        // just unregister + detach listeners and let it run.
+        // just unregister + flip `closed` (via `cancelTeardown`)
+        // and let it run. The data listeners stay attached so the
+        // OS pipe keeps draining while the child checkpoints —
+        // see `cancelTeardown` for the backpressure rationale.
         const earlyStopInFlight = activeTrains.isEarlyStopRequested(child.pid);
         activeTrains.unregister(child.pid);
         cancelTeardown?.();
