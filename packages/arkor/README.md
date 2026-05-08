@@ -32,7 +32,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "my-first-run",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 50,

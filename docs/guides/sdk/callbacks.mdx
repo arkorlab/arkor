@@ -12,7 +12,7 @@ import { createTrainer } from "arkor";
 
 const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   callbacks: {
     onStarted: ({ job }) => console.log("started", job.id),

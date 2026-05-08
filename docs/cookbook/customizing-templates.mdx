@@ -115,8 +115,14 @@ export const trainer = createTrainer({
   maxSteps: 100,
   callbacks: {
     onLog: ({ step, loss, evalLoss }) => {
-      const lossPart = loss !== null ? ` loss=${loss.toFixed(4)}` : "";
-      const evalPart = evalLoss !== null ? ` evalLoss=${evalLoss.toFixed(4)}` : "";
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
       console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCheckpoint: async ({ step, infer }) => {
