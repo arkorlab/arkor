@@ -249,7 +249,7 @@ jobs:
           done
 
       - name: Download release tarballs
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: npm-tarballs
           path: ${{ runner.temp }}/npm-pack
