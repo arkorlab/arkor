@@ -445,5 +445,35 @@ describe("shellQuoteIfNeeded", () => {
         expect(shellQuoteIfNeeded('a"b')).toBe('"a\\"b"');
       });
     });
+
+    // Round 39 (CodeQL, PR #99): the Windows quoter must escape
+    // backslashes BEFORE quotes (`\` → `\\`, then `"` → `\"`),
+    // matching the Windows `_setargv` / msvcrt parsing
+    // convention used by both PowerShell and the standard
+    // `cmd.exe` argv path. Otherwise a trailing backslash in
+    // the quoted value would absorb the closing `"` and
+    // un-terminate the argument; a `\\"` run would also be
+    // double-decoded by downstream commands.
+    it("escapes embedded backslashes as \\\\ (CodeQL)", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("a\\b c")).toBe('"a\\\\b c"');
+      });
+    });
+
+    it("escapes a trailing backslash so it doesn't absorb the closing quote", () => {
+      withPlatform("win32", () => {
+        // Without backslash escaping, the result would be
+        // `"foo\"` — the closing quote is consumed and the
+        // argument is unterminated. Doubling the trailing
+        // backslash keeps it literal.
+        expect(shellQuoteIfNeeded("foo\\ bar")).toBe('"foo\\\\ bar"');
+      });
+    });
+
+    it("escapes a backslash-quote run round-trippably (\\\" → \\\\\\\")", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded('a\\"b')).toBe('"a\\\\\\"b"');
+      });
+    });
   });
 });

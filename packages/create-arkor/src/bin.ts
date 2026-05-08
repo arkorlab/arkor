@@ -84,19 +84,24 @@ function collisionMessage(name: string): string {
  *     escaped via the standard `'\''` close-literal-open
  *     sequence — the bytes `'`, `\`, `'`, `'` parse as
  *     end-quote, literal `'`, start-quote.
- *   - Windows (cmd.exe / PowerShell): double quotes.
- *     `cmd.exe` treats `'` as a literal character, so a POSIX-
- *     style `cd 'My App' && pnpm install` would copy-paste-
- *     fail there. Embedded `"` is escaped as `\"`, which works
- *     in PowerShell and the common cmd.exe parser path; paths
- *     containing literal double quotes are vanishingly rare in
- *     practice, so we don't try to handle every cmd.exe
- *     quoting edge case.
+ *   - Windows (cmd.exe / PowerShell): double quotes. `cmd.exe`
+ *     treats `'` as a literal character, so a POSIX-style
+ *     `cd 'My App' && pnpm install` would copy-paste-fail there.
+ *     Backslashes are escaped first (`\` → `\\`) and then
+ *     embedded `"` (`"` → `\"`); applying the quote-escape
+ *     before the backslash-escape would double-encode literal
+ *     `\\` runs. This matches the Windows `_setargv` / msvcrt
+ *     parser conventions used by both PowerShell and the
+ *     standard `cmd.exe` invocation path. Paths containing
+ *     literal double quotes are vanishingly rare in practice,
+ *     but the backslash-then-quote pair keeps `foo\"bar` round-
+ *     tripping correctly (round-39 CodeQL: missing backslash
+ *     escape).
  */
 export function shellQuoteIfNeeded(value: string): string {
   if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
   if (process.platform === "win32") {
-    return `"${value.replace(/"/g, '\\"')}"`;
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
   }
   return `'${value.replace(/'/g, "'\\''")}'`;
 }

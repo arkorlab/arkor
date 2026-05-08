@@ -284,7 +284,6 @@ function runCliOnce(
     // pm-aware install args in the SDK); a per-spawn `YARN_CACHE_FOLDER`
     // sidesteps the issue at the env layer for free, and yarn-berry /
     // npm / pnpm / bun all ignore the variable.
-    const yarnCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-yarn-cache-"));
     // Per-spawn bun install cache. Same parallel-worker race
     // story as yarn above, observed concretely on Windows + CI:
     // bun's tarball extraction does an
@@ -297,7 +296,23 @@ function runCliOnce(
     // (CI run 25349847532, install · bun · windows-latest).
     // Per-spawn `BUN_INSTALL_CACHE_DIR` isolates each worker
     // (yarn / npm / pnpm all ignore the variable).
-    const bunCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-bun-cache-"));
+    //
+    // Round 39 (Copilot, PR #99): the two `mkdtempSync` calls
+    // run sequentially. If the SECOND throws (tmpdir EACCES /
+    // ENOSPC / permissions race), the first dir would leak —
+    // the close/error listeners that fire `cleanup()` haven't
+    // attached yet because `spawn(...)` runs even later. Wrap
+    // both in a try/catch and unwind the first if the second
+    // mkdtemp throws.
+    const yarnCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-yarn-cache-"));
+    let bunCacheDir: string;
+    try {
+      bunCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-bun-cache-"));
+    } catch (mkErr) {
+      rmSync(yarnCacheDir, { recursive: true, force: true });
+      reject(mkErr);
+      return;
+    }
     // Cleanup closure declared up-front so a synchronous `spawn`
     // throw (invalid `binPath`, exec-time platform error, etc.)
     // can run the same teardown the close/error events use.
