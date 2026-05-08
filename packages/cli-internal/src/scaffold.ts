@@ -1194,23 +1194,32 @@ export async function scaffold(
   //     write/patch `.yarnrc.yml`, even when scaffolding into an
   //     existing project (the conflict warning above handles the
   //     case where they've already pinned a non-`node-modules` linker).
-  //   - `pm === undefined` and there's NO existing `package.json` —
-  //     this is a fresh scaffold where we don't yet know which pm
-  //     the user will pick. The manual-install hint says "yarn /
-  //     bun install", so a yarn-berry user reading it and running
-  //     `yarn install` would otherwise hit the PnP default. Emit
-  //     defensively. yarn 1 / npm / pnpm / bun all ignore
-  //     `.yarnrc.yml`, so it's harmless for non-yarn flows.
-  //   - `pm === undefined` and a `package.json` already exists —
-  //     this is a merge into a pre-existing project. We can't tell
-  //     whether the surrounding workspace is a yarn-berry repo
-  //     deliberately on the PnP default, so silently writing
-  //     `.yarnrc.yml` would flip the install mode for the whole
-  //     repo. Don't touch yarn config — defer to the user (Copilot
-  //     review on PR #99). Same skip applies when the user
-  //     *explicitly* picked a non-yarn pm. `isExistingProject` was
-  //     captured at the top of `scaffold()` before patchPackageJson
-  //     overwrote that signal.
+  //   - `pm === undefined` and the cwd was EMPTY pre-scaffold
+  //     (`!isExistingProject`) — this is a fresh scaffold where
+  //     we don't yet know which pm the user will pick. The
+  //     manual-install hint says "yarn / bun install", so a
+  //     yarn-berry user reading it and running `yarn install`
+  //     would otherwise hit the PnP default. Emit defensively.
+  //     yarn 1 / npm / pnpm / bun all ignore `.yarnrc.yml`, so
+  //     it's harmless for non-yarn flows.
+  //   - `pm === undefined` and the cwd had any pre-existing
+  //     content (`isExistingProject`) — this is a merge into
+  //     someone else's project. We can't tell whether the
+  //     surrounding workspace is a yarn-berry repo deliberately
+  //     on the PnP default, so silently writing `.yarnrc.yml`
+  //     would flip the install mode for the whole repo. Don't
+  //     touch yarn config — defer to the user (Copilot review on
+  //     PR #99). Same skip applies when the user *explicitly*
+  //     picked a non-yarn pm. The `isExistingProject` snapshot is
+  //     a "non-empty directory entries" check captured at the top
+  //     of `scaffold()` before `patchPackageJson()` runs (round
+  //     15 widened the check from `existsSync(package.json)` for
+  //     exactly this reason — a fresh git-init'd repo with only
+  //     a README would have been misclassified as fresh under
+  //     the package.json predicate). (Round-39 Copilot review:
+  //     the older comment still described the predicate as
+  //     `package.json`-based, which was misleading after the
+  //     round-15 widening.)
   const shouldEmitYarnConfig =
     options.packageManager === "yarn" ||
     (options.packageManager === undefined && !isExistingProject);

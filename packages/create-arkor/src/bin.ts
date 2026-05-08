@@ -69,6 +69,23 @@ function collisionMessage(name: string): string {
 }
 
 /**
+ * POSIX-shell-quote a path so the `cd ${path}` recovery hints
+ * survive paths with spaces or metacharacters. Round-39 Copilot
+ * review: `create-arkor "My App"` would otherwise emit a copy-
+ * paste-broken `cd My App && pnpm install`.
+ *
+ * Skips quoting for the common safe case (alphanumerics + a few
+ * unambiguous extras like `-_./+@:,`) so the printed hint stays
+ * clean for typical project names. Wraps in single quotes
+ * otherwise and escapes any embedded `'` as the standard
+ * `'\''` close-quote / literal-quote / open-quote sequence.
+ */
+export function shellQuoteIfNeeded(value: string): string {
+  if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Decide whether to run `git init` + initial commit, surfacing the prompt
  * upfront so the user doesn't sit at an interactive question after the long
  * `<pm> install` step finishes. Returns `true` if `runGitInit` should fire
@@ -288,7 +305,7 @@ export async function run(options: RunOptions): Promise<void> {
       // useless. Skip and surface the manual-retry hint instead.
       const retry = inPlace
         ? `${pm} install`
-        : `cd ${cdTarget} && ${pm} install`;
+        : `cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`;
       clack.log.info(
         `Skipping install — fix the advisory above first, then run: ${retry}`,
       );
@@ -302,7 +319,7 @@ export async function run(options: RunOptions): Promise<void> {
         clack.log.info(
           inPlace
             ? `Retry manually: ${pm} install`
-            : `Retry manually: cd ${cdTarget} && ${pm} install`,
+            : `Retry manually: cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`,
         );
       }
     }
@@ -368,7 +385,7 @@ export async function run(options: RunOptions): Promise<void> {
   const reRunIsSafe = options.dir !== undefined;
   const recoverInDir = inPlace
     ? `\`${pm} install\` (then \`git init\` + commit)`
-    : `\`cd ${cdTarget} && ${pm} install\` (then \`git init\` + commit)`;
+    : `\`cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install\` (then \`git init\` + commit)`;
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(
@@ -437,7 +454,7 @@ export async function run(options: RunOptions): Promise<void> {
   clack.outro(
     [
       `Next steps:`,
-      ...(inPlace ? [] : [`  cd ${cdTarget}`]),
+      ...(inPlace ? [] : [`  cd ${shellQuoteIfNeeded(cdTarget)}`]),
       ...(fixFirstLine ? [fixFirstLine] : []),
       ...(installLine ? [installLine] : []),
       ...(gitLine ? [gitLine] : []),

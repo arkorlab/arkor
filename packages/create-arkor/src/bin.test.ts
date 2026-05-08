@@ -60,7 +60,7 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 import { gitInitialCommit, install, scaffold } from "@arkor/cli-internal";
-import { run, shouldRunAsCli } from "./bin";
+import { run, shellQuoteIfNeeded, shouldRunAsCli } from "./bin";
 
 let parentDir: string;
 const ORIG_CWD = process.cwd();
@@ -350,5 +350,39 @@ describe("shouldRunAsCli", () => {
 
   it("returns false when argv[1] is missing", () => {
     expect(shouldRunAsCli(undefined, realFileUrl)).toBe(false);
+  });
+});
+
+// Round 39 (Copilot, PR #99): the `cd ${cdTarget}` recovery
+// hints are copy-paste shell commands. A target with spaces or
+// shell metacharacters would otherwise emit a broken
+// `cd My App && pnpm install`. `shellQuoteIfNeeded` keeps the
+// safe-character common case unquoted (so "my-app" stays clean)
+// and POSIX-quotes the rest with the standard `'\''` escape for
+// embedded single quotes.
+describe("shellQuoteIfNeeded", () => {
+  it("leaves alphanumeric / dotted / slashed paths unquoted", () => {
+    expect(shellQuoteIfNeeded("my-app")).toBe("my-app");
+    expect(shellQuoteIfNeeded("apps/foo")).toBe("apps/foo");
+    expect(shellQuoteIfNeeded("./packages/bar")).toBe("./packages/bar");
+    expect(shellQuoteIfNeeded("v1.2.3")).toBe("v1.2.3");
+    expect(shellQuoteIfNeeded("@scope/pkg")).toBe("@scope/pkg");
+  });
+
+  it("single-quotes paths containing spaces", () => {
+    expect(shellQuoteIfNeeded("My App")).toBe("'My App'");
+  });
+
+  it("single-quotes paths containing shell metacharacters", () => {
+    expect(shellQuoteIfNeeded("foo;rm -rf /")).toBe("'foo;rm -rf /'");
+    expect(shellQuoteIfNeeded("foo$bar")).toBe("'foo$bar'");
+    expect(shellQuoteIfNeeded("foo`whoami`")).toBe("'foo`whoami`'");
+    expect(shellQuoteIfNeeded("foo&bar")).toBe("'foo&bar'");
+  });
+
+  it("escapes embedded single quotes with the '\\'' close-literal-open sequence", () => {
+    // Standard POSIX trick: 'foo'\''bar' parses as 'foo' + \' + 'bar'.
+    expect(shellQuoteIfNeeded("it's")).toBe("'it'\\''s'");
+    expect(shellQuoteIfNeeded("a'b'c")).toBe("'a'\\''b'\\''c'");
   });
 });
