@@ -114,8 +114,10 @@ export const trainer = createTrainer({
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
   callbacks: {
-    onLog: ({ step, loss }) => {
-      if (loss !== null) console.log(`step=${step} loss=${loss.toFixed(4)}`);
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart = loss !== null ? ` loss=${loss.toFixed(4)}` : "";
+      const evalPart = evalLoss !== null ? ` evalLoss=${evalLoss.toFixed(4)}` : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCheckpoint: async ({ step, infer }) => {
       // /ja/cookbook/mid-run-eval を参照
@@ -179,10 +181,16 @@ export const trainer = createTrainer({
   maxSteps: 500,
   learningRate: 2e-4,
   callbacks: {
-    onLog: ({ step, loss }) => {
-      if (loss !== null && Number.isFinite(loss)) {
-        console.log(`step=${step} loss=${loss.toFixed(4)}`);
-      }
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCompleted: async ({ job, artifacts }) => {
       await postSlack(`✓ ${job.name} done (${artifacts.length} artifact(s))`);
