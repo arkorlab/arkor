@@ -170,13 +170,16 @@ test.describe("Studio HMR", () => {
     studio,
     fixturePaths,
   }) => {
-    // Subscribe FIRST so the cached `ready` event from the watcher's
-    // initial BUNDLE_END is consumed before we trigger the new
-    // rebuild. Without draining the cached frame we'd race: if the
-    // initial inspection finished before our subscribe arrives, the
-    // first frame we see could be the stale `ready` for the seeded
-    // name and the predicate would match the wrong build. The
-    // predicate explicitly requires the post-edit name to dodge that.
+    // Edit BEFORE subscribing, then let the predicate filter out
+    // pre-edit replays. The watcher may already have a cached
+    // initial-build `ready` (with the seed name) by the time we
+    // connect; subscribing first then editing would force a
+    // drain step. Going edit → subscribe is simpler: the
+    // predicate explicitly requires `trainerName === newName`,
+    // which only the post-edit BUNDLE_END can satisfy — any
+    // cached or in-flight frame for the seed name fails the
+    // predicate and `awaitSseFrame` keeps reading until the
+    // matching one arrives.
     const newName = "studio-e2e-trainer-edited";
     rewriteManifest(fixturePaths.projectDir, newName);
 
