@@ -96,15 +96,85 @@ jobs:
           echo "**Resolved Node:** \`$(node --version)\` (matrix: \`${{ matrix.node }}\`)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install
+        # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
+        # already gates which packages may run postinstall, and
+        # `playwright` is not in that list — so `pnpm install` won't
+        # invoke Playwright's browser-download script today. Setting
+        # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` here keeps that
+        # contract explicit so a future `allowBuilds` change can't
+        # silently re-enable a 150 MB postinstall download that the
+        # following cache + `playwright install` steps are meant to
+        # satisfy.
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install
 
       - name: Typecheck
         run: pnpm typecheck
 
+      # Playwright bundles its own browser binaries (~150 MB). Cache by
+      # OS and the lockfile hash so a `@playwright/test` upgrade busts
+      # the cache automatically. Cache locations are OS-specific:
+      # Linux uses ~/.cache/ms-playwright, macOS uses
+      # ~/Library/Caches/ms-playwright, Windows uses
+      # %USERPROFILE%/AppData/Local/ms-playwright. `actions/cache`
+      # expands `~` through Node's `os.homedir()` and only treats `/`
+      # as a path separator on Windows runners — `~\AppData\…` would
+      # not resolve, so all three patterns use POSIX separators.
+      # `actions/cache` silently skips paths that don't exist on the
+      # current runner, so listing all three is safe.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      # `--with-deps` installs apt packages that Chromium needs at
+      # runtime (libnss3, libxkbcommon0, etc.). It's Linux-only — the
+      # action no-ops it on macOS/Windows but warns; gating on runner.os
+      # keeps the log clean.
+      - name: Install Playwright (Linux)
+        if: runner.os == 'Linux'
+        run: pnpm --filter @arkor/e2e-studio exec playwright install --with-deps chromium
+
+      - name: Install Playwright (macOS/Windows)
+        if: runner.os != 'Linux'
+        run: pnpm --filter @arkor/e2e-studio exec playwright install chromium
+
       - name: Test
         env:
           ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: pnpm test
+
+      # Surface Playwright's HTML report + traces / videos / screenshots
+      # whenever a test fails. The report directory is small when green
+      # so we keep it limited to failure paths only. `matrix.node` would
+      # disambiguate across the matrix but it contains `<`, `>`, `=`,
+      # which `actions/upload-artifact` rejects (NTFS-incompatible);
+      # `strategy.job-index` is the documented alphanumeric escape hatch.
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ runner.os }}-${{ strategy.job-index }}
+          path: |
+            e2e/studio/playwright-report
+            e2e/studio/test-results
+          # Turbo may cancel `@arkor/e2e-studio#test` when an earlier
+          # task fails (e.g. a unit test failure in `arkor:test`),
+          # leaving Playwright with no chance to write its report.
+          # `actions/upload-artifact@v4` defaults to failing the step
+          # when no files match — that would convert "test step
+          # failed for an unrelated reason" into "upload step also
+          # failed" and noise up the CI summary. `ignore` makes the
+          # upload silently no-op when there's nothing to publish.
+          if-no-files-found: ignore
 
       - name: Build
         run: pnpm build
@@ -370,7 +440,32 @@ jobs:
             turbo-${{ runner.os }}-coverage-
 
       - name: Install
+        # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
+        # already gates which packages may run postinstall, and
+        # `playwright` is not in that list — so `pnpm install` won't
+        # invoke Playwright's browser-download script today. Setting
+        # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` here keeps that
+        # contract explicit so a future `allowBuilds` change can't
+        # silently re-enable a 150 MB postinstall download that the
+        # following cache + `playwright install` steps are meant to
+        # satisfy.
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install
+
+      # Mirror the matrix job's Playwright cache so the coverage run
+      # also reuses the previously-downloaded browsers.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright
+        run: pnpm --filter @arkor/e2e-studio exec playwright install --with-deps chromium
 
       # Tests must keep going on failure so every package still produces
       # its lcov.info / junit.xml; turbo's default `--continue=never` would
@@ -381,6 +476,14 @@ jobs:
       - name: Test with coverage
         env:
           ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
+          # `create-arkor`'s tsdown only emits sourcemaps when this is
+          # set; e2e/cli's c8 needs them to remap V8 coverage from the
+          # spawned scaffolder back to packages/create-arkor/src/**.
+          # Replaces the inline `CREATE_ARKOR_BUILD_SOURCEMAP=1 ...`
+          # that lived in e2e/cli's pretest:coverage hook before
+          # workspace deps + turbo's `^build` made that pretest
+          # redundant.
+          CREATE_ARKOR_BUILD_SOURCEMAP: "1"
         run: pnpm exec turbo run test:coverage --continue
 
       - name: Upload arkor coverage
@@ -494,4 +597,19 @@ jobs:
           report_type: test_results
           files: ./e2e/cli/coverage/junit.xml
           flags: e2e-cli
+          fail_ci_if_error: false
+
+      # Studio E2E reports JUnit XML produced by the Playwright junit
+      # reporter (see e2e/studio/playwright.config.ts). No lcov: browser
+      # tests don't collect server-side V8 coverage, so we only feed
+      # Test Analytics for pass/fail trend tracking.
+      - name: Upload e2e-studio test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v6
+        with:
+          use_oidc: true
+          disable_search: true
+          report_type: test_results
+          files: ./e2e/studio/coverage/junit.xml
+          flags: e2e-studio
           fail_ci_if_error: false

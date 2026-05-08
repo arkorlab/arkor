@@ -22,11 +22,12 @@ arkor/
 │   ├── cli-internal/       # arkor + create-arkor が共有するプライベートヘルパー
 │   └── studio-app/         # `arkor` にバンドルされる Vite + React SPA
 ├── e2e/cli/                # スキャフォルダー & ビルドの vitest ベース E2E スイート
+├── e2e/studio/             # Studio SPA 用の Playwright E2E スイート
 ├── assets/                 # README / OG 画像
 └── turbo.json              # ビルド / テストのオーケストレーション
 ```
 
-`cli-internal`、`studio-app`、`e2e/cli` はプライベートで、公開されることはありません。
+`cli-internal`、`studio-app`、`e2e/cli`、`e2e/studio` はプライベートで、公開されることはありません。
 
 ## 開発セットアップ
 
@@ -49,12 +50,37 @@ pnpm --filter @arkor/studio-app dev   # Studio SPA の vite 開発サーバー
 pnpm --filter create-arkor dev        # スキャフォルダーを tsdown --watch
 ```
 
-E2E のスキャフォルダー / ビルドスイート (遅い。一時ディレクトリで実 CLI を起動する) を実行するには:
+## E2E スイート
+
+スコープが異なる 2 つのプライベート E2E スイートがあります:
+
+| スイート | スコープ | ツール |
+| --- | --- | --- |
+| [`e2e/cli`](e2e/cli) | `arkor` / `create-arkor` CLI 表面 — spawn・スキャフォルド・ビルド・終了コード・stdout/stderr | ビルド済み `dist/bin.mjs` を vitest で起動 |
+| [`e2e/studio`](e2e/studio) | `arkor dev` が配信する Studio SPA — `<meta>` トークン注入、`/api/*` 認可契約、ページレベル描画、SSE ストリーミング | 実 `arkor dev` + 同一プロセス内 fake cloud-api に対し Playwright で Chromium を駆動 |
+
+どちらのスイートも `arkor`（CLI スイートはさらに `create-arkor`）のビルド済み `dist/bin.mjs` を消費します。リポジトリ ルートで `pnpm test` を回した場合は Turbo の `^build` で自動的に揃いますが、スタンドアロン (`pnpm --filter @arkor/e2e-* test`) で実行する場合は事前にビルドしておく必要があります。
+
+CLI スイート (遅い。一時ディレクトリで実 CLI を起動) を実行するには:
 
 ```bash
+pnpm build  # packages/{arkor,create-arkor}/dist/bin.mjs を生成
 pnpm --filter @arkor/e2e-cli test
 # フィクスチャ内の `<pm> install` ステップをスキップ:
 SKIP_E2E_INSTALL=1 pnpm --filter @arkor/e2e-cli test
+# create-arkor 側の coverage 属性付けにはソースマップが必須:
+CREATE_ARKOR_BUILD_SOURCEMAP=1 pnpm build && pnpm --filter @arkor/e2e-cli test:coverage
+```
+
+Studio スイート (初回のみブラウザインストールが必要) を実行するには:
+
+```bash
+pnpm build  # arkor の dist/bin.mjs と Studio バンドルが必要
+pnpm --filter @arkor/e2e-studio exec playwright install chromium
+pnpm --filter @arkor/e2e-studio test
+# デバッグ:
+pnpm --filter @arkor/e2e-studio exec playwright test --ui   # GUI ランナー
+pnpm --filter @arkor/e2e-studio exec playwright show-report # 直近の HTML レポート
 ```
 
 ## ローカルビルドを試す
