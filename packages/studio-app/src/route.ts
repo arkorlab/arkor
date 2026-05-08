@@ -248,10 +248,15 @@ export function createHashRouter(
  *
  * `replaceState` does not fire `hashchange` on its own — the manual
  * dispatch is what makes the SPA's router pick up the new URL.
+ *
+ * Forwards the existing `history.state` (which carries the router's
+ * `seq` stamp, plus anything else other code may have stored on the
+ * entry) so a replace-style navigation doesn't reset direction
+ * detection or wipe unrelated metadata.
  */
 export function navigateReplace(hash: string): void {
   if (window.location.hash === hash) return;
-  window.history.replaceState(null, "", hash);
+  window.history.replaceState(window.history.state, "", hash);
   window.dispatchEvent(new Event("hashchange"));
 }
 

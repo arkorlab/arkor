@@ -90,6 +90,35 @@ const deploymentTargetSchema = z.union([
   }),
 ]);
 
+/**
+ * Request-body schema for `POST /v1/endpoints` (and Studio's
+ * `POST /api/deployments` proxy). Used by Studio to gate the
+ * scope-bootstrap branch *before* `ensureProjectState()` runs — a
+ * malformed body that the cloud API would 400 anyway must NOT cause
+ * an `.arkor/state.json` write or a remote project create on a fresh
+ * anonymous workspace as a side effect.
+ *
+ * `slug` validation matches the cloud API's pattern (2–50 chars,
+ * `[a-z0-9][a-z0-9-]*[a-z0-9]`) so the cheap shape check here also
+ * catches the easy mistakes (empty / wrong-case / leading-dash) that
+ * would otherwise reach the bootstrap path.
+ */
+export const createDeploymentRequestSchema = z.looseObject({
+  slug: z
+    .string()
+    .min(2)
+    .max(50)
+    .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
+  target: deploymentTargetSchema,
+  authMode: z.enum(["none", "fixed_api_key"]),
+  // Server-defaulted; Studio accepts but doesn't construct these.
+  // Keep as `unknown` rather than re-implementing the discriminated
+  // union here so a future server-side addition (`hours`, etc.) flows
+  // through without a synchronous SDK update.
+  runRetentionMode: z.unknown().optional(),
+  runRetentionDays: z.number().optional(),
+});
+
 const deploymentSchema = z.looseObject({
   id: z.string(),
   slug: z.string(),

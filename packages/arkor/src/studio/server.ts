@@ -17,6 +17,7 @@ import {
   AUTH0_MISSING_STATE_MESSAGE,
   ensureProjectState,
 } from "../core/projectState";
+import { createDeploymentRequestSchema } from "../core/schemas";
 import { readState } from "../core/state";
 import { readManifestSummary } from "./manifest";
 
@@ -698,43 +699,33 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.post("/api/deployments", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as
-      | Parameters<CloudApiClient["createDeployment"]>[1]
-      | null;
-    if (!body) {
+    const raw = await c.req.json().catch(() => null);
+    if (!raw) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    // Sanity-check the *shape* before entering `withDeploymentClient`'s
-    // bootstrap branch. Without this, an empty `{}` (or `[]`, or a
-    // body that's missing every required field) would still fall
-    // through to `ensureProjectState()` on a fresh anonymous workspace
-    // and create + persist an `.arkor/state.json` + remote project as
-    // a side effect — even though the create call itself would
-    // immediately 400. Bad request bodies must NOT mutate scope state
-    // they had no business creating; the cloud API's full validation
-    // still fires for any shape we let through here.
-    const draft = body as Record<string, unknown>;
-    const targetOk =
-      draft.target !== null &&
-      typeof draft.target === "object" &&
-      !Array.isArray(draft.target);
-    if (
-      !draft ||
-      typeof draft !== "object" ||
-      Array.isArray(draft) ||
-      typeof draft.slug !== "string" ||
-      !draft.slug ||
-      typeof draft.authMode !== "string" ||
-      !targetOk
-    ) {
+    // Schema-validate the body *before* entering
+    // `withDeploymentClient`'s bootstrap branch. A primitive shape
+    // check would let semantically invalid payloads through (e.g.
+    // `{ slug: "x", authMode: "bogus", target: {} }`), and on a fresh
+    // anonymous workspace `ensureProjectState()` would still run and
+    // persist `.arkor/state.json` + a remote project as a side
+    // effect — even though `createDeployment` would immediately 400
+    // afterwards. Validating with the same schema the cloud API
+    // applies (slug pattern + length, target discriminated union,
+    // authMode closed enum) catches those cases here, *before*
+    // anything mutates local or remote scope state.
+    const parsed = createDeploymentRequestSchema.safeParse(raw);
+    if (!parsed.success) {
       return c.json(
         {
-          error:
-            "Deployment create body must include `slug` (string), `target` (object), and `authMode` (string).",
+          error: `Invalid deployment create body: ${parsed.error.issues
+            .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+            .join("; ")}`,
         },
         400,
       );
     }
+    const body = parsed.data as Parameters<CloudApiClient["createDeployment"]>[1];
     return await withDeploymentClient("create", async ({ client, scope }) =>
       await client.createDeployment(scope, body),
     );

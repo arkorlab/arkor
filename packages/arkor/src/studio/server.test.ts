@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildStudioApp } from "./server";
 import { writeCredentials } from "../core/credentials";
-import { writeState } from "../core/state";
+import { readState, writeState } from "../core/state";
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
@@ -1663,6 +1663,75 @@ process.exit(0);
       expect(endpointIdx).toBeGreaterThan(projectIdx);
     });
 
+    it("rejects malformed POST bodies BEFORE bootstrapping scope (no orphan project)", async () => {
+      // Codex round 73 P2: a primitive-shape check would still pass
+      // semantically invalid bodies like `{ authMode: "bogus" }` or
+      // a `target: {}` with no discriminator. On a fresh anonymous
+      // workspace those would still enter `ensureProjectState()` and
+      // create + persist a remote project as a side effect — even
+      // though the cloud API would 400 immediately afterwards. The
+      // request-body schema rejects those here, before any local /
+      // remote scope mutation can happen.
+      await writeCredentials(ANON_CREDS);
+      // Crucial: no `.arkor/state.json` on disk. Any upstream call
+      // (specifically the `POST /v1/projects` bootstrap) is a bug.
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called for malformed body");
+      }) as typeof fetch;
+      const app = build();
+
+      const cases = [
+        // Bogus authMode (closed enum violation).
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "bogus",
+        },
+        // target with no discriminator → discriminated-union violation.
+        {
+          slug: "valid-slug",
+          target: {},
+          authMode: "none",
+        },
+        // adapter target missing required `adapter.kind`.
+        {
+          slug: "valid-slug",
+          target: { kind: "adapter", adapter: { jobId: "j" } },
+          authMode: "none",
+        },
+        // Slug too short (must be 2-50).
+        {
+          slug: "x",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        },
+        // Slug pattern violation (leading dash).
+        {
+          slug: "-bad-leading",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        },
+      ];
+      for (const body of cases) {
+        const res = await app.request("/api/deployments", {
+          method: "POST",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify(body),
+        });
+        expect(res.status).toBe(400);
+        const out = (await res.json()) as { error?: string };
+        expect(out.error).toMatch(/Invalid deployment create body/);
+      }
+      // Critical assertion: zero upstream calls means
+      // `ensureProjectState()` never ran, so no remote project was
+      // provisioned and no `.arkor/state.json` was written.
+      expect(upstreamCalls).toBe(0);
+      const stillNoState = await readState(trainCwd);
+      expect(stillNoState).toBeNull();
+    });
+
     it("rejects POST /api/deployments with a manual-state hint when Auth0 creds have no state file", async () => {
       // Coverage for the Auth0 branch in `withDeploymentClient`: we
       // intentionally do NOT bootstrap because we don't know which org
@@ -1689,7 +1758,11 @@ process.exit(0);
         method: "POST",
         headers: studioHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({
-          slug: "x",
+          // 2+ chars, matches the slug pattern — the request-body
+          // schema must pass so we actually hit the
+          // `withDeploymentClient("create", …)` Auth0 branch instead
+          // of bouncing on schema validation.
+          slug: "my-slug",
           target: { kind: "base_model", baseModel: "m" },
           authMode: "none",
         }),

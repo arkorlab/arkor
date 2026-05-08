@@ -684,6 +684,23 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
       // No leaked listener — `navigateReplace` adds none of its own.
       expect(listenersFor("hashchange").size).toBe(1);
     });
+
+    it("preserves the existing `history.state` (router seq + any other metadata)", () => {
+      // Regression: passing `null` to `replaceState` would wipe the
+      // router's `seq` stamp and break direction detection on the
+      // very next navigation — Forward / Back would land on entries
+      // whose state had been silently reset to null. Forward an
+      // arbitrary state shape to prove the helper is opaque about
+      // what's stored, beyond the `seq` it cares about.
+      const initialState = { seq: 7, customField: "preserve-me" };
+      const { fakeWindow } = makeWindow({
+        initialHash: "#/foo",
+        initialState,
+      });
+      vi.stubGlobal("window", fakeWindow);
+      navigateReplace("#/bar");
+      expect(fakeWindow.history.state).toEqual(initialState);
+    });
   });
 
   describe("navigateBackOr", () => {
