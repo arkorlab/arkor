@@ -5,8 +5,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "pretest": "pnpm --filter create-arkor build && pnpm --filter arkor build",
-    "pretest:coverage": "CREATE_ARKOR_BUILD_SOURCEMAP=1 pnpm --filter create-arkor build && pnpm --filter arkor build",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
     "test": "vitest run",
@@ -15,7 +13,9 @@
   },
   "devDependencies": {
     "@types/node": "^24",
+    "arkor": "workspace:*",
     "c8": "^10.1.3",
+    "create-arkor": "workspace:*",
     "typescript": "^5",
     "vitest": "^4.1.5"
   }

@@ -17,6 +17,12 @@ packages/arkor/docs/
 # Vitest coverage reports (uploaded to Codecov in CI)
 coverage/
 
+# Playwright run artefacts (HTML reports, traces, videos, screenshots,
+# `.last-run.json`). The JUnit XML inside e2e/studio/coverage/ is uploaded
+# to Codecov by CI, so it doesn't need to be tracked either.
+playwright-report/
+test-results/
+
 # Raw V8 coverage data emitted by NODE_V8_COVERAGE for E2E coverage
 .v8-coverage/
 

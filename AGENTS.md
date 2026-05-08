@@ -13,6 +13,7 @@ pnpm + Turbo monorepo. Workspaces are declared in `pnpm-workspace.yaml` (`packag
 | [packages/cli-internal](packages/cli-internal) | **Private** workspace package. Source is bundled into `arkor` and `create-arkor` via tsdown's `deps.alwaysBundle`. Never appears as a runtime dependency on npm. |
 | [packages/studio-app](packages/studio-app) | **Private** Vite + React 19 SPA. `pnpm --filter @arkor/studio-app bundle` builds it; `packages/arkor/scripts/copy-studio-assets.mjs` copies `dist/` into `packages/arkor/dist/assets/`. |
 | [e2e/cli](e2e/cli) | **Private** vitest suite that spawns the built `dist/bin.mjs` of both CLIs in temp dirs. |
+| [e2e/studio](e2e/studio) | **Private** Playwright suite that spawns `arkor dev` against an in-process fake cloud-api and drives the Studio SPA in Chromium. |
 | [docs](docs) | Mintlify sources for [docs.arkor.ai](https://docs.arkor.ai). |
 
 ## Common commands
@@ -35,6 +36,8 @@ pnpm --filter @arkor/studio-app dev    # Vite dev server (5173, proxies /api →
 pnpm --filter create-arkor dev         # tsdown --watch on the scaffolder
 pnpm --filter @arkor/e2e-cli test      # E2E (slow; spawns real CLIs)
 SKIP_E2E_INSTALL=1 pnpm --filter @arkor/e2e-cli test   # skip `<pm> install` inside fixtures
+pnpm --filter @arkor/e2e-studio exec playwright install chromium   # one-time browser install (run first on a fresh checkout)
+pnpm --filter @arkor/e2e-studio test   # Studio E2E in Chromium (Playwright)
 ```
 
 Run a single test file: `pnpm --filter <pkg> exec vitest run path/to/file.test.ts`. Use `vitest run -t "name"` to filter by test name.
@@ -77,11 +80,13 @@ The CLI/Studio look at `src/arkor/index.ts` in user projects. Discovery in [pack
 
 ### E2E suite specifics
 
-[e2e/cli](e2e/cli) has a `pretest` hook that rebuilds `create-arkor` and `arkor` before vitest runs. Every supported Node (≥22.22.0) is in rolldown's compatible range (^20.19 || >=22.12), so the previous "rolldown-incompatible" CI bypass path was removed.
+Both [e2e/cli](e2e/cli) and [e2e/studio](e2e/studio) declare `arkor` (and, for `e2e/cli`, `create-arkor`) as `workspace:*` `devDependencies`, so Turbo's `^build` produces `dist/bin.mjs` exactly once before `#test`/`#test:coverage` runs — no `pretest` hooks, no concurrent rebuilds racing on `dist/`. Standalone runs (`pnpm --filter @arkor/e2e-* test`) need a prior `pnpm build`. Every supported Node (≥22.22.0) is in rolldown's compatible range (^20.19 || >=22.12), so the previous "rolldown-incompatible" CI bypass path was removed.
 
 Tests rely on `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:.../packages/arkor` so the scaffolded fixtures install the workspace `arkor` instead of the npm-published one. Both this var and `SKIP_E2E_INSTALL` are declared in [turbo.json](turbo.json) so they pass through Turbo's hash.
 
-E2E coverage uses `c8` wrapping vitest (NOT vitest's own coverage) so child CLI processes' V8 coverage is captured and remapped through tsdown sourcemaps back to `src/`. `create-arkor`'s tsdown config only emits sourcemaps when `CREATE_ARKOR_BUILD_SOURCEMAP=1` (the published tarball ships without them).
+E2E coverage uses `c8` wrapping vitest (NOT vitest's own coverage) so child CLI processes' V8 coverage is captured and remapped through tsdown sourcemaps back to `src/`. `create-arkor`'s tsdown config only emits sourcemaps when `CREATE_ARKOR_BUILD_SOURCEMAP=1`; CI's "Test with coverage" step sets that var, and turbo.json declares it on `build`/`test:coverage` so it propagates into `create-arkor#build` and busts the cache versus the no-sourcemap variant. The published tarball (release workflow) does NOT set this and ships without `.map` files.
+
+[e2e/studio](e2e/studio) covers the **browser layer** that `e2e/cli` cannot: the Studio SPA bundle, the `<meta name="arkor-studio-token">` injection contract, host-header guard, `/api/*` token check, and page-level rendering against mocked cloud-api responses. Each Playwright test starts an in-process `node:http` fake cloud-api on an ephemeral port, writes a minimum project fixture (no `pnpm install`) into a tmp dir, then spawns the built `dist/bin.mjs` of `arkor dev --port <ephemeral>` against it. The test fixture parses the studio token out of the served `index.html` rather than reading `~/.arkor/studio-token` so the spec stays decoupled from a persistence path that's allowed to fail. The suite uses Playwright's JUnit reporter so Codecov Test Analytics gets the same flake/pass-rate signal as the other suites; CI runs it across the full OS × Node matrix with browser binaries cached per OS.
 
 ## Implementation deliverables (default expectations)
 

@@ -195,10 +195,12 @@ jobs:
         env:
           ARKOR_POSTHOG_KEY: ${{ secrets.ARKOR_POSTHOG_KEY }}
           ARKOR_POSTHOG_HOST: ${{ secrets.ARKOR_POSTHOG_HOST }}
-          # Disable runtime telemetry: `pnpm run test` triggers the
-          # e2e-cli pretest, which rebuilds `arkor` with the key baked
-          # in. The tests then spawn that binary, so without this flag
-          # every release run would emit real PostHog events from CI.
+          # Disable runtime telemetry: `pnpm run test` triggers
+          # `arkor#build` via Turbo's `^build` (e2e/cli now declares
+          # `arkor` as a workspace devDependency), and that build
+          # bakes the PostHog key into `dist/bin.mjs`. The tests then
+          # spawn that binary, so without this flag every release run
+          # would emit real PostHog events from CI.
           ARKOR_TELEMETRY_DISABLED: "1"
         run: pnpm run test
 
