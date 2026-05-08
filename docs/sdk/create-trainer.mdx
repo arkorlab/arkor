@@ -22,10 +22,14 @@ export const trainer = createTrainer({
 ## Signature
 
 ```ts
-function createTrainer(input: TrainerInput): Trainer;
+function createTrainer(
+  input: TrainerInput,
+  /** @internal */
+  context?: TrainerInternalContext,
+): Trainer;
 ```
 
-The full `TrainerInput` shape is described under Parameters below; the returned `Trainer` is documented on the [Trainer control](/sdk/trainer-control) page.
+The full `TrainerInput` shape is described under Parameters below; the returned `Trainer` is documented on the [Trainer control](/sdk/trainer-control) page. The second `context` argument is annotated `@internal` and is reserved for tests and advanced overrides. `TrainerInternalContext` is not exported from `arkor` because the shape is unstable; its known fields (`reconnectDelayMs`, `maxReconnectDelayMs`, `maxReconnectAttempts`) are documented under [Trainer control > Reconnects](/sdk/trainer-control#reconnects).
 
 ## Required fields
 
