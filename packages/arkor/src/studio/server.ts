@@ -174,8 +174,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     return creds;
   }
 
-  async function getToken(): Promise<string> {
-    const c = await getCredentials();
+  function tokenFromCredentials(c: Credentials): string {
     return c.mode === "anon" ? c.token : c.accessToken;
   }
 
@@ -191,22 +190,35 @@ export function buildStudioApp(options: StudioServerOptions) {
    * setting the env var would otherwise see Jobs / Playground /
    * identity 401 against production while only the deployments proxy
    * (which already resolves per-request) reaches the right host.
+   *
+   * Returns the bearer token alongside `credentials` so callers don't
+   * have to thread `tokenFromCredentials` themselves; passing the
+   * resolved token straight into `createRpc()` keeps each request to a
+   * single credentials read instead of one read here plus another via
+   * the SDK's `token` callback at fetch time.
    */
   async function resolveCredentialsAndBaseUrl(): Promise<{
     credentials: Credentials;
+    token: string;
     baseUrl: string;
   }> {
     const credentials = await getCredentials();
     return {
       credentials,
+      token: tokenFromCredentials(credentials),
       baseUrl: defaultArkorCloudApiUrl(credentials),
     };
   }
 
-  function createRpc(rpcBaseUrl: string) {
+  function createRpc(rpcBaseUrl: string, rpcToken: string) {
     return createClient({
       baseUrl: rpcBaseUrl,
-      token: getToken,
+      // `createClient` expects a token-getter (the SDK supports
+      // refreshable tokens). The whole point of taking `rpcToken` here
+      // is to avoid the per-request second credentials read that the
+      // previous closure-based getter caused, so resolve the in-memory
+      // value synchronously instead of re-deriving it.
+      token: () => rpcToken,
       clientVersion: SDK_VERSION,
       // The wrapper around `recordDeprecation` is a workaround for a
       // bug in `@arkor/cloud-api-client` where a `void` return is fed
@@ -225,9 +237,11 @@ export function buildStudioApp(options: StudioServerOptions) {
   // ---- API routes ---------------------------------------------------------
 
   app.get("/api/credentials", async (c) => {
-    const { credentials: creds, baseUrl: credsBaseUrl } =
-      await resolveCredentialsAndBaseUrl();
-    const token = creds.mode === "anon" ? creds.token : creds.accessToken;
+    const {
+      credentials: creds,
+      token,
+      baseUrl: credsBaseUrl,
+    } = await resolveCredentialsAndBaseUrl();
     const state = await readState(trainCwd);
     return c.json({
       token,
@@ -243,8 +257,9 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.get("/api/me", async (c) => {
-    const { baseUrl: credsBaseUrl } = await resolveCredentialsAndBaseUrl();
-    const rpc = createRpc(credsBaseUrl);
+    const { token, baseUrl: credsBaseUrl } =
+      await resolveCredentialsAndBaseUrl();
+    const rpc = createRpc(credsBaseUrl, token);
     const res = await rpc.v1.me.$get();
     const body = await res.text();
     const headers = new Headers({ "content-type": "application/json" });
@@ -271,10 +286,9 @@ export function buildStudioApp(options: StudioServerOptions) {
   app.get("/api/jobs", async (c) => {
     const state = await readState(trainCwd);
     if (!state) return c.json({ jobs: [] });
-    const { credentials, baseUrl: credsBaseUrl } =
+    const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
-    void credentials;
-    const rpc = createRpc(credsBaseUrl);
+    const rpc = createRpc(credsBaseUrl, token);
     const res = await rpc.v1.jobs.$get({
       query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
     });
@@ -291,10 +305,8 @@ export function buildStudioApp(options: StudioServerOptions) {
     const id = c.req.param("id");
     const state = await readState(trainCwd);
     if (!state) return c.json({ error: "No project state" }, 400);
-    const { credentials, baseUrl: credsBaseUrl } =
+    const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
-    const token =
-      credentials.mode === "anon" ? credentials.token : credentials.accessToken;
     const url = `${credsBaseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
     const upstream = await fetch(url, {
       headers: {
