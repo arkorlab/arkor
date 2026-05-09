@@ -499,17 +499,18 @@ export async function run(options: RunOptions): Promise<void> {
   // create the repo + initial commit themselves once install
   // succeeds. Without this step, a `--git` user following the
   // outro verbatim ends up with the install fixed but no repo.
-  // Round 39 (Codex P2 / Copilot): single-quote the commit
-  // message for the same reason `arkor init` does — POSIX
-  // shells expand `$VAR` / backticks inside double quotes, so
-  // any future message tweak that introduces a metachar (or a
-  // user editing the recovery line by hand) would shell-execute
-  // it. Single quotes are inert. The current message
-  // ("Initial commit from Create Arkor") has no metachars
-  // today, but the consistent style stops a regression there
-  // from being a copy-paste hazard.
+  // Round 40 (Codex P2, PR #99): the recovery hint must survive
+  // copy-paste into ANY shell — POSIX (bash/zsh), cmd.exe, and
+  // PowerShell. Single quotes are POSIX-only: cmd.exe treats
+  // them as literal characters, so the previous
+  // `git commit -m 'Initial commit from Create Arkor'` form
+  // tokenized on whitespace on Windows and produced `pathspec`
+  // errors. Double quotes are universally honored as quote
+  // delimiters. The current message has no metachars (no `$`,
+  // no backticks), so POSIX shells won't expand anything inside
+  // them either — safe everywhere.
   const gitLine = gitInitSkipped
-    ? `  git init && git add -A && git commit -m 'Initial commit from Create Arkor'`
+    ? `  git init && git add -A && git commit -m "Initial commit from Create Arkor"`
     : null;
   // Round 39 (Copilot, PR #99): the install-blocked branch told
   // the user to fix the yarn-config advisory before running

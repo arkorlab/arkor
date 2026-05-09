@@ -322,13 +322,18 @@ export async function runInit(options: InitOptions): Promise<void> {
   // user following "Next: ..." verbatim ends up with install fixed
   // but no repository.
   //
-  // Round 39 (Codex P2, PR #99): the commit message is wrapped in
-  // SINGLE quotes — POSIX shells expand backticks inside double
-  // quotes, so a copy-pasted `git commit -m "Initial commit from
-  // \`arkor init\`"` would shell-execute `arkor init` instead of
-  // committing. Single quotes preserve the backticks literally.
+  // Round 40 (Codex P2, PR #99): the recovery hint must work when
+  // copy-pasted into ANY shell — POSIX (bash/zsh), cmd.exe, and
+  // PowerShell. Single quotes are POSIX-only: cmd.exe treats them
+  // as literal characters, so `git commit -m 'Initial commit ...'`
+  // tokenizes on whitespace and fails with `pathspec` errors. Use
+  // double quotes (universally honored) and drop the inner
+  // `\`arkor init\`` backticks, since POSIX expands backticks
+  // inside double quotes (would shell-execute `arkor init`). The
+  // auto-commit path (Trainer.gitInitialCommit) keeps the
+  // backticked message — that goes via spawn argv, not a shell.
   const gitTail = gitInitSkipped
-    ? ", then `git init && git add -A && git commit -m 'Initial commit from `arkor init`'`"
+    ? ', then `git init && git add -A && git commit -m "Initial commit from arkor init"`'
     : "";
   // Round 39 (Copilot, PR #99): the install-blocked branch already
   // told the user to fix the yarn-config advisory first; printing
