@@ -33,13 +33,7 @@
 </p>
 
 > [!WARNING]
-> Arkor is **alpha**. APIs change without notice. We're shipping in public, and feedback shapes what lands next.
-
-<!--
-  Demo media goes here once recorded:
-    - assets/demo-cli.gif       Terminalizer: pnpm create arkor → pnpm dev
-    - assets/demo-studio.gif    Screen recording: Run Training → loss curve → Playground
--->
+> Arkor is **alpha**. APIs change without notice.
 
 ## Quickstart
 
@@ -88,28 +82,7 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 - [x] **Try it without an account.** `arkor dev` boots straight into a fresh anonymous workspace. Run `arkor login --oauth` to start the Arkor Cloud OAuth (PKCE) flow and attach the work to your account.
 
 ## What's coming next
-
-### Framework API
-
-- [ ] **Generate synthetic training data from a small seed set.**
-- [ ] **Distillation-focused templates** that pair compatible teacher and student models.
-- [ ] **Templates aimed at small, on-device models** (WebGPU, mobile).
-
-### SDK and CLI
-
-- [ ] **Train on a local GPU.** Today every run goes to Arkor's managed GPUs.
-- [ ] **Bring your own dataset from a JSONL file.** Today, any HuggingFace name and any blob URL (with optional auth token) already work.
-- [ ] **More base models beyond Gemma 4.**
-
-### Studio
-
-- [ ] **Download a trained model as a file** and run it on your own machine or deploy target. Today, runs stay on Arkor's managed inference.
-- [ ] **Surface the dry-run option in the UI** for fast smoke tests.
-
-### Other
-
-- [ ] **Self-host the training backend.** Today we host it.
-- [x] **A real documentation site.** Sources live in [`docs/`](docs); the published site is [docs.arkor.ai](https://docs.arkor.ai).
+You can find our [Roadmap](https://docs.arkor.ai/roadmap) in the documentation.
 
 ## A taste of the API
 
@@ -143,13 +116,6 @@ export const arkor = createArkor({ trainer });
 
 `src/arkor/index.ts` is the file the CLI and Studio look for. 
 Your `trainer` lives in a sibling file and is registered through `createArkor`.
-
-<!--
-  Studio screenshots go here once captured:
-    - assets/studio-jobs.png        Jobs list
-    - assets/studio-chart.png       Live loss + log tail
-    - assets/studio-playground.png  Playground chat
--->
 
 ## What's in a project
 
@@ -196,10 +162,7 @@ Requires Node.js 22.22.0+.
 
 Works with pnpm / npm / yarn / bun.
 
-## We're shipping in public
-
-Arkor is alpha, and the core idea (TypeScript-native fine-tuning for product engineers) is something we want to design *with* the people who'd use it. 
-If that's you:
+## Contributions are welcome
 
 - **[File an issue](https://github.com/arkorlab/arkor/issues/new)** with the model + dataset + workflow you wish worked. We read everything.
 - **Star the repo** if you want updates as we move toward `0.1`.

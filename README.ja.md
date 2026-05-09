@@ -33,13 +33,7 @@
 </p>
 
 > [!WARNING]
-> Arkor は **alpha** 段階です。API は予告なく変更されます。私たちはオープンに開発を進めており、フィードバックが次に何が入るかを左右します。
-
-<!--
-  Demo media goes here once recorded:
-    - assets/demo-cli.gif       Terminalizer: pnpm create arkor → pnpm dev
-    - assets/demo-studio.gif    Screen recording: Run Training → loss curve → Playground
--->
+> Arkor は **alpha** 段階です。API は予告なく変更されます。
 
 ## クイックスタート
 
@@ -88,28 +82,7 @@ Arkor はその基盤の上に立っています。
 - [x] **アカウントなしで試す。** `arkor dev` はそのまま新しい匿名ワークスペースで起動します。アカウントに紐付けたい場合は `arkor login --oauth` で Arkor Cloud の OAuth (PKCE) フローを開始してください。
 
 ## これから来るもの
-
-### Framework API
-
-- [ ] **小さなシードセットからの合成トレーニングデータ生成。**
-- [ ] **互換性のある teacher / student モデルを組み合わせた蒸留向けテンプレート。**
-- [ ] **小型・オンデバイスモデル向けのテンプレート** (WebGPU、モバイル)。
-
-### SDK と CLI
-
-- [ ] **ローカル GPU でのトレーニング。** 現状はすべての実行が Arkor のマネージド GPU に送られます。
-- [ ] **JSONL ファイルから自前のデータセットを持ち込む。** 現状でも、HuggingFace の任意の名前と任意の blob URL (オプションで認証トークン付き) は既に動作します。
-- [ ] **Gemma 4 以外のベースモデル。**
-
-### Studio
-
-- [ ] **トレーニング済みモデルをファイルとしてダウンロード**して、自分のマシンや任意のデプロイ先で動かせるようにする。現状、実行は Arkor のマネージド推論上に留まります。
-- [ ] **dry-run オプションを UI に表面化** して、高速なスモークテストを実現する。
-
-### その他
-
-- [ ] **トレーニングバックエンドのセルフホスト。** 現状は私たちがホストしています。
-- [x] **本格的なドキュメントサイト。** ソースは [`docs/`](docs) にあり、公開サイトは [docs.arkor.ai](https://docs.arkor.ai) です。
+詳細な[ロードマップ](https://docs.arkor.ai/ja/roadmap) はドキュメントに掲載されています。
 
 ## API のさわり
 
@@ -196,10 +169,7 @@ Node.js 22.22.0+ が必要です。
 
 pnpm / npm / yarn / bun で動作します。
 
-## オープンに開発しています
-
-Arkor は alpha 段階で、コアアイデア (プロダクトエンジニアのための TypeScript ネイティブなファインチューニング) は、それを使うであろう人たちと*一緒に*設計したいものです。
-あなたがその一人なら:
+## 貢献を歓迎します
 
 - 動いてほしいモデル + データセット + ワークフローについて **[Issue を立ててください](https://github.com/arkorlab/arkor/issues/new)**。すべて読んでいます。
 - `0.1` に向かう過程の更新を受け取りたければ **リポジトリにスターを** ください。
