@@ -528,18 +528,32 @@ export async function run(options: RunOptions): Promise<void> {
   // install. Printing the generic `<pm> install` line in the
   // closing outro right after that contradicts the warning and
   // can lead users straight back into the same broken install.
-  // Prefix the install line with a "fix the advisory first"
-  // reminder so the closing summary stays consistent.
-  const fixFirstLine =
+  //
+  // Round 40 (Copilot, PR #99): the previous fix prepended a
+  // `  # Fix the advisory above first, then:` line inside the
+  // multi-line block, but `#` is NOT a comment in `cmd.exe` —
+  // pasting that line at a cmd prompt errors with `'#' is not
+  // recognized as an internal or external command`. There's no
+  // portable comment syntax across cmd / PowerShell / bash, so
+  // instead of a fake-comment row, the advisory branch swaps
+  // the outro's intro line ("Next steps:") for a sentence that
+  // names the prerequisite ("After fixing the advisory above,
+  // finish the bootstrap with:"). Prose-with-colon as the lead
+  // line is the same shape as the default branch and won't be
+  // mistaken for a command. The two earlier `clack.log.info`
+  // advisories ("Skipping install — fix the advisory above
+  // first, ...", "Skipping git init too — fix the advisory
+  // above first, ...") still anchor the warning prominently
+  // before the outro lands.
+  const outroIntro =
     wouldHaveInstalled && blockInstall
-      ? `  # Fix the advisory above first, then:`
-      : null;
+      ? `After fixing the advisory above, finish the bootstrap with:`
+      : `Next steps:`;
 
   clack.outro(
     [
-      `Next steps:`,
+      outroIntro,
       ...(inPlace ? [] : [`  cd ${shellQuoteIfNeeded(cdTarget)}`]),
-      ...(fixFirstLine ? [fixFirstLine] : []),
       ...(installLine ? [installLine] : []),
       ...(gitLine ? [gitLine] : []),
       devLine,
