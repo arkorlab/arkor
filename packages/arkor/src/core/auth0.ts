@@ -244,7 +244,15 @@ export function credentialsFromExchange(
     auth0Domain: config.auth0Domain,
     audience: config.audience,
     clientId: config.clientId,
-    ...(config.arkorCloudApiUrl
+    // `!== undefined` rather than truthy so an intentionally empty
+    // `ARKOR_CLOUD_API_URL=""` (set by an operator who wants config
+    // errors to surface at first fetch instead of silently falling
+    // back to production) round-trips through the persisted
+    // credentials. A truthy check would drop the field, and on the
+    // next run `defaultArkorCloudApiUrl(creds)` would silently fall
+    // through to the production endpoint — exactly the masking
+    // behaviour the empty env var is configured to avoid.
+    ...(config.arkorCloudApiUrl !== undefined
       ? { arkorCloudApiUrl: config.arkorCloudApiUrl }
       : {}),
   };

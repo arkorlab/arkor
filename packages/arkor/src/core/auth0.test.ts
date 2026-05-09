@@ -115,6 +115,27 @@ describe("credentialsFromExchange", () => {
     expect(creds.arkorCloudApiUrl).toBeUndefined();
     expect("arkorCloudApiUrl" in creds).toBe(false);
   });
+
+  it("preserves an explicitly empty `arkorCloudApiUrl` (config-error surface)", () => {
+    // An operator who set `ARKOR_CLOUD_API_URL=""` to make config
+    // errors fail loudly at first fetch should see that intent
+    // round-trip through the persisted credentials. A truthy check
+    // here would drop the field, and the next run's
+    // `defaultArkorCloudApiUrl(creds)` would silently fall back to
+    // production — exactly the masking the empty env var is set to
+    // avoid.
+    const creds = credentialsFromExchange(
+      {
+        auth0Domain: "tenant.auth0.com",
+        clientId: "abc",
+        audience: "https://api.arkor.ai",
+        arkorCloudApiUrl: "",
+      },
+      { accessToken: "at", refreshToken: "rt", expiresIn: 3600 },
+    );
+    expect(creds.arkorCloudApiUrl).toBe("");
+    expect("arkorCloudApiUrl" in creds).toBe(true);
+  });
 });
 
 describe("fetchCliConfig", () => {

@@ -128,12 +128,20 @@ export function defaultArkorCloudApiUrl(
   const fromEnv = process.env.ARKOR_CLOUD_API_URL?.replace(/\/$/, "");
   if (fromEnv !== undefined) return fromEnv;
   // Both shapes carry an optional `arkorCloudApiUrl`: anonymous since
-  // signup, OAuth since login. Falling back to production for the
-  // OAuth case (no field on tokens written before the addition, or by
-  // a CLI that doesn't write it yet) is safe — the *worst* outcome
-  // there is a 401 against the wrong control plane, which is exactly
-  // what the operator hits today.
-  if (credentials?.arkorCloudApiUrl) {
+  // signup, OAuth since login. `!= null` (not truthy) keeps an empty
+  // string round-tripping the same way the env-var branch above
+  // does — an operator who logged in with `ARKOR_CLOUD_API_URL=""`
+  // intentionally to surface config errors should see that
+  // propagated through the persisted credentials, not silently
+  // substituted with production. Falling back to production for
+  // *missing* `arkorCloudApiUrl` (legacy creds, e.g. tokens written
+  // before the field existed) is still safe: the worst outcome
+  // there is a 401 against the wrong control plane, which is what
+  // the operator hits today on those legacy tokens anyway.
+  if (
+    credentials?.arkorCloudApiUrl !== undefined &&
+    credentials?.arkorCloudApiUrl !== null
+  ) {
     return credentials.arkorCloudApiUrl.replace(/\/$/, "");
   }
   return "https://api.arkor.ai";
