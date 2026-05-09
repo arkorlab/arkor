@@ -70,24 +70,35 @@ export interface HmrCoordinator {
 
 export type HmrOptions = BuildEntryOptions;
 
-function fingerprint(outFile: string): string {
+/**
+ * Single-stat fingerprint with a clean `null` on failure — used by
+ * `getCurrentArtifactHash()` whose contract is "return a fingerprint
+ * derived from the artefact bytes, or `null` if no artefact". A
+ * separate exists-check + `fingerprint()` here would race: the file
+ * could disappear between the two stats and `fingerprint()`'s
+ * `Date.now()` fallback would return a non-null hash that doesn't
+ * describe any real bytes, silently violating the contract.
+ */
+function fingerprintOrNull(outFile: string): string | null {
   try {
     const s = statSync(outFile);
-    // Mirrors `moduleCacheBustKey`'s success-branch shape so the
-    // broadcast hash and the import URL move together — and so two
-    // distinct edits within the same millisecond that produce
-    // identically-sized output don't collide and silently dedup at
-    // the SPA layer. `ctimeMs` is the belt-and-braces guard for the
-    // (rare) `touch -m`-style case where mtime stays put.
+    // Same shape as `fingerprint()`'s success branch — `ctimeMs` is
+    // the belt-and-braces guard for `touch -m`-style edits where
+    // mtime stays put.
     return `${s.mtimeMs}-${s.ctimeMs}-${s.size}`;
   } catch {
-    // Different fallback than `moduleCacheBustKey`'s "0-0-0": that
-    // helper is for a URL query where the eventual `import()` is
-    // expected to surface its own missing-file error, but here a
-    // stable literal would let SPA dedup swallow genuinely-fresh
-    // events when stat racily fails. Force a unique value instead.
-    return Date.now().toString(36);
+    return null;
   }
+}
+
+function fingerprint(outFile: string): string {
+  // Delegate to `fingerprintOrNull` and substitute a freshness-
+  // forcing token on stat failure. The `Date.now()` fallback
+  // matters here (vs the "0-0-0" sentinel `moduleCacheBustKey`
+  // uses): SPA-side SSE dedup keys off this hash, so a stable
+  // literal during a racy stat would silently swallow genuinely-
+  // fresh broadcast events.
+  return fingerprintOrNull(outFile) ?? Date.now().toString(36);
 }
 
 type InspectionResult = {
@@ -391,17 +402,19 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       // older (next BUNDLE_END hasn't fired yet but the user just
       // edited and saved). For the registry's pre-ready-spawn gate
       // we want "what bytes will the child's `await import()` see
-      // RIGHT NOW", which only the live `fingerprint(outFile)`
-      // gives. Null falls through `fingerprint`'s catch when the
-      // file doesn't exist yet — equivalent to "child can't load
-      // anything", which dispatchRebuild treats as a forced
-      // SIGTERM-restart.
-      try {
-        statSync(resolved.outFile);
-      } catch {
-        return null;
-      }
-      return fingerprint(resolved.outFile);
+      // RIGHT NOW".
+      //
+      // `fingerprintOrNull` does ONE statSync and returns null on
+      // failure — preserving the documented contract. A previous
+      // implementation here did `statSync(...)` first and then
+      // called `fingerprint()` (which has a `Date.now()` fallback
+      // baked in for SSE dedup uniqueness). That double-stat
+      // raced: if the file disappeared between the two calls we'd
+      // return a Date.now()-derived hash that doesn't describe any
+      // real bytes, silently violating the "null on stat failure"
+      // contract dispatchRebuild relies on for its SIGTERM-restart
+      // routing.
+      return fingerprintOrNull(resolved.outFile);
     },
     async dispose() {
       disposed = true;

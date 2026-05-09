@@ -323,6 +323,63 @@ describe("createHmrCoordinator", () => {
     }
   });
 
+  it("getCurrentArtifactHash() returns null when the artefact doesn't exist (vs a Date.now() fallback)", async () => {
+    // Regression: a previous implementation did
+    // `statSync(...) ; return fingerprint(...)`. Two stat calls
+    // means a race window where the file disappears between them:
+    // the existence check passes, then `fingerprint`'s catch
+    // branch substitutes `Date.now().toString(36)` (its
+    // freshness-forcing fallback for SSE dedup), and the getter
+    // returns a non-null, non-artefact-derived hash. That
+    // silently breaks `dispatchRebuild`'s pre-ready-spawn gate
+    // which relies on null === "no artefact, force restart".
+    // The fix uses `fingerprintOrNull` — single statSync, true
+    // null on failure.
+    //
+    // We assert the getter on a project that has NEVER built
+    // (no `.arkor/build/index.mjs` ever existed). The bug-fix
+    // version returns null; the broken version's leftover would
+    // have been Date.now()-derived non-null.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+
+    const hmr = createHmrCoordinator({ cwd });
+    try {
+      // No subscribe() yet — watcher hasn't started, so no
+      // BUNDLE_END has written the artefact. The on-disk
+      // `.arkor/build/index.mjs` doesn't exist.
+      expect(hmr.getCurrentArtifactHash()).toBeNull();
+    } finally {
+      await hmr.dispose();
+    }
+  });
+
+  it("getCurrentArtifactHash() returns a stable mtime/ctime/size hash once the artefact exists", async () => {
+    // Companion to the null-on-missing test: when the artefact
+    // *does* exist (watcher's first BUNDLE_END landed), the
+    // getter returns the same `mtimeMs-ctimeMs-size` shape the
+    // SSE event's `hash` field uses. Symmetric value lets
+    // `dispatchRebuild` compare `entry.spawnArtifactHash` against
+    // `event.hash` directly for the pre-ready-spawn backfill
+    // decision.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+
+    const events: HmrEvent[] = [];
+    const hmr = createHmrCoordinator({ cwd });
+    hmr.subscribe((e) => events.push(e));
+    try {
+      const ready = await nextEvent(events, (e) => e.type === "ready");
+      const artifactHash = hmr.getCurrentArtifactHash();
+      // Same shape as the SSE event's `hash` field — both feed
+      // through the same `mtimeMs-ctimeMs-size` formula.
+      expect(artifactHash).toBe(ready.hash ?? null);
+      expect(artifactHash).toMatch(/^[\d.]+-[\d.]+-\d+$/);
+    } finally {
+      await hmr.dispose();
+    }
+  });
+
   it("getCurrentConfigHash() preserves the last-success hash across an ERROR event", async () => {
     // Regression: previously `getCurrentConfigHash()` returned
     // `lastEvent?.configHash ?? null`. After an ERROR landed,

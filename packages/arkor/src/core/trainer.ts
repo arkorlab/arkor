@@ -340,7 +340,19 @@ export function createTrainer(
             completedAt: event.timestamp,
           };
           settleEarlyStopLatch();
-          return { terminal: true, artifacts: terminalResult?.artifacts ?? [] };
+          // Return the *checkpoint's* artifacts (the ones the user
+          // just saved) — that's the work HMR went out of its way
+          // to preserve before issuing cancel(). The previous
+          // `terminalResult?.artifacts ?? []` always resolved to
+          // `[]` because `wait()` calls `dispatch(parsed, null)` so
+          // `terminalResult` is never populated. Effect: an
+          // HMR-driven early-stop resolved `wait()` with empty
+          // `artifacts` even though the checkpoint event carried
+          // the very artifacts the early-stop existed to keep.
+          return {
+            terminal: true,
+            artifacts: (event.artifacts ?? []) as unknown[],
+          };
         }
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
       }

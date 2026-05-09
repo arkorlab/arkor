@@ -1424,6 +1424,105 @@ describe("createTrainer (early stop)", () => {
     expect(result.job.completedAt).toBe("2026-01-01T00:00:03Z");
   });
 
+  it("early-stop checkpoint branch returns the checkpoint's artifacts in wait()'s result", async () => {
+    // Regression: the early-stop terminal return used
+    // `terminalResult?.artifacts ?? []`, but `wait()` always calls
+    // `dispatch(parsed, null)` so `terminalResult` was forever
+    // null → `wait()` resolved with `artifacts: []` even though
+    // the checkpoint event carries the very artefacts the
+    // early-stop existed to *preserve* (the whole point of the
+    // graceful-stop-at-next-checkpoint pattern is to keep that
+    // work). Now we return `event.artifacts` directly so the
+    // checkpoint's outputs make it into the resolved result.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const checkpointArtifacts = [
+      { kind: "lora_adapter" as const, path: "/checkpoints/step-10/" },
+      { kind: "metric" as const, name: "loss", value: 0.42 },
+    ];
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 3\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+        type: "checkpoint.saved",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        step: 10,
+        artifacts: checkpointArtifacts,
+      })}\n\n`,
+    ];
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: () => {
+            void requestTrainerEarlyStop(trainer, { timeoutMs: 60_000 });
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    let result: Awaited<ReturnType<typeof trainer.wait>>;
+    try {
+      result = await trainer.wait();
+    } finally {
+      globalThis.fetch = original;
+    }
+    // The artefacts the checkpoint event carried must travel
+    // through to the wait() result — that's the whole point of
+    // graceful-stop-at-next-checkpoint preserving the in-flight
+    // work.
+    expect(result.artifacts).toEqual(checkpointArtifacts);
+    // Sibling assertion: status is still terminal (covered more
+    // thoroughly in the dedicated test above; this one just
+    // ensures we didn't accidentally regress the status while
+    // changing the artefacts return).
+    expect(result.job.status).toBe("cancelled");
+  });
+
   it("early-stop checkpoint branch still resolves the deferred when cancel() throws", async () => {
     // Regression: previously, an `await trainer.cancel()` that threw
     // (network failure / cloud-api 5xx during the cancel POST) would
