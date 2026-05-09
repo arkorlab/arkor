@@ -154,6 +154,24 @@ export const createDeploymentRequestSchema = z
     }
   });
 
+/**
+ * Local pre-validator for `POST /api/deployments/:id/keys` bodies in
+ * `studio/server.ts`. The cloud API ultimately validates `label` server
+ * side, but proxying obviously bad inputs (missing label, empty
+ * string, wrong type, oversize) lets `withDeploymentClient("mutate")`
+ * round-trip just to reject. Catching the easy mistakes locally keeps
+ * the error close to the input and the response shape honest (the
+ * "must include a `label` string" copy in the 400 only fires when
+ * that's actually true).
+ *
+ * Length cap matches the public docs (1-80 chars after trim) and the
+ * cloud-api Zod schema; trimming on the way in mirrors how the SPA
+ * already trims `newKeyLabel` before submit.
+ */
+export const createDeploymentKeyRequestSchema = z.looseObject({
+  label: z.string().trim().min(1).max(80),
+});
+
 const deploymentSchema = z.looseObject({
   id: z.string(),
   slug: z.string(),

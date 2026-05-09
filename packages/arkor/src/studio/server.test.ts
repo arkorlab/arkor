@@ -1719,7 +1719,12 @@ process.exit(0);
       }) as typeof fetch;
       const app = build();
 
-      for (const body of ["false", "0", '""', "[]"]) {
+      // `null` is added to the matrix because `c.req.json()` *parses*
+      // it successfully — so the parse-failure check (now using a
+      // `Symbol` sentinel) doesn't catch it. The shape check has to
+      // explicitly reject `null` despite `typeof null === "object"`,
+      // otherwise the JS gotcha would forward it as the request body.
+      for (const body of ["false", "0", '""', "[]", "null"]) {
         const patchRes = await app.request("/api/deployments/dep-1", {
           method: "PATCH",
           headers: studioHeaders({ "content-type": "application/json" }),
@@ -1734,9 +1739,86 @@ process.exit(0);
           body,
         });
         expect(keyRes.status).toBe(400);
-        expect((await keyRes.json()).error).toMatch(/must be a JSON object/);
+        // Key-create runs the schema validator, so the message
+        // mentions the missing `label` rather than the generic "must
+        // be a JSON object" copy used for PATCH.
+        expect((await keyRes.json()).error).toMatch(/`label`/);
       }
       expect(upstreamCalls).toBe(0);
+    });
+
+    it("rejects key-create bodies that lack a non-empty `label` string", async () => {
+      // The "must include a `label` string" 400 copy has to actually
+      // be true — without the schema check, `{}` and `{ label: 123 }`
+      // would forward upstream and the error would come from cloud-
+      // api instead. Guard the contract here so the local 400 message
+      // matches the actual reason.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called");
+      }) as typeof fetch;
+      const app = build();
+
+      const badBodies: unknown[] = [
+        {}, // missing label
+        { label: 123 }, // wrong type
+        { label: "" }, // empty string
+        { label: "   " }, // whitespace-only (trim → empty)
+        { label: "x".repeat(81) }, // over the 80-char cap
+      ];
+      for (const body of badBodies) {
+        const res = await app.request("/api/deployments/dep-1/keys", {
+          method: "POST",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify(body),
+        });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toMatch(/`label`/);
+      }
+      expect(upstreamCalls).toBe(0);
+    });
+
+    it("PARSE_FAILED sentinel keeps valid `null` distinct from a parse failure", async () => {
+      // Reviewer point: `c.req.json()` returns the literal `null`
+      // successfully. Coercing the `.catch()` branch to `null` would
+      // collapse "parse failed" and "valid `null` body" into one case
+      // and surface "Invalid JSON body" for both. Use a `Symbol`
+      // sentinel so:
+      //   - genuinely malformed JSON  → "Invalid JSON body"
+      //   - well-formed `null` body   → schema/shape error ("must be
+      //                                  a JSON object" / `label`)
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      const app = build();
+      // PATCH with literal `null` body — well-formed JSON, MUST hit
+      // the shape error, not the parse-failure copy.
+      const patchRes = await app.request("/api/deployments/dep-1", {
+        method: "PATCH",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: "null",
+      });
+      expect(patchRes.status).toBe(400);
+      const patchBody = (await patchRes.json()) as { error?: string };
+      expect(patchBody.error).not.toBe("Invalid JSON body");
+      expect(patchBody.error).toMatch(/must be a JSON object/);
+
+      // PATCH with malformed JSON — MUST hit the parse-failure copy.
+      const malformedPatch = await app.request("/api/deployments/dep-1", {
+        method: "PATCH",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: "{not json",
+      });
+      expect(malformedPatch.status).toBe(400);
+      expect((await malformedPatch.json()).error).toBe("Invalid JSON body");
     });
 
     it("rejects malformed POST bodies BEFORE bootstrapping scope (no orphan project)", async () => {

@@ -17,7 +17,10 @@ import {
   AUTH0_MISSING_STATE_MESSAGE,
   ensureProjectState,
 } from "../core/projectState";
-import { createDeploymentRequestSchema } from "../core/schemas";
+import {
+  createDeploymentKeyRequestSchema,
+  createDeploymentRequestSchema,
+} from "../core/schemas";
 import { readState } from "../core/state";
 import { readManifestSummary } from "./manifest";
 
@@ -705,15 +708,26 @@ export function buildStudioApp(options: StudioServerOptions) {
     );
   });
 
+  // `c.req.json()` happily parses every well-formed JSON value,
+  // including the literal `null`, so a `.catch(() => null)` would
+  // collapse both "parse failed" and "valid `null` body" into the
+  // same case. Use a `Symbol` sentinel — Symbols can't appear in JSON
+  // — so the parse-failure branch catches *only* the syntax error and
+  // every well-formed JSON value (including `null`, `false`, `0`,
+  // `""`, arrays) flows through to the schema check that knows how
+  // to reject the wrong shape with an accurate error message.
+  const PARSE_FAILED: unique symbol = Symbol("studio.body-parse-failed");
+  type ParseFailed = typeof PARSE_FAILED;
+  const isPlainObject = (
+    value: unknown,
+  ): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+
   app.post("/api/deployments", async (c) => {
-    // `c.req.json()` only throws on parse failure; the catch coerces
-    // that failure to `null`. Distinguish "parse failed" (`=== null`)
-    // from "valid JSON that happens to be falsy" — e.g. literal
-    // `false` / `0` / `""` are well-formed JSON but obviously not a
-    // valid create body. Treating the latter as "Invalid JSON" hides
-    // the real shape problem from the schema error below.
-    const raw = await c.req.json().catch(() => null);
-    if (raw === null) {
+    const raw = await c.req
+      .json()
+      .catch((): ParseFailed => PARSE_FAILED);
+    if (raw === PARSE_FAILED) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     // Schema-validate the body *before* entering
@@ -753,16 +767,21 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.patch("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    const raw = await c.req.json().catch(() => null);
-    if (raw === null) {
+    const raw = await c.req
+      .json()
+      .catch((): ParseFailed => PARSE_FAILED);
+    if (raw === PARSE_FAILED) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     // Parse succeeded but the value isn't a settings-bag object.
+    // `typeof null === "object"` is the historical JS gotcha — without
+    // the explicit `!== null` here, a literal `null` body would slip
+    // past the shape check and forward as `undefined`-equivalent.
     // Cloud-api would 400 these too, but reporting the shape problem
     // here keeps the "Invalid JSON" copy honest (it now means *parse
     // failed*) and gives callers a deterministic local 400 instead
     // of a round-trip-dependent one.
-    if (typeof raw !== "object" || Array.isArray(raw)) {
+    if (!isPlainObject(raw)) {
       return c.json(
         { error: "Deployment update body must be a JSON object." },
         400,
@@ -793,21 +812,32 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.post("/api/deployments/:id/keys", async (c) => {
     const id = c.req.param("id");
-    const raw = await c.req.json().catch(() => null);
-    if (raw === null) {
+    const raw = await c.req
+      .json()
+      .catch((): ParseFailed => PARSE_FAILED);
+    if (raw === PARSE_FAILED) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
-    // Tighten beyond `=== null` so a literal `0` / `false` / `""`
-    // can't slip past the parse-failure check. The key-create body
-    // must be a `{ label }` object; anything else is rejected
-    // locally with a deterministic 400.
-    if (typeof raw !== "object" || Array.isArray(raw)) {
+    // The "must include a `label` string" copy below has to actually
+    // be true: a bare object check (`typeof raw === "object"` etc.)
+    // would forward `{}` and `{ label: 123 }` upstream and the
+    // server-side error would be the one the SPA surfaces. Run the
+    // schema validation *here* so the 400 matches the message and
+    // the SDK call only fires on a well-formed body.
+    const parsed = createDeploymentKeyRequestSchema.safeParse(raw);
+    if (!parsed.success) {
       return c.json(
-        { error: "Key create body must be a JSON object with a `label` string." },
+        {
+          error: `Key create body must include a non-empty \`label\` string (1-80 chars): ${parsed.error.issues
+            .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+            .join("; ")}`,
+        },
         400,
       );
     }
-    const body = raw as Parameters<CloudApiClient["createDeploymentKey"]>[2];
+    const body = parsed.data as Parameters<
+      CloudApiClient["createDeploymentKey"]
+    >[2];
     return await withDeploymentClient("mutate", async ({ client, scope }) =>
       await client.createDeploymentKey(id, scope, body),
     );
