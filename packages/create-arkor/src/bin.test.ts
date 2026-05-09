@@ -23,7 +23,10 @@ vi.mock("@arkor/cli-internal", () => ({
   // Round 39 follow-up #2: same default-false posture for the
   // `node_modules` snapshot/diff pair. Tests that exercise the
   // recovery path can override both to `true` per-call.
-  snapshotNodeModules: vi.fn(() => ({ exists: false, mtimeMs: 0 })),
+  snapshotNodeModules: vi.fn(() => ({
+    cwd: { exists: false, mtimeMs: 0 },
+    enclosing: { path: null, mtimeMs: 0 },
+  })),
   nodeModulesChangedSince: vi.fn(() => false),
   isInGitRepo: vi.fn(async () => false),
   sanitise: (s: string) =>

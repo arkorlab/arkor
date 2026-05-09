@@ -381,16 +381,22 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
   });
 });
 
-// Round 39 follow-up #2 (Codex P1, PR #99): the install-
+// Round 39 follow-up #3 (Codex P2, PR #99): the install-
 // recovery gate pairs `lockfileChangedSince` with a
-// `node_modules` BEFORE/AFTER diff. The earlier
-// `hasEnclosingNodeModules` static-existence check (initial
-// follow-up) false-positived against an ambient ancestor
-// `node_modules` from a prior root install — a failed install
-// in a monorepo subdir that never populated dependencies
-// would still pass the gate. The snapshot/diff at cwd
-// specifically catches the "install touched THIS project"
-// case while ignoring the parent-hoisted state.
+// `node_modules` BEFORE/AFTER diff that has to handle THREE
+// install topologies:
+//   1. Standalone scaffold        → cwd/node_modules appears.
+//   2. Monorepo subdir + local    → cwd/node_modules appears.
+//   3. Monorepo subdir + hoisted  → enclosing node_modules
+//                                   mtime advances (pnpm with
+//                                   hoisting / yarn-berry with
+//                                   `node-modules` linker).
+// The earlier cwd-only design (round 39 follow-up #2) regressed
+// case #3 and would have made the round-39 "non-zero install
+// but tree is usable" handling silently fail in monorepos. The
+// new snapshot tracks BOTH cwd and the closest-enclosing path,
+// while still rejecting "static parent node_modules unchanged"
+// (the original P1 hazard).
 describe("snapshotNodeModules + nodeModulesChangedSince", () => {
   let dir: string;
   beforeEach(() => {
@@ -401,25 +407,44 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
   });
 
   it("snapshotNodeModules records no-existence when cwd has no node_modules", () => {
-    expect(snapshotNodeModules(dir)).toEqual({ exists: false, mtimeMs: 0 });
+    const snap = snapshotNodeModules(dir);
+    expect(snap.cwd).toEqual({ exists: false, mtimeMs: 0 });
+    expect(snap.enclosing.path).toBeNull();
   });
 
   it("snapshotNodeModules records existence + mtime when cwd has node_modules", () => {
     mkdirSync(join(dir, "node_modules"));
     const snap = snapshotNodeModules(dir);
-    expect(snap.exists).toBe(true);
-    expect(snap.mtimeMs).toBeGreaterThan(0);
+    expect(snap.cwd.exists).toBe(true);
+    expect(snap.cwd.mtimeMs).toBeGreaterThan(0);
   });
 
-  it("snapshotNodeModules ignores ancestor node_modules (cwd-only)", () => {
-    // Round 39 P1 follow-up: the previous helper walked
-    // ancestors, which let a prior root install satisfy the
-    // recovery gate even when the current install never ran.
-    // The cwd-only snapshot is what makes the diff meaningful.
+  it("snapshotNodeModules captures enclosing node_modules above cwd", () => {
+    // Monorepo-subdir shape: cwd has no local node_modules,
+    // but a parent does. The enclosing slot tracks the parent
+    // path so a hoisted install that updates it is detected.
     const sub = join(dir, "packages", "foo");
     mkdirSync(sub, { recursive: true });
     mkdirSync(join(dir, "node_modules"));
-    expect(snapshotNodeModules(sub).exists).toBe(false);
+    const snap = snapshotNodeModules(sub);
+    expect(snap.cwd.exists).toBe(false);
+    expect(snap.enclosing.path).toBe(join(dir, "node_modules"));
+    expect(snap.enclosing.mtimeMs).toBeGreaterThan(0);
+  });
+
+  it("snapshotNodeModules walks strictly above cwd so cwd's own node_modules isn't double-captured", () => {
+    // If both slots tracked cwd/node_modules, a forward-moving
+    // mtime there would satisfy the gate twice over and the
+    // diff would lose nothing — but more importantly the
+    // enclosing slot is supposed to mean "above cwd". Check it
+    // doesn't shadow.
+    mkdirSync(join(dir, "node_modules"));
+    const snap = snapshotNodeModules(dir);
+    expect(snap.cwd.exists).toBe(true);
+    // No node_modules above the tmpdir parent → enclosing null.
+    // (We can't make assertions about /tmp's parent, but the
+    // captured path must NOT be cwd's own.)
+    expect(snap.enclosing.path).not.toBe(join(dir, "node_modules"));
   });
 
   it("nodeModulesChangedSince returns false when nothing changed", () => {
@@ -428,34 +453,50 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
     expect(nodeModulesChangedSince(dir, before)).toBe(false);
   });
 
-  it("nodeModulesChangedSince returns true when node_modules is newly created", () => {
+  it("nodeModulesChangedSince returns true when cwd node_modules is newly created", () => {
     const before: NodeModulesSnapshot = snapshotNodeModules(dir);
-    expect(before.exists).toBe(false);
+    expect(before.cwd.exists).toBe(false);
     mkdirSync(join(dir, "node_modules"));
     expect(nodeModulesChangedSince(dir, before)).toBe(true);
   });
 
-  it("nodeModulesChangedSince returns true when node_modules mtime advances", () => {
+  it("nodeModulesChangedSince returns true when cwd node_modules mtime advances", () => {
     mkdirSync(join(dir, "node_modules"));
     const before: NodeModulesSnapshot = snapshotNodeModules(dir);
-    const newer = (before.mtimeMs + 5_000) / 1000;
+    const newer = (before.cwd.mtimeMs + 5_000) / 1000;
     utimesSync(join(dir, "node_modules"), newer, newer);
     expect(nodeModulesChangedSince(dir, before)).toBe(true);
   });
 
-  // Round 39 P1 follow-up regression test: even with an
-  // ancestor `node_modules` already on disk, the snapshot/diff
-  // at cwd correctly reports "install didn't touch the
-  // project" when nothing changed there.
-  it("nodeModulesChangedSince ignores ancestor node_modules churn", () => {
+  // Monorepo-hoisted-install regression: cwd/node_modules
+  // doesn't appear at all, but an enclosing one exists and its
+  // mtime advances. The gate must read this as "install
+  // succeeded" so the round-39 "non-zero exit but tree usable"
+  // recovery still works in workspace-subdir scaffolds.
+  it("nodeModulesChangedSince returns true when enclosing node_modules mtime advances (hoisted install)", () => {
     const sub = join(dir, "packages", "foo");
     mkdirSync(sub, { recursive: true });
     mkdirSync(join(dir, "node_modules"));
     const before: NodeModulesSnapshot = snapshotNodeModules(sub);
-    // Touch the parent's node_modules — the cwd-scoped
-    // snapshot must not see this as "install succeeded".
-    const newer = (snapshotNodeModules(dir).mtimeMs + 5_000) / 1000;
+    expect(before.cwd.exists).toBe(false);
+    expect(before.enclosing.path).toBe(join(dir, "node_modules"));
+    const newer = (before.enclosing.mtimeMs + 5_000) / 1000;
     utimesSync(join(dir, "node_modules"), newer, newer);
+    expect(nodeModulesChangedSince(sub, before)).toBe(true);
+  });
+
+  // The original P1 hazard (round 39 follow-up #2): a
+  // pre-existing parent `node_modules` that DOESN'T change
+  // during a failed install must NOT pass the gate. The
+  // captured path's mtime stays equal across BEFORE/AFTER so
+  // the diff returns false even though the directory exists.
+  it("nodeModulesChangedSince ignores static enclosing node_modules untouched by install", () => {
+    const sub = join(dir, "packages", "foo");
+    mkdirSync(sub, { recursive: true });
+    mkdirSync(join(dir, "node_modules"));
+    const before: NodeModulesSnapshot = snapshotNodeModules(sub);
+    // Don't touch the parent's node_modules — simulate a
+    // failed install that never wrote to disk.
     expect(nodeModulesChangedSince(sub, before)).toBe(false);
   });
 });

@@ -112,14 +112,25 @@ function collisionMessage(name: string): string {
  *         PS users with the same, and the cmd msvcrt
  *         convention is what gets the path correctly through
  *         to programs spawned via argv.
- *     `cmd.exe` users with paths containing `` ` `` or `$` see a
- *     slightly mangled but not-injection-vector hint; PS users
- *     with paths containing `"` see a broken-but-not-injection
- *     hint. Paths with these metachars are vanishingly rare in
- *     practice. The single-line cd-recovery print is a
- *     pragmatic compromise — emitting separate cmd / PS lines
- *     would more than double the closing summary length for
- *     a hazard most users will never hit.
+ *       * `%`: NOT escaped — there is no transparent escape for
+ *         `%VAR%` inside double quotes in interactive `cmd.exe`
+ *         (`^%` only suppresses expansion in batch files, not
+ *         at the prompt; `%%` becomes literal `%%` outside
+ *         batch). PowerShell treats `%` as literal in double
+ *         quotes, so PS users see correct hints. cmd users
+ *         with a path like `My%Project%App` would see
+ *         `%Project%` substituted with the env var of that
+ *         name (or left as-is if undefined on Windows 10+).
+ *         Same level of edge case as the other documented
+ *         mismatches; round-39 Copilot flagged it explicitly.
+ *     `cmd.exe` users with paths containing `` ` ``, `$`, or
+ *     `%` see a slightly mangled but not-injection-vector hint;
+ *     PS users with paths containing `"` see a broken-but-not-
+ *     injection hint. Paths with these metachars are
+ *     vanishingly rare in practice. The single-line cd-recovery
+ *     print is a pragmatic compromise — emitting separate cmd
+ *     / PS lines would more than double the closing summary
+ *     length for a hazard most users will never hit.
  */
 export function shellQuoteIfNeeded(value: string): string {
   if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;

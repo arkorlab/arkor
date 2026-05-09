@@ -324,8 +324,28 @@ function runCliOnce(
       // Per-spawn caches are single-use; remove on close or error
       // so `arkor-e2e-{yarn,bun}-cache-*` dirs don't pile up in
       // tmpdir on long CI runs.
-      rmSync(yarnCacheDir, { recursive: true, force: true });
-      rmSync(bunCacheDir, { recursive: true, force: true });
+      //
+      // Round 40 (Copilot, PR #99): wrap each `rmSync` in a
+      // try/catch. Even with `force: true`, `rmSync` can throw
+      // on Windows with transient EPERM/EBUSY (an antivirus
+      // scanner holding a handle, a worker process still
+      // releasing a lock, etc.). `cleanup()` runs from the
+      // child's `close` / `error` listeners, so a throw here
+      // would propagate into the spawn promise — turning an
+      // otherwise-successful test into a rejection (worse,
+      // masking the real failure on the error path). Cleanup
+      // is best-effort: a leaked tmp dir is recoverable, a
+      // bogus test result is not.
+      try {
+        rmSync(yarnCacheDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+      try {
+        rmSync(bunCacheDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
     };
     // Wall-clock start for the ENG-632 SIGKILL retry gate
     // (`elapsedMs` in RunResult — see shouldRetryAfterSigkill).

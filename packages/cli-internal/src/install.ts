@@ -102,28 +102,48 @@ export function lockfileChangedSince(
 }
 
 /**
- * Snapshot of `cwd`'s `node_modules` directory at a moment in
- * time. Mirrors `LockfileSnapshot`: existence + mtime captured
- * BEFORE install so the recovery gate can prove install
- * actually populated dependencies on disk.
+ * Snapshot of the `node_modules` state relevant to `cwd` at a
+ * moment in time. Captures BOTH the cwd-local `node_modules` AND
+ * the closest-enclosing one above `cwd` (recorded by absolute
+ * path). The recovery gate compares the BEFORE/AFTER mtimes of
+ * the SAME locations, so static pre-existing ancestor state
+ * cannot satisfy the gate on its own — but a hoisted install
+ * that updates an enclosing workspace's `node_modules` does.
  *
- * Cwd-only (no ancestor walk) on purpose — round-39 Codex P1
- * follow-up flagged that walking ancestors lets a pre-existing
- * monorepo `node_modules` (set up by an earlier root install)
- * satisfy the gate even when the current scaffold's install
- * never ran. The snapshot/diff pair compares the SAME path
- * before and after, so a parent-hoisted `node_modules` is
- * irrelevant to whether THIS install touched anything.
+ * Round-39 Codex P1 (16:18) flagged the original
+ * `hasEnclosingNodeModules` existence check as too lax: a
+ * failed install in a monorepo subdir would still see a parent
+ * `node_modules` from an earlier root install and pass the
+ * gate. The first fix snapped to cwd-only; round-39 Codex P2
+ * (00:06) then flagged that as too narrow — workspace-subdir
+ * scaffolds where pnpm/yarn-berry hoist deps to the workspace
+ * root would have ZERO `cwd/node_modules` activity even on a
+ * successful install, so the cwd-only diff regressed monorepo
+ * support. Tracking both paths and requiring forward-moving
+ * mtime at one of them covers both shapes:
+ *
+ *   - Standalone scaffold: `cwd/node_modules` appears.
+ *   - Monorepo subdir + package-local install: same as above.
+ *   - Monorepo subdir + hoisted install: `cwd/node_modules`
+ *     untouched, but the captured enclosing path's mtime
+ *     advances.
+ *   - Failed install in monorepo subdir: enclosing path's
+ *     mtime stays the same as before; gate returns false.
  */
 export interface NodeModulesSnapshot {
-  /** True when a `node_modules` directory was present at `cwd`. */
-  exists: boolean;
-  /** `mtime` in ms; `0` when the directory didn't exist or was unreadable. */
-  mtimeMs: number;
+  /** State of `cwd/node_modules` at snapshot time. */
+  cwd: { exists: boolean; mtimeMs: number };
+  /**
+   * Closest `node_modules` ABOVE `cwd`, by absolute path. `null`
+   * when no enclosing `node_modules` exists. The path is captured
+   * at snapshot time so the diff re-stats the SAME directory —
+   * if a closer one appears DURING install we don't care about
+   * it (the standalone-scaffold cwd path catches that).
+   */
+  enclosing: { path: string | null; mtimeMs: number };
 }
 
-export function snapshotNodeModules(cwd: string): NodeModulesSnapshot {
-  const path = join(cwd, "node_modules");
+function statMtimeOrZero(path: string): { exists: boolean; mtimeMs: number } {
   if (!existsSync(path)) return { exists: false, mtimeMs: 0 };
   try {
     return { exists: true, mtimeMs: statSync(path).mtimeMs };
@@ -132,29 +152,58 @@ export function snapshotNodeModules(cwd: string): NodeModulesSnapshot {
   }
 }
 
+export function snapshotNodeModules(cwd: string): NodeModulesSnapshot {
+  const cwdSnap = statMtimeOrZero(join(cwd, "node_modules"));
+  // Walk strictly ABOVE cwd so the enclosing slot can't shadow
+  // the cwd slot (otherwise a pre-existing cwd/node_modules
+  // would be captured twice and the diff loses meaning).
+  let dir = dirname(cwd);
+  while (true) {
+    const candidate = join(dir, "node_modules");
+    const snap = statMtimeOrZero(candidate);
+    if (snap.exists) {
+      return { cwd: cwdSnap, enclosing: { path: candidate, mtimeMs: snap.mtimeMs } };
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached filesystem root
+    dir = parent;
+  }
+  return { cwd: cwdSnap, enclosing: { path: null, mtimeMs: 0 } };
+}
+
 /**
- * True when `cwd`'s `node_modules` is materially different from
- * the `before` snapshot — either freshly created or with a
- * forward-moving `mtime`. Paired with `lockfileChangedSince` in
- * the CLI's git-init recovery gate: BOTH must hold for a
- * non-zero `<pm> install` exit to be treated as "install
- * effectively succeeded".
+ * True when the `node_modules` state relevant to `cwd` has
+ * materially advanced since `before`. Paired with
+ * `lockfileChangedSince` in the CLI's git-init recovery gate:
+ * BOTH must hold for a non-zero `<pm> install` exit to be
+ * treated as "install effectively succeeded".
  *
- * Round-39 Codex P1 follow-up: an `existsSync(node_modules)`
- * static ancestor check (the previous attempt) returned `true`
- * for any pre-existing parent `node_modules`, so a failed
- * install that rewrote the lockfile but never populated
- * dependencies still passed the gate. The before/after diff at
- * cwd specifically catches the "install touched THIS project"
- * case and ignores ambient ancestor state.
+ * Returns true when EITHER:
+ *   - `cwd/node_modules` was freshly created or its mtime
+ *     advanced (standalone or package-local install path), OR
+ *   - the enclosing `node_modules` recorded at snapshot time
+ *     has a forward-moving mtime (monorepo hoisted install
+ *     path — pnpm with hoisting, yarn-berry with `node-modules`
+ *     linker, npm/yarn classic in workspace mode).
+ *
+ * The enclosing diff compares the SAME absolute path that was
+ * captured at snapshot time — a static parent `node_modules`
+ * left untouched by a failed install reads as `before.mtime ===
+ * after.mtime` and returns false (closes the round-39 P1 hazard
+ * about pre-existing ancestor state being mistaken for
+ * install-success evidence).
  */
 export function nodeModulesChangedSince(
   cwd: string,
   before: NodeModulesSnapshot,
 ): boolean {
-  const after = snapshotNodeModules(cwd);
-  if (!before.exists && after.exists) return true;
-  if (after.mtimeMs > before.mtimeMs) return true;
+  const cwdAfter = statMtimeOrZero(join(cwd, "node_modules"));
+  if (!before.cwd.exists && cwdAfter.exists) return true;
+  if (cwdAfter.mtimeMs > before.cwd.mtimeMs) return true;
+  if (before.enclosing.path !== null) {
+    const enclosingAfter = statMtimeOrZero(before.enclosing.path);
+    if (enclosingAfter.mtimeMs > before.enclosing.mtimeMs) return true;
+  }
   return false;
 }
 
