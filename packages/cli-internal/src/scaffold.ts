@@ -1231,10 +1231,18 @@ export async function scaffold(
   //       ancestors — a pre-existing file at cwd is handled by
   //       the patch path below, not this guard.
   //
-  // If cwd already has the file we always patch it (regardless of
-  // (2)) — the user clearly has pnpm config locally and we just
-  // need to ensure `esbuild` is allow-listed, OR observe that the
-  // user already pinned a value and bow out.
+  // When axis (1) admits handling (pm is pnpm or undefined) AND
+  // cwd already has the file, we patch it regardless of axis (2)
+  // — the user clearly has pnpm config locally and we just need
+  // to ensure `esbuild` is allow-listed, OR observe that the user
+  // already pinned a value and bow out. Round 40 (Copilot, PR
+  // #99): the previous wording said "we ALWAYS patch it
+  // (regardless of (2))", which read as if the patch path
+  // bypassed axis (1) too — but it doesn't. An explicit
+  // `--use-npm` / `--use-yarn` / `--use-bun` keeps the existing
+  // `pnpm-workspace.yaml` untouched (per axis (1): "leave their
+  // (or our) pnpm config untouched"); axis (2) is the only gate
+  // the cwd-has-file shortcut bypasses.
   const cwdHasPnpmWorkspace = existsSync(join(cwd, PNPM_WORKSPACE_PATH));
   const enclosingPnpmWorkspaceAbove = hasEnclosingPath(
     dirname(cwd),
