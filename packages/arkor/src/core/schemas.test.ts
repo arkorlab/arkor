@@ -23,7 +23,7 @@ describe("trainingJobSchema", () => {
     projectId: "p1",
     name: "run",
     status: "queued",
-    config: { model: "unsloth/gemma-4-e4b-it" },
+    config: { model: "unsloth/gemma-4-E4B-it" },
     createdAt: "2026-01-01T00:00:00Z",
     startedAt: null,
     completedAt: null,

@@ -16,11 +16,14 @@ describe("baseModels", () => {
     expect(SUPPORTED_BASE_MODELS.length).toBeGreaterThan(0);
   });
 
-  it("every entry is a non-empty lowercase model id", () => {
-    // The cloud-api validation is case-sensitive — a stray uppercase entry
-    // would 4xx every chat request for that model.
+  it("every entry is a non-empty HuggingFace-style model id", () => {
+    // The cloud-api validation is case-sensitive (the canonical
+    // HuggingFace id is itself mixed-case, e.g. `unsloth/gemma-4-E4B-it`),
+    // so the entries must round-trip without case-folding. Allow A-Z /
+    // a-z / digits / `./_-` and require a non-empty leading char so an
+    // accidentally-empty entry trips the guard.
     for (const m of SUPPORTED_BASE_MODELS) {
-      expect(m).toMatch(/^[a-z0-9][a-z0-9./_-]*$/);
+      expect(m).toMatch(/^[A-Za-z0-9][A-Za-z0-9./_-]*$/);
     }
   });
 });

@@ -18,21 +18,11 @@ export interface Template {
   trainer: string;
 }
 
-// The three demo templates below pair `unsloth/gemma-4-e4b-it` with curated
+// The three demo templates below pair `unsloth/gemma-4-E4B-it` with curated
 // HuggingFace datasets published under the `arkorlab` org. Each dataset is in
 // OpenAI messages format (chatml), one sample per JSONL line, with the system
 // prompt baked into the conversation - so `datasetFormat: { type: "chatml" }`
 // hands the right shape to the trainer's apply_chat_template step.
-//
-// Note on the model id casing: Arkor Cloud requires the model id to be
-// fully lowercase (`unsloth/gemma-4-e4b-it`) — this is a backend
-// constraint, NOT the HuggingFace canonical form. The HF model is
-// published as `unsloth/gemma-4-E4B-it` (mixed case), and HF's web URL
-// resolves both spellings via case-insensitive redirects, but the
-// arkor cloud-api routes the string verbatim and rejects mixed-case
-// variants. Keep all model-id occurrences in starter templates, the
-// Studio base-model allowlist, and arkor docs aligned to the
-// lowercase form so scaffolded projects don't 4xx on first run.
 //
 // `evalSteps: 25` is wired in by default so a fresh scaffold produces both
 // training and eval loss out of the box — Studio's loss chart picks the
@@ -84,7 +74,7 @@ const REDACTION_TRAINER = `import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "redaction-run",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
@@ -102,7 +92,7 @@ const TRANSLATE_TRAINER = `import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "translate-run",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/translate-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
@@ -119,7 +109,7 @@ const TRIAGE_TRAINER = `import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "triage-run",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
