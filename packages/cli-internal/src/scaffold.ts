@@ -772,10 +772,15 @@ async function patchPackageJson(
 // model of their project, and a scalar form is a deliberate global
 // pin we must not stomp on.
 //
-// All regexes anchor with `^` (no leading whitespace) so a nested
-// `allowBuilds:` under some other key (round-37 Copilot review)
-// can't be mistaken for the top-level pnpm setting that pnpm 11
-// actually consults.
+// All regexes anchor with `^${rootIndent}` (start-of-line + the
+// document's detected root indent — see `detectYamlRootIndent`)
+// so a nested `allowBuilds:` under some other key (round-37
+// Copilot review) can't be mistaken for the top-level pnpm
+// setting that pnpm 11 actually consults. `rootIndent` is `""`
+// for canonical column-0 YAML and a fixed leading-whitespace
+// string for files whose root mapping is indented; either way
+// the anchor identifies "starts at root mapping column", not
+// "starts at column 0".
 async function patchPnpmWorkspace(
   cwd: string,
   allowEsbuild: boolean,
@@ -878,10 +883,17 @@ function detectYamlRootIndent(contents: string): string {
 //
 //   allowBuilds: { esbuild: false }
 //
-// Top-level only — `^` (column 0) anchors prevent mistaking a
-// nested `allowBuilds:` mapping (e.g. under another key) for the
-// pnpm setting pnpm itself reads, which would silently skip
-// patching while pnpm 11 keeps erroring (round-37 Copilot review).
+// Top-level only — anchored at `^${rootIndent}` (start-of-line
+// + the document's detected root indent, see
+// `detectYamlRootIndent`) so a nested `allowBuilds:` under
+// another key can't be mistaken for the top-level pnpm setting
+// pnpm itself reads. `rootIndent` is `""` for canonical column-0
+// YAML and a leading-whitespace string for indented document
+// roots; the anchor encodes "starts at root mapping column",
+// NOT "starts at column 0" — important because round-39
+// surfaced real `pnpm-workspace.yaml` files with indented roots
+// that the column-0-only matchers had been silently writing
+// duplicate blocks into (round-37 / round-39 Copilot review).
 //
 // Tolerates CRLF line endings and trailing `# comment`s on entries
 // (round-38 reviewer feedback). Scalar form (`allowBuilds: false`)
@@ -1028,10 +1040,17 @@ function prependPackagesEmptyList(contents: string): string {
 //      `patchPnpmWorkspace` already gates that out via
 //      `hasTopLevelAllowBuildsScalar`) — append a fresh block.
 //
-// All matchers anchor with `^` (column 0) so a nested
-// `allowBuilds:` under some other key can't be edited; that file
-// would falsely report "patched" while pnpm 11 keeps erroring
-// (round-37 Copilot review).
+// All matchers anchor with `^${rootIndent}` (start-of-line +
+// the document's detected root indent — see
+// `detectYamlRootIndent`) so a nested `allowBuilds:` under some
+// other key can't be edited; that file would falsely report
+// "patched" while pnpm 11 keeps erroring (round-37 Copilot
+// review). `rootIndent` is `""` for canonical column-0 YAML and
+// a fixed leading-whitespace string for indented document
+// roots — the anchor identifies "starts at root mapping
+// column", not "starts at column 0", which is what lets the
+// patcher correctly handle `pnpm-workspace.yaml` files whose
+// root mapping is indented (round-39 Copilot review).
 //
 // Tolerates CRLF line endings (round-38 Codex P1) and trailing
 // `# comment`s on the header line (round-38 Copilot). Newly
