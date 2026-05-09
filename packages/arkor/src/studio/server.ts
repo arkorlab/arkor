@@ -511,10 +511,17 @@ export function buildStudioApp(options: StudioServerOptions) {
       // remote project just to 404 against it would leave the project
       // orphaned. Only `"create"` (POST /api/deployments) is allowed
       // through to the bootstrap branch below.
+      //
+      // `readScopeFromState` returns `null` for both "file is absent"
+      // and "file exists but is unreadable / invalid JSON / missing
+      // required fields" (see `readState` in `core/state.ts`). The
+      // copy below covers all three so an operator with a corrupt
+      // `state.json` doesn't read "missing" and assume the file is
+      // already gone.
       return new Response(
         JSON.stringify({
           error:
-            "No .arkor/state.json on disk for this workspace. Create your first deployment to bootstrap one (anonymous), or restore the file by hand (OAuth).",
+            "No usable .arkor/state.json for this workspace (missing or invalid). Create your first deployment to bootstrap one (anonymous), restore the file by hand (OAuth), or regenerate it with the correct { orgSlug, projectSlug, projectId } if it's currently corrupt.",
         }),
         { status: 404, headers: { "content-type": "application/json" } },
       );
