@@ -642,6 +642,119 @@ process.exit(0);
       expect(getCurrentCalls).toBe(1);
     });
 
+    it("/api/train cancel POSTs cloud /v1/jobs/:id/cancel so the cloud job is released even though SIGKILL bypasses the runner's shutdown handlers", async () => {
+      // Regression: SIGKILL kills the runner without giving its
+      // `installShutdownHandlers` a chance to issue the cloud
+      // `cancel()` POST itself. Without a server-side equivalent
+      // the cloud job sits in "running" until TTL/reaper, so a
+      // user clicking "Stop training" silently keeps consuming
+      // GPU spend. The fix parses the runner's `Started job <id>`
+      // stdout line, records the id on the registry entry, and
+      // fires a fire-and-forget POST to cloud-api on cancel
+      // *before* SIGKILLing.
+      await writeCredentials(ANON_CREDS);
+      // The cancel POST reads scope from `.arkor/state.json` (not
+      // from the anon creds' orgSlug — that's a different code
+      // path). Pre-seed so the POST can address the cloud job.
+      await writeState(
+        {
+          orgSlug: "cancel-test-org",
+          projectSlug: "cancel-test-project",
+          projectId: "p-cancel",
+        },
+        trainCwd,
+      );
+      // Bin prints the canonical "Started job <id>" line then
+      // hangs (just like the real runner after `start()` resolves).
+      // The id is the same kind of identifier cloud-api would
+      // mint — opaque string we'll verify shows up in the cancel
+      // POST URL below.
+      const FAKE_JOB_ID = "j-cancel-test";
+      const fakeBin = join(trainCwd, "started-job-bin.mjs");
+      writeFileSync(
+        fakeBin,
+        `process.stdout.write("Started job ${FAKE_JOB_ID}\\n");
+        process.on("SIGTERM", () => {});
+        setInterval(() => {}, 60_000);
+        `,
+      );
+      // Capture the cloud-api requests so we can verify the
+      // server's cancel POST landed with the right job id +
+      // scope. The default fetch in this suite would 404 our POST
+      // and leave it as `cancelCalls === 0`.
+      let cancelHits: Array<{ url: string; method: string }> = [];
+      const ORIG_FETCH = globalThis.fetch;
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        if (
+          method === "POST" &&
+          url.includes(`/v1/jobs/${FAKE_JOB_ID}/cancel`)
+        ) {
+          cancelHits.push({ url, method });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        // Pass-through default: anything else 404s — which would
+        // surface as a test-side failure if our cancel POST
+        // doesn't match the expected URL shape.
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+
+      try {
+        const app = buildStudioApp({
+          baseUrl: "http://mock-cloud-api",
+          assetsDir,
+          autoAnonymous: false,
+          studioToken: STUDIO_TOKEN,
+          cwd: trainCwd,
+          binPath: fakeBin,
+        });
+        const trainRes = await app.request("/api/train", {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:4000",
+            "x-arkor-studio-token": STUDIO_TOKEN,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        expect(trainRes.status).toBe(200);
+        // Read enough of the body to ensure the runner's
+        // `Started job <id>` chunk has been processed by the
+        // server's stdout parser (without this, cancel could
+        // race ahead of the parser and find no jobId on the
+        // registry → no cancel POST → false test failure).
+        const reader = trainRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (!buf.includes(`Started job ${FAKE_JOB_ID}`)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+        }
+        // Trigger cancel — should fire the cloud POST + SIGKILL.
+        await reader.cancel();
+        // Fire-and-forget: give the void IIFE a tick to actually
+        // dispatch the fetch + receive the 200 response.
+        await new Promise((r) => setTimeout(r, 200));
+
+        expect(cancelHits).toHaveLength(1);
+        expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
+        // Scope is required by the cloud-api contract — comes from
+        // `.arkor/state.json` (seeded above), not the anon creds.
+        expect(cancelHits[0]?.url).toContain("orgSlug=cancel-test-org");
+        expect(cancelHits[0]?.url).toContain("projectSlug=cancel-test-project");
+      } finally {
+        globalThis.fetch = ORIG_FETCH;
+      }
+    });
+
     it("/api/train cancel sends SIGKILL so user-initiated stop bypasses the runner's graceful early-stop", async () => {
       // Regression: a default `child.kill()` sends SIGTERM, which
       // the runner's `installShutdownHandlers` now interprets as a
