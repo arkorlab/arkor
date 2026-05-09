@@ -558,14 +558,25 @@ export function buildStudioApp(options: StudioServerOptions) {
     // `/api/dev/events` broadcasts `restartTargets` / `hotSwapTargets`.
     // Without this, a passive tab whose run was hot-swapped could
     // misread a sibling tab's restart event as its own.
-    const pidHeader = typeof child.pid === "number" ? String(child.pid) : "";
-    return new Response(stream, {
-      status: 200,
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-        [TRAIN_PID_HEADER]: pidHeader,
-      },
-    });
+    //
+    // Header is OMITTED entirely (rather than sent as an empty
+    // string) when `child.pid` isn't a number — that case happens
+    // when the OS hasn't assigned a pid by the time `spawn()`
+    // returns and the child's async `error` event will fire shortly
+    // (per-Node-docs `subprocess.pid` is `undefined` for
+    // failed-spawn children). "Header absent" is the unambiguous
+    // signal the SPA can read; an empty string would force callers
+    // to special-case `""` vs missing for the same condition. The
+    // SPA's `raw ? Number.parseInt(raw, 10) : NaN` handler treats
+    // both cases identically, but absent-only is the cleaner wire
+    // contract.
+    const headers: Record<string, string> = {
+      "content-type": "text/plain; charset=utf-8",
+    };
+    if (typeof child.pid === "number") {
+      headers[TRAIN_PID_HEADER] = String(child.pid);
+    }
+    return new Response(stream, { status: 200, headers });
   });
 
   // `/api/dev/events` — SSE stream of HMR rebuild / error notifications.
