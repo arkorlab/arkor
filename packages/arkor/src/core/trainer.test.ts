@@ -1523,14 +1523,17 @@ describe("createTrainer (early stop)", () => {
     expect(result.job.status).toBe("cancelled");
   });
 
-  it("early-stop checkpoint branch still resolves the deferred when cancel() throws", async () => {
+  it("early-stop checkpoint branch rejects the deferred when cancel() throws (visible to shutdown handler)", async () => {
     // Regression: previously, an `await trainer.cancel()` that threw
-    // (network failure / cloud-api 5xx during the cancel POST) would
-    // propagate out of the dispatch and leave `earlyStopDeferred`
-    // pending forever. The runner's SIGTERM handler awaits that
-    // promise before exiting, so the subprocess would hang on
-    // shutdown. The fix swallows the cancel throw best-effort and
-    // still marks the run terminal locally so the deferred resolves.
+    // (network failure / cloud-api 5xx during the cancel POST) was
+    // *swallowed*, the deferred resolved cleanly, and the runner
+    // exited 0 — the UI declared the run cancelled while the cloud
+    // job kept running, orphaning GPU spend with no visible error.
+    // The fix REJECTS the deferred so the runner's
+    // `installShutdownHandlers` `.catch()` writes the failure to
+    // stderr, surfacing the issue to the operator. The latch is
+    // still always settled (resolved or rejected), so shutdown
+    // doesn't hang waiting for a checkpoint that will never come.
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,
@@ -1582,6 +1585,14 @@ describe("createTrainer (early stop)", () => {
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }) as typeof fetch;
 
+    // Capture the very-first armed early-stop promise so we can
+    // assert its settlement state below. The trainer is mutually
+    // recursive with the callback (`onLog` calls
+    // `requestTrainerEarlyStop(trainer, ...)`), so we declare it
+    // first as `let` and assign in a second step.
+    let armedPromise: Promise<void> | null = null;
+    let armedResult: "resolved" | "rejected" | "pending" = "pending";
+    let armedError: unknown = null;
     const trainer = createTrainer(
       {
         name: "run",
@@ -1589,7 +1600,24 @@ describe("createTrainer (early stop)", () => {
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onLog: () => {
-            void requestTrainerEarlyStop(trainer, { timeoutMs: 60_000 });
+            // Arm exactly once and capture the returned promise.
+            // requestTrainerEarlyStop is idempotent across repeat
+            // calls, but we only need the FIRST armed deferred —
+            // the cancel-throw rejects exactly that promise.
+            if (armedPromise === null) {
+              armedPromise = requestTrainerEarlyStop(trainer, {
+                timeoutMs: 60_000,
+              });
+              armedPromise.then(
+                () => {
+                  armedResult = "resolved";
+                },
+                (err: unknown) => {
+                  armedResult = "rejected";
+                  armedError = err;
+                },
+              );
+            }
           },
         },
       },
@@ -1597,32 +1625,23 @@ describe("createTrainer (early stop)", () => {
     );
     const original = globalThis.fetch;
     globalThis.fetch = fetcher;
-    let stopPromiseResult: "resolved" | "rejected" | "pending" = "pending";
-    const stopPromise = new Promise<void>((resolve) => {
-      // Don't drive the early-stop ourselves — `onLog` arms it. We
-      // just want to verify that whichever code path ultimately drives
-      // it sees a resolved deferred even though cancel() throws.
-      const tick = setInterval(() => {
-        // Probe the trainer's state via a fresh requestEarlyStop call:
-        // once the cancel-after-checkpoint branch ran, status is
-        // "cancelled" and this returns instantly.
-        void requestTrainerEarlyStop(trainer, { timeoutMs: 1 }).then(() => {
-          clearInterval(tick);
-          stopPromiseResult = "resolved";
-          resolve();
-        });
-      }, 25);
-    });
     try {
       await trainer.wait();
-      // Wait for the probe to confirm the deferred resolves.
-      await stopPromise;
+      // Flush microtasks so the .then(resolve, reject) handler
+      // observes the settlement before we assert.
+      await new Promise((r) => setImmediate(r));
     } finally {
       globalThis.fetch = original;
     }
-    // cancel() was attempted (and threw) but the deferred still resolved.
+    // cancel() was attempted (and threw).
     expect(cancelAttempts).toBe(1);
-    expect(stopPromiseResult).toBe("resolved");
+    // The armed deferred REJECTED — the runner's `.catch()` would
+    // see this error and log it to stderr instead of silently
+    // exiting 0. Critically: it didn't hang on "pending"; the
+    // failure case still settles, just via reject not resolve.
+    expect(armedResult).toBe("rejected");
+    expect(armedError).toBeInstanceOf(TypeError);
+    expect((armedError as Error).message).toBe("fetch failed");
   });
 
   it("resolves the early-stop latch when the run hits a terminal event before the next checkpoint", async () => {

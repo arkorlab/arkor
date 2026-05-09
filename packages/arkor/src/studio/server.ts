@@ -27,17 +27,28 @@ import { TrainRegistry, type RestartTarget } from "./trainRegistry";
  *  `restart` events to the run *this* tab actually started. */
 const TRAIN_PID_HEADER = "x-arkor-train-pid";
 /**
- * Anchor for picking the cloud-side job id out of the runner's
- * stdout. `core/runner.ts` prints exactly one `Started job <id>\n`
- * line after `trainer.start()` resolves; the server intercepts
- * that line in `/api/train`'s stdout forwarder so it can POST
- * `/v1/jobs/:id/cancel` to cloud-api on user-initiated cancel
- * (SIGKILL bypasses the runner's own shutdown handlers — see the
- * cancel() comment for the full rationale). The id capture group
- * matches everything up to the trailing newline so cloud-api
- * formats can change without rev'ing this regex.
+ * Strict full-line match for the runner's `Started job <id>` line.
+ * `core/runner.ts` prints exactly that text — `process.stdout.write(\`Started job ${jobId}\n\`)` —
+ * after `trainer.start()` resolves; the server's `/api/train`
+ * stdout forwarder line-buffers chunks (chunk boundaries are
+ * arbitrary, so a substring scan against raw chunks would miss
+ * splits) and applies this regex to each complete line so it can
+ * POST `/v1/jobs/:id/cancel` to cloud-api on user-initiated
+ * cancel (SIGKILL bypasses the runner's own shutdown handlers —
+ * see the `cancel()` comment for the full rationale).
+ *
+ * Anchors `^…$` matter for two reasons:
+ *   - Avoid false matches when a user `console.log` happens to
+ *     contain the substring "Started job <token>" *before* the
+ *     runner's canonical line lands; once we record an id we
+ *     stop scanning, so a stray earlier match would stick and
+ *     Stop-training would POST cancel for the wrong (or
+ *     non-existent) job.
+ *   - Restrict the id capture to non-whitespace, mirroring what
+ *     `runner.ts` writes (cloud-api job ids are word-shaped,
+ *     never contain spaces).
  */
-const STARTED_JOB_PATTERN = /Started job (\S+)/;
+const STARTED_JOB_PATTERN = /^Started job (\S+)$/;
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
 function copyDeprecationHeaders(from: Headers, to: Headers): void {
@@ -462,6 +473,21 @@ export function buildStudioApp(options: StudioServerOptions) {
         // round-trip through `TextEncoder`. The previous code did
         // `enc.encode(d)` which implicitly coerced the buffer via
         // `String()` — same byte content, but allocates a new array.
+        // Carry-over buffer for line-oriented job-id extraction.
+        // Stream chunk boundaries are arbitrary — the runner's
+        // single-line `Started job <id>` write can land split
+        // across two `data` events, in which case a per-chunk
+        // regex would never match and the cancel POST chain
+        // would never fire (cloud-job orphan on Stop). We
+        // accumulate text until a newline, parse the complete
+        // line, and keep any trailing partial for the next
+        // chunk. Cleared the moment the id is recorded so a
+        // chatty bin doesn't pin memory after the marker has
+        // landed; capped at 4 KiB regardless to bound a
+        // misbehaving bin that never emits a newline before the
+        // marker (the canonical line is well under 100 bytes).
+        let stdoutLineBuf = "";
+        const STARTED_JOB_BUFFER_CAP = 4096;
         const onChunk = (d: Buffer): void => {
           if (closed) return;
           // Watch for the runner's `Started job <id>` line so the
@@ -469,12 +495,29 @@ export function buildStudioApp(options: StudioServerOptions) {
           // to cloud-api on user-initiated abort. SIGKILL bypasses
           // the runner's `installShutdownHandlers`, so without
           // this server-side cancel a Stop click would leave the
-          // cloud job running until TTL/reaper. Only parse until
-          // the id is recorded — the runner prints the line
-          // exactly once, right after `start()` resolves.
+          // cloud job running until TTL/reaper. Stop scanning
+          // once the id is recorded — the runner prints the line
+          // exactly once.
           if (activeTrains.getJobId(child.pid) === null) {
-            const m = STARTED_JOB_PATTERN.exec(d.toString("utf8"));
-            if (m && m[1]) activeTrains.recordJobId(child.pid, m[1]);
+            stdoutLineBuf += d.toString("utf8");
+            let nl = stdoutLineBuf.indexOf("\n");
+            while (nl !== -1) {
+              // Strip a possible \r so CRLF-emitting bins (rare for
+              // Node `process.stdout.write` but defensive) match
+              // the same anchored pattern.
+              const line = stdoutLineBuf.slice(0, nl).replace(/\r$/, "");
+              stdoutLineBuf = stdoutLineBuf.slice(nl + 1);
+              const m = STARTED_JOB_PATTERN.exec(line);
+              if (m && m[1]) {
+                activeTrains.recordJobId(child.pid, m[1]);
+                stdoutLineBuf = "";
+                break;
+              }
+              nl = stdoutLineBuf.indexOf("\n");
+            }
+            if (stdoutLineBuf.length > STARTED_JOB_BUFFER_CAP) {
+              stdoutLineBuf = stdoutLineBuf.slice(-STARTED_JOB_BUFFER_CAP);
+            }
           }
           try {
             controller.enqueue(d);
@@ -630,15 +673,14 @@ export function buildStudioApp(options: StudioServerOptions) {
         // unregister-before-graceful-exit window where a fast new
         // run could overlap an old one untracked by HMR routing.
         //
-        // Trade-off: the runner can't POST `/v1/jobs/:id/cancel` to
-        // cloud-api on its way out (its early-stop chain is
-        // bypassed). The cloud-side job is left orphaned until the
-        // server reaper / TTL kicks in. This matches the pre-PR
-        // behaviour (the runner had no signal handler at all then;
-        // SIGTERM also killed it without cloud cancel). Sending a
-        // direct `/v1/jobs/:id/cancel` from the server here is a
-        // separate follow-up — would need the jobId, which the
-        // server doesn't currently parse out of stdout.
+        // The cloud-side job is released by the fire-and-forget
+        // POST above (we recorded the runner's `Started job <id>`
+        // line on the registry; the IIFE looks it up here). SIGKILL
+        // alone would have left the cloud job orphaned until
+        // TTL/reaper because the runner can't POST cancel itself
+        // when the kernel reaps it without warning. Together —
+        // server-side cancel POST + SIGKILL — give snappy local
+        // teardown AND eventual cloud-side release.
         //
         // `ChildProcess.kill()` can throw (ESRCH if the process has
         // already exited between this handler's invocation and the

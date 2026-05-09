@@ -175,6 +175,7 @@ export function createTrainer(
   let earlyStopDeferred: {
     promise: Promise<void>;
     resolve: () => void;
+    reject: (err: unknown) => void;
     timer: NodeJS.Timeout | null;
   } | null = null;
   let earlyStopRequested = false;
@@ -313,20 +314,28 @@ export function createTrainer(
         // Early-stop latch: a checkpoint just landed, so the in-flight work
         // is durable. Cancel the cloud job and end `wait()` cleanly.
         if (earlyStopRequested && earlyStopDeferred) {
-          // Best-effort `cancel()` — swallow throws so the deferred
-          // *always* resolves and the SIGTERM handler waiting on
-          // `requestEarlyStop()` can exit. Letting an error propagate
-          // here would leave the deferred pending and the runner
-          // process hung on shutdown; the local `startedJob.status`
-          // is set to `cancelled` regardless so subsequent
-          // `requestEarlyStop` calls see the terminal-status
-          // short-circuit. The cookbook already calls `cancel()`
-          // best-effort, so users tolerating a transient cloud-api
-          // failure here matches the documented contract.
+          // Capture the cancel error (if any) but DON'T swallow
+          // silently — propagate via the deferred's reject path so
+          // the runner's `installShutdownHandlers` `.catch()` writes
+          // the failure to stderr. The previous swallow let a
+          // transient cloud-api failure during early-stop appear
+          // as a clean cancel: the local runner exited 0, the UI
+          // declared the run cancelled, but the cloud job kept
+          // running (continued GPU spend). Keeping the error
+          // visible to the shutdown handler lets the operator see
+          // it and intervene.
+          //
+          // We still mark `startedJob.status` terminal locally
+          // either way — from the runner's perspective the run is
+          // over, and a subsequent `requestEarlyStop()` call must
+          // hit the `TERMINAL_STATUSES.has(...)` short-circuit
+          // (re-arming a fresh latch on a dead run would hang
+          // shutdown).
+          let cancelError: unknown = null;
           try {
             await trainer.cancel();
-          } catch {
-            // intentionally ignored — see comment above.
+          } catch (err) {
+            cancelError = err;
           }
           // Reflect the cancellation locally so `wait()`'s resolved
           // `TrainingResult.job.status` is a terminal status (per the
@@ -339,7 +348,19 @@ export function createTrainer(
             status: "cancelled",
             completedAt: event.timestamp,
           };
-          settleEarlyStopLatch();
+          if (cancelError !== null) {
+            // Reject (not resolve) the latch. Mirrors the success
+            // path's bookkeeping (clear timer, null out shared
+            // slot, drop the request flag) so a follow-up
+            // `requestEarlyStop()` won't piggyback on the rejected
+            // promise.
+            if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
+            earlyStopDeferred.reject(cancelError);
+            earlyStopDeferred = null;
+            earlyStopRequested = false;
+          } else {
+            settleEarlyStopLatch();
+          }
           // Return the *checkpoint's* artifacts (the ones the user
           // just saved) — that's the work HMR went out of its way
           // to preserve before issuing cancel(). The previous
@@ -588,8 +609,10 @@ export function createTrainer(
 
     earlyStopRequested = true;
     let resolveFn!: () => void;
-    const promise = new Promise<void>((resolve) => {
+    let rejectFn!: (err: unknown) => void;
+    const promise = new Promise<void>((resolve, reject) => {
       resolveFn = resolve;
+      rejectFn = reject;
     });
     const timeoutMs = opts.timeoutMs ?? DEFAULT_EARLY_STOP_TIMEOUT_MS;
     const timer = setTimeout(() => {
@@ -625,7 +648,12 @@ export function createTrainer(
     // `Timer.unref` keeps the early-stop timer from blocking process exit
     // when the host runtime finishes for unrelated reasons.
     timer.unref?.();
-    earlyStopDeferred = { promise, resolve: resolveFn, timer };
+    earlyStopDeferred = {
+      promise,
+      resolve: resolveFn,
+      reject: rejectFn,
+      timer,
+    };
     return promise;
   }
 
