@@ -179,6 +179,37 @@ describe("detectYarnMajor", () => {
     expect(killed).toBe(true);
   });
 
+  // Round 40 (Copilot, PR #99): when the process exits in the
+  // exact window between the close-listener and the timeout
+  // callback firing, `kill("SIGKILL")` can throw. Without the
+  // try/catch around kill, that throw escapes into Node's
+  // setTimeout scope as an uncaughtException — crashing the
+  // process AND leaving the promise unresolved. Lock down the
+  // contract: kill() throwing must NOT prevent the timeout
+  // from settling the promise to undefined.
+  it("returns undefined when the timeout fires but kill() throws (race / signal-unsupported)", async () => {
+    vi.useFakeTimers();
+    spawnMock.mockImplementationOnce(() => {
+      const child = new EventEmitter();
+      Object.assign(child, {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        kill: vi.fn(() => {
+          throw new Error("ESRCH no such process");
+        }),
+      });
+      // Never emit close or error — force the timeout path.
+      return child;
+    });
+
+    const promise = detectYarnMajor("/fake/cwd");
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    const major = await promise;
+
+    expect(major).toBeUndefined();
+  });
+
   it("parses multi-digit majors correctly (e.g. 10.x → 10)", async () => {
     // Forward compatibility: `^(\d+)\.` is a greedy digit run, so
     // a hypothetical yarn 10 should parse to 10, not 1. Locked
