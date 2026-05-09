@@ -41,7 +41,7 @@ vi.mock("@arkor/cli-internal", () => {
     // recovery path can override both to `true` per-call.
     snapshotNodeModules: vi.fn(() => ({
       cwd: { exists: false, mtimeMs: 0 },
-      enclosing: { path: null, mtimeMs: 0 },
+      enclosing: new Map<string, number>(),
     })),
     nodeModulesChangedSince: vi.fn(() => false),
     isInGitRepo: vi.fn(async () => false),
