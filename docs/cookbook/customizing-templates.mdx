@@ -37,7 +37,7 @@ export const trainer = createTrainer({
 });
 ```
 
-`evalSteps: 25` is wired in by default so the run produces an eval-loss series alongside the training-loss curve — Studio's loss chart picks `evalLoss` up automatically, and the `onLog` callback above appends ` evalLoss=…` to the terminal line on the steps where the trainer evaluates (every 25 steps with `maxSteps: 100`, so four eval points per run). Each `field=…` segment is gated on `Number.isFinite` so eval-only steps don't print `loss=null` and training-only steps don't print `evalLoss=null` / `evalLoss=undefined`. Drop or change `evalSteps` if you don't want eval, and remove the `evalLoss` plumbing from `onLog` if you only care about training loss.
+`evalSteps: 25` is wired in by default so the run produces an eval-loss series alongside the training-loss curve — Studio's loss chart picks `evalLoss` up automatically, and the `onLog` callback above appends ` evalLoss=…` to the terminal line on the steps where the trainer evaluates (every 25 steps with `maxSteps: 100`, so four eval points per run). Each `field=…` segment is gated on `Number.isFinite` so eval-only steps don't print `loss=null` and training-only steps don't print `evalLoss=null` (the SDK normalizes both to `null` — `evalLoss` is typed as `number | null`). Drop or change `evalSteps` if you don't want eval, and remove the `evalLoss` plumbing from `onLog` if you only care about training loss.
 
 ## 1. Swap the dataset
 

@@ -57,7 +57,7 @@ Run `arkor login --oauth` later if you want to claim your work under an account.
 ### Pick a template
 
 The scaffolder asks which template you want.
-All three pair the same small open-weight base (`unsloth/gemma-4-E4B-it`) with a curated public dataset on HuggingFace, so the first run finishes in minutes.
+All three pair the same small open-weight base (`unsloth/gemma-4-e4b-it`) with a curated public dataset on HuggingFace, so the first run finishes in minutes.
 
 | Template    | Task            | Example                                                                                          | Dataset                     | Est. training |
 | ----------- | --------------- | ------------------------------------------------------------------------------------------------ | --------------------------- | ------------- |
@@ -119,7 +119,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,

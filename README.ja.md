@@ -57,7 +57,7 @@ pnpm dev
 ### テンプレートを選ぶ
 
 スキャフォルダーがどのテンプレートを使うかを尋ねます。
-3 つすべてが同じ小さなオープンウェイトベースモデル (`unsloth/gemma-4-E4B-it`) と HuggingFace 上の厳選されたパブリックデータセットを組み合わせており、最初の実行は数分で完了します。
+3 つすべてが同じ小さなオープンウェイトベースモデル (`unsloth/gemma-4-e4b-it`) と HuggingFace 上の厳選されたパブリックデータセットを組み合わせており、最初の実行は数分で完了します。
 
 | テンプレート | タスク           | 例                                                                                               | データセット                | 推定トレーニング時間 |
 | ------------ | ---------------- | ------------------------------------------------------------------------------------------------ | --------------------------- | -------------------- |
@@ -119,7 +119,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,

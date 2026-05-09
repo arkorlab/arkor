@@ -37,7 +37,7 @@ export const trainer = createTrainer({
 });
 ```
 
-`evalSteps: 25` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます — Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。各 `field=…` セグメントは `Number.isFinite` でガードされているので、eval-only ステップで `loss=null` が出たり、training-only ステップで `evalLoss=null` / `evalLoss=undefined` が出ることはありません。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 関連も合わせて削ってください。
+`evalSteps: 25` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます — Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。各 `field=…` セグメントは `Number.isFinite` でガードされているので、eval-only ステップで `loss=null` が出たり、training-only ステップで `evalLoss=null` が出ることはありません（SDK は欠損値を `null` に正規化し、`evalLoss` の型は `number | null` です）。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 関連も合わせて削ってください。
 
 ## 1. データセットを差し替える
 
