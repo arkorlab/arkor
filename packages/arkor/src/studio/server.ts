@@ -26,6 +26,18 @@ import { TrainRegistry, type RestartTarget } from "./trainRegistry";
  *  reads this off `Response.headers` and uses it to scope HMR
  *  `restart` events to the run *this* tab actually started. */
 const TRAIN_PID_HEADER = "x-arkor-train-pid";
+/**
+ * Anchor for picking the cloud-side job id out of the runner's
+ * stdout. `core/runner.ts` prints exactly one `Started job <id>\n`
+ * line after `trainer.start()` resolves; the server intercepts
+ * that line in `/api/train`'s stdout forwarder so it can POST
+ * `/v1/jobs/:id/cancel` to cloud-api on user-initiated cancel
+ * (SIGKILL bypasses the runner's own shutdown handlers — see the
+ * cancel() comment for the full rationale). The id capture group
+ * matches everything up to the trailing newline so cloud-api
+ * formats can change without rev'ing this regex.
+ */
+const STARTED_JOB_PATTERN = /Started job (\S+)/;
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
 function copyDeprecationHeaders(from: Headers, to: Headers): void {
@@ -452,6 +464,18 @@ export function buildStudioApp(options: StudioServerOptions) {
         // `String()` — same byte content, but allocates a new array.
         const onChunk = (d: Buffer): void => {
           if (closed) return;
+          // Watch for the runner's `Started job <id>` line so the
+          // cancel handler (below) can POST `/v1/jobs/:id/cancel`
+          // to cloud-api on user-initiated abort. SIGKILL bypasses
+          // the runner's `installShutdownHandlers`, so without
+          // this server-side cancel a Stop click would leave the
+          // cloud job running until TTL/reaper. Only parse until
+          // the id is recorded — the runner prints the line
+          // exactly once, right after `start()` resolves.
+          if (activeTrains.getJobId(child.pid) === null) {
+            const m = STARTED_JOB_PATTERN.exec(d.toString("utf8"));
+            if (m && m[1]) activeTrains.recordJobId(child.pid, m[1]);
+          }
           try {
             controller.enqueue(d);
           } catch {
@@ -554,9 +578,45 @@ export function buildStudioApp(options: StudioServerOptions) {
         // OS pipe keeps draining while the child checkpoints —
         // see `cancelTeardown` for the backpressure rationale.
         const earlyStopInFlight = activeTrains.isEarlyStopRequested(child.pid);
+        // Capture the cloud job id BEFORE unregistering — once the
+        // entry is gone, `getJobId(pid)` returns null and the
+        // fire-and-forget POST below would no-op.
+        const jobIdForCancel = activeTrains.getJobId(child.pid);
         activeTrains.unregister(child.pid);
         cancelTeardown?.();
         if (earlyStopInFlight) return;
+        // Fire-and-forget cloud-side cancel so the cloud job is
+        // released even though the SIGKILL below bypasses the
+        // runner's `installShutdownHandlers` (which would
+        // otherwise issue cancel itself via the graceful
+        // early-stop chain). Best-effort: we don't await because
+        // user-cancel UX should be snappy — the SIGKILL kills the
+        // local subprocess regardless of whether the cloud POST
+        // succeeded, and a transient cloud-api blip just means the
+        // job sits in "running" until the cloud reaper / TTL
+        // catches it (same fallback as a network drop). `jobId`
+        // is null when the runner never emitted its `Started job`
+        // line (early spawn failure, race against a fast cancel,
+        // custom user bin); skip the POST in that case.
+        if (jobIdForCancel) {
+          void (async () => {
+            try {
+              const state = await readState(trainCwd);
+              if (!state) return; // no scope, can't address the job
+              const rpc = createRpc();
+              await rpc.v1.jobs[":id"].cancel.$post({
+                param: { id: jobIdForCancel },
+                query: {
+                  orgSlug: state.orgSlug,
+                  projectSlug: state.projectSlug,
+                },
+              });
+            } catch {
+              // Best-effort: cloud-api transient failure or scope
+              // drift. Cloud reaper / TTL is the safety net.
+            }
+          })();
+        }
         // SIGKILL (not the default SIGTERM) for user-initiated
         // aborts. The runner's `installShutdownHandlers` now treats
         // a single SIGTERM as the HMR-driven "graceful early-stop"

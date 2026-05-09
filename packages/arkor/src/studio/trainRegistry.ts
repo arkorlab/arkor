@@ -46,6 +46,19 @@ export interface ActiveTrain {
    * internal to the registry; consumers shouldn't manage it.
    */
   earlyStopRequested?: boolean;
+  /**
+   * Cloud-side job id, captured by parsing the runner's
+   * `Started job <id>` stdout line shortly after spawn. Populated
+   * via `recordJobId(pid, id)` on the first matching chunk; null
+   * before that or for runs whose stdout we never saw the line on
+   * (early spawn failure, custom user bins, etc.). The
+   * `/api/train` cancel handler reads this to fire a fire-and-forget
+   * `POST /v1/jobs/:id/cancel` before SIGKILLing the subprocess —
+   * SIGKILL bypasses the runner's `installShutdownHandlers`, so
+   * without this server-side cancel the cloud-side job would live
+   * until the cloud reaper / TTL fires (continued GPU spend).
+   */
+  jobId: string | null;
 }
 
 export interface RestartTarget {
@@ -119,7 +132,7 @@ export class TrainRegistry {
     child: ChildProcess,
     init: Omit<
       ActiveTrain,
-      "child" | "earlyStopRequested" | "spawnArtifactHash"
+      "child" | "earlyStopRequested" | "spawnArtifactHash" | "jobId"
     > & {
       // Optional in the signature so tests / future callers that
       // don't track the on-disk artefact fingerprint (e.g. an HMR-
@@ -138,11 +151,47 @@ export class TrainRegistry {
       ...init,
       spawnArtifactHash: init.spawnArtifactHash ?? null,
       earlyStopRequested: false,
+      // `jobId` starts null — populated later by `recordJobId(pid,
+      // id)` when the server's stdout parser sees the runner's
+      // `Started job <id>` line. Tests that don't exercise the
+      // cancel-POST path can leave it null.
+      jobId: null,
     });
   }
 
   unregister(pid: number | undefined): void {
     if (typeof pid === "number") this.entries.delete(pid);
+  }
+
+  /**
+   * Record the cloud-side job id for an active child. Called by the
+   * server's `/api/train` stdout parser the first time it spots
+   * `Started job <id>` in the runner's output. Idempotent: a
+   * second call with the same pid + id is a no-op (the runner
+   * only prints the line once anyway). Unknown pids are silently
+   * dropped (the child may have already exited and unregistered).
+   */
+  recordJobId(pid: number | undefined, jobId: string): void {
+    if (typeof pid !== "number") return;
+    const entry = this.entries.get(pid);
+    if (!entry) return;
+    entry.jobId = jobId;
+  }
+
+  /**
+   * Read the recorded cloud-side job id for a pid. `/api/train`'s
+   * cancel handler consults this to POST `/v1/jobs/:id/cancel`
+   * before SIGKILLing the local subprocess — without that POST,
+   * a user-initiated stop would leave the cloud job running
+   * until TTL (the SIGKILL bypasses the runner's `installShutdownHandlers`
+   * so the runner can't issue cancel itself). Returns null when
+   * the pid is unknown or the runner hasn't printed its
+   * `Started job` line yet (early spawn failure, race against
+   * a fast cancel, custom user bins).
+   */
+  getJobId(pid: number | undefined): string | null {
+    if (typeof pid !== "number") return null;
+    return this.entries.get(pid)?.jobId ?? null;
   }
 
   /**
