@@ -82,7 +82,7 @@ Arkor はその基盤の上に立っています。
 - [x] **アカウントなしで試す。** `arkor dev` はそのまま新しい匿名ワークスペースで起動します。アカウントに紐付けたい場合は `arkor login --oauth` で Arkor Cloud の OAuth (PKCE) フローを開始してください。
 
 ## これから来るもの
-詳細な[ロードマップ](https://docs.arkor.ai/ja/roadmap)はドキュメントに掲載されています。
+詳細な[ロードマップ](https://docs.arkor.ai/ja/roadmap) はドキュメントに掲載されています。
 
 ## API のさわり
 
