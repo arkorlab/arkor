@@ -1713,6 +1713,40 @@ process.exit(0);
           target: { kind: "base_model", baseModel: "m" },
           authMode: "none",
         },
+        // runRetentionMode "bogus" — Codex round 79 P2 evidence:
+        // a primitive shape check used to let this through.
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+          runRetentionMode: "bogus",
+        },
+        // `runRetentionDays` without `runRetentionMode === "days"` —
+        // the discriminated coupling must reject this here so the
+        // server isn't asked to bootstrap a project just to
+        // disambiguate.
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+          runRetentionMode: "unlimited",
+          runRetentionDays: 7,
+        },
+        // mode "days" without runRetentionDays — mirror coupling.
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+          runRetentionMode: "days",
+        },
+        // Negative runRetentionDays (must be a positive integer).
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+          runRetentionMode: "days",
+          runRetentionDays: -1,
+        },
       ];
       for (const body of cases) {
         const res = await app.request("/api/deployments", {

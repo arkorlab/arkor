@@ -380,7 +380,18 @@ describe("createHashRouter (integration of side effects)", () => {
     goBackCalls: number;
     goForwardCalls: number;
     stampedSeqs: number[];
-    setHash: (hash: string) => void;
+    /**
+     * Construct a synthetic `HashChangeEvent` and feed it to the
+     * router. The fake `oldURL` / `newURL` follow the shape browsers
+     * actually emit (full hrefs with a hash fragment), which is what
+     * `createHashRouter` parses with `URL`.
+     */
+    fireHashChange: (
+      router: { onHashChange: (e: HashChangeEvent) => void },
+      newHash: string,
+      newSeq?: number | null,
+      prevHash?: string,
+    ) => void;
     setSeq: (seq: number | null) => void;
   };
 
@@ -389,8 +400,8 @@ describe("createHashRouter (integration of side effects)", () => {
     initialSeq: number | null,
     guards: NavigationGuard[] = [],
   ): Recorder {
-    let currentHash = initialHash;
     let currentSeq: number | null = initialSeq;
+    let lastDispatchedHash = initialHash;
     const routes: Route[] = [];
     const stampedSeqs: number[] = [];
     const rec: Recorder = {
@@ -398,18 +409,34 @@ describe("createHashRouter (integration of side effects)", () => {
       goBackCalls: 0,
       goForwardCalls: 0,
       stampedSeqs,
-      setHash: (h) => {
-        currentHash = h;
-        // Mock `withHash` so `parseRoute()` (which reads
-        // `window.location.hash` directly) returns the right route
-        // when `evaluateHashChange` calls it.
-        withHash(h);
+      fireHashChange: (router, newHash, newSeq, prevHash) => {
+        const oldHash = prevHash ?? lastDispatchedHash;
+        currentSeq = newSeq === undefined ? null : newSeq;
+        lastDispatchedHash = newHash;
+        // The router reads the new hash off `event.newURL`. We mirror
+        // the global `window.location.hash` too so any `parseRoute`
+        // that *did* slip through and consult the global doesn't see
+        // a stale value — the production path doesn't read it (the
+        // event is the source of truth), but a regression that does
+        // would surface in this test setup rather than silently
+        // pass.
+        withHash(newHash);
+        // `HashChangeEvent` isn't a constructor in the bare-Node test
+        // environment (no jsdom). The handler only reads `.newURL`
+        // and (for the rollback recursion) `.oldURL`, so a plain
+        // shape-compatible object is enough — cast through `unknown`
+        // because `HashChangeEvent` is a structural superset.
+        const event = {
+          type: "hashchange" as const,
+          oldURL: `http://localhost/${oldHash}`,
+          newURL: `http://localhost/${newHash}`,
+        } as unknown as HashChangeEvent;
+        router.onHashChange(event);
       },
       setSeq: (s) => {
         currentSeq = s;
       },
       deps: {
-        getCurrentHash: () => currentHash,
         getCurrentSeq: () => currentSeq,
         guards,
         setRoute: (r) => routes.push(r),
@@ -438,10 +465,7 @@ describe("createHashRouter (integration of side effects)", () => {
     const router = createHashRouter("#/", 0, rec.deps);
 
     // Browser-side: URL changes to the new hash, no seq yet.
-    rec.setHash("#/endpoints");
-    rec.setSeq(null);
-
-    router.onHashChange();
+    rec.fireHashChange(router, "#/endpoints", null, "#/");
 
     expect(rec.routes).toEqual([{ kind: "endpoints" }]);
     expect(rec.stampedSeqs).toEqual([1]);
@@ -459,10 +483,7 @@ describe("createHashRouter (integration of side effects)", () => {
     const rec = makeRecorder("#/endpoints/c", 2);
     const router = createHashRouter("#/endpoints/c", 2, rec.deps);
 
-    rec.setHash("#/endpoints/b");
-    rec.setSeq(1);
-
-    router.onHashChange();
+    rec.fireHashChange(router, "#/endpoints/b", 1, "#/endpoints/c");
 
     expect(rec.routes).toEqual([{ kind: "endpoint", id: "b" }]);
     expect(rec.stampedSeqs).toEqual([]);
@@ -485,10 +506,7 @@ describe("createHashRouter (integration of side effects)", () => {
     const rec = makeRecorder("#/endpoints/a", 5, guards);
     const router = createHashRouter("#/endpoints/a", 5, rec.deps);
 
-    rec.setHash("#/endpoints");
-    rec.setSeq(null);
-
-    router.onHashChange();
+    rec.fireHashChange(router, "#/endpoints", null, "#/endpoints/a");
 
     expect(denials).toBe(1);
     expect(rec.goBackCalls).toBe(1);
@@ -510,10 +528,7 @@ describe("createHashRouter (integration of side effects)", () => {
     const rec = makeRecorder("#/endpoints/b", 2, guards);
     const router = createHashRouter("#/endpoints/b", 2, rec.deps);
 
-    rec.setHash("#/endpoints/a");
-    rec.setSeq(1);
-
-    router.onHashChange();
+    rec.fireHashChange(router, "#/endpoints/a", 1, "#/endpoints/b");
 
     expect(rec.goForwardCalls).toBe(1);
     expect(rec.goBackCalls).toBe(0);
@@ -537,12 +552,38 @@ describe("createHashRouter (integration of side effects)", () => {
 
     // Dispatch a no-op hashchange (URL hasn't actually changed since
     // the last accepted navigation).
-    router.onHashChange();
+    rec.fireHashChange(router, "#/endpoints/a", 5, "#/endpoints/a");
 
     expect(guardCalls).toBe(0);
     expect(rec.goBackCalls).toBe(0);
     expect(rec.goForwardCalls).toBe(0);
     expect(rec.routes).toEqual([]);
+  });
+
+  it("uses event.newURL — not the live window.location.hash — to pick the route", () => {
+    // Regression: a fast back-to-back navigation can leave
+    // `window.location.hash` pointing at a *later* URL by the time
+    // the listener for the earlier hashchange runs. The handler must
+    // parse the route off `event.newURL` so it processes the hash
+    // *the event is for*, not whatever the global has drifted to.
+    const rec = makeRecorder("#/", 0);
+    const router = createHashRouter("#/", 0, rec.deps);
+
+    // Stage the global at `#/playground` (a later navigation that
+    // already advanced the URL bar) but dispatch the event for the
+    // earlier `#/jobs` transition.
+    withHash("#/playground");
+    rec.setSeq(null);
+    const event = {
+      type: "hashchange" as const,
+      oldURL: "http://localhost/#/",
+      newURL: "http://localhost/#/jobs",
+    } as unknown as HashChangeEvent;
+    router.onHashChange(event);
+
+    // The route must reflect the event's `newURL`, not the global.
+    expect(rec.routes).toEqual([{ kind: "jobs" }]);
+    expect(router.getLastHash()).toBe("#/jobs");
   });
 
   it("threads multiple accepted forward navigations and bumps seq each time", () => {
@@ -553,10 +594,10 @@ describe("createHashRouter (integration of side effects)", () => {
     const rec = makeRecorder("#/", 0);
     const router = createHashRouter("#/", 0, rec.deps);
 
+    let prev = "#/";
     for (const hash of ["#/jobs", "#/playground", "#/endpoints"]) {
-      rec.setHash(hash);
-      rec.setSeq(null);
-      router.onHashChange();
+      rec.fireHashChange(router, hash, null, prev);
+      prev = hash;
     }
 
     expect(rec.stampedSeqs).toEqual([1, 2, 3]);
@@ -576,14 +617,14 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
   // `history.back()` can actually move the URL.
   type StackEntry = { hash: string; state: unknown };
   type FakeWindow = {
-    location: { hash: string };
+    location: { hash: string; href: string };
     history: {
       state: unknown;
       replaceState(state: unknown, _: string, url: string): void;
       back(): void;
     };
-    addEventListener(type: string, l: () => void): void;
-    removeEventListener(type: string, l: () => void): void;
+    addEventListener(type: string, l: (e: Event) => void): void;
+    removeEventListener(type: string, l: (e: Event) => void): void;
     dispatchEvent(e: Event): void;
   };
 
@@ -591,12 +632,30 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
     initialHash: string;
     initialState?: unknown;
     backStack?: StackEntry[];
-  }): { fakeWindow: FakeWindow; calls: string[]; listenersFor: (t: string) => Set<() => void> } {
-    const listeners: Record<string, Set<() => void>> = {};
+  }): {
+    fakeWindow: FakeWindow;
+    calls: string[];
+    listenersFor: (t: string) => Set<(e: Event) => void>;
+  } {
+    const listeners: Record<string, Set<(e: Event) => void>> = {};
     const calls: string[] = [];
     const stack: StackEntry[] = [...(opts.backStack ?? [])];
     let hash = opts.initialHash;
     let state: unknown = opts.initialState ?? null;
+    function fireHashChange(oldHash: string, newHash: string) {
+      // `useHashRoute` reads `event.newURL` off the dispatched event,
+      // so the synthetic events the fake window emits have to carry
+      // that field — a bare `Event` would feed the handler an empty
+      // string and miss the navigation. Build a structural event and
+      // cast through `unknown`; `HashChangeEvent` isn't a constructor
+      // in the Node test env (no jsdom for this file).
+      const event = {
+        type: "hashchange",
+        oldURL: `http://localhost/${oldHash}`,
+        newURL: `http://localhost/${newHash}`,
+      } as unknown as Event;
+      for (const l of listeners["hashchange"] ?? []) l(event);
+    }
     const fakeWindow: FakeWindow = {
       location: {
         get hash() {
@@ -605,6 +664,9 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
         set hash(v: string) {
           hash = v;
           calls.push(`location.hash=${v}`);
+        },
+        get href() {
+          return `http://localhost/${hash}`;
         },
       },
       history: {
@@ -619,24 +681,26 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
         },
         back() {
           calls.push("history.back");
+          const prevHash = hash;
           const prev = stack.pop();
           if (!prev) return; // no-op when there's nothing to go back to
           hash = prev.hash;
           state = prev.state ?? null;
           // Mimic the browser firing `hashchange` after a same-document
-          // back navigation.
-          for (const l of listeners["hashchange"] ?? []) l();
+          // back navigation, including the `oldURL` / `newURL` fields
+          // listeners read.
+          fireHashChange(prevHash, hash);
         },
       },
-      addEventListener(type: string, l: () => void) {
+      addEventListener(type: string, l: (e: Event) => void) {
         (listeners[type] ??= new Set()).add(l);
       },
-      removeEventListener(type: string, l: () => void) {
+      removeEventListener(type: string, l: (e: Event) => void) {
         listeners[type]?.delete(l);
       },
       dispatchEvent(e: Event) {
         calls.push(`dispatch(${e.type})`);
-        for (const l of listeners[e.type] ?? []) l();
+        for (const l of listeners[e.type] ?? []) l(e);
       },
     };
     return {

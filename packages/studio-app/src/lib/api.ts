@@ -304,7 +304,17 @@ export interface Deployment {
   urlFormat: "openai_compat";
   enabled: boolean;
   customDomain: string | null;
-  runRetentionMode?: "unlimited" | "disabled" | "days";
+  /**
+   * Documented values are `unlimited` / `disabled` / `days`; the SDK
+   * and server intentionally treat this as an open enum so newer
+   * cloud-api builds can introduce additional modes (e.g. `"hours"`)
+   * without breaking older clients. The `(string & {})` intersection
+   * preserves autocomplete on the known literals while letting
+   * unknown strings flow through at runtime — match the SDK's
+   * `DeploymentRunRetentionMode` shape so any future UI switch logic
+   * has a `default` branch to handle in.
+   */
+  runRetentionMode?: "unlimited" | "disabled" | "days" | (string & {});
   runRetentionDays?: number;
   createdAt: string;
   updatedAt: string;

@@ -173,10 +173,14 @@ function readSeqFromState(): number | null {
  * interface so the per-`hashchange` handler can be unit-tested with
  * mocks for `back` / `forward` / `replaceState` / `setRoute` — the
  * actual integration-level logic that protects one-time API keys.
+ *
+ * The new hash is read off the dispatched `HashChangeEvent` (whose
+ * `newURL` reflects the URL that triggered the event), not from
+ * `window.location.hash`. That keeps the handler deterministic when a
+ * fast back-to-back navigation has already advanced the global URL by
+ * the time the listener runs — see `evaluateHashChange`'s docstring.
  */
 export interface HashRouterDeps {
-  /** Read `window.location.hash` (or a test stub). */
-  getCurrentHash: () => string;
   /** Read `history.state?.seq`, or `null` if absent. */
   getCurrentSeq: () => number | null;
   /** The active set of navigation guards. */
@@ -192,6 +196,22 @@ export interface HashRouterDeps {
 }
 
 /**
+ * Extract the hash fragment from a fully-qualified URL the way
+ * `HashChangeEvent.newURL` / `event.oldURL` deliver them. `URL` is a
+ * Node + browser global since at least Node 18 / Chromium 80, so we
+ * can lean on it without a polyfill. Falls back to a manual split for
+ * any malformed URL the test stubs might pass — defensive but cheap.
+ */
+function hashFromUrl(url: string): string {
+  try {
+    return new URL(url).hash;
+  } catch {
+    const idx = url.indexOf("#");
+    return idx === -1 ? "" : url.slice(idx);
+  }
+}
+
+/**
  * Create the per-`hashchange` handler used by `useHashRoute`. Returned
  * as an object so tests can also inspect `lastHash` / `lastSeq` after
  * dispatching synthetic events.
@@ -201,16 +221,24 @@ export function createHashRouter(
   initialSeq: number,
   deps: HashRouterDeps,
 ): {
-  onHashChange: () => void;
+  onHashChange: (event: HashChangeEvent) => void;
   getLastHash: () => string;
   getLastSeq: () => number;
 } {
   let lastHash = initialHash;
   let lastSeq = initialSeq;
   return {
-    onHashChange: () => {
+    onHashChange: (event: HashChangeEvent) => {
+      // Read the new hash off the event itself rather than
+      // `window.location.hash`. The two diverge under fast back-to-back
+      // navigations where the global URL has already moved past the
+      // event's URL by the time the listener fires; coupling to the
+      // global would let the SPA render a route for the *later* hash
+      // while this dispatch was meant for the earlier one. The event
+      // values are always the URLs that triggered *this* dispatch.
+      const newHash = hashFromUrl(event.newURL);
       const decision = evaluateHashChange({
-        newHash: deps.getCurrentHash(),
+        newHash,
         lastHash,
         currentSeq: deps.getCurrentSeq(),
         lastSeq,
@@ -222,7 +250,7 @@ export function createHashRouter(
         else deps.goForward();
         return;
       }
-      lastHash = deps.getCurrentHash();
+      lastHash = newHash;
       lastSeq = decision.newSeq;
       // Stamp the seq only when this entry doesn't already have one
       // (i.e. it's a freshly-pushed entry, not a revisit via Back /
@@ -256,8 +284,27 @@ export function createHashRouter(
  */
 export function navigateReplace(hash: string): void {
   if (window.location.hash === hash) return;
+  // Snapshot the URL *before* the replace so the synthetic
+  // `hashchange` carries an accurate `oldURL` — `useHashRoute`'s
+  // handler reads `event.newURL` (and tests can read `oldURL` for
+  // direction detection), so dispatching a bare `Event("hashchange")`
+  // without those fields would feed the handler a `newURL` of `""`
+  // and miss the new route entirely.
+  const oldURL = window.location.href;
   window.history.replaceState(window.history.state, "", hash);
-  window.dispatchEvent(new Event("hashchange"));
+  const newURL = window.location.href;
+  // Browsers expose `HashChangeEvent` as a constructor; the bare-Node
+  // test environment doesn't (`Event` is a global since Node 15, but
+  // `HashChangeEvent` is not). Feature-detect and fall back to a
+  // plain `Event` with the URL fields attached — listeners only read
+  // those properties, and `dispatchEvent` doesn't care about the
+  // exact constructor.
+  const HashChangeEventCtor =
+    typeof HashChangeEvent === "function" ? HashChangeEvent : null;
+  const event = HashChangeEventCtor
+    ? new HashChangeEventCtor("hashchange", { oldURL, newURL })
+    : Object.assign(new Event("hashchange"), { oldURL, newURL });
+  window.dispatchEvent(event);
 }
 
 /**
@@ -309,22 +356,28 @@ export function useHashRoute(): Route {
     // Anchor the initial entry with `seq: 0` so direction detection
     // works for the very first navigation. Preserve any pre-existing
     // state put there by other code (currently none, but cheap to do).
-    const existingState = (history.state ?? {}) as Record<string, unknown>;
+    //
+    // Use `window.history.*` (not the bare `history` global) for every
+    // read and write so tests that `vi.stubGlobal("window", …)` see
+    // their stubbed history — `vi.stubGlobal` only redefines the
+    // named global, and `history` and `window.history` resolve to
+    // different bindings under the stub. Mixing the two would let
+    // production code drift away from what the tests can observe.
+    const existingState = (window.history.state ?? {}) as Record<string, unknown>;
     const initialSeq =
       typeof existingState.seq === "number" ? existingState.seq : 0;
     if (typeof existingState.seq !== "number") {
-      history.replaceState({ ...existingState, seq: 0 }, "");
+      window.history.replaceState({ ...existingState, seq: 0 }, "");
     }
     const router = createHashRouter(window.location.hash, initialSeq, {
-      getCurrentHash: () => window.location.hash,
       getCurrentSeq: readSeqFromState,
       guards: navigationGuards,
       setRoute,
-      goBack: () => history.back(),
-      goForward: () => history.forward(),
+      goBack: () => window.history.back(),
+      goForward: () => window.history.forward(),
       stampSeq: (seq) => {
-        const state = (history.state ?? {}) as Record<string, unknown>;
-        history.replaceState({ ...state, seq }, "");
+        const state = (window.history.state ?? {}) as Record<string, unknown>;
+        window.history.replaceState({ ...state, seq }, "");
       },
     });
     window.addEventListener("hashchange", router.onHashChange);

@@ -103,21 +103,56 @@ const deploymentTargetSchema = z.union([
  * catches the easy mistakes (empty / wrong-case / leading-dash) that
  * would otherwise reach the bootstrap path.
  */
-export const createDeploymentRequestSchema = z.looseObject({
-  slug: z
-    .string()
-    .min(2)
-    .max(50)
-    .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
-  target: deploymentTargetSchema,
-  authMode: z.enum(["none", "fixed_api_key"]),
-  // Server-defaulted; Studio accepts but doesn't construct these.
-  // Keep as `unknown` rather than re-implementing the discriminated
-  // union here so a future server-side addition (`hours`, etc.) flows
-  // through without a synchronous SDK update.
-  runRetentionMode: z.unknown().optional(),
-  runRetentionDays: z.number().optional(),
-});
+export const createDeploymentRequestSchema = z
+  .looseObject({
+    slug: z
+      .string()
+      .min(2)
+      .max(50)
+      .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
+    target: deploymentTargetSchema,
+    authMode: z.enum(["none", "fixed_api_key"]),
+    // The retention fields are a discriminated coupling: `days` mode
+    // requires a positive integer `runRetentionDays`, the other modes
+    // forbid it (and unset omits both). Mirroring the SDK's closed
+    // enum here is intentional — Studio constructs these bodies, not
+    // arbitrary clients, so unknown modes would already be a Studio
+    // bug. The response decoder (`deploymentSchema` below) stays
+    // open-enum so a future server-side addition flows through to
+    // the SPA without a synchronous SDK release.
+    runRetentionMode: z
+      .enum(["unlimited", "disabled", "days"])
+      .optional(),
+    runRetentionDays: z.number().int().positive().optional(),
+  })
+  .superRefine((data, ctx) => {
+    // `runRetentionDays` is meaningful only with mode `days`, and
+    // mode `days` requires it. Catching both shapes here keeps a
+    // malformed body from entering `withDeploymentClient("create")`'s
+    // bootstrap branch on a fresh anonymous workspace.
+    if (
+      data.runRetentionDays !== undefined &&
+      data.runRetentionMode !== "days"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["runRetentionDays"],
+        message:
+          "runRetentionDays is only valid when runRetentionMode is \"days\".",
+      });
+    }
+    if (
+      data.runRetentionMode === "days" &&
+      data.runRetentionDays === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["runRetentionDays"],
+        message:
+          "runRetentionMode \"days\" requires a positive integer runRetentionDays.",
+      });
+    }
+  });
 
 const deploymentSchema = z.looseObject({
   id: z.string(),
