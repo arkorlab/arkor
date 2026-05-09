@@ -1,0 +1,41 @@
+---
+title: "トレーナー制御"
+description: "自前コードでランを駆動する: start、wait、cancel。"
+---
+
+# トレーナー制御
+
+[`createTrainer`](/ja/guides/sdk/create-trainer) が返す `Trainer` には 3 メソッドあります: `start`、`wait`、`cancel`。`arkor start` と Studio の **Run training** ボタンが裏で `start()` の後に `wait()` を呼びます。これらを自分で呼ぶのは、学習を自前のコード（サーバー、スクリプト、独自 CLI）に組み込むときだけです。
+
+```ts
+const { jobId } = await trainer.start();
+const { artifacts } = await trainer.wait();
+```
+
+- `start()` はジョブを投入し、バックエンドが受理した時点で resolve。
+- `wait()` は SSE イベントストリームを開き、コールバックを発火し、ランが終わったら resolve。
+- `cancel()` はバックエンドにラン停止を依頼。
+
+コールバックだけ使いたいなら `start` / `wait` を直接扱う必要はありません。それは `arkor start` の仕事です。CLI 外で動かすときに初めてこれらに触れます。
+
+## 待ちを途中でやめる
+
+ローカルの `wait()` ループだけバックエンド完了を待たずに止めたいなら、`createTrainer` に `abortSignal` を渡します:
+
+```ts
+const controller = new AbortController();
+
+const trainer = createTrainer({
+  /* ... */
+  abortSignal: controller.signal,
+});
+
+// 別のところから:
+controller.abort();
+```
+
+`abortSignal` はあくまでローカルループを止めます。バックエンドの GPU も止めたいなら、その後 `await trainer.cancel()` を呼んでください。
+
+## リファレンス
+
+reject vs resolve の正確な挙動、SSE 再接続のルール（`initialReconnectDelayMs`、`maxReconnectDelayMs`、`maxReconnectAttempts`）、`start()` の冪等保証、`SIGINT` 対応の完全なツープロセスパターンは [トレーナー制御リファレンス](/ja/sdk/trainer-control) を参照してください。

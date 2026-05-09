@@ -18,24 +18,24 @@ export interface Template {
   trainer: string;
 }
 
-// The three demo templates below pair `unsloth/gemma-4-E4B-it` with curated
+// The three demo templates below pair `unsloth/gemma-4-e4b-it` with curated
 // HuggingFace datasets published under the `arkorlab` org. Each dataset is in
 // OpenAI messages format (chatml), one sample per JSONL line, with the system
-// prompt baked into the conversation — so `datasetFormat: { type: "chatml" }`
+// prompt baked into the conversation - so `datasetFormat: { type: "chatml" }`
 // hands the right shape to the trainer's apply_chat_template step.
 //
-// Use `dryRun: true` for a 2–3 minute smoke test (50 rows, max_steps=10) before
+// Use `dryRun: true` for a 2-3 minute smoke test (50 rows, max_steps=10) before
 // committing to a full run.
 
 const REDACTION_TRAINER = `import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "redaction-run",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  lora: { r: 16, alpha: 16 },
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
   // Set dryRun: true for a fast end-to-end smoke test before a full run.
   // dryRun: true,
   callbacks: {
@@ -48,11 +48,11 @@ const TRANSLATE_TRAINER = `import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "translate-run",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/translate-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  lora: { r: 16, alpha: 16 },
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
@@ -64,11 +64,11 @@ const TRIAGE_TRAINER = `import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "triage-run",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  lora: { r: 16, alpha: 16 },
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
@@ -80,8 +80,8 @@ export const trainer = createTrainer({
 // CLI prompt lists demos first (sorted by estimated training time).
 //
 // Estimated training times assume A100 80GB on Runpod Serverless with the
-// template defaults (maxSteps: 100, batchSize: 4, LoRA r=16, 4-bit). Real
-// numbers depend on GPU availability + cold-start; treat them as ballparks.
+// template defaults (maxSteps: 100, batchSize: 4, LoRA r=16, full precision).
+// Real numbers depend on GPU availability + cold-start; treat them as ballparks.
 export const TEMPLATES: Record<TemplateId, Template> = {
   triage: {
     label: "Triage",

@@ -35,15 +35,17 @@ interface Arkor {
 
 The returned object is `Object.freeze`-d. There are no methods on it; the framework reads `_kind` and `trainer` directly.
 
-## What works today
+## Parameters
 
 - `trainer`: pass a `Trainer` produced by [`createTrainer`](/sdk/create-trainer). Optional in the type, but a manifest with no `trainer` cannot be run by `arkor start` (the runner throws ``Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.``).
 
-## Not yet
+## Reserved fields
 
 - `deploy` and `eval` slots. They appear in `ArkorInput` and `Arkor` as commented-out reserved fields. Passing them today is a type error, and there is no runtime path for them. Treat them as [roadmap markers](/roadmap#deploy-and-eval-slots), not as forward-compatible API.
 
-## Recognized export shapes
+## Behavior
+
+### Recognized export shapes
 
 `arkor start` (via `runTrainer`) inspects `src/arkor/index.ts` for one of three exports, in priority order:
 
@@ -64,3 +66,9 @@ if (isArkor(value)) {
 ```
 
 A small type guard exported alongside `createArkor` for code that consumes manifests dynamically. It checks that the value is a non-null object with `_kind === "arkor"` (it does **not** verify `Object.isFrozen`, even though `createArkor` itself produces a frozen value). Use it sparingly; in normal code the typed export from `index.ts` already gives you the right shape.
+
+## See also
+
+- [`createTrainer`](/sdk/create-trainer) for the `Trainer` you wrap
+- [Project structure § `src/arkor/`](/concepts/project-structure#srcarkor) for where the manifest is read from
+- [Roadmap § Deploy and eval slots](/roadmap#deploy-and-eval-slots) for the reserved fields' direction

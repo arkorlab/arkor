@@ -73,3 +73,9 @@ Deployment 関連の型のみエクスポート（[Deployments](/ja/sdk/deployme
 
 - `SDK_VERSION`: CLI と Studio サーバーがヘッダー / ログ用途で使います。深いパスから import しないでください。エクスポート契約は変わり得ます。
 - CLI コマンドランナー（`runBuild`、`runStart`、`runDev`、`runInit`、`runLogin`、`runLogout`、`runWhoami`）: `src/cli/commands/` 以下にあり、CLI 専用です。学習ランを駆動したいなら（上記の）`runTrainer` を使うか、`trainer.start()` / `trainer.wait()` を直接呼んでください。
+
+## 関連項目
+
+- [実行ライフサイクル](/ja/concepts/lifecycle): `start()` / `wait()` が実際に何をするか
+- [プロジェクト構成](/ja/concepts/project-structure): プロジェクト内でマニフェストとトレーナーがどこに置かれるか
+- [CLI 概要](/ja/cli/overview): SDK をシェルから駆動する面

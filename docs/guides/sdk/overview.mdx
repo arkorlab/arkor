@@ -1,0 +1,47 @@
+---
+title: "SDK overview"
+description: "The TypeScript primitives the CLI and Studio sit on top of."
+---
+
+# SDK overview
+
+The `arkor` package gives you three primitives that cover the typical project: define a [trainer](/guides/sdk/create-trainer), wrap it in a [project manifest](/guides/sdk/create-arkor), and let the CLI / Studio find it.
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+```ts
+// src/arkor/index.ts
+import { createArkor } from "arkor";
+import { trainer } from "./trainer";
+
+export const arkor = createArkor({ trainer });
+```
+
+That is the whole shape `arkor dev` and `arkor start` discover.
+
+## What's here
+
+| Topic | What you do with it |
+| --- | --- |
+| [`createTrainer`](/guides/sdk/create-trainer) | Define a fine-tuning run: model, dataset, LoRA, hyperparameters. |
+| [`createArkor`](/guides/sdk/create-arkor) | Wrap a trainer into the manifest the CLI reads. |
+| [`DatasetSource`](/guides/sdk/dataset) | Tell the trainer where data comes from (HuggingFace name or blob URL). |
+| [Callbacks](/guides/sdk/callbacks) | Hook into the run: forward metrics, evaluate checkpoints, send notifications. |
+| [`infer`](/guides/sdk/infer) | Call the in-flight model from inside `onCheckpoint`. |
+| [Trainer control](/guides/sdk/trainer-control) | `start`, `wait`, `cancel`, `abortSignal`. Use these when running outside the CLI. |
+| [Deployments](/guides/sdk/deployments) | Publish a trained adapter or base model at a `*.arkor.app` URL via `CloudApiClient`. |
+
+## Reference
+
+For full type signatures, all `TrainerInput` fields, the auxiliary helpers (`runTrainer`, `readCredentials`, etc.), and the public-vs-internal export contract, see the [SDK Reference](/sdk/overview).

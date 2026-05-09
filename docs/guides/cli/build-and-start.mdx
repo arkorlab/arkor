@@ -1,0 +1,66 @@
+---
+title: "arkor build / start"
+description: "Run a trainer without booting Studio."
+---
+
+# `arkor build` and `arkor start`
+
+`arkor build` bundles your project to a single ESM artifact. `arkor start` runs it. Together they are the headless equivalent of clicking **Run training** in Studio: use them in CI, on a server, or from any script that needs to drive a trainer without the UI.
+
+## Run it
+
+<CodeGroup>
+
+```bash pnpm
+pnpm build
+pnpm start
+```
+
+```bash npm
+npm run build
+npm start
+```
+
+```bash yarn
+yarn build
+yarn start
+```
+
+```bash bun
+bun run build
+bun start
+```
+
+</CodeGroup>
+
+`arkor build` writes `.arkor/build/index.mjs` from `src/arkor/index.ts`. `arkor start` imports that bundle, finds your trainer, and runs `start()` + `wait()` (the same pair Studio's button calls).
+
+If you skip the explicit `build` step, `arkor start` auto-builds on first run. From a script you usually want both steps so a build failure surfaces before training spins up.
+
+## Run a different entry once
+
+<CodeGroup>
+
+```bash pnpm
+pnpm start src/arkor/experiment.ts
+```
+
+```bash npm
+npm start -- src/arkor/experiment.ts
+```
+
+```bash yarn
+yarn start src/arkor/experiment.ts
+```
+
+```bash bun
+bun start src/arkor/experiment.ts
+```
+
+</CodeGroup>
+
+Passing an entry to `arkor start` rebuilds with that entry first, then runs.
+
+## Reference
+
+For the full argument matrix, the auto-build-on-missing rules, the export shapes the runner accepts, and every error message, see the [`arkor build` / `arkor start` reference](/cli/build-and-start).

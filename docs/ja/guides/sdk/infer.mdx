@@ -1,0 +1,36 @@
+---
+title: "infer"
+description: "チェックポイントコールバック内から学習中のモデルを呼ぶ。"
+---
+
+# `infer`
+
+[`onCheckpoint`](/ja/guides/sdk/callbacks) の中で SDK は `infer` という関数を渡してくれます。これを呼ぶと、今しがた保存されたチェックポイントに対する推論リクエストを実行し、生の `Response` が返ります。学習半ばのモデルを完了前に評価できる経路です。
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  const res = await infer({
+    messages: [{ role: "user", content: "I can't log in." }],
+  });
+  console.log(`step=${step}`, await res.text());
+}
+```
+
+デフォルトのレスポンスは SSE ストリームです（Studio の Playground が消費するのと同じ形）。単一 JSON ボディが欲しい場合は `stream: false`:
+
+```ts
+const res = await infer({ messages, stream: false });
+const data = await res.json();
+```
+
+`infer` は **`CheckpointContext` 上にのみ** 存在します。トップレベルの export はありません。コールバック引数として受け取るので、呼び出しが正しいジョブとステップに自動的にスコープされます。
+
+## よくあるシナリオ
+
+- **サニティーチェック。** ステップ 50 とステップ 100 の出力を固定プロンプトで比較。
+- **カスタム Early Stopping。** `abortSignal` + `cancel()` と組み合わせて、迷走したランを止める。[Early Stopping レシピ](/ja/cookbook/early-stopping) を参照。
+- **ライブプレビュー。** チェックポイントの出力を Slack や自前のレビューキューに転送。
+
+## リファレンス
+
+`InferArgs` の完全な形、ストリーミングと JSON のトレードオフ、SSE フレーム形式、別チェックポイント／別モデルへの再ターゲット制約、SSE デルタストリームのデコード方法は [`infer` リファレンス](/ja/sdk/infer) を参照してください。
