@@ -473,6 +473,19 @@ export function buildStudioApp(options: StudioServerOptions) {
         // round-trip through `TextEncoder`. The previous code did
         // `enc.encode(d)` which implicitly coerced the buffer via
         // `String()` — same byte content, but allocates a new array.
+        // Forward a chunk to the SPA stream. Shared between the
+        // stdout and stderr listeners — both paths surface as
+        // request body bytes for the SPA's log view.
+        const forward = (d: Buffer): void => {
+          if (closed) return;
+          try {
+            controller.enqueue(d);
+          } catch {
+            // Controller raced us into the closed state — flip the
+            // flag so subsequent chunks short-circuit.
+            closed = true;
+          }
+        };
         // Carry-over buffer for line-oriented job-id extraction.
         // Stream chunk boundaries are arbitrary — the runner's
         // single-line `Started job <id>` write can land split
@@ -488,16 +501,24 @@ export function buildStudioApp(options: StudioServerOptions) {
         // marker (the canonical line is well under 100 bytes).
         let stdoutLineBuf = "";
         const STARTED_JOB_BUFFER_CAP = 4096;
-        const onChunk = (d: Buffer): void => {
+        // STDOUT-ONLY job-id parser. The runner writes the canonical
+        // `Started job <id>` line via `process.stdout.write` — never
+        // stderr — so a single shared buffer across both pipes
+        // would mis-match in two ways:
+        //   1. A user `console.error("Started job <token>")` would
+        //      poison the buffer first; the real stdout marker
+        //      arrives later but our `getJobId(...) === null` gate
+        //      has already short-circuited subsequent scans, so
+        //      Stop-training POSTs cancel for the wrong (or
+        //      non-existent) job.
+        //   2. Interleaved stderr bytes could land between
+        //      "Started job " and "<id>\n" in the shared buffer,
+        //      breaking the anchored line match → missed match →
+        //      cloud cancel skipped on Stop.
+        // Two dedicated handlers share `forward` for the byte
+        // pipeline but only the stdout one runs the parse.
+        const onStdoutChunk = (d: Buffer): void => {
           if (closed) return;
-          // Watch for the runner's `Started job <id>` line so the
-          // cancel handler (below) can POST `/v1/jobs/:id/cancel`
-          // to cloud-api on user-initiated abort. SIGKILL bypasses
-          // the runner's `installShutdownHandlers`, so without
-          // this server-side cancel a Stop click would leave the
-          // cloud job running until TTL/reaper. Stop scanning
-          // once the id is recorded — the runner prints the line
-          // exactly once.
           if (activeTrains.getJobId(child.pid) === null) {
             stdoutLineBuf += d.toString("utf8");
             let nl = stdoutLineBuf.indexOf("\n");
@@ -519,13 +540,13 @@ export function buildStudioApp(options: StudioServerOptions) {
               stdoutLineBuf = stdoutLineBuf.slice(-STARTED_JOB_BUFFER_CAP);
             }
           }
-          try {
-            controller.enqueue(d);
-          } catch {
-            // Controller raced us into the closed state — flip the
-            // flag so subsequent chunks short-circuit.
-            closed = true;
-          }
+          forward(d);
+        };
+        const onStderrChunk = (d: Buffer): void => {
+          // Forward only — never scan for `Started job`. See
+          // `onStdoutChunk` comment for the cross-stream poisoning
+          // hazards this split prevents.
+          forward(d);
         };
         const enc = new TextEncoder();
         // Detach every listener this stream wired onto `child`. Called
@@ -540,8 +561,8 @@ export function buildStudioApp(options: StudioServerOptions) {
         // memory pressure for an `arkor dev` session that spawns many
         // children over hours.
         const detachListeners = (): void => {
-          child.stdout.off("data", onChunk);
-          child.stderr.off("data", onChunk);
+          child.stdout.off("data", onStdoutChunk);
+          child.stderr.off("data", onStderrChunk);
           child.off("close", onClose);
           child.off("error", onError);
         };
@@ -580,8 +601,8 @@ export function buildStudioApp(options: StudioServerOptions) {
             // already cancelled; nothing more to do.
           }
         };
-        child.stdout.on("data", onChunk);
-        child.stderr.on("data", onChunk);
+        child.stdout.on("data", onStdoutChunk);
+        child.stderr.on("data", onStderrChunk);
         child.on("close", onClose);
         child.on("error", onError);
         cancelTeardown = () => {
@@ -606,28 +627,31 @@ export function buildStudioApp(options: StudioServerOptions) {
         };
       },
       cancel() {
-        // Capture the early-stop flag *before* unregistering: the
-        // unregister wipes the entry, after which we can't tell
-        // whether HMR's `dispatchRebuild` had already SIGTERMed
-        // this child. If it had, sending another SIGTERM here
-        // would land as the *second* signal on the runner side and
-        // trigger `installShutdownHandlers`' emergency `exit(143)`
-        // fast-path — which bypasses the checkpoint-preserving
-        // early-stop + cloud `cancel()` flow and can leave the
-        // cloud run alive while the local subprocess dies. The HMR
-        // path is already driving the child to a clean exit, so we
-        // just unregister + flip `closed` (via `cancelTeardown`)
-        // and let it run. The data listeners stay attached so the
-        // OS pipe keeps draining while the child checkpoints —
-        // see `cancelTeardown` for the backpressure rationale.
-        const earlyStopInFlight = activeTrains.isEarlyStopRequested(child.pid);
+        // The SPA-side cancel is always *user-initiated* — either an
+        // explicit Stop click or tab-close/navigation, which the
+        // user just as explicitly chose. HMR-driven SIGTERMs go
+        // straight from the server to the runner via
+        // `dispatchRebuild`; they DO NOT trigger this handler
+        // (the SPA waits for the train stream's `exit=` line and
+        // schedules auto-restart, never aborting). So manual stop
+        // takes precedence over any in-flight HMR graceful path:
+        // we POST cloud cancel + SIGKILL unconditionally.
+        //
+        // SIGKILL is uncatchable so the long-standing
+        // "second-SIGTERM-triggers-exit(143)-fast-path" worry
+        // (which used to gate this branch on
+        // `isEarlyStopRequested`) doesn't apply. The runner's
+        // graceful early-stop chain may have been trying to
+        // preserve a checkpoint, but the user just said no — keep
+        // the local subprocess teardown snappy and let the
+        // server-side cancel POST handle the cloud-side release.
+        //
         // Capture the cloud job id BEFORE unregistering — once the
         // entry is gone, `getJobId(pid)` returns null and the
         // fire-and-forget POST below would no-op.
         const jobIdForCancel = activeTrains.getJobId(child.pid);
         activeTrains.unregister(child.pid);
         cancelTeardown?.();
-        if (earlyStopInFlight) return;
         // Fire-and-forget cloud-side cancel so the cloud job is
         // released even though the SIGKILL below bypasses the
         // runner's `installShutdownHandlers` (which would

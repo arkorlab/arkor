@@ -642,6 +642,108 @@ process.exit(0);
       expect(getCurrentCalls).toBe(1);
     });
 
+    it("/api/train job-id parser ignores stderr so a `Started job <token>` line on stderr can't hijack the cancel POST", async () => {
+      // Regression: the job-id detector used to consume both
+      // stdout AND stderr through a shared `onChunk` + shared
+      // line buffer. A user `console.error("Started job <token>")`
+      // on stderr would then poison the buffer first; the real
+      // stdout marker arrives later but our `getJobId(...) === null`
+      // gate has already short-circuited subsequent scans, so
+      // Stop-training POSTs cancel for the wrong (decoy) job and
+      // the real one keeps running — silent cloud orphan.
+      // Splitting into a stdout-only `onStdoutChunk` parser and a
+      // forward-only `onStderrChunk` makes stderr unable to
+      // populate `jobId` regardless of what the user logs there.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "stderr-test-org",
+          projectSlug: "stderr-test-project",
+          projectId: "p-stderr",
+        },
+        trainCwd,
+      );
+      // Bin emits a decoy `Started job <token>` to STDERR first
+      // (would poison the shared buffer), then the canonical real
+      // line to STDOUT, then hangs. With the split we expect the
+      // real id to win; with the bug the decoy would win.
+      const REAL_JOB_ID = "real-job-id";
+      const DECOY_JOB_ID = "decoy-from-stderr";
+      const fakeBin = join(trainCwd, "stderr-decoy-bin.mjs");
+      writeFileSync(
+        fakeBin,
+        `process.stderr.write("Started job ${DECOY_JOB_ID}\\n");
+        // Slight delay so stderr lands first.
+        setTimeout(() => {
+          process.stdout.write("Started job ${REAL_JOB_ID}\\n");
+        }, 30);
+        process.on("SIGTERM", () => {});
+        setInterval(() => {}, 60_000);
+        `,
+      );
+      let cancelHits: Array<{ url: string }> = [];
+      const ORIG_FETCH = globalThis.fetch;
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
+          cancelHits.push({ url });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+
+      try {
+        const app = buildStudioApp({
+          baseUrl: "http://mock-cloud-api",
+          assetsDir,
+          autoAnonymous: false,
+          studioToken: STUDIO_TOKEN,
+          cwd: trainCwd,
+          binPath: fakeBin,
+        });
+        const trainRes = await app.request("/api/train", {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:4000",
+            "x-arkor-studio-token": STUDIO_TOKEN,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        expect(trainRes.status).toBe(200);
+        // Drain until the REAL line is in the body. Both the
+        // decoy and the real line forward through to the SPA log
+        // stream, so both bytes show up here regardless of which
+        // (if any) the parser captures.
+        const reader = trainRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (!buf.includes(`Started job ${REAL_JOB_ID}`)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+        }
+        await reader.cancel();
+        await new Promise((r) => setTimeout(r, 200));
+
+        // The cancel POST must target the REAL id. With the bug
+        // the decoy would have been recorded first → cancelHits[0]
+        // would contain `decoy-from-stderr` instead.
+        expect(cancelHits).toHaveLength(1);
+        expect(cancelHits[0]?.url).toContain(`/v1/jobs/${REAL_JOB_ID}/cancel`);
+        expect(cancelHits[0]?.url).not.toContain(DECOY_JOB_ID);
+      } finally {
+        globalThis.fetch = ORIG_FETCH;
+      }
+    });
+
     it("/api/train cancel POSTs cloud /v1/jobs/:id/cancel so the cloud job is released even though SIGKILL bypasses the runner's shutdown handlers", async () => {
       // Regression: SIGKILL kills the runner without giving its
       // `installShutdownHandlers` a chance to issue the cloud
@@ -2011,6 +2113,127 @@ process.exit(0);
       await reader1.cancel();
       await reader2.cancel();
       expect(fake.subscriberCount).toBe(1);
+    });
+
+    it("/api/train cancel still fires cloud cancel POST + SIGKILL even when HMR has already requested early-stop", async () => {
+      // Regression: the cancel handler used to short-circuit
+      // (`if (earlyStopInFlight) return;`) when HMR's
+      // `dispatchRebuild` had already SIGTERMed the child for a
+      // graceful checkpoint-wait early-stop. That gate was added
+      // to avoid a second SIGTERM piling on top of the first
+      // (which would have triggered the runner's `exit(143)`
+      // emergency path and broken cloud cancel POSTing). With
+      // SIGKILL replacing the user-stop SIGTERM, the
+      // double-signal worry no longer applies — and the gate
+      // turned a Stop click during HMR's graceful window into a
+      // total no-op, leaving the run alive until checkpoint /
+      // 5-min timeout. Manual stop now overrides HMR's graceful
+      // path: server POSTs cloud cancel + SIGKILLs the
+      // subprocess regardless of `isEarlyStopRequested`.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "manual-override-org",
+          projectSlug: "manual-override-project",
+          projectId: "p-manual",
+        },
+        trainCwd,
+      );
+      const FAKE_JOB_ID = "manual-stop-during-hmr";
+      const fakeBin = join(trainCwd, "manual-during-hmr-bin.mjs");
+      // SIGTERM no-op so HMR's graceful SIGTERM doesn't terminate
+      // the bin — we need it alive so the subsequent manual
+      // cancel actually has something to SIGKILL.
+      writeFileSync(
+        fakeBin,
+        `process.stdout.write("Started job ${FAKE_JOB_ID}\\n");
+        process.on("SIGTERM", () => {});
+        setInterval(() => {}, 60_000);
+        `,
+      );
+      let cancelHits: Array<{ url: string }> = [];
+      const ORIG_FETCH = globalThis.fetch;
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
+          cancelHits.push({ url });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+
+      try {
+        const fake = fakeHmr("h1");
+        const app = buildStudioApp({
+          baseUrl: "http://mock-cloud-api",
+          assetsDir,
+          autoAnonymous: false,
+          studioToken: STUDIO_TOKEN,
+          cwd: trainCwd,
+          binPath: fakeBin,
+          hmr: fake.coordinator,
+        });
+        const trainRes = await app.request("/api/train", {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:4000",
+            "x-arkor-studio-token": STUDIO_TOKEN,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        expect(trainRes.status).toBe(200);
+        const pid = Number(trainRes.headers.get("x-arkor-train-pid"));
+        // Drain until the parser has recorded the job id.
+        const reader = trainRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (!buf.includes(`Started job ${FAKE_JOB_ID}`)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+        }
+        // Emit an HMR mismatch — server's dispatch SIGTERMs the
+        // bin and sets `earlyStopRequested = true` on the entry.
+        // The bin's SIGTERM no-op keeps it alive so the manual
+        // cancel below has a target.
+        fake.emit({
+          type: "ready",
+          outFile: "/tmp/x.mjs",
+          hash: "abc",
+          configHash: "h2", // mismatch with spawn-time "h1"
+          trainerName: "t",
+        });
+        // Let the dispatch run + signal land.
+        await new Promise((r) => setTimeout(r, 80));
+
+        // Manual cancel — old code would have early-returned; new
+        // code POSTs cloud cancel + SIGKILLs.
+        await reader.cancel();
+        await new Promise((r) => setTimeout(r, 250));
+
+        // Cloud cancel POST landed for the right job.
+        expect(cancelHits).toHaveLength(1);
+        expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
+        // And the bin is dead — SIGKILL bypassed its SIGTERM
+        // no-op (which had been masking HMR's earlier SIGTERM).
+        let probeError: NodeJS.ErrnoException | null = null;
+        try {
+          process.kill(pid, 0);
+        } catch (e) {
+          probeError = e as NodeJS.ErrnoException;
+        }
+        expect(probeError?.code).toBe("ESRCH");
+      } finally {
+        globalThis.fetch = ORIG_FETCH;
+      }
     });
 
     it("dispatches HMR signals for `ready` events too (not only `rebuild`)", async () => {

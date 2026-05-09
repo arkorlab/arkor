@@ -712,7 +712,10 @@ describe("runDev", () => {
       // Exit fires after `Promise.allSettled(asyncCleanups)` resolves —
       // a few microticks later. Flush to let the queued exit run.
       await flushMicrotasks();
-      expect(exitSpy).toHaveBeenCalledWith(0);
+      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) — see
+      // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
+      // the nonzero code to distinguish interrupt from clean exit.
+      expect(exitSpy).toHaveBeenCalledWith(130);
     } finally {
       exitSpy.mockRestore();
     }
@@ -754,7 +757,10 @@ describe("runDev", () => {
       // ran (best-effort `unlinkSync` swallows ENOENT) and the
       // exit-on-signal arm fired (after async cleanup tails settle).
       await flushMicrotasks();
-      expect(exitSpy).toHaveBeenCalledWith(0);
+      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) — see
+      // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
+      // the nonzero code to distinguish interrupt from clean exit.
+      expect(exitSpy).toHaveBeenCalledWith(130);
     } finally {
       exitSpy.mockRestore();
     }

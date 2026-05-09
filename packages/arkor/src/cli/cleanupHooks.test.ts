@@ -78,7 +78,11 @@ describe("registerCleanupHook", () => {
     await flushMicrotasks();
 
     expect(order).toEqual(["sync-cleanup", "async-cleanup-finished"]);
-    expect(codes).toEqual([0]);
+    // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) so parent
+    // shells / orchestrators can distinguish "user interrupted"
+    // from "ran to completion (0)" — see SIGNAL_EXIT_CODE in
+    // cleanupHooks.ts.
+    expect(codes).toEqual([130]);
   });
 
   it("waits for sibling async cleanups even when the exit-owning hook is registered FIRST", async () => {
@@ -133,7 +137,44 @@ describe("registerCleanupHook", () => {
     await flushMicrotasks();
 
     expect(order).toEqual(["sync-cleanup", "async-cleanup-finished"]);
-    expect(codes).toEqual([0]);
+    // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) so parent
+    // shells / orchestrators can distinguish "user interrupted"
+    // from "ran to completion (0)" — see SIGNAL_EXIT_CODE in
+    // cleanupHooks.ts.
+    expect(codes).toEqual([130]);
+  });
+
+  it("exits with the POSIX 128+signo code for each terminating signal (130/143/129)", async () => {
+    // Regression: the exit-owning hook used to always
+    // `process.exit(0)`, regardless of which signal fired the
+    // shutdown. Parent shells / orchestrators / CI runners that
+    // gate on signal-style nonzero status would mis-classify a
+    // Ctrl-C (SIGINT) as a clean run — `arkor dev || cleanup`
+    // would skip the cleanup branch and leave whatever it owned
+    // unreaped. POSIX convention is 128 + signo (SIGINT=2 → 130,
+    // SIGTERM=15 → 143, SIGHUP=1 → 129); SIGNAL_EXIT_CODE in
+    // cleanupHooks.ts pins the mapping.
+    const cases: Array<["SIGINT" | "SIGTERM" | "SIGHUP", number]> = [
+      ["SIGINT", 130],
+      ["SIGTERM", 143],
+      ["SIGHUP", 129],
+    ];
+    for (const [sig, expected] of cases) {
+      registerCleanupHook({ cleanup: () => {}, exitOnSignal: true });
+      const codes = mockExit();
+      process.emit(sig, sig);
+      // queueMicrotask + Promise.allSettled chain — two flushes
+      // mirror the existing tests.
+      await flushMicrotasks();
+      await flushMicrotasks();
+      expect(codes, `signal ${sig}`).toEqual([expected]);
+      // Reset for the next iteration's hook registration so the
+      // new SIGNAL_EXIT_CODE doesn't get clobbered by leftover
+      // listeners.
+      __resetCleanupHooksForTests();
+      exitSpy?.mockRestore();
+      exitSpy = null;
+    }
   });
 
   it("auto-detaches its process listeners after firing so they don't accumulate", () => {
@@ -206,6 +247,10 @@ describe("registerCleanupHook", () => {
     expect(invocations).toBe(1);
     // First SIGINT fires the handler → exit(0); follow-ups hit no
     // listener after auto-detach, so codes has exactly one entry.
-    expect(codes).toEqual([0]);
+    // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) so parent
+    // shells / orchestrators can distinguish "user interrupted"
+    // from "ran to completion (0)" — see SIGNAL_EXIT_CODE in
+    // cleanupHooks.ts.
+    expect(codes).toEqual([130]);
   });
 });

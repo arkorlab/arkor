@@ -1,5 +1,22 @@
 const TERMINATING_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
+/**
+ * POSIX-style exit code for a signal-terminated process: `128 + signo`.
+ * Parent shells / orchestrators rely on this to distinguish "user
+ * interrupted" (nonzero) from "ran to completion" (zero) — exiting 0
+ * for a SIGINT'd `arkor dev` would make CI / shell loops / `&&`
+ * chains misclassify the interruption as success. The numbers below
+ * are the canonical signo values from POSIX (1=HUP, 2=INT, 15=TERM).
+ */
+const SIGNAL_EXIT_CODE: Record<
+  (typeof TERMINATING_SIGNALS)[number],
+  number
+> = {
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGTERM: 143,
+};
+
 export interface CleanupHookOptions {
   /**
    * Idempotent cleanup body. Wrapped with a `done` guard so a noisy
@@ -106,6 +123,13 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       run();
       detach();
       if (!options.exitOnSignal) return;
+      // Capture which signal triggered shutdown so the exit code
+      // below reflects "interrupted by SIG<X>" (POSIX 128 + signo)
+      // rather than "ran to completion" (0). Parent shells /
+      // orchestrators / CI runners distinguish these — a script
+      // that runs `arkor dev || cleanup_on_failure` would otherwise
+      // mis-classify a Ctrl-C as success and skip its cleanup.
+      const exitCode = SIGNAL_EXIT_CODE[sig];
       // Snapshot `inFlightCleanups` AFTER every other signal listener
       // for this signal has run. Node's EventEmitter dispatches
       // listeners synchronously in registration order, so if the
@@ -127,7 +151,7 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       // microtask round-trip).
       queueMicrotask(() => {
         void Promise.allSettled([...inFlightCleanups]).then(() =>
-          process.exit(0),
+          process.exit(exitCode),
         );
       });
     });
