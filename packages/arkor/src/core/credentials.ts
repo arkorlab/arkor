@@ -103,19 +103,30 @@ export async function getToken(credentials: Credentials): Promise<string> {
  * Resolve the cloud API base URL the SDK / CLI should target.
  *
  * Priority order:
- *   1. `ARKOR_CLOUD_API_URL` env var (trailing slash stripped).
- *   2. `arkorCloudApiUrl` from anonymous credentials (set at signup).
- *      This is preferred over the production default for callers that
- *      have already loaded credentials, because anonymous tokens are
- *      bound to the endpoint that issued them — handing one to a
- *      different control plane would 401.
- *   3. The production endpoint `https://api.arkor.ai`.
+ *   1. `ARKOR_CLOUD_API_URL` env var (trailing slash stripped). Empty
+ *      string is honoured — an operator who set `=""` intentionally
+ *      (so a config error surfaces at first fetch instead of silently
+ *      hitting production) sees `""` propagated.
+ *   2. `arkorCloudApiUrl` from the loaded credentials. Both
+ *      `AnonymousCredentials` (stamped at signup) and
+ *      `Auth0Credentials` (stamped at `arkor login` time, since
+ *      `Auth0Credentials.arkorCloudApiUrl` was added) carry the URL
+ *      they were issued against, so subsequent runs keep targeting
+ *      the same staging / self-hosted control plane without
+ *      `ARKOR_CLOUD_API_URL` re-set. Empty string is honoured here
+ *      too for the same reason as the env var.
+ *   3. The production endpoint `https://api.arkor.ai`. This branch
+ *      catches missing `arkorCloudApiUrl` only — the legacy case for
+ *      OAuth tokens persisted before the field existed. Those
+ *      credentials need a re-login (or `ARKOR_CLOUD_API_URL` set
+ *      explicitly) to follow a non-production control plane.
  *
  * Exposed as a public helper because `CloudApiClient` requires an
- * explicit `baseUrl` and OAuth credentials don't carry one — without a
- * supported way to recover it, scripts that reuse `readCredentials()`
- * after `arkor login` would have no way to target the same staging /
- * self-hosted control plane the user actually authenticated against.
+ * explicit `baseUrl` and the SDK doesn't otherwise hand consumers a
+ * supported way to recover the credential-bound URL. Without it,
+ * scripts that reuse `readCredentials()` after `arkor login` would
+ * have no way to target the same staging / self-hosted control plane
+ * the user actually authenticated against.
  */
 export function defaultArkorCloudApiUrl(
   credentials?: Credentials | null,
