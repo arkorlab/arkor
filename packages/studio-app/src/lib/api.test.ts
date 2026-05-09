@@ -1,12 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  createDeployment,
+  createDeploymentKey,
+  deleteDeployment,
+  DeploymentApiError,
   extractInferenceDelta,
   fetchCredentials,
+  fetchDeployment,
+  fetchDeploymentKeys,
+  fetchDeployments,
   fetchJobs,
   fetchManifest,
   fetchMe,
+  revokeDeploymentKey,
   streamInferenceContent,
   streamTraining,
+  updateDeployment,
 } from "./api";
 
 describe("extractInferenceDelta", () => {
@@ -547,18 +556,6 @@ describe("streamInferenceContent abort", () => {
 // SPA sends to its own server so regressions in route paths or request
 // envelopes show up here rather than as silent SPA bugs.
 // ---------------------------------------------------------------------------
-
-import {
-  createDeployment,
-  createDeploymentKey,
-  deleteDeployment,
-  DeploymentApiError,
-  fetchDeployment,
-  fetchDeploymentKeys,
-  fetchDeployments,
-  revokeDeploymentKey,
-  updateDeployment,
-} from "./api";
 
 interface DeploymentFetchCall {
   url: string;

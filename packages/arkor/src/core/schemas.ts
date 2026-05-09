@@ -109,7 +109,10 @@ export const createDeploymentRequestSchema = z
       .string()
       .min(2)
       .max(50)
-      .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
+      .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, {
+        message:
+          "slug must be 2-50 chars, lowercase letters / digits / hyphens, starting and ending with a letter or digit (e.g. \"my-model\")",
+      }),
     target: deploymentTargetSchema,
     authMode: z.enum(["none", "fixed_api_key"]),
     // The retention fields are a discriminated coupling: `days` mode
