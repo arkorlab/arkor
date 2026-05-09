@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { runBuild } from "../cli/commands/build";
 import { hashJobConfig } from "../core/configHash";
 import { moduleCacheBustUrl } from "../core/moduleCacheBust";
@@ -71,6 +72,28 @@ export async function summariseBuiltManifest(
   };
 }
 
+export interface ReadManifestOptions {
+  /**
+   * HMR-aware fast path: when set and the file exists, skip the
+   * `runBuild()` call and inspect this artefact directly. The HMR
+   * coordinator already keeps `.arkor/build/index.mjs` continuously
+   * fresh via its rolldown watcher, so re-running `runBuild()` on
+   * every `/api/manifest` poll (every ~5 s + on every rebuild SSE
+   * event) is wasted CPU AND races the watcher writing to the
+   * same path. Pre-existence is checked with `existsSync` so the
+   * very first poll on a fresh scaffold (watcher's first
+   * BUNDLE_END hasn't completed yet) still bootstraps via
+   * `runBuild()`. Once the file appears, subsequent polls skip
+   * the rebuild.
+   *
+   * Pass `coordinator.outFile`-equivalent (e.g.
+   * `resolveBuildEntry({ cwd }).outFile`) here when the server has
+   * an active `HmrCoordinator`; leave undefined when HMR is off so
+   * the build path runs as before.
+   */
+  prebuiltOutFile?: string;
+}
+
 /**
  * Build the user's `src/arkor/index.ts` and import the artifact to
  * extract a serialisable summary of its manifest. The Studio UI hits
@@ -78,11 +101,17 @@ export async function summariseBuiltManifest(
  * trainer name today; deploy / eval slots when those primitives land).
  *
  * Each call rebuilds and re-imports so edits to the user's source
- * surface without restarting Studio.
+ * surface without restarting Studio. When `prebuiltOutFile` is
+ * supplied (HMR-enabled servers), the `runBuild()` step is bypassed
+ * — see `ReadManifestOptions.prebuiltOutFile` for the rationale.
  */
 export async function readManifestSummary(
   cwd: string,
+  opts: ReadManifestOptions = {},
 ): Promise<ManifestSummary> {
+  if (opts.prebuiltOutFile && existsSync(opts.prebuiltOutFile)) {
+    return summariseBuiltManifest(opts.prebuiltOutFile);
+  }
   const { outFile } = await runBuild({ cwd, quiet: true });
   return summariseBuiltManifest(outFile);
 }

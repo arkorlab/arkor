@@ -1341,6 +1341,116 @@ process.exit(0);
       const body = (await res.json()) as { trainer: unknown };
       expect(body.trainer).toBeNull();
     });
+
+    it("skips runBuild() when HMR is enabled and the watcher's artefact already exists", async () => {
+      // Regression: previously every `/api/manifest` poll triggered a
+      // fresh `runBuild()` even with HMR active, so the SPA's
+      // ~5 s polling + per-rebuild SSE refetch would re-bundle on
+      // every poll AND race the watcher writing to the same
+      // `.arkor/build/index.mjs`. The fast path inspects the
+      // pre-existing artefact directly when HMR's coordinator is
+      // wired in. We assert by pre-writing a hand-rolled artefact
+      // bundle and verifying `/api/manifest` returns its trainer
+      // *without* the source file existing — `runBuild()` would
+      // throw on the missing entry, so a 200 here proves we never
+      // called it.
+      await writeCredentials(ANON_CREDS);
+      // Write the artefact that the HMR watcher would have produced.
+      // Mirrors the seed fixture's shape: `_kind: "arkor"` + trainer
+      // with the four required methods.
+      mkdirSync(join(trainCwd, ".arkor/build"), { recursive: true });
+      writeFileSync(
+        join(trainCwd, ".arkor/build/index.mjs"),
+        `const trainer = {
+          name: "hmr-fast-path",
+          start: async () => ({ jobId: "j" }),
+          wait: async () => ({ job: {}, artifacts: [] }),
+          cancel: async () => {},
+        };
+        export const arkor = { _kind: "arkor", trainer };
+        export default arkor;
+        `,
+      );
+      // Notice: NO `src/arkor/index.ts`. `runBuild()` would fail with
+      // "Build entry not found" — the test fails if the fast path
+      // regresses and falls through to it.
+      const fakeHmr = {
+        subscribe: () => () => undefined,
+        getCurrentConfigHash: () => null,
+        getCurrentArtifactHash: () => null,
+        async dispose() {},
+      };
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fakeHmr,
+      });
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        trainer: { name: string } | null;
+      };
+      expect(body.trainer).toEqual({ name: "hmr-fast-path" });
+    });
+
+    it("falls back to runBuild() when HMR is enabled but the watcher hasn't produced an artefact yet", async () => {
+      // Companion to the fast-path test: on a fresh scaffold the
+      // watcher's first BUNDLE_END may not have completed by the
+      // time the SPA's first /api/manifest poll lands. Without the
+      // existsSync gate we'd `await import(missing)` and 400
+      // forever (the watcher's later writes don't retroactively
+      // make this poll succeed); with the gate we bootstrap via
+      // `runBuild()` for that single call.
+      await writeCredentials(ANON_CREDS);
+      mkdirSync(join(trainCwd, "src/arkor"), { recursive: true });
+      writeFileSync(
+        join(trainCwd, "src/arkor/index.ts"),
+        `export const arkor = Object.freeze({
+          _kind: "arkor",
+          trainer: {
+            name: "fallback-build",
+            start: async () => ({ jobId: "j" }),
+            wait: async () => ({ job: {}, artifacts: [] }),
+            cancel: async () => {},
+          },
+        });`,
+      );
+      // No pre-existing `.arkor/build/index.mjs` — the artefact
+      // doesn't exist. `existsSync` is false → `runBuild()` runs.
+      const fakeHmr = {
+        subscribe: () => () => undefined,
+        getCurrentConfigHash: () => null,
+        getCurrentArtifactHash: () => null,
+        async dispose() {},
+      };
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fakeHmr,
+      });
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        trainer: { name: string } | null;
+      };
+      expect(body.trainer).toEqual({ name: "fallback-build" });
+    });
   });
 
   describe("/api/inference/chat", () => {

@@ -16,6 +16,7 @@ import { recordDeprecation, tapDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
 import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
+import { resolveBuildEntry } from "../core/rolldownConfig";
 import { readManifestSummary } from "./manifest";
 import type { HmrCoordinator, HmrEvent } from "./hmr";
 import { TrainRegistry, type RestartTarget } from "./trainRegistry";
@@ -258,9 +259,25 @@ export function buildStudioApp(options: StudioServerOptions) {
     return new Response(body, { status: res.status, headers });
   });
 
+  // Pre-resolved outFile for the HMR fast path. The path is
+  // deterministic per cwd (defaults from `BUILD_DEFAULTS`), so we
+  // compute it once at app build time rather than on every request.
+  // Only used when HMR is enabled — `readManifestSummary` falls
+  // back to `runBuild()` when this is undefined or the file doesn't
+  // exist yet (fresh scaffold pre-watcher-bootstrap).
+  const hmrOutFile = options.hmr
+    ? resolveBuildEntry({ cwd: trainCwd }).outFile
+    : undefined;
   app.get("/api/manifest", async (c) => {
     try {
-      const manifest = await readManifestSummary(trainCwd);
+      // HMR-aware fast path: when `arkor dev` wired in a coordinator,
+      // skip the per-request `runBuild()` and read the watcher's
+      // already-built artefact. Without this every SPA poll
+      // (~5 s + per-rebuild SSE refetch) would re-bundle and race
+      // the watcher writing to the same `.arkor/build/index.mjs`.
+      const manifest = await readManifestSummary(trainCwd, {
+        prebuiltOutFile: hmrOutFile,
+      });
       return c.json(manifest);
     } catch (err) {
       // The user's `src/arkor/index.ts` may not exist yet (fresh scaffold) or
