@@ -310,7 +310,20 @@ export function createTrainer(
           infer,
           artifacts: event.artifacts,
         };
-        await callbacks.onCheckpoint?.(ctx);
+        // Capture (don't propagate yet) any throw from the user's
+        // `onCheckpoint`. The early-stop branch below MUST run
+        // even on a callback throw — without this wrap a thrown
+        // `onCheckpoint` would skip the cancel + latch settlement,
+        // leaving the SIGTERM handler waiting on the deferred
+        // until the (default 5-min) timeout fires. Surface the
+        // original throw via re-throw at the end so `wait()`'s
+        // reconnect / failure path keeps its existing semantics.
+        let onCheckpointError: unknown = null;
+        try {
+          await callbacks.onCheckpoint?.(ctx);
+        } catch (err) {
+          onCheckpointError = err;
+        }
         // Early-stop latch: a checkpoint just landed, so the in-flight work
         // is durable. Cancel the cloud job and end `wait()` cleanly.
         if (earlyStopRequested && earlyStopDeferred) {
@@ -370,11 +383,21 @@ export function createTrainer(
           // HMR-driven early-stop resolved `wait()` with empty
           // `artifacts` even though the checkpoint event carried
           // the very artifacts the early-stop existed to keep.
+          // Surface the user's `onCheckpoint` throw (if any) so
+          // `wait()`'s reconnect / failure path keeps the same
+          // semantics it had before the wrap — the checkpoint
+          // workload is preserved, but the user still sees their
+          // callback error.
+          if (onCheckpointError !== null) throw onCheckpointError;
           return {
             terminal: true,
             artifacts: (event.artifacts ?? []) as unknown[],
           };
         }
+        // Same re-throw on the non-early-stop branch: keep
+        // `wait()`'s reconnect loop seeing the user's original
+        // callback error so reconnection counters work as before.
+        if (onCheckpointError !== null) throw onCheckpointError;
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
       }
       case "training.completed": {
@@ -621,9 +644,19 @@ export function createTrainer(
       // resolves, the checkpoint branch may have nulled out the shared
       // slot, but this fallback path still owns the deferred it created.
       const active = earlyStopDeferred;
+      // Capture (don't swallow) any cancel error so we can surface it
+      // through the deferred's reject path. Mirrors the checkpoint
+      // branch — a swallow here lets the runner's
+      // `installShutdownHandlers` exit "successfully" while the cloud
+      // job lives on (orphaned GPU spend with zero diagnostic), the
+      // exact failure mode that a "stop-after-checkpoint" deadline
+      // exists to PREVENT from going silent.
+      let cancelError: unknown = null;
       trainer
         .cancel()
-        .catch(() => {})
+        .catch((err) => {
+          cancelError = err;
+        })
         .finally(() => {
           // Mirror the checkpoint-triggered early-stop branch: reset
           // the latch and reflect the cancellation locally so a
@@ -641,7 +674,15 @@ export function createTrainer(
               completedAt: new Date().toISOString(),
             };
           }
-          if (active) active.resolve();
+          if (active) {
+            // Resolve on success, REJECT on cancel failure so the
+            // SIGTERM handler's `.catch()` writes the error to
+            // stderr and the operator can see that the cloud job
+            // may still be live. The latch always settles either
+            // way — shutdown won't hang.
+            if (cancelError !== null) active.reject(cancelError);
+            else active.resolve();
+          }
           if (earlyStopDeferred === active) earlyStopDeferred = null;
         });
     }, timeoutMs);

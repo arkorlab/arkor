@@ -29,11 +29,19 @@ export interface CleanupHookOptions {
   cleanup: () => void | Promise<void>;
   /**
    * Whether the signal-handler arm of this registration should call
-   * `process.exit(0)` once every in-flight cleanup (this hook + any
+   * `process.exit` once every in-flight cleanup (this hook + any
    * siblings registered in the same process) has settled. Use `true`
    * for the outermost cleanup responsible for terminating the
    * process; `false` for inner cleanups that should let a sibling
    * own the exit. Default: `false`.
+   *
+   * The exit code is the POSIX `128 + signo` for the signal that
+   * triggered shutdown — 130 for SIGINT, 143 for SIGTERM, 129 for
+   * SIGHUP (see `SIGNAL_EXIT_CODE`). Parent shells / orchestrators /
+   * CI runners distinguish "user interrupted" (nonzero) from "ran
+   * to completion" (zero) on this — exiting 0 for a Ctrl-C'd
+   * `arkor dev` would let `arkor dev || cleanup_on_failure` skip
+   * its cleanup branch.
    */
   exitOnSignal?: boolean;
 }
@@ -41,10 +49,10 @@ export interface CleanupHookOptions {
 /**
  * Module-scoped tracker of cleanup promises that haven't settled yet.
  * The exit-owning hook waits on the union of (its own cleanup) +
- * (every other in-flight cleanup) before calling `process.exit(0)`,
+ * (every other in-flight cleanup) before calling `process.exit(...)`,
  * so a fire-and-forget async cleanup in a sibling registration —
  * `hmr.dispose()` is the canonical example — isn't cut off by an
- * eager exit.
+ * eager exit. (Exit code is signal-specific — see `SIGNAL_EXIT_CODE`.)
  *
  * Auto-prunes via the `.finally(() => inFlightCleanups.delete(...))`
  * each `run()` attaches, so the set doesn't grow without bound across
@@ -142,7 +150,7 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       // sibling's freshly-registered promise. Without this, an
       // `arkor dev` whose `scheduleStudioTokenCleanup` (exitOnSignal:
       // true) was registered before `scheduleHmrCleanup` (async
-      // dispose) would `process.exit(0)` mid-`hmr.dispose()` and
+      // dispose) would `process.exit(...)` mid-`hmr.dispose()` and
       // leak the rolldown watcher.
       //
       // Settled promises pass through `Promise.allSettled` in a

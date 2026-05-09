@@ -1523,6 +1523,134 @@ describe("createTrainer (early stop)", () => {
     expect(result.job.status).toBe("cancelled");
   });
 
+  it("early-stop branch still settles when the user's onCheckpoint callback throws (no SIGTERM hang)", async () => {
+    // Regression: the early-stop branch ran AFTER
+    // `await callbacks.onCheckpoint?.(ctx)`. A user-callback throw
+    // would propagate out of that await before the early-stop
+    // cancel + latch settlement could run, leaving
+    // `earlyStopDeferred` pending. The runner's
+    // `installShutdownHandlers` awaits that deferred → SIGTERM
+    // shutdown hangs until the (default 5-min) timeout fallback
+    // fires. The fix wraps `onCheckpoint` in try/catch, runs the
+    // early-stop branch unconditionally, then re-throws the
+    // captured callback error so wait()'s reconnect loop keeps
+    // its prior semantics.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 3\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+        type: "checkpoint.saved",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        step: 10,
+      })}\n\n`,
+    ];
+    let cancelCalls = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        cancelCalls += 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    let armedPromise: Promise<void> | null = null;
+    let armedResult: "resolved" | "rejected" | "pending" = "pending";
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: () => {
+            if (armedPromise === null) {
+              armedPromise = requestTrainerEarlyStop(trainer, {
+                timeoutMs: 60_000,
+              });
+              armedPromise.then(
+                () => {
+                  armedResult = "resolved";
+                },
+                () => {
+                  armedResult = "rejected";
+                },
+              );
+            }
+          },
+          onCheckpoint: () => {
+            // User callback throws DURING the checkpoint that
+            // would normally trigger early-stop. Without the
+            // try/catch wrap this throw would skip the
+            // early-stop branch → latch pending → SIGTERM hang
+            // for up to 60s (our `timeoutMs`).
+            throw new Error("user onCheckpoint boom");
+          },
+        },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        // Cap reconnects at 0 so the user-callback throw
+        // surfaces as a wait() rejection instead of
+        // looping forever (handleFailure would otherwise
+        // reconnect after the throw escapes dispatch).
+        maxReconnectAttempts: 0,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      // wait() rejects — handleFailure wraps the user callback
+      // throw because maxReconnectAttempts is 0.
+      await expect(trainer.wait()).rejects.toThrow();
+      // Critical: the latch SETTLED via the early-stop branch
+      // (resolve), not via the 60-second timeout. The cancel POST
+      // also fired (early-stop reached the cancel call before the
+      // throw was re-raised). Together: shutdown wouldn't hang.
+      await new Promise((r) => setImmediate(r));
+      expect(armedResult).toBe("resolved");
+      expect(cancelCalls).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("early-stop checkpoint branch rejects the deferred when cancel() throws (visible to shutdown handler)", async () => {
     // Regression: previously, an `await trainer.cancel()` that threw
     // (network failure / cloud-api 5xx during the cancel POST) was
@@ -1964,6 +2092,93 @@ describe("createTrainer (early stop)", () => {
       // checkpoint-triggered branch, the second call hits the
       // TERMINAL_STATUSES short-circuit and is a true no-op.
       await requestTrainerEarlyStop(trainer, { timeoutMs: 5 });
+      expect(cancelCalls).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("timeout fallback rejects the deferred when cancel() throws (visible to shutdown handler)", async () => {
+    // Companion to the checkpoint-branch reject test: when no
+    // checkpoint arrives within `timeoutMs`, the timeout fallback
+    // does its own `trainer.cancel()`. Old code swallowed cancel
+    // errors and ALWAYS resolved the deferred — same false-success
+    // failure mode as the checkpoint branch had: local runner
+    // exits cleanly while the cloud job keeps consuming GPU
+    // budget. The fix mirrors the checkpoint reject path: capture
+    // the error and reject the deferred so the runner's
+    // `.catch()` writes it to stderr.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null =
+      null;
+    const stallingStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller;
+        const enc = new TextEncoder();
+        controller.enqueue(
+          enc.encode(
+            `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+              type: "training.started",
+              jobId: "j-stop",
+              timestamp: "2026-01-01T00:00:01Z",
+            })}\n\n`,
+          ),
+        );
+      },
+    });
+
+    let cancelCalls = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(stallingStream, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        cancelCalls += 1;
+        // Close the stream so wait() exits its loop even though we
+        // throw on the cancel POST itself.
+        streamController?.close();
+        // Simulate cloud-api unreachable mid-cancel (transport).
+        throw new TypeError("fetch failed");
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.start();
+      // Tiny timeout so the timeout fallback fires fast (no
+      // checkpoint will land — stream only carries
+      // training.started). The returned promise should REJECT
+      // because the cancel POST throws.
+      await expect(
+        requestTrainerEarlyStop(trainer, { timeoutMs: 5 }),
+      ).rejects.toThrow(/fetch failed/);
       expect(cancelCalls).toBe(1);
     } finally {
       globalThis.fetch = original;
