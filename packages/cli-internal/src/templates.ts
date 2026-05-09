@@ -24,6 +24,16 @@ export interface Template {
 // prompt baked into the conversation - so `datasetFormat: { type: "chatml" }`
 // hands the right shape to the trainer's apply_chat_template step.
 //
+// Note on the model id casing: Arkor Cloud requires the model id to be
+// fully lowercase (`unsloth/gemma-4-e4b-it`) — this is a backend
+// constraint, NOT the HuggingFace canonical form. The HF model is
+// published as `unsloth/gemma-4-E4B-it` (mixed case), and HF's web URL
+// resolves both spellings via case-insensitive redirects, but the
+// arkor cloud-api routes the string verbatim and rejects mixed-case
+// variants. Keep all model-id occurrences in starter templates, the
+// Studio base-model allowlist, and arkor docs aligned to the
+// lowercase form so scaffolded projects don't 4xx on first run.
+//
 // `evalSteps: 25` is wired in by default so a fresh scaffold produces both
 // training and eval loss out of the box — Studio's loss chart picks the
 // `evalLoss` series up automatically, and `onLog` prints it on the steps

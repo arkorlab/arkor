@@ -1,9 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { TEMPLATES, type TemplateId } from "./templates";
 
-const TEMPLATE_IDS: readonly TemplateId[] = ["triage", "translate", "redaction"];
+// Derive the id list from `TEMPLATES` (rather than hard-coding it) so a
+// new template added to the registry is automatically covered by the
+// per-template assertions below. The companion test then re-asserts
+// the expected set so an accidental rename / removal of an existing
+// template still fails loudly instead of silently shrinking coverage.
+const TEMPLATE_IDS = Object.keys(TEMPLATES) as TemplateId[];
 
 describe("templates", () => {
+  it("registers exactly the expected starter templates", () => {
+    expect(new Set(TEMPLATE_IDS)).toEqual(
+      new Set<TemplateId>(["triage", "translate", "redaction"]),
+    );
+  });
+
   describe.each(TEMPLATE_IDS)("%s template", (id) => {
     const trainer = TEMPLATES[id].trainer;
 
