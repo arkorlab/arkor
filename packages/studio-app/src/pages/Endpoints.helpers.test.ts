@@ -182,6 +182,51 @@ describe("pollDeploymentsForSlug", () => {
     expect(onUpdate).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it("forwards the external signal into the delay so an abort mid-wait short-circuits", async () => {
+    // Regression for the inter-attempt delay being non-abort-aware:
+    // a `controller.abort()` during the wait window has to break the
+    // loop within roughly the AbortSignal's dispatch latency, not
+    // after the full `delayMs`. The default `abortableDelay` races
+    // the timer against the signal — verify by recording the
+    // `(ms, signal)` pair `pollDeploymentsForSlug` actually passes
+    // and confirming that aborting via that signal flushes the wait.
+    const ctrl = new AbortController();
+    const observed: Array<{ ms: number; signal: AbortSignal }> = [];
+    let calls = 0;
+    await pollDeploymentsForSlug({
+      slug: "never",
+      signal: ctrl.signal,
+      fetchDeployments: async () => {
+        calls++;
+        return { deployments: [] };
+      },
+      onUpdate: () => undefined,
+      onError: () => {
+        throw new Error("should not error on abort");
+      },
+      delayMs: 10_000,
+      delay: (ms, signal) => {
+        observed.push({ ms, signal });
+        return new Promise<void>((resolve) => {
+          if (signal.aborted) return resolve();
+          signal.addEventListener("abort", () => resolve(), { once: true });
+          // Abort on the next microtask so the call site is already
+          // awaiting `delay` when the signal fires — exercises the
+          // real "abort mid-delay" path, not "abort before delay".
+          queueMicrotask(() => ctrl.abort());
+        });
+      },
+    });
+    // attempt 0 fires `fetchDeployments` once before any wait; the
+    // pre-delay path then enters the wait we abort, and the
+    // post-delay `signal.aborted` check breaks the loop without
+    // calling `fetchDeployments` a second time.
+    expect(calls).toBe(1);
+    expect(observed).toHaveLength(1);
+    expect(observed[0]!.signal).toBe(ctrl.signal);
+    expect(observed[0]!.ms).toBe(10_000);
+  });
 });
 
 describe("setupKeyIssueGuards", () => {

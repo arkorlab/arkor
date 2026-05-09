@@ -107,14 +107,18 @@ export class CloudApiClient {
       fetch: options.fetch,
       clientVersion: SDK_VERSION,
       // The wrapper around the deprecation callback works around a bug
-      // in `@arkor/cloud-api-client` (alpha.2) where the runtime feeds
-      // the handler's `void` return into `typeof result.then ===
-      // 'function'` and logs `[@arkor/cloud-api-client] onDeprecation
-      // handler threw; ignoring:` on every deprecated response.
-      // Returning `null` short-circuits that check (`null !== null` is
-      // false) without changing the recorded-deprecation behavior, and
-      // matches the wrapper applied in `studio/server.ts`. Drop this
-      // the next alpha that ships the upstream fix.
+      // in `@arkor/cloud-api-client` (alpha.2): the upstream runtime
+      // probes the handler's return value with
+      // `result !== null && typeof result.then === "function"`, then
+      // wraps `result.catch(...)`. A `void` return makes
+      // `typeof undefined.then` throw inside `try`, and the surrounding
+      // catch logs `[@arkor/cloud-api-client] onDeprecation handler
+      // threw; ignoring:` on every deprecated response — even though
+      // the user handler ran fine. Returning `null` short-circuits the
+      // left side of the `&&`, so the `.then` access never runs and
+      // the spurious log goes away. Same pattern is mirrored in
+      // `studio/server.ts`. Drop this once an alpha ships the
+      // upstream fix.
       onDeprecation: (notice) => {
         (options.onDeprecation ?? recordDeprecation)(notice);
         return null;

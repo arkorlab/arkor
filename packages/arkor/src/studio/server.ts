@@ -220,13 +220,14 @@ export function buildStudioApp(options: StudioServerOptions) {
       // value synchronously instead of re-deriving it.
       token: () => rpcToken,
       clientVersion: SDK_VERSION,
-      // The wrapper around `recordDeprecation` is a workaround for a
-      // bug in `@arkor/cloud-api-client` where a `void` return is fed
-      // into `typeof result.then === 'function'`, which throws and
-      // logs `[@arkor/cloud-api-client] onDeprecation handler threw;
-      // ignoring:` on every deprecated response. Returning `null`
-      // short-circuits that check (`null !== null` is false) without
-      // changing the recorded-deprecation behavior.
+      // The wrapper around `recordDeprecation` works around the same
+      // alpha.2 bug documented in `core/client.ts`: upstream guards
+      // `.then(...)` with `result !== null && typeof result.then ===
+      // "function"`, but the inner `.then` probe still throws on a
+      // `void` return and the surrounding try/catch logs every
+      // deprecated response as a "handler threw" entry. Returning
+      // `null` short-circuits the left side of the `&&` so the probe
+      // never runs and the spurious log goes away.
       onDeprecation: (notice) => {
         recordDeprecation(notice);
         return null;

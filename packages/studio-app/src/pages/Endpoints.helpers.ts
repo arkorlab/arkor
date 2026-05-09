@@ -41,9 +41,35 @@ export interface PollDeploymentsForSlugOptions {
   /**
    * Indirection for the wait between attempts. Real callers don't pass
    * this; tests inject a synchronous resolver to step through attempts
-   * deterministically.
+   * deterministically. The `signal` argument is forwarded so the
+   * default timer-based implementation can short-circuit the wait
+   * window when the caller aborts mid-delay (otherwise the next
+   * attempt would still fire after up to `delayMs` of stale waiting).
    */
-  delay?: (ms: number) => Promise<void>;
+  delay?: (ms: number, signal: AbortSignal) => Promise<void>;
+}
+
+/**
+ * Default abortable sleep used by `pollDeploymentsForSlug`. Resolves
+ * either when the timer fires or when `signal` aborts — whichever
+ * comes first. The post-resolve `signal.aborted` checks in the polling
+ * loop turn an aborted wake-up into an immediate return, so a caller
+ * that aborts mid-delay observes cancellation within roughly the
+ * AbortSignal's dispatch latency rather than `delayMs`.
+ */
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /**
@@ -71,12 +97,12 @@ export async function pollDeploymentsForSlug(
     onError,
     maxAttempts = 6,
     delayMs = 500,
-    delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    delay = abortableDelay,
   } = options;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (signal.aborted) return;
     if (attempt > 0) {
-      await delay(delayMs);
+      await delay(delayMs, signal);
     }
     if (signal.aborted) return;
     try {
