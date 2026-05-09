@@ -325,6 +325,53 @@ describe("TrainRegistry", () => {
     expect(respawn.kill).toHaveBeenCalledTimes(1);
   });
 
+  it("dispatchRebuild on win32 routes hash-matches directly to SIGTERM-restart (skips SIGUSR2 attempt)", () => {
+    // Regression: Node's `child.kill("SIGUSR2")` on Windows is
+    // documented to **forcefully terminate** the process (treats
+    // any unknown POSIX signal as SIGKILL-equivalent) and STILL
+    // returns `true` like a successful delivery. `safeKill` would
+    // then report `"ok"` → entry lands in `hotSwapTargets` → SPA
+    // shows "hot-swap" and skips restart, but the child is already
+    // dead. The Codex P1 fix gates the SIGUSR2 attempt behind
+    // `process.platform !== "win32"` so win32 routes straight to
+    // SIGTERM-restart, surfacing a real restart target the SPA can
+    // act on.
+    const originalPlatform = Object.getOwnPropertyDescriptor(
+      process,
+      "platform",
+    );
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    try {
+      const reg = new TrainRegistry();
+      const a = fakeChild(951);
+      a.kill.mockReturnValue(true); // win32 reports success even for SIGUSR2
+      reg.register(a as unknown as ChildProcess, {
+        configHash: "match",
+        trainFile: "/tmp/win.ts",
+      });
+      const result = reg.dispatchRebuild("match");
+      // Restart bucket only — hot-swap is unsafe on win32 even
+      // when kill() reported "ok".
+      expect(result.hotSwapTargets).toEqual([]);
+      expect(result.restartTargets).toEqual([
+        { pid: 951, trainFile: "/tmp/win.ts" },
+      ]);
+      // SIGUSR2 was NEVER attempted: the platform gate skipped it
+      // entirely and went straight to the SIGTERM fallback path.
+      // (Without the gate, SIGUSR2 would have fired first and been
+      // misclassified as a successful hot-swap.)
+      expect(a.kill).toHaveBeenCalledTimes(1);
+      expect(a.kill).toHaveBeenCalledWith("SIGTERM");
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+    }
+  });
+
   it("dispatchRebuild degrades to SIGTERM-restart when SIGUSR2 is unsupported (Windows)", () => {
     // Regression: Node's win32 build doesn't deliver SIGUSR2 (it
     // throws "ENOSYS" inside `child.kill('SIGUSR2')`). The previous

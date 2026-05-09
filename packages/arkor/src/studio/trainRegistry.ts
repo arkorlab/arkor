@@ -258,19 +258,37 @@ export class TrainRegistry {
         entry.configHash === nextConfigHash;
 
       if (matches) {
-        const r = safeKill(entry.child, "SIGUSR2");
-        if (r === "ok") {
-          hotSwapTargets.push(target);
-          continue;
+        // On Windows, Node's `child.kill(signal)` for any unknown
+        // POSIX signal (including SIGUSR2) is documented to
+        // **forcefully terminate** the process — same effect as
+        // SIGKILL — and `kill()` returns `true` like a successful
+        // delivery. `safeKill` would then report `"ok"`, the entry
+        // would land in `hotSwapTargets`, and the SPA would never
+        // schedule a restart even though the child is *dead*. Skip
+        // the SIGUSR2 attempt on win32 entirely and route directly
+        // to the SIGTERM-restart path so the SPA learns about the
+        // pending restart and re-spawns when the exit line arrives.
+        // The user-visible outcome (callbacks reload after a brief
+        // restart) matches the design intent on platforms where
+        // the in-place hot-swap simply isn't available.
+        if (process.platform !== "win32") {
+          const r = safeKill(entry.child, "SIGUSR2");
+          if (r === "ok") {
+            hotSwapTargets.push(target);
+            continue;
+          }
+          if (r === "gone") {
+            // Child already exited; close handler will unregister.
+            continue;
+          }
+          // Cross-platform safety net: SIGUSR2 reported `"unsupported"`
+          // on a non-win32 platform (rare — `ENOSYS` from libuv signal
+          // wrap on exotic builds, future Node versions removing the
+          // signal, etc.). Same fallback as the win32 skip above:
+          // route to SIGTERM-restart so callback edits still take
+          // effect via a full restart instead of silently being
+          // ignored.
         }
-        if (r === "gone") {
-          // Child already exited; close handler will unregister.
-          continue;
-        }
-        // Windows fallback: SIGUSR2 isn't supported on win32 — degrade
-        // to a full restart so callback edits don't silently fail to
-        // apply. The user-visible result (callbacks reload after a
-        // brief restart) matches the design intent.
         const fallback = safeKill(entry.child, "SIGTERM");
         if (fallback === "ok") {
           entry.earlyStopRequested = true;

@@ -557,6 +557,29 @@ export function buildStudioApp(options: StudioServerOptions) {
         activeTrains.unregister(child.pid);
         cancelTeardown?.();
         if (earlyStopInFlight) return;
+        // SIGKILL (not the default SIGTERM) for user-initiated
+        // aborts. The runner's `installShutdownHandlers` now treats
+        // a single SIGTERM as the HMR-driven "graceful early-stop"
+        // signal — wait for the next checkpoint (up to ~5 min
+        // timeout) before exiting. That semantics is right for the
+        // HMR path but wrong for a Stop-training click: the user
+        // wants the run STOPPED, not left running in the background
+        // for minutes consuming GPU/cloud spend while the UI has
+        // already settled to idle. SIGKILL is uncatchable so the
+        // child dies immediately, eliminating the
+        // unregister-before-graceful-exit window where a fast new
+        // run could overlap an old one untracked by HMR routing.
+        //
+        // Trade-off: the runner can't POST `/v1/jobs/:id/cancel` to
+        // cloud-api on its way out (its early-stop chain is
+        // bypassed). The cloud-side job is left orphaned until the
+        // server reaper / TTL kicks in. This matches the pre-PR
+        // behaviour (the runner had no signal handler at all then;
+        // SIGTERM also killed it without cloud cancel). Sending a
+        // direct `/v1/jobs/:id/cancel` from the server here is a
+        // separate follow-up — would need the jobId, which the
+        // server doesn't currently parse out of stdout.
+        //
         // `ChildProcess.kill()` can throw (ESRCH if the process has
         // already exited between this handler's invocation and the
         // signal delivery). A throw here would surface as an unhandled
@@ -564,7 +587,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         // handler — swallow it; the close handler above has already
         // taken the entry out of the registry.
         try {
-          child.kill();
+          child.kill("SIGKILL");
         } catch {
           // already gone; nothing to clean up.
         }

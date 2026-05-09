@@ -642,6 +642,71 @@ process.exit(0);
       expect(getCurrentCalls).toBe(1);
     });
 
+    it("/api/train cancel sends SIGKILL so user-initiated stop bypasses the runner's graceful early-stop", async () => {
+      // Regression: a default `child.kill()` sends SIGTERM, which
+      // the runner's `installShutdownHandlers` now interprets as a
+      // graceful early-stop request (wait for the next checkpoint,
+      // up to ~5 min). For HMR-driven cancels that's correct, but
+      // for a Stop-training click the user wants the run STOPPED
+      // immediately — leaving it running in the background for
+      // minutes consuming GPU spend silently is a regression
+      // introduced by this PR's graceful-shutdown work. We assert
+      // SIGKILL by giving the bin a SIGTERM no-op handler: SIGTERM
+      // would be swallowed and the bin would stay alive; SIGKILL
+      // is uncatchable and reaps the process unconditionally.
+      // Probe liveness with `process.kill(pid, 0)` (ESRCH ⇒ gone).
+      await writeCredentials(ANON_CREDS);
+      const hangingBin = join(trainCwd, "hanging-bin.mjs");
+      writeFileSync(
+        hangingBin,
+        // SIGTERM swallowed; setInterval keeps the event loop
+        // alive forever absent SIGKILL.
+        `process.on("SIGTERM", () => {});
+        setInterval(() => {}, 60_000);
+        `,
+      );
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: hangingBin,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      const pid = Number(res.headers.get("x-arkor-train-pid"));
+      expect(Number.isFinite(pid)).toBe(true);
+
+      // Trigger the cancel() handler.
+      await res.body!.cancel();
+
+      // Give the OS a moment to deliver SIGKILL and reap.
+      await new Promise((r) => setTimeout(r, 300));
+
+      // `process.kill(pid, 0)` is the standard "is this pid alive?"
+      // probe — sends signal 0 (no-op) but the syscall still
+      // surfaces ESRCH for non-existent pids. SIGKILL → reaped →
+      // ESRCH. SIGTERM (with the bin's no-op handler) → still
+      // alive → no throw → test fails.
+      let probeError: NodeJS.ErrnoException | null = null;
+      try {
+        process.kill(pid, 0);
+      } catch (e) {
+        probeError = e as NodeJS.ErrnoException;
+      }
+      expect(probeError).not.toBeNull();
+      expect(probeError?.code).toBe("ESRCH");
+    });
+
     it("/api/train cancel handler doesn't crash when child.kill() throws", async () => {
       // Regression: `ReadableStream.cancel()` called `child.kill()`
       // without a try/catch. If the child had already exited (ESRCH
