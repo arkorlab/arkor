@@ -8,11 +8,6 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
 ## In progress
 
 <CardGroup cols={2}>
-  <Card title="Broader base model support" icon="cubes" href="/sdk/create-trainer">
-    <div id="more-base-models" />
-    Expand support beyond Gemma 4 to additional open-weight model families, so the `model` field becomes a real menu instead of a single supported value.
-  </Card>
-
   <Card title="Structured output" icon="brackets-curly" href="/sdk/create-trainer">
     <div id="structured-output" />
     Let a fine-tuned model return typed fields (for example `{ urgency, nextAction }` from a triage run) instead of free-form text, with the output schema declared in your project as a TypeScript type.
@@ -51,6 +46,11 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
     <div id="studio-dry-run" />
     Surface the existing dry-run option in the Studio UI for fast smoke tests before kicking off a full training run.
   </Card>
+
+  <Card title="Full Gemma 4 family support" icon="layer-group" href="/sdk/create-trainer">
+    <div id="gemma-4-family" />
+    Cover the full Gemma 4 family in the `model` field. Today every starter template uses `gemma-4-E4B-it`; opening up the rest of the family lets you pick the size that fits your latency and quality budget.
+  </Card>
 </CardGroup>
 
 ## Backlog
@@ -84,6 +84,11 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
   <Card title="On-device model templates" icon="mobile-screen">
     <div id="on-device-templates" />
     Templates aimed at small models suitable for WebGPU and mobile targets.
+  </Card>
+
+  <Card title="Broader base model support" icon="cubes" href="/sdk/create-trainer">
+    <div id="more-base-models" />
+    Expand support beyond the Gemma 4 family to additional open-weight model families, so the `model` field becomes a real menu instead of a single supported value. We're concentrating on the Gemma 4 family in this earliest stage so we can deliver fast, stable inference and training to as many people as possible.
   </Card>
 
   <Card title="Multimodal training" icon="images" href="/sdk/create-trainer">

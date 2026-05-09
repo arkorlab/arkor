@@ -25,7 +25,7 @@
             "groups": [
               {
                 "group": "Get started",
-                "pages": ["introduction", "quickstart"]
+                "pages": ["introduction", "quickstart", "models"]
               },
               {
                 "group": "Concepts",
@@ -134,7 +134,7 @@
             "groups": [
               {
                 "group": "はじめに",
-                "pages": ["ja/introduction", "ja/quickstart"]
+                "pages": ["ja/introduction", "ja/quickstart", "ja/models"]
               },
               {
                 "group": "コンセプト",

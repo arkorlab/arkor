@@ -556,6 +556,115 @@ describe("createTrainer (SSE event stream)", () => {
     }
     expect(inferResponseText).toBe("hello from checkpoint 5");
   });
+
+  it("forwards infer({ tools, toolChoice, responseFormat, structuredOutputs }) verbatim through to /v1/inference/chat", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const jobRow = {
+      id: "j7",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    const sse = [
+      `id: 1\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+        type: "checkpoint.saved",
+        jobId: "j7",
+        timestamp: "2026-01-01T00:00:01Z",
+        step: 7,
+      })}\n\n`,
+      `id: 2\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j7",
+        timestamp: "2026-01-01T00:00:02Z",
+      })}\n\n`,
+    ];
+    const fetcher = mockFetch([
+      {
+        method: "POST",
+        path: "/v1/jobs?",
+        body: JSON.stringify({ job: jobRow }),
+        status: 201,
+      },
+      {
+        method: "GET",
+        path: "/v1/jobs/j7/events/stream",
+        body: sseStream(sse),
+        headers: { "content-type": "text/event-stream" },
+      },
+      {
+        method: "POST",
+        path: "/v1/inference/chat",
+        body: "ack",
+        headers: { "content-type": "text/plain" },
+      },
+    ]);
+    const tools = [
+      {
+        type: "function" as const,
+        function: {
+          name: "search",
+          parameters: { type: "object", properties: { q: { type: "string" } } },
+        },
+      },
+    ];
+    const responseFormat = { type: "json_object" as const };
+    const structuredOutputs = { regex: "^OK$" };
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onCheckpoint: async ({ infer }) => {
+            await infer({
+              messages: [{ role: "user", content: "hi" }],
+              tools,
+              toolChoice: { type: "function", function: { name: "search" } },
+              responseFormat,
+              structuredOutputs,
+              stream: false,
+            });
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 5 },
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.wait();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    const calls = (fetcher as unknown as {
+      calls: Array<{ url: string; init?: RequestInit }>;
+    }).calls;
+    const chatCall = calls.find((c) => c.url.includes("/v1/inference/chat"));
+    expect(chatCall).toBeDefined();
+    const body = JSON.parse(chatCall!.init?.body as string) as Record<
+      string,
+      unknown
+    >;
+    // The trainer's infer() helper is the path users plug their tool /
+    // structured-output knobs into during a run — pin that nothing gets
+    // dropped before reaching cloud-api.
+    expect(body.tools).toEqual(tools);
+    expect(body.toolChoice).toEqual({
+      type: "function",
+      function: { name: "search" },
+    });
+    expect(body.responseFormat).toEqual(responseFormat);
+    expect(body.structuredOutputs).toEqual(structuredOutputs);
+    expect(body.adapter).toEqual({ kind: "checkpoint", jobId: "j7", step: 7 });
+  });
 });
 
 // Regression for ENG-406 — the previous reconnect loop had no upper bound

@@ -22,7 +22,7 @@ export const trainer = createTrainer({
 ## The fields you reach for first
 
 - `name`: shows up in Studio and in cloud-side logs. Pick something specific.
-- `model`: the base open-weight model. Templates use `unsloth/gemma-4-e4b-it`.
+- `model`: the base open-weight model. Templates use `gemma-4-E4B-it`. See [Supported models](/models).
 - `dataset`: where the training data lives. See [`DatasetSource`](/guides/sdk/dataset).
 - `lora`: LoRA / QLoRA knobs. `r: 16, alpha: 16` is a fine default; omit to take the backend default.
 - `maxSteps` or `numTrainEpochs`: cap how long the run goes.
