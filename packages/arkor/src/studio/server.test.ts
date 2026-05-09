@@ -1663,6 +1663,82 @@ process.exit(0);
       expect(endpointIdx).toBeGreaterThan(projectIdx);
     });
 
+    it("distinguishes JSON-parse failure from valid-but-falsy bodies", async () => {
+      // Codex round 81 P2: `if (!body)` would lump `false`, `0`, `""`
+      // in with parse failures and surface "Invalid JSON" — masking
+      // the actual shape problem. Parse failure stays "Invalid JSON
+      // body"; valid-but-falsy bodies hit the schema validator and
+      // get a useful 400 about the missing fields.
+      await writeCredentials(ANON_CREDS);
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called");
+      }) as typeof fetch;
+      const app = build();
+      // 1. Genuine parse failure → "Invalid JSON body".
+      const malformedRes = await app.request("/api/deployments", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: "{not json",
+      });
+      expect(malformedRes.status).toBe(400);
+      expect((await malformedRes.json()).error).toBe("Invalid JSON body");
+
+      // 2-4. Valid JSON, valid-but-falsy → schema rejects with the
+      // structured `Invalid deployment create body` envelope, NOT
+      // the "Invalid JSON" generic.
+      for (const body of ["false", "0", '""']) {
+        const res = await app.request("/api/deployments", {
+          method: "POST",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body,
+        });
+        expect(res.status).toBe(400);
+        const out = (await res.json()) as { error?: string };
+        expect(out.error).not.toBe("Invalid JSON body");
+        expect(out.error).toMatch(/Invalid deployment create body/);
+      }
+      expect(upstreamCalls).toBe(0);
+    });
+
+    it("rejects PATCH / key-create bodies that aren't JSON objects (no upstream call)", async () => {
+      // Same pattern as the POST guard, but for the routes that
+      // delegate shape-validation to the cloud API (PATCH, key
+      // create). Local 400 with a deterministic message instead of a
+      // round-trip to cloud-api just to surface the same rejection.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called");
+      }) as typeof fetch;
+      const app = build();
+
+      for (const body of ["false", "0", '""', "[]"]) {
+        const patchRes = await app.request("/api/deployments/dep-1", {
+          method: "PATCH",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body,
+        });
+        expect(patchRes.status).toBe(400);
+        expect((await patchRes.json()).error).toMatch(/must be a JSON object/);
+
+        const keyRes = await app.request("/api/deployments/dep-1/keys", {
+          method: "POST",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body,
+        });
+        expect(keyRes.status).toBe(400);
+        expect((await keyRes.json()).error).toMatch(/must be a JSON object/);
+      }
+      expect(upstreamCalls).toBe(0);
+    });
+
     it("rejects malformed POST bodies BEFORE bootstrapping scope (no orphan project)", async () => {
       // Codex round 73 P2: a primitive-shape check would still pass
       // semantically invalid bodies like `{ authMode: "bogus" }` or

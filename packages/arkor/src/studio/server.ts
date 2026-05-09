@@ -706,8 +706,14 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.post("/api/deployments", async (c) => {
+    // `c.req.json()` only throws on parse failure; the catch coerces
+    // that failure to `null`. Distinguish "parse failed" (`=== null`)
+    // from "valid JSON that happens to be falsy" — e.g. literal
+    // `false` / `0` / `""` are well-formed JSON but obviously not a
+    // valid create body. Treating the latter as "Invalid JSON" hides
+    // the real shape problem from the schema error below.
     const raw = await c.req.json().catch(() => null);
-    if (!raw) {
+    if (raw === null) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     // Schema-validate the body *before* entering
@@ -747,12 +753,22 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.patch("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json().catch(() => null)) as
-      | Parameters<CloudApiClient["updateDeployment"]>[2]
-      | null;
-    if (!body) {
+    const raw = await c.req.json().catch(() => null);
+    if (raw === null) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
+    // Parse succeeded but the value isn't a settings-bag object.
+    // Cloud-api would 400 these too, but reporting the shape problem
+    // here keeps the "Invalid JSON" copy honest (it now means *parse
+    // failed*) and gives callers a deterministic local 400 instead
+    // of a round-trip-dependent one.
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      return c.json(
+        { error: "Deployment update body must be a JSON object." },
+        400,
+      );
+    }
+    const body = raw as Parameters<CloudApiClient["updateDeployment"]>[2];
     return await withDeploymentClient("mutate", async ({ client, scope }) =>
       await client.updateDeployment(id, scope, body),
     );
@@ -777,12 +793,21 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.post("/api/deployments/:id/keys", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json().catch(() => null)) as
-      | Parameters<CloudApiClient["createDeploymentKey"]>[2]
-      | null;
-    if (!body) {
+    const raw = await c.req.json().catch(() => null);
+    if (raw === null) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
+    // Tighten beyond `=== null` so a literal `0` / `false` / `""`
+    // can't slip past the parse-failure check. The key-create body
+    // must be a `{ label }` object; anything else is rejected
+    // locally with a deterministic 400.
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      return c.json(
+        { error: "Key create body must be a JSON object with a `label` string." },
+        400,
+      );
+    }
+    const body = raw as Parameters<CloudApiClient["createDeploymentKey"]>[2];
     return await withDeploymentClient("mutate", async ({ client, scope }) =>
       await client.createDeploymentKey(id, scope, body),
     );
