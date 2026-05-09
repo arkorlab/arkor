@@ -45,8 +45,19 @@ export interface Template {
 
 // Shared `onLog` body interpolated into every trainer template below so
 // the formatter stays in lock-step across `triage` / `translate` /
-// `redaction`. Indentation is baked in (`    ` for the `onLog:` line,
-// `      ` for the body) so the result lines up under `callbacks: {`.
+// `redaction`. Indentation is baked into this constant (`    ` for the
+// `onLog:` line, `      ` for the body), and the `${ONLOG_BODY}`
+// interpolation in each trainer string sits at column 0 with **no
+// leading space** — adding one would push the rendered `onLog:` block
+// one column right of the surrounding `callbacks: {`. Reviewers / bots
+// occasionally flag the bare `${ONLOG_BODY}` line as misaligned because
+// neighbouring source lines (`  callbacks: {` above, `  },` below)
+// carry their own leading whitespace; that read is wrong, the rendered
+// output lines up correctly. Verify by running
+// `pnpm --filter @arkor/cli-internal exec node --input-type=module -e
+// "import('./src/templates.ts').then(m =>
+// process.stdout.write(m.TEMPLATES.triage.trainer))"` before changing
+// the indentation.
 //
 // Escaping note: this string is itself a JS template literal whose
 // product is the *runtime* trainer-source backticks/interpolations. So
