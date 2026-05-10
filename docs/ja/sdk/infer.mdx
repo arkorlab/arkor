@@ -38,7 +38,7 @@ interface InferArgs {
   tools?: ToolDefinition[];
   /** "auto" | "none" | "required" | { type: "function", function: { name } } */
   toolChoice?: ToolChoice;
-  /** OpenAI 互換の response_format（text / json_object / json_schema / structural_tag）。 */
+  /** OpenAI 互換の response_format（text / json_object / json_schema）。 */
   responseFormat?: ResponseFormat;
   /** responseFormat で表現できない制約（regex / choice / grammar）用の vLLM 拡張。 */
   structuredOutputs?: StructuredOutputs;
@@ -55,8 +55,8 @@ interface InferArgs {
 | `stream` | `boolean?` | デフォルトは **true**（SSE）。単一 JSON ボディが欲しければ `false`。 |
 | `tools` | `ToolDefinition[]?` | モデルが呼び出せる関数定義。`toolChoice` を明示しない場合は OpenAI 仕様どおり既定 `"auto"` が適用されます。エンドポイントが auto-tool 抽出に未対応なら `400 tool_calling_not_configured` が返ります。 |
 | `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }`。auto-extraction のパーサが必要なのは `"auto"`（と `tools` 指定時の既定）のみで、それ以外は guided-decoding 経路を通ります。 |
-| `responseFormat` | `ResponseFormat?` | OpenAI 標準の構造化出力スイッチ。`{ type: "text" }` / `{ type: "json_object" }` / `{ type: "json_schema", json_schema: { name, schema, strict? } }` / vLLM 0.20 の `{ type: "structural_tag", ... }`（Llama 形式のフレーム出力 — モダン形 `{ format: ... }` または legacy 形 `{ structures: [{ begin, end, schema? }, ...], triggers: [...] }` のいずれか。両方混在は不可）。表現できる制約はこちらを優先。 |
-| `structuredOutputs` | `StructuredOutputs?` | `responseFormat` で表せない制約のための vLLM 拡張。指定する場合は `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` のうち**ちょうど 1 つ**を設定（vLLM 0.20 の `StructuredOutputsParams.__post_init__` がパース時点で 0 個 / 2 個以上を拒否します。`responseFormat` のマージはその後なので、knob のみで `responseFormat` に頼る形は通りません）。型側でも `ExactlyOne` により強制。`structuredOutputs` の constraint と `responseFormat` の constraint（`json_object` / `json_schema` / `structural_tag` のいずれか — `text` 以外）を併用した場合、vLLM の sampling params に 2 つの制約が入ってしまうため ingress で拒否されます。`json_object` は `true` のみ受理（vLLM は truthy のときだけ JSON-object モードを発動するため、`false` は ingress で拒否）。空 `choice: []` や空文字列の `regex` / `grammar` / `json` / `structural_tag` も ingress で拒否（vLLM 0.20 の `SamplingParams._validate_structured_outputs` が upstream で拒否するため）。フィールド名は vLLM の wire 形式に合わせ snake_case（`json_object`、`structural_tag`、`disable_any_whitespace`、`whitespace_pattern`）。 |
+| `responseFormat` | `ResponseFormat?` | OpenAI 標準の構造化出力スイッチ。`{ type: "text" }` / `{ type: "json_object" }` / `{ type: "json_schema", json_schema: { name, schema, strict? } }`。表現できる制約はこちらを優先。 |
+| `structuredOutputs` | `StructuredOutputs?` | `responseFormat` で表せない制約のための vLLM 拡張。指定する場合は `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` のうち**ちょうど 1 つ**を設定（vLLM 0.20 の `StructuredOutputsParams.__post_init__` がパース時点で 0 個 / 2 個以上を拒否します。`responseFormat` のマージはその後なので、knob のみで `responseFormat` に頼る形は通りません）。型側でも `ExactlyOne` により強制。`structuredOutputs` の constraint と `responseFormat` の constraint（`json_object` / `json_schema`）を併用した場合、vLLM の sampling params に 2 つの制約が入ってしまうため ingress で拒否されます。`json_object` は `true` のみ受理（vLLM は truthy のときだけ JSON-object モードを発動するため、`false` は ingress で拒否）。空 `choice: []` や空文字列の `regex` / `grammar` / `json` / `structural_tag` も ingress で拒否（vLLM 0.20 の `SamplingParams._validate_structured_outputs` が upstream で拒否するため）。フィールド名は vLLM の wire 形式に合わせ snake_case（`json_object`、`structural_tag`、`disable_any_whitespace`、`whitespace_pattern`）。 |
 | `signal` | `AbortSignal?` | ローカル fetch を Abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
 
 ### Function Calling の例
@@ -115,7 +115,6 @@ const res = await infer({
 | `{ type: "text" }` | なし | free-form なテキスト（既定の挙動）。親関数が値をそのまま渡してくる場合の明示的な上書き用に使う。 |
 | `{ type: "json_object" }` | 出力が valid JSON である | JSON は欲しいがキー集合をまだ固定できないとき。ボディはパースできるが、プロパティ名・型・必須キーは強制されない。 |
 | `{ type: "json_schema", json_schema: { ..., strict: true } }` | 完全なスキーマ | プロパティ・型・必須キーをすべて強制。宣言されていないプロパティは拒否。スキーマが書けるなら（緩いものでも）これを優先。 |
-| `{ type: "structural_tag", format }` または `{ type: "structural_tag", structures, triggers }` | Llama 形式のフレーム出力 | フレーム化されたマーカー（例: tool-call フレーム）の中身を schema で制約。vLLM 0.20 はモダン形 `format` と legacy 形 `structures` + `triggers` のどちらも受理（両方同時はNG）。free text と framed な構造化フラグメントが混ざる出力に有用。 |
 
 `responseFormat` は OpenAI 互換で「JSON が欲しい」用途のほぼすべてに使える正解。`structuredOutputs` は `responseFormat` で表現できない制約専用。
 
@@ -264,19 +263,6 @@ export type ResponseFormat =
         schema: Record<string, unknown>;
         strict?: boolean;
       };
-    }
-  | {
-      // vLLM 0.20 はモダン形（`format` フィールドのみ）か legacy 形
-      //（`structures` + `triggers` ペア）のいずれかを受理し、
-      // 両方を同時に指定することはできません。
-      type: "structural_tag";
-      format?: unknown;
-      structures?: Array<{
-        begin: string;
-        end: string;
-        schema?: Record<string, unknown>;
-      }>;
-      triggers?: string[];
     };
 
 // `json` / `regex` / `choice` / `grammar` / `json_object` /
@@ -340,7 +326,6 @@ const data = await res.json();
 
 - **制約なし** または **`responseFormat: { type: "text" }`** — `choices[0].message.content` はプレーンテキスト。
 - **`responseFormat: { type: "json_object" }`** または **`type: "json_schema"`** — `choices[0].message.content` は JSON を含む **文字列**。`JSON.parse` は自分で呼びます（SDK は事前にパースしません）。
-- **`responseFormat: { type: "structural_tag" }`** — `choices[0].message.content` は free text と `begin` / `end` で囲まれた領域が交互に並ぶ文字列。各領域の中身は対応する schema を満たします。フレームマーカーで自分でパースしてください。
 - **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }` / `{ structural_tag }`** — `choices[0].message.content` は制約に合致する文字列。JSON ではないのでパースしないこと。
 - **`tools` 付きで tool call が返ったケース** — `choices[0].message.tool_calls` が埋まり、`content` は省略 / `null`。各 `tool_calls[i].function.arguments` 自体が JSON エンコードされた文字列。
 
