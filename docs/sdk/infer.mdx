@@ -38,7 +38,7 @@ interface InferArgs {
   tools?: ToolDefinition[];
   /** "auto" | "none" | "required" | { type: "function", function: { name } } */
   toolChoice?: ToolChoice;
-  /** OpenAI-compatible response_format (text / json_object / json_schema). */
+  /** OpenAI-compatible response_format (text / json_object / json_schema / structural_tag). */
   responseFormat?: ResponseFormat;
   /** vLLM structured outputs (regex / choice / grammar) for cases response_format can't express. */
   structuredOutputs?: StructuredOutputs;
@@ -55,8 +55,8 @@ interface InferArgs {
 | `stream` | `boolean?` | Default **true** (SSE). Set `false` for a single JSON body. |
 | `tools` | `ToolDefinition[]?` | Function declarations the model is allowed to call. When set without an explicit `toolChoice`, the OpenAI-compatible default `"auto"` applies; the underlying endpoint must be configured for auto-tool extraction or the request returns `400 tool_calling_not_configured`. |
 | `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }` — only `"auto"` (and the default when `tools` is present) needs the auto-extraction parser; the rest go through the guided-decoding path. |
-| `responseFormat` | `ResponseFormat?` | OpenAI's standard structured-output knob: `{ type: "text" }`, `{ type: "json_object" }`, or `{ type: "json_schema", json_schema: { name, schema, strict? } }`. Prefer this when expressible. |
-| `structuredOutputs` | `StructuredOutputs?` | vLLM extension for constraints `responseFormat` can't express. The whole field is optional, but **when provided, exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` must be set (vLLM's `__post_init__` rejects zero or more than one constraint, and the type encodes the same invariant via `ExactlyOne`). Field names are snake_case (`json_object`, `structural_tag`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format. |
+| `responseFormat` | `ResponseFormat?` | OpenAI's standard structured-output knob: `{ type: "text" }`, `{ type: "json_object" }`, `{ type: "json_schema", json_schema: { name, schema, strict? } }`, or vLLM 0.20's `{ type: "structural_tag", ... }` (Llama-style framed outputs — accepts either the modern `{ format: ... }` shape or the legacy `{ structures: [{ begin, end, schema? }, ...], triggers: [...] }` shape, but not both at once). Prefer this when expressible. |
+| `structuredOutputs` | `StructuredOutputs?` | vLLM extension for constraints `responseFormat` can't express. When supplied, **exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` must be set (vLLM 0.20's `StructuredOutputsParams.__post_init__` rejects 0 or 2+ at parse time, before any merge with `responseFormat`); the TypeScript type encodes this via `ExactlyOne`. Combining a `structuredOutputs` constraint with a `responseFormat` constraint (`json_object` / `json_schema` / `structural_tag` — anything other than `text`) is also rejected — vLLM ends up with two constraints in the merged sampling params. `json_object` accepts only `true` (vLLM activates JSON-object mode on truthy values; `false` is rejected at ingress). Empty `choice: []` and blank `regex` / `grammar` / `json` / `structural_tag` strings are also rejected at ingress (vLLM 0.20's `SamplingParams._validate_structured_outputs` rejects them upstream). Field names are snake_case (`json_object`, `structural_tag`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format. |
 | `signal` | `AbortSignal?` | Aborts the local fetch. Does not stop work on the backend; the model finishes generating but you stop reading. |
 
 ### Tool calling example
@@ -108,6 +108,196 @@ const res = await infer({
 });
 ```
 
+### Choosing between `responseFormat` modes
+
+| Mode | Constraint enforced | Use when |
+| --- | --- | --- |
+| `{ type: "text" }` | None | Free-form text (the default behaviour). Useful as an explicit override when a parent function passes a value through. |
+| `{ type: "json_object" }` | Output parses as JSON | You want valid JSON but cannot pin the keys yet. The body parses, but property names, types, and required keys are not enforced. |
+| `{ type: "json_schema", json_schema: { ..., strict: true } }` | Full schema | Properties, types, and required keys are all enforced; properties not declared are rejected. Prefer this whenever you can write a schema, even a loose one. |
+| `{ type: "structural_tag", format }` *or* `{ type: "structural_tag", structures, triggers }` | Llama-style framed output | Constrain regions wrapped in framing markers (e.g. tool-call frames) to a schema. vLLM 0.20 accepts either the modern `format` shape or the legacy `structures` + `triggers` pair (but not both at once); useful when the output mixes free text with framed structured fragments. |
+
+`responseFormat` is OpenAI-compatible and is the right knob for ~all "give me JSON" cases. Reach for `structuredOutputs` only for constraints `responseFormat` cannot express.
+
+### `structuredOutputs` examples
+
+The vLLM-specific extension. Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` per call — the TypeScript type rejects two at once. Don't combine with a `responseFormat` constraint either: that would put two constraints into vLLM's sampling params and the request is rejected at ingress.
+
+**Fixed choice list.** Forces the response to one of a small enumerated set. Useful for classifier-style outputs where any prefix is a regression.
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Classify urgency: I can't log in." }],
+  structuredOutputs: { choice: ["low", "medium", "high"] },
+  stream: false,
+});
+```
+
+**Regex.** Constrains the output to a regex match. Fits ID formats, currency strings, structured tokens.
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Generate a ticket id." }],
+  structuredOutputs: { regex: "^[A-Z]{3}-\\d{4}$" },
+  stream: false,
+});
+```
+
+**Grammar.** EBNF grammar for fully custom shapes. The string is forwarded to vLLM verbatim — see the [vLLM structured outputs docs](https://docs.vllm.ai/) for the supported grammar syntax.
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Spell out the digit." }],
+  structuredOutputs: {
+    grammar: 'root ::= "zero" | "one" | "two" | "three"',
+  },
+  stream: false,
+});
+```
+
+**`json_object: true` and `structural_tag`.** `json_object: true` is the structuredOutputs equivalent of `responseFormat: { type: "json_object" }` — present for parity with vLLM's wire format. The server only accepts `true`; `false` is rejected at ingress (vLLM only flips into JSON-object mode on a truthy value, so `false` would silently produce an unconstrained generation). `structural_tag` is for Llama-style framed outputs and is rarely needed; both follow the same one-constraint-per-call rule.
+
+### Tool calling round-trip
+
+After the model emits `tool_calls`, run the tool yourself, append the result as a `tool` message, and call `infer` again. Pass the same `tools` and `toolChoice` so the second turn sees the same surface.
+
+```ts
+import type { ChatMessage } from "arkor";
+
+const tools = [
+  {
+    type: "function" as const,
+    function: {
+      name: "get_weather",
+      parameters: {
+        type: "object",
+        properties: { city: { type: "string" } },
+        required: ["city"],
+      },
+    },
+  },
+];
+
+const messages: ChatMessage[] = [
+  { role: "user", content: "What's the weather in Tokyo?" },
+];
+
+const first = await infer({ messages, tools, toolChoice: "auto", stream: false });
+const firstData = (await first.json()) as { choices: Array<{ message: ChatMessage }> };
+const reply = firstData.choices[0].message;
+
+if (reply.role === "assistant" && reply.tool_calls?.length) {
+  const call = reply.tool_calls[0];
+  const args = JSON.parse(call.function.arguments) as { city: string };
+  const result = await getWeather(args.city);
+
+  const second = await infer({
+    messages: [
+      ...messages,
+      reply,                                        // assistant turn carrying tool_calls
+      { role: "tool", tool_call_id: call.id, content: JSON.stringify(result) },
+    ],
+    tools,
+    toolChoice: "auto",
+    stream: false,
+  });
+  const finalReply = ((await second.json()) as { choices: Array<{ message: ChatMessage }> })
+    .choices[0].message;
+  // finalReply.content is the user-facing answer.
+}
+```
+
+`tool_calls[i].function.arguments` is a **JSON-encoded string**, not a parsed object — `JSON.parse` it on receipt. `tool_call_id` on the `tool` message must match the `id` from the assistant's prior `tool_calls[i]` so the model can attribute the result to the right call.
+
+## Type definitions
+
+The supporting types are exported from `arkor`. Inlined here for reference:
+
+```ts
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; tool_calls?: ToolCall[] }
+  | {
+      role: "assistant";
+      /** May be omitted or `null` when the turn is purely a tool call. */
+      content?: string | null;
+      tool_calls: [ToolCall, ...ToolCall[]];
+    }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    /** JSON-encoded arguments string — partial deltas may be streamed. */
+    arguments: string;
+  };
+}
+
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    /** JSON Schema describing the tool arguments. */
+    parameters?: Record<string, unknown>;
+    strict?: boolean;
+  };
+}
+
+export type ToolChoice =
+  | "auto"
+  | "none"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        name: string;
+        description?: string;
+        schema: Record<string, unknown>;
+        strict?: boolean;
+      };
+    }
+  | {
+      // vLLM 0.20 accepts either the modern shape (`format` field
+      // alone) or the legacy shape (`structures` + `triggers` pair),
+      // not both at once.
+      type: "structural_tag";
+      format?: unknown;
+      structures?: Array<{
+        begin: string;
+        end: string;
+        schema?: Record<string, unknown>;
+      }>;
+      triggers?: string[];
+    };
+
+// Exactly one of `json` / `regex` / `choice` / `grammar` /
+// `json_object` / `structural_tag` must be set. Field names are
+// snake_case to match vLLM's wire format verbatim.
+export type StructuredOutputs = ExactlyOne<{
+  json: string | Record<string, unknown>;
+  regex: string;
+  choice: string[];
+  grammar: string;
+  json_object: boolean;
+  structural_tag: string;
+}> & {
+  disable_any_whitespace?: boolean;
+  disable_additional_properties?: boolean;
+  whitespace_pattern?: string;
+};
+```
+
+The assistant role splits into two sub-shapes so `{ role: "assistant" }` with neither `content` nor `tool_calls` does **not** type-check — at least one must be present. The `[ToolCall, ...ToolCall[]]` form encodes the non-empty `tool_calls` constraint at the type level.
+
 ## Returns
 
 `infer` returns `Promise<Response>`: the raw Fetch `Response`. The SDK does not parse the body; you decide how to consume it:
@@ -128,6 +318,46 @@ const data = await res.json();
 ```
 
 When `stream: true` (the default), the body is an SSE event stream in the same shape Studio's Playground consumes. The SDK does not currently expose a frame parser for this stream; if you need decoded text deltas, copy the small `extractInferenceDelta` helper from `packages/studio-app/src/lib/api.ts` or write a parser around `eventsource-parser`.
+
+### Response envelope (`stream: false`)
+
+Non-streaming responses are an OpenAI-compatible chat-completion object:
+
+```ts
+{
+  choices: [
+    {
+      index: 0,
+      finish_reason: "stop" | "length" | "tool_calls" | string,
+      message: ChatMessage,
+    },
+  ],
+  // plus the OpenAI-standard `id` / `model` / `usage` fields the backend chooses to surface.
+}
+```
+
+Where the result lands depends on which constraint you used:
+
+- **No constraint** or **`responseFormat: { type: "text" }`** — `choices[0].message.content` is plain text.
+- **`responseFormat: { type: "json_object" }`** or **`type: "json_schema"`** — `choices[0].message.content` is a **string** containing the JSON. You call `JSON.parse` yourself; the SDK does not pre-parse.
+- **`responseFormat: { type: "structural_tag" }`** — `choices[0].message.content` is free text interleaved with `begin` / `end`-framed regions whose interiors satisfy the per-structure schema. Parse with the framing markers you supplied.
+- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }` / `{ structural_tag }`** — `choices[0].message.content` is a string matching the constraint. Not JSON; do not parse.
+- **`tools` request that returned a tool call** — `choices[0].message.tool_calls` is populated; `content` is omitted or `null`. Each `tool_calls[i].function.arguments` is itself a JSON-encoded string.
+
+`finish_reason: "tool_calls"` is the signal the model wants to call a function rather than emit a final answer; loop with the [tool calling round-trip](#tool-calling-round-trip).
+
+## Errors
+
+The SDK returns the raw `Response`, so error responses surface as a non-OK status with a JSON body. The codes worth knowing:
+
+| Status | When | What to do |
+| --- | --- | --- |
+| `400` `tool_calling_not_configured` | `tools` set with implicit or explicit `toolChoice: "auto"`, but the inference endpoint is not configured for auto-tool-extraction. | Enable auto-tool-extraction on the endpoint, or fall back to `toolChoice: "required"` / `toolChoice: { type: "function", function: { name } }` (these go through the guided-decoding path and do not need the parser). Retrying without changing config will keep failing. |
+| `400` schema-validation error | `responseFormat.json_schema.schema` or a `tools[i].function.parameters` is not a valid JSON Schema; `structuredOutputs` was passed with zero or more than one constraint set; `structuredOutputs` carries a constraint *and* `responseFormat` already supplies one (two constraints conflict at vLLM); `structuredOutputs.json_object: false` (only `true` activates JSON-object mode); or a legacy `guided_json` / `guided_regex` / `guided_choice` / `guided_grammar` / `guided_decoding_backend` field was sent (vLLM 0.20 dropped these — migrate to `structuredOutputs`). | Fix the schema / pick exactly one constraint / drop the conflicting field. The TS type rejects multiple `structuredOutputs` keys at compile time; the runtime status is only hit for runtime-built constraint objects, raw HTTP callers, or legacy SDKs. |
+| `4xx` model rejection | Backend rejected the request (e.g. context length exceeded, unsupported message shape). | Body carries the upstream error message — surface it to the caller. |
+| `5xx` upstream | Inference cluster outage / cold start timeout. | Retryable; the SSE reconnect loop covers most of this for streaming reads. |
+
+The SDK does not retry these for you. Wrap the call in `try / catch` and decide per error class.
 
 ## Constraints
 
