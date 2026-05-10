@@ -119,9 +119,11 @@ export const trainer = createTrainer({
         const data = (await res.json()) as {
           choices: Array<{ message: { content: string } }>;
         };
-        const parsed = JSON.parse(
-          data.choices[0]?.message.content ?? "{}",
-        ) as TriageOutput;
+        const content = data.choices[0]?.message.content;
+        if (content === undefined || content === "") {
+          throw new Error("triage check returned empty content");
+        }
+        const parsed = JSON.parse(content) as TriageOutput;
         console.log(\`step=\${step} triage=\`, parsed);
       } catch (err) {
         console.error(\`step=\${step} triage check failed:\`, err);

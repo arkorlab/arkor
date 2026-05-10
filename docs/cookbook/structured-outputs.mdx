@@ -38,7 +38,7 @@ interface TriageOutput {
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -63,9 +63,11 @@ export const trainer = createTrainer({
         const data = (await res.json()) as {
           choices: Array<{ message: { content: string } }>;
         };
-        const parsed = JSON.parse(
-          data.choices[0]?.message.content ?? "{}",
-        ) as TriageOutput;
+        const content = data.choices[0]?.message.content;
+        if (content === undefined || content === "") {
+          throw new Error("triage check returned empty content");
+        }
+        const parsed = JSON.parse(content) as TriageOutput;
         console.log(`step=${step} triage=`, parsed);
       } catch (err) {
         console.error(`step=${step} triage check failed:`, err);
@@ -75,7 +77,7 @@ export const trainer = createTrainer({
 });
 ```
 
-`responseFormat: { type: "json_schema", strict: true }` is the OpenAI-compatible shape. The schema is forwarded to the inference backend, which constrains decoding so the response body is guaranteed to satisfy it. With `strict: true`, the schema is treated as authoritative; properties not declared are rejected.
+`responseFormat: { type: "json_schema", json_schema: { name, schema, strict: true } }` is the OpenAI-compatible shape (`strict` lives inside `json_schema`, not at the top level). The schema is forwarded to the inference backend, which constrains decoding so the response body is guaranteed to satisfy it. With `strict: true`, the schema is treated as authoritative; properties not declared are rejected.
 
 `infer({ stream: false })` returns a single JSON body in OpenAI's chat-completions shape, so the parse path is the standard `data.choices[0].message.content` then `JSON.parse`.
 
