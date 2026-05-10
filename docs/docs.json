@@ -72,6 +72,7 @@
                 "pages": [
                   "cookbook/overview",
                   "cookbook/mid-run-eval",
+                  "cookbook/structured-outputs",
                   "cookbook/early-stopping",
                   "cookbook/notifications",
                   "cookbook/programmatic-runs",
@@ -181,6 +182,7 @@
                 "pages": [
                   "ja/cookbook/overview",
                   "ja/cookbook/mid-run-eval",
+                  "ja/cookbook/structured-outputs",
                   "ja/cookbook/early-stopping",
                   "ja/cookbook/notifications",
                   "ja/cookbook/programmatic-runs",

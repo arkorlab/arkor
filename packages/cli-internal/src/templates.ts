@@ -40,6 +40,8 @@ export const trainer = createTrainer({
   // dryRun: true,
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    // See /cookbook/structured-outputs to add a JSON-schema mid-run check
+    // (e.g. force \`{ redactedText, redactedCount, tags }\`) here.
   },
 });
 `;
@@ -56,11 +58,32 @@ export const trainer = createTrainer({
   // dryRun: true,
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    // See /cookbook/structured-outputs to add a JSON-schema mid-run check
+    // (e.g. force \`{ translation, detectedLanguage }\`) here.
   },
 });
 `;
 
 const TRIAGE_TRAINER = `import { createTrainer } from "arkor";
+
+const TRIAGE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    category: { type: "string" },
+    urgency: { type: "string", enum: ["low", "medium", "high"] },
+    summary: { type: "string" },
+    nextAction: { type: "string" },
+  },
+  required: ["category", "urgency", "summary", "nextAction"],
+  additionalProperties: false,
+};
+
+interface TriageOutput {
+  category: string;
+  urgency: "low" | "medium" | "high";
+  summary: string;
+  nextAction: string;
+}
 
 export const trainer = createTrainer({
   name: "triage-run",
@@ -72,6 +95,40 @@ export const trainer = createTrainer({
   // dryRun: true,
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    // Mid-run sanity check: force the half-trained model to return the
+    // triage object shape via JSON Schema, then log it. See
+    // /cookbook/structured-outputs for the full pattern (and how to wire
+    // this up to early-stopping based on the typed fields).
+    onCheckpoint: async ({ step, infer }) => {
+      try {
+        const res = await infer({
+          messages: [
+            { role: "user", content: "I can't log in to my account." },
+          ],
+          stream: false,
+          maxTokens: 200,
+          responseFormat: {
+            type: "json_schema",
+            json_schema: {
+              name: "triage",
+              schema: TRIAGE_SCHEMA,
+              strict: true,
+            },
+          },
+        });
+        const data = (await res.json()) as {
+          choices: Array<{ message: { content: string } }>;
+        };
+        const content = data.choices[0]?.message.content;
+        if (content === undefined || content === "") {
+          throw new Error("triage check returned empty content");
+        }
+        const parsed = JSON.parse(content) as TriageOutput;
+        console.log(\`step=\${step} triage=\`, parsed);
+      } catch (err) {
+        console.error(\`step=\${step} triage check failed:\`, err);
+      }
+    },
   },
 });
 `;

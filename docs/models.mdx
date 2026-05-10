@@ -14,12 +14,12 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
 });
 ```
 
-The canonical value the cloud API accepts is `unsloth/gemma-4-E4B-it`; the `unsloth/` prefix stays in code as a deliberate credit to the Unsloth project that produced the build.
+The canonical value the cloud API accepts is `unsloth/gemma-4-e4b-it`; the `unsloth/` prefix stays in code as a deliberate credit to the Unsloth project that produced the build.
 
 ## Why one model, right now
 

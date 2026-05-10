@@ -1,6 +1,7 @@
 export { createTrainer } from "./core/trainer";
 export { createArkor, isArkor } from "./core/arkor";
 export { runTrainer } from "./core/runner";
+export { CloudApiError } from "./core/client";
 export type {
   Arkor,
   ArkorInput,

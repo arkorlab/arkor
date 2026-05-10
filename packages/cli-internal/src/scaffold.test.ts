@@ -55,6 +55,12 @@ describe("scaffold", () => {
     expect(trainer).toContain("createTrainer");
     expect(trainer).toContain("unsloth/gemma-4-e4b-it");
     expect(trainer).toContain('"triage-run"');
+    // The triage template wires up onCheckpoint with a JSON-schema mid-run
+    // check so the scaffold demonstrates structured output. Pin the key
+    // pieces so an accidental drop of the example fails CI.
+    expect(trainer).toContain("onCheckpoint");
+    expect(trainer).toContain("responseFormat");
+    expect(trainer).toContain("json_schema");
 
     const pkg = JSON.parse(
       readFileSync(join(cwd, "package.json"), "utf8"),

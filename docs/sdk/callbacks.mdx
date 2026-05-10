@@ -129,7 +129,7 @@ Minimal: log every event.
 ```ts
 const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   callbacks: {
     onStarted: ({ job }) => console.log(`run ${job.id} accepted`),

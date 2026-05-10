@@ -193,20 +193,31 @@ interface StructuredOutputsCommon {
 /**
  * vLLM's `StructuredOutputsParams` — used for constraints that
  * `response_format` can't express (regex, choice lists, custom grammars).
- * Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object` /
- * `structural_tag` must be set; vLLM's `__post_init__` raises if zero or
- * more than one constraint is supplied. The `ExactlyOne` helper encodes
- * that mutual-exclusivity invariant at the type level so callers can't
+ * Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object`
+ * must be set; vLLM's `__post_init__` raises if zero or more than one
+ * constraint is supplied. The `ExactlyOne` helper encodes that
+ * mutual-exclusivity invariant at the type level so callers can't
  * accidentally combine two constraints. Field names are snake_case to
  * match vLLM's wire format exactly so the worker forwards verbatim.
+ *
+ * Trimmed surface (vLLM 0.20 wire format has more, but the cloud-api
+ * doesn't accept the rest until they have a working use case):
+ * - `json`: object only (the pre-serialized-string form was untyped
+ *   at ingress and rejected upstream by vLLM if malformed).
+ * - `json_object`: only `true` is meaningful — vLLM activates JSON-
+ *   object mode on a truthy value.
+ * - `structural_tag` is intentionally absent. It's a vLLM extension
+ *   for Llama-style inline tool-call framing; arkor's curated path
+ *   is Gemma 4 today, which uses OpenAI `tools` / `tool_calls`. Will
+ *   be re-added (additive, non-breaking) once broader base-model
+ *   support lands.
  */
 export type StructuredOutputs = ExactlyOne<{
-  json: string | Record<string, unknown>;
+  json: Record<string, unknown>;
   regex: string;
   choice: string[];
   grammar: string;
-  json_object: boolean;
-  structural_tag: string;
+  json_object: true;
 }> &
   StructuredOutputsCommon;
 

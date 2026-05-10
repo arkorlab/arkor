@@ -12,7 +12,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
 });
 ```
@@ -74,7 +74,7 @@ If you only set `maxSteps`, the rest stay at backend defaults. That is usually w
 ```ts
 createTrainer({
   name: "smoke",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   dryRun: true,
 });
@@ -105,7 +105,7 @@ interface Trainer {
 const controller = new AbortController();
 const trainer = createTrainer({
   name: "cancellable",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   abortSignal: controller.signal,
 });
