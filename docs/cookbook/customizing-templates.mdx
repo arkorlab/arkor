@@ -102,6 +102,7 @@ export const trainer = createTrainer({
     },
     onCheckpoint: async ({ step, infer }) => {
       // see /cookbook/mid-run-eval
+      // or /cookbook/structured-outputs for typed-field extraction
     },
     onCompleted: async ({ job, artifacts }) => {
       // see /cookbook/notifications

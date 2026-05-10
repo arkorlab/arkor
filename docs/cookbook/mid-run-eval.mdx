@@ -73,6 +73,8 @@ onCheckpoint: async ({ step, infer }) => {
 },
 ```
 
+**Extract typed fields with a JSON schema.** Replace the freeform `data.content` parse with `responseFormat: { type: "json_schema", strict: true, json_schema: {...} }` and the body becomes a guaranteed-shape object you can branch on directly (`parsed.urgency === "high"`, `parsed.category in VALID_LABELS`). Full pattern, including how to wire the typed fields into early stopping, in the [Structured outputs and function calling recipe](/cookbook/structured-outputs).
+
 **Trigger early stopping based on the sample.** Pair this with the [Early stopping recipe](/cookbook/early-stopping): if the checkpoint output drifts away from a reference text by more than your tolerance, abort the controller. The next checkpoint will not fire.
 
 **Send checkpoints to a Slack channel for review.** Combine with the [Notifications recipe](/cookbook/notifications). Post each step's sample as a Slack message; reviewers can vote with reactions while the run continues.

@@ -73,6 +73,8 @@ onCheckpoint: async ({ step, infer }) => {
 },
 ```
 
+**JSON Schema で型付きフィールドを抽出。** free-form な `data.content` のパースを `responseFormat: { type: "json_schema", strict: true, json_schema: {...} }` に置き換えると、ボディは形が保証されたオブジェクトになり、そのまま分岐できます (`parsed.urgency === "high"`、`parsed.category in VALID_LABELS` など)。型付きフィールドを Early Stopping に繋ぐ完全パターンは [構造化出力と Function Calling レシピ](/ja/cookbook/structured-outputs) を参照。
+
 **サンプルから Early Stopping をトリガー。** [Early Stopping レシピ](/ja/cookbook/early-stopping) と組み合わせる: チェックポイント出力が参照テキストから許容を超えてドリフトしたら controller を Abort。次のチェックポイントは発火しません。
 
 **チェックポイントを Slack チャネルにレビュー用で送る。** [通知レシピ](/ja/cookbook/notifications) と組み合わせる。各ステップのサンプルを Slack メッセージとして投稿し、学習が続いている間にレビュアーがリアクションで投票できます。
