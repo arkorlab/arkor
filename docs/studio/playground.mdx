@@ -7,7 +7,7 @@ description: "Chat with the base model or the final adapter from a completed job
 
 The Playground (`#/playground`) is a small chat UI for sanity-checking a model. Two modes, switched with a radio button:
 
-- **Base model.** Chat against one of the base models the cloud-api accepts on `/v1/inference/chat`. Today there is one supported value: `gemma-4-e4b-it` (see [Supported models](/models)).
+- **Base model.** Chat against one of the base models the cloud-api accepts on `/v1/inference/chat`. Today there is one supported value: `gemma-4-E4B-it` (see [Supported models](/models)).
 - **Adapter.** Chat against the **final** adapter from a completed job (`{ kind: "final", jobId }`). Intermediate checkpoints are not selectable here.
 
 The Playground fetches `/api/jobs` once when the page mounts and filters the response to `status === "completed"`. The Adapter dropdown lists those jobs in whatever order the backend returned. There is no automatic refresh and switching modes does not re-fetch the list; reload the page (or navigate away from `#/playground` and come back to remount it) after a new run finishes to see it in the dropdown.

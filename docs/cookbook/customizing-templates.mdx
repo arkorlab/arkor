@@ -124,7 +124,7 @@ Pick the ones that match your run. The trainer file is just TypeScript; you can 
 
 ## 4. Change the base model
 
-The `model` field is forwarded to the cloud API as a string. Today the curated path uses `gemma-4-e4b-it`, which is what every starter template ships with. The cloud API decides what other identifiers it accepts; sending an unsupported value produces a 4xx from upstream and a `training.failed` event with the backend's error message.
+The `model` field is forwarded to the cloud API as a string. Today the curated path uses `gemma-4-E4B-it`, which is what every starter template ships with. The cloud API decides what other identifiers it accepts; sending an unsupported value produces a 4xx from upstream and a `training.failed` event with the backend's error message.
 
 ```ts
 model: "unsloth/gemma-4-e4b-it",   // curated; this is the supported path today
