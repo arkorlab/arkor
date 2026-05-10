@@ -56,7 +56,7 @@ interface InferArgs {
 | `tools` | `ToolDefinition[]?` | モデルが呼び出せる関数定義。`toolChoice` を明示しない場合は OpenAI 仕様どおり既定 `"auto"` が適用されます。エンドポイントが auto-tool 抽出に未対応なら `400 tool_calling_not_configured` が返ります。 |
 | `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }`。auto-extraction のパーサが必要なのは `"auto"`（と `tools` 指定時の既定）のみで、それ以外は guided-decoding 経路を通ります。 |
 | `responseFormat` | `ResponseFormat?` | OpenAI 標準の構造化出力スイッチ。`{ type: "text" }` / `{ type: "json_object" }` / `{ type: "json_schema", json_schema: { name, schema, strict? } }`。表現できる制約はこちらを優先。 |
-| `structuredOutputs` | `StructuredOutputs?` | `responseFormat` で表せない制約のための vLLM 拡張。指定する場合は `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` のうち**ちょうど 1 つ**を設定（vLLM 0.20 の `StructuredOutputsParams.__post_init__` がパース時点で 0 個 / 2 個以上を拒否します。`responseFormat` のマージはその後なので、knob のみで `responseFormat` に頼る形は通りません）。型側でも `ExactlyOne` により強制。`structuredOutputs` の constraint と `responseFormat` の constraint（`json_object` / `json_schema`）を併用した場合、vLLM の sampling params に 2 つの制約が入ってしまうため ingress で拒否されます。`json_object` は `true` のみ受理（vLLM は truthy のときだけ JSON-object モードを発動するため、`false` は ingress で拒否）。空 `choice: []` や空文字列の `regex` / `grammar` / `json` / `structural_tag` も ingress で拒否（vLLM 0.20 の `SamplingParams._validate_structured_outputs` が upstream で拒否するため）。フィールド名は vLLM の wire 形式に合わせ snake_case（`json_object`、`structural_tag`、`disable_any_whitespace`、`whitespace_pattern`）。 |
+| `structuredOutputs` | `StructuredOutputs?` | `responseFormat` で表せない制約のための vLLM 拡張。指定する場合は `json` / `regex` / `choice` / `grammar` / `json_object` のうち**ちょうど 1 つ**を設定（vLLM 0.20 の `StructuredOutputsParams.__post_init__` がパース時点で 0 個 / 2 個以上を拒否）。型側でも `ExactlyOne` により強制。`structuredOutputs` の constraint と `responseFormat` の constraint（`json_object` / `json_schema`）を併用した場合、vLLM の sampling params に 2 つの制約が入ってしまうため ingress で拒否されます。`json_object` は `true` のみ受理。空 `choice: []` や空文字列の `grammar` も ingress で拒否。フィールド名は vLLM の wire 形式に合わせ snake_case（`json_object`、`disable_any_whitespace`、`whitespace_pattern`）。（vLLM の wire format には Llama 形式のインライン tool-call フレーミング用の `structural_tag` もあるが、arkor の curated path は Gemma 4 なので、対応 base model が増えるまで SDK 型からは外している。） |
 | `signal` | `AbortSignal?` | ローカル fetch を Abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
 
 ### Function Calling の例
@@ -118,9 +118,11 @@ const res = await infer({
 
 `responseFormat` は OpenAI 互換で「JSON が欲しい」用途のほぼすべてに使える正解。`structuredOutputs` は `responseFormat` で表現できない制約専用。
 
+**`strict: true` は object スキーマに `additionalProperties: false` を必須にします。** OpenAI の strict モードは、ルートを含む全ての `type: "object"` スキーマで `additionalProperties: false` を明示し、すべてのプロパティを `required` に列挙したときだけ満たされます。これを満たさないと backend が `400 invalid_schema` で拒否します。上の triage 例（および cookbook レシピ）はこの規約に従っているので、自前のスキーマを書くときはそれをコピーしてください。
+
 ### `structuredOutputs` の例
 
-vLLM 固有の拡張。1 回の呼び出しで `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` のうち**ちょうど 1 つ**だけ — TypeScript 型システムが 2 つ同時を拒否します。`responseFormat` の constraint との併用も避けてください: vLLM の sampling params に 2 つ制約が入って ingress で拒否されます。
+vLLM 固有の拡張。1 回の呼び出しで `json` / `regex` / `choice` / `grammar` / `json_object` のうち**ちょうど 1 つ**だけ — TypeScript 型システムが 2 つ同時を拒否します。`responseFormat` の constraint との併用も避けてください: vLLM の sampling params に 2 つ制約が入って ingress で拒否されます。
 
 **固定 choice。** 出力を小さな enumerated 集合のいずれかに強制。任意の前置きが付いたら不合格な分類器プロンプトに有用。
 
@@ -154,7 +156,7 @@ const res = await infer({
 });
 ```
 
-**`json_object: true` と `structural_tag`。** `json_object: true` は `responseFormat: { type: "json_object" }` の structuredOutputs 等価物 — vLLM の wire 形式とのパリティのため存在します。サーバーは `true` のみ受理し、`false` は ingress で拒否します（vLLM が truthy 値のときだけ JSON-object モードを発動するため、`false` を通すと制約のかからない出力になってしまうため）。`structural_tag` は Llama 形式のフレーム出力用で、必要になることはほぼありません。両者とも「呼び出しごとに制約 1 つ」のルールに従います。
+**`json_object: true`。** `responseFormat: { type: "json_object" }` の structuredOutputs 等価物 — vLLM の wire 形式とのパリティのため存在します。`true` のみ受理し、`false` はコンパイル時（型 literal）と ingress 両方で拒否（vLLM が truthy 値のときだけ JSON-object モードを発動するため、`false` を通すと制約のかからない出力になってしまうため）。他と同じく「呼び出しごとに制約 1 つ」のルールに従います。
 
 ### Function Calling のラウンドトリップ
 
@@ -343,15 +345,18 @@ const data = await res.json();
 
 ## エラー
 
-`infer` は非 OK な `Response` を **返しません**。SDK は内部で `CloudApiClient.chat` を呼び、これは非 2xx を受け取ると `CloudApiError` を **throw** します。`await infer(...)` から戻った時点では、成功時の `Response` か例外、どちらかしか手元に来ません。`try / catch`（または `.catch()`）で囲み、`err instanceof CloudApiError` で分岐して `err.status` / `err.message` を読んでください。
+`infer` は非 OK な `Response` を **返しません**。SDK は内部で `CloudApiClient.chat` を呼び、これは非 2xx を受け取ると `CloudApiError` を **throw** します。`await infer(...)` から戻った時点では、成功時の `Response` か例外、どちらかしか手元に来ません。`try / catch`（または `.catch()`）で囲み、`err instanceof CloudApiError` で分岐して `err.status` / `err.message` を読んでください。`CloudApiError` クラスはそのために `arkor` から export されています。
 
 ```ts
+import { CloudApiError } from "arkor";
+
 try {
   const res = await infer({ messages, ... });
   // 成功時の Response を使う。
 } catch (err) {
-  // 非 2xx の場合 err は CloudApiError。
-  // err.status は HTTP ステータス、err.message は upstream のメッセージ。
+  if (err instanceof CloudApiError) {
+    // err.status は HTTP ステータス、err.message は upstream のメッセージ。
+  }
 }
 ```
 

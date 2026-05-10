@@ -150,7 +150,7 @@ Function Calling を使うには推論エンドポイント側で auto-tool-extr
 
 ## `responseFormat` で表現できない制約
 
-`responseFormat` で 9 割は足ります。残りの 1 割は `structuredOutputs`（vLLM のスーパーセット）で扱います: 正規表現マッチ、固定 choice、独自 EBNF グラマー、Llama 形式の `structural_tag` フレーミングなどが乗ります。`json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` のうち**ちょうど 1 つ**だけを設定する規約で、型システムがその不変条件を強制するので 2 つ同時には設定できません。
+`responseFormat` で 9 割は足ります。残りの 1 割は `structuredOutputs`（vLLM のスーパーセット）で扱います: 正規表現マッチ、固定 choice、独自 EBNF グラマーなどが乗ります。`json` / `regex` / `choice` / `grammar` / `json_object` のうち**ちょうど 1 つ**だけを設定する規約で、型システムがその不変条件を強制するので 2 つ同時には設定できません。
 
 よくあるのは「固定の文字列集合のいずれかしか出さない」 — 任意の前置きが付いたら不合格な分類器プロンプトに有用です:
 
@@ -166,7 +166,7 @@ const data = (await res.json()) as {
 const urgency = data.choices[0]?.message.content; // 必ず "low" / "medium" / "high" のいずれか
 ```
 
-他の形式も同じパターン: チケット ID 形式の強制なら `regex: "^[A-Z]{3}-\\d{4}$"`、自前の EBNF なら `grammar: "..."`。フィールド名は snake_case (`json_object`, `structural_tag`, `disable_any_whitespace`, `whitespace_pattern`) で、vLLM の wire format に合わせてあるのでワーカーまでそのまま素通ります。
+他の形式も同じパターン: チケット ID 形式の強制なら `regex: "^[A-Z]{3}-\\d{4}$"`、自前の EBNF なら `grammar: "..."`。フィールド名は snake_case (`json_object`, `disable_any_whitespace`, `whitespace_pattern`) で、vLLM の wire format に合わせてあるのでワーカーまでそのまま素通ります。
 
 ## 注意点
 

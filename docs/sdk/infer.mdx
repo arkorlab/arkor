@@ -56,7 +56,7 @@ interface InferArgs {
 | `tools` | `ToolDefinition[]?` | Function declarations the model is allowed to call. When set without an explicit `toolChoice`, the OpenAI-compatible default `"auto"` applies; the underlying endpoint must be configured for auto-tool extraction or the request returns `400 tool_calling_not_configured`. |
 | `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }` — only `"auto"` (and the default when `tools` is present) needs the auto-extraction parser; the rest go through the guided-decoding path. |
 | `responseFormat` | `ResponseFormat?` | OpenAI's standard structured-output knob: `{ type: "text" }`, `{ type: "json_object" }`, or `{ type: "json_schema", json_schema: { name, schema, strict? } }`. Prefer this when expressible. |
-| `structuredOutputs` | `StructuredOutputs?` | vLLM extension for constraints `responseFormat` can't express. When supplied, **exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` must be set (vLLM 0.20's `StructuredOutputsParams.__post_init__` rejects 0 or 2+ at parse time, before any merge with `responseFormat`); the TypeScript type encodes this via `ExactlyOne`. Combining a `structuredOutputs` constraint with a `responseFormat` constraint (`json_object` / `json_schema`) is also rejected — vLLM ends up with two constraints in the merged sampling params. `json_object` accepts only `true` (vLLM activates JSON-object mode on truthy values; `false` is rejected at ingress). Empty `choice: []` and blank `regex` / `grammar` / `json` / `structural_tag` strings are also rejected at ingress (vLLM 0.20's `SamplingParams._validate_structured_outputs` rejects them upstream). Field names are snake_case (`json_object`, `structural_tag`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format. |
+| `structuredOutputs` | `StructuredOutputs?` | vLLM extension for constraints `responseFormat` can't express. When supplied, **exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` must be set (vLLM 0.20's `StructuredOutputsParams.__post_init__` rejects 0 or 2+ at parse time, before any merge with `responseFormat`); the TypeScript type encodes this via `ExactlyOne`. Combining a `structuredOutputs` constraint with a `responseFormat` constraint (`json_object` / `json_schema`) is also rejected — vLLM ends up with two constraints in the merged sampling params. `json_object` accepts only `true`. Empty `choice: []` and blank `grammar` strings are rejected at ingress. Field names are snake_case (`json_object`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format. (vLLM's wire format also has `structural_tag` for Llama-style inline tool-call framing; arkor's curated path is Gemma 4, so the SDK type omits it until broader base-model support lands.) |
 | `signal` | `AbortSignal?` | Aborts the local fetch. Does not stop work on the backend; the model finishes generating but you stop reading. |
 
 ### Tool calling example
@@ -118,9 +118,11 @@ const res = await infer({
 
 `responseFormat` is OpenAI-compatible and is the right knob for ~all "give me JSON" cases. Reach for `structuredOutputs` only for constraints `responseFormat` cannot express.
 
+**`strict: true` requires `additionalProperties: false` on every object schema.** OpenAI's strict mode is satisfied only when each `type: "object"` schema (the root, plus every nested object) explicitly sets `additionalProperties: false` and lists every property in `required`. Schemas that omit it are rejected by the backend with a `400 invalid_schema`. The triage example above (and the cookbook recipe) follow this rule; copy them when you write your own schema.
+
 ### `structuredOutputs` examples
 
-The vLLM-specific extension. Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` per call — the TypeScript type rejects two at once. Don't combine with a `responseFormat` constraint either: that would put two constraints into vLLM's sampling params and the request is rejected at ingress.
+The vLLM-specific extension. Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object` per call — the TypeScript type rejects two at once. Don't combine with a `responseFormat` constraint either: that would put two constraints into vLLM's sampling params and the request is rejected at ingress.
 
 **Fixed choice list.** Forces the response to one of a small enumerated set. Useful for classifier-style outputs where any prefix is a regression.
 
@@ -154,7 +156,7 @@ const res = await infer({
 });
 ```
 
-**`json_object: true` and `structural_tag`.** `json_object: true` is the structuredOutputs equivalent of `responseFormat: { type: "json_object" }` — present for parity with vLLM's wire format. The server only accepts `true`; `false` is rejected at ingress (vLLM only flips into JSON-object mode on a truthy value, so `false` would silently produce an unconstrained generation). `structural_tag` is for Llama-style framed outputs and is rarely needed; both follow the same one-constraint-per-call rule.
+**`json_object: true`.** The structuredOutputs equivalent of `responseFormat: { type: "json_object" }` — present for parity with vLLM's wire format. Only `true` is accepted; `false` is rejected at compile time (the type literal) and at ingress (vLLM only flips into JSON-object mode on a truthy value, so `false` would silently produce an unconstrained generation). Follows the same one-constraint-per-call rule as the others.
 
 ### Tool calling round-trip
 
@@ -344,15 +346,18 @@ Where the result lands depends on which constraint you used:
 
 ## Errors
 
-`infer` does **not** hand you a non-OK `Response`. The SDK calls into `CloudApiClient.chat`, which throws a `CloudApiError` whenever the backend returns a non-2xx status — by the time control returns from `await infer(...)`, you've either got a successful `Response` or an exception. Wrap each call in `try / catch` (or use `.catch()`) and branch on `err instanceof CloudApiError` to read `err.status` and `err.message`.
+`infer` does **not** hand you a non-OK `Response`. The SDK calls into `CloudApiClient.chat`, which throws a `CloudApiError` whenever the backend returns a non-2xx status — by the time control returns from `await infer(...)`, you've either got a successful `Response` or an exception. Wrap each call in `try / catch` (or use `.catch()`) and branch on `err instanceof CloudApiError` to read `err.status` and `err.message`. The class is exported from `arkor` for that purpose.
 
 ```ts
+import { CloudApiError } from "arkor";
+
 try {
   const res = await infer({ messages, ... });
   // Use the Response.
 } catch (err) {
-  // err is a CloudApiError on non-2xx.
-  // err.status is the HTTP status; err.message carries the upstream message.
+  if (err instanceof CloudApiError) {
+    // err.status is the HTTP status; err.message carries the upstream message.
+  }
 }
 ```
 

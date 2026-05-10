@@ -150,7 +150,7 @@ Function calling needs the inference endpoint to be configured with auto-tool-ex
 
 ## When `responseFormat` cannot express the constraint
 
-`responseFormat` is the right knob 90% of the time. For the rest there is `structuredOutputs`, vLLM's superset that adds regex matching, fixed choice lists, custom EBNF grammars, and Llama-style `structural_tag` framing. **Exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` / `structural_tag` must be set; the type encodes that invariant so you cannot accidentally combine two.
+`responseFormat` is the right knob 90% of the time. For the rest there is `structuredOutputs`, vLLM's superset that adds regex matching, fixed choice lists, and custom EBNF grammars. **Exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` must be set; the type encodes that invariant so you cannot accidentally combine two.
 
 A common case is forcing the output to one of a fixed set of strings — useful for classifier-style prompts where any free-form prefix would be a regression:
 
@@ -166,7 +166,7 @@ const data = (await res.json()) as {
 const urgency = data.choices[0]?.message.content; // exactly one of "low" / "medium" / "high"
 ```
 
-Other shapes follow the same pattern: `regex: "^[A-Z]{3}-\\d{4}$"` for ticket-id formats, `grammar: "..."` for an EBNF you maintain. Fields are snake_case (`json_object`, `structural_tag`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format exactly.
+Other shapes follow the same pattern: `regex: "^[A-Z]{3}-\\d{4}$"` for ticket-id formats, `grammar: "..."` for an EBNF you maintain. Fields are snake_case (`json_object`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format exactly.
 
 ## What to keep in mind
 
