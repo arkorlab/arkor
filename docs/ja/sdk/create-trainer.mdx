@@ -10,7 +10,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -36,7 +36,7 @@ function createTrainer(
 | フィールド | 型 | 補足 |
 | --- | --- | --- |
 | `name` | `string` | ジョブ名。Studio とマネージドバックエンドに表示。 |
-| `model` | `string` | ベースモデル ID。今日のキュレートテンプレートは `gemma-4-E4B-it` を使用（[サポートしているモデル](/ja/models) を参照）。 |
+| `model` | `string` | ベースモデル ID。今日のキュレートテンプレートは `gemma-4-e4b-it` を使用（[サポートしているモデル](/ja/models) を参照）。 |
 | `dataset` | [`DatasetSource`](/ja/sdk/dataset) | HuggingFace データセット名 or blob URL。 |
 
 ## 型付きオプションフィールド
@@ -75,7 +75,7 @@ interface LoraConfig {
 ```ts
 createTrainer({
   name: "smoke",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   dryRun: true,
 });

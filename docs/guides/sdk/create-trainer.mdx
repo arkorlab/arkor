@@ -12,7 +12,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -22,7 +22,7 @@ export const trainer = createTrainer({
 ## The fields you reach for first
 
 - `name`: shows up in Studio and in cloud-side logs. Pick something specific.
-- `model`: the base open-weight model. Templates use `gemma-4-E4B-it`. See [Supported models](/models).
+- `model`: the base open-weight model. Templates use `gemma-4-e4b-it`. See [Supported models](/models).
 - `dataset`: where the training data lives. See [`DatasetSource`](/guides/sdk/dataset).
 - `lora`: LoRA / QLoRA knobs. `r: 16, alpha: 16` is a fine default; omit to take the backend default.
 - `maxSteps` or `numTrainEpochs`: cap how long the run goes.
@@ -35,7 +35,7 @@ export const trainer = createTrainer({
 ```ts
 createTrainer({
   name: "smoke",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   dryRun: true,
 });

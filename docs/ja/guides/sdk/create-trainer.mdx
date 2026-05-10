@@ -12,7 +12,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -22,7 +22,7 @@ export const trainer = createTrainer({
 ## 最初に触るフィールド
 
 - `name`: Studio とクラウド側ログに表示。具体的な名前を。
-- `model`: ベースのオープンウェイトモデル。テンプレートは `gemma-4-E4B-it` を使用。[サポートしているモデル](/ja/models) を参照。
+- `model`: ベースのオープンウェイトモデル。テンプレートは `gemma-4-e4b-it` を使用。[サポートしているモデル](/ja/models) を参照。
 - `dataset`: 学習データの所在。[`DatasetSource`](/ja/guides/sdk/dataset) を参照。
 - `lora`: LoRA / QLoRA のノブ。`r: 16, alpha: 16` で十分。省略するとバックエンドのデフォルト。
 - `maxSteps` または `numTrainEpochs`: ラン時間を区切る。
@@ -35,7 +35,7 @@ export const trainer = createTrainer({
 ```ts
 createTrainer({
   name: "smoke",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   dryRun: true,
 });

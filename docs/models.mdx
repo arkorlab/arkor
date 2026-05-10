@@ -3,23 +3,23 @@ title: "Supported models"
 description: "Which base models the Arkor backend accepts today, why the list is short, and where it's headed."
 ---
 
-Today both the `model` field of `createTrainer` and Studio's Playground (base-model mode) accept exactly one value: `gemma-4-E4B-it`. Below: what that value gets you, why the list is short on purpose, and what's next.
+Today both the `model` field of `createTrainer` and Studio's Playground (base-model mode) accept exactly one value: `gemma-4-e4b-it`. Below: what that value gets you, why the list is short on purpose, and what's next.
 
 ## What you can pick today
 
-`gemma-4-E4B-it` is the Gemma 4 instruction-tuned build, packaged by Unsloth for fast LoRA / QLoRA fine-tuning. Every starter template (`triage`, `translate`, `redaction`) targets it by default.
+`gemma-4-e4b-it` is the Gemma 4 instruction-tuned build, packaged by Unsloth for fast LoRA / QLoRA fine-tuning. Every starter template (`triage`, `translate`, `redaction`) targets it by default.
 
 ```ts
 import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
 });
 ```
 
-The canonical value the cloud API accepts is `unsloth/gemma-4-E4B-it`; the `unsloth/` prefix stays in code as a deliberate credit to the Unsloth project that produced the build.
+The canonical value the cloud API accepts is `unsloth/gemma-4-e4b-it`; the `unsloth/` prefix stays in code as a deliberate credit to the Unsloth project that produced the build.
 
 ## Why one model, right now
 
