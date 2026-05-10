@@ -265,16 +265,26 @@ export type ResponseFormat =
       };
     };
 
+// Helper: a record where exactly one key is required and every
+// sibling is forbidden (typed `never`). Encodes vLLM's
+// "must specify exactly one constraint" invariant at the type level.
+// Internal to the SDK; shown here so the StructuredOutputs definition
+// below is self-contained.
+type ExactlyOne<T> = {
+  [K in keyof T]: { [P in K]: T[K] } & {
+    [P in Exclude<keyof T, K>]?: never;
+  };
+}[keyof T];
+
 // Exactly one of `json` / `regex` / `choice` / `grammar` /
-// `json_object` / `structural_tag` must be set. Field names are
-// snake_case to match vLLM's wire format verbatim.
+// `json_object` must be set. Field names are snake_case to match
+// vLLM's wire format verbatim.
 export type StructuredOutputs = ExactlyOne<{
-  json: string | Record<string, unknown>;
+  json: Record<string, unknown>;
   regex: string;
   choice: string[];
   grammar: string;
-  json_object: boolean;
-  structural_tag: string;
+  json_object: true;
 }> & {
   disable_any_whitespace?: boolean;
   disable_additional_properties?: boolean;
@@ -326,23 +336,34 @@ Where the result lands depends on which constraint you used:
 
 - **No constraint** or **`responseFormat: { type: "text" }`** — `choices[0].message.content` is plain text.
 - **`responseFormat: { type: "json_object" }`** or **`type: "json_schema"`** — `choices[0].message.content` is a **string** containing the JSON. You call `JSON.parse` yourself; the SDK does not pre-parse.
-- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }` / `{ structural_tag }`** — `choices[0].message.content` is a string matching the constraint. Not JSON; do not parse.
+- **`structuredOutputs: { json }` or `{ json_object: true }`** — same: `choices[0].message.content` is a JSON string. `JSON.parse` it.
+- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }`** — `choices[0].message.content` is a string matching the constraint. Not JSON; do not parse.
 - **`tools` request that returned a tool call** — `choices[0].message.tool_calls` is populated; `content` is omitted or `null`. Each `tool_calls[i].function.arguments` is itself a JSON-encoded string.
 
 `finish_reason: "tool_calls"` is the signal the model wants to call a function rather than emit a final answer; loop with the [tool calling round-trip](#tool-calling-round-trip).
 
 ## Errors
 
-The SDK returns the raw `Response`, so error responses surface as a non-OK status with a JSON body. The codes worth knowing:
+`infer` does **not** hand you a non-OK `Response`. The SDK calls into `CloudApiClient.chat`, which throws a `CloudApiError` whenever the backend returns a non-2xx status — by the time control returns from `await infer(...)`, you've either got a successful `Response` or an exception. Wrap each call in `try / catch` (or use `.catch()`) and branch on `err instanceof CloudApiError` to read `err.status` and `err.message`.
+
+```ts
+try {
+  const res = await infer({ messages, ... });
+  // Use the Response.
+} catch (err) {
+  // err is a CloudApiError on non-2xx.
+  // err.status is the HTTP status; err.message carries the upstream message.
+}
+```
 
 | Status | When | What to do |
 | --- | --- | --- |
 | `400` `tool_calling_not_configured` | `tools` set with implicit or explicit `toolChoice: "auto"`, but the inference endpoint is not configured for auto-tool-extraction. | Enable auto-tool-extraction on the endpoint, or fall back to `toolChoice: "required"` / `toolChoice: { type: "function", function: { name } }` (these go through the guided-decoding path and do not need the parser). Retrying without changing config will keep failing. |
-| `400` schema-validation error | `responseFormat.json_schema.schema` or a `tools[i].function.parameters` is not a valid JSON Schema; `structuredOutputs` was passed with zero or more than one constraint set; `structuredOutputs` carries a constraint *and* `responseFormat` already supplies one (two constraints conflict at vLLM); `structuredOutputs.json_object: false` (only `true` activates JSON-object mode); or a legacy `guided_json` / `guided_regex` / `guided_choice` / `guided_grammar` / `guided_decoding_backend` field was sent (vLLM 0.20 dropped these — migrate to `structuredOutputs`). | Fix the schema / pick exactly one constraint / drop the conflicting field. The TS type rejects multiple `structuredOutputs` keys at compile time; the runtime status is only hit for runtime-built constraint objects, raw HTTP callers, or legacy SDKs. |
-| `4xx` model rejection | Backend rejected the request (e.g. context length exceeded, unsupported message shape). | Body carries the upstream error message — surface it to the caller. |
-| `5xx` upstream | Inference cluster outage / cold start timeout. | Retryable; the SSE reconnect loop covers most of this for streaming reads. |
+| `400` schema-validation error | `responseFormat.json_schema.schema` or a `tools[i].function.parameters` is not a valid JSON Schema; `structuredOutputs` was passed with zero or more than one constraint set; or `structuredOutputs` carries a constraint *and* `responseFormat` already supplies one (two constraints conflict at vLLM). | Fix the schema / pick exactly one constraint / drop the conflicting field. The TS type rejects multiple `structuredOutputs` keys at compile time; this status is mostly hit for runtime-built constraint objects or raw HTTP callers. |
+| `4xx` model rejection | Backend rejected the request (e.g. context length exceeded, unsupported message shape). | `err.message` carries the upstream message — surface it to the caller. |
+| `5xx` upstream | Inference cluster outage / cold start timeout. | The SDK does **not** retry inference requests automatically (the trainer's SSE reconnect loop is for the *job event* stream, not for `/v1/inference/chat`). Roll your own retry around `infer` if you want one. |
 
-The SDK does not retry these for you. Wrap the call in `try / catch` and decide per error class.
+Throws bubble out of `onCheckpoint` and are caught by the runtime's reconnect loop, so unhandled errors can lead to silent retries. Always handle inference errors locally.
 
 ## Constraints
 

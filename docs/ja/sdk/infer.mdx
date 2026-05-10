@@ -265,16 +265,25 @@ export type ResponseFormat =
       };
     };
 
-// `json` / `regex` / `choice` / `grammar` / `json_object` /
-// `structural_tag` のうちちょうど 1 つを設定。フィールド名は vLLM の
-// wire 形式に合わせて snake_case。
+// ヘルパー: ちょうど 1 つのキーを必須化し、他のキーは `never` で禁止する
+// レコード型。vLLM の「制約はちょうど 1 つ」という不変条件を型レベルで
+// 表現する。SDK 内部の型ですが、下の StructuredOutputs 定義を自己完結に
+// するためここでも展開しています。
+type ExactlyOne<T> = {
+  [K in keyof T]: { [P in K]: T[K] } & {
+    [P in Exclude<keyof T, K>]?: never;
+  };
+}[keyof T];
+
+// `json` / `regex` / `choice` / `grammar` / `json_object` のうち
+// ちょうど 1 つを設定。フィールド名は vLLM の wire 形式に合わせて
+// snake_case。
 export type StructuredOutputs = ExactlyOne<{
-  json: string | Record<string, unknown>;
+  json: Record<string, unknown>;
   regex: string;
   choice: string[];
   grammar: string;
-  json_object: boolean;
-  structural_tag: string;
+  json_object: true;
 }> & {
   disable_any_whitespace?: boolean;
   disable_additional_properties?: boolean;
@@ -326,23 +335,34 @@ const data = await res.json();
 
 - **制約なし** または **`responseFormat: { type: "text" }`** — `choices[0].message.content` はプレーンテキスト。
 - **`responseFormat: { type: "json_object" }`** または **`type: "json_schema"`** — `choices[0].message.content` は JSON を含む **文字列**。`JSON.parse` は自分で呼びます（SDK は事前にパースしません）。
-- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }` / `{ structural_tag }`** — `choices[0].message.content` は制約に合致する文字列。JSON ではないのでパースしないこと。
+- **`structuredOutputs: { json }` または `{ json_object: true }`** — 同様。`choices[0].message.content` は JSON 文字列なので `JSON.parse` する。
+- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }`** — `choices[0].message.content` は制約に合致する文字列。JSON ではないのでパースしないこと。
 - **`tools` 付きで tool call が返ったケース** — `choices[0].message.tool_calls` が埋まり、`content` は省略 / `null`。各 `tool_calls[i].function.arguments` 自体が JSON エンコードされた文字列。
 
 `finish_reason: "tool_calls"` は「最終回答を出さずツールを呼びたい」というモデルからのシグナルです。[Function Calling のラウンドトリップ](#function-calling-のラウンドトリップ) で次のターンを回します。
 
 ## エラー
 
-SDK は生の `Response` を返すため、エラー応答は非 OK ステータス + JSON ボディとして表に出ます。把握しておくべきコード:
+`infer` は非 OK な `Response` を **返しません**。SDK は内部で `CloudApiClient.chat` を呼び、これは非 2xx を受け取ると `CloudApiError` を **throw** します。`await infer(...)` から戻った時点では、成功時の `Response` か例外、どちらかしか手元に来ません。`try / catch`（または `.catch()`）で囲み、`err instanceof CloudApiError` で分岐して `err.status` / `err.message` を読んでください。
+
+```ts
+try {
+  const res = await infer({ messages, ... });
+  // 成功時の Response を使う。
+} catch (err) {
+  // 非 2xx の場合 err は CloudApiError。
+  // err.status は HTTP ステータス、err.message は upstream のメッセージ。
+}
+```
 
 | ステータス | 発生条件 | 対応 |
 | --- | --- | --- |
 | `400` `tool_calling_not_configured` | `tools` を指定し、暗黙または明示の `toolChoice: "auto"` を要求したが、推論エンドポイントが auto-tool-extraction 未設定。 | エンドポイントで auto-tool-extraction を有効化するか、`toolChoice: "required"` / `toolChoice: { type: "function", function: { name } }` にフォールバック（後者 2 つは guided-decoding 経路を通り、parser 不要）。設定を変えずにリトライしても通りません。 |
-| `400` schema バリデーションエラー | `responseFormat.json_schema.schema` または `tools[i].function.parameters` が valid な JSON Schema ではない / `structuredOutputs` を制約 0 個 / 2 個以上で渡した / `responseFormat` が既に制約を提供しているのに `structuredOutputs` でも constraint を渡した（vLLM 上で 2 制約衝突）/ `structuredOutputs.json_object: false` を渡した（`true` のみ JSON-object モードを発動）/ legacy な `guided_json` / `guided_regex` / `guided_choice` / `guided_grammar` / `guided_decoding_backend` を渡した（vLLM 0.20 で削除済み — `structuredOutputs` へ移行）。 | スキーマを直す / 制約を 1 つだけにする / 衝突するフィールドを外す。TS 型は `structuredOutputs` の複数キー指定をコンパイル時に拒否するので、このステータスはランタイム生成された制約オブジェクト・raw HTTP 呼び出し・古い SDK でのみ起こります。 |
-| `4xx` モデル拒否 | バックエンドがリクエストを拒否（コンテキスト長超過、未対応のメッセージ形など）。 | ボディに upstream のエラーメッセージが入っているので呼び出し元に表面化。 |
-| `5xx` upstream | 推論クラスタの障害 / コールドスタートタイムアウト。 | リトライ可。ストリーミング読み取り中であれば SSE 再接続ループがほとんど吸収します。 |
+| `400` schema バリデーションエラー | `responseFormat.json_schema.schema` または `tools[i].function.parameters` が valid な JSON Schema ではない / `structuredOutputs` を制約 0 個 / 2 個以上で渡した / `responseFormat` が既に制約を提供しているのに `structuredOutputs` でも constraint を渡した（vLLM 上で 2 制約衝突）。 | スキーマを直す / 制約を 1 つだけにする / 衝突するフィールドを外す。TS 型は `structuredOutputs` の複数キー指定をコンパイル時に拒否するので、このステータスはランタイム生成された制約オブジェクトや raw HTTP 呼び出しでのみ起こります。 |
+| `4xx` モデル拒否 | バックエンドがリクエストを拒否（コンテキスト長超過、未対応のメッセージ形など）。 | `err.message` に upstream のエラーメッセージが入っているので呼び出し元に表面化。 |
+| `5xx` upstream | 推論クラスタの障害 / コールドスタートタイムアウト。 | SDK は推論リクエストを自動リトライ **しません**（trainer の SSE 再接続ループは *job event stream* 用で、`/v1/inference/chat` は対象外）。リトライが要るなら呼び出し側で実装してください。 |
 
-SDK はこれらを自動でリトライしません。`try / catch` で囲み、エラーカテゴリごとに判断を入れてください。
+throw は `onCheckpoint` の外まで伝播し、ランタイムの再接続ループに catch されるため、未処理のエラーは silent な再試行になり得ます。推論エラーは必ず callback 内で処理してください。
 
 ## 制約
 
