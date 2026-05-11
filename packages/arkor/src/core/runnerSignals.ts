@@ -45,7 +45,7 @@ const SECOND_SIGNAL_EXIT_CODE: Record<
  */
 export function installShutdownHandlers(trainer: Trainer): () => void {
   let signalCount = 0;
-  const handler = (signal: NodeJS.Signals): void => {
+  const handler = (signal: (typeof SHUTDOWN_SIGNALS)[number]): void => {
     signalCount += 1;
     if (signalCount > 1) {
       process.stdout.write(
@@ -55,15 +55,9 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
       // status: 130 for SIGINT (Ctrl-C twice), 129 for SIGHUP,
       // 143 for SIGTERM. Hardcoding 143 misclassifies SIGINT and
       // SIGHUP shutdowns as SIGTERM-style exits and breaks
-      // signal-aware orchestration. The cast is safe because
-      // `signal` here is always one of `SHUTDOWN_SIGNALS` (Node's
-      // `signal` arg matches whatever name we registered the
-      // handler under). Defaults to 143 for any future signal we
-      // forget to map.
-      const code =
-        SECOND_SIGNAL_EXIT_CODE[
-          signal as (typeof SHUTDOWN_SIGNALS)[number]
-        ] ?? 143;
+      // signal-aware orchestration. Defaults to 143 for any future
+      // signal we forget to map.
+      const code = SECOND_SIGNAL_EXIT_CODE[signal] ?? 143;
       process.exit(code);
       // Explicit return so test mocks of process.exit (which don't
       // actually terminate the worker) don't fall through into the
@@ -86,9 +80,27 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
       })
       .finally(() => process.exit(0));
   };
-  for (const sig of SHUTDOWN_SIGNALS) process.on(sig, handler);
+  // Per-signal closure (vs a single shared listener registered on
+  // every signal): the closure captures `sig` at registration time
+  // so the handler doesn't depend on whatever Node passes as the
+  // event arg. Node's documented contract is to pass the signal
+  // name, but pinning the source via closure keeps the handler
+  // robust regardless and makes the registration → arg
+  // relationship explicit at the callsite. Stored in a Map so
+  // `process.off` can remove the exact closure (anonymous arrow
+  // would leak the listener since `process.off` matches by
+  // identity).
+  const signalHandlers = new Map<
+    (typeof SHUTDOWN_SIGNALS)[number],
+    () => void
+  >();
+  for (const sig of SHUTDOWN_SIGNALS) {
+    const fn = () => handler(sig);
+    signalHandlers.set(sig, fn);
+    process.on(sig, fn);
+  }
   return () => {
-    for (const sig of SHUTDOWN_SIGNALS) process.off(sig, handler);
+    for (const [sig, fn] of signalHandlers) process.off(sig, fn);
   };
 }
 

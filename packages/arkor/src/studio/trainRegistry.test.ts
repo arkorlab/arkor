@@ -69,7 +69,7 @@ describe("TrainRegistry", () => {
     // before the watcher's first BUNDLE_END" case. Whether it's
     // safe to backfill the new hash as the child's baseline depends
     // on whether the on-disk artefact has changed between spawn
-    // and now: if `spawnArtifactHash === nextArtifactHash`, the
+    // and now: if `spawnArtifactContentHash === nextArtifactContentHash`, the
     // child read exactly the bytes the new hash describes →
     // backfill + skip dispatch (no spurious cancel+restart cycle).
     // Otherwise — see the next test — SIGTERM-restart so cloud
@@ -79,7 +79,7 @@ describe("TrainRegistry", () => {
     reg.register(c as unknown as ChildProcess, {
       configHash: null,
       trainFile: "/tmp/preready.ts",
-      spawnArtifactHash: "art-v1",
+      spawnArtifactContentHash: "art-v1",
     });
     const result = reg.dispatchRebuild("first-real-hash", "art-v1");
     // Neither bucket — no signal sent, nothing for the SPA to react to.
@@ -122,7 +122,7 @@ describe("TrainRegistry", () => {
     reg.register(c as unknown as ChildProcess, {
       configHash: null,
       trainFile: "/tmp/preready-stale.ts",
-      spawnArtifactHash: "art-stale",
+      spawnArtifactContentHash: "art-stale",
     });
     const result = reg.dispatchRebuild("real-hash", "art-fresh");
     // SIGTERM-restart: the child's bytes are stale relative to the
@@ -149,7 +149,7 @@ describe("TrainRegistry", () => {
     reg.register(c as unknown as ChildProcess, {
       configHash: null,
       trainFile: "/tmp/preready-fresh.ts",
-      spawnArtifactHash: null, // no artefact when /api/train fired
+      spawnArtifactContentHash: null, // no artefact when /api/train fired
     });
     const result = reg.dispatchRebuild("first-real-hash", "art-fresh");
     expect(result.hotSwapTargets).toEqual([]);

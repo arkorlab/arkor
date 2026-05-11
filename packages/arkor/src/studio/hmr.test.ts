@@ -358,10 +358,11 @@ describe("createHmrCoordinator", () => {
     // Companion to the null-on-missing test: when the artefact
     // *does* exist (watcher's first BUNDLE_END landed), the
     // getter returns the same `mtimeMs-ctimeMs-size` shape the
-    // SSE event's `hash` field uses. Symmetric value lets
-    // `dispatchRebuild` compare `entry.spawnArtifactHash` against
-    // `event.hash` directly for the pre-ready-spawn backfill
-    // decision.
+    // SSE event's `hash` field uses. The two are paired for SSE
+    // dedup purposes; the pre-ready-spawn registry gate switched
+    // to content-hash (`getCurrentArtifactContentHash`) to avoid
+    // identical-bytes/different-timestamps false positives, but
+    // the timestamp hash stays as the canonical SSE event id.
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
 

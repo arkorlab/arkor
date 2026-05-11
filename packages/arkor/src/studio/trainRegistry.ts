@@ -22,20 +22,28 @@ export interface ActiveTrain {
    *  can't prove the configs match. */
   configHash: string | null;
   /**
-   * Fingerprint (mtime+ctime+size, see `core/moduleCacheBust.ts`) of
-   * the on-disk `.arkor/build/index.mjs` at spawn time. Used **only**
-   * to gate the pre-ready-spawn backfill: if a rebuild eventually
-   * fires while `configHash` is still null and this fingerprint
-   * matches the rebuild's artefact, the child is provably reading
-   * the same bundle bytes the new hash describes — safe to backfill
-   * `configHash` and skip dispatch. A mismatch (or null here) means
-   * the on-disk artefact has changed between spawn and rebuild
-   * (user edited mid-spawn, fresh project never built, …) so the
-   * child is running stale bytes and we MUST SIGTERM-restart to
-   * keep cloud-side `JobConfig` aligned with what the child
-   * actually loaded. Null when HMR isn't enabled or stat failed.
+   * Content hash (sha256, truncated — see `studio/hmr.ts`'s
+   * `contentHashOrNull`) of the on-disk `.arkor/build/index.mjs`
+   * at spawn time. Used **only** to gate the pre-ready-spawn
+   * backfill: if a rebuild eventually fires while `configHash` is
+   * still null and this content hash equals the rebuild's
+   * `event.contentHash`, the child is provably reading the same
+   * bundle bytes the new hash describes — safe to backfill
+   * `configHash` and skip dispatch. A mismatch (or null here)
+   * means the on-disk artefact has changed between spawn and
+   * rebuild (user edited mid-spawn, fresh project never built, …)
+   * so the child is running stale bytes and we MUST SIGTERM-restart
+   * to keep cloud-side `JobConfig` aligned with what the child
+   * actually loaded.
+   *
+   * Content-hash (vs the timestamp `mtime+ctime+size` shape used
+   * by `event.hash` for SSE dedup) avoids a false-positive
+   * mismatch when a watcher rebuild produces identical bytes —
+   * timestamps still bump, but content is the same and we
+   * shouldn't force a spurious cancel+restart cycle. Null when
+   * HMR isn't enabled or read failed.
    */
-  spawnArtifactHash: string | null;
+  spawnArtifactContentHash: string | null;
   /**
    * `true` once we've already SIGTERM'd this child for an HMR-driven
    * early-stop. Subsequent rebuilds (which can land before the child
@@ -132,24 +140,25 @@ export class TrainRegistry {
     child: ChildProcess,
     init: Omit<
       ActiveTrain,
-      "child" | "earlyStopRequested" | "spawnArtifactHash" | "jobId"
+      "child" | "earlyStopRequested" | "spawnArtifactContentHash" | "jobId"
     > & {
       // Optional in the signature so tests / future callers that
-      // don't track the on-disk artefact fingerprint (e.g. an HMR-
-      // disabled server, a hand-rolled fake) can omit it. Defaults
-      // to `null`, which forces the pre-ready-spawn branch to fall
-      // through to SIGTERM-restart on the next non-null rebuild —
-      // the safe choice when we genuinely don't know what bytes
-      // the child loaded. Real `/api/train` calls in HMR mode
-      // capture this from `coordinator.getCurrentArtifactHash()`.
-      spawnArtifactHash?: string | null;
+      // don't track the on-disk artefact content hash (e.g. an
+      // HMR-disabled server, a hand-rolled fake) can omit it.
+      // Defaults to `null`, which forces the pre-ready-spawn
+      // branch to fall through to SIGTERM-restart on the next
+      // non-null rebuild — the safe choice when we genuinely
+      // don't know what bytes the child loaded. Real `/api/train`
+      // calls in HMR mode capture this from
+      // `coordinator.getCurrentArtifactContentHash()`.
+      spawnArtifactContentHash?: string | null;
     },
   ): void {
     if (typeof child.pid !== "number") return;
     this.entries.set(child.pid, {
       child,
       ...init,
-      spawnArtifactHash: init.spawnArtifactHash ?? null,
+      spawnArtifactContentHash: init.spawnArtifactContentHash ?? null,
       earlyStopRequested: false,
       // `jobId` starts null — populated later by `recordJobId(pid,
       // id)` when the server's stdout parser sees the runner's
@@ -248,13 +257,16 @@ export class TrainRegistry {
    */
   dispatchRebuild(
     nextConfigHash: string | null,
-    // Defaults to `null` so tests / pre-existing callers that don't
-    // pass the artefact hash get the conservative behaviour: the
-    // pre-ready-spawn branch's `artefactsAgree` check is `false`,
-    // so a null entry hash falls through to SIGTERM-restart. Real
-    // dispatch from `/api/train`'s HMR subscriber threads
-    // `event.hash` here so the backfill optimisation activates.
-    nextArtifactHash: string | null = null,
+    // Content hash (sha256-derived; see `studio/hmr.ts`) of the
+    // freshly-built artefact, paired with `entry.spawnArtifactContentHash`
+    // for the pre-ready-spawn equality gate. Defaults to `null` so
+    // tests / pre-existing callers that don't pass a hash get the
+    // conservative behaviour: a null entry hash falls through to
+    // SIGTERM-restart. Real dispatch from `/api/train`'s HMR
+    // subscriber threads `event.contentHash` here so the backfill
+    // optimisation activates only when the child's loaded bytes
+    // genuinely match.
+    nextArtifactContentHash: string | null = null,
   ): DispatchResult {
     const hotSwapTargets: RestartTarget[] = [];
     const restartTargets: RestartTarget[] = [];
@@ -267,34 +279,34 @@ export class TrainRegistry {
       // recorded `configHash` is `null`. Whether the rebuild's new
       // hash describes the same bytes the child actually loaded
       // depends on whether the on-disk artefact has changed between
-      // spawn and now. Tie the decision to the artefact fingerprint:
+      // spawn and now. Tie the decision to the artefact content
+      // hash:
       //
-      //   - `entry.spawnArtifactHash === nextArtifactHash` → child
-      //     read the same bytes the new hash describes. Safe to
-      //     backfill `configHash`; future rebuilds compare against
-      //     the backfilled value like any other child. This is the
-      //     common case (user clicked Run before the SPA had
+      //   - `entry.spawnArtifactContentHash === nextArtifactContentHash`
+      //     → child read the same bytes the new hash describes.
+      //     Safe to backfill `configHash`; future rebuilds compare
+      //     against the backfilled value like any other child. This
+      //     is the common case (user clicked Run before the SPA had
       //     refreshed its manifest, but the on-disk artefact is the
       //     same one the watcher just settled on).
       //
-      //   - artefact fingerprints differ (or one side is null) →
-      //     the bytes the child loaded don't match the new hash.
-      //     SIGTERM-restart so the cloud-side `JobConfig` and the
-      //     child's actual config are guaranteed to align. Without
-      //     this gate, an edit landing between spawn and the first
-      //     BUNDLE_END would silently teach the registry to use the
-      //     post-edit hash as the child's baseline — later
-      //     same-hash rebuilds would then hot-swap callbacks into
-      //     a child whose cloud-side `JobConfig` was *actually*
-      //     spawned against an older version, leaving the cloud
-      //     run on a stale config.
+      //   - content hashes differ (or one side is null) → the bytes
+      //     the child loaded don't match the new hash. SIGTERM-restart
+      //     so the cloud-side `JobConfig` and the child's actual
+      //     config are guaranteed to align. Without this gate, an
+      //     edit landing between spawn and the first BUNDLE_END would
+      //     silently teach the registry to use the post-edit hash as
+      //     the child's baseline — later same-hash rebuilds would
+      //     then hot-swap callbacks into a child whose cloud-side
+      //     `JobConfig` was *actually* spawned against an older
+      //     version, leaving the cloud run on a stale config.
       const isPreReadySpawn =
         entry.configHash === null && nextConfigHash !== null;
       if (isPreReadySpawn) {
         const artefactsAgree =
-          entry.spawnArtifactHash !== null &&
-          nextArtifactHash !== null &&
-          entry.spawnArtifactHash === nextArtifactHash;
+          entry.spawnArtifactContentHash !== null &&
+          nextArtifactContentHash !== null &&
+          entry.spawnArtifactContentHash === nextArtifactContentHash;
         if (artefactsAgree) {
           entry.configHash = nextConfigHash;
           continue;

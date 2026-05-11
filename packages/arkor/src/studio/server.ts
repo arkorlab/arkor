@@ -439,7 +439,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     // mtime/ctime, forcing a spurious cancel+restart cycle on a
     // pre-ready spawn even though the child's loaded bytes
     // actually matched the new build. Content-hash is precise.
-    const spawnArtifactHash: string | null = options.hmr
+    const spawnArtifactContentHash: string | null = options.hmr
       ? options.hmr.getCurrentArtifactContentHash()
       : null;
     const args = [trainBinPath, "start"];
@@ -470,7 +470,11 @@ export function buildStudioApp(options: StudioServerOptions) {
         500,
       );
     }
-    activeTrains.register(child, { trainFile, configHash, spawnArtifactHash });
+    activeTrains.register(child, {
+      trainFile,
+      configHash,
+      spawnArtifactContentHash,
+    });
     // Hoisted out of the `ReadableStream` underlying-source so the
     // `start` handler can hand its closure-bound teardown helper to
     // the `cancel` handler. `cancel` runs in a separate invocation,
@@ -822,14 +826,16 @@ export function buildStudioApp(options: StudioServerOptions) {
         // Content-hash for the pre-ready-spawn equality gate (the
         // timestamp `event.hash` would over-trigger SIGTERM-restart
         // on identical-bytes rebuilds). Both sides of the
-        // comparison — `entry.spawnArtifactHash` (captured via
-        // `getCurrentArtifactContentHash()`) and this `event.contentHash`
-        // — are derived the same way, so a match means the
-        // child's loaded bytes ARE what the new configHash
-        // describes.
-        const nextArtifactHash = event.contentHash ?? null;
-        const { hotSwapTargets, restartTargets } =
-          activeTrains.dispatchRebuild(nextHash, nextArtifactHash);
+        // comparison — `entry.spawnArtifactContentHash` (captured
+        // via `getCurrentArtifactContentHash()`) and this
+        // `event.contentHash` — are derived the same way, so a
+        // match means the child's loaded bytes ARE what the new
+        // configHash describes.
+        const nextArtifactContentHash = event.contentHash ?? null;
+        const { hotSwapTargets, restartTargets } = activeTrains.dispatchRebuild(
+          nextHash,
+          nextArtifactContentHash,
+        );
         augmented = {
           ...event,
           hotSwap: hotSwapTargets.length > 0,
