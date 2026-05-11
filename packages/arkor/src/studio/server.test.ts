@@ -1193,7 +1193,7 @@ process.exit(0);
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          baseModel: "unsloth/gemma-4-e4b-it",
+          baseModel: "unsloth/gemma-4-E4B-it",
           messages: [{ role: "user", content: "hello" }],
           stream: true,
         }),
@@ -1223,7 +1223,7 @@ process.exit(0);
       expect(chat).toBeDefined();
       expect(chat!.url).toContain("orgSlug=anon-org");
       expect(chat!.url).toContain("projectSlug=auto-slug");
-      expect(chat!.body).toContain("unsloth/gemma-4-e4b-it");
+      expect(chat!.body).toContain("unsloth/gemma-4-E4B-it");
       // X-Arkor-Client must be present, otherwise cloud-api's SDK version
       // gate rejects the proxied request with 426 (reason: "missing").
       expect(chat!.headers["x-arkor-client"]).toMatch(/^arkor\/\S+$/);
@@ -1262,7 +1262,7 @@ process.exit(0);
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          baseModel: "unsloth/gemma-4-e4b-it",
+          baseModel: "unsloth/gemma-4-E4B-it",
           messages: [{ role: "user", content: "hi" }],
         }),
       });
@@ -1304,7 +1304,7 @@ process.exit(0);
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          baseModel: "unsloth/gemma-4-e4b-it",
+          baseModel: "unsloth/gemma-4-E4B-it",
           messages: [{ role: "user", content: "hi" }],
         }),
       });
@@ -1328,7 +1328,7 @@ process.exit(0);
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          baseModel: "unsloth/gemma-4-e4b-it",
+          baseModel: "unsloth/gemma-4-E4B-it",
           messages: [{ role: "user", content: "hi" }],
         }),
       });
