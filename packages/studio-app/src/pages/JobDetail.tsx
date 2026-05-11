@@ -52,20 +52,54 @@ export function JobDetail({ jobId }: { jobId: string }) {
   // the terminal-event notification even when the polled `job` resolves
   // after the closures were registered.
   const jobNameRef = useRef<string | null>(null);
+  // Wall-clock time the user landed on this job's page. Used to skip
+  // notifications for terminal frames whose timestamp predates the
+  // mount — i.e. SSE history replay or a poll observing a job that
+  // had already finished before the page was opened.
+  const mountedAtRef = useRef<number>(Date.now());
+  // Previously observed wire status; lets the polling tick recognise a
+  // queued/running -> completed/failed transition and fire a
+  // notification when the SSE stream missed the terminal frame.
+  const previousPolledStatusRef = useRef<Job["status"] | null>(null);
 
   useEffect(() => {
     setJob(null);
+    mountedAtRef.current = Date.now();
+    previousPolledStatusRef.current = null;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Chained setTimeout instead of setInterval so a slow /api/jobs
     // request can't pile up overlapping calls. SSE remains the source
     // of truth for live status; polling is just for completedAt /
-    // config / etc that the SSE stream doesn't carry.
+    // config / etc that the SSE stream doesn't carry — plus a
+    // poll-driven terminal notification below as a safety net when
+    // the SSE stream dropped before the terminal frame arrived
+    // (machine sleep, proxy hiccup, etc).
     async function tick() {
       try {
         const { jobs } = await fetchJobs();
         if (!cancelled) {
-          setJob(jobs.find((j) => j.id === jobId) ?? null);
+          const next = jobs.find((j) => j.id === jobId) ?? null;
+          const prevStatus = previousPolledStatusRef.current;
+          const wasTerminal =
+            prevStatus === "completed" ||
+            prevStatus === "failed" ||
+            prevStatus === "cancelled";
+          if (
+            next &&
+            (next.status === "completed" || next.status === "failed") &&
+            !wasTerminal &&
+            shouldNotifyTerminal(next.completedAt, mountedAtRef.current)
+          ) {
+            notifyJobTerminal({
+              status: next.status,
+              jobName: next.name ?? jobId,
+              jobId,
+              error: next.error ?? undefined,
+            });
+          }
+          previousPolledStatusRef.current = next?.status ?? null;
+          setJob(next);
         }
       } catch {
         // ignore — events stream is the source of truth for live status
@@ -254,12 +288,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
         completedAt = d.timestamp;
       }
       setTerminal({ status: "completed", artifacts, completedAt });
-      notifyJobTerminal({
-        status: "completed",
-        jobName: jobNameRef.current ?? jobId,
-        jobId,
-        artifacts,
-      });
+      if (shouldNotifyTerminal(completedAt, mountedAtRef.current)) {
+        notifyJobTerminal({
+          status: "completed",
+          jobName: jobNameRef.current ?? jobId,
+          jobId,
+          artifacts,
+        });
+      }
     });
     es.addEventListener("training.failed", (ev: MessageEvent) => {
       const parsed = safeParse(ev.data);
@@ -272,12 +308,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
         completedAt = d.timestamp;
       }
       setTerminal({ status: "failed", error, artifacts: 0, completedAt });
-      notifyJobTerminal({
-        status: "failed",
-        jobName: jobNameRef.current ?? jobId,
-        jobId,
-        error,
-      });
+      if (shouldNotifyTerminal(completedAt, mountedAtRef.current)) {
+        notifyJobTerminal({
+          status: "failed",
+          jobName: jobNameRef.current ?? jobId,
+          jobId,
+          error,
+        });
+      }
     });
     es.addEventListener("end", () => {
       es.close();
@@ -543,6 +581,22 @@ function AdvancedToggle({
       Advanced
     </button>
   );
+}
+
+// Tolerance (ms) between the trainer-side terminal timestamp and the
+// page mount, so a few seconds of clock skew or polling lag does not
+// suppress a notification for a run that genuinely finished after the
+// user landed on the page.
+const TERMINAL_NOTIFY_GRACE_MS = 5_000;
+
+function shouldNotifyTerminal(
+  timestamp: string | undefined | null,
+  mountedAt: number,
+): boolean {
+  if (!timestamp) return true;
+  const t = Date.parse(timestamp);
+  if (!Number.isFinite(t)) return true;
+  return t >= mountedAt - TERMINAL_NOTIFY_GRACE_MS;
 }
 
 function phaseLabel(status: string): string {
