@@ -162,6 +162,11 @@ export function JobDetail({ jobId }: { jobId: string }) {
     }
 
     const es = openJobEvents(jobId);
+    // Treat the EventSource as connected from the moment we attach so
+    // the display flips into `provisioning` immediately even when the
+    // backend takes a while to send the first frame; `onerror` below
+    // walks this back so a real disconnect drops us out of warm-up.
+    setEventStreamConnected(true);
     es.onopen = () => setEventStreamConnected(true);
     es.addEventListener("training.started", (ev: MessageEvent) => {
       const parsed = safeParse(ev.data);
@@ -274,9 +279,18 @@ export function JobDetail({ jobId }: { jobId: string }) {
         error,
       });
     });
-    es.addEventListener("end", () => es.close());
-    es.onerror = () => setEventErr("Event stream interrupted.");
-    return () => es.close();
+    es.addEventListener("end", () => {
+      es.close();
+      setEventStreamConnected(false);
+    });
+    es.onerror = () => {
+      setEventErr("Event stream interrupted.");
+      setEventStreamConnected(false);
+    };
+    return () => {
+      es.close();
+      setEventStreamConnected(false);
+    };
   }, [jobId]);
 
   // Status precedence is centralised in `computeDisplayStatus` so the
