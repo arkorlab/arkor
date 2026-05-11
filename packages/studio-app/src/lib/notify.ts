@@ -72,8 +72,9 @@ function isTabFocused(): boolean {
  *
  *   1. Toast: always, via a `CustomEvent("arkor:toast")` that the
  *      ToastProvider listens for. Works regardless of focus / permission.
- *   2. Title prefix (`✓` / `⚠`): only when the tab is not focused. Cleared
- *      on the next route change by the title controller in App.
+ *   2. Title prefix (`✓` / `⚠`): only when the tab is not focused.
+ *      Cleared on the next route change by an effect in `App` that
+ *      resets `document.title` whenever the route key changes.
  *   3. OS Notification: only when permission was granted AND the tab is
  *      not focused. Tagged with the jobId so a duplicate SSE frame won't
  *      buzz the user twice.
