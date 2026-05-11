@@ -4,6 +4,7 @@ import {
   streamTraining,
   type ManifestResult,
 } from "../lib/api";
+import { ensurePermissionOnGesture } from "../lib/notify";
 import { Play, StopCircle } from "./icons";
 import { Button } from "./ui/Button";
 
@@ -65,6 +66,10 @@ export function RunTraining() {
   }, [log]);
 
   async function run() {
+    // Tied to a user gesture so browsers (Chrome / Firefox) accept the
+    // permission prompt. The helper no-ops if permission is already
+    // granted or denied.
+    ensurePermissionOnGesture();
     setRunning(true);
     setLog("");
     const ac = new AbortController();
