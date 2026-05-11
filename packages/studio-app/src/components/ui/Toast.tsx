@@ -81,7 +81,9 @@ function ToastCard({
       : "text-red-700 dark:text-red-300";
 
   function openJob() {
-    window.location.hash = `#/jobs/${encodeURIComponent(toast.jobId)}`;
+    // `parseRoute()` does not decode path segments, so leave the id raw
+    // here to match the unencoded links emitted from JobsTable.
+    window.location.hash = `#/jobs/${toast.jobId}`;
     onDismiss();
   }
 
