@@ -2,9 +2,9 @@
  * Public types for the Arkor inference-deployment API surface.
  *
  * Mirrors the cloud `/v1/endpoints/*` schemas structurally but is declared
- * locally so this submodule has zero `@orbit/*` import surface (the OSS
- * tarball must not carry orbit-side names — see the leak grep wired into
- * `arkor-cloud-api-client`'s release preflight).
+ * locally so this submodule's public type surface stays self-contained —
+ * no internal / private package types leak into the published tarball.
+ * An external preflight grep enforces that constraint at release time.
  *
  * Runtime parsing of server responses lives in `schemas.ts` as `z.looseObject`
  * — fields the server adds in the future will pass through unchanged.
