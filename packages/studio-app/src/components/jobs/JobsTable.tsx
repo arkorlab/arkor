@@ -1,5 +1,6 @@
 import type { Job } from "../../lib/api";
 import { formatDuration, truncateMiddle } from "../../lib/format";
+import { computeDisplayStatus } from "../../lib/jobStatus";
 import { RelativeTime } from "../ui/RelativeTime";
 import { StatusBadge } from "../ui/StatusBadge";
 
@@ -48,7 +49,13 @@ export function JobsTable({
                 className="group relative border-t border-zinc-100 transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50 dark:border-zinc-900 dark:hover:bg-zinc-900/60 dark:focus-within:bg-zinc-900/60"
               >
                 <td className="px-6 py-3.5 align-middle">
-                  <StatusBadge status={j.status} size="sm" />
+                  <StatusBadge
+                    status={computeDisplayStatus({
+                      job: j,
+                      now: Date.now(),
+                    })}
+                    size="sm"
+                  />
                 </td>
                 <td className="px-6 py-3.5 align-middle">
                   {/*

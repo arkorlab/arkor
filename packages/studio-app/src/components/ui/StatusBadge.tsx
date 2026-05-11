@@ -9,15 +9,20 @@ interface StatusBadgeProps {
   className?: string;
 }
 
-const VARIANT: Record<
-  Status,
-  { label: string; pill: string; dot: string; pulse: boolean }
-> = {
+type Variant = { label: string; pill: string; dot: string; pulse: boolean };
+
+const VARIANT: Record<Status | "provisioning", Variant> = {
   queued: {
     label: "Queued",
     pill: "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400",
     dot: "bg-zinc-400 dark:bg-zinc-500",
     pulse: false,
+  },
+  provisioning: {
+    label: "Warming up GPU",
+    pill: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300",
+    dot: "bg-amber-500",
+    pulse: true,
   },
   running: {
     label: "Running",
