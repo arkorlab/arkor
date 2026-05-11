@@ -1,11 +1,11 @@
 ---
 title: "トレーナー制御"
-description: "自前コードでランを駆動する: start、wait、cancel。"
+description: "自前コードで学習を駆動する: start、wait、cancel。"
 ---
 
 # トレーナー制御
 
-[`createTrainer`](/ja/guides/sdk/create-trainer) が返す `Trainer` には 3 メソッドあります: `start`、`wait`、`cancel`。`arkor start` と Studio の **Run training** ボタンが裏で `start()` の後に `wait()` を呼びます。これらを自分で呼ぶのは、学習を自前のコード（サーバー、スクリプト、独自 CLI）に組み込むときだけです。
+[`createTrainer`](/ja/guides/sdk/create-trainer) が返す `Trainer` には 3 つのメソッドがあります。`start`、`wait`、`cancel` です。`arkor start` と Studio の **Run training** ボタンが裏で `start()` の後に `wait()` を呼びます。これらを自分で呼ぶのは、学習を自前のコード（サーバー、スクリプト、独自 CLI）に組み込むときだけです。
 
 ```ts
 const { jobId } = await trainer.start();
@@ -13,10 +13,10 @@ const { artifacts } = await trainer.wait();
 ```
 
 - `start()` はジョブを投入し、バックエンドが受理した時点で resolve。
-- `wait()` は SSE イベントストリームを開き、コールバックを発火し、ランが終わったら resolve。
-- `cancel()` はバックエンドにラン停止を依頼。
+- `wait()` は SSE イベントストリームを開き、コールバックを発火し、学習が終わったら resolve。
+- `cancel()` はバックエンドに学習の停止を依頼。
 
-コールバックだけ使いたいなら `start` / `wait` を直接扱う必要はありません。それは `arkor start` の仕事です。CLI 外で動かすときに初めてこれらに触れます。
+コールバックだけ使いたいなら `start` / `wait` を直接扱う必要はありません。これらは `arkor start` の役割です。CLI 外で動かすときに初めて触れることになります。
 
 ## 待ちを途中でやめる
 

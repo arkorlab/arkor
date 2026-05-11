@@ -1,9 +1,9 @@
 ---
 title: "Studio とは"
-description: "arkor dev で得られるローカル Web UI: 学習を開始し、ストリームを眺め、完了アダプタとチャットする。"
+description: "arkor dev で得られるローカル Web UI: 学習を開始し、ストリームを眺め、完了アダプターとチャットする。"
 ---
 
-Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するローカル Web UI です。あなたのマシーン上で動き、同じ CLI プロセスとループバック越しに話し、dev サーバーを止めれば消えます。サインアップも公開 URL もありません。
+Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するローカル Web UI です。ローカルで動き、同じ CLI プロセスとループバック越しに通信し、dev サーバーを止めれば消えます。サインアップも公開 URL もありません。
 
 `http://localhost:4000`（`arkor dev --port` で変更可）で開いてください。
 
@@ -17,7 +17,7 @@ Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するロー
 | --- | --- | --- |
 | `#/` | [Home](/ja/studio/jobs) | 学習をトリガーしてジョブ一覧を眺める。 |
 | `#/jobs/:id` | [Job 詳細](/ja/studio/jobs#job-詳細) | 1 つのジョブのライブステータス、Loss チャート、イベントログ。 |
-| `#/playground` | [Playground](/ja/studio/playground) | 完了アダプタやベースモデルとチャット。 |
+| `#/playground` | [Playground](/ja/studio/playground) | 完了アダプターやベースモデルとチャット。 |
 
 ## アーキテクチャ
 
@@ -25,7 +25,7 @@ Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するロー
 Studio（ブラウザータブ、http://localhost:4000）
    │  ループバック上の /api/*、CSRF トークン必須
    ▼
-arkor CLI（あなたのマシーン）
+arkor CLI（ローカル）
    │  認証付き HTTPS
    ▼
 Arkor マネージドバックエンド
@@ -39,14 +39,14 @@ Arkor マネージドバックエンド
 
 トークンは `arkor dev` 起動のたびにローテートされるので、前回起動時の古いタブはリロードするまで HTTP 403 で失敗します。
 
-## 今日できること
+## 現在できること
 
 | 機能 | 補足 |
 | --- | --- |
-| **Run training** | Home ページのボタン。`POST /api/train` を呼ぶと `arkor start` がスポーンされ、stdout/stderr が生のテキストとしてページにストリームされます。 |
+| **Run training** | Home ページのボタン。`POST /api/train` を呼ぶと `arkor start` がサブプロセスとして起動し、stdout/stderr が生のテキストとしてページにストリーミングされます。 |
 | **Jobs リスト** | Home ページ。固定 5 秒間隔でポーリング。列: Status、Name（詳細へリンク）、Created、ID。 |
 | **Job 詳細** | ライブステータスバッジ、SVG の Loss チャート、生イベントログ（直近 50 行）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
-| **Playground** | `#/playground` のチャット UI。2 モード: 1 つの対応ベースモデル、または任意の完了ジョブの最終アダプタ。 |
+| **Playground** | `#/playground` のチャット UI。2 モード: 1 つの対応ベースモデル、または任意の完了ジョブの最終アダプター。 |
 
 ## まだないもの
 
@@ -55,8 +55,8 @@ Arkor マネージドバックエンド
 | 不足 UI | 回避策 |
 | --- | --- |
 | 動作中ジョブのキャンセル / 一時停止 | 自前コードから [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼ぶ。 |
-| Playground での中間チェックポイントアダプタ選択 | トレーナー内で [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使う。SDK の `infer` は今しがた保存されたチェックポイントに紐づく。 |
-| Jobs リストのフィルタ／検索／ページング | 今日のポーリング一覧ビューでは対象外。 |
+| Playground での中間チェックポイントアダプター選択 | トレーナー内で [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使う。SDK の `infer` は今しがた保存されたチェックポイントに紐づく。 |
+| Jobs リストのフィルター／検索／ページング | 現状のポーリング一覧ビューでは対象外。 |
 | プロジェクトごとの複数トレーナー | `/api/manifest` が単一の `trainer` を返す。SDK の [`createArkor`](/ja/sdk/create-arkor) も 1 つしか受け付けない。 |
 | Playground から `temperature` / `topP` / `maxTokens` を調整 | HTTP API（[`InferArgs`](/ja/sdk/infer)）はこれらを受け付ける。SDK から `infer` を呼ぶ際に渡してください。 |
 | Loss チャートのズーム、エクスポート、ツールチップ | チャートは静的な SVG パス。 |

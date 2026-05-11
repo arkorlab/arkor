@@ -80,7 +80,7 @@ async function main() {
 
 ## なぜ `abortSignal` と `cancel` の両方？
 
-`abortSignal` と `cancel` は別物です。混同するとお金を捨てるので、ドキュメントもここを明示しています。
+`abortSignal` と `cancel` は別物です。混同すると GPU 料金が無駄になるので、ドキュメントもここを明示しています。
 
 - **`abortSignal`** はローカルの `wait()` ループを止めます（[SDK § トレーナー制御](/ja/sdk/trainer-control)）。`cancel` を呼びませんし、バックエンドにも何も送らず、ジョブはマネージド GPU で走り続けます。
 - **`trainer.cancel()`** はバックエンドにジョブの停止を依頼します。ベストエフォート: ジョブが既に終端状態（completed、failed、cancelled）にあるとリクエストは reject されることがあります。投機的に呼ぶなら `try / catch` で囲んでください。
@@ -128,10 +128,10 @@ onLog: ({ step, loss }) => {
 }
 ```
 
-**外部トリガー。** 同じ `controller` はトレーナーファイルの外からも動きます。Next.js API ルート、SIGINT ハンドラ、親プロセスから `controller.abort()` を呼べばオンデマンドに学習を止められます。
+**外部トリガー。** 同じ `controller` はトレーナーファイルの外からも動きます。Next.js API ルート、SIGINT ハンドラー、親プロセスから `controller.abort()` を呼べばオンデマンドに学習を止められます。
 
 ## 心に留めておくこと
 
-- **コールバック内で throw しない。** throw は SSE 再接続ループに catch されて学習が進み続けます（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks) 参照）。controller を使うこと。それが決定的なパスです。
+- **コールバック内で throw しない。** throw は SSE 再接続ループに catch されて学習が進み続けます（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks) 参照）。controller を使うこと。これが決定的に動かす唯一の方法です。
 - **`abortSignal` はバックエンドをキャンセルしない。** 一番よくある落とし穴です。コストが問題なら `controller.abort()` と `trainer.cancel()` を必ずペアで。
 - **`loss` フィールドは `number | null`。** バックエンドはメトリックスステップでしか loss を埋めません。非メトリックスフレームは `null` を運びます。`Number.isFinite` チェックは `NaN` も弾き、実用上はこちらの方が発散シグナルとしてよく出てきます。

@@ -100,7 +100,7 @@ await trainer.cancel(); // ベストエフォート、上記参照
 
 `wait()` はデフォルトで一過性の障害を超えて SSE ストリームを生かし続けます:
 
-- 少なくとも 1 フレーム受信した後のクリーンなストリーム EOF は、即時再接続をベース遅延（`initialReconnectDelayMs`、デフォルト 1000 ms）で起こし、失敗予算には数えません。ストリームは `Last-Event-ID` で再開します。
+- 少なくとも 1 フレーム受信した後のクリーンなストリーム EOF は、即時再接続をベース遅延（`initialReconnectDelayMs`、デフォルト 1000 ms）で起こし、失敗回数にはカウントしません。ストリームは `Last-Event-ID` で再開します。
 - 接続エラー、または 1 フレームも受信せずの EOF は失敗としてカウントされ `handleFailure` を経由します: 指数バックオフは `initialReconnectDelayMs * 2 ** attempt`、各試行の遅延は `maxReconnectDelayMs`（デフォルト 60 000 ms）にクランプ、連続失敗カウントは `maxReconnectAttempts` で上限。
 - `maxReconnectAttempts` のデフォルトは `undefined`（連続失敗無制限）。`TrainerInput` から設定はできず、`reconnectDelayMs` と `maxReconnectDelayMs` も含め `createTrainer` の第 2 引数 `context`（`@internal` 注釈付き、変更され得る）からのみ設定できます。多くのプロジェクトでこれは、ジョブが走っている限り一過性 SSE 失敗が黙ってリトライされ続ける、ということを意味します。
 
@@ -140,7 +140,7 @@ try {
 
 ## 関連項目
 
-- [`createTrainer`](/ja/sdk/create-trainer): この `Trainer` を生む入力形
+- [`createTrainer`](/ja/sdk/create-trainer): この `Trainer` を返す入力の型
 - [ライフサイクルコールバック](/ja/sdk/callbacks): `wait()` 内から発火するもの
-- [`runTrainer`](/ja/sdk/overview#補助ヘルパー上級者向け): `start()` + `wait()` を包むエントリー解決ヘルパー
+- [`runTrainer`](/ja/sdk/overview#補助ヘルパー上級者向け): `start()` + `wait()` をラップしてエントリー解決まで行うヘルパー
 - [プログラム実行レシピ](/ja/cookbook/programmatic-runs): サーバーやスクリプトに組み込む完全な配線

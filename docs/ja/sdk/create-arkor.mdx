@@ -35,13 +35,13 @@ interface Arkor {
 
 返ってくるオブジェクトは `Object.freeze` 済み。メソッドはありません。フレームワークは `_kind` と `trainer` を直接読みます。
 
-## パラメータ
+## パラメーター
 
 - `trainer`: [`createTrainer`](/ja/sdk/create-trainer) で作った `Trainer` を渡す。型上はオプショナルですが、`trainer` のないマニフェストは `arkor start` で実行できません（ランナーが ``Training entry must export `arkor` (from createArkor({...})) or `trainer` (from createTrainer({...})), or default-export one of them.`` で例外が発生します）。
 
 ## 予約フィールド
 
-- `deploy` と `eval` スロット。`ArkorInput` と `Arkor` ではコメントアウトされた予約フィールドとして現れます。今日それらを渡すと型エラーになり、ランタイムパスもありません。前方互換 API ではなく[ロードマップマーカー](/ja/roadmap#deploy-and-eval-slots)として扱ってください。
+- `deploy` と `eval` スロット。`ArkorInput` と `Arkor` ではコメントアウトされた予約フィールドとして現れます。現状それらを渡すと型エラーになり、ランタイムパスもありません。前方互換 API ではなく[ロードマップマーカー](/ja/roadmap#deploy-and-eval-slots)として扱ってください。
 
 ## 振る舞い
 
@@ -53,7 +53,7 @@ interface Arkor {
 2. `export const trainer = createTrainer({ ... })`（パワーユーザー向けショートカット、マニフェストなし）
 3. `export default ...`（`Arkor` マニフェストか、ベアな `Trainer` のいずれか）
 
-どれもマッチしないとランナーは上記メッセージで例外が発生します。テンプレートは常に形 1 を吐きます。他を選ぶ理由が分かっていない限り、これを選んでください。
+どれもマッチしないとランナーは上記メッセージで例外を投げます。テンプレートは常に形式 1 を生成します。他を選ぶ理由が分かっていない限り、これを選んでください。
 
 ## `isArkor`
 

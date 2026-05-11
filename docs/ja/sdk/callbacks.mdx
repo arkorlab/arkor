@@ -40,7 +40,7 @@ onFailed           1 回。`training.failed`（バックエンド報告の失敗
 
 `start()` を呼んで `wait()` を呼ばないと、コールバックは決して動きません。`arkor start` は両方呼んでくれます。プログラムから呼び出す側も同じことをしてください。
 
-## パラメータ
+## パラメーター
 
 ### `onStarted({ job })`
 
@@ -64,11 +64,11 @@ onLog: ({ step, loss, evalLoss }) => {
 }
 ```
 
-よくある用途は次のとおりです。自前のパイプライン（PostHog、Datadog）へのメトリックス転送、早期発散の検知、カスタム Early Stopping（指標が悪化したら学習を自動で打ち切るパターン。詳しくは [Early Stopping レシピ](/ja/cookbook/early-stopping) を参照）の実装。Early Stopping については、[`abortSignal`](/ja/sdk/trainer-control#abortsignal) の Abort はあなたのローカル `wait()` を止めるだけだと忘れずに。バックエンドの GPU を実際に止めるには、その後 [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。
+よくある用途は次のとおりです。自前のパイプライン（PostHog、Datadog）へのメトリックス転送、早期発散の検知、カスタム Early Stopping（指標が悪化したら学習を自動で打ち切るパターン。詳しくは [Early Stopping レシピ](/ja/cookbook/early-stopping) を参照）の実装。Early Stopping を実装する際は、[`abortSignal`](/ja/sdk/trainer-control#abortsignal) の Abort がローカルの `wait()` を止めるだけである点に注意してください。バックエンドの GPU を実際に止めるには、その後 [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼ぶ必要があります。
 
 ### `onCheckpoint({ step, adapter, job, infer, artifacts })`
 
-学習中にバックエンドでアダプタチェックポイントが保存されたときに発火します。`adapter` は `{ kind: "checkpoint", jobId, step }`。`infer` の詳細は [infer](/ja/sdk/infer) ページにあります。要するにチャット形式のリクエストを取り、生の `Response` を返す関数です。
+学習中にバックエンドでアダプターチェックポイントが保存されたときに発火します。`adapter` は `{ kind: "checkpoint", jobId, step }`。`infer` の詳細は [infer](/ja/sdk/infer) ページにあります。要するにチャット形式のリクエストを取り、生の `Response` を返す関数です。
 
 ```ts
 onCheckpoint: async ({ step, infer }) => {
@@ -80,7 +80,7 @@ onCheckpoint: async ({ step, infer }) => {
 }
 ```
 
-TypeScript でファインチューニングする価値の多くがここに集まります: 学習途中のモデルを取り置いたプロンプトで、全体の学習完了前に走らせられます。
+TypeScript でファインチューニングする意義の多くはここにあります。学習途中のモデルに対して、学習完了を待たずに用意したプロンプトを試せます。
 
 ### `onCompleted({ job, artifacts })`
 
@@ -94,7 +94,7 @@ onCompleted: ({ job, artifacts }) => {
 
 ### `onFailed({ job, error })`
 
-バックエンド報告の失敗で 1 回発火。`error` は `string`（バックエンドが送ったメッセージ）であり、`Error` インスタンスではありません。
+バックエンドからの失敗報告で 1 回発火。`error` は `string`（バックエンドが送ったメッセージ）であり、`Error` インスタンスではありません。
 
 ```ts
 onFailed: ({ job, error }) => {
@@ -102,7 +102,7 @@ onFailed: ({ job, error }) => {
 }
 ```
 
-`onFailed` は **バックエンド側の** 失敗専用です。あなたの他のコールバック内で投げられた例外は `onFailed` には届きません。何が起きるかは下記の [例外ハンドリング](#例外ハンドリング) を参照してください。
+`onFailed` は **バックエンド側の** 失敗専用です。他のコールバック内で投げられた例外は `onFailed` には届きません。何が起きるかは下記の [例外ハンドリング](#例外ハンドリング) を参照してください。
 
 ## 振る舞い
 
@@ -112,7 +112,7 @@ onFailed: ({ job, error }) => {
 
 ### 例外ハンドリング
 
-コールバック内で throw しても通常の Promise reject のようには **振る舞いません**。SDK のイベントループは dispatch を try/catch で包み、throw を SSE 再接続ハンドラ（`packages/arkor/src/core/trainer.ts:335-364`、続いて `:307-320` の `handleFailure`）にルートします:
+コールバック内で throw しても通常の Promise reject のようには **振る舞いません**。SDK のイベントループは dispatch を try/catch で包み、throw を SSE 再接続ハンドラー（`packages/arkor/src/core/trainer.ts:335-364`、続いて `:307-320` の `handleFailure`）にルートします:
 
 1. `abortSignal.aborted` が立っていれば、エラーは再 throw され `wait()` は reject。
 2. それ以外で `maxReconnectAttempts` が設定されカウンター超過なら、`wait()` はラップされたエラーで reject。
@@ -185,7 +185,7 @@ interface CheckpointContext {
 }
 ```
 
-`TrainingLogContext` と `CheckpointContext` は `arkor` から名前付きでエクスポートされていません。自分のコードで型付きコールバックパラメータが欲しいならインラインで形をミラーしてください。
+`TrainingLogContext` と `CheckpointContext` は `arkor` から名前付きでエクスポートされていません。自分のコードで型付きコールバックパラメーターが必要なら、インラインで同じ形を定義してください。
 
 ## 関連項目
 

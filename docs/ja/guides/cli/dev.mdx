@@ -5,7 +5,7 @@ description: "ブラウザーで Studio を起動。"
 
 # `arkor dev`
 
-`arkor dev` は [Studio](/ja/concepts/studio) を `http://localhost:4000` で起動します。Studio は学習ランをトリガーし、進捗をストリームで眺め、出来上がったモデルと Playground でチャットするローカル Web UI です。
+`arkor dev` は [Studio](/ja/concepts/studio) を `http://localhost:4000` で起動します。Studio は学習を開始し、進捗をストリーミングで確認し、出来上がったモデルと Playground でチャットするためのローカル Web UI です。
 
 ## 実行
 
@@ -29,9 +29,9 @@ bun dev
 
 </CodeGroup>
 
-CLI が表示する URL を開いてください。**Run training** をクリックすると `src/arkor/index.ts` に対する学習ランがスポーンされます。メトリックスがリアルタイムで流れ、チェックポイントが届くと Playground でチャットできます。
+CLI が表示する URL を開いてください。**Run training** をクリックすると `src/arkor/index.ts` に対する学習が起動します。メトリックスがリアルタイムで流れ、チェックポイントが届くと Playground でチャットできます。
 
-`arkor dev` 自体は学習を **開始しません**。UI と SPA が話すための小さなループバック API を提供するだけです。学習は UI からトリガーします。
+`arkor dev` 自体は学習を **開始しません**。UI と SPA が通信するための小さなループバック API を提供するだけです。学習は UI から開始します。
 
 ## ポートを変えたい
 

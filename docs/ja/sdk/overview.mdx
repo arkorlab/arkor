@@ -3,7 +3,7 @@ title: "API リファレンス"
 description: "Arkor SDK: createArkor、createTrainer、ライフサイクルコールバック、infer、その周辺ヘルパー。"
 ---
 
-`arkor` パッケージは、CLI と Studio が乗っかっている TypeScript の表面を露出します。典型的なプロジェクトに必要なものは、3 つのプリミティブとそれぞれの型付き入力にすべて収まります。
+`arkor` パッケージは、CLI と Studio が利用する TypeScript の公開 API を提供します。典型的なプロジェクトに必要なものは、3 つのプリミティブとそれぞれの型付き入力にすべて収まります。
 
 ## 最小例
 
@@ -60,9 +60,9 @@ CLI フローの外で Arkor を駆動するコード（自前のサーバーや
 
 `Arkor`、`ArkorInput`、`ArkorProjectState`、`BlobDatasetSource`、`DatasetSource`、`HuggingfaceDatasetSource`、`JobStatus`、`LoraConfig`、`Trainer`、`TrainerCallbacks`、`TrainerInput`、`TrainingJob`、`TrainingResult`。加えて認証ヘルパー用の `Auth0Credentials`（OAuth 認証情報の型。内部実装が Auth0 ベースのため命名がそうなっている）、`AnonymousCredentials`、`Credentials`。
 
-`TrainingLogContext`、`CheckpointContext`、`InferArgs` は今のところ名前付きでエクスポートされていません。型付きのコールバックパラメータが必要なら、[コールバック](/ja/sdk/callbacks) と [infer](/ja/sdk/infer) ページを見てインラインで形をミラーしてください。
+`TrainingLogContext`、`CheckpointContext`、`InferArgs` は今のところ名前付きでエクスポートされていません。型付きのコールバックパラメーターが必要なら、[コールバック](/ja/sdk/callbacks) と [infer](/ja/sdk/infer) ページを見てインラインで形をミラーしてください。
 
-## 公開面に含まれないもの
+## 公開 API に含まれないもの
 
 ソースツリーには存在しますが意図的に `arkor` からエクスポートされていないもの。内部扱いです:
 
@@ -73,4 +73,4 @@ CLI フローの外で Arkor を駆動するコード（自前のサーバーや
 
 - [実行ライフサイクル](/ja/concepts/lifecycle): `start()` / `wait()` が実際に何をするか
 - [プロジェクト構成](/ja/concepts/project-structure): プロジェクト内でマニフェストとトレーナーがどこに置かれるか
-- [CLI 概要](/ja/cli/overview): SDK をシェルから駆動する面
+- [CLI 概要](/ja/cli/overview): SDK をシェルから駆動するためのインターフェース
