@@ -4,6 +4,7 @@ import { Overview } from "./pages/Overview";
 import { JobsList } from "./pages/JobsList";
 import { JobDetail } from "./pages/JobDetail";
 import { Playground } from "./pages/Playground";
+import { ToastProvider } from "./components/ui/Toast";
 import { fetchCredentials, type Credentials } from "./lib/api";
 import { useHashRoute } from "./route";
 
@@ -29,13 +30,16 @@ export function App() {
   }, []);
 
   return (
-    <AppShell creds={creds} error={error} route={route}>
-      {route.kind === "home" && <Overview />}
-      {route.kind === "jobs" && <JobsList />}
-      {route.kind === "job" && <JobDetail jobId={route.id} />}
-      {route.kind === "playground" && (
-        <Playground initialAdapterId={route.adapterJobId} />
-      )}
-    </AppShell>
+    <>
+      <AppShell creds={creds} error={error} route={route}>
+        {route.kind === "home" && <Overview />}
+        {route.kind === "jobs" && <JobsList />}
+        {route.kind === "job" && <JobDetail jobId={route.id} />}
+        {route.kind === "playground" && (
+          <Playground initialAdapterId={route.adapterJobId} />
+        )}
+      </AppShell>
+      <ToastProvider />
+    </>
   );
 }
