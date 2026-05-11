@@ -48,13 +48,16 @@ function uninstallNotification() {
   delete (globalThis as unknown as { Notification?: unknown }).Notification;
 }
 
-function setVisibility(state: "visible" | "hidden") {
+function setVisibility(
+  state: "visible" | "hidden",
+  hasFocus: boolean = state === "visible",
+) {
   Object.defineProperty(document, "visibilityState", {
     value: state,
     configurable: true,
   });
   Object.defineProperty(document, "hasFocus", {
-    value: () => state === "visible",
+    value: () => hasFocus,
     configurable: true,
   });
 }
@@ -208,7 +211,33 @@ describe("notifyJobTerminal", () => {
       error: "x",
     });
 
-    expect(document.title.startsWith("⚠ ")).toBe(true);
+    // The new prefix replaces the old one rather than stacking.
+    expect(document.title).toBe("⚠ Arkor");
+  });
+
+  it("replaces an existing prefix instead of stacking when the status differs", () => {
+    setVisibility("hidden");
+    installFakeNotification("granted");
+
+    notifyJobTerminal({ status: "completed", jobName: "A", jobId: "job-A" });
+    notifyJobTerminal({ status: "failed", jobName: "B", jobId: "job-B" });
+
+    expect(document.title).toBe("⚠ Arkor");
+  });
+
+  it("treats a visible tab that is not focused as backgrounded (fires OS notification)", () => {
+    setVisibility("visible", false);
+    const { instances } = installFakeNotification("granted");
+
+    notifyJobTerminal({
+      status: "completed",
+      jobName: "demo",
+      jobId: "job-bg",
+      artifacts: 1,
+    });
+
+    expect(instances).toHaveLength(1);
+    expect(document.title.startsWith("✓ ")).toBe(true);
   });
 
   it("does not stack the same title prefix repeatedly", () => {

@@ -54,17 +54,26 @@ function summaryFor(input: NotifyJobTerminalInput): string {
     : `${input.jobName} failed`;
 }
 
+// Match either of the prefixes we set so a second terminal event of a
+// different kind (e.g. ✓ then ⚠) replaces the existing marker instead
+// of stacking as "⚠ ✓ Arkor".
+const TITLE_PREFIX_RE = /^[✓⚠] /;
+
 function ensureTitlePrefix(prefix: string): void {
   if (typeof document === "undefined") return;
-  if (!document.title.startsWith(prefix)) {
-    document.title = `${prefix}${document.title}`;
-  }
+  const stripped = document.title.replace(TITLE_PREFIX_RE, "");
+  document.title = `${prefix}${stripped}`;
 }
 
 function isTabFocused(): boolean {
   if (typeof document === "undefined") return false;
-  if (document.visibilityState === "visible") return true;
-  return typeof document.hasFocus === "function" && document.hasFocus();
+  // `visibilityState === "visible"` is necessary but not sufficient: a
+  // tab that is the selected one in a browser window sitting behind
+  // another app still reports `visible`, yet the user clearly cannot
+  // see in-page toasts. Check `hasFocus()` whenever it is available.
+  if (document.visibilityState !== "visible") return false;
+  if (typeof document.hasFocus === "function") return document.hasFocus();
+  return true;
 }
 
 /**
@@ -126,7 +135,9 @@ export function notifyJobTerminal(input: NotifyJobTerminalInput): void {
     );
     n.onclick = () => {
       window.focus();
-      window.location.hash = `#/jobs/${encodeURIComponent(input.jobId)}`;
+      // `parseRoute()` does not decode path segments, so leave the id
+      // raw here to match the unencoded links emitted from JobsTable.
+      window.location.hash = `#/jobs/${input.jobId}`;
       n.close();
     };
   } catch {
