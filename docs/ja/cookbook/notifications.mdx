@@ -5,9 +5,13 @@ description: "学習が完了 or 失敗したときに、trainer.ts の中から
 
 # Slack / Discord 通知
 
-学習は長いので、ずっと Studio を見続ける人はいません。終端の `onCompleted` と `onFailed` コールバックは、チームが普段いる場所にステータスメッセージを流すのにうってつけです。
+学習ジョブは実質 2 つの待ちが続きます。最初に GPU の確保 (warm な GPU が残っていない場合は数分かかることもある cold start。理由は [Quickstart](/ja/quickstart) 参照)、次に学習本体 (テンプレートで約 7〜12 分)。ブラウザータブをそんなに長くは見ていられません。終端の `onCompleted` と `onFailed` コールバックは、チームが普段いる場所にステータスメッセージを流すのに自然な場所です。本当に完了したときだけ振り返ればよくなります。
 
 このレシピは Slack incoming Webhook を使います。Discord、Microsoft Teams、任意の HTTP エンドポイントも同じやり方で動きます。`fetch` できるものなら何でも通知先になります。
+
+<Note>
+自分のためのデスクトップ通知だけで十分なら、Studio が `training.completed` / `training.failed` 時にブラウザー通知・ページ内 toast・タブタイトルのインジケーターを出します (**Run training** をクリックして通知許可を受け入れた後で有効)。このレシピはそれをチームの共有チャンネルに飛ばすためのものです。
+</Note>
 
 ## パターン
 
