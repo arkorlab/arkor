@@ -42,6 +42,26 @@ describe("api CSRF token wiring", () => {
     expect(seenHeaders?.get("X-Arkor-Studio-Token")).toBe("test-token");
   });
 
+  it("fetchJobs surfaces the studio server's 403 rejection as a tagged error", async () => {
+    // When the Studio server's `/api/*` middleware rejects a request
+    // (missing/stale token, host-header mismatch, dev restarted and
+    // minted a fresh token while the SPA still holds the old one),
+    // it returns 403. `apiFetch` does not throw on non-2xx itself —
+    // `json()` does, and the error string is what the SPA surfaces to
+    // the user. If a future refactor silently swallows 403 the SPA
+    // would render an empty state instead of prompting the user to
+    // restart `arkor dev`; this regression test pins the contract.
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response("forbidden", {
+          status: 403,
+          statusText: "Forbidden",
+        }),
+    ) as typeof fetch;
+    const { fetchJobs } = await import("./api");
+    await expect(fetchJobs()).rejects.toThrow(/403/);
+  });
+
   it("openJobEvents threads the token through the studioToken query param", async () => {
     // EventSource cannot carry custom headers, so the SPA falls back to
     // a query parameter. The Studio server's middleware accepts either,

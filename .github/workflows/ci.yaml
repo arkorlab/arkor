@@ -60,7 +60,7 @@ jobs:
       # compares it against the full `pnpm@10.33.2+sha512.xxx`
       # packageManager string and refuses on mismatch
       # (ERR_PNPM_BAD_PM_VERSION-style error).
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@91ab88e2619ed1f46221f0ba42d1492c02baf788 # v6.0.6
         with:
           standalone: true
 
@@ -152,8 +152,15 @@ jobs:
       # disambiguate across the matrix but it contains `<`, `>`, `=`,
       # which `actions/upload-artifact` rejects (NTFS-incompatible);
       # `strategy.job-index` is the documented alphanumeric escape hatch.
+      #
+      # `if: always()` (paired with `if-no-files-found: ignore` below)
+      # makes sure a later step's failure — most importantly a Build
+      # failure after a green Test run — still gets the trace dir
+      # uploaded. `failure()` would only fire when the *current* step
+      # failed, so a Test green + Build red sequence used to lose the
+      # report.
       - name: Upload Playwright report
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ runner.os }}-${{ strategy.job-index }}
@@ -189,7 +196,7 @@ jobs:
       - uses: actions/checkout@v6
 
       # Same reason as the build job — see comment there.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@91ab88e2619ed1f46221f0ba42d1492c02baf788 # v6.0.6
         with:
           standalone: true
 
@@ -255,7 +262,7 @@ jobs:
 
       - name: Upload arkor coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -265,7 +272,7 @@ jobs:
 
       - name: Upload create-arkor coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -275,7 +282,7 @@ jobs:
 
       - name: Upload cli-internal coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -285,7 +292,7 @@ jobs:
 
       - name: Upload studio-app coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -299,7 +306,7 @@ jobs:
       # packages/{arkor,create-arkor}/src/**.
       - name: Upload e2e-cli coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -313,7 +320,7 @@ jobs:
       # https://docs.codecov.com/docs/test-analytics.
       - name: Upload arkor test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -324,7 +331,7 @@ jobs:
 
       - name: Upload create-arkor test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -335,7 +342,7 @@ jobs:
 
       - name: Upload cli-internal test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -346,7 +353,7 @@ jobs:
 
       - name: Upload studio-app test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -357,7 +364,7 @@ jobs:
 
       - name: Upload e2e-cli test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -372,7 +379,7 @@ jobs:
       # Test Analytics for pass/fail trend tracking.
       - name: Upload e2e-studio test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           use_oidc: true
           disable_search: true

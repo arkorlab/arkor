@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@91ab88e2619ed1f46221f0ba42d1492c02baf788 # v6.0.6
 
       - uses: actions/setup-node@v6
         with:
@@ -69,7 +69,7 @@ jobs:
           done
 
       - name: Generate GitHub artifact attestations for release tarballs
-        uses: actions/attest@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: ${{ runner.temp }}/npm-pack/*.tgz
 
