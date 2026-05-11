@@ -77,6 +77,6 @@ bun dev
 
 </CodeGroup>
 
-The first run finishes in roughly 7 to 12 minutes depending on the template.
+The training run itself takes about 7 to 12 minutes depending on the template. Arkor runs training on dedicated training GPUs that are not kept warm between jobs (inference uses a separate, always-warm pool, which is why the Playground stays snappy). When you start a training job, Arkor allocates a training GPU on demand: if one is still warm from a recent job it is ready in seconds, otherwise the worker has to start from cold, which can take several minutes. The [Quickstart](/quickstart) walks through what this looks like in Studio.
 
 Continue with the [Quickstart](/quickstart) for a step-by-step walkthrough.

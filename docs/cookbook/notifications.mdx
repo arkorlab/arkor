@@ -5,9 +5,13 @@ description: "Post to a webhook when a training run finishes or fails, from insi
 
 # Slack / Discord notifications
 
-Training runs take long enough that nobody actually watches Studio the whole time. The terminal `onCompleted` and `onFailed` callbacks are perfect places to fan a status message out to wherever your team already lives.
+A training job is two waits back-to-back: GPU allocation at the start (variable, can be several minutes when a worker starts from cold; see the [Quickstart](/quickstart) for why) and then the training run itself (about 7 to 12 minutes for the templates). Nobody actually watches a browser tab for that long. The terminal `onCompleted` and `onFailed` callbacks are the natural spot to fan a status message out to wherever your team already lives so you only look back when the run is genuinely done.
 
 This recipe uses Slack incoming webhooks; Discord, Microsoft Teams, and arbitrary HTTP endpoints work the same way. Anything you can `fetch`, you can notify.
+
+<Note>
+If you only want a desktop ping for your own runs, Studio already shows a browser notification, an in-page toast, and a tab-title indicator on `training.completed` / `training.failed` once you click **Run training** (and accept the permission prompt). This recipe is for fanning the same signal into a shared channel.
+</Note>
 
 ## The pattern
 

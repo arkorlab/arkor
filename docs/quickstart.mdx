@@ -3,7 +3,16 @@ title: "Quickstart"
 description: "Scaffold an Arkor project, fine-tune a small open-weight LLM, and chat with it from a local Studio."
 ---
 
-In a few minutes you will go from zero to a fine-tuned model you can chat with in a local Playground. The training itself takes 7 to 12 minutes; setup time depends on your connection and what is already installed.
+In a few minutes you will go from zero to a fine-tuned model you can chat with in a local Playground. The training run itself takes 7 to 12 minutes. The first job you submit also waits for a GPU to be allocated before the training run starts; that wait can be a few minutes (occasionally longer) and only happens for the first run after a quiet period.
+
+<Info>
+**How Arkor uses GPUs.** Arkor splits GPUs into two pools:
+
+- **Inference GPUs** run the model after training (the Playground and any production inference). These stay on an active worker, so they are always warm and respond immediately.
+- **Training GPUs** run fine-tuning jobs. To keep costs predictable, these are not kept warm. When you click **Run training**, Arkor allocates a GPU on demand. If a worker is still warm from a recent job, the allocation finishes in seconds. Otherwise it starts from cold (the so-called cold start: provisioning, pulling the container image, loading the base model), which can take several minutes.
+
+After GPU allocation, the training run itself takes about 7 to 12 minutes for the templates. The Jobs view in Studio shows both phases.
+</Info>
 
 ## Prerequisites
 
@@ -41,11 +50,11 @@ cd my-arkor-app
 
 The scaffolder asks which template you want. Pick the one closest to what you eventually want to build:
 
-| Template    | Task                    | Output shape                                          | Estimated training |
-| ----------- | ----------------------- | ----------------------------------------------------- | ------------------ |
-| `triage`    | Support triage          | `{ category, urgency, summary, nextAction }`          | ~7 min             |
-| `translate` | 9-language translation  | `{ translation, detectedLanguage }`                   | ~7 min             |
-| `redaction` | PII redaction           | `{ redactedText, redactedCount, tags }`               | ~12 min            |
+| Template    | Task                    | Output shape                                          | Training run (excludes GPU allocation) |
+| ----------- | ----------------------- | ----------------------------------------------------- | -------------------------------------- |
+| `triage`    | Support triage          | `{ category, urgency, summary, nextAction }`          | ~7 min                                 |
+| `translate` | 9-language translation  | `{ translation, detectedLanguage }`                   | ~7 min                                 |
+| `redaction` | PII redaction           | `{ redactedText, redactedCount, tags }`               | ~12 min                                |
 
 Each template pairs the same small open-weight base (`gemma-4-E4B-it`) with a curated public dataset on HuggingFace. The training is real and finishes in minutes, so you get to see the whole loop end to end.
 
@@ -119,7 +128,7 @@ In the browser, click **Run training**. Studio submits the job to the managed ba
 Once a run is in flight, three views matter:
 
 - **Jobs.** A list of training runs. Click into one to see live status.
-- **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
+- **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first job's first phase is the GPU allocation; during that time the status reads `Warming up GPU`, the loss chart shows a `Waiting for GPU` placeholder, and the events list is empty. Once the `training.started` event arrives, the status flips to `Running` and the curve begins to update. The training run itself takes about 7 to 12 minutes depending on the template.
 - **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Use the mode toggle to switch between the base model and the adapter. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
 
 If you edit `src/arkor/` between runs, refresh the Run training page (or run `arkor build`) before the next click so the new code is what runs.

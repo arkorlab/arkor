@@ -21,13 +21,24 @@ When you click it, Studio sends `POST /api/train`. The backend spawns `arkor sta
 
 There is no input form for picking the trainer or passing flags: Studio always runs the trainer registered through `createArkor`, and `arkor start` reuses `.arkor/build/index.mjs` if it already exists. Edits to `src/arkor/` are not picked up automatically across multiple clicks on the same page; reload the Run training page (or run `arkor build` from a terminal) between edits and the next click. See [CLI § build / start](/cli/build-and-start) for the precise rebuild rules.
 
+### What "first run" looks like
+
+Click **Run training**. Two phases follow:
+
+1. **GPU allocation.** The job appears as `Warming up GPU`. The loss chart shows a `Waiting for GPU` placeholder, the events list is empty, and the **Phase** row in the metadata sidebar reads `Warming up GPU` while the **GPU warm-up** timer ticks. This phase varies in length: typically under a minute when a worker is still warm from a recent job, occasionally several minutes when one has to start from cold. See the [Quickstart](/quickstart) for why this happens.
+2. **The training run.** When `training.started` arrives, the status flips to `Running`, the loss chart starts updating from `training.log` frames, and the **Phase** row reads `Training run`. This is the 7 to 12 minute window in the template table on the Quickstart.
+
+<Tip>
+Click **Run training** with the browser tab focused. Studio asks the browser for notification permission and surfaces a desktop toast plus a tab-title indicator when the job completes or fails, so you do not have to watch the tab.
+</Tip>
+
 ## Jobs list
 
 The Jobs list polls `GET /api/jobs` once at mount, then every 5 seconds. There is no manual refresh button; the interval is fixed.
 
 | Column | Source |
 | --- | --- |
-| Status | `Job.status` (`queued` / `running` / `completed` / `failed` / `cancelled`). The cell carries a CSS class for colouring. |
+| Status | `Job.status` (`queued` / `running` / `completed` / `failed` / `cancelled`) with one Studio-derived display state: a `queued` job whose stream has connected (or whose `createdAt` is within the last 90 s) renders as `Warming up GPU`. The cell carries a CSS class for colouring. |
 | Name | `Job.name`. Links to `#/jobs/<id>`. |
 | Created | `new Date(Job.createdAt).toLocaleString()`. |
 | ID | `Job.id`, monospaced. |
