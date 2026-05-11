@@ -38,7 +38,7 @@ The Jobs list polls `GET /api/jobs` once at mount, then every 5 seconds. There i
 
 | Column | Source |
 | --- | --- |
-| Status | `Job.status` (`queued` / `running` / `completed` / `failed` / `cancelled`) with one Studio-derived display state: a `queued` job whose stream has connected (or whose `createdAt` is within the last 90 s) renders as `Warming up GPU`. The cell carries a CSS class for colouring. |
+| Status | `Job.status` (`queued` / `running` / `completed` / `failed` / `cancelled`) plus one Studio-derived display state on the list: a `queued` job whose `createdAt` is within the last 90 seconds renders as `Warming up GPU`. The list page only polls `/api/jobs`; Job detail uses the same rule and additionally consults the live SSE stream. The cell carries a CSS class for colouring. |
 | Name | `Job.name`. Links to `#/jobs/<id>`. |
 | Created | `new Date(Job.createdAt).toLocaleString()`. |
 | ID | `Job.id`, monospaced. |

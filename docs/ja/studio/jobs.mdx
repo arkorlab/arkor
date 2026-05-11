@@ -38,7 +38,7 @@ Jobs リストはマウント時に 1 度、その後 5 秒ごとに `GET /api/j
 
 | 列 | ソース |
 | --- | --- |
-| Status | `Job.status`（`queued` / `running` / `completed` / `failed` / `cancelled`）に、Studio 側で 1 つの表示ステートを足したもの。SSE ストリームが接続済み（または `createdAt` が直近 90 秒以内）かつ `queued` のジョブは `Warming up GPU` として表示される。セルは色付け用の CSS クラスを持つ。 |
+| Status | `Job.status`（`queued` / `running` / `completed` / `failed` / `cancelled`）に、Studio 側のリスト表示で 1 つの表示ステートを足したもの。`createdAt` が直近 90 秒以内の `queued` ジョブは `Warming up GPU` として表示される。リスト画面は `/api/jobs` のポーリングだけで SSE は開かないため、ここでは createdAt の窓だけで判定する。Job 詳細では同じルールに加えて SSE ストリームの接続状態も加味される。セルは色付け用の CSS クラスを持つ。 |
 | Name | `Job.name`。`#/jobs/<id>` にリンク。 |
 | Created | `new Date(Job.createdAt).toLocaleString()`。 |
 | ID | `Job.id`、等幅フォント。 |
