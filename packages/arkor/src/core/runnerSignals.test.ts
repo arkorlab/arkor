@@ -84,6 +84,50 @@ describe("installShutdownHandlers", () => {
     }
   });
 
+  it("second-signal exit code is per-signal POSIX 128+signo (130 for SIGINT, 129 for SIGHUP)", async () => {
+    // Regression: the second-signal emergency-exit path used to
+    // hardcode `process.exit(143)` regardless of which signal
+    // fired. SIGINT (Ctrl-C twice) and SIGHUP shutdowns then
+    // looked like SIGTERM exits to parent shells / orchestrators,
+    // breaking signal-aware logic (e.g. tmux pane behaviour, CI
+    // job classification, `&&` / `||` chains that distinguish
+    // user-cancel from clean exit). Mirrors `SIGNAL_EXIT_CODE` in
+    // `cli/cleanupHooks.ts`.
+    const cases: Array<["SIGINT" | "SIGTERM" | "SIGHUP", number]> = [
+      ["SIGINT", 130],
+      ["SIGTERM", 143],
+      ["SIGHUP", 129],
+    ];
+    for (const [sig, expectedExit] of cases) {
+      const trainer = makeTrainer();
+      const exitCodes: number[] = [];
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation(((code?: number) => {
+          exitCodes.push(code ?? 0);
+          return undefined as never;
+        }) as typeof process.exit);
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      const dispose = installShutdownHandlers(trainer);
+      try {
+        process.emit(sig, sig);
+        await new Promise((r) => setTimeout(r, 10));
+        process.emit(sig, sig);
+        await new Promise((r) => setTimeout(r, 10));
+        // First signal exits 0 via the early-stop chain's
+        // `.finally(() => process.exit(0))`; second signal exits
+        // with the per-signal POSIX code.
+        expect(exitCodes, `signal ${sig}`).toContain(expectedExit);
+      } finally {
+        dispose();
+        exitSpy.mockRestore();
+        stdoutSpy.mockRestore();
+      }
+    }
+  });
+
   it("second SIGTERM exits 143 without re-invoking requestEarlyStop", async () => {
     const trainer = makeTrainer();
     const exitCodes: number[] = [];

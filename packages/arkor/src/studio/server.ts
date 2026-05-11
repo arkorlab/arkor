@@ -293,6 +293,20 @@ export function buildStudioApp(options: StudioServerOptions) {
     : undefined;
   app.get("/api/manifest", async (c) => {
     try {
+      // Surface watcher build errors directly. Without this gate the
+      // HMR fast path below would happily serve the LAST GOOD
+      // artefact even when the user's current source fails to
+      // compile — `RunTraining` polls `/api/manifest` every ~5 s, so
+      // the next poll after a compile error would 200 with stale
+      // data and silently overwrite the SSE-surfaced error UI.
+      // Users would then see a "healthy" trainer in the manifest
+      // and unknowingly run stale code/config while the latest
+      // edit is still broken. Rejecting with the SSE error message
+      // keeps the SPA's error state consistent across both
+      // channels (poll + SSE).
+      if (options.hmr?.getLastEventType() === "error") {
+        return c.json({ error: "Build failed; see HMR error frame" }, 400);
+      }
       // HMR-aware fast path: when `arkor dev` wired in a coordinator,
       // skip the per-request `runBuild()` and read the watcher's
       // already-built artefact. Without this every SPA poll
@@ -408,18 +422,25 @@ export function buildStudioApp(options: StudioServerOptions) {
     const configHash: string | null = options.hmr
       ? options.hmr.getCurrentConfigHash()
       : null;
-    // Spawn-time fingerprint of the on-disk build artefact. Only the
-    // pre-ready-spawn case in `dispatchRebuild` consults it: when a
-    // rebuild lands while the child's `configHash` is still null,
-    // backfilling the new hash is only safe if the artefact bytes
-    // the child loaded (= the bytes on disk *now*, at spawn) are
-    // the same bytes the new hash describes. Without this gate, an
-    // edit landing between spawn and the watcher's first BUNDLE_END
-    // would silently align the registry with a config the child
-    // never actually loaded → cloud-side `JobConfig` drift on
-    // subsequent same-hash hot-swaps.
+    // Spawn-time CONTENT-hash of the on-disk build artefact. Only
+    // the pre-ready-spawn case in `dispatchRebuild` consults it:
+    // when a rebuild lands while the child's `configHash` is still
+    // null, backfilling the new hash is only safe if the artefact
+    // bytes the child loaded (= the bytes on disk *now*, at spawn)
+    // are the same bytes the new hash describes. Without this
+    // gate, an edit landing between spawn and the watcher's first
+    // BUNDLE_END would silently align the registry with a config
+    // the child never actually loaded → cloud-side `JobConfig`
+    // drift on subsequent same-hash hot-swaps.
+    //
+    // Content (sha256) rather than mtime+ctime+size: the
+    // timestamp version had a false-positive failure mode where a
+    // watcher rebuild that produced identical bytes still bumped
+    // mtime/ctime, forcing a spurious cancel+restart cycle on a
+    // pre-ready spawn even though the child's loaded bytes
+    // actually matched the new build. Content-hash is precise.
     const spawnArtifactHash: string | null = options.hmr
-      ? options.hmr.getCurrentArtifactHash()
+      ? options.hmr.getCurrentArtifactContentHash()
       : null;
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
@@ -798,13 +819,15 @@ export function buildStudioApp(options: StudioServerOptions) {
         // both buckets so the SPA can react per-child rather than
         // assuming one global outcome.
         const nextHash = event.configHash ?? null;
-        // The artefact fingerprint travels in the same broadcast
-        // (`event.hash`). Pass it through so the registry can gate
-        // the pre-ready-spawn backfill on whether the bytes the
-        // child loaded match what this rebuild's hash describes
-        // — see `dispatchRebuild`'s comment for why a null entry
-        // hash + matching artefact is the only safe backfill path.
-        const nextArtifactHash = event.hash ?? null;
+        // Content-hash for the pre-ready-spawn equality gate (the
+        // timestamp `event.hash` would over-trigger SIGTERM-restart
+        // on identical-bytes rebuilds). Both sides of the
+        // comparison — `entry.spawnArtifactHash` (captured via
+        // `getCurrentArtifactContentHash()`) and this `event.contentHash`
+        // — are derived the same way, so a match means the
+        // child's loaded bytes ARE what the new configHash
+        // describes.
+        const nextArtifactHash = event.contentHash ?? null;
         const { hotSwapTargets, restartTargets } =
           activeTrains.dispatchRebuild(nextHash, nextArtifactHash);
         augmented = {

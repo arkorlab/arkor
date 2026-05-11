@@ -1,4 +1,5 @@
-import { existsSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { watch, type RolldownWatcher } from "rolldown";
 import { hashJobConfig } from "../core/configHash";
 import { moduleCacheBustUrl } from "../core/moduleCacheBust";
@@ -21,6 +22,17 @@ export interface HmrEvent {
    * this to dedupe replays of the same successful build.
    */
   hash?: string;
+  /**
+   * Content-derived hash (sha256, truncated) of the artefact bytes.
+   * Used by `dispatchRebuild`'s pre-ready-spawn equality gate where
+   * `hash` would over-trigger SIGTERM-restart: a watcher build that
+   * rewrites identical bytes still bumps mtime/ctime, so two
+   * timestamp fingerprints differ even though the loaded bytes are
+   * the same. Comparing this content-hash instead avoids that
+   * spurious cancel+restart cycle in the "user clicked Run before
+   * the watcher's first BUNDLE_END landed" case.
+   */
+  contentHash?: string | null;
   /**
    * Stable hash of the trainer's cloud-side `JobConfig`. When this is
    * unchanged across a rebuild, only the in-process callbacks moved and
@@ -65,10 +77,55 @@ export interface HmrCoordinator {
    * doesn't exist yet, fresh project never built).
    */
   getCurrentArtifactHash(): string | null;
+  /**
+   * Content-derived hash (sha256, truncated) of the on-disk
+   * artefact RIGHT NOW. Used by `/api/train` to capture a
+   * spawn-time content-hash for the registry's pre-ready-spawn
+   * equality gate — paired with the rebuild's `event.contentHash`,
+   * a mismatch unambiguously means the bytes changed (not just
+   * timestamps), so `dispatchRebuild` only SIGTERM-restarts when
+   * the child genuinely loaded different bytes than the new
+   * configHash describes. `null` on stat/read failure (artefact
+   * doesn't exist yet, fresh project never built).
+   */
+  getCurrentArtifactContentHash(): string | null;
+  /**
+   * Last broadcast event's `type`, or `null` if nothing has been
+   * broadcast yet. `/api/manifest`'s HMR fast path consults this to
+   * suppress its "serve last good artefact" behaviour while the
+   * watcher is in an `error` state — without that gate, the SPA's
+   * 5 s `/api/manifest` poll would keep getting a 200 stale
+   * manifest and silently overwrite the SSE-driven build-error UI,
+   * letting users run with stale code/config while the latest
+   * source is still failing to compile.
+   */
+  getLastEventType(): HmrEventType | null;
   dispose(): Promise<void>;
 }
 
 export type HmrOptions = BuildEntryOptions;
+
+/**
+ * Content-derived fingerprint of the artefact bytes (sha256, first 16
+ * hex chars). Used by `dispatchRebuild`'s pre-ready-spawn gate where
+ * timestamp-based comparison gives false positives: a watcher rebuild
+ * that produces the same bytes still bumps mtime/ctime, so a child
+ * spawned just before `ready` would be unnecessarily SIGTERM-restarted
+ * even though its loaded bytes match the new build's. Hashing a few
+ * MB of bundle on each call is cheap relative to the GPU cost of a
+ * spurious cancel+restart cycle.
+ *
+ * Returns `null` on stat/read failure so the caller can treat
+ * "no artefact" as "force restart" (the conservative default).
+ */
+function contentHashOrNull(outFile: string): string | null {
+  try {
+    const bytes = readFileSync(outFile);
+    return createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Single-stat fingerprint with a clean `null` on failure — used by
@@ -267,6 +324,11 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       type,
       outFile: resolved.outFile,
       hash: fingerprint(resolved.outFile),
+      // Content hash powers the registry's pre-ready-spawn equality
+      // gate (timestamp-only would over-trigger SIGTERM-restart on
+      // identical-bytes rebuilds). Read once here so the broadcast
+      // and any spawn-time capture reference the same on-disk state.
+      contentHash: contentHashOrNull(resolved.outFile),
       configHash,
       trainerName: inspection?.trainerName ?? null,
     });
@@ -415,6 +477,24 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       // contract dispatchRebuild relies on for its SIGTERM-restart
       // routing.
       return fingerprintOrNull(resolved.outFile);
+    },
+    getCurrentArtifactContentHash() {
+      // Companion to `getCurrentArtifactHash` for the registry's
+      // pre-ready-spawn equality gate. Reads + sha256s the file
+      // at call time so the result describes the exact bytes the
+      // just-spawned child will see in its `await import()`.
+      // Same null-on-failure contract — caller treats null as
+      // "force restart" (the conservative default).
+      return contentHashOrNull(resolved.outFile);
+    },
+    getLastEventType() {
+      // `lastEvent` is the latest broadcast — `ready` / `rebuild` /
+      // `error`. Returning the type lets `/api/manifest`'s HMR
+      // fast path skip serving the stale built artefact when the
+      // watcher is currently in `error` (current source fails to
+      // compile), so the SPA's poll loop doesn't paper over the
+      // SSE-surfaced error.
+      return lastEvent?.type ?? null;
     },
     async dispose() {
       disposed = true;

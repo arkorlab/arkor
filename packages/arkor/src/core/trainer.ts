@@ -356,9 +356,27 @@ export function createTrainer(
           // surface as `status: "running"`, and a subsequent
           // `requestEarlyStop` would not see the
           // `TERMINAL_STATUSES.has(...)` short-circuit it relies on.
+          //
+          // Status is `"failed"` when the cancel POST itself threw
+          // (cloud-api transient failure mid-cancel) — labelling
+          // such runs `"cancelled"` would lie about the cloud-side
+          // state, which may still be running. `"failed"` is
+          // terminal too, so the latch / TERMINAL_STATUSES short-
+          // circuit still works, but `wait()`'s caller can
+          // distinguish "we cancelled cleanly" from "we tried but
+          // the cancel may not have landed". The original cancel
+          // error is also rejected through the deferred below for
+          // the SIGTERM handler's `.catch()`.
           startedJob = {
             ...startedJob,
-            status: "cancelled",
+            status: cancelError !== null ? "failed" : "cancelled",
+            ...(cancelError !== null && {
+              error: `Early-stop cancel failed: ${
+                cancelError instanceof Error
+                  ? cancelError.message
+                  : String(cancelError)
+              }`,
+            }),
             completedAt: event.timestamp,
           };
           if (cancelError !== null) {
@@ -668,9 +686,22 @@ export function createTrainer(
           // future checkpoint event for the rest of its lifetime.
           earlyStopRequested = false;
           if (startedJob && !TERMINAL_STATUSES.has(startedJob.status)) {
+            // Symmetric to the checkpoint branch: `"failed"` (not
+            // `"cancelled"`) on cancel-throw so we don't lie
+            // about cloud-side state that may still be running.
+            // Both branches feed the same TERMINAL_STATUSES
+            // short-circuit, so re-armed `requestEarlyStop()`
+            // calls still no-op correctly.
             startedJob = {
               ...startedJob,
-              status: "cancelled",
+              status: cancelError !== null ? "failed" : "cancelled",
+              ...(cancelError !== null && {
+                error: `Early-stop cancel failed: ${
+                  cancelError instanceof Error
+                    ? cancelError.message
+                    : String(cancelError)
+                }`,
+              }),
               completedAt: new Date().toISOString(),
             };
           }

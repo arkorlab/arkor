@@ -153,6 +153,8 @@ describe("Studio server", () => {
       subscribe: () => () => undefined,
       getCurrentConfigHash: () => null,
       getCurrentArtifactHash: () => null,
+      getCurrentArtifactContentHash: () => null,
+      getLastEventType: () => null,
       async dispose() {},
     };
     const app = buildStudioApp({
@@ -613,6 +615,8 @@ process.exit(0);
           return "spawn-time-hash";
         },
         getCurrentArtifactHash: () => "spawn-artefact-hash",
+        getCurrentArtifactContentHash: () => "spawn-artefact-content-hash",
+        getLastEventType: () => null,
         async dispose() {},
       };
       const fakeBin = join(trainCwd, "fake-bin.mjs");
@@ -1658,6 +1662,8 @@ process.exit(0);
         subscribe: () => () => undefined,
         getCurrentConfigHash: () => null,
         getCurrentArtifactHash: () => null,
+        getCurrentArtifactContentHash: () => null,
+        getLastEventType: () => null,
         async dispose() {},
       };
       const app = buildStudioApp({
@@ -1709,6 +1715,8 @@ process.exit(0);
         subscribe: () => () => undefined,
         getCurrentConfigHash: () => null,
         getCurrentArtifactHash: () => null,
+        getCurrentArtifactContentHash: () => null,
+        getLastEventType: () => null,
         async dispose() {},
       };
       const app = buildStudioApp({
@@ -1730,6 +1738,65 @@ process.exit(0);
         trainer: { name: string } | null;
       };
       expect(body.trainer).toEqual({ name: "fallback-build" });
+    });
+
+    it("returns 400 (not stale 200) while the HMR watcher is in error state", async () => {
+      // Regression: the HMR fast path served the last-built artefact
+      // even when the watcher's most recent event was `error`. The
+      // SPA's `/api/manifest` poll runs every ~5s, so a successful
+      // 200 with stale data would silently overwrite the SSE-driven
+      // build-error UI within 5s of the user breaking their source —
+      // they'd then unknowingly run stale code/config while the
+      // latest edit is still failing to compile. Gating the fast
+      // path on `getLastEventType() === "error"` keeps both
+      // channels (poll + SSE) consistent.
+      await writeCredentials(ANON_CREDS);
+      mkdirSync(join(trainCwd, ".arkor/build"), { recursive: true });
+      // Pre-write a previously-good artefact so the fast path
+      // *would* otherwise return 200 with it.
+      writeFileSync(
+        join(trainCwd, ".arkor/build/index.mjs"),
+        `const trainer = {
+          name: "stale-good-build",
+          start: async () => ({ jobId: "j" }),
+          wait: async () => ({ job: {}, artifacts: [] }),
+          cancel: async () => {},
+        };
+        export const arkor = { _kind: "arkor", trainer };
+        export default arkor;
+        `,
+      );
+      // Coordinator is currently in error state — the latest
+      // broadcast was a compile failure.
+      const fakeHmr = {
+        subscribe: () => () => undefined,
+        getCurrentConfigHash: () => null,
+        getCurrentArtifactHash: () => null,
+        getCurrentArtifactContentHash: () => null,
+        getLastEventType: () => "error" as const,
+        async dispose() {},
+      };
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fakeHmr,
+      });
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      // 400 — the SPA's existing 4xx-handling path renders the
+      // build-error hint instead of a fake-healthy manifest.
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/Build failed/);
+      // Sanity: the stale artefact name is NOT leaked through.
+      expect(JSON.stringify(body)).not.toContain("stale-good-build");
     });
   });
 
@@ -1956,6 +2023,9 @@ process.exit(0);
       // pre-ready-spawn path (configHash null, then a real hash)
       // can override via `setArtifactHash`.
       let currentArtifactHash: string | null = "fake-artefact-hash";
+      let currentArtifactContentHash: string | null =
+        "fake-artefact-content-hash";
+      let lastEventType: HmrEvent["type"] | null = null;
       const coordinator: HmrCoordinator = {
         subscribe(fn) {
           subs.add(fn);
@@ -1969,6 +2039,12 @@ process.exit(0);
         getCurrentArtifactHash() {
           return currentArtifactHash;
         },
+        getCurrentArtifactContentHash() {
+          return currentArtifactContentHash;
+        },
+        getLastEventType() {
+          return lastEventType;
+        },
         async dispose() {
           subs.clear();
         },
@@ -1976,6 +2052,10 @@ process.exit(0);
       return {
         coordinator,
         emit(event: HmrEvent) {
+          // Track the latest event type so `getLastEventType()`
+          // mirrors the real coordinator's `lastEvent?.type` —
+          // the `/api/manifest` HMR-error gate consults this.
+          lastEventType = event.type;
           for (const fn of subs) fn(event);
         },
         setConfigHash(hash: string | null) {
@@ -1983,6 +2063,12 @@ process.exit(0);
         },
         setArtifactHash(hash: string | null) {
           currentArtifactHash = hash;
+        },
+        setArtifactContentHash(hash: string | null) {
+          currentArtifactContentHash = hash;
+        },
+        setLastEventType(t: HmrEvent["type"] | null) {
+          lastEventType = t;
         },
         get subscriberCount() {
           return subs.size;

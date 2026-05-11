@@ -188,6 +188,18 @@ export function RunTraining() {
       if (payload.type === "error") {
         setManifest({ error: payload.message ?? "Build failed" });
         setHmrStatus("idle");
+        // Cancel any pending HMR auto-restart latched from a
+        // previous successful rebuild. Without this, a sequence
+        // like (rebuild → restartPendingRef=true → user breaks
+        // the source → error event → child eventually exits) would
+        // hit `run()`'s finally branch, see the still-set latch,
+        // and auto-restart from the **previous** artefact even
+        // though the latest source state is broken — silent
+        // stale-code background churn until the user notices.
+        // Clearing here makes the user's broken-state edit the
+        // source of truth: no auto-restart fires until the next
+        // successful rebuild re-arms the latch.
+        restartPendingRef.current = false;
         return;
       }
       // Always refresh the manifest on ready/rebuild.

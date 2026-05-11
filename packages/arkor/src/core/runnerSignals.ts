@@ -10,14 +10,33 @@ const SHUTDOWN_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
 const CALLBACK_RELOAD_SIGNAL = "SIGUSR2" as const;
 
 /**
+ * POSIX-style exit code for a signal-terminated process: `128 + signo`.
+ * Used by the second-signal emergency-exit path so the runner's exit
+ * status reflects which signal actually fired (Ctrl-C vs SIGTERM vs
+ * SIGHUP), not a single hardcoded 143. Mirrors the SIGNAL_EXIT_CODE
+ * map in `cli/cleanupHooks.ts`. Parent shells / orchestrators / CI
+ * runners distinguish "user interrupted" by signo on POSIX.
+ */
+const SECOND_SIGNAL_EXIT_CODE: Record<
+  (typeof SHUTDOWN_SIGNALS)[number],
+  number
+> = {
+  SIGHUP: 129,
+  SIGINT: 130,
+  SIGTERM: 143,
+};
+
+/**
  * Two-stage shutdown handling so HMR rebuilds (Studio sends SIGTERM)
  * preserve the in-flight checkpoint work:
  *
  *   - 1st signal → `trainer.requestEarlyStop()`. The trainer keeps
  *     running, lets the next `checkpoint.saved` event land, then issues
  *     `cancel()`.
- *   - 2nd signal → immediate `process.exit(143)`. Escape hatch for an
- *     impatient operator or a hung early-stop.
+ *   - 2nd signal → immediate `process.exit(POSIX 128+signo)` —
+ *     130 for SIGINT, 143 for SIGTERM, 129 for SIGHUP. Escape hatch
+ *     for an impatient operator or a hung early-stop. Per-signal
+ *     exit code so parent shells see the actual interruption type.
  *
  * The returned dispose function removes the handlers so a normal
  * `wait()` completion doesn't leave stale listeners behind — important
@@ -32,7 +51,20 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
       process.stdout.write(
         `Received second ${signal}; exiting without waiting for checkpoint.\n`,
       );
-      process.exit(143);
+      // POSIX 128 + signo so the parent shell sees the right exit
+      // status: 130 for SIGINT (Ctrl-C twice), 129 for SIGHUP,
+      // 143 for SIGTERM. Hardcoding 143 misclassifies SIGINT and
+      // SIGHUP shutdowns as SIGTERM-style exits and breaks
+      // signal-aware orchestration. The cast is safe because
+      // `signal` here is always one of `SHUTDOWN_SIGNALS` (Node's
+      // `signal` arg matches whatever name we registered the
+      // handler under). Defaults to 143 for any future signal we
+      // forget to map.
+      const code =
+        SECOND_SIGNAL_EXIT_CODE[
+          signal as (typeof SHUTDOWN_SIGNALS)[number]
+        ] ?? 143;
+      process.exit(code);
       // Explicit return so test mocks of process.exit (which don't
       // actually terminate the worker) don't fall through into the
       // early-stop path.
