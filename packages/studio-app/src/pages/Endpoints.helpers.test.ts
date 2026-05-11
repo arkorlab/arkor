@@ -312,16 +312,47 @@ describe("setupKeyIssueGuards", () => {
   });
 
   it("beforeunload no-ops while no key is being issued", () => {
+    // Helper: synthetic `Event` instances type `returnValue` as boolean
+    // (the base `Event` interface), so a `e.returnValue = "..."` write
+    // gets coerced and we can't read the string back. Override with a
+    // capturing setter so we can assert the cross-browser legacy cue
+    // — a non-empty string assignment — actually fires.
+    function makeBeforeUnloadEvent() {
+      const e = new Event("beforeunload") as BeforeUnloadEvent;
+      const writes: unknown[] = [];
+      Object.defineProperty(e, "returnValue", {
+        configurable: true,
+        get: () => writes[writes.length - 1],
+        set: (v) => writes.push(v),
+      });
+      return { e, writes };
+    }
+
     let pending = false;
     const f = makeFakes({ isPending: () => pending });
     setupKeyIssueGuards(f.fakes);
-    const e = new Event("beforeunload") as BeforeUnloadEvent;
-    const preventDefault = vi.spyOn(e, "preventDefault");
-    f.beforeUnloadListeners[0]!(e);
-    expect(preventDefault).not.toHaveBeenCalled();
+
+    const idle = makeBeforeUnloadEvent();
+    const idlePreventDefault = vi.spyOn(idle.e, "preventDefault");
+    f.beforeUnloadListeners[0]!(idle.e);
+    expect(idlePreventDefault).not.toHaveBeenCalled();
+    // Idle path short-circuits before touching `returnValue`.
+    expect(idle.writes).toEqual([]);
+
     pending = true;
-    f.beforeUnloadListeners[0]!(e);
-    expect(preventDefault).toHaveBeenCalledTimes(1);
+    const active = makeBeforeUnloadEvent();
+    const activePreventDefault = vi.spyOn(active.e, "preventDefault");
+    f.beforeUnloadListeners[0]!(active.e);
+    expect(activePreventDefault).toHaveBeenCalledTimes(1);
+    // Cross-browser reliability: older Chromium / WebKit / WebView
+    // builds need a non-empty `returnValue` string (in addition to
+    // `preventDefault`) before they show the unload confirm dialog.
+    // The string itself is not rendered to the user — modern browsers
+    // show their own generic message — but the assignment is what
+    // legacy engines treat as the "show the prompt" cue.
+    expect(active.writes).toHaveLength(1);
+    expect(typeof active.writes[0]).toBe("string");
+    expect((active.writes[0] as string).length).toBeGreaterThan(0);
   });
 
   it("navigation guard returns true (allow) when nothing is pending", () => {

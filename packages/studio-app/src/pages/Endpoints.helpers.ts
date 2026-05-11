@@ -165,12 +165,26 @@ export const KEY_ISSUE_DISPLAYED_MESSAGE =
 export function setupKeyIssueGuards(opts: KeyIssueGuardOptions): () => void {
   function onBeforeUnload(e: BeforeUnloadEvent) {
     if (!opts.isPending()) return;
-    // Modern browsers (Chrome 119+, Firefox, Safari) show the generic
-    // confirm dialog from `preventDefault()` alone — the custom
-    // message is no longer rendered, so we don't bother with the
-    // deprecated `returnValue`. Goal: stop the user from losing the
-    // one-time plaintext key by closing the tab mid-flight.
+    // Goal: stop the user from losing the one-time plaintext key by
+    // closing the tab mid-flight. Set BOTH `preventDefault()` AND
+    // `returnValue` for cross-browser reliability — the spec was
+    // tightened so that modern engines (Chrome 119+, Firefox, Safari)
+    // honour `preventDefault()` alone, but older Chromium / WebKit
+    // builds and many embedded WebViews still require `returnValue` to
+    // be non-empty. The custom string is not rendered to the user
+    // (browsers show their own generic message), but its presence is
+    // the legacy "show the confirm dialog" cue. Setting it to `""`
+    // would also work, but a non-empty string keeps Edge happy on
+    // pre-119 builds. The TS deprecation hint on `returnValue` is a
+    // direction-of-travel signal, not yet effective everywhere.
     e.preventDefault();
+    // `BeforeUnloadEvent.returnValue` is marked `@deprecated` in
+    // `lib.dom.d.ts`, but it remains the only cue older Chromium /
+    // WebKit / WebView builds honour to show the unload confirm. The
+    // local cast silences the deprecation hint without pulling in
+    // eslint just for one line.
+    (e as { returnValue: string }).returnValue =
+      "An API key is being issued. Leaving now will discard the one-time secret.";
   }
 
   const unregisterGuard = opts.registerNavigationGuard(() => {
