@@ -29,7 +29,7 @@ bun dev
 
 </CodeGroup>
 
-CLI が表示する URL を開いてください。**Run training** をクリックすると `src/arkor/index.ts` に対する学習が起動します。メトリックスがリアルタイムで流れ、チェックポイントが届くと Playground でチャットできます。
+CLI が表示する URL を開いてください。**Run training** をクリックすると `src/arkor/index.ts` に対する学習が起動します。メトリックスがリアルタイムで流れ、ジョブが完了したら Playground で最終アダプターとチャットできます（中間チェックポイントを学習中に試したい場合は SDK の [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使ってください）。
 
 `arkor dev` 自体は学習を **開始しません**。UI と SPA が通信するための小さなループバック API を提供するだけです。学習は UI から開始します。
 

@@ -100,4 +100,4 @@ onCheckpoint: async ({ step, infer }) => {
 
 - **内側の `try / catch` は必須。** 通知はあれば便利ですが、Webhook の障害が学習イベントストリームを静かにリトライさせるのは望ましくありません。
 - **シークレットをトレーナーファイルに置かない。** 例では `SLACK_WEBHOOK_URL` を `process.env` から読み、Webhook が `git` に入らないようにしています。トークンベースの宛先全般に同じ考え方を適用してください。
-- **`error` は `string` であることを忘れない。** `onFailed` の `error` 引数はバックエンドが送った文字列で（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）、`Error` インスタンスではありません。そのまま埋め込んでください。`.message` を呼ばないように。
+- **`error` は `string` であることを忘れない。** `onFailed` の `error` 引数はバックエンドが送った文字列で（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）、`Error` インスタンスではありません。そのまま埋め込んでください。`.message` を参照しないでください。
