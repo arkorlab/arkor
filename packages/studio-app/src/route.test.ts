@@ -343,6 +343,31 @@ describe("evaluateHashChange", () => {
     });
   });
 
+  it("treats `currentSeq === lastSeq` as a fresh push (not a revisit)", () => {
+    // Browsers preserve `history.state` across same-document hash
+    // navigations after a `replaceState`, and `navigateReplace`
+    // deliberately reuses the existing state so unrelated fields
+    // survive. Result: a fresh forward navigation can land here with
+    // the previous entry's seq still attached. Without minting a new
+    // seq, the next Back/Forward reads the same seq for both the
+    // previous entry and the new one and direction detection breaks.
+    // The fix: treat `currentSeq === lastSeq` like the `null` case and
+    // bump to `lastSeq + 1`.
+    withHash("#/endpoints");
+    const result = evaluateHashChange({
+      newHash: "#/endpoints",
+      lastHash: "#/endpoints/abc",
+      currentSeq: 5,
+      lastSeq: 5,
+      guards: [],
+    });
+    expect(result).toEqual({
+      kind: "navigate",
+      route: { kind: "endpoints" },
+      newSeq: 6,
+    });
+  });
+
   it("parses the route from `newHash` rather than `window.location.hash`", () => {
     // The helper has to be self-contained: a back-to-back navigation
     // can leave `window.location.hash` already pointing at a *later*
@@ -488,6 +513,23 @@ describe("createHashRouter (integration of side effects)", () => {
     expect(rec.routes).toEqual([{ kind: "endpoint", id: "b" }]);
     expect(rec.stampedSeqs).toEqual([]);
     expect(router.getLastSeq()).toBe(1);
+  });
+
+  it("re-stamps seq when navigateReplace inherits the previous entry's state", () => {
+    // `navigateReplace` reuses `window.history.state` so unrelated
+    // fields survive, which means a fresh forward navigation arrives
+    // with the previous entry's seq still attached (`currentSeq ===
+    // lastSeq`). The hook must mint `lastSeq + 1` AND persist it via
+    // `stampSeq`, otherwise the new entry shares a seq with its
+    // neighbour and the next Back/Forward computes the wrong direction.
+    const rec = makeRecorder("#/endpoints/a", 5);
+    const router = createHashRouter("#/endpoints/a", 5, rec.deps);
+
+    rec.fireHashChange(router, "#/endpoints", 5, "#/endpoints/a");
+
+    expect(rec.routes).toEqual([{ kind: "endpoints" }]);
+    expect(rec.stampedSeqs).toEqual([6]);
+    expect(router.getLastSeq()).toBe(6);
   });
 
   it("rolls back a forward push (currentSeq=null) via goBack and skips setRoute", () => {

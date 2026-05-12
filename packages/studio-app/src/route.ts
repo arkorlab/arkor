@@ -137,13 +137,24 @@ export function evaluateHashChange(opts: {
       return { kind: "rollback", direction };
     }
   }
-  // For brand-new entries pushed by a forward navigation, `currentSeq`
-  // is null and we mint `lastSeq + 1`. For revisited entries (Back /
-  // Forward landing on something we already stamped), preserve the
-  // existing seq — re-stamping `B` with a higher number than `C` after
-  // an A→B→C→Back-to-B sequence would corrupt direction detection on
-  // the next Forward and turn the rollback into another `forward()`,
-  // ejecting the user further along the stack.
+  // Decide what `seq` to record on this entry:
+  //   - `null` → fresh push (new history entry, browser-defaulted state).
+  //     Mint `lastSeq + 1`.
+  //   - `=== lastSeq` → also treat as fresh push. Browsers preserve
+  //     `history.state` across same-document hash navigations after a
+  //     `replaceState`, and our own `navigateReplace` deliberately reuses
+  //     `window.history.state` (so unrelated state survives), so a fresh
+  //     forward navigation can land here with the previous entry's seq
+  //     still attached. Without this branch, `currentSeq === lastSeq`
+  //     would be misclassified as a revisit, no new seq would be
+  //     stamped, and the next Back/Forward would compute the wrong
+  //     direction.
+  //   - otherwise (`< lastSeq` Back, `> lastSeq` Forward) → revisit of a
+  //     previously-stamped entry. Preserve `currentSeq` — re-stamping `B`
+  //     with a higher number than `C` after an A→B→C→Back-to-B sequence
+  //     would corrupt direction detection on the next Forward and turn
+  //     the rollback into another `forward()`, ejecting the user further
+  //     along the stack.
   //
   // Pass `opts.newHash` to `parseRoute` so the returned `Route`
   // reflects *the hash that triggered this `hashchange`*, not whatever
@@ -152,10 +163,14 @@ export function evaluateHashChange(opts: {
   // state and a fast back-to-back navigation could feed a route for a
   // *later* hash to the SPA — exactly the kind of bug this extraction
   // was meant to remove.
+  const newSeq =
+    opts.currentSeq !== null && opts.currentSeq !== opts.lastSeq
+      ? opts.currentSeq
+      : opts.lastSeq + 1;
   return {
     kind: "navigate",
     route: parseRoute(opts.newHash),
-    newSeq: opts.currentSeq ?? opts.lastSeq + 1,
+    newSeq,
   };
 }
 
@@ -252,12 +267,21 @@ export function createHashRouter(
       }
       lastHash = newHash;
       lastSeq = decision.newSeq;
-      // Stamp the seq only when this entry doesn't already have one
-      // (i.e. it's a freshly-pushed entry, not a revisit via Back /
-      // Forward). Re-stamping a previously-visited entry would break
-      // direction detection on the next navigation; see the comment in
-      // `evaluateHashChange` for the full A→B→C→Back→Forward example.
-      if (deps.getCurrentSeq() === null) {
+      // Stamp whenever the entry's stored seq doesn't already match the
+      // value we just decided on. That covers two cases:
+      //   1. The entry has no seq yet (browser-default `null` after a
+      //      fresh push).
+      //   2. The entry inherited the previous entry's seq via a
+      //      `replaceState` (browsers preserve state across same-document
+      //      hash changes; our `navigateReplace` does this on purpose).
+      //      `evaluateHashChange` already minted a new `lastSeq + 1` for
+      //      that case; persist it to history so the next Back/Forward
+      //      reads the right neighbour seq for direction detection.
+      // Revisits (Back/Forward landing on a previously-stamped entry)
+      // resolve `decision.newSeq === currentSeq`, so this guard skips
+      // the redundant write — see the comment in `evaluateHashChange`
+      // for the A→B→C→Back→Forward example that needs that.
+      if (deps.getCurrentSeq() !== decision.newSeq) {
         deps.stampSeq(decision.newSeq);
       }
       deps.setRoute(decision.route);
