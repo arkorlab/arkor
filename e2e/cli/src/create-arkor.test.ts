@@ -103,10 +103,12 @@ describe("create-arkor (E2E)", () => {
     );
     expect(trainer).toContain("createTrainer");
 
-    // No `--use-*` and CI=1 → pm undefined → manual install hint + npx dev.
-    expect(result.stdout).toContain("npx arkor dev");
+    // No `--use-*` and CI=1 → pm undefined → both manual install + manual dev hints fire.
     expect(result.stdout).toContain(
       "install dependencies (npm i / pnpm install / yarn / bun install)",
+    );
+    expect(result.stdout).toContain(
+      "run dev (npm run dev / pnpm dev / yarn dev / bun dev)",
     );
   });
 
@@ -119,10 +121,10 @@ describe("create-arkor (E2E)", () => {
     ]);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("pnpm install");
-    expect(result.stdout).toContain("pnpm arkor dev");
+    expect(result.stdout).toContain("pnpm dev");
   });
 
-  it("renders the npm next-steps (npx for run) when --use-npm is set", async () => {
+  it("renders the npm next-steps (npm run for scripts) when --use-npm is set", async () => {
     const { result } = await runCreateArkor([
       "-y",
       "--skip-install",
@@ -131,13 +133,13 @@ describe("create-arkor (E2E)", () => {
     ]);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("npm install");
-    // npm forces `npx arkor` since `npm arkor` isn't a thing.
-    expect(result.stdout).toContain("npx arkor dev");
+    // npm needs `npm run <script>` since `npm <script>` isn't a thing.
+    expect(result.stdout).toContain("npm run dev");
   });
 
   it.each([
-    { pm: "yarn", devCmd: "yarn arkor dev" },
-    { pm: "bun", devCmd: "bun arkor dev" },
+    { pm: "yarn", devCmd: "yarn dev" },
+    { pm: "bun", devCmd: "bun dev" },
   ])("renders the $pm next-steps when --use-$pm is set", async ({ pm, devCmd }) => {
     const { result } = await runCreateArkor([
       "-y",

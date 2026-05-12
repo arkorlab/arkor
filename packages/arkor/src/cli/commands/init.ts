@@ -3,6 +3,10 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  MANUAL_DEV_HINT,
+  MANUAL_INSTALL_HINT,
+  MANUAL_RUN_ARKOR_DEV_HINT,
+  runArkorDevViaPm,
   sanitise,
   scaffold,
   TEMPLATES,
@@ -30,9 +34,6 @@ export interface InitOptions {
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
 }
-
-const MANUAL_INSTALL_HINT =
-  "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 /**
  * Decide whether to run `git init` + initial commit, surfacing the prompt
@@ -136,7 +137,11 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
   // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
-  const { files } = await scaffold({ cwd, name: sanitise(projectName), template });
+  const { files, devScriptWiresArkor } = await scaffold({
+    cwd,
+    name: sanitise(projectName),
+    template,
+  });
 
   ui.note(
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
@@ -167,13 +172,20 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   if (shouldInitGit) await runGitInit(cwd);
 
-  const devCmd =
-    pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
+  const devHint = devScriptWiresArkor
+    ? pm
+      ? pm === "npm"
+        ? "`npm run dev`"
+        : `\`${pm} dev\``
+      : MANUAL_DEV_HINT
+    : pm
+      ? `\`${runArkorDevViaPm(pm)}\``
+      : MANUAL_RUN_ARKOR_DEV_HINT;
   ui.outro(
     installed
-      ? `Next: \`${devCmd}\``
+      ? `Next: ${devHint}`
       : pm
-        ? `Next: \`${pm} install\`, then \`${devCmd}\``
-        : `Next: ${MANUAL_INSTALL_HINT}, then \`${devCmd}\``,
+        ? `Next: \`${pm} install\`, then ${devHint}`
+        : `Next: ${MANUAL_INSTALL_HINT}, then ${devHint}`,
   );
 }

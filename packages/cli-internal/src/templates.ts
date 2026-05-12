@@ -182,22 +182,26 @@ An arkor training project scaffolded by \`create-arkor\`.
 
 The \`dev\` / \`build\` / \`start\` package scripts forward to the matching
 \`arkor\` subcommands, so the script form works across every package
-manager (\`npm\` does not run package binaries via \`npm <bin>\` — use
-\`npm run <script>\` or \`npx arkor <subcommand>\`).
+manager.
 
 \`\`\`
 npm install && npm run dev
 # or: pnpm install && pnpm dev
-# or: yarn && yarn dev
+# or: yarn install && yarn dev
 # or: bun install && bun dev
 \`\`\`
 
 \`arkor dev\` opens the local Studio GUI (most workflows live there).
 
-Optional — log in to your own org instead of using anonymous tokens:
+Optional — log in to your own org instead of using anonymous tokens.
+\`arkor\` is a local devDependency, not a global, so invoke it through
+your package manager's runner:
 
 \`\`\`
 npx arkor login
+# or: pnpm exec arkor login
+# or: yarn run arkor login
+# or: bunx arkor login
 \`\`\`
 
 CLI-only flow (no GUI):

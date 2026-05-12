@@ -87,9 +87,7 @@ cd my-app
 
 The `dev` / `build` / `start` package scripts forward to the corresponding
 `arkor` subcommands, so the script form works the same across npm, pnpm,
-yarn, and bun. (npm in particular does *not* run package binaries via
-`npm <bin>` — use `npm run <script>`, or `npx arkor <subcommand>` for
-one-off invocations.)
+yarn, and bun.
 
 `arkor dev` opens the local Studio. See the
 [`arkor` package README](../arkor/README.md) for the full SDK + CLI

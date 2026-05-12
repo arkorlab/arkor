@@ -9,7 +9,11 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  MANUAL_DEV_HINT,
+  MANUAL_INSTALL_HINT,
+  MANUAL_RUN_ARKOR_DEV_HINT,
   resolvePackageManager,
+  runArkorDevViaPm,
   sanitise,
   scaffold,
   TEMPLATES,
@@ -31,9 +35,6 @@ interface RunOptions {
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
 }
-
-const MANUAL_INSTALL_HINT =
-  "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 function isInteractive(): boolean {
   return Boolean(process.stdout.isTTY) && !process.env.CI;
@@ -224,7 +225,11 @@ async function run(options: RunOptions): Promise<void> {
 
   const spin = clack.spinner();
   spin.start(`Scaffolding in ${cwd}`);
-  const { files } = await scaffold({ cwd, name, template });
+  const { files, devScriptWiresArkor } = await scaffold({
+    cwd,
+    name,
+    template,
+  });
   spin.stop("Done");
 
   clack.note(
@@ -265,8 +270,15 @@ async function run(options: RunOptions): Promise<void> {
     : pm
       ? `  ${pm} install`
       : `  ${MANUAL_INSTALL_HINT}`;
-  const devLine =
-    pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
+  const devLine = devScriptWiresArkor
+    ? pm
+      ? pm === "npm"
+        ? `  npm run dev`
+        : `  ${pm} dev`
+      : `  ${MANUAL_DEV_HINT}`
+    : pm
+      ? `  ${runArkorDevViaPm(pm)}`
+      : `  ${MANUAL_RUN_ARKOR_DEV_HINT}`;
 
   clack.outro(
     [
