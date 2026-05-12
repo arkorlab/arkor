@@ -61,7 +61,7 @@ const controller = new AbortController();
 
 const trainer = createTrainer({
   name: "with-timeout",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   abortSignal: controller.signal,
 });

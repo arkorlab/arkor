@@ -15,7 +15,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -92,7 +92,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -127,7 +127,7 @@ export const trainer = createTrainer({
 `model` フィールドはクラウド API に文字列としてそのまま転送されます。現在のキュレートパスは `gemma-4-E4B-it`（すべてのスターターテンプレートに同梱）です。クラウド API がそれ以外のどの ID を受け付けるかを決めます。サポートされない値を送ると上流から 4xx が返り、`training.failed` イベントにバックエンドのエラーメッセージが乗ります。
 
 ```ts
-model: "unsloth/gemma-4-e4b-it",   // キュレート済み。現在サポートされているパス
+model: "unsloth/gemma-4-E4B-it",   // キュレート済み。現在サポートされているパス
 ```
 
 別のベースを試すことは[ロードマップ](/ja/roadmap) に明示的に挙がっています。それが実現するまでは、`model` フィールドを選択肢のあるメニューではなく、サポートされる単一の値として扱ってください。
@@ -157,7 +157,7 @@ async function postSlack(text: string): Promise<void> {
 
 export const trainer = createTrainer({
   name: "support-bot-v2",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 32, alpha: 64, maxLength: 2048, loadIn4bit: true },
   maxSteps: 500,
