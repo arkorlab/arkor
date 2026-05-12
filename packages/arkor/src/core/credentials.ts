@@ -136,11 +136,10 @@ export function defaultArkorCloudApiUrl(
   // misconfigured env triggers the URL-parse error at startup instead
   // of being silently substituted with the production fallback. Tests
   // exercise that exact behaviour to surface config bugs early.
-  // `\/+$` (one or more) so a misconfigured env / persisted value with
-  // multiple trailing slashes (`https://host///`) doesn't collapse to a
-  // single trailing slash and produce double-slash request URLs
-  // downstream.
-  const fromEnv = process.env.ARKOR_CLOUD_API_URL?.replace(/\/+$/, "");
+  const fromEnv =
+    process.env.ARKOR_CLOUD_API_URL !== undefined
+      ? stripTrailingSlashes(process.env.ARKOR_CLOUD_API_URL)
+      : undefined;
   if (fromEnv !== undefined) return fromEnv;
   // Both shapes carry an optional `arkorCloudApiUrl`: anonymous since
   // signup, OAuth since login. `!= null` (not truthy) keeps an empty
@@ -158,9 +157,22 @@ export function defaultArkorCloudApiUrl(
     credentials?.arkorCloudApiUrl !== null
   ) {
     // Same multi-slash strip as the env-var branch above.
-    return credentials.arkorCloudApiUrl.replace(/\/+$/, "");
+    return stripTrailingSlashes(credentials.arkorCloudApiUrl);
   }
   return "https://api.arkor.ai";
+}
+
+/**
+ * Drop every trailing `/` from `s`. Implemented as a hand-rolled loop
+ * rather than `replace(/\/+$/, "")` because CodeQL flags the regex
+ * variant as a polynomial-backtracking ReDoS vector when the input is
+ * uncontrolled (env / persisted credentials, here). The loop is O(n)
+ * with no backtracking and produces the same result.
+ */
+function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 0x2f /* "/" */) end--;
+  return end === s.length ? s : s.slice(0, end);
 }
 
 /**
