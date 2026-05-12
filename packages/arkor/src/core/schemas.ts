@@ -1,5 +1,24 @@
 import { z } from "zod";
 
+/**
+ * Tolerant ISO-8601 coercion for timestamp fields on the wire. The
+ * cloud API serializes timestamps as ISO strings, but tests / mocks /
+ * future producers may hand a `Date` to the decoder. A naive
+ * `String(date)` returns the locale-ish form (e.g. `"Tue May 12 …"`),
+ * so we normalise via `toISOString()` to keep the public DTO contract
+ * actually ISO. Strings pass through verbatim (the cloud API is the
+ * canonical source of truth for their format — we don't re-parse).
+ */
+function toIso(v: string | Date): string {
+  return v instanceof Date ? v.toISOString() : v;
+}
+
+/** Same as `toIso`, but for fields where `null` / `undefined` means "absent". */
+function toIsoOrNull(v: string | Date | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  return toIso(v);
+}
+
 export const jobStatusSchema = z.enum([
   "queued",
   "running",
@@ -16,9 +35,9 @@ export const trainingJobSchema = z.looseObject({
   status: jobStatusSchema,
   config: z.looseObject({ model: z.string() }),
   error: z.string().nullable().optional(),
-  createdAt: z.union([z.string(), z.date()]).transform((v) => String(v)),
-  startedAt: z.union([z.string(), z.date()]).nullish().transform((v) => (v ? String(v) : null)),
-  completedAt: z.union([z.string(), z.date()]).nullish().transform((v) => (v ? String(v) : null)),
+  createdAt: z.union([z.string(), z.date()]).transform(toIso),
+  startedAt: z.union([z.string(), z.date()]).nullish().transform(toIsoOrNull),
+  completedAt: z.union([z.string(), z.date()]).nullish().transform(toIsoOrNull),
 });
 
 export const jobDetailResponseSchema = z.object({
@@ -195,13 +214,11 @@ const deploymentSchema = z.looseObject({
   runRetentionMode: z.string().optional(),
   runRetentionDays: z.number().optional(),
   // Cloud API serializes timestamps as ISO strings; we accept Date too
-  // for parity with `trainingJobSchema`'s tolerant transform.
-  createdAt: z
-    .union([z.string(), z.date()])
-    .transform((v) => String(v)),
-  updatedAt: z
-    .union([z.string(), z.date()])
-    .transform((v) => String(v)),
+  // for parity with `trainingJobSchema`'s tolerant transform. `toIso`
+  // normalises a `Date` via `toISOString()` (not the locale-ish
+  // `String(date)` form) to keep the public DTO contract actually ISO.
+  createdAt: z.union([z.string(), z.date()]).transform(toIso),
+  updatedAt: z.union([z.string(), z.date()]).transform(toIso),
 });
 
 const deploymentKeySchema = z
@@ -210,15 +227,13 @@ const deploymentKeySchema = z
     label: z.string(),
     prefix: z.string(),
     enabled: z.boolean(),
-    createdAt: z
-      .union([z.string(), z.date()])
-      .transform((v) => String(v)),
+    createdAt: z.union([z.string(), z.date()]).transform(toIso),
     // `lastUsedAt` is updated best-effort by the edge service; null until
     // the first authenticated request lands on the key.
     lastUsedAt: z
       .union([z.string(), z.date()])
       .nullish()
-      .transform((v) => (v ? String(v) : null)),
+      .transform(toIsoOrNull),
   })
   // List-keys responses are documented as the no-plaintext shape
   // (plaintext is only ever returned from the create-key envelope, exactly
@@ -241,9 +256,7 @@ const createKeyEnvelopeSchema = z.looseObject({
   label: z.string(),
   plaintext: z.string(),
   prefix: z.string(),
-  createdAt: z
-    .union([z.string(), z.date()])
-    .transform((v) => String(v)),
+  createdAt: z.union([z.string(), z.date()]).transform(toIso),
 });
 
 export const getDeploymentResponseSchema = z.object({
