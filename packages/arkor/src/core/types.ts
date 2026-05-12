@@ -89,16 +89,162 @@ export interface TrainingLogContext {
   job: TrainingJob;
 }
 
+/**
+ * One entry in a tool-call delta or completed assistant message.
+ *
+ * Snake-case (`tool_calls`, `tool_call_id`) matches the OpenAI / vLLM wire
+ * format and is forwarded verbatim through every layer (SDK → cloud-api →
+ * control-plane → vLLM worker), so messages can round-trip a chat history
+ * without re-keying.
+ */
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    /** JSON-encoded arguments string — partial deltas may be streamed. */
+    arguments: string;
+  };
+}
+
+/**
+ * Discriminated union over the four OpenAI message roles, including tool-
+ * calling shapes. Tool messages are the model's view of a tool's response
+ * and are paired with the originating `tool_call_id`.
+ *
+ * The assistant role is split across two sub-shapes so that
+ * `{ role: "assistant" }` (no content, no tool_calls — a meaningless
+ * empty turn) does NOT type-check: at least one of `content` (string) or
+ * a non-empty `tool_calls` tuple must be present. `[ToolCall, ...ToolCall[]]`
+ * encodes the non-empty constraint at the type level. This mirrors the
+ * Zod refine on the cloud-api side so SDK callers get the same guarantee
+ * at compile time as the API enforces at runtime.
+ */
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | {
+      role: "assistant";
+      content: string;
+      tool_calls?: ToolCall[];
+    }
+  | {
+      role: "assistant";
+      /** May be `null` (or omitted) when the turn is purely a tool call. */
+      content?: string | null;
+      tool_calls: [ToolCall, ...ToolCall[]];
+    }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    /** JSON Schema object describing the tool arguments. */
+    parameters?: Record<string, unknown>;
+    strict?: boolean;
+  };
+}
+
+/**
+ * OpenAI-compatible tool selection. `"auto"` (the documented default when
+ * `tools` is present) lets the model decide; `"required"` forces it to
+ * call one of the supplied tools; `"none"` keeps tools in context but
+ * disables calling. The object form pins the call to a specific function.
+ */
+export type ToolChoice =
+  | "auto"
+  | "none"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        name: string;
+        description?: string;
+        schema: Record<string, unknown>;
+        strict?: boolean;
+      };
+    };
+
+/**
+ * Map a record of constraint fields to a union where exactly one key is
+ * required and every sibling is forbidden (typed as `never`). Lets the
+ * type encode vLLM's "must specify exactly one constraint" invariant.
+ */
+type ExactlyOne<T> = {
+  [K in keyof T]: { [P in K]: T[K] } & {
+    [P in Exclude<keyof T, K>]?: never;
+  };
+}[keyof T];
+
+/** Backend-tuning knobs that can be combined with any constraint. */
+interface StructuredOutputsCommon {
+  disable_any_whitespace?: boolean;
+  disable_additional_properties?: boolean;
+  whitespace_pattern?: string;
+}
+
+/**
+ * vLLM's `StructuredOutputsParams` — used for constraints that
+ * `response_format` can't express (regex, choice lists, custom grammars).
+ * Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object`
+ * must be set; vLLM's `__post_init__` raises if zero or more than one
+ * constraint is supplied. The `ExactlyOne` helper encodes that
+ * mutual-exclusivity invariant at the type level so callers can't
+ * accidentally combine two constraints. Field names are snake_case to
+ * match vLLM's wire format exactly so the worker forwards verbatim.
+ *
+ * Trimmed surface (vLLM 0.20 wire format has more, but the cloud-api
+ * doesn't accept the rest until they have a working use case):
+ * - `json`: object only (the pre-serialized-string form was untyped
+ *   at ingress and rejected upstream by vLLM if malformed).
+ * - `json_object`: only `true` is meaningful — vLLM activates JSON-
+ *   object mode on a truthy value.
+ * - `structural_tag` is intentionally absent. It's a vLLM extension
+ *   for Llama-style inline tool-call framing; arkor's curated path
+ *   is Gemma 4 today, which uses OpenAI `tools` / `tool_calls`. Will
+ *   be re-added (additive, non-breaking) once broader base-model
+ *   support lands.
+ */
+export type StructuredOutputs = ExactlyOne<{
+  json: Record<string, unknown>;
+  regex: string;
+  choice: string[];
+  grammar: string;
+  json_object: true;
+}> &
+  StructuredOutputsCommon;
+
 export interface InferArgs {
-  messages: Array<{
-    role: "system" | "user" | "assistant";
-    content: string;
-  }>;
+  messages: ChatMessage[];
   temperature?: number;
   topP?: number;
   maxTokens?: number;
   /** Default: true. Set false to get a single JSON body instead of SSE. */
   stream?: boolean;
+  /**
+   * Function-calling tool definitions. When present without an explicit
+   * `toolChoice`, the OpenAI-compatible default `"auto"` applies; the
+   * underlying endpoint must be configured for auto-tool extraction or
+   * the request returns a `400 tool_calling_not_configured`.
+   */
+  tools?: ToolDefinition[];
+  toolChoice?: ToolChoice;
+  /** OpenAI-compatible response_format (e.g. JSON Schema). */
+  responseFormat?: ResponseFormat;
+  /**
+   * vLLM-specific structured outputs (regex / choice / grammar) for
+   * constraints not covered by `responseFormat`. `responseFormat` is
+   * preferred when both can express the same constraint, since it's the
+   * cross-provider standard.
+   */
+  structuredOutputs?: StructuredOutputs;
   signal?: AbortSignal;
 }
 

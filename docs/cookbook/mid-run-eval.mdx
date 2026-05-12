@@ -21,7 +21,7 @@ const GOLDEN_PROMPT = [
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -72,6 +72,8 @@ onCheckpoint: async ({ step, infer }) => {
   await postSampleToReviewQueue({ step, sample });
 },
 ```
+
+**Extract typed fields with a JSON schema.** Replace the freeform parse with `responseFormat: { type: "json_schema", json_schema: { name, schema, strict: true } }` — `data.choices[0].message.content` becomes a JSON string that always satisfies your schema, so a single `JSON.parse` gives you a typed object you can branch on directly (`parsed.urgency === "high"`, `parsed.category in VALID_LABELS`). Full pattern, including how to wire the typed fields into early stopping, in the [Structured outputs and function calling recipe](/cookbook/structured-outputs).
 
 **Trigger early stopping based on the sample.** Pair this with the [Early stopping recipe](/cookbook/early-stopping): if the checkpoint output drifts away from a reference text by more than your tolerance, abort the controller. The next checkpoint will not fire.
 

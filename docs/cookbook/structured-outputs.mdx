@@ -1,0 +1,176 @@
+---
+title: "Structured outputs and function calling"
+description: "Constrain a checkpoint's output to a JSON schema, parse it as a typed object, and call functions from the model."
+---
+
+# Structured outputs and function calling
+
+A fine-tuned model is supposed to emit a fixed shape — `triage` produces `{ category, urgency, summary, nextAction }`, `redaction` produces `{ redactedText, redactedCount, tags }` — but at a half-trained checkpoint the output drifts: extra prose, missing keys, the occasional unparseable blob. Hoping the dataset alone keeps things tidy is fragile.
+
+`infer({ responseFormat })` gets you a hard guarantee. The model is constrained at decode time to emit a string that matches the JSON Schema you hand it, so `JSON.parse` always succeeds and the resulting object always has the keys you asked for. That turns the mid-run check from "log a sample, eyeball it" into "extract typed fields, branch on them."
+
+This recipe walks the three knobs that show up first: `responseFormat` for JSON Schema, `tools` for function calling, and `structuredOutputs` for constraints JSON Schema cannot express.
+
+## The pattern
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const TRIAGE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    category: { type: "string" },
+    urgency: { type: "string", enum: ["low", "medium", "high"] },
+    summary: { type: "string" },
+    nextAction: { type: "string" },
+  },
+  required: ["category", "urgency", "summary", "nextAction"],
+  additionalProperties: false,
+};
+
+interface TriageOutput {
+  category: string;
+  urgency: "low" | "medium" | "high";
+  summary: string;
+  nextAction: string;
+}
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-e4b-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  callbacks: {
+    onCheckpoint: async ({ step, infer }) => {
+      try {
+        const res = await infer({
+          messages: [
+            { role: "user", content: "I can't log in to my account." },
+          ],
+          stream: false,
+          maxTokens: 200,
+          responseFormat: {
+            type: "json_schema",
+            json_schema: {
+              name: "triage",
+              schema: TRIAGE_SCHEMA,
+              strict: true,
+            },
+          },
+        });
+        const data = (await res.json()) as {
+          choices: Array<{ message: { content: string } }>;
+        };
+        const content = data.choices[0]?.message.content;
+        if (content === undefined || content === "") {
+          throw new Error("triage check returned empty content");
+        }
+        const parsed = JSON.parse(content) as TriageOutput;
+        console.log(`step=${step} triage=`, parsed);
+      } catch (err) {
+        console.error(`step=${step} triage check failed:`, err);
+      }
+    },
+  },
+});
+```
+
+`responseFormat: { type: "json_schema", json_schema: { name, schema, strict: true } }` is the OpenAI-compatible shape (`strict` lives inside `json_schema`, not at the top level). The schema is forwarded to the inference backend, which constrains decoding so the response body is guaranteed to satisfy it. With `strict: true`, the schema is treated as authoritative; properties not declared are rejected.
+
+`infer({ stream: false })` returns a single JSON body in OpenAI's chat-completions shape, so the parse path is the standard `data.choices[0].message.content` then `JSON.parse`.
+
+## Wire it to early stopping
+
+Once you have typed fields you can branch on them. Pair this with the [Early stopping recipe](/cookbook/early-stopping):
+
+```ts
+const VALID_CATEGORIES = new Set([
+  "auth",
+  "billing",
+  "bug",
+  "feature_request",
+  "other",
+]);
+
+onCheckpoint: async ({ step, infer }) => {
+  const parsed = await runTriage(infer);     // the call from above
+  if (parsed && !VALID_CATEGORIES.has(parsed.category)) {
+    console.warn(
+      `step=${step} category=${parsed.category} not in label set, aborting`,
+    );
+    controller.abort();
+    await trainer.cancel().catch(() => {});
+  }
+},
+```
+
+The schema guarantees `category` exists and is a string; you decide what *valid* means for your label set. Same idea for `urgency`: if a checkpoint at step 30 is already emitting only `"high"`, the model has collapsed and the rest of the run is wasted compute.
+
+## Function calling
+
+When the model needs to reach for a tool — look up an order, fetch the weather, query an internal API — pass `tools` and `toolChoice` to `infer`. The response carries `tool_calls` instead of free-form content; your code runs the tool and (if you want to continue the conversation) appends a `tool` message and calls `infer` again.
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  const res = await infer({
+    messages: [
+      { role: "user", content: "What's the status of order #4821?" },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "get_order_status",
+          description: "Look up the current status of a customer order.",
+          parameters: {
+            type: "object",
+            properties: { orderId: { type: "string" } },
+            required: ["orderId"],
+          },
+        },
+      },
+    ],
+    toolChoice: "auto",
+    stream: false,
+  });
+  const data = (await res.json()) as {
+    choices: Array<{ message: { tool_calls?: Array<{ function: { name: string; arguments: string } }> } }>;
+  };
+  const call = data.choices[0]?.message.tool_calls?.[0];
+  if (call) {
+    const args = JSON.parse(call.function.arguments) as { orderId: string };
+    console.log(`step=${step} tool=${call.function.name} args=`, args);
+  }
+};
+```
+
+Function calling needs the inference endpoint to be configured with auto-tool-extraction. If it is not, the request returns `400 tool_calling_not_configured` — that is the signal to flip the endpoint config, not to retry. `toolChoice: "required"` and `toolChoice: { type: "function", function: { name } }` go through a guided-decoding path instead and do not need the parser; `"auto"` is the one that needs it.
+
+## When `responseFormat` cannot express the constraint
+
+`responseFormat` is the right knob 90% of the time. For the rest there is `structuredOutputs`, vLLM's superset that adds regex matching, fixed choice lists, and custom EBNF grammars. **Exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` must be set; the type encodes that invariant so you cannot accidentally combine two.
+
+A common case is forcing the output to one of a fixed set of strings — useful for classifier-style prompts where any free-form prefix would be a regression:
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Classify urgency: I can't log in." }],
+  structuredOutputs: { choice: ["low", "medium", "high"] },
+  stream: false,
+});
+const data = (await res.json()) as {
+  choices: Array<{ message: { content: string } }>;
+};
+const urgency = data.choices[0]?.message.content; // exactly one of "low" / "medium" / "high"
+```
+
+Other shapes follow the same pattern: `regex: "^[A-Z]{3}-\\d{4}$"` for ticket-id formats, `grammar: "..."` for an EBNF you maintain. Fields are snake_case (`json_object`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format exactly.
+
+## What to keep in mind
+
+- **`strict: true` is what you want.** Without it, the schema is a hint; the model can still drift. With it, the backend rejects properties not in `properties` and enforces `required`.
+- **`stream: false` for parsing.** With streaming on you get SSE deltas, which means you have to assemble the JSON yourself before parsing. For a recipe like this, a single JSON body is shorter and the latency cost is irrelevant — it is one inference per checkpoint.
+- **Wrap in `try / catch`.** The runtime catches throws and routes them through the SSE reconnect loop ([SDK § Lifecycle callbacks](/sdk/callbacks)). For deterministic behavior, handle errors inside the callback and use a controller for state changes (same convention as the other recipes).
+- **Schemas are forwarded verbatim.** The SDK does not validate the JSON Schema you pass; the inference backend does. Errors come back as 4xx with a message that points at the offending field.

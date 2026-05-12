@@ -25,7 +25,7 @@
             "groups": [
               {
                 "group": "Get started",
-                "pages": ["introduction", "quickstart"]
+                "pages": ["introduction", "quickstart", "models"]
               },
               {
                 "group": "Concepts",
@@ -74,6 +74,7 @@
                 "pages": [
                   "cookbook/overview",
                   "cookbook/mid-run-eval",
+                  "cookbook/structured-outputs",
                   "cookbook/early-stopping",
                   "cookbook/notifications",
                   "cookbook/programmatic-runs",
@@ -137,7 +138,7 @@
             "groups": [
               {
                 "group": "はじめに",
-                "pages": ["ja/introduction", "ja/quickstart"]
+                "pages": ["ja/introduction", "ja/quickstart", "ja/models"]
               },
               {
                 "group": "コンセプト",
@@ -186,6 +187,7 @@
                 "pages": [
                   "ja/cookbook/overview",
                   "ja/cookbook/mid-run-eval",
+                  "ja/cookbook/structured-outputs",
                   "ja/cookbook/early-stopping",
                   "ja/cookbook/notifications",
                   "ja/cookbook/programmatic-runs",

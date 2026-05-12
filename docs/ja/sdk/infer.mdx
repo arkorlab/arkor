@@ -28,27 +28,272 @@ type Infer = (args: InferArgs) => Promise<Response>;
 
 ```ts
 interface InferArgs {
-  messages: Array<{
-    role: "system" | "user" | "assistant";
-    content: string;
-  }>;
+  messages: ChatMessage[];
   temperature?: number;
   topP?: number;
   maxTokens?: number;
   /** デフォルト: true。SSE ではなく単一 JSON ボディが欲しいなら false に。 */
   stream?: boolean;
+  /** OpenAI 互換の Function Calling のためのツール定義。 */
+  tools?: ToolDefinition[];
+  /** "auto" | "none" | "required" | { type: "function", function: { name } } */
+  toolChoice?: ToolChoice;
+  /** OpenAI 互換の response_format（text / json_object / json_schema）。 */
+  responseFormat?: ResponseFormat;
+  /** responseFormat で表現できない制約（regex / choice / grammar）用の vLLM 拡張。 */
+  structuredOutputs?: StructuredOutputs;
   signal?: AbortSignal;
 }
 ```
 
 | フィールド | 型 | 補足 |
 | --- | --- | --- |
-| `messages` | `{ role, content }` の配列 | チャット履歴。role は OpenAI / HuggingFace の chat-template 慣例に揃えています。 |
+| `messages` | `ChatMessage[]` | チャット履歴。`system` / `user` / `assistant`（任意の `tool_calls` 付き）/ `tool`（`tool_call_id` 付き）の判別共用体で、OpenAI のメッセージ形と完全互換 — Function Calling を含む履歴をそのまま往復できます。 |
 | `temperature` | `number?` | サンプリング温度。省略時はバックエンドのデフォルト。 |
 | `topP` | `number?` | Nucleus サンプリング。省略時はバックエンドのデフォルト。 |
 | `maxTokens` | `number?` | 応答トークンの最大値。省略時はバックエンドのデフォルト。 |
 | `stream` | `boolean?` | デフォルトは **true**（SSE）。単一 JSON ボディが欲しければ `false`。 |
+| `tools` | `ToolDefinition[]?` | モデルが呼び出せる関数定義。`toolChoice` を明示しない場合は OpenAI 仕様どおり既定 `"auto"` が適用されます。エンドポイントが auto-tool 抽出に未対応なら `400 tool_calling_not_configured` が返ります。 |
+| `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }`。auto-extraction のパーサが必要なのは `"auto"`（と `tools` 指定時の既定）のみで、それ以外は guided-decoding 経路を通ります。 |
+| `responseFormat` | `ResponseFormat?` | OpenAI 標準の構造化出力スイッチ。`{ type: "text" }` / `{ type: "json_object" }` / `{ type: "json_schema", json_schema: { name, schema, strict? } }`。表現できる制約はこちらを優先。 |
+| `structuredOutputs` | `StructuredOutputs?` | `responseFormat` で表せない制約のための vLLM 拡張。指定する場合は `json` / `regex` / `choice` / `grammar` / `json_object` のうち**ちょうど 1 つ**を設定（vLLM 0.20 の `StructuredOutputsParams.__post_init__` がパース時点で 0 個 / 2 個以上を拒否）。型側でも `ExactlyOne` により強制。`structuredOutputs` の constraint と `responseFormat` の constraint（`json_object` / `json_schema`）を併用した場合、vLLM の sampling params に 2 つの制約が入ってしまうため ingress で拒否されます。`json_object` は `true` のみ受理。空 `choice: []` や空文字列の `grammar` も ingress で拒否。フィールド名は vLLM の wire 形式に合わせ snake_case（`json_object`、`disable_any_whitespace`、`whitespace_pattern`）。（vLLM の wire format には Llama 形式のインライン tool-call フレーミング用の `structural_tag` もあるが、arkor の curated path は Gemma 4 なので、対応 base model が増えるまで SDK 型からは外している。） |
 | `signal` | `AbortSignal?` | ローカル fetch を Abort。バックエンドの作業は止めません。モデルは生成を続け、あなたが読むのを止めるだけです。 |
+
+### Function Calling の例
+
+```ts
+onCheckpoint: async ({ infer }) => {
+  const res = await infer({
+    messages: [
+      { role: "user", content: "東京の天気は？" },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "get_weather",
+          parameters: {
+            type: "object",
+            properties: { city: { type: "string" } },
+            required: ["city"],
+          },
+        },
+      },
+    ],
+    toolChoice: "auto",
+    stream: false,
+  });
+  const data = (await res.json()) as { choices: Array<{ message: ChatMessage }> };
+  // data.choices[0].message は { role: "assistant", tool_calls: [...] } になり得ます。
+};
+```
+
+### 構造化出力の例
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "ユーザーのメールアドレスを抽出。" }],
+  responseFormat: {
+    type: "json_schema",
+    json_schema: {
+      name: "user",
+      schema: {
+        type: "object",
+        properties: { email: { type: "string", format: "email" } },
+        required: ["email"],
+      },
+      strict: true,
+    },
+  },
+});
+```
+
+### `responseFormat` のモード選択
+
+| モード | 強制される制約 | 使うとき |
+| --- | --- | --- |
+| `{ type: "text" }` | なし | free-form なテキスト（既定の挙動）。親関数が値をそのまま渡してくる場合の明示的な上書き用に使う。 |
+| `{ type: "json_object" }` | 出力が valid JSON である | JSON は欲しいがキー集合をまだ固定できないとき。ボディはパースできるが、プロパティ名・型・必須キーは強制されない。 |
+| `{ type: "json_schema", json_schema: { ..., strict: true } }` | 完全なスキーマ | プロパティ・型・必須キーをすべて強制。宣言されていないプロパティは拒否。スキーマが書けるなら（緩いものでも）これを優先。 |
+
+`responseFormat` は OpenAI 互換で「JSON が欲しい」用途のほぼすべてに使える正解。`structuredOutputs` は `responseFormat` で表現できない制約専用。
+
+**`strict: true` は object スキーマに `additionalProperties: false` を必須にします。** OpenAI の strict モードは、ルートを含む全ての `type: "object"` スキーマで `additionalProperties: false` を明示し、すべてのプロパティを `required` に列挙したときだけ満たされます。これを満たさないと backend が `400 invalid_schema` で拒否します。上の triage 例（および cookbook レシピ）はこの規約に従っているので、自前のスキーマを書くときはそれをコピーしてください。
+
+### `structuredOutputs` の例
+
+vLLM 固有の拡張。1 回の呼び出しで `json` / `regex` / `choice` / `grammar` / `json_object` のうち**ちょうど 1 つ**だけ — TypeScript 型システムが 2 つ同時を拒否します。`responseFormat` の constraint との併用も避けてください: vLLM の sampling params に 2 つ制約が入って ingress で拒否されます。
+
+**固定 choice。** 出力を小さな enumerated 集合のいずれかに強制。任意の前置きが付いたら不合格な分類器プロンプトに有用。
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "緊急度を分類: I can't log in." }],
+  structuredOutputs: { choice: ["low", "medium", "high"] },
+  stream: false,
+});
+```
+
+**正規表現。** 出力を正規表現マッチに制約。ID 形式・通貨文字列・構造化トークンに合う。
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "チケット ID を生成。" }],
+  structuredOutputs: { regex: "^[A-Z]{3}-\\d{4}$" },
+  stream: false,
+});
+```
+
+**EBNF グラマー。** 完全カスタムな形のための EBNF グラマー。文字列は vLLM にそのまま転送されます — サポートされるグラマー構文は [vLLM の structured outputs ドキュメント](https://docs.vllm.ai/) を参照。
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "数字を綴る。" }],
+  structuredOutputs: {
+    grammar: 'root ::= "zero" | "one" | "two" | "three"',
+  },
+  stream: false,
+});
+```
+
+**`json_object: true`。** `responseFormat: { type: "json_object" }` の structuredOutputs 等価物 — vLLM の wire 形式とのパリティのため存在します。`true` のみ受理し、`false` はコンパイル時（型 literal）と ingress 両方で拒否（vLLM が truthy 値のときだけ JSON-object モードを発動するため、`false` を通すと制約のかからない出力になってしまうため）。他と同じく「呼び出しごとに制約 1 つ」のルールに従います。
+
+### Function Calling のラウンドトリップ
+
+モデルが `tool_calls` を返してきたら、ツールを自分で実行し、結果を `tool` ロールのメッセージとして追加し、再度 `infer` を呼びます。2 回目の呼び出しが同じ surface を見えるよう、同じ `tools` と `toolChoice` を渡します。
+
+```ts
+import type { ChatMessage } from "arkor";
+
+const tools = [
+  {
+    type: "function" as const,
+    function: {
+      name: "get_weather",
+      parameters: {
+        type: "object",
+        properties: { city: { type: "string" } },
+        required: ["city"],
+      },
+    },
+  },
+];
+
+const messages: ChatMessage[] = [
+  { role: "user", content: "東京の天気は？" },
+];
+
+const first = await infer({ messages, tools, toolChoice: "auto", stream: false });
+const firstData = (await first.json()) as { choices: Array<{ message: ChatMessage }> };
+const reply = firstData.choices[0].message;
+
+if (reply.role === "assistant" && reply.tool_calls?.length) {
+  const call = reply.tool_calls[0];
+  const args = JSON.parse(call.function.arguments) as { city: string };
+  const result = await getWeather(args.city);
+
+  const second = await infer({
+    messages: [
+      ...messages,
+      reply,                                        // tool_calls を持つ assistant ターン
+      { role: "tool", tool_call_id: call.id, content: JSON.stringify(result) },
+    ],
+    tools,
+    toolChoice: "auto",
+    stream: false,
+  });
+  const finalReply = ((await second.json()) as { choices: Array<{ message: ChatMessage }> })
+    .choices[0].message;
+  // finalReply.content がユーザーに見せる最終回答。
+}
+```
+
+`tool_calls[i].function.arguments` は **JSON エンコードされた文字列** であり、パース済みオブジェクトではありません — 受け取ったら `JSON.parse` してください。`tool` メッセージの `tool_call_id` は、直前の assistant ターンの `tool_calls[i].id` と一致している必要があります（モデルが結果を正しいツール呼び出しに紐付けるため）。
+
+## 型定義
+
+サポートとなる型は `arkor` から export されています。リファレンス用にここでも展開:
+
+```ts
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; tool_calls?: ToolCall[] }
+  | {
+      role: "assistant";
+      /** 純粋にツール呼び出しだけのターンでは省略 / null になり得る。 */
+      content?: string | null;
+      tool_calls: [ToolCall, ...ToolCall[]];
+    }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    /** JSON エンコードされた引数文字列 — 部分デルタがストリームされ得る。 */
+    arguments: string;
+  };
+}
+
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    /** ツール引数を表す JSON Schema。 */
+    parameters?: Record<string, unknown>;
+    strict?: boolean;
+  };
+}
+
+export type ToolChoice =
+  | "auto"
+  | "none"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        name: string;
+        description?: string;
+        schema: Record<string, unknown>;
+        strict?: boolean;
+      };
+    };
+
+// ヘルパー: ちょうど 1 つのキーを必須化し、他のキーは `never` で禁止する
+// レコード型。vLLM の「制約はちょうど 1 つ」という不変条件を型レベルで
+// 表現する。SDK 内部の型ですが、下の StructuredOutputs 定義を自己完結に
+// するためここでも展開しています。
+type ExactlyOne<T> = {
+  [K in keyof T]: { [P in K]: T[K] } & {
+    [P in Exclude<keyof T, K>]?: never;
+  };
+}[keyof T];
+
+// `json` / `regex` / `choice` / `grammar` / `json_object` のうち
+// ちょうど 1 つを設定。フィールド名は vLLM の wire 形式に合わせて
+// snake_case。
+export type StructuredOutputs = ExactlyOne<{
+  json: Record<string, unknown>;
+  regex: string;
+  choice: string[];
+  grammar: string;
+  json_object: true;
+}> & {
+  disable_any_whitespace?: boolean;
+  disable_additional_properties?: boolean;
+  whitespace_pattern?: string;
+};
+```
+
+assistant ロールは 2 つのサブシェイプに分かれており、`{ role: "assistant" }` で `content` も `tool_calls` も無いものは型チェックを **通りません** — 少なくとも一方が必須。`[ToolCall, ...ToolCall[]]` の形で「`tool_calls` を持つときは非空」を型レベルで強制しています。
 
 ## 戻り値
 
@@ -70,6 +315,59 @@ const data = await res.json();
 ```
 
 `stream: true`（デフォルト）のときボディは Studio の Playground が消費するのと同じ形の SSE イベントストリームです。SDK はこのストリーム用のフレームパーサを今のところ提供していません。デコードしたテキストデルタが必要なら、`packages/studio-app/src/lib/api.ts` から小さな `extractInferenceDelta` ヘルパーをコピーするか、`eventsource-parser` を使ってパーサを書いてください。
+
+### レスポンスエンベロープ（`stream: false`）
+
+非ストリーミングのレスポンスは OpenAI 互換の chat-completion オブジェクトです:
+
+```ts
+{
+  choices: [
+    {
+      index: 0,
+      finish_reason: "stop" | "length" | "tool_calls" | string,
+      message: ChatMessage,
+    },
+  ],
+  // および OpenAI 標準の `id` / `model` / `usage` などバックエンドが付ける拡張フィールド。
+}
+```
+
+実体がどこに入るかは指定した制約で変わります:
+
+- **制約なし** または **`responseFormat: { type: "text" }`** — `choices[0].message.content` はプレーンテキスト。
+- **`responseFormat: { type: "json_object" }`** または **`type: "json_schema"`** — `choices[0].message.content` は JSON を含む **文字列**。`JSON.parse` は自分で呼びます（SDK は事前にパースしません）。
+- **`structuredOutputs: { json }` または `{ json_object: true }`** — 同様。`choices[0].message.content` は JSON 文字列なので `JSON.parse` する。
+- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }`** — `choices[0].message.content` は制約に合致する文字列。JSON ではないのでパースしないこと。
+- **`tools` 付きで tool call が返ったケース** — `choices[0].message.tool_calls` が埋まり、`content` は省略 / `null`。各 `tool_calls[i].function.arguments` 自体が JSON エンコードされた文字列。
+
+`finish_reason: "tool_calls"` は「最終回答を出さずツールを呼びたい」というモデルからのシグナルです。[Function Calling のラウンドトリップ](#function-calling-のラウンドトリップ) で次のターンを回します。
+
+## エラー
+
+`infer` は非 OK な `Response` を **返しません**。SDK は内部で `CloudApiClient.chat` を呼び、これは非 2xx を受け取ると `CloudApiError` を **throw** します。`await infer(...)` から戻った時点では、成功時の `Response` か例外、どちらかしか手元に来ません。`try / catch`（または `.catch()`）で囲み、`err instanceof CloudApiError` で分岐して `err.status` / `err.message` を読んでください。`CloudApiError` クラスはそのために `arkor` から export されています。
+
+```ts
+import { CloudApiError } from "arkor";
+
+try {
+  const res = await infer({ messages, ... });
+  // 成功時の Response を使う。
+} catch (err) {
+  if (err instanceof CloudApiError) {
+    // err.status は HTTP ステータス、err.message は upstream のメッセージ。
+  }
+}
+```
+
+| ステータス | 発生条件 | 対応 |
+| --- | --- | --- |
+| `400` `tool_calling_not_configured` | `tools` を指定し、暗黙または明示の `toolChoice: "auto"` を要求したが、推論エンドポイントが auto-tool-extraction 未設定。 | エンドポイントで auto-tool-extraction を有効化するか、`toolChoice: "required"` / `toolChoice: { type: "function", function: { name } }` にフォールバック（後者 2 つは guided-decoding 経路を通り、parser 不要）。設定を変えずにリトライしても通りません。 |
+| `400` schema バリデーションエラー | `responseFormat.json_schema.schema` または `tools[i].function.parameters` が valid な JSON Schema ではない / `structuredOutputs` を制約 0 個 / 2 個以上で渡した / `responseFormat` が既に制約を提供しているのに `structuredOutputs` でも constraint を渡した（vLLM 上で 2 制約衝突）。 | スキーマを直す / 制約を 1 つだけにする / 衝突するフィールドを外す。TS 型は `structuredOutputs` の複数キー指定をコンパイル時に拒否するので、このステータスはランタイム生成された制約オブジェクトや raw HTTP 呼び出しでのみ起こります。 |
+| `4xx` モデル拒否 | バックエンドがリクエストを拒否（コンテキスト長超過、未対応のメッセージ形など）。 | `err.message` に upstream のエラーメッセージが入っているので呼び出し元に表面化。 |
+| `5xx` upstream | 推論クラスタの障害 / コールドスタートタイムアウト。 | SDK は推論リクエストを自動リトライ **しません**（trainer の SSE 再接続ループは *job event stream* 用で、`/v1/inference/chat` は対象外）。リトライが要るなら呼び出し側で実装してください。 |
+
+throw は `onCheckpoint` の外まで伝播し、ランタイムの再接続ループに catch されるため、未処理のエラーは silent な再試行になり得ます。推論エラーは必ず callback 内で処理してください。
 
 ## 制約
 

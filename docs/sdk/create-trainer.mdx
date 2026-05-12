@@ -10,7 +10,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -36,7 +36,7 @@ The full `TrainerInput` shape is described under Parameters below; the returned 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `name` | `string` | Run name, shown in Studio and on the managed backend. |
-| `model` | `string` | Base model identifier. Today the curated templates use `unsloth/gemma-4-E4B-it`. |
+| `model` | `string` | Base model identifier. Today the curated templates use `gemma-4-E4B-it` (see [Supported models](/models)). |
 | `dataset` | [`DatasetSource`](/sdk/dataset) | HuggingFace dataset name or blob URL. |
 
 ## Typed optional fields
@@ -75,7 +75,7 @@ Omit `lora` entirely to take the backend defaults. `r: 16, alpha: 16` is the sta
 ```ts
 createTrainer({
   name: "smoke",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   dryRun: true,
 });

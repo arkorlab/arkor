@@ -243,6 +243,10 @@ export function createTrainer(
               topP: args.topP,
               maxTokens: args.maxTokens,
               stream: args.stream ?? true,
+              tools: args.tools,
+              toolChoice: args.toolChoice,
+              responseFormat: args.responseFormat,
+              structuredOutputs: args.structuredOutputs,
             },
             signal: args.signal,
           });

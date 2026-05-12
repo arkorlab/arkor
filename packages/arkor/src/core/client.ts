@@ -27,7 +27,15 @@ import {
   listProjectsResponseSchema,
   updateDeploymentResponseSchema,
 } from "./schemas";
-import type { JobConfig, TrainingJob } from "./types";
+import type {
+  ChatMessage,
+  JobConfig,
+  ResponseFormat,
+  StructuredOutputs,
+  ToolChoice,
+  ToolDefinition,
+  TrainingJob,
+} from "./types";
 import { formatSdkUpgradeError } from "./upgrade-hint";
 import { SDK_VERSION } from "./version";
 
@@ -341,16 +349,20 @@ export class CloudApiClient {
   async chat(input: {
     scope: { orgSlug: string; projectSlug: string };
     body: {
-      messages: Array<{
-        role: "system" | "user" | "assistant";
-        content: string;
-      }>;
+      messages: ChatMessage[];
       adapter?: { kind: "final" | "checkpoint"; jobId: string; step?: number };
       baseModel?: string;
       temperature?: number;
       topP?: number;
       maxTokens?: number;
       stream?: boolean;
+      // Function calling + structured outputs. Forwarded verbatim — the
+      // cloud-api inference route spreads the body into its proxy, so any
+      // field declared on `chatInferenceRequestSchema` flows through.
+      tools?: ToolDefinition[];
+      toolChoice?: ToolChoice;
+      responseFormat?: ResponseFormat;
+      structuredOutputs?: StructuredOutputs;
     };
     signal?: AbortSignal;
   }): Promise<Response> {

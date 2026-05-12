@@ -21,7 +21,7 @@ const GOLDEN_PROMPT = [
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-E4B-it",
+  model: "unsloth/gemma-4-e4b-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
@@ -72,6 +72,8 @@ onCheckpoint: async ({ step, infer }) => {
   await postSampleToReviewQueue({ step, sample });
 },
 ```
+
+**JSON Schema で型付きフィールドを抽出。** free-form なパースを `responseFormat: { type: "json_schema", json_schema: { name, schema, strict: true } }` に置き換えると、`data.choices[0].message.content` がスキーマを満たす JSON 文字列で返ってくるので、`JSON.parse` 一発で型付きオブジェクトとしてそのまま分岐できます（`parsed.urgency === "high"`、`parsed.category in VALID_LABELS` など）。型付きフィールドを Early Stopping に繋ぐ完全パターンは [構造化出力と Function Calling レシピ](/ja/cookbook/structured-outputs) を参照。
 
 **サンプルから Early Stopping をトリガー。** [Early Stopping レシピ](/ja/cookbook/early-stopping) と組み合わせる: チェックポイント出力が参照テキストから許容を超えてドリフトしたら controller を Abort。次のチェックポイントは発火しません。
 
