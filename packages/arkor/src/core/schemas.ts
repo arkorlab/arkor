@@ -185,8 +185,7 @@ const deploymentSchema = z.looseObject({
   urlFormat: z.literal("openai_compat"),
   enabled: z.boolean(),
   customDomain: z.string().nullable(),
-  // Retention fields are optional in the shared schema (see
-  // packages/shared/src/schemas/deployments.ts) — treat them as such.
+  // Retention fields are optional on the wire — treat them as such.
   // `runRetentionMode` is parsed as a plain string rather than a closed
   // enum so an older SDK does not refuse to decode the response when the
   // control plane introduces a new mode (e.g. `"hours"`). The public DTO
