@@ -104,7 +104,7 @@ await trainer.cancel(); // ベストエフォート、上記参照
 - 接続エラー、または 1 フレームも受信せずの EOF は失敗としてカウントされ `handleFailure` を経由します: 指数バックオフは `initialReconnectDelayMs * 2 ** attempt`、各試行の遅延は `maxReconnectDelayMs`（デフォルト 60 000 ms）にクランプ、連続失敗カウントは `maxReconnectAttempts` で上限。
 - `maxReconnectAttempts` のデフォルトは `undefined`（連続失敗無制限）。`TrainerInput` から設定はできず、`reconnectDelayMs` と `maxReconnectDelayMs` も含め `createTrainer` の第 2 引数 `context`（`@internal` 注釈付き、変更され得る）からのみ設定できます。多くのプロジェクトでこれは、ジョブが走っている限り一過性 SSE 失敗が黙ってリトライされ続ける、ということを意味します。
 
-このパスはユーザーコールバックの throw もキャッチします（[ライフサイクルコールバック § 例外ハンドリング](/ja/sdk/callbacks#例外ハンドリング) を参照）。決定的なエラーハンドリングが必要なら、`wait()` の reject に頼るのではなくコールバック内で catch してください。
+この経路はユーザーコールバックの throw もキャッチします（[ライフサイクルコールバック § 例外ハンドリング](/ja/sdk/callbacks#例外ハンドリング) を参照）。決定的なエラーハンドリングが必要なら、`wait()` の reject に頼るのではなくコールバック内で catch してください。
 
 ## ツープロセスパターン
 

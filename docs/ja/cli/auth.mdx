@@ -9,7 +9,7 @@ description: "Arkor のマネージドバックエンドにサインインまた
 
 ## `arkor login`
 
-マネージドバックエンドにサインインします。フラグなしの場合、CLI は Arkor Cloud の OAuth と匿名セッションのどちらを使うかを対話的に尋ねます。対話セレクターの初期選択は **Anonymous** なので、デフォルトを受け入れる（あるいは非 TTY にパイプする）と匿名パスに進みます。OAuth が走るのは明示的に選択するか `--oauth` を渡したときだけです。
+マネージドバックエンドにサインインします。フラグなしの場合、CLI は Arkor Cloud の OAuth と匿名セッションのどちらを使うかを対話的に尋ねます。対話セレクターの初期選択は **Anonymous** なので、デフォルトを受け入れる（あるいは非 TTY にパイプする）と匿名フローに進みます。OAuth が走るのは明示的に選択するか `--oauth` を渡したときだけです。
 
 ### 概要
 
@@ -46,15 +46,15 @@ bun arkor login
 | フラグ | 説明 |
 | --- | --- |
 | `--oauth` | ピッカーをスキップして Arkor Cloud の OAuth（Authorization Code + PKCE）フローを直接走らせる。`--anonymous` と排他。`process.env.CI` が立っていると `--oauth needs a browser callback that CI runners can't complete. Use --anonymous in CI.`（`--oauth` は CI ランナーが完了できないブラウザーコールバックを必要とするため、CI では `--anonymous` を使ってください）で失敗します。PKCE はブラウザーコールバックを必要とし、CI ではループバックが永遠にハングするためです。 |
-| `--anonymous` | ピッカーをスキップして使い捨ての匿名トークンを要求。`--oauth` と排他。これは `arkor dev` の起動時に認証情報がディスクに無いときに走るのと同じパスです。`arkor dev` は必ずまず匿名でブートストラップします。 |
-| `--no-browser` | 自動の `open(url)` 呼び出しを無効化。authorization URL はいずれにせよ表示されます（`Browser: <url>`（ブラウザー: `<url>`）行）。このフラグは CLI がブラウザーを起動するのを止めるだけです。ヘッドレス環境（SSH、Docker）で便利。OAuth パスにのみ影響します。 |
+| `--anonymous` | ピッカーをスキップして使い捨ての匿名トークンを要求。`--oauth` と排他。これは `arkor dev` の起動時に認証情報がディスクに無いときに走るのと同じフローです。`arkor dev` は必ずまず匿名でブートストラップします。 |
+| `--no-browser` | 自動の `open(url)` 呼び出しを無効化。authorization URL はいずれにせよ表示されます（`Browser: <url>`（ブラウザー: `<url>`）行）。このフラグは CLI がブラウザーを起動するのを止めるだけです。ヘッドレス環境（SSH、Docker）で便利。OAuth フローにのみ影響します。 |
 
 ### 振る舞い
 
 1. CLI はクラウド API の `/v1/auth/cli/config` を呼んでデプロイの OAuth 設定を読みます。
 2. `--anonymous` が渡されたら、`/v1/auth/anonymous` から匿名トークンを要求し、`mode: "anon"` で `~/.arkor/credentials.json` に書きます。
 3. `--oauth` が渡された場合、ピッカーをスキップして直接 OAuth フローへ。
-4. フラグが渡されない場合、対話ピッカー（`OAuth (browser)` / `Anonymous`）を表示し **Anonymous** が事前選択されます。デフォルトを受け入れる（プロンプトがブロッキングしない非対話的な場面でも同様）と匿名パスが走り、OAuth を選ぶと OAuth フローが走ります。
+4. フラグが渡されない場合、対話ピッカー（`OAuth (browser)` / `Anonymous`）を表示し **Anonymous** が事前選択されます。デフォルトを受け入れる（プロンプトがブロッキングしない非対話的な場面でも同様）と匿名フローが走り、OAuth を選ぶと OAuth フローが走ります。
 5. OAuth フローは PKCE ペアを生成し、クラウド API から提供されたコールバックポートのいずれかでループバック HTTP サーバーを起動して、authorize URL を開き（または表示し）、コールバックを待ちます。コードをトークンに交換する前に state を検証し、不一致は CSRF 防止のため Abort されます。得られた OAuth トークンは `mode: "auth0"` で `~/.arkor/credentials.json` に書かれます。
 
 ループバックサーバーは `finally` ブロックで閉じられるので、login が失敗してもサーバーは残りません。
@@ -65,7 +65,7 @@ bun arkor login
 
 #### 匿名発行時の出力
 
-どちらの匿名パスでも、新しい `anonymousId` と「この id によって Arkor Cloud がセッションをまたいでクライアントを識別する」旨の説明を必ず表示します。ただし出力の形は入口によって異なります。`arkor login`（`--anonymous` フラグまたはピッカー → **Anonymous**）はスピナーの停止行として `Anonymous id: <id>` を出し、続けて「認証情報ファイル（`credentialsPath()`、Linux と macOS では通常 `~/.arkor/credentials.json`）を保持していれば同じ identity を維持できる」旨の info 行を別行で出します。`arkor dev` の自動ブートストラップはスピナーを使わず、id と同じ説明を 1 本の info 行にまとめて出します。ピッカー → **Anonymous** のパスでは、さらに成功メッセージと並んで 1 行の warn（``Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to tie future work to your Arkor Cloud account.``、和訳: 匿名セッションは永続性が保証されないので、今後の作業を Arkor Cloud アカウントに紐付けたいなら `arkor login --oauth` でサインインしてください）が出るので、発行時点でアップグレードのヒントが見えます。明示的な `--anonymous` ショートカットでは `/v1/auth/cli/config` の取得をスキップしているため `arkor login --oauth` がそのデプロイで成功するかわからず、稀に存在する匿名専用デプロイで失敗するコマンドへユーザーを誘導しないよう、warn は意図的に抑制されます。
+どちらの匿名フローでも、新しい `anonymousId` と「この id によって Arkor Cloud がセッションをまたいでクライアントを識別する」旨の説明を必ず表示します。ただし出力の形は入口によって異なります。`arkor login`（`--anonymous` フラグまたはピッカー → **Anonymous**）はスピナーの停止行として `Anonymous id: <id>` を出し、続けて「認証情報ファイル（`credentialsPath()`、Linux と macOS では通常 `~/.arkor/credentials.json`）を保持していれば同じ identity を維持できる」旨の info 行を別行で出します。`arkor dev` の自動ブートストラップはスピナーを使わず、id と同じ説明を 1 本の info 行にまとめて出します。ピッカー → **Anonymous** のフローでは、さらに成功メッセージと並んで 1 行の warn（``Anonymous sessions aren't guaranteed to persist — sign in with `arkor login --oauth` to tie future work to your Arkor Cloud account.``、和訳: 匿名セッションは永続性が保証されないので、今後の作業を Arkor Cloud アカウントに紐付けたいなら `arkor login --oauth` でサインインしてください）が出るので、発行時点でアップグレードのヒントが見えます。明示的な `--anonymous` ショートカットでは `/v1/auth/cli/config` の取得をスキップしているため `arkor login --oauth` がそのデプロイで成功するかわからず、稀に存在する匿名専用デプロイで失敗するコマンドへユーザーを誘導しないよう、warn は意図的に抑制されます。
 
 ## `arkor logout`
 
@@ -162,7 +162,7 @@ bun arkor whoami
 
 ## 認証情報の保存場所
 
-両モードとも同じファイル `~/.arkor/credentials.json` に書き、`mode` フィールドが `"auth0"` か `"anon"` でタグ付けされます。これにより CLI（と Studio サーバー）はどのパスを使うかわかります。レイアウト全体は [プロジェクト構成](/ja/concepts/project-structure) を参照。
+両モードとも同じファイル `~/.arkor/credentials.json` に書き、`mode` フィールドが `"auth0"` か `"anon"` でタグ付けされます。これにより CLI（と Studio サーバー）はどのモードを使うかわかります。レイアウト全体は [プロジェクト構成](/ja/concepts/project-structure) を参照。
 
 ## トークンの有効期限
 

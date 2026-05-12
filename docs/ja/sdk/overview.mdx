@@ -48,7 +48,7 @@ CLI フローの外で Arkor を駆動するコード（自前のサーバーや
 | シンボル | ソース | 目的 |
 | --- | --- | --- |
 | `runTrainer(file?)` | `core/runner.ts` | `arkor start` が裏で呼んでいるもの。エントリーを解決し、トレーナーを選び（`arkor` を最優先、次に `trainer`、最後に default export）、`start()` + `wait()` を実行。 |
-| `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | `~/.arkor/credentials.json` の読み書き。`ensureCredentials` は既存レコードがあれば返し、無ければ **新規の匿名 identity をブートストラップ**（`requestAnonymousToken` を呼んで永続化）。次のパスで throw する場合あり: 認証情報ファイルが存在するが読めない／不正な JSON（`readCredentials` は素の `JSON.parse`）、匿名トークンのブートストラップ自体の失敗（ネットワーク／トークンエンドポイントエラー）。ファイルは SDK が書いている前提。 |
+| `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | `~/.arkor/credentials.json` の読み書き。`ensureCredentials` は既存レコードがあれば返し、無ければ **新規の匿名 identity をブートストラップ**（`requestAnonymousToken` を呼んで永続化）。次の経路で throw する場合あり: 認証情報ファイルが存在するが読めない／不正な JSON（`readCredentials` は素の `JSON.parse`）、匿名トークンのブートストラップ自体の失敗（ネットワーク／トークンエンドポイントエラー）。ファイルは SDK が書いている前提。 |
 | `requestAnonymousToken(baseUrl, kind?)` | `core/credentials.ts` | 新しい匿名トークンを直接発行。CLI は `arkor login --anonymous` と初回 `arkor dev` でこれを使う。 |
 | `credentialsPath()` | `core/credentials.ts` | `~/.arkor/credentials.json` の絶対パス。 |
 | `readState(cwd?)` / `writeState(state, cwd?)` / `statePath(cwd?)` | `core/state.ts` | `.arkor/state.json`（プロジェクトルーティング）の読み書き。 |
