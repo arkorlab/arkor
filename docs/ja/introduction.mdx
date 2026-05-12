@@ -77,6 +77,6 @@ bun dev
 
 </CodeGroup>
 
-最初の実行は、テンプレートにもよりますがおおよそ 7〜12 分で終わります。
+学習本体はテンプレートにもよりますが約 7〜12 分です。Arkor は推論 (Inference) と学習 (Training) で別の GPU プールを使い分けており、推論側は常に warm な active worker 上で動くので Playground は即応します。一方の学習側はコストを安定させるため warm 維持しません。学習ジョブを開始すると、Arkor はそのときに学習用 GPU を確保しに行きます。直前のジョブで使われた直後など GPU がまだ warm な状態であれば確保は数秒で終わりますが、warm な GPU がなければ cold な状態から (プロビジョニング・コンテナイメージ取得・ベースモデルのロード) 立ち上げる必要があり、これに数分かかります。Studio 上で何が見えるかは [Quickstart](/ja/quickstart) で確認できます。
 
 ステップごとの手順は [Quickstart](/ja/quickstart) に続きます。

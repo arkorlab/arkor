@@ -24,7 +24,13 @@ function formatTime(ts: number): string {
   return `${hh}:${mm}:${ss}`;
 }
 
-export function EventsStream({ events }: { events: EventEntry[] }) {
+export function EventsStream({
+  events,
+  provisioning = false,
+}: {
+  events: EventEntry[];
+  provisioning?: boolean;
+}) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
@@ -51,7 +57,9 @@ export function EventsStream({ events }: { events: EventEntry[] }) {
     >
       {events.length === 0 ? (
         <div className="px-4 py-8 text-center text-zinc-500 dark:text-zinc-400">
-          Listening for events…
+          {provisioning
+            ? "Warming up the GPU. The first event lands as soon as the trainer begins."
+            : "Listening for events…"}
         </div>
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-900/80">

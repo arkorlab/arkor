@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchJobs, openJobEvents, type Job } from "../lib/api";
 import { ArrowLeft, Sparkles } from "../components/icons";
 import {
@@ -21,6 +21,8 @@ import {
 } from "../components/ui/Card";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { formatDuration, truncateMiddle } from "../lib/format";
+import { computeDisplayStatus } from "../lib/jobStatus";
+import { notifyJobTerminal } from "../lib/notify";
 
 const MAX_LOSS_POINTS = 2000;
 
@@ -42,20 +44,62 @@ export function JobDetail({ jobId }: { jobId: string }) {
   // still drive the visible status.
   const [liveStatus, setLiveStatus] = useState<Job["status"] | null>(null);
   const [liveStartedAt, setLiveStartedAt] = useState<string | null>(null);
+  // True once the SSE stream opens or delivers any frame. Lets us tell
+  // "queued, GPU is warming up" apart from "queued, sitting in a backlog".
+  const [eventStreamConnected, setEventStreamConnected] = useState(false);
+  // Latest job.name held in a ref so the SSE listener closures (whose
+  // useEffect depends only on jobId) can surface a meaningful name in
+  // the terminal-event notification even when the polled `job` resolves
+  // after the closures were registered.
+  const jobNameRef = useRef<string | null>(null);
+  // Wall-clock time the user landed on this job's page. Used to skip
+  // notifications for terminal frames whose timestamp predates the
+  // mount — i.e. SSE history replay or a poll observing a job that
+  // had already finished before the page was opened.
+  const mountedAtRef = useRef<number>(Date.now());
+  // Previously observed wire status; lets the polling tick recognise a
+  // queued/running -> completed/failed transition and fire a
+  // notification when the SSE stream missed the terminal frame.
+  const previousPolledStatusRef = useRef<Job["status"] | null>(null);
 
   useEffect(() => {
     setJob(null);
+    mountedAtRef.current = Date.now();
+    previousPolledStatusRef.current = null;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Chained setTimeout instead of setInterval so a slow /api/jobs
     // request can't pile up overlapping calls. SSE remains the source
     // of truth for live status; polling is just for completedAt /
-    // config / etc that the SSE stream doesn't carry.
+    // config / etc that the SSE stream doesn't carry — plus a
+    // poll-driven terminal notification below as a safety net when
+    // the SSE stream dropped before the terminal frame arrived
+    // (machine sleep, proxy hiccup, etc).
     async function tick() {
       try {
         const { jobs } = await fetchJobs();
         if (!cancelled) {
-          setJob(jobs.find((j) => j.id === jobId) ?? null);
+          const next = jobs.find((j) => j.id === jobId) ?? null;
+          const prevStatus = previousPolledStatusRef.current;
+          const wasTerminal =
+            prevStatus === "completed" ||
+            prevStatus === "failed" ||
+            prevStatus === "cancelled";
+          if (
+            next &&
+            (next.status === "completed" || next.status === "failed") &&
+            !wasTerminal &&
+            shouldNotifyTerminal(next.completedAt, mountedAtRef.current)
+          ) {
+            notifyJobTerminal({
+              status: next.status,
+              jobName: next.name ?? jobId,
+              jobId,
+              error: next.error ?? undefined,
+            });
+          }
+          previousPolledStatusRef.current = next?.status ?? null;
+          setJob(next);
         }
       } catch {
         // ignore — events stream is the source of truth for live status
@@ -71,6 +115,10 @@ export function JobDetail({ jobId }: { jobId: string }) {
   }, [jobId]);
 
   useEffect(() => {
+    jobNameRef.current = job?.name ?? null;
+  }, [job?.name]);
+
+  useEffect(() => {
     // Clear per-job state when navigating between jobs so events, loss
     // points, terminal status, advanced toggle, and event-id counter
     // don't leak across routes. Resetting `advanced` matters: leaving
@@ -83,6 +131,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
     setEventErr(null);
     setLiveStatus(null);
     setLiveStartedAt(null);
+    setEventStreamConnected(false);
 
     let counter = 0;
 
@@ -143,9 +192,16 @@ export function JobDetail({ jobId }: { jobId: string }) {
       // Any received frame means the EventSource is alive again — drop
       // any stale "stream interrupted" banner from the prior disconnect.
       setEventErr(null);
+      setEventStreamConnected(true);
     }
 
     const es = openJobEvents(jobId);
+    // Treat the EventSource as connected from the moment we attach so
+    // the display flips into `provisioning` immediately even when the
+    // backend takes a while to send the first frame; `onerror` below
+    // walks this back so a real disconnect drops us out of warm-up.
+    setEventStreamConnected(true);
+    es.onopen = () => setEventStreamConnected(true);
     es.addEventListener("training.started", (ev: MessageEvent) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.started", ev.data, parsed);
@@ -224,73 +280,103 @@ export function JobDetail({ jobId }: { jobId: string }) {
       // SSE payload carries the trainer-side completion timestamp; use
       // it so duration / "Completed" stay correct without depending on
       // the next /api/jobs poll.
+      let artifacts = 0;
+      let completedAt: string | undefined;
       if (parsed && typeof parsed === "object") {
         const d = parsed as { artifacts?: unknown[]; timestamp?: string };
-        setTerminal({
+        artifacts = Array.isArray(d.artifacts) ? d.artifacts.length : 0;
+        completedAt = d.timestamp;
+      }
+      setTerminal({ status: "completed", artifacts, completedAt });
+      if (shouldNotifyTerminal(completedAt, mountedAtRef.current)) {
+        notifyJobTerminal({
           status: "completed",
-          artifacts: Array.isArray(d.artifacts) ? d.artifacts.length : 0,
-          completedAt: d.timestamp,
+          jobName: jobNameRef.current ?? jobId,
+          jobId,
+          artifacts,
         });
-      } else {
-        setTerminal({ status: "completed", artifacts: 0 });
       }
     });
     es.addEventListener("training.failed", (ev: MessageEvent) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.failed", ev.data, parsed);
+      let error: string | undefined;
+      let completedAt: string | undefined;
       if (parsed && typeof parsed === "object") {
         const d = parsed as { error?: string; timestamp?: string };
-        setTerminal({
+        error = d.error;
+        completedAt = d.timestamp;
+      }
+      setTerminal({ status: "failed", error, artifacts: 0, completedAt });
+      if (shouldNotifyTerminal(completedAt, mountedAtRef.current)) {
+        notifyJobTerminal({
           status: "failed",
-          error: d.error,
-          artifacts: 0,
-          completedAt: d.timestamp,
+          jobName: jobNameRef.current ?? jobId,
+          jobId,
+          error,
         });
-      } else {
-        setTerminal({ status: "failed", artifacts: 0 });
       }
     });
-    es.addEventListener("end", () => es.close());
-    es.onerror = () => setEventErr("Event stream interrupted.");
-    return () => es.close();
+    es.addEventListener("end", () => {
+      es.close();
+      setEventStreamConnected(false);
+    });
+    es.onerror = () => {
+      setEventErr("Event stream interrupted.");
+      setEventStreamConnected(false);
+    };
+    return () => {
+      es.close();
+      setEventStreamConnected(false);
+    };
   }, [jobId]);
 
-  // Status precedence:
-  //   1. SSE terminal frame (training.completed / training.failed) we
-  //      observed in this session — most authoritative.
-  //   2. Polled terminal status from /api/jobs — also authoritative,
-  //      and crucially it preempts a stale `liveStatus = "running"`
-  //      that can linger if the SSE stream dropped before the
-  //      terminal frame arrived.
-  //   3. SSE-derived `liveStatus` for the running phase, which lets
-  //      us flip the UI to "running" before /api/jobs catches up.
-  //   4. The polled non-terminal status, if anything.
-  //   5. Default "queued".
-  const polledIsTerminal =
-    job?.status === "completed" ||
-    job?.status === "failed" ||
-    job?.status === "cancelled";
-  const status: Job["status"] =
-    terminal?.status ??
-    (polledIsTerminal ? job!.status : (liveStatus ?? job?.status ?? "queued"));
+  // Status precedence is centralised in `computeDisplayStatus` so the
+  // same rule drives the badge here, the badge in the page header, the
+  // sidebar meta row, and the JobsTable list-level heuristic.
+  const status = computeDisplayStatus({
+    job,
+    liveStatus,
+    terminalStatus: terminal?.status ?? null,
+    eventStreamConnected,
+    now,
+  });
 
-  // Live duration ticker while the job is running.
-  const isRunning = status === "running" && !terminal;
+  // Tick `now` while either the warm-up timer or the run timer is moving.
+  const isTicking =
+    !terminal && (status === "provisioning" || status === "running");
   useEffect(() => {
-    if (!isRunning) return;
+    if (!isTicking) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [isRunning]);
+  }, [isTicking]);
 
   const duration = computeDuration(job, liveStartedAt, terminal, now);
+  const warmupMs =
+    status === "provisioning" && job?.createdAt
+      ? (() => {
+          const created = Date.parse(job.createdAt);
+          return Number.isNaN(created) ? null : Math.max(0, now - created);
+        })()
+      : null;
 
   const meta: JobMetaItem[] = [
     { label: "Status", value: <StatusBadge status={status} size="sm" /> },
     {
-      label: "Duration",
-      value: duration === null ? "—" : formatDuration(duration),
-      mono: true,
+      label: "Phase",
+      value: phaseLabel(status),
     },
+    status === "provisioning"
+      ? {
+          label: "GPU warm-up",
+          value: warmupMs === null ? "—" : formatDuration(warmupMs),
+          mono: true,
+        }
+      : {
+          label: "Duration",
+          value: duration === null ? "—" : formatDuration(duration),
+          mono: true,
+        },
     {
       label: "Created",
       value: job?.createdAt ? formatAbsoluteTime(job.createdAt) : "—",
@@ -392,6 +478,16 @@ export function JobDetail({ jobId }: { jobId: string }) {
           {eventErr}
         </div>
       ) : null}
+      {status === "provisioning" ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+          <div className="font-medium">Warming up the GPU for this job.</div>
+          <div className="mt-0.5 text-amber-700 dark:text-amber-300/90">
+            Training GPUs are not kept warm between jobs. Allocation is fast
+            when one is still warm from a recent run; otherwise the worker
+            starts from cold, which can take several minutes.
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-6">
@@ -412,7 +508,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
               </div>
             </CardHeader>
             <CardContent>
-              <LossChart points={points} advanced={advanced} />
+              {status === "provisioning" && points.length === 0 ? (
+                <div className="flex h-60 items-center justify-center rounded-lg border border-dashed border-amber-200 bg-amber-50/60 px-6 text-center text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+                  Waiting for GPU. The loss curve starts the moment the
+                  trainer reports its first step.
+                </div>
+              ) : (
+                <LossChart points={points} advanced={advanced} />
+              )}
             </CardContent>
           </Card>
 
@@ -425,7 +528,10 @@ export function JobDetail({ jobId }: { jobId: string }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <EventsStream events={events} />
+              <EventsStream
+                events={events}
+                provisioning={status === "provisioning"}
+              />
             </CardContent>
           </Card>
         </div>
@@ -475,6 +581,28 @@ function AdvancedToggle({
       Advanced
     </button>
   );
+}
+
+// Tolerance (ms) between the trainer-side terminal timestamp and the
+// page mount, so a few seconds of clock skew or polling lag does not
+// suppress a notification for a run that genuinely finished after the
+// user landed on the page.
+const TERMINAL_NOTIFY_GRACE_MS = 5_000;
+
+function shouldNotifyTerminal(
+  timestamp: string | undefined | null,
+  mountedAt: number,
+): boolean {
+  if (!timestamp) return true;
+  const t = Date.parse(timestamp);
+  if (!Number.isFinite(t)) return true;
+  return t >= mountedAt - TERMINAL_NOTIFY_GRACE_MS;
+}
+
+function phaseLabel(status: string): string {
+  if (status === "provisioning") return "Warming up GPU";
+  if (status === "running") return "Training run";
+  return "—";
 }
 
 function computeDuration(
