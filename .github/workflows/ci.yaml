@@ -146,15 +146,18 @@ jobs:
           ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: file:${{ github.workspace }}/packages/arkor
         run: pnpm test
 
-      # Always upload Playwright's HTML report + traces / videos /
-      # screenshots so failures retain their artefacts regardless of
-      # which step failed. `if: failure()` would only fire when a
-      # *prior* step had already failed at the time this step runs;
-      # because Upload sits before Build (line below), a Test green +
-      # Build red sequence used to lose the report entirely. `always()`
-      # also uploads on fully-green runs — the report dir is small in
-      # that case, so the extra artefact cost is negligible relative
-      # to the debugging value of having traces for every run.
+      # Upload Playwright's HTML report + traces / videos / screenshots
+      # for every non-cancelled outcome so failures retain their
+      # artefacts regardless of which step failed. `if: failure()`
+      # would only fire when a *prior* step had already failed at the
+      # time this step runs; because Upload sits before Build (line
+      # below), a Test green + Build red sequence used to lose the
+      # report entirely. `always() && !cancelled()` also uploads on
+      # fully-green runs — the report dir is small then, so the extra
+      # artefact cost is negligible relative to the debugging value of
+      # having traces for every run. The `!cancelled()` half ensures
+      # a manual cancel doesn't get stalled waiting for an artefact
+      # upload that the maintainer is no longer interested in.
       # `if-no-files-found: ignore` covers the case where Turbo
       # cancelled `@arkor/e2e-studio#test` before Playwright could
       # write anything (see comment on the option below).
@@ -164,7 +167,7 @@ jobs:
       # (NTFS-incompatible); `strategy.job-index` is the documented
       # alphanumeric escape hatch.
       - name: Upload Playwright report
-        if: always()
+        if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ runner.os }}-${{ strategy.job-index }}
