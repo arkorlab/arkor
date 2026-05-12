@@ -14,12 +14,10 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
 });
 ```
-
-クラウド API が受け付ける正式な値は `unsloth/gemma-4-e4b-it` です。`unsloth/` プレフィックスは、ビルドを公開している Unsloth プロジェクトへのクレジットとしてコード上では残しています。
 
 ## なぜ今、1 つのモデルだけなのか
 

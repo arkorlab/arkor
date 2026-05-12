@@ -18,7 +18,7 @@ export interface Template {
   trainer: string;
 }
 
-// The three demo templates below pair `unsloth/gemma-4-e4b-it` with curated
+// The three demo templates below pair `unsloth/gemma-4-E4B-it` with curated
 // HuggingFace datasets published under the `arkorlab` org. Each dataset is in
 // OpenAI messages format (chatml), one sample per JSONL line, with the system
 // prompt baked into the conversation - so `datasetFormat: { type: "chatml" }`
@@ -31,7 +31,7 @@ const REDACTION_TRAINER = `import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "redaction-run",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
@@ -50,7 +50,7 @@ const TRANSLATE_TRAINER = `import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "translate-run",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/translate-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
@@ -87,7 +87,7 @@ interface TriageOutput {
 
 export const trainer = createTrainer({
   name: "triage-run",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,

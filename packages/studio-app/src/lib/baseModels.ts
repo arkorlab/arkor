@@ -3,7 +3,7 @@
  * must mirror what cloud-api accepts on `/v1/inference/chat` for `baseModel`;
  * sending an unsupported value produces a 4xx from upstream.
  */
-export const SUPPORTED_BASE_MODELS = ["unsloth/gemma-4-e4b-it"] as const;
+export const SUPPORTED_BASE_MODELS = ["unsloth/gemma-4-E4B-it"] as const;
 
 export type SupportedBaseModel = (typeof SUPPORTED_BASE_MODELS)[number];
 

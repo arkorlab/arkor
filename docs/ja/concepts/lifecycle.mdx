@@ -8,7 +8,7 @@ description: "学習中に Arkor が発火する 5 つのコールバックと�
 ```ts
 createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   callbacks: {
     onStarted, onLog, onCheckpoint, onCompleted, onFailed,
@@ -125,7 +125,7 @@ import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
   name: "support-bot-v1",
-  model: "unsloth/gemma-4-e4b-it",
+  model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
