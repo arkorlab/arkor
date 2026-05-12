@@ -60,15 +60,27 @@ export interface PollDeploymentsForSlugOptions {
 function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve();
   return new Promise<void>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const onAbort = () => {
-      clearTimeout(timer);
+      if (timer !== null) clearTimeout(timer);
       resolve();
     };
-    const timer = setTimeout(() => {
+    signal.addEventListener("abort", onAbort, { once: true });
+    // Re-check `signal.aborted` *after* the listener is registered.
+    // `AbortSignal` only fires `abort` once at `controller.abort()`
+    // time, so a listener wired up after the controller has already
+    // aborted will never see the event — without this re-check, the
+    // promise would sit blocked until the timer fires (defeating the
+    // whole point of the helper).
+    if (signal.aborted) {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+      return;
+    }
+    timer = setTimeout(() => {
       signal.removeEventListener("abort", onAbort);
       resolve();
     }, ms);
-    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 

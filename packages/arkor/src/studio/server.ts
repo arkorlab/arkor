@@ -572,7 +572,17 @@ export function buildStudioApp(options: StudioServerOptions) {
       if (deprecationNotice) {
         headers.set("Deprecation", "true");
         // Match the cloud-api wire shape (RFC 7234 `Warning: 299 - "…"`).
-        headers.set("Warning", `299 - "${deprecationNotice.message}"`);
+        // Sanitise the message into a valid `quoted-string`: HTTP forbids
+        // CRLF / control chars in field values, and an unescaped `"` /
+        // `\` would terminate or malform the header. Strip control bytes
+        // (replacement keeps word boundaries readable) and backslash-
+        // escape the two reserved chars per the quoted-pair rule.
+        const safeMessage = deprecationNotice.message
+          // eslint-disable-next-line no-control-regex
+          .replace(/[\x00-\x1F\x7F]/g, " ")
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"');
+        headers.set("Warning", `299 - "${safeMessage}"`);
         if (deprecationNotice.sunset) {
           headers.set("Sunset", deprecationNotice.sunset);
         }

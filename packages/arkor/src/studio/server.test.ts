@@ -1499,6 +1499,52 @@ process.exit(0);
       expect(body.error).toMatch(/already taken/);
     });
 
+    it("escapes quoted-string reserved chars in the re-emitted Warning header", async () => {
+      // RFC 7234 `Warning` is a `quoted-string`: `"`, `\`, and control
+      // chars (CR/LF) cannot appear unescaped, otherwise the value
+      // either gets truncated by the next double-quote or rejected as
+      // a malformed header. The capture / re-emit path here MUST
+      // sanitise — without it, an upstream message containing any of
+      // those characters silently produces a malformed response.
+      clearRecordedDeprecation();
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ deployments: [] }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            Deprecation: "true",
+            // The literal source message: a double-quote, a backslash,
+            // and a newline. Cloud-api would normally escape these
+            // before sending, but the Studio proxy can't trust that —
+            // it has to defensively sanitise on its own emit too.
+            Warning: '299 - "she said \\"hi\\" \\\\ then left"',
+          },
+        })) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      const warning = res.headers.get("Warning");
+      // Must start with the `299 - "` prefix and end with `"`, with
+      // no unescaped `"` / `\` / control chars in between.
+      expect(warning).toMatch(/^299 - ".*"$/);
+      const inner = warning!.slice('299 - "'.length, -1);
+      // Every `"` and `\` inside the quoted-string must be the second
+      // char of a `\X` escape sequence — i.e. preceded by an odd run
+      // of backslashes. A simple unescaped scan suffices: no bare `"`,
+      // no CR/LF.
+      expect(inner).not.toMatch(/(^|[^\\])"/);
+      expect(inner).not.toMatch(/[\r\n]/);
+    });
+
     it("forwards upstream Deprecation / Warning / Sunset headers on success", async () => {
       // The deployment proxy unwraps the upstream Response into a typed
       // SDK result, then re-serialises it as JSON — that strips the
