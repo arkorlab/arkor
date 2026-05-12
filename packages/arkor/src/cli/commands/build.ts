@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
-import { build as esbuild } from "esbuild";
+import { relative } from "node:path";
+import { rolldown } from "rolldown";
+import {
+  BUILD_DEFAULTS,
+  resolveBuildEntry,
+  rolldownInputOptions,
+} from "../../core/rolldownConfig";
 import { ui } from "../prompts";
 
 export interface BuildOptions {
@@ -22,42 +27,30 @@ export interface BuildResult {
   outFile: string;
 }
 
-const DEFAULT_ENTRY = "src/arkor/index.ts";
-const DEFAULT_OUT_DIR = ".arkor/build";
-
 /**
  * Bundle the user's `src/arkor/index.ts` into a single ESM artifact at
  * `.arkor/build/index.mjs`.
  *
- * Bare specifiers (`arkor`, anything from `node_modules`) are kept external so
- * the artifact resolves the runtime SDK from the project's installed copy.
- * Relative imports are bundled inline.
+ * Bare specifiers (`arkor`, anything from `node_modules`) are kept external
+ * so the artifact resolves the runtime SDK from the project's installed
+ * copy. Relative imports are bundled inline. The transform target is
+ * derived from the running Node binary (see `resolveNodeTarget`).
  */
 export async function runBuild(opts: BuildOptions = {}): Promise<BuildResult> {
-  const cwd = opts.cwd ?? process.cwd();
-  const entryRel = opts.entry ?? DEFAULT_ENTRY;
-  const entry = isAbsolute(entryRel) ? entryRel : resolve(cwd, entryRel);
+  const { cwd, entry, outDir, outFile } = resolveBuildEntry(opts);
   if (!existsSync(entry)) {
     throw new Error(
-      `Build entry not found: ${entry}. Create ${DEFAULT_ENTRY} or pass an explicit entry argument.`,
+      `Build entry not found: ${entry}. Create ${BUILD_DEFAULTS.entry} or pass an explicit entry argument.`,
     );
   }
-
-  const outDirRel = opts.outDir ?? DEFAULT_OUT_DIR;
-  const outDir = isAbsolute(outDirRel) ? outDirRel : resolve(cwd, outDirRel);
   await mkdir(outDir, { recursive: true });
-  const outFile = resolve(outDir, "index.mjs");
 
-  await esbuild({
-    entryPoints: [entry],
-    bundle: true,
-    platform: "node",
-    format: "esm",
-    target: "node22.22",
-    outfile: outFile,
-    packages: "external",
-    logLevel: "error",
-  });
+  const bundle = await rolldown(rolldownInputOptions({ cwd, entry }));
+  try {
+    await bundle.write({ file: outFile, format: "esm" });
+  } finally {
+    await bundle.close();
+  }
 
   if (!opts.quiet) {
     ui.log.success(

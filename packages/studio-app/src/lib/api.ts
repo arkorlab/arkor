@@ -32,6 +32,13 @@ export interface Job {
  */
 export interface ManifestSummary {
   trainer: { name: string } | null;
+  /**
+   * Stable hash of the trainer's cloud-side `JobConfig`. The server is
+   * always paired with this SPA in the same package, so the field is
+   * always present in the wire payload — `null` when no inspectable
+   * trainer is loaded, a hex string otherwise. Not optional.
+   */
+  configHash: string | null;
 }
 
 export interface ManifestError {
@@ -47,6 +54,31 @@ function readStudioToken(): string {
 }
 
 const STUDIO_TOKEN = readStudioToken();
+
+/**
+ * Whether `arkor dev` wired in an HMR coordinator at server boot.
+ * The studio server emits `<meta name="arkor-hmr-enabled" content="true">`
+ * into `index.html` only when `options.hmr` is set, so we can tell
+ * dev-mode usage from prod-mode usage at runtime — `vite build`'s
+ * output ships with `import.meta.env.DEV === false`, so a build-time
+ * gate inside the SPA bundle would (wrongly) suppress HMR even in
+ * real `arkor dev` sessions. `RunTraining` consults this flag before
+ * opening `/api/dev/events`; without it, the EventSource would retry
+ * forever against the 404 the server returns for non-HMR builds.
+ *
+ * The Vite SPA dev workflow (`pnpm --filter @arkor/studio-app dev`)
+ * serves its own `index.html`, so the SPA's `vite.config.ts` plugin
+ * also injects this meta alongside the studio-token meta — that way
+ * a single meta-presence check covers both the production-built SPA
+ * (served by `arkor dev`) and the Vite-served dev SPA, instead of
+ * needing a separate `import.meta.env.DEV` fallback that would diverge
+ * between dev workflows.
+ */
+export function isHmrEnabled(): boolean {
+  if (typeof document === "undefined") return false;
+  const meta = document.querySelector('meta[name="arkor-hmr-enabled"]');
+  return meta?.getAttribute("content") === "true";
+}
 
 /**
  * `fetch` with the per-launch CSRF token attached. The token is read once at
@@ -104,6 +136,35 @@ export function openJobEvents(jobId: string): EventSource {
   return new EventSource(
     withStudioToken(`/api/jobs/${encodeURIComponent(jobId)}/events`),
   );
+}
+
+/**
+ * HMR rebuild notifications from `arkor dev`. Server pushes a `ready`
+ * event on first bundle, `rebuild` on each subsequent change, and `error`
+ * when the bundle fails to compile. `restart: true` indicates a training
+ * subprocess was signalled to early-stop and the SPA should re-spawn it
+ * after the current `streamTraining` resolves.
+ */
+export interface DevEvent {
+  type: "ready" | "rebuild" | "error";
+  outFile?: string;
+  hash?: string;
+  /** Cloud-side `JobConfig` hash; null when the bundle has no inspectable trainer. */
+  configHash?: string | null;
+  /** Run name pulled from the rebuilt manifest. */
+  trainerName?: string | null;
+  message?: string;
+  /** True when the rebuild changed cloud-side config and a child was SIGTERM'd. */
+  restart?: boolean;
+  restartTargets?: Array<{ pid: number; trainFile?: string }>;
+  /** True when the rebuild only changed callbacks and one or more children
+   *  were SIGUSR2'd to hot-swap their callback closures in place. */
+  hotSwap?: boolean;
+  hotSwapTargets?: Array<{ pid: number; trainFile?: string }>;
+}
+
+export function openDevEvents(): EventSource {
+  return new EventSource(withStudioToken("/api/dev/events"));
 }
 
 export interface ChatRequestBody {
@@ -230,6 +291,14 @@ export async function streamTraining(
   onChunk: (text: string) => void,
   file?: string,
   signal?: AbortSignal,
+  /**
+   * Called once with the spawned subprocess's pid (or `null` if the
+   * server didn't include the `X-Arkor-Train-Pid` header). The SPA
+   * uses this to scope HMR `restart` events to the run *this* call
+   * actually started, so a passive tab whose own run was hot-swapped
+   * doesn't latch onto a sibling tab's restart broadcast.
+   */
+  onSpawn?: (pid: number | null) => void,
 ): Promise<void> {
   const res = await apiFetch("/api/train", {
     method: "POST",
@@ -237,6 +306,35 @@ export async function streamTraining(
     body: JSON.stringify({ ...(file ? { file } : {}) }),
     signal,
   });
+  // Fail fast on non-2xx so a failed spawn (auth 403, validation 400,
+  // server-side spawn EACCES surfacing as 500, etc.) doesn't slip
+  // through as a "successful" silent run. Without this, the SPA
+  // would call `onSpawn(null)` (the failure response carries no
+  // `X-Arkor-Train-Pid`), then hit `!res.body` or read an empty
+  // body and resolve as if the run completed cleanly — leaving the
+  // user looking at an idle UI and no log output. Read the body
+  // text for diagnostics so the caller's error log shows the
+  // server's reason instead of a bare status code.
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = (await res.text()).trim();
+    } catch {
+      // Body unreadable (already consumed, network gone, etc.) —
+      // surface the status alone rather than masking the failure
+      // entirely.
+    }
+    throw new Error(
+      detail
+        ? `/api/train failed (${res.status} ${res.statusText}): ${detail}`
+        : `/api/train failed (${res.status} ${res.statusText})`,
+    );
+  }
+  if (onSpawn) {
+    const raw = res.headers.get("x-arkor-train-pid");
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    onSpawn(Number.isFinite(parsed) ? parsed : null);
+  }
   if (!res.body) return;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

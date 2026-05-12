@@ -78,7 +78,7 @@ describe("runStart", () => {
   it("skips the build step when the artifact already exists and no entry override is given", async () => {
     // Branch coverage for `Boolean(opts.entry) || !existsSync(outFile)` —
     // the path where both halves are false. Pre-build the artifact, then
-    // confirm runStart imports it without triggering esbuild again.
+    // confirm runStart imports it without triggering rolldown again.
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
     // First call builds normally.

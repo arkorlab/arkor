@@ -25,10 +25,22 @@ function htmlAttrEscape(s: string): string {
 }
 
 /**
- * Inject the per-launch Studio CSRF token into served `index.html` so the
- * SPA's `apiFetch` can attach it. `arkor dev` writes the token to
- * `~/.arkor/studio-token` on launch; we re-read on every request so that
- * starting `arkor dev` after Vite is picked up on the next reload.
+ * Inject the per-launch Studio CSRF token (and the HMR-enabled flag)
+ * into served `index.html` so the SPA's `apiFetch` can attach the
+ * token, and `isHmrEnabled()` can light up the `/api/dev/events`
+ * subscription. `arkor dev` writes the token to `~/.arkor/studio-token`
+ * on launch; we re-read on every request so that starting `arkor dev`
+ * after Vite is picked up on the next reload.
+ *
+ * Why also inject `arkor-hmr-enabled` here: the SPA reads the meta to
+ * decide whether to open the SSE channel, and `buildStudioApp` only
+ * emits it when HMR is wired in. Vite serves its own `index.html` (so
+ * the runtime backend never gets to inject anything), and the only
+ * realistic backend for Vite-served pages is `arkor dev` (Vite proxies
+ * `/api` to :4000), which always boots with HMR. Pairing the two
+ * meta tags keeps both the production SPA (served by `arkor dev`) and
+ * the Vite dev workflow (`pnpm --filter @arkor/studio-app dev`)
+ * behaving the same way: HMR active whenever the token is.
  *
  * `apply: "serve"` constrains this to the dev server. If it ran during
  * `vite build` it would bake the current per-launch token into `dist/
@@ -51,7 +63,9 @@ function arkorStudioToken(): Plugin {
         return html;
       }
       if (!token) return html;
-      const meta = `<meta name="arkor-studio-token" content="${htmlAttrEscape(token)}">`;
+      const tokenMeta = `<meta name="arkor-studio-token" content="${htmlAttrEscape(token)}">`;
+      const hmrMeta = `<meta name="arkor-hmr-enabled" content="true">`;
+      const meta = `${tokenMeta}${hmrMeta}`;
       const idx = html.indexOf("</head>");
       if (idx === -1) return `${meta}${html}`;
       return `${html.slice(0, idx)}${meta}${html.slice(idx)}`;

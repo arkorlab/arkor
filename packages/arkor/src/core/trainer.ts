@@ -6,11 +6,18 @@ import {
   type Credentials,
 } from "./credentials";
 import { ensureProjectState } from "./projectState";
+import {
+  attachTrainerCallbackReplacer,
+  attachTrainerEarlyStopper,
+  attachTrainerInspection,
+  type RequestEarlyStopOptions,
+} from "./trainerInspection";
 import type {
   CheckpointContext,
   InferArgs,
   JobConfig,
   Trainer,
+  TrainerCallbacks,
   TrainerInput,
   TrainingJob,
   TrainingLogContext,
@@ -138,6 +145,63 @@ export function createTrainer(
   let startedJob: TrainingJob | null = null;
   let scope: { orgSlug: string; projectSlug: string } | null = null;
   let clientPromise: Promise<CloudApiClient> | null = null;
+  // In-flight `start()` promise: non-null between the first
+  // `client.createJob` call and the `startedJob` assignment. Lets
+  // `requestEarlyStop()` detect the "scope set but startedJob still
+  // null" window (`scope` is needed by `client.createJob` so we set
+  // it before the await) and wait out the create-job POST so a
+  // SIGTERM landing in that window can still drive a clean cancel
+  // once the job id materialises. Without this gate the early-stop
+  // path would no-op, the runner would `process.exit(0)`, and the
+  // newly created cloud job would orphan with no cancel POST.
+  let startInFlight: Promise<TrainingJob> | null = null;
+
+  // Mutable callbacks slot. Each `dispatch()` invocation reads this
+  // fresh, so the rotation triggered by the
+  // `Symbol.for("arkor.trainer.replaceCallbacks")` brand
+  // (`replaceTrainerCallbacks` in `core/trainerInspection.ts`) takes
+  // effect on the next event. Events already mid-await keep their
+  // old reference until they resolve, which matches the "replace,
+  // don't interrupt" contract. Public `Trainer` deliberately doesn't
+  // expose this — it's a dev-only HMR primitive driven by the
+  // SIGUSR2 path in `core/runnerSignals.ts`.
+  let currentCallbacks: Partial<TrainerCallbacks> = input.callbacks ?? {};
+
+  // Early-stop state. `requestEarlyStop()` arms the latch; the next
+  // `checkpoint.saved` dispatch (or the timeout, whichever fires first)
+  // calls cancel() and resolves the deferred. Idempotent across repeat
+  // calls — they share the same deferred.
+  const DEFAULT_EARLY_STOP_TIMEOUT_MS = 5 * 60 * 1000;
+  let earlyStopDeferred: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (err: unknown) => void;
+    timer: NodeJS.Timeout | null;
+  } | null = null;
+  let earlyStopRequested = false;
+
+  /**
+   * Drop the early-stop latch (clear timer + resolve deferred + reset
+   * the request flag). Called from any path that means "wait()'s
+   * cancel-after-checkpoint promise is no longer waiting on anything"
+   * — the checkpoint-driven cancel branch, the terminal `completed`
+   * / `failed` branches, and the up-front guard in
+   * `requestEarlyStop()` when the job is already terminal. Without
+   * this called from terminal branches, a `requestEarlyStop()` armed
+   * mid-run that races a `training.completed` / `training.failed`
+   * before the next `checkpoint.saved` would leave the deferred
+   * pending until the (default 5-min) timeout fires — the SIGTERM
+   * handler in `installShutdownHandlers` would block on that promise
+   * and delay shutdown for up to `timeoutMs`.
+   */
+  function settleEarlyStopLatch(): void {
+    if (earlyStopDeferred) {
+      if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
+      earlyStopDeferred.resolve();
+      earlyStopDeferred = null;
+    }
+    earlyStopRequested = false;
+  }
 
   async function getClient(): Promise<CloudApiClient> {
     if (!clientPromise) {
@@ -196,7 +260,10 @@ export function createTrainer(
       throw new Error("Trainer is in an inconsistent state");
     }
     const client = await getClient();
-    const callbacks = input.callbacks ?? {};
+    // Read once per dispatch so a `replaceCallbacks` between events takes
+    // effect on the next dispatch, but doesn't change identity inside a
+    // single in-flight handler.
+    const callbacks = currentCallbacks;
 
     switch (event.type) {
       case "training.started": {
@@ -247,7 +314,112 @@ export function createTrainer(
           infer,
           artifacts: event.artifacts,
         };
-        await callbacks.onCheckpoint?.(ctx);
+        // Capture (don't propagate yet) any throw from the user's
+        // `onCheckpoint`. The early-stop branch below MUST run
+        // even on a callback throw — without this wrap a thrown
+        // `onCheckpoint` would skip the cancel + latch settlement,
+        // leaving the SIGTERM handler waiting on the deferred
+        // until the (default 5-min) timeout fires. Surface the
+        // original throw via re-throw at the end so `wait()`'s
+        // reconnect / failure path keeps its existing semantics.
+        let onCheckpointError: unknown = null;
+        try {
+          await callbacks.onCheckpoint?.(ctx);
+        } catch (err) {
+          onCheckpointError = err;
+        }
+        // Early-stop latch: a checkpoint just landed, so the in-flight work
+        // is durable. Cancel the cloud job and end `wait()` cleanly.
+        if (earlyStopRequested && earlyStopDeferred) {
+          // Capture the cancel error (if any) but DON'T swallow
+          // silently — propagate via the deferred's reject path so
+          // the runner's `installShutdownHandlers` `.catch()` writes
+          // the failure to stderr. The previous swallow let a
+          // transient cloud-api failure during early-stop appear
+          // as a clean cancel: the local runner exited 0, the UI
+          // declared the run cancelled, but the cloud job kept
+          // running (continued GPU spend). Keeping the error
+          // visible to the shutdown handler lets the operator see
+          // it and intervene.
+          //
+          // We still mark `startedJob.status` terminal locally
+          // either way — from the runner's perspective the run is
+          // over, and a subsequent `requestEarlyStop()` call must
+          // hit the `TERMINAL_STATUSES.has(...)` short-circuit
+          // (re-arming a fresh latch on a dead run would hang
+          // shutdown).
+          let cancelError: unknown = null;
+          try {
+            await trainer.cancel();
+          } catch (err) {
+            cancelError = err;
+          }
+          // Reflect the cancellation locally so `wait()`'s resolved
+          // `TrainingResult.job.status` is a terminal status (per the
+          // documented contract). Without this update the result would
+          // surface as `status: "running"`, and a subsequent
+          // `requestEarlyStop` would not see the
+          // `TERMINAL_STATUSES.has(...)` short-circuit it relies on.
+          //
+          // Status is `"failed"` when the cancel POST itself threw
+          // (cloud-api transient failure mid-cancel) — labelling
+          // such runs `"cancelled"` would lie about the cloud-side
+          // state, which may still be running. `"failed"` is
+          // terminal too, so the latch / TERMINAL_STATUSES short-
+          // circuit still works, but `wait()`'s caller can
+          // distinguish "we cancelled cleanly" from "we tried but
+          // the cancel may not have landed". The original cancel
+          // error is also rejected through the deferred below for
+          // the SIGTERM handler's `.catch()`.
+          startedJob = {
+            ...startedJob,
+            status: cancelError !== null ? "failed" : "cancelled",
+            ...(cancelError !== null && {
+              error: `Early-stop cancel failed: ${
+                cancelError instanceof Error
+                  ? cancelError.message
+                  : String(cancelError)
+              }`,
+            }),
+            completedAt: event.timestamp,
+          };
+          if (cancelError !== null) {
+            // Reject (not resolve) the latch. Mirrors the success
+            // path's bookkeeping (clear timer, null out shared
+            // slot, drop the request flag) so a follow-up
+            // `requestEarlyStop()` won't piggyback on the rejected
+            // promise.
+            if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
+            earlyStopDeferred.reject(cancelError);
+            earlyStopDeferred = null;
+            earlyStopRequested = false;
+          } else {
+            settleEarlyStopLatch();
+          }
+          // Return the *checkpoint's* artifacts (the ones the user
+          // just saved) — that's the work HMR went out of its way
+          // to preserve before issuing cancel(). The previous
+          // `terminalResult?.artifacts ?? []` always resolved to
+          // `[]` because `wait()` calls `dispatch(parsed, null)` so
+          // `terminalResult` is never populated. Effect: an
+          // HMR-driven early-stop resolved `wait()` with empty
+          // `artifacts` even though the checkpoint event carried
+          // the very artifacts the early-stop existed to keep.
+          // Surface the user's `onCheckpoint` throw (if any) so
+          // `wait()`'s reconnect / failure path keeps the same
+          // semantics it had before the wrap — the checkpoint
+          // workload is preserved, but the user still sees their
+          // callback error.
+          if (onCheckpointError !== null) throw onCheckpointError;
+          return {
+            terminal: true,
+            artifacts: (event.artifacts ?? []) as unknown[],
+          };
+        }
+        // Same re-throw on the non-early-stop branch: keep
+        // `wait()`'s reconnect loop seeing the user's original
+        // callback error so reconnection counters work as before.
+        if (onCheckpointError !== null) throw onCheckpointError;
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
       }
       case "training.completed": {
@@ -257,7 +429,19 @@ export function createTrainer(
           completedAt: event.timestamp,
         };
         const artifacts = (event.artifacts ?? []) as unknown[];
-        await callbacks.onCompleted?.({ job: startedJob, artifacts });
+        // `try/finally` so the latch settles even when the user's
+        // `onCompleted` callback throws: otherwise a thrown
+        // callback would leave `earlyStopDeferred` pending and the
+        // SIGTERM handler awaiting `requestEarlyStop()` would block
+        // until the timeout (default 5 min). The throw still
+        // propagates through `dispatch()` → `wait()` so callers see
+        // the original error — we just don't strand the shutdown
+        // path along with it.
+        try {
+          await callbacks.onCompleted?.({ job: startedJob, artifacts });
+        } finally {
+          settleEarlyStopLatch();
+        }
         return { terminal: true, artifacts };
       }
       case "training.failed": {
@@ -267,7 +451,14 @@ export function createTrainer(
           error: event.error,
           completedAt: event.timestamp,
         };
-        await callbacks.onFailed?.({ job: startedJob, error: event.error });
+        // Symmetric to the `completed` branch above — terminal
+        // status settles the latch even when the run failed *and*
+        // the user's `onFailed` callback itself throws.
+        try {
+          await callbacks.onFailed?.({ job: startedJob, error: event.error });
+        } finally {
+          settleEarlyStopLatch();
+        }
         return { terminal: true, artifacts: [] };
       }
     }
@@ -278,18 +469,46 @@ export function createTrainer(
 
     async start() {
       if (startedJob) return { jobId: startedJob.id };
-      const client = await getClient();
-      const state = await resolveProjectState(client);
-      scope = { orgSlug: state.orgSlug, projectSlug: state.projectSlug };
-
-      const { job } = await client.createJob({
-        orgSlug: state.orgSlug,
-        projectSlug: state.projectSlug,
-        name: input.name,
-        config,
-      });
-      startedJob = job;
-      return { jobId: job.id };
+      // Already-pending start: reuse the in-flight promise so a
+      // concurrent caller (notably `requestEarlyStop` awaiting it
+      // to close the SIGTERM-during-create-job race) doesn't issue
+      // a second `client.createJob` POST. `Promise.resolve` returns
+      // the existing promise unchanged when it's already a thenable.
+      if (startInFlight) {
+        const job = await startInFlight;
+        return { jobId: job.id };
+      }
+      // Track the pending creation so `requestEarlyStop()` can
+      // detect the "started but not yet recorded" window and wait
+      // out the `client.createJob` POST. We set `scope` *before*
+      // the await (it's needed by the await itself), so a SIGTERM
+      // landing during the await would otherwise see
+      // `!startedJob && scope` and exit immediately — leaving the
+      // newly created cloud job uncancelled.
+      const startPromise = (async () => {
+        const client = await getClient();
+        const state = await resolveProjectState(client);
+        scope = { orgSlug: state.orgSlug, projectSlug: state.projectSlug };
+        const { job } = await client.createJob({
+          orgSlug: state.orgSlug,
+          projectSlug: state.projectSlug,
+          name: input.name,
+          config,
+        });
+        startedJob = job;
+        return job;
+      })();
+      startInFlight = startPromise;
+      try {
+        const job = await startPromise;
+        return { jobId: job.id };
+      } finally {
+        // Clear regardless of resolve/reject so a failed start can
+        // be retried (the caller decides), and a successful one
+        // doesn't pin a stale promise on the trainer for the rest
+        // of its lifetime.
+        startInFlight = null;
+      }
     },
 
     async wait(): Promise<TrainingResult> {
@@ -395,6 +614,141 @@ export function createTrainer(
       await client.cancelJob(startedJob.id, scope);
     },
   };
+
+  /**
+   * Internal "stop after next checkpoint" entry point. Hidden behind a
+   * `Symbol.for` brand so the runner subprocess's SIGTERM handler (in
+   * `runnerSignals.ts`) can drive a graceful early-stop without us
+   * exposing the operation on the public `Trainer` interface. User code
+   * that wants the same semantics should compose `abortSignal` +
+   * `cancel()` per `docs/cookbook/early-stopping.mdx`.
+   */
+  async function requestEarlyStop(
+    opts: RequestEarlyStopOptions = {},
+  ): Promise<void> {
+    // SIGTERM-during-create-job race: a runner-side SIGTERM can land
+    // between `start()`'s `scope = { … }` assignment and its
+    // `client.createJob(...)` resolution, with `startedJob` still
+    // null but a real cloud job about to exist. Treating that window
+    // as "nothing in flight" would `process.exit(0)` immediately
+    // after this returns, leaving the newly created cloud job
+    // running with no cancel POST. Awaiting `startInFlight` collapses
+    // the race onto a definite startedJob (success) or a definite
+    // start failure (rejection) — either way the branches below
+    // can decide on real state. Swallow the rejection: if `start()`
+    // failed there's nothing to cancel anyway.
+    if (startInFlight) {
+      try {
+        await startInFlight;
+      } catch {
+        // intentionally ignored — failed start has no job to cancel
+      }
+    }
+    // Nothing in flight: cleanup any prior latch and resolve.
+    if (!startedJob || !scope || TERMINAL_STATUSES.has(startedJob.status)) {
+      settleEarlyStopLatch();
+      return;
+    }
+    // Idempotent: a second call piggybacks on the first.
+    if (earlyStopDeferred) return earlyStopDeferred.promise;
+
+    earlyStopRequested = true;
+    let resolveFn!: () => void;
+    let rejectFn!: (err: unknown) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      resolveFn = resolve;
+      rejectFn = reject;
+    });
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_EARLY_STOP_TIMEOUT_MS;
+    const timer = setTimeout(() => {
+      // Timed out waiting for a checkpoint — fall back to immediate cancel.
+      // Capture the active deferred reference: by the time the cancel POST
+      // resolves, the checkpoint branch may have nulled out the shared
+      // slot, but this fallback path still owns the deferred it created.
+      const active = earlyStopDeferred;
+      // Capture (don't swallow) any cancel error so we can surface it
+      // through the deferred's reject path. Mirrors the checkpoint
+      // branch — a swallow here lets the runner's
+      // `installShutdownHandlers` exit "successfully" while the cloud
+      // job lives on (orphaned GPU spend with zero diagnostic), the
+      // exact failure mode that a "stop-after-checkpoint" deadline
+      // exists to PREVENT from going silent.
+      let cancelError: unknown = null;
+      trainer
+        .cancel()
+        .catch((err) => {
+          cancelError = err;
+        })
+        .finally(() => {
+          // Mirror the checkpoint-triggered early-stop branch: reset
+          // the latch and reflect the cancellation locally so a
+          // second `requestEarlyStop()` call is a no-op (instead of
+          // re-arming a fresh timer + re-issuing cancel) and so
+          // `wait()`'s eventual resolution exposes a terminal status.
+          // Without this, a long-lived trainer left in
+          // `earlyStopRequested = true` would re-cancel on every
+          // future checkpoint event for the rest of its lifetime.
+          earlyStopRequested = false;
+          if (startedJob && !TERMINAL_STATUSES.has(startedJob.status)) {
+            // Symmetric to the checkpoint branch: `"failed"` (not
+            // `"cancelled"`) on cancel-throw so we don't lie
+            // about cloud-side state that may still be running.
+            // Both branches feed the same TERMINAL_STATUSES
+            // short-circuit, so re-armed `requestEarlyStop()`
+            // calls still no-op correctly.
+            startedJob = {
+              ...startedJob,
+              status: cancelError !== null ? "failed" : "cancelled",
+              ...(cancelError !== null && {
+                error: `Early-stop cancel failed: ${
+                  cancelError instanceof Error
+                    ? cancelError.message
+                    : String(cancelError)
+                }`,
+              }),
+              completedAt: new Date().toISOString(),
+            };
+          }
+          if (active) {
+            // Resolve on success, REJECT on cancel failure so the
+            // SIGTERM handler's `.catch()` writes the error to
+            // stderr and the operator can see that the cloud job
+            // may still be live. The latch always settles either
+            // way — shutdown won't hang.
+            if (cancelError !== null) active.reject(cancelError);
+            else active.resolve();
+          }
+          if (earlyStopDeferred === active) earlyStopDeferred = null;
+        });
+    }, timeoutMs);
+    // `Timer.unref` keeps the early-stop timer from blocking process exit
+    // when the host runtime finishes for unrelated reasons.
+    timer.unref?.();
+    earlyStopDeferred = {
+      promise,
+      resolve: resolveFn,
+      reject: rejectFn,
+      timer,
+    };
+    return promise;
+  }
+
+  // Brand the trainer with the HMR control surface so the Studio server
+  // can (a) hash the cloud-side config to decide between hot-swap and
+  // restart, (b) atomically swap the callbacks cell from the runner
+  // subprocess on SIGUSR2, and (c) drive a graceful "stop after the
+  // next checkpoint" on SIGTERM. All three brands live behind
+  // `Symbol.for` keys so they don't appear on the public `Trainer`
+  // interface — see `trainerInspection.ts` for the rationale.
+  attachTrainerInspection(trainer, () => ({
+    name: input.name,
+    config,
+    callbacks: currentCallbacks,
+  }));
+  attachTrainerCallbackReplacer(trainer, (callbacks) => {
+    currentCallbacks = callbacks ?? {};
+  });
+  attachTrainerEarlyStopper(trainer, requestEarlyStop);
 
   return trainer;
 }

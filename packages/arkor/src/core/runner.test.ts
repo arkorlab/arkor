@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -205,5 +205,101 @@ describe("runTrainer — entry extraction", () => {
     const t = fakeTrainer();
     expect(typeof t.start).toBe("function");
     expect(typeof t.wait).toBe("function");
+  });
+});
+
+describe("runTrainer — shutdown signal handling", () => {
+  it("first SIGTERM calls trainer.requestEarlyStop and exits 0; second SIGTERM exits 143", async () => {
+    // Fake trainer whose `wait()` hangs until the test manually resolves it
+    // (via a global helper). This lets us hold the run in flight long
+    // enough to assert both signal-handling branches without racing the
+    // `finally` block that removes the listeners.
+    // The fake trainer wears the early-stop brand
+    // (`Symbol.for("arkor.trainer.requestEarlyStop")`) so the runner's
+    // SIGTERM handler invokes it the same way the SDK-provided trainer
+    // does. No public `requestEarlyStop` method exists any more.
+    const trainerSrc = `
+      const KEY = Symbol.for("arkor.trainer.requestEarlyStop");
+      let earlyStopCalls = 0;
+      let resolveWait;
+      const waitPromise = new Promise((r) => { resolveWait = r; });
+      globalThis.__test_signalProbe = {
+        get earlyStopCalls() { return earlyStopCalls; },
+        finishWait: () => resolveWait({
+          job: {
+            id: "j1", orgId: "o", projectId: "p", name: "n",
+            status: "completed",
+            config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+            createdAt: "2026",
+          },
+          artifacts: [],
+        }),
+      };
+      const trainer = {
+        name: "n",
+        start: async () => ({ jobId: "j1" }),
+        wait: () => waitPromise,
+        cancel: async () => {},
+      };
+      Object.defineProperty(trainer, KEY, {
+        value: async () => { earlyStopCalls++; },
+        enumerable: false,
+      });
+      export { trainer };
+    `;
+    const entry = join(cwd, "src/arkor/index.mjs");
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(entry, trainerSrc);
+
+    const exitCalls: number[] = [];
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((code?: number) => {
+        exitCalls.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit);
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      const runPromise = runTrainer("src/arkor/index.mjs");
+      // Wait for import + start() to settle so the handler is registered
+      // before we synthesise SIGTERM. Poll for the probe rather than
+      // relying on a fixed timer — under load (e.g. running alongside
+      // sibling test files in turbo) the dynamic import + top-level
+      // body can take longer than a hardcoded 25 ms window.
+      type Probe = { earlyStopCalls: number; finishWait: () => void };
+      let probe: Probe | undefined;
+      for (let i = 0; i < 40; i++) {
+        probe = (globalThis as unknown as { __test_signalProbe?: Probe })
+          .__test_signalProbe;
+        if (probe) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      if (!probe) throw new Error("Probe not installed by user bundle");
+
+      // 1st SIGTERM → requestEarlyStop is called, exit(0) scheduled in the
+      // promise's `.finally`.
+      process.emit("SIGTERM", "SIGTERM");
+      await new Promise((r) => setTimeout(r, 25));
+      expect(probe.earlyStopCalls).toBe(1);
+      expect(exitCalls).toContain(0);
+
+      // 2nd SIGTERM (still in-flight, listeners not yet removed) →
+      // exit(143) immediately, no second requestEarlyStop call.
+      process.emit("SIGTERM", "SIGTERM");
+      await new Promise((r) => setTimeout(r, 25));
+      expect(probe.earlyStopCalls).toBe(1);
+      expect(exitCalls).toContain(143);
+
+      // Release the hung wait() so runPromise can complete and the
+      // shutdown handlers detach via the finally block.
+      probe.finishWait();
+      await runPromise;
+    } finally {
+      exitSpy.mockRestore();
+      stdoutSpy.mockRestore();
+      delete (globalThis as Record<string, unknown>).__test_signalProbe;
+    }
   });
 });

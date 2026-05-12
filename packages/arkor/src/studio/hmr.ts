@@ -1,0 +1,513 @@
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { watch, type RolldownWatcher } from "rolldown";
+import { hashJobConfig } from "../core/configHash";
+import { moduleCacheBustUrl } from "../core/moduleCacheBust";
+import {
+  BUILD_DEFAULTS,
+  resolveBuildEntry,
+  rolldownInputOptions,
+  type BuildEntryOptions,
+} from "../core/rolldownConfig";
+import { findInspectableTrainer } from "../core/trainerInspection";
+
+export type HmrEventType = "ready" | "rebuild" | "error";
+
+export interface HmrEvent {
+  type: HmrEventType;
+  outFile?: string;
+  /**
+   * Short fingerprint of the bundle artefact (mtime + ctime + size,
+   * mirroring `core/moduleCacheBust.ts`'s key shape). Subscribers use
+   * this to dedupe replays of the same successful build.
+   */
+  hash?: string;
+  /**
+   * Content-derived hash (sha256, truncated) of the artefact bytes.
+   * Used by `dispatchRebuild`'s pre-ready-spawn equality gate where
+   * `hash` would over-trigger SIGTERM-restart: a watcher build that
+   * rewrites identical bytes still bumps mtime/ctime, so two
+   * timestamp fingerprints differ even though the loaded bytes are
+   * the same. Comparing this content-hash instead avoids that
+   * spurious cancel+restart cycle in the "user clicked Run before
+   * the watcher's first BUNDLE_END landed" case.
+   */
+  contentHash?: string | null;
+  /**
+   * Stable hash of the trainer's cloud-side `JobConfig`. When this is
+   * unchanged across a rebuild, only the in-process callbacks moved and
+   * the Studio server can hot-swap them without restarting the run.
+   * `null` when the bundle has no discoverable trainer (e.g. the user's
+   * source has a syntax error or the Arkor manifest is missing).
+   */
+  configHash?: string | null;
+  /** Run name pulled from the rebuilt manifest. */
+  trainerName?: string | null;
+  /** Human-readable error message; only present on `type === "error"`. */
+  message?: string;
+}
+
+export interface HmrCoordinator {
+  /**
+   * Receive the current cached state immediately, then every subsequent
+   * event. Returns an unsubscribe function.
+   */
+  subscribe(fn: (event: HmrEvent) => void): () => void;
+  /**
+   * Synchronous read of the most recent successful build's
+   * `configHash`. Used by `/api/train` to capture the hash that's
+   * about to be spawned so HMR routing on the *next* rebuild knows
+   * whether the new bundle changed cloud-side config. `null` when the
+   * watcher hasn't completed a successful build yet (e.g. fresh
+   * scaffold) or the latest event was an `error`.
+   */
+  getCurrentConfigHash(): string | null;
+  /**
+   * Synchronous fingerprint of the on-disk build artefact RIGHT NOW
+   * (fresh stat, not cached). Used by `/api/train`'s registry entry
+   * so HMR routing in the pre-ready-spawn case (`configHash === null`)
+   * can compare against the rebuild's `event.hash` to tell whether
+   * the child read the same bytes. Without this gate, an edit
+   * landing between spawn and the watcher's first BUNDLE_END would
+   * silently teach the registry to use the post-edit `configHash`
+   * as the child's baseline — later same-hash rebuilds would then
+   * hot-swap callbacks into a child whose cloud-side `JobConfig`
+   * was actually spawned against an older version, leaving the
+   * cloud run on a stale config. `null` when stat fails (artefact
+   * doesn't exist yet, fresh project never built).
+   */
+  getCurrentArtifactHash(): string | null;
+  /**
+   * Content-derived hash (sha256, truncated) of the on-disk
+   * artefact RIGHT NOW. Used by `/api/train` to capture a
+   * spawn-time content-hash for the registry's pre-ready-spawn
+   * equality gate — paired with the rebuild's `event.contentHash`,
+   * a mismatch unambiguously means the bytes changed (not just
+   * timestamps), so `dispatchRebuild` only SIGTERM-restarts when
+   * the child genuinely loaded different bytes than the new
+   * configHash describes. `null` on stat/read failure (artefact
+   * doesn't exist yet, fresh project never built).
+   */
+  getCurrentArtifactContentHash(): string | null;
+  /**
+   * Last broadcast event's `type`, or `null` if nothing has been
+   * broadcast yet. `/api/manifest`'s HMR fast path consults this to
+   * suppress its "serve last good artefact" behaviour while the
+   * watcher is in an `error` state — without that gate, the SPA's
+   * 5 s `/api/manifest` poll would keep getting a 200 stale
+   * manifest and silently overwrite the SSE-driven build-error UI,
+   * letting users run with stale code/config while the latest
+   * source is still failing to compile.
+   */
+  getLastEventType(): HmrEventType | null;
+  dispose(): Promise<void>;
+}
+
+export type HmrOptions = BuildEntryOptions;
+
+/**
+ * Content-derived fingerprint of the artefact bytes (sha256, first 16
+ * hex chars). Used by `dispatchRebuild`'s pre-ready-spawn gate where
+ * timestamp-based comparison gives false positives: a watcher rebuild
+ * that produces the same bytes still bumps mtime/ctime, so a child
+ * spawned just before `ready` would be unnecessarily SIGTERM-restarted
+ * even though its loaded bytes match the new build's. Hashing a few
+ * MB of bundle on each call is cheap relative to the GPU cost of a
+ * spurious cancel+restart cycle.
+ *
+ * Returns `null` on stat/read failure so the caller can treat
+ * "no artefact" as "force restart" (the conservative default).
+ */
+function contentHashOrNull(outFile: string): string | null {
+  try {
+    const bytes = readFileSync(outFile);
+    return createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Single-stat fingerprint with a clean `null` on failure — used by
+ * `getCurrentArtifactHash()` whose contract is "return a fingerprint
+ * derived from the artefact bytes, or `null` if no artefact". A
+ * separate exists-check + `fingerprint()` here would race: the file
+ * could disappear between the two stats and `fingerprint()`'s
+ * `Date.now()` fallback would return a non-null hash that doesn't
+ * describe any real bytes, silently violating the contract.
+ */
+function fingerprintOrNull(outFile: string): string | null {
+  try {
+    const s = statSync(outFile);
+    // Same shape as `fingerprint()`'s success branch — `ctimeMs` is
+    // the belt-and-braces guard for `touch -m`-style edits where
+    // mtime stays put.
+    return `${s.mtimeMs}-${s.ctimeMs}-${s.size}`;
+  } catch {
+    return null;
+  }
+}
+
+function fingerprint(outFile: string): string {
+  // Delegate to `fingerprintOrNull` and substitute a freshness-
+  // forcing token on stat failure. The `Date.now()` fallback
+  // matters here (vs the "0-0-0" sentinel `moduleCacheBustKey`
+  // uses): SPA-side SSE dedup keys off this hash, so a stable
+  // literal during a racy stat would silently swallow genuinely-
+  // fresh broadcast events.
+  return fingerprintOrNull(outFile) ?? Date.now().toString(36);
+}
+
+type InspectionResult = {
+  configHash: string;
+  trainerName: string;
+} | null;
+
+/**
+ * Dynamic-import the freshly-built bundle and pull a `TrainerInspection`
+ * snapshot off the discovered trainer.
+ *
+ * Walks every entry shape `runner.ts` accepts (named `arkor`, named
+ * `trainer`, `default` Arkor manifest, `default.trainer`) via the
+ * shared `findInspectableTrainer` helper — keeping inspection in sync
+ * with execution. Without this, projects that only `export const
+ * trainer` (a documented shortcut) would always produce `configHash:
+ * null` and the SPA would unnecessarily SIGTERM-restart on every
+ * rebuild.
+ *
+ * Cache-bust by file mtime+ctime+size (via `moduleCacheBustUrl`)
+ * rather than `Date.now()`:
+ *
+ *   - Node's ESM loader caches every dynamically-imported URL for the
+ *     lifetime of the process and never evicts. A `?t=Date.now()`
+ *     suffix produces a unique URL per call, so a long `arkor dev`
+ *     session would accumulate one module record per BUNDLE_END —
+ *     unbounded memory growth.
+ *   - The composite key (`mtimeMs-ctimeMs-size`) keys the cache to
+ *     "the actual bytes in this file", so spurious watcher events
+ *     that don't change content reuse the prior module record. The
+ *     leak shrinks from "one entry per keystroke" to "one entry per
+ *     actual rebuild", which for a realistic dev session (hundreds
+ *     of saves over hours) is bounded by the number of distinct file
+ *     states the user produces — and that's fundamentally what HMR
+ *     has to track to surface up-to-date trainer state. There's no
+ *     public Node API for evicting an ESM module record, so this is
+ *     the tightest bound we can offer without spawning a child
+ *     process per inspection.
+ *
+ * Best-effort: a missing/malformed manifest or a thrown user
+ * constructor returns `null` and the caller treats the rebuild as
+ * "config-unknown".
+ */
+async function inspectBundle(outFile: string): Promise<InspectionResult> {
+  try {
+    const mod = (await import(moduleCacheBustUrl(outFile))) as Record<
+      string,
+      unknown
+    >;
+    const inspection = findInspectableTrainer(mod);
+    if (!inspection) return null;
+    return {
+      configHash: hashJobConfig(inspection.config),
+      trainerName: inspection.name,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Spin up a rolldown watcher over the user's `src/arkor` entry, broadcasting
+ * `ready` / `rebuild` / `error` to subscribers. Used by `arkor dev` to push
+ * `/api/dev/events` SSE notifications to the SPA.
+ *
+ * Lazy: the watcher only starts on the first `subscribe` call so a Studio
+ * launch in a project without `src/arkor/index.ts` doesn't immediately fail
+ * — the watcher kicks in once the user creates the file and the SPA opens
+ * an EventSource. After every successful build the watcher caches the
+ * latest state and replays it to new subscribers so a late-mounting
+ * component still sees the trainer.
+ */
+export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
+  const resolved = resolveBuildEntry(opts);
+
+  const subscribers = new Set<(event: HmrEvent) => void>();
+  let lastEvent: HmrEvent | null = null;
+  let watcher: RolldownWatcher | null = null;
+  let disposed = false;
+  /**
+   * When `startWatcher` runs against a project that doesn't have an
+   * entry file yet, a poll timer takes over and waits for the file to
+   * appear. Without this, an SPA that opened `/api/dev/events` against
+   * a fresh scaffold would hang on the initial `error` event forever
+   * — `startWatcher` is only re-entered on `subscribe()`, but EventSource
+   * doesn't reconnect on application-level errors.
+   */
+  let entryWaitTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Monotonically incrementing build sequence number. Bumped on every
+   * `BUNDLE_END` *before* the inspection awaits, so when an
+   * inspection eventually resolves it can check whether a newer
+   * build has started in the meantime and silently drop its stale
+   * result.
+   *
+   * This matters because `inspectBundle` does an asynchronous
+   * dynamic-import of the just-written artifact. Two rebuilds A → B
+   * landing within the import window can race, with A's inspection
+   * resolving *after* B's — the previous "fire-and-forget" code
+   * would then publish A on top of B and leave `lastEvent` pointing
+   * at the older `configHash`/`trainerName`. That in turn drove
+   * `/api/dev/events` to make hot-swap-vs-restart decisions against
+   * stale routing data and surfaced the wrong trainer name in the
+   * SPA.
+   */
+  let buildSeq = 0;
+  /**
+   * Whether a `ready` event has actually broadcast yet. Tracked
+   * separately from `firstBuild` because the inspection await means
+   * the first BUNDLE_END's broadcast can land *after* a second
+   * BUNDLE_END schedules its own — pinning the type to
+   * "broadcast-time" rather than "schedule-time" guarantees the SPA
+   * still sees `ready` first even when the initial inspection loses
+   * the race.
+   */
+  let firstBroadcast = true;
+  /**
+   * Cached `configHash` of the last *successful* build, **independent
+   * of `lastEvent`**. `lastEvent` tracks every broadcast (including
+   * `error`) for the cached-replay-on-late-subscribe contract, but a
+   * transient build error must not blank out the spawn-time hash that
+   * `/api/train` reads via `getCurrentConfigHash()`. The on-disk
+   * `.arkor/build/index.mjs` doesn't change on ERROR, so a child
+   * spawned during an error state is running the *previous* successful
+   * bundle — and the next BUNDLE_END's hash should be compared
+   * against THAT. Without this separate cache, the whole rebuild gets
+   * routed through SIGTERM-restart and SIGUSR2 hot-swap stops working
+   * for the rest of the session whenever the user briefly broke their
+   * source.
+   */
+  let lastSuccessConfigHash: string | null = null;
+
+  function broadcast(event: HmrEvent): void {
+    lastEvent = event;
+    for (const fn of subscribers) {
+      try {
+        fn(event);
+      } catch {
+        // Subscribers are SSE controllers — a thrown error usually means
+        // the connection closed mid-flight. Drop it so one bad subscriber
+        // can't poison the broadcast for the rest.
+      }
+    }
+  }
+
+  async function emitBuildSucceeded(): Promise<void> {
+    if (disposed) return;
+    const seq = ++buildSeq;
+    const inspection = await inspectBundle(resolved.outFile);
+    // Drop stale results: a newer rebuild already started (or
+    // finished) while our inspection was running. The newer
+    // inspection will own the broadcast for the latest state; this
+    // one publishing now would just clobber `lastEvent` with the
+    // older snapshot.
+    if (seq !== buildSeq || disposed) return;
+    const type: HmrEventType = firstBroadcast ? "ready" : "rebuild";
+    firstBroadcast = false;
+    const configHash = inspection?.configHash ?? null;
+    // BUNDLE_END always reflects what's now on disk — even when the
+    // bundle is unbranded (`configHash === null`), that's the
+    // current truth. Capture it so `/api/train` spawning during a
+    // *subsequent* transient error still has the right spawn-time
+    // hash to compare against the next successful rebuild.
+    lastSuccessConfigHash = configHash;
+    broadcast({
+      type,
+      outFile: resolved.outFile,
+      hash: fingerprint(resolved.outFile),
+      // Content hash powers the registry's pre-ready-spawn equality
+      // gate (timestamp-only would over-trigger SIGTERM-restart on
+      // identical-bytes rebuilds). Read once here so the broadcast
+      // and any spawn-time capture reference the same on-disk state.
+      contentHash: contentHashOrNull(resolved.outFile),
+      configHash,
+      trainerName: inspection?.trainerName ?? null,
+    });
+  }
+
+  function startWatcher(): void {
+    if (watcher || disposed) return;
+    if (!existsSync(resolved.entry)) {
+      broadcast({
+        type: "error",
+        message: `Build entry not found: ${resolved.entry}. Create ${BUILD_DEFAULTS.entry} or pass an explicit entry argument.`,
+      });
+      // Hand off to a low-frequency poll so an SPA already connected to
+      // `/api/dev/events` transitions from "error" to "ready" the moment
+      // the user creates the entry file — no manual reconnect required.
+      // The poll is `unref()`'d so it never blocks process exit, and
+      // `dispose()` clears it.
+      if (!entryWaitTimer) {
+        entryWaitTimer = setInterval(() => {
+          if (disposed || watcher) {
+            if (entryWaitTimer) clearInterval(entryWaitTimer);
+            entryWaitTimer = null;
+            return;
+          }
+          if (existsSync(resolved.entry)) {
+            if (entryWaitTimer) clearInterval(entryWaitTimer);
+            entryWaitTimer = null;
+            startWatcher();
+          }
+        }, 1000);
+        entryWaitTimer.unref?.();
+      }
+      return;
+    }
+    // The entry exists now — clear any leftover poll timer from a prior
+    // failed startWatcher invocation.
+    if (entryWaitTimer) {
+      clearInterval(entryWaitTimer);
+      entryWaitTimer = null;
+    }
+    watcher = watch({
+      ...rolldownInputOptions(resolved),
+      output: { file: resolved.outFile, format: "esm" },
+    });
+    watcher.on("event", (event) => {
+      if (event.code === "BUNDLE_END") {
+        // rolldown requires the per-build result to be closed to avoid leaks.
+        event.result.close().catch(() => {});
+        // The event type ("ready" vs "rebuild") is decided inside
+        // `emitBuildSucceeded` *after* the inspection await, based on
+        // whether any prior broadcast actually landed — see the
+        // `firstBroadcast` comment for why pinning the type at this
+        // schedule point would be wrong under inspection races.
+        void emitBuildSucceeded();
+      } else if (event.code === "ERROR") {
+        // Rolldown's ERROR events don't always carry a `result` —
+        // when the failure is in the parse/resolve phase there's
+        // no per-build output to close, so `event.result` is
+        // `undefined`. Calling `.close()` then would throw
+        // synchronously, escape this listener, and permanently
+        // wedge the watcher so the SPA stays on the prior `error`
+        // state forever even after the user fixes their code.
+        // Optional-chain so we still close any result that *is*
+        // present (avoiding the leak rolldown warns about) without
+        // blowing up the watcher when none is.
+        event.result?.close().catch(() => {});
+        // Bump the seq so a still-in-flight `emitBuildSucceeded`
+        // from a *prior* BUNDLE_END drops its broadcast when its
+        // inspection finally resolves. Without this, the older
+        // success would land on top of this error and clobber
+        // `lastEvent`/`configHash`, leaving the SPA showing a
+        // healthy rebuild while the actual latest build state is
+        // a compile error. The successful-rebuild path bumps the
+        // same counter inside `emitBuildSucceeded`.
+        buildSeq += 1;
+        broadcast({
+          type: "error",
+          message:
+            event.error instanceof Error
+              ? event.error.message
+              : String(event.error),
+        });
+      }
+    });
+  }
+
+  return {
+    subscribe(fn) {
+      subscribers.add(fn);
+      // Replay the last broadcast so a late-mounting subscriber (an
+      // `/api/dev/events` SSE client opening after the first BUNDLE_END,
+      // or `buildStudioApp`'s dispatch subscriber registering after
+      // entry-wait recovery) sees current state without waiting for
+      // the next rebuild.
+      //
+      // Wrapped in the same defensive try/catch as `broadcast` so a
+      // throw inside the subscriber (typically an SSE controller that
+      // closed mid-replay — `controller.enqueue` on a closed stream
+      // throws) doesn't propagate out of `subscribe()` and crash
+      // whoever just registered. One bad subscriber must not be able
+      // to break HMR initialisation for the rest of the process.
+      if (lastEvent) {
+        try {
+          fn(lastEvent);
+        } catch {
+          // Swallow — subscribers own their own teardown; we just
+          // shouldn't poison their `subscribe()` call site.
+        }
+      }
+      startWatcher();
+      return () => {
+        subscribers.delete(fn);
+      };
+    },
+    getCurrentConfigHash() {
+      // Returns the hash of the *last successful* build, NOT
+      // `lastEvent.configHash`. The two diverge after an ERROR:
+      // `lastEvent` becomes the error event (no `configHash`), but
+      // `.arkor/build/index.mjs` still holds the previous successful
+      // bundle bytes — and a child spawned in that window is running
+      // those bytes. Returning the cached success hash keeps
+      // `/api/train` registering accurate spawn-time hashes so the
+      // next successful BUNDLE_END can route hot-swap vs restart
+      // correctly. `null` only before the first successful build (or
+      // a build that wasn't inspectable).
+      return lastSuccessConfigHash;
+    },
+    getCurrentArtifactHash() {
+      // Fresh stat — not the cached `lastEvent.hash`. The cached
+      // hash describes the bytes the watcher last broadcast about,
+      // but the on-disk artefact may be newer (a BUNDLE_END is
+      // queued, file already written, inspection still pending) or
+      // older (next BUNDLE_END hasn't fired yet but the user just
+      // edited and saved). For the registry's pre-ready-spawn gate
+      // we want "what bytes will the child's `await import()` see
+      // RIGHT NOW".
+      //
+      // `fingerprintOrNull` does ONE statSync and returns null on
+      // failure — preserving the documented contract. A previous
+      // implementation here did `statSync(...)` first and then
+      // called `fingerprint()` (which has a `Date.now()` fallback
+      // baked in for SSE dedup uniqueness). That double-stat
+      // raced: if the file disappeared between the two calls we'd
+      // return a Date.now()-derived hash that doesn't describe any
+      // real bytes, silently violating the "null on stat failure"
+      // contract dispatchRebuild relies on for its SIGTERM-restart
+      // routing.
+      return fingerprintOrNull(resolved.outFile);
+    },
+    getCurrentArtifactContentHash() {
+      // Companion to `getCurrentArtifactHash` for the registry's
+      // pre-ready-spawn equality gate. Reads + sha256s the file
+      // at call time so the result describes the exact bytes the
+      // just-spawned child will see in its `await import()`.
+      // Same null-on-failure contract — caller treats null as
+      // "force restart" (the conservative default).
+      return contentHashOrNull(resolved.outFile);
+    },
+    getLastEventType() {
+      // `lastEvent` is the latest broadcast — `ready` / `rebuild` /
+      // `error`. Returning the type lets `/api/manifest`'s HMR
+      // fast path skip serving the stale built artefact when the
+      // watcher is currently in `error` (current source fails to
+      // compile), so the SPA's poll loop doesn't paper over the
+      // SSE-surfaced error.
+      return lastEvent?.type ?? null;
+    },
+    async dispose() {
+      disposed = true;
+      subscribers.clear();
+      if (entryWaitTimer) {
+        clearInterval(entryWaitTimer);
+        entryWaitTimer = null;
+      }
+      if (watcher) {
+        const w = watcher;
+        watcher = null;
+        await w.close().catch(() => {});
+      }
+    },
+  };
+}

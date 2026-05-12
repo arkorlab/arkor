@@ -31,7 +31,32 @@ import {
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
+import { __resetCleanupHooksForTests } from "../cleanupHooks";
 import { ensureCredentialsForStudio, runDev } from "./dev";
+
+/**
+ * Yield one `setImmediate` tick — enough for the cleanupHooks
+ * coordinator's `Promise.allSettled(...).then(() => process.exit(0))`
+ * chain to drain when there are no async cleanups in flight (the
+ * common case in this file: signal handler → queueMicrotask →
+ * already-resolved `allSettled` → `.then` → `process.exit(0)`,
+ * which all collapses into the single macrotask boundary that
+ * `setImmediate` yields to).
+ *
+ * `setImmediate` is the right primitive (vs `Promise.resolve` /
+ * `queueMicrotask`) because we need the event loop to actually
+ * turn — the `process.exit` mock fires inside a `.then` callback
+ * scheduled from a previous microtask checkpoint, and a microtask-
+ * only flush would resume *before* that callback gets to run.
+ *
+ * Tests that drive a chain with extra microtask hops (e.g. async
+ * sibling cleanups whose promises also pass through
+ * `Promise.allSettled`) await this helper twice in a row — see
+ * the cleanupHooks tests.
+ */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
@@ -545,15 +570,6 @@ describe("ensureCredentialsForStudio", () => {
 });
 
 describe("runDev", () => {
-  // Track exit/signal listeners we add via scheduleStudioTokenCleanup so
-  // we can remove them between tests; otherwise vitest's worker would
-  // accumulate listeners and Node's MaxListenersExceededWarning would
-  // fire by the third test.
-  const ORIG_EXIT_LISTENERS = process.listeners("exit").length;
-  const ORIG_SIGINT_LISTENERS = process.listeners("SIGINT").length;
-  const ORIG_SIGTERM_LISTENERS = process.listeners("SIGTERM").length;
-  const ORIG_SIGHUP_LISTENERS = process.listeners("SIGHUP").length;
-
   beforeEach(async () => {
     vi.mocked(serve).mockClear();
     vi.mocked(open).mockClear();
@@ -570,18 +586,11 @@ describe("runDev", () => {
   });
 
   afterEach(() => {
-    // Trim the exit/signal listeners runDev installed each iteration to
-    // keep vitest's worker tidy across tests.
-    const trim = (ev: string, keep: number) => {
-      const all = process.listeners(ev as never);
-      for (let i = keep; i < all.length; i++) {
-        process.removeListener(ev as never, all[i] as never);
-      }
-    };
-    trim("exit", ORIG_EXIT_LISTENERS);
-    trim("SIGINT", ORIG_SIGINT_LISTENERS);
-    trim("SIGTERM", ORIG_SIGTERM_LISTENERS);
-    trim("SIGHUP", ORIG_SIGHUP_LISTENERS);
+    // Each `runDev()` arms exit/signal hooks via `registerCleanupHook`.
+    // Tests whose handler never fires would leak listeners across the
+    // vitest worker's queue; this detaches every still-armed
+    // registration so Node's MaxListenersExceededWarning doesn't trip.
+    __resetCleanupHooksForTests();
   });
 
   it("persists the studio token and starts the server on the requested port", async () => {
@@ -697,8 +706,61 @@ describe("runDev", () => {
       const sigintListeners = process.listeners("SIGINT");
       const handler = sigintListeners[sigintListeners.length - 1] as () => void;
       handler();
+      // Sync side effect (token unlink) lands inside the synchronous
+      // portion of the handler.
       expect(existsSync(studioTokenPath())).toBe(false);
-      expect(exitSpy).toHaveBeenCalledWith(0);
+      // Exit fires after `Promise.allSettled(asyncCleanups)` resolves —
+      // a few microticks later. Flush to let the queued exit run.
+      await flushMicrotasks();
+      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) — see
+      // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
+      // the nonzero code to distinguish interrupt from clean exit.
+      expect(exitSpy).toHaveBeenCalledWith(130);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("keeps the SIGINT exit handler armed even when persisting the studio token fails", async () => {
+    // Regression: if `persistStudioToken` threw, the previous code
+    // skipped `scheduleStudioTokenCleanup` — and that was the *only*
+    // hook that called `process.exit(0)` on SIGINT. The leftover HMR
+    // hook overrides Node's default "exit on SIGINT" behaviour, so the
+    // dev server would idle in the foreground forever. The fix
+    // registers the token cleanup unconditionally; here we make
+    // persist throw and verify SIGINT still terminates.
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      // Root bypasses chmod permission checks — skip on root containers.
+      return;
+    }
+    chmodSync(join(fakeHome, ".arkor"), 0o555);
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4206 });
+    } finally {
+      stdoutSpy.mockRestore();
+      chmodSync(join(fakeHome, ".arkor"), 0o755);
+    }
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => {
+        return undefined as never;
+      }) as typeof process.exit);
+    try {
+      const sigintListeners = process.listeners("SIGINT");
+      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      handler();
+      // Even though the token file was never written, the cleanup hook
+      // ran (best-effort `unlinkSync` swallows ENOENT) and the
+      // exit-on-signal arm fired (after async cleanup tails settle).
+      await flushMicrotasks();
+      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) — see
+      // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
+      // the nonzero code to distinguish interrupt from clean exit.
+      expect(exitSpy).toHaveBeenCalledWith(130);
     } finally {
       exitSpy.mockRestore();
     }

@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable, Writable } from "node:stream";
 import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
@@ -15,7 +16,39 @@ import { recordDeprecation, tapDeprecation } from "../core/deprecation";
 import { SDK_VERSION } from "../core/version";
 import { ensureProjectState } from "../core/projectState";
 import { readState } from "../core/state";
+import { resolveBuildEntry } from "../core/rolldownConfig";
 import { readManifestSummary } from "./manifest";
+import type { HmrCoordinator, HmrEvent } from "./hmr";
+import { TrainRegistry, type RestartTarget } from "./trainRegistry";
+
+/** Identify the spawned subprocess to the SPA without exposing it as
+ *  a body frame (which would interleave with trainer stdout). The SPA
+ *  reads this off `Response.headers` and uses it to scope HMR
+ *  `restart` events to the run *this* tab actually started. */
+const TRAIN_PID_HEADER = "x-arkor-train-pid";
+/**
+ * Strict full-line match for the runner's `Started job <id>` line.
+ * `core/runner.ts` prints exactly that text — `process.stdout.write(\`Started job ${jobId}\n\`)` —
+ * after `trainer.start()` resolves; the server's `/api/train`
+ * stdout forwarder line-buffers chunks (chunk boundaries are
+ * arbitrary, so a substring scan against raw chunks would miss
+ * splits) and applies this regex to each complete line so it can
+ * POST `/v1/jobs/:id/cancel` to cloud-api on user-initiated
+ * cancel (SIGKILL bypasses the runner's own shutdown handlers —
+ * see the `cancel()` comment for the full rationale).
+ *
+ * Anchors `^…$` matter for two reasons:
+ *   - Avoid false matches when a user `console.log` happens to
+ *     contain the substring "Started job <token>" *before* the
+ *     runner's canonical line lands; once we record an id we
+ *     stop scanning, so a stray earlier match would stick and
+ *     Stop-training would POST cancel for the wrong (or
+ *     non-existent) job.
+ *   - Restrict the id capture to non-whitespace, mirroring what
+ *     `runner.ts` writes (cloud-api job ids are word-shaped,
+ *     never contain spaces).
+ */
+const STARTED_JOB_PATTERN = /^Started job (\S+)$/;
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
 function copyDeprecationHeaders(from: Headers, to: Headers): void {
@@ -59,6 +92,15 @@ export interface StudioServerOptions {
    * here points at the bin itself). Override in tests.
    */
   binPath?: string;
+  /**
+   * Optional HMR coordinator. When provided, the server registers
+   * `/api/dev/events` as an SSE stream that pushes rebuild / error events to
+   * the SPA, and rebuilds also signal SIGTERM to active `/api/train`
+   * subprocesses so they early-stop at the next checkpoint and the SPA can
+   * restart them with the new bundle. Wired in by `arkor dev`; left
+   * undefined for any non-dev consumer of `buildStudioApp`.
+   */
+  hmr?: HmrCoordinator;
 }
 
 function tokensMatch(provided: string, expected: string): boolean {
@@ -82,11 +124,31 @@ function htmlAttrEscape(s: string): string {
   );
 }
 
-function injectStudioToken(html: string, token: string): string {
-  const meta = `<meta name="arkor-studio-token" content="${htmlAttrEscape(token)}">`;
+/**
+ * Inject the per-launch studio token (always) and an optional HMR
+ * feature flag into `<head>`. Both are read by the SPA via
+ * `<meta name="...">` lookups — the token gates `/api/*` requests and
+ * the HMR flag tells `RunTraining` whether to open
+ * `/api/dev/events` (which only exists when `arkor dev` wired in an
+ * HMR coordinator). Without the server-side flag the SPA can't tell
+ * dev-mode usage from prod-mode usage at runtime: `vite build`'s
+ * output ships with `import.meta.env.DEV === false`, so any DEV gate
+ * baked into the bundle would suppress HMR even in real `arkor dev`
+ * sessions.
+ */
+function injectStudioMeta(
+  html: string,
+  token: string,
+  hmrEnabled: boolean,
+): string {
+  const tokenTag = `<meta name="arkor-studio-token" content="${htmlAttrEscape(token)}">`;
+  const hmrTag = hmrEnabled
+    ? `<meta name="arkor-hmr-enabled" content="true">`
+    : "";
+  const tags = `${tokenTag}${hmrTag}`;
   const idx = html.indexOf("</head>");
-  if (idx === -1) return `${meta}${html}`;
-  return `${html.slice(0, idx)}${meta}${html.slice(idx)}`;
+  if (idx === -1) return `${tags}${html}`;
+  return `${html.slice(0, idx)}${tags}${html.slice(idx)}`;
 }
 
 export function buildStudioApp(options: StudioServerOptions) {
@@ -111,7 +173,12 @@ export function buildStudioApp(options: StudioServerOptions) {
   const app = new Hono();
 
   const loopbackHostPattern = /^(127\.0\.0\.1|localhost)(:\d+)?$/;
-  const jobEventsPathPattern = /^\/api\/jobs\/[^/]+\/events$/;
+  // Routes where `?studioToken=` is accepted instead of the
+  // `X-Arkor-Studio-Token` header. Used only for `EventSource` streams,
+  // which cannot send custom headers. Adding to this list is CSRF-sensitive:
+  // it must always be a GET stream-only route, never a mutation endpoint.
+  const eventStreamPathPattern =
+    /^\/api\/jobs\/[^/]+\/events$|^\/api\/dev\/events$/;
 
   // Host-header guard for every route, including static HTML that carries the
   // per-launch Studio token. This is the DNS-rebinding boundary: a victim
@@ -138,7 +205,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   //      require the header so a leaked token in a URL is not enough to POST.
   app.use("/api/*", async (c, next) => {
     const queryTokenAllowed =
-      c.req.method === "GET" && jobEventsPathPattern.test(c.req.path);
+      c.req.method === "GET" && eventStreamPathPattern.test(c.req.path);
     const provided =
       c.req.header("x-arkor-studio-token") ??
       (queryTokenAllowed ? c.req.query("studioToken") : undefined) ??
@@ -215,9 +282,39 @@ export function buildStudioApp(options: StudioServerOptions) {
     return new Response(body, { status: res.status, headers });
   });
 
+  // Pre-resolved outFile for the HMR fast path. The path is
+  // deterministic per cwd (defaults from `BUILD_DEFAULTS`), so we
+  // compute it once at app build time rather than on every request.
+  // Only used when HMR is enabled — `readManifestSummary` falls
+  // back to `runBuild()` when this is undefined or the file doesn't
+  // exist yet (fresh scaffold pre-watcher-bootstrap).
+  const hmrOutFile = options.hmr
+    ? resolveBuildEntry({ cwd: trainCwd }).outFile
+    : undefined;
   app.get("/api/manifest", async (c) => {
     try {
-      const manifest = await readManifestSummary(trainCwd);
+      // Surface watcher build errors directly. Without this gate the
+      // HMR fast path below would happily serve the LAST GOOD
+      // artefact even when the user's current source fails to
+      // compile — `RunTraining` polls `/api/manifest` every ~5 s, so
+      // the next poll after a compile error would 200 with stale
+      // data and silently overwrite the SSE-surfaced error UI.
+      // Users would then see a "healthy" trainer in the manifest
+      // and unknowingly run stale code/config while the latest
+      // edit is still broken. Rejecting with the SSE error message
+      // keeps the SPA's error state consistent across both
+      // channels (poll + SSE).
+      if (options.hmr?.getLastEventType() === "error") {
+        return c.json({ error: "Build failed; see HMR error frame" }, 400);
+      }
+      // HMR-aware fast path: when `arkor dev` wired in a coordinator,
+      // skip the per-request `runBuild()` and read the watcher's
+      // already-built artefact. Without this every SPA poll
+      // (~5 s + per-rebuild SSE refetch) would re-bundle and race
+      // the watcher writing to the same `.arkor/build/index.mjs`.
+      const manifest = await readManifestSummary(trainCwd, {
+        prebuiltOutFile: hmrOutFile,
+      });
       return c.json(manifest);
     } catch (err) {
       // The user's `src/arkor/index.ts` may not exist yet (fresh scaffold) or
@@ -279,6 +376,10 @@ export function buildStudioApp(options: StudioServerOptions) {
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 
+  // Active `/api/train` subprocesses. The registry encapsulates the
+  // signal-dispatch policy — see `studio/trainRegistry.ts`.
+  const activeTrains = new TrainRegistry();
+
   app.post("/api/train", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
     let trainFile: string | undefined;
@@ -306,31 +407,487 @@ export function buildStudioApp(options: StudioServerOptions) {
       }
       trainFile = abs;
     }
+    // Snapshot the current `configHash` so HMR routing on the *next*
+    // rebuild can compare against this child's spawn-time config.
+    //
+    // When HMR is enabled, read it synchronously from the coordinator
+    // (which already maintains `lastEvent.configHash` for its watcher).
+    // Reading from the cache avoids triggering an extra `runBuild()`
+    // per train request — the previous implementation called
+    // `readManifestSummary(trainCwd)` here, which both wasted CPU and
+    // raced the watcher writing the same `.arkor/build/index.mjs`.
+    //
+    // When HMR is disabled the field is irrelevant (no rebuilds will
+    // happen) so we leave it null without paying for a build.
+    const configHash: string | null = options.hmr
+      ? options.hmr.getCurrentConfigHash()
+      : null;
+    // Spawn-time CONTENT-hash of the on-disk build artefact. Only
+    // the pre-ready-spawn case in `dispatchRebuild` consults it:
+    // when a rebuild lands while the child's `configHash` is still
+    // null, backfilling the new hash is only safe if the artefact
+    // bytes the child loaded (= the bytes on disk *now*, at spawn)
+    // are the same bytes the new hash describes. Without this
+    // gate, an edit landing between spawn and the watcher's first
+    // BUNDLE_END would silently align the registry with a config
+    // the child never actually loaded → cloud-side `JobConfig`
+    // drift on subsequent same-hash hot-swaps.
+    //
+    // Content (sha256) rather than mtime+ctime+size: the
+    // timestamp version had a false-positive failure mode where a
+    // watcher rebuild that produced identical bytes still bumped
+    // mtime/ctime, forcing a spurious cancel+restart cycle on a
+    // pre-ready spawn even though the child's loaded bytes
+    // actually matched the new build. Content-hash is precise.
+    const spawnArtifactContentHash: string | null = options.hmr
+      ? options.hmr.getCurrentArtifactContentHash()
+      : null;
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
-    const child = spawn(process.execPath, args, {
-      stdio: "pipe",
-      cwd: trainCwd,
+    // `spawn()` is mostly async (filesystem failures surface as the
+    // child's `error` event), but Node can still throw synchronously
+    // for argument-shape problems (e.g. invalid stdio descriptor on
+    // unusual platforms). Catch both paths so an `/api/train` POST
+    // can never hang the SPA — sync throws return a clean 500, async
+    // 'error' events forward into the stream and close it (handled
+    // inside the ReadableStream `start()` below).
+    // `ChildProcessByStdio<Writable, Readable, Readable>` is the
+    // specific overload return for `stdio: "pipe"` — narrows
+    // `child.stdout` / `child.stderr` away from the nullable
+    // `Readable | null` of the general `ChildProcess` type.
+    // `ReturnType<typeof spawn>` would land on the union and force
+    // a `?.` everywhere downstream.
+    let child: ChildProcessByStdio<Writable, Readable, Readable>;
+    try {
+      child = spawn(process.execPath, args, {
+        stdio: "pipe",
+        cwd: trainCwd,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return c.json(
+        { error: `Failed to spawn training subprocess: ${msg}` },
+        500,
+      );
+    }
+    activeTrains.register(child, {
+      trainFile,
+      configHash,
+      spawnArtifactContentHash,
     });
-    const stream = new ReadableStream({
+    // Hoisted out of the `ReadableStream` underlying-source so the
+    // `start` handler can hand its closure-bound teardown helper to
+    // the `cancel` handler. `cancel` runs in a separate invocation,
+    // not through `controller`, so the two need a parent-scope
+    // rendez-vous variable.
+    let cancelTeardown: (() => void) | null = null;
+    const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        // After `cancel()` runs, calling `controller.enqueue` /
+        // `controller.close` on the now-closed controller throws
+        // ("Invalid state: Controller is closed"). The child
+        // subprocess keeps emitting `data` and ultimately a `close`
+        // event for some time after the client disconnects, so each
+        // forwarder needs its own "are we still attached?" guard.
+        // Track via a flag plus an explicit listener-removal so the
+        // event loop also stops dispatching once we've torn down.
+        let closed = false;
+        // `child.stdout` is in default (binary) mode, so each `data`
+        // chunk is a Buffer — and `Buffer extends Uint8Array`, so we
+        // can pass it straight to `controller.enqueue` without a
+        // round-trip through `TextEncoder`. The previous code did
+        // `enc.encode(d)` which implicitly coerced the buffer via
+        // `String()` — same byte content, but allocates a new array.
+        // Forward a chunk to the SPA stream. Shared between the
+        // stdout and stderr listeners — both paths surface as
+        // request body bytes for the SPA's log view.
+        const forward = (d: Buffer): void => {
+          if (closed) return;
+          try {
+            controller.enqueue(d);
+          } catch {
+            // Controller raced us into the closed state — flip the
+            // flag so subsequent chunks short-circuit.
+            closed = true;
+          }
+        };
+        // Carry-over buffer for line-oriented job-id extraction.
+        // Stream chunk boundaries are arbitrary — the runner's
+        // single-line `Started job <id>` write can land split
+        // across two `data` events, in which case a per-chunk
+        // regex would never match and the cancel POST chain
+        // would never fire (cloud-job orphan on Stop). We
+        // accumulate text until a newline, parse the complete
+        // line, and keep any trailing partial for the next
+        // chunk. Cleared the moment the id is recorded so a
+        // chatty bin doesn't pin memory after the marker has
+        // landed; capped at 4 KiB regardless to bound a
+        // misbehaving bin that never emits a newline before the
+        // marker (the canonical line is well under 100 bytes).
+        let stdoutLineBuf = "";
+        const STARTED_JOB_BUFFER_CAP = 4096;
+        // STDOUT-ONLY job-id parser. The runner writes the canonical
+        // `Started job <id>` line via `process.stdout.write` — never
+        // stderr — so a single shared buffer across both pipes
+        // would mis-match in two ways:
+        //   1. A user `console.error("Started job <token>")` would
+        //      poison the buffer first; the real stdout marker
+        //      arrives later but our `getJobId(...) === null` gate
+        //      has already short-circuited subsequent scans, so
+        //      Stop-training POSTs cancel for the wrong (or
+        //      non-existent) job.
+        //   2. Interleaved stderr bytes could land between
+        //      "Started job " and "<id>\n" in the shared buffer,
+        //      breaking the anchored line match → missed match →
+        //      cloud cancel skipped on Stop.
+        // Two dedicated handlers share `forward` for the byte
+        // pipeline but only the stdout one runs the parse.
+        const onStdoutChunk = (d: Buffer): void => {
+          if (closed) return;
+          if (activeTrains.getJobId(child.pid) === null) {
+            stdoutLineBuf += d.toString("utf8");
+            let nl = stdoutLineBuf.indexOf("\n");
+            while (nl !== -1) {
+              // Strip a possible \r so CRLF-emitting bins (rare for
+              // Node `process.stdout.write` but defensive) match
+              // the same anchored pattern.
+              const line = stdoutLineBuf.slice(0, nl).replace(/\r$/, "");
+              stdoutLineBuf = stdoutLineBuf.slice(nl + 1);
+              const m = STARTED_JOB_PATTERN.exec(line);
+              if (m && m[1]) {
+                activeTrains.recordJobId(child.pid, m[1]);
+                stdoutLineBuf = "";
+                break;
+              }
+              nl = stdoutLineBuf.indexOf("\n");
+            }
+            if (stdoutLineBuf.length > STARTED_JOB_BUFFER_CAP) {
+              stdoutLineBuf = stdoutLineBuf.slice(-STARTED_JOB_BUFFER_CAP);
+            }
+          }
+          forward(d);
+        };
+        const onStderrChunk = (d: Buffer): void => {
+          // Forward only — never scan for `Started job`. See
+          // `onStdoutChunk` comment for the cross-stream poisoning
+          // hazards this split prevents.
+          forward(d);
+        };
         const enc = new TextEncoder();
-        child.stdout.on("data", (d) => controller.enqueue(enc.encode(d)));
-        child.stderr.on("data", (d) => controller.enqueue(enc.encode(d)));
-        child.on("close", (code) => {
-          controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
-          controller.close();
-        });
+        // Detach every listener this stream wired onto `child`. Called
+        // from `onClose` / `onError` themselves (so once one fires the
+        // closure references — controller, TextEncoder — drop and the
+        // subprocess record can be GC'd promptly even if the other
+        // event also queues), and from `cancelTeardown` for the
+        // client-side cancel path. Removing only the `data` listeners
+        // (as the previous code did) left `close` / `error` attached
+        // to the dead ChildProcess, which kept their closures pinned
+        // until the process object itself was reaped — meaningful
+        // memory pressure for an `arkor dev` session that spawns many
+        // children over hours.
+        const detachListeners = (): void => {
+          child.stdout.off("data", onStdoutChunk);
+          child.stderr.off("data", onStderrChunk);
+          child.off("close", onClose);
+          child.off("error", onError);
+        };
+        const onClose = (code: number | null): void => {
+          activeTrains.unregister(child.pid);
+          detachListeners();
+          if (closed) return;
+          closed = true;
+          try {
+            controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
+            controller.close();
+          } catch {
+            // already cancelled; nothing more to do.
+          }
+        };
+        // `error` event fires when async spawn machinery surfaces a
+        // failure (ENOENT for the executable, EACCES, EAGAIN under
+        // resource exhaustion, etc.). Without this listener the
+        // ReadableStream would never close — the SPA would hang
+        // waiting for output that never arrives. Forward the error
+        // text into the stream body, close, and unregister the
+        // child. Node's contract is: if 'error' fires, 'close' may
+        // or may not follow — both paths are guarded by the `closed`
+        // flag and the `unregister` call is idempotent.
+        const onError = (err: Error): void => {
+          activeTrains.unregister(child.pid);
+          detachListeners();
+          if (closed) return;
+          closed = true;
+          try {
+            controller.enqueue(
+              enc.encode(`\n---\nerror=${err.message}\n`),
+            );
+            controller.close();
+          } catch {
+            // already cancelled; nothing more to do.
+          }
+        };
+        child.stdout.on("data", onStdoutChunk);
+        child.stderr.on("data", onStderrChunk);
+        child.on("close", onClose);
+        child.on("error", onError);
+        cancelTeardown = () => {
+          // Don't detach data listeners here: the child stays alive
+          // for some time after the SPA cancels — either because
+          // we're skipping `child.kill()` for an in-progress
+          // HMR early-stop, or because `child.kill()`'s SIGTERM
+          // triggers a graceful checkpoint+exit that takes
+          // seconds. During that window the child keeps writing
+          // logs to its stdout/stderr pipes; if our `data`
+          // listeners are gone, Node stops draining the OS pipe,
+          // the buffer fills, and the child's next `write()`
+          // blocks indefinitely — deadlocking the very graceful
+          // exit we're trying to preserve. The `closed` flag
+          // already makes `enqueue`/`close` a no-op so the
+          // controller-closed race stays safe; the eventual
+          // `onClose` / `onError` listeners detach everything
+          // (via `detachListeners()`) when the child finally
+          // exits. That timing — at-exit, not at-cancel — is the
+          // correct moment to break the closure refs for GC.
+          closed = true;
+        };
       },
       cancel() {
-        child.kill();
+        // The SPA-side cancel is always *user-initiated* — either an
+        // explicit Stop click or tab-close/navigation, which the
+        // user just as explicitly chose. HMR-driven SIGTERMs go
+        // straight from the server to the runner via
+        // `dispatchRebuild`; they DO NOT trigger this handler
+        // (the SPA waits for the train stream's `exit=` line and
+        // schedules auto-restart, never aborting). So manual stop
+        // takes precedence over any in-flight HMR graceful path:
+        // we POST cloud cancel + SIGKILL unconditionally.
+        //
+        // SIGKILL is uncatchable so the long-standing
+        // "second-SIGTERM-triggers-exit(143)-fast-path" worry
+        // (which used to gate this branch on
+        // `isEarlyStopRequested`) doesn't apply. The runner's
+        // graceful early-stop chain may have been trying to
+        // preserve a checkpoint, but the user just said no — keep
+        // the local subprocess teardown snappy and let the
+        // server-side cancel POST handle the cloud-side release.
+        //
+        // Capture the cloud job id BEFORE unregistering — once the
+        // entry is gone, `getJobId(pid)` returns null and the
+        // fire-and-forget POST below would no-op.
+        const jobIdForCancel = activeTrains.getJobId(child.pid);
+        activeTrains.unregister(child.pid);
+        cancelTeardown?.();
+        // Fire-and-forget cloud-side cancel so the cloud job is
+        // released even though the SIGKILL below bypasses the
+        // runner's `installShutdownHandlers` (which would
+        // otherwise issue cancel itself via the graceful
+        // early-stop chain). Best-effort: we don't await because
+        // user-cancel UX should be snappy — the SIGKILL kills the
+        // local subprocess regardless of whether the cloud POST
+        // succeeded, and a transient cloud-api blip just means the
+        // job sits in "running" until the cloud reaper / TTL
+        // catches it (same fallback as a network drop). `jobId`
+        // is null when the runner never emitted its `Started job`
+        // line (early spawn failure, race against a fast cancel,
+        // custom user bin); skip the POST in that case.
+        if (jobIdForCancel) {
+          void (async () => {
+            try {
+              const state = await readState(trainCwd);
+              if (!state) return; // no scope, can't address the job
+              const rpc = createRpc();
+              await rpc.v1.jobs[":id"].cancel.$post({
+                param: { id: jobIdForCancel },
+                query: {
+                  orgSlug: state.orgSlug,
+                  projectSlug: state.projectSlug,
+                },
+              });
+            } catch {
+              // Best-effort: cloud-api transient failure or scope
+              // drift. Cloud reaper / TTL is the safety net.
+            }
+          })();
+        }
+        // SIGKILL (not the default SIGTERM) for user-initiated
+        // aborts. The runner's `installShutdownHandlers` now treats
+        // a single SIGTERM as the HMR-driven "graceful early-stop"
+        // signal — wait for the next checkpoint (up to ~5 min
+        // timeout) before exiting. That semantics is right for the
+        // HMR path but wrong for a Stop-training click: the user
+        // wants the run STOPPED, not left running in the background
+        // for minutes consuming GPU/cloud spend while the UI has
+        // already settled to idle. SIGKILL is uncatchable so the
+        // child dies immediately, eliminating the
+        // unregister-before-graceful-exit window where a fast new
+        // run could overlap an old one untracked by HMR routing.
+        //
+        // The cloud-side job is released by the fire-and-forget
+        // POST above (we recorded the runner's `Started job <id>`
+        // line on the registry; the IIFE looks it up here). SIGKILL
+        // alone would have left the cloud job orphaned until
+        // TTL/reaper because the runner can't POST cancel itself
+        // when the kernel reaps it without warning. Together —
+        // server-side cancel POST + SIGKILL — give snappy local
+        // teardown AND eventual cloud-side release.
+        //
+        // `ChildProcess.kill()` can throw (ESRCH if the process has
+        // already exited between this handler's invocation and the
+        // signal delivery). A throw here would surface as an unhandled
+        // exception in the request pipeline and crash the server
+        // handler — swallow it; the close handler above has already
+        // taken the entry out of the registry.
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // already gone; nothing to clean up.
+        }
       },
     });
-    return new Response(stream, {
-      status: 200,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+    // Expose the spawned pid via a response header so the SPA can
+    // tell its own child apart from other tabs' children when
+    // `/api/dev/events` broadcasts `restartTargets` / `hotSwapTargets`.
+    // Without this, a passive tab whose run was hot-swapped could
+    // misread a sibling tab's restart event as its own.
+    //
+    // Header is OMITTED entirely (rather than sent as an empty
+    // string) when `child.pid` isn't a number — that case happens
+    // when the OS hasn't assigned a pid by the time `spawn()`
+    // returns and the child's async `error` event will fire shortly
+    // (per-Node-docs `subprocess.pid` is `undefined` for
+    // failed-spawn children). "Header absent" is the unambiguous
+    // signal the SPA can read; an empty string would force callers
+    // to special-case `""` vs missing for the same condition. The
+    // SPA's `raw ? Number.parseInt(raw, 10) : NaN` handler treats
+    // both cases identically, but absent-only is the cleaner wire
+    // contract.
+    const headers: Record<string, string> = {
+      "content-type": "text/plain; charset=utf-8",
+    };
+    if (typeof child.pid === "number") {
+      headers[TRAIN_PID_HEADER] = String(child.pid);
+    }
+    return new Response(stream, { status: 200, headers });
   });
+
+  // `/api/dev/events` — SSE stream of HMR rebuild / error notifications.
+  // Only active when `arkor dev` passed an HMR coordinator. The CSRF model
+  // accepts `?studioToken=` here (whitelisted in `eventStreamPathPattern`)
+  // because `EventSource` cannot send headers. When HMR is not configured
+  // the route still has an explicit 404 so the request doesn't fall through
+  // to the SPA index.html (which would mislead the SPA into thinking the
+  // EventSource connected successfully).
+  if (!options.hmr) {
+    app.get("/api/dev/events", (c) =>
+      c.json({ error: "HMR not enabled" }, 404),
+    );
+  }
+  if (options.hmr) {
+    const hmr = options.hmr;
+    /** Augmented event = raw HMR event + the per-child signal results we
+     *  computed for it. We compute these once per rebuild (not once per
+     *  connected SSE client) so opening multiple Studio tabs doesn't fan
+     *  out into N × SIGTERM / N × SIGUSR2 to each child. */
+    type AugmentedEvent = HmrEvent & {
+      restart?: boolean;
+      hotSwap?: boolean;
+      restartTargets?: RestartTarget[];
+      hotSwapTargets?: RestartTarget[];
+    };
+    const sseListeners = new Set<(event: AugmentedEvent) => void>();
+    let lastAugmented: AugmentedEvent | null = null;
+
+    // Single subscription against the HMR coordinator: this handler does
+    // signal dispatch + augmentation exactly once per rebuild, then fans
+    // the augmented payload out to every connected SSE client. Late-
+    // mounting clients receive `lastAugmented` instead of triggering a
+    // fresh signal pass against the same rebuild.
+    hmr.subscribe((event) => {
+      let augmented: AugmentedEvent = event;
+      // Route dispatch through every *successful* build event, not
+      // just `rebuild`. The coordinator emits the very first
+      // successful compile as `ready` (and the entry-wait recovery
+      // path also broadcasts `ready` when a fresh-scaffold project's
+      // entry file first appears). A child started via `/api/train`
+      // before the first `ready` (e.g. the SPA fired Run Training
+      // immediately after `arkor dev` booted, while the watcher's
+      // initial BUNDLE_END was still in flight) would otherwise
+      // never get SIGUSR2/SIGTERM-routed when that build lands —
+      // leaving it stuck on a stale or empty artifact until the
+      // next edit triggers a `rebuild`. Filtering by "not error"
+      // is forward-compatible with any new successful event types.
+      if (event.type !== "error" && activeTrains.size > 0) {
+        // Single per-child decision pass: hash match → SIGUSR2 (with
+        // a Windows fallback to SIGTERM since win32 doesn't deliver
+        // SIGUSR2), hash mismatch → SIGTERM. The registry returns
+        // both buckets so the SPA can react per-child rather than
+        // assuming one global outcome.
+        const nextHash = event.configHash ?? null;
+        // Content-hash for the pre-ready-spawn equality gate (the
+        // timestamp `event.hash` would over-trigger SIGTERM-restart
+        // on identical-bytes rebuilds). Both sides of the
+        // comparison — `entry.spawnArtifactContentHash` (captured
+        // via `getCurrentArtifactContentHash()`) and this
+        // `event.contentHash` — are derived the same way, so a
+        // match means the child's loaded bytes ARE what the new
+        // configHash describes.
+        const nextArtifactContentHash = event.contentHash ?? null;
+        const { hotSwapTargets, restartTargets } = activeTrains.dispatchRebuild(
+          nextHash,
+          nextArtifactContentHash,
+        );
+        augmented = {
+          ...event,
+          hotSwap: hotSwapTargets.length > 0,
+          hotSwapTargets,
+          restart: restartTargets.length > 0,
+          restartTargets,
+        };
+      }
+      lastAugmented = augmented;
+      for (const fn of sseListeners) {
+        try {
+          fn(augmented);
+        } catch {
+          // listener controller closed mid-write — the cancel hook
+          // below takes care of removing it from the set.
+        }
+      }
+    });
+
+    app.get("/api/dev/events", () => {
+      const enc = new TextEncoder();
+      let listener: ((event: AugmentedEvent) => void) | null = null;
+      const stream = new ReadableStream({
+        start(controller) {
+          const send = (event: AugmentedEvent): void => {
+            const payload = JSON.stringify(event);
+            try {
+              controller.enqueue(
+                enc.encode(`event: ${event.type}\ndata: ${payload}\n\n`),
+              );
+            } catch {
+              // controller closed mid-write; cancel() removes us.
+            }
+          };
+          if (lastAugmented) send(lastAugmented);
+          listener = send;
+          sseListeners.add(send);
+        },
+        cancel() {
+          if (listener) sseListeners.delete(listener);
+          listener = null;
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache, no-transform",
+        },
+      });
+    });
+  }
 
   // Playground hits this so mid-training inference from Studio has the same
   // auth path as the rest of /api/*. State is auto-bootstrapped (anon only)
@@ -400,7 +957,11 @@ export function buildStudioApp(options: StudioServerOptions) {
       const file = await readFile(join(assetsDir, cleaned));
       const ext = cleaned.slice(cleaned.lastIndexOf(".") + 1);
       if (ext === "html") {
-        const html = injectStudioToken(file.toString("utf8"), studioToken);
+        const html = injectStudioMeta(
+          file.toString("utf8"),
+          studioToken,
+          Boolean(options.hmr),
+        );
         return new Response(html, {
           status: 200,
           headers: { "content-type": CONTENT_TYPES.html! },
