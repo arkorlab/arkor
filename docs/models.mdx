@@ -19,8 +19,6 @@ export const trainer = createTrainer({
 });
 ```
 
-The canonical value the cloud API accepts is `unsloth/gemma-4-E4B-it`; the `unsloth/` prefix stays in code as a deliberate credit to the Unsloth project that produced the build.
-
 ## Why one model, right now
 
 The priority in alpha is making both training and inference feel fast on one base model, not building a wide catalog. Tuning the whole path from `arkor dev` through `arkor start` to a chat-ready checkpoint against one model means optimizations to that model compound across runs, instead of getting diluted across many.

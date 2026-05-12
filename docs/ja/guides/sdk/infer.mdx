@@ -28,6 +28,8 @@ const data = await res.json();
 ## よくあるシナリオ
 
 - **サニティーチェック。** ステップ 50 とステップ 100 の出力を固定プロンプトで比較。
+- **JSON Schema で出力を制約。** `responseFormat: { type: "json_schema", json_schema: { name, schema, strict: true } }` を渡すと、レスポンスの `choices[0].message.content` が JSON 文字列として返り、`JSON.parse` で型付きオブジェクトとして使える。[構造化出力と Function Calling レシピ](/ja/cookbook/structured-outputs) を参照。
+- **関数を呼ばせる。** `tools` + `toolChoice` を渡すと、チェックポイント検査の中からモデルにツール呼び出しをリクエストさせられる。同じレシピを参照。
 - **カスタム Early Stopping。** `abortSignal` + `cancel()` と組み合わせて、迷走したランを止める。[Early Stopping レシピ](/ja/cookbook/early-stopping) を参照。
 - **ライブプレビュー。** チェックポイントの出力を Slack や自前のレビューキューに転送。
 

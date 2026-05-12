@@ -16,12 +16,12 @@ describe("baseModels", () => {
     expect(SUPPORTED_BASE_MODELS.length).toBeGreaterThan(0);
   });
 
-  it("every entry is a non-empty HuggingFace-style model id", () => {
-    // The cloud-api validation is case-sensitive (the canonical
-    // HuggingFace id is itself mixed-case, e.g. `unsloth/gemma-4-E4B-it`),
-    // so the entries must round-trip without case-folding. Allow A-Z /
-    // a-z / digits / `./_-` and require a non-empty leading char so an
-    // accidentally-empty entry trips the guard.
+  it("every entry is a non-empty model id matching HF identifier shape", () => {
+    // Cloud-api originally accepted lowercase ids only; it now normalises
+    // case internally and keeps a separate display name, so uppercase
+    // segments from the upstream HF id (e.g. `unsloth/gemma-4-E4B-it`)
+    // are accepted. The regex allows that shape while still rejecting
+    // empty or otherwise malformed entries.
     for (const m of SUPPORTED_BASE_MODELS) {
       expect(m).toMatch(/^[A-Za-z0-9][A-Za-z0-9./_-]*$/);
     }
