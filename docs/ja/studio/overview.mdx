@@ -46,7 +46,7 @@ Arkor マネージドバックエンド
 | **Run training** | Home ページのボタン。`POST /api/train` を呼ぶと `arkor start` がサブプロセスとして起動し、stdout/stderr が生のテキストとしてページにストリーミングされます。 |
 | **Jobs リスト** | Home ページ。固定 5 秒間隔でポーリング。列: Status、Name（詳細へリンク）、Created、ID。 |
 | **Job 詳細** | ライブステータスバッジ、SVG の Loss チャート、生イベントログ（直近 50 行）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
-| **Playground** | `#/playground` のチャット UI。2 モード: 1 つの対応ベースモデル、または任意の完了ジョブの最終アダプター。 |
+| **Playground** | `#/playground` のチャット UI。2 モード: 1 つの対応ベースモデル、または任意の完了済みジョブの最終アダプター。 |
 
 ## まだないもの
 
