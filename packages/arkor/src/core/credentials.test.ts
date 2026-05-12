@@ -115,6 +115,27 @@ describe("defaultArkorCloudApiUrl", () => {
     delete process.env.ARKOR_CLOUD_API_URL;
     expect(defaultArkorCloudApiUrl()).toBe("https://api.arkor.ai");
   });
+  it("strips multiple trailing slashes from the env-var value", () => {
+    // Defends against a misconfigured `ARKOR_CLOUD_API_URL` like
+    // `https://host///` collapsing to `https://host/` and producing
+    // double-slash request URLs (`https://host//v1/me`) downstream.
+    process.env.ARKOR_CLOUD_API_URL = "https://api.example.com////";
+    expect(defaultArkorCloudApiUrl()).toBe("https://api.example.com");
+  });
+  it("strips multiple trailing slashes from a credentials-derived URL", () => {
+    // Same hazard as above, but for the URL persisted on a credentials
+    // record (e.g. an anonymous bootstrap that captured a sloppy host).
+    delete process.env.ARKOR_CLOUD_API_URL;
+    expect(
+      defaultArkorCloudApiUrl({
+        mode: "anon",
+        token: "t",
+        anonymousId: "a",
+        arkorCloudApiUrl: "https://staging.arkor.ai///",
+        orgSlug: "anon-x",
+      }),
+    ).toBe("https://staging.arkor.ai");
+  });
   it("propagates an explicitly-empty ARKOR_CLOUD_API_URL (config-error surface)", () => {
     // `arkor dev`'s startup test relies on `""` reaching the URL parser
     // so a misconfigured env throws at startup instead of silently

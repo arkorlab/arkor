@@ -136,7 +136,11 @@ export function defaultArkorCloudApiUrl(
   // misconfigured env triggers the URL-parse error at startup instead
   // of being silently substituted with the production fallback. Tests
   // exercise that exact behaviour to surface config bugs early.
-  const fromEnv = process.env.ARKOR_CLOUD_API_URL?.replace(/\/$/, "");
+  // `\/+$` (one or more) so a misconfigured env / persisted value with
+  // multiple trailing slashes (`https://host///`) doesn't collapse to a
+  // single trailing slash and produce double-slash request URLs
+  // downstream.
+  const fromEnv = process.env.ARKOR_CLOUD_API_URL?.replace(/\/+$/, "");
   if (fromEnv !== undefined) return fromEnv;
   // Both shapes carry an optional `arkorCloudApiUrl`: anonymous since
   // signup, OAuth since login. `!= null` (not truthy) keeps an empty
@@ -153,7 +157,8 @@ export function defaultArkorCloudApiUrl(
     credentials?.arkorCloudApiUrl !== undefined &&
     credentials?.arkorCloudApiUrl !== null
   ) {
-    return credentials.arkorCloudApiUrl.replace(/\/$/, "");
+    // Same multi-slash strip as the env-var branch above.
+    return credentials.arkorCloudApiUrl.replace(/\/+$/, "");
   }
   return "https://api.arkor.ai";
 }
