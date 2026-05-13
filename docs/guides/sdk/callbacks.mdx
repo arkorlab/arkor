@@ -1,0 +1,45 @@
+---
+title: "Callbacks"
+description: "Watch a training run from your code."
+---
+
+# Callbacks
+
+The SDK fires callbacks at five moments while a run streams: started, log, checkpoint, completed, failed. They let you forward metrics, evaluate intermediate checkpoints, or trigger your own notifications without leaving TypeScript.
+
+```ts
+import { createTrainer } from "arkor";
+
+const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  callbacks: {
+    onStarted: ({ job }) => console.log("started", job.id),
+    onLog: ({ step, loss }) => console.log("step", step, "loss", loss),
+    onCheckpoint: async ({ step, infer }) => {
+      const r = await infer({ messages: [{ role: "user", content: "Hi" }] });
+      console.log("checkpoint", step, await r.text());
+    },
+    onCompleted: ({ job }) => console.log("done", job.id),
+    onFailed: ({ error }) => console.error("failed", error),
+  },
+});
+
+await trainer.start();
+await trainer.wait();
+```
+
+All five are optional. Each callback can return a Promise; the SDK awaits it before firing the next event.
+
+## Common uses
+
+- **Forward metrics**: in `onLog`, push `step` and `loss` to your own pipeline (PostHog, Datadog, etc.).
+- **Evaluate during training**: in `onCheckpoint`, call `infer()` against a held-out prompt and log the sample so you know early if the run is heading in the right direction.
+- **Notify on completion**: in `onCompleted` or `onFailed`, post to Slack or send an email.
+
+For richer recipes, see [Mid-run eval](/cookbook/mid-run-eval), [Early stopping](/cookbook/early-stopping), and [Notifications](/cookbook/notifications).
+
+## Reference
+
+For full type signatures, the rule that throwing inside a callback triggers SSE reconnect rather than a normal rejection, and the per-callback parameter list, see the [Callbacks reference](/sdk/callbacks). For the conceptual flow of a run, see [Run lifecycle](/concepts/lifecycle).

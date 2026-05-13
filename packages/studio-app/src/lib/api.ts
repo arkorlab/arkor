@@ -229,18 +229,49 @@ export function extractInferenceDelta(data: string): string | null {
 export async function streamTraining(
   onChunk: (text: string) => void,
   file?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const res = await apiFetch("/api/train", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...(file ? { file } : {}) }),
+    signal,
   });
   if (!res.body) return;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    onChunk(decoder.decode(value, { stream: true }));
+  // Cancel the underlying body when the caller aborts so we don't
+  // hang on `reader.read()` after the page (and the AbortController
+  // cleanup) have moved on.
+  const onAbort = () => void reader.cancel().catch(() => {});
+  // Cover the case where the signal was already aborted before we
+  // got here (or aborted in the small window between `getReader()`
+  // and `addEventListener`) — `addEventListener("abort", ...)` won't
+  // fire after the fact, so the trainer process spawned upstream
+  // would never be killed. Cancel synchronously instead.
+  if (signal?.aborted) {
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+    return;
+  }
+  signal?.addEventListener("abort", onAbort);
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      onChunk(decoder.decode(value, { stream: true }));
+    }
+    // Flush any bytes the streaming decoder buffered for a multi-byte
+    // UTF-8 sequence that landed split across the final two chunks.
+    // Without this, the last character of the trainer's output gets
+    // silently dropped when it happens to be non-ASCII (Japanese log
+    // lines, emoji progress bars, etc.).
+    const tail = decoder.decode();
+    if (tail) onChunk(tail);
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    // Release the reader lock so a subsequent caller can re-acquire
+    // the body if needed. Mirrors `iterateSseFrames`'s finally clause.
+    reader.releaseLock();
   }
 }

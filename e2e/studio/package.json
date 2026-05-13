@@ -1,0 +1,21 @@
+{
+  "name": "@arkor/e2e-studio",
+  "version": "0.0.0",
+  "description": "Private browser E2E suite for Arkor Studio. Spawns the built `arkor dev` server with a hand-written project fixture against an in-process fake cloud-api, then drives Chromium via Playwright. Never published.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report",
+    "test:coverage": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^24",
+    "arkor": "workspace:*",
+    "typescript": "^5"
+  }
+}

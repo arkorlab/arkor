@@ -102,6 +102,7 @@ export const trainer = createTrainer({
     },
     onCheckpoint: async ({ step, infer }) => {
       // see /cookbook/mid-run-eval
+      // or /cookbook/structured-outputs for typed-field extraction
     },
     onCompleted: async ({ job, artifacts }) => {
       // see /cookbook/notifications
@@ -123,13 +124,13 @@ Pick the ones that match your run. The trainer file is just TypeScript; you can 
 
 ## 4. Change the base model
 
-The `model` field is forwarded to the cloud API as a string. Today the curated path uses `unsloth/gemma-4-E4B-it`, which is what every starter template ships with. The cloud API decides what other identifiers it accepts; sending an unsupported value produces a 4xx from upstream and a `training.failed` event with the backend's error message.
+The `model` field is forwarded to the cloud API as a string. Today the curated path uses `gemma-4-E4B-it`, which is what every starter template ships with. The cloud API decides what other identifiers it accepts; sending an unsupported value produces a 4xx from upstream and a `training.failed` event with the backend's error message.
 
 ```ts
 model: "unsloth/gemma-4-E4B-it",   // curated; this is the supported path today
 ```
 
-Trying a different base is something the roadmap explicitly calls out (see the project README's "What's coming next"). Until that lands, treat the `model` field as a single supported value rather than an open menu.
+Trying a different base is something the [Roadmap](/roadmap) explicitly calls out. Until that lands, treat the `model` field as a single supported value rather than an open menu.
 
 ## Putting it together
 

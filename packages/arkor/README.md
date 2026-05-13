@@ -2,7 +2,7 @@
 
 The Arkor SDK + CLI + bundled local Studio. One package; three surfaces.
 
-> Status: alpha (`0.0.1-alpha.7`). APIs may change without notice. No compat
+> Status: alpha (`0.0.1-alpha.9`). APIs may change without notice. No compat
 > shims are offered between alpha versions — pin and re-read the changelog
 > before bumping.
 
@@ -20,7 +20,7 @@ Direct install is fine too:
 pnpm add arkor
 ```
 
-Requires Node.js 22.6+.
+Requires Node.js 22.22.0+.
 
 ## SDK
 

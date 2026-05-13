@@ -1,0 +1,38 @@
+---
+title: "infer"
+description: "Call the in-flight model from inside a checkpoint callback."
+---
+
+# `infer`
+
+Inside [`onCheckpoint`](/guides/sdk/callbacks), the SDK hands you a function called `infer`. Calling it runs an inference request against the just-saved checkpoint and returns a raw `Response`. This is the path that lets you evaluate a half-trained model before the full run finishes.
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  const res = await infer({
+    messages: [{ role: "user", content: "I can't log in." }],
+  });
+  console.log(`step=${step}`, await res.text());
+}
+```
+
+The default response is an SSE stream (the same shape Studio's Playground consumes). Pass `stream: false` if you want a single JSON body instead:
+
+```ts
+const res = await infer({ messages, stream: false });
+const data = await res.json();
+```
+
+`infer` is **only** available on `CheckpointContext`. There is no top-level export of it; the callback argument scopes the call to the right job and step automatically.
+
+## Common scenarios
+
+- **Sanity check.** Compare step-50 and step-100 outputs against a fixed prompt.
+- **Constrain output to a JSON schema.** Pass `responseFormat: { type: "json_schema", json_schema: { name, schema, strict: true } }`; the response body's `choices[0].message.content` is a JSON string you can `JSON.parse` into a typed object. See the [Structured outputs and function calling recipe](/cookbook/structured-outputs).
+- **Call a function.** Pass `tools` + `toolChoice` so the model can request a tool call from inside the checkpoint check. Same recipe as above.
+- **Custom early-stopping.** Combine with `abortSignal` + `cancel()` to stop a run that has gone off the rails. See the [Early stopping recipe](/cookbook/early-stopping).
+- **Live preview.** Forward the checkpoint output to Slack or your own review queue.
+
+## Reference
+
+For the full `InferArgs` shape, the streaming-vs-JSON tradeoffs, the SSE frame format, the constraints on retargeting, and pointers for decoding the SSE delta stream, see the [`infer` reference](/sdk/infer).

@@ -1,15 +1,23 @@
 export { createTrainer } from "./core/trainer";
 export { createArkor, isArkor } from "./core/arkor";
 export { runTrainer } from "./core/runner";
+export { CloudApiError } from "./core/client";
 export type {
   Arkor,
   ArkorInput,
   ArkorProjectState,
   BlobDatasetSource,
+  ChatMessage,
   DatasetSource,
   HuggingfaceDatasetSource,
+  InferArgs,
   JobStatus,
   LoraConfig,
+  ResponseFormat,
+  StructuredOutputs,
+  ToolCall,
+  ToolChoice,
+  ToolDefinition,
   Trainer,
   TrainerCallbacks,
   TrainerInput,

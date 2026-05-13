@@ -21,10 +21,10 @@ export interface Template {
 // The three demo templates below pair `unsloth/gemma-4-E4B-it` with curated
 // HuggingFace datasets published under the `arkorlab` org. Each dataset is in
 // OpenAI messages format (chatml), one sample per JSONL line, with the system
-// prompt baked into the conversation — so `datasetFormat: { type: "chatml" }`
+// prompt baked into the conversation - so `datasetFormat: { type: "chatml" }`
 // hands the right shape to the trainer's apply_chat_template step.
 //
-// Use `dryRun: true` for a 2–3 minute smoke test (50 rows, max_steps=10) before
+// Use `dryRun: true` for a 2-3 minute smoke test (50 rows, max_steps=10) before
 // committing to a full run.
 
 const REDACTION_TRAINER = `import { createTrainer } from "arkor";
@@ -35,11 +35,13 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  lora: { r: 16, alpha: 16 },
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
   // Set dryRun: true for a fast end-to-end smoke test before a full run.
   // dryRun: true,
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    // See /cookbook/structured-outputs to add a JSON-schema mid-run check
+    // (e.g. force \`{ redactedText, redactedCount, tags }\`) here.
   },
 });
 `;
@@ -52,15 +54,36 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/translate-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  lora: { r: 16, alpha: 16 },
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    // See /cookbook/structured-outputs to add a JSON-schema mid-run check
+    // (e.g. force \`{ translation, detectedLanguage }\`) here.
   },
 });
 `;
 
 const TRIAGE_TRAINER = `import { createTrainer } from "arkor";
+
+const TRIAGE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    category: { type: "string" },
+    urgency: { type: "string", enum: ["low", "medium", "high"] },
+    summary: { type: "string" },
+    nextAction: { type: "string" },
+  },
+  required: ["category", "urgency", "summary", "nextAction"],
+  additionalProperties: false,
+};
+
+interface TriageOutput {
+  category: string;
+  urgency: "low" | "medium" | "high";
+  summary: string;
+  nextAction: string;
+}
 
 export const trainer = createTrainer({
   name: "triage-run",
@@ -68,10 +91,44 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  lora: { r: 16, alpha: 16 },
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
     onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+    // Mid-run sanity check: force the half-trained model to return the
+    // triage object shape via JSON Schema, then log it. See
+    // /cookbook/structured-outputs for the full pattern (and how to wire
+    // this up to early-stopping based on the typed fields).
+    onCheckpoint: async ({ step, infer }) => {
+      try {
+        const res = await infer({
+          messages: [
+            { role: "user", content: "I can't log in to my account." },
+          ],
+          stream: false,
+          maxTokens: 200,
+          responseFormat: {
+            type: "json_schema",
+            json_schema: {
+              name: "triage",
+              schema: TRIAGE_SCHEMA,
+              strict: true,
+            },
+          },
+        });
+        const data = (await res.json()) as {
+          choices: Array<{ message: { content: string } }>;
+        };
+        const content = data.choices[0]?.message.content;
+        if (content === undefined || content === "") {
+          throw new Error("triage check returned empty content");
+        }
+        const parsed = JSON.parse(content) as TriageOutput;
+        console.log(\`step=\${step} triage=\`, parsed);
+      } catch (err) {
+        console.error(\`step=\${step} triage check failed:\`, err);
+      }
+    },
   },
 });
 `;
@@ -80,8 +137,8 @@ export const trainer = createTrainer({
 // CLI prompt lists demos first (sorted by estimated training time).
 //
 // Estimated training times assume A100 80GB on Runpod Serverless with the
-// template defaults (maxSteps: 100, batchSize: 4, LoRA r=16, 4-bit). Real
-// numbers depend on GPU availability + cold-start; treat them as ballparks.
+// template defaults (maxSteps: 100, batchSize: 4, LoRA r=16, full precision).
+// Real numbers depend on GPU availability + cold-start; treat them as ballparks.
 export const TEMPLATES: Record<TemplateId, Template> = {
   triage: {
     label: "Triage",
@@ -189,5 +246,5 @@ npm run start    # runs the build artifact on the cloud
       : ""
   }
 
-Requires Node.js >= 22.6.
+Requires Node.js >= 22.22.0.
 `;

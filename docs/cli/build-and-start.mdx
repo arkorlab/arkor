@@ -7,9 +7,17 @@ description: "Bundle the trainer and run it without Studio."
 
 `arkor build` and `arkor start` are the headless equivalent of [Studio](/concepts/studio)'s **Run training** button. Use them when you want to run a trainer without booting the UI: in CI, on a server, or from another script.
 
-Studio's **Run training** internally spawns `arkor start` (without an entry argument) so the runtime path is the same in both flows.
+Studio's **Run training** internally spawns `arkor start` (without an entry argument), so the runtime path is the same in both flows.
 
 ## `arkor build`
+
+Bundles `src/arkor/index.ts` into `.arkor/build/index.mjs` using esbuild.
+
+### Synopsis
+
+```
+arkor build [entry]
+```
 
 <CodeGroup>
 
@@ -31,14 +39,6 @@ bun run build
 
 </CodeGroup>
 
-Bundles `src/arkor/index.ts` into `.arkor/build/index.mjs` using esbuild.
-
-### Synopsis
-
-```
-arkor build [entry]
-```
-
 ### Argument
 
 | Argument | Default | Description |
@@ -47,11 +47,19 @@ arkor build [entry]
 
 ### Output
 
-`.arkor/build/index.mjs` (`outDir` defaults to `.arkor/build`). The output is a single ESM file targeting Node 22.6, with `packages: "external"` so bare specifiers (`arkor`, anything from `node_modules`) stay external and the artifact resolves the runtime SDK from your installed `node_modules`. Only relative imports are bundled inline.
+`.arkor/build/index.mjs` (`outDir` defaults to `.arkor/build`). The output is a single ESM file targeting Node 22.22, with `packages: "external"` so bare specifiers (`arkor`, anything from `node_modules`) stay external and the artifact resolves the runtime SDK from your installed `node_modules`. Only relative imports are bundled inline.
 
 If the entry does not exist, `arkor build` throws with a hint to either create `src/arkor/index.ts` or pass an explicit entry.
 
 ## `arkor start`
+
+Runs `.arkor/build/index.mjs`. The runner imports the bundle, finds the registered trainer (preferring `export const arkor`, then `export const trainer`, then the default export), and calls `trainer.start()` followed by `trainer.wait()`.
+
+### Synopsis
+
+```
+arkor start [entry]
+```
 
 <CodeGroup>
 
@@ -73,14 +81,6 @@ bun start
 
 </CodeGroup>
 
-Runs `.arkor/build/index.mjs`. The runner imports the bundle, finds the registered trainer (preferring `export const arkor`, then `export const trainer`, then the default export), and calls `trainer.start()` followed by `trainer.wait()`.
-
-### Synopsis
-
-```
-arkor start [entry]
-```
-
 ### Argument
 
 | Argument | Default | Description |
@@ -89,7 +89,7 @@ arkor start [entry]
 
 The auto-build-on-missing behavior exists so Studio's "Run training" does not have to chain two spawns. From a script you usually want to call `arkor build` and `arkor start` explicitly so a build failure surfaces before you commit to running.
 
-### Behavior summary
+### Behavior
 
 | Situation | What `arkor start` does |
 | --- | --- |
@@ -99,7 +99,7 @@ The auto-build-on-missing behavior exists so Studio's "Run training" does not ha
 
 The "reuse the artifact" path is what lets Studio surface trainer edits via its `/api/manifest` rebuild rather than the train endpoint. For a CLI-only workflow, run `arkor build` whenever you change `src/arkor/`.
 
-## Common errors
+## Errors
 
 `arkor build`:
 
@@ -195,3 +195,9 @@ bun run build && bun start
 ```
 
 </CodeGroup>
+
+## See also
+
+- [Project structure § `src/arkor/`](/concepts/project-structure#srcarkor) for the export shapes the runner accepts
+- [`runTrainer`](/sdk/overview#auxiliary-helpers-advanced) for driving the same runtime path from your own TypeScript code
+- [Programmatic runs recipe](/cookbook/programmatic-runs) for a full server / script wiring

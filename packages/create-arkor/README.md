@@ -3,7 +3,7 @@
 Scaffolder for [Arkor](https://github.com/arkorlab/arkor) projects. Run via
 `npm create` / `pnpm create` / `yarn create` / `bun create`.
 
-> Status: alpha (`0.0.1-alpha.7`).
+> Status: alpha (`0.0.1-alpha.9`).
 
 ## Usage
 
@@ -102,7 +102,7 @@ convention read `AGENTS.md` directly.
 - **translate** — multilingual support-intake translation across 9 languages. → `{translation, detectedLanguage}` JSON. Dataset: `arkorlab/translate-demo`. ~7 min training.
 - **redaction** — PII redaction. Free-text in → `{redactedText, redactedCount, tags}` JSON with `[REDACTED]` substitutions. Dataset: `arkorlab/redaction-demo`. ~12 min training.
 
-All three pair `unsloth/gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The `src/arkor/index.ts` entry point is identical across templates; only `src/arkor/trainer.ts` differs.
+All three pair `gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The `src/arkor/index.ts` entry point is identical across templates; only `src/arkor/trainer.ts` differs.
 
 ## Next step
 

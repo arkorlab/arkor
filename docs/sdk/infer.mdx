@@ -18,33 +18,285 @@ onCheckpoint: async ({ step, infer }) => {
 }
 ```
 
-## Input
+## Signature
+
+```ts
+type Infer = (args: InferArgs) => Promise<Response>;
+```
+
+## Parameters
 
 ```ts
 interface InferArgs {
-  messages: Array<{
-    role: "system" | "user" | "assistant";
-    content: string;
-  }>;
+  messages: ChatMessage[];
   temperature?: number;
   topP?: number;
   maxTokens?: number;
   /** Default: true. Set false to get a single JSON body instead of SSE. */
   stream?: boolean;
+  /** OpenAI-compatible function-calling tool definitions. */
+  tools?: ToolDefinition[];
+  /** "auto" | "none" | "required" | { type: "function", function: { name } } */
+  toolChoice?: ToolChoice;
+  /** OpenAI-compatible response_format (text / json_object / json_schema). */
+  responseFormat?: ResponseFormat;
+  /** vLLM structured outputs (regex / choice / grammar) for cases response_format can't express. */
+  structuredOutputs?: StructuredOutputs;
   signal?: AbortSignal;
 }
 ```
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `messages` | array of `{ role, content }` | Chat history. The roles match the OpenAI / HuggingFace chat-template convention. |
+| `messages` | `ChatMessage[]` | Chat history. Discriminated union over `system` / `user` / `assistant` (with optional `tool_calls`) / `tool` (with `tool_call_id`) — matches the OpenAI message shape so a tool-calling history can round-trip. |
 | `temperature` | `number?` | Sampling temperature. Backend default if omitted. |
 | `topP` | `number?` | Nucleus sampling. Backend default if omitted. |
 | `maxTokens` | `number?` | Maximum response tokens. Backend default if omitted. |
 | `stream` | `boolean?` | Default **true** (SSE). Set `false` for a single JSON body. |
+| `tools` | `ToolDefinition[]?` | Function declarations the model is allowed to call. When set without an explicit `toolChoice`, the OpenAI-compatible default `"auto"` applies; the underlying endpoint must be configured for auto-tool extraction or the request returns `400 tool_calling_not_configured`. |
+| `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }` — only `"auto"` (and the default when `tools` is present) needs the auto-extraction parser; the rest go through the guided-decoding path. |
+| `responseFormat` | `ResponseFormat?` | OpenAI's standard structured-output knob: `{ type: "text" }`, `{ type: "json_object" }`, or `{ type: "json_schema", json_schema: { name, schema, strict? } }`. Prefer this when expressible. |
+| `structuredOutputs` | `StructuredOutputs?` | vLLM extension for constraints `responseFormat` can't express. When supplied, **exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` must be set (vLLM 0.20's `StructuredOutputsParams.__post_init__` rejects 0 or 2+ at parse time, before any merge with `responseFormat`); the TypeScript type encodes this via `ExactlyOne`. Combining a `structuredOutputs` constraint with a `responseFormat` constraint (`json_object` / `json_schema`) is also rejected — vLLM ends up with two constraints in the merged sampling params. `json_object` accepts only `true`. Empty `choice: []` and blank `grammar` strings are rejected at ingress. Field names are snake_case (`json_object`, `disable_any_whitespace`, `whitespace_pattern`) to match vLLM's wire format. (vLLM's wire format also has `structural_tag` for Llama-style inline tool-call framing; arkor's curated path is Gemma 4, so the SDK type omits it until broader base-model support lands.) |
 | `signal` | `AbortSignal?` | Aborts the local fetch. Does not stop work on the backend; the model finishes generating but you stop reading. |
 
-## Output
+### Tool calling example
+
+```ts
+onCheckpoint: async ({ infer }) => {
+  const res = await infer({
+    messages: [
+      { role: "user", content: "What's the weather in Tokyo?" },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "get_weather",
+          parameters: {
+            type: "object",
+            properties: { city: { type: "string" } },
+            required: ["city"],
+          },
+        },
+      },
+    ],
+    toolChoice: "auto",
+    stream: false,
+  });
+  const data = (await res.json()) as { choices: Array<{ message: ChatMessage }> };
+  // data.choices[0].message may be { role: "assistant", tool_calls: [...] }
+};
+```
+
+### Structured-output example
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Extract the user's email." }],
+  responseFormat: {
+    type: "json_schema",
+    json_schema: {
+      name: "user",
+      schema: {
+        type: "object",
+        properties: { email: { type: "string", format: "email" } },
+        required: ["email"],
+      },
+      strict: true,
+    },
+  },
+});
+```
+
+### Choosing between `responseFormat` modes
+
+| Mode | Constraint enforced | Use when |
+| --- | --- | --- |
+| `{ type: "text" }` | None | Free-form text (the default behaviour). Useful as an explicit override when a parent function passes a value through. |
+| `{ type: "json_object" }` | Output parses as JSON | You want valid JSON but cannot pin the keys yet. The body parses, but property names, types, and required keys are not enforced. |
+| `{ type: "json_schema", json_schema: { ..., strict: true } }` | Full schema | Properties, types, and required keys are all enforced; properties not declared are rejected. Prefer this whenever you can write a schema, even a loose one. |
+
+`responseFormat` is OpenAI-compatible and is the right knob for ~all "give me JSON" cases. Reach for `structuredOutputs` only for constraints `responseFormat` cannot express.
+
+**`strict: true` requires `additionalProperties: false` on every object schema.** OpenAI's strict mode is satisfied only when each `type: "object"` schema (the root, plus every nested object) explicitly sets `additionalProperties: false` and lists every property in `required`. Schemas that omit it are rejected by the backend with a `400 invalid_schema`. The triage example above (and the cookbook recipe) follow this rule; copy them when you write your own schema.
+
+### `structuredOutputs` examples
+
+The vLLM-specific extension. Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object` per call — the TypeScript type rejects two at once. Don't combine with a `responseFormat` constraint either: that would put two constraints into vLLM's sampling params and the request is rejected at ingress.
+
+**Fixed choice list.** Forces the response to one of a small enumerated set. Useful for classifier-style outputs where any prefix is a regression.
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Classify urgency: I can't log in." }],
+  structuredOutputs: { choice: ["low", "medium", "high"] },
+  stream: false,
+});
+```
+
+**Regex.** Constrains the output to a regex match. Fits ID formats, currency strings, structured tokens.
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Generate a ticket id." }],
+  structuredOutputs: { regex: "^[A-Z]{3}-\\d{4}$" },
+  stream: false,
+});
+```
+
+**Grammar.** EBNF grammar for fully custom shapes. The string is forwarded to vLLM verbatim — see the [vLLM structured outputs docs](https://docs.vllm.ai/) for the supported grammar syntax.
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Spell out the digit." }],
+  structuredOutputs: {
+    grammar: 'root ::= "zero" | "one" | "two" | "three"',
+  },
+  stream: false,
+});
+```
+
+**`json_object: true`.** The structuredOutputs equivalent of `responseFormat: { type: "json_object" }` — present for parity with vLLM's wire format. Only `true` is accepted; `false` is rejected at compile time (the type literal) and at ingress (vLLM only flips into JSON-object mode on a truthy value, so `false` would silently produce an unconstrained generation). Follows the same one-constraint-per-call rule as the others.
+
+### Tool calling round-trip
+
+After the model emits `tool_calls`, run the tool yourself, append the result as a `tool` message, and call `infer` again. Pass the same `tools` and `toolChoice` so the second turn sees the same surface.
+
+```ts
+import type { ChatMessage } from "arkor";
+
+const tools = [
+  {
+    type: "function" as const,
+    function: {
+      name: "get_weather",
+      parameters: {
+        type: "object",
+        properties: { city: { type: "string" } },
+        required: ["city"],
+      },
+    },
+  },
+];
+
+const messages: ChatMessage[] = [
+  { role: "user", content: "What's the weather in Tokyo?" },
+];
+
+const first = await infer({ messages, tools, toolChoice: "auto", stream: false });
+const firstData = (await first.json()) as { choices: Array<{ message: ChatMessage }> };
+const reply = firstData.choices[0].message;
+
+if (reply.role === "assistant" && reply.tool_calls?.length) {
+  const call = reply.tool_calls[0];
+  const args = JSON.parse(call.function.arguments) as { city: string };
+  const result = await getWeather(args.city);
+
+  const second = await infer({
+    messages: [
+      ...messages,
+      reply,                                        // assistant turn carrying tool_calls
+      { role: "tool", tool_call_id: call.id, content: JSON.stringify(result) },
+    ],
+    tools,
+    toolChoice: "auto",
+    stream: false,
+  });
+  const finalReply = ((await second.json()) as { choices: Array<{ message: ChatMessage }> })
+    .choices[0].message;
+  // finalReply.content is the user-facing answer.
+}
+```
+
+`tool_calls[i].function.arguments` is a **JSON-encoded string**, not a parsed object — `JSON.parse` it on receipt. `tool_call_id` on the `tool` message must match the `id` from the assistant's prior `tool_calls[i]` so the model can attribute the result to the right call.
+
+## Type definitions
+
+The supporting types are exported from `arkor`. Inlined here for reference:
+
+```ts
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; tool_calls?: ToolCall[] }
+  | {
+      role: "assistant";
+      /** May be omitted or `null` when the turn is purely a tool call. */
+      content?: string | null;
+      tool_calls: [ToolCall, ...ToolCall[]];
+    }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    /** JSON-encoded arguments string — partial deltas may be streamed. */
+    arguments: string;
+  };
+}
+
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    /** JSON Schema describing the tool arguments. */
+    parameters?: Record<string, unknown>;
+    strict?: boolean;
+  };
+}
+
+export type ToolChoice =
+  | "auto"
+  | "none"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        name: string;
+        description?: string;
+        schema: Record<string, unknown>;
+        strict?: boolean;
+      };
+    };
+
+// Helper: a record where exactly one key is required and every
+// sibling is forbidden (typed `never`). Encodes vLLM's
+// "must specify exactly one constraint" invariant at the type level.
+// Internal to the SDK; shown here so the StructuredOutputs definition
+// below is self-contained.
+type ExactlyOne<T> = {
+  [K in keyof T]: { [P in K]: T[K] } & {
+    [P in Exclude<keyof T, K>]?: never;
+  };
+}[keyof T];
+
+// Exactly one of `json` / `regex` / `choice` / `grammar` /
+// `json_object` must be set. Field names are snake_case to match
+// vLLM's wire format verbatim.
+export type StructuredOutputs = ExactlyOne<{
+  json: Record<string, unknown>;
+  regex: string;
+  choice: string[];
+  grammar: string;
+  json_object: true;
+}> & {
+  disable_any_whitespace?: boolean;
+  disable_additional_properties?: boolean;
+  whitespace_pattern?: string;
+};
+```
+
+The assistant role splits into two sub-shapes so `{ role: "assistant" }` with neither `content` nor `tool_calls` does **not** type-check — at least one must be present. The `[ToolCall, ...ToolCall[]]` form encodes the non-empty `tool_calls` constraint at the type level.
+
+## Returns
 
 `infer` returns `Promise<Response>`: the raw Fetch `Response`. The SDK does not parse the body; you decide how to consume it:
 
@@ -65,14 +317,74 @@ const data = await res.json();
 
 When `stream: true` (the default), the body is an SSE event stream in the same shape Studio's Playground consumes. The SDK does not currently expose a frame parser for this stream; if you need decoded text deltas, copy the small `extractInferenceDelta` helper from `packages/studio-app/src/lib/api.ts` or write a parser around `eventsource-parser`.
 
+### Response envelope (`stream: false`)
+
+Non-streaming responses are an OpenAI-compatible chat-completion object:
+
+```ts
+{
+  choices: [
+    {
+      index: 0,
+      finish_reason: "stop" | "length" | "tool_calls" | string,
+      message: ChatMessage,
+    },
+  ],
+  // plus the OpenAI-standard `id` / `model` / `usage` fields the backend chooses to surface.
+}
+```
+
+Where the result lands depends on which constraint you used:
+
+- **No constraint** or **`responseFormat: { type: "text" }`** — `choices[0].message.content` is plain text.
+- **`responseFormat: { type: "json_object" }`** or **`type: "json_schema"`** — `choices[0].message.content` is a **string** containing the JSON. You call `JSON.parse` yourself; the SDK does not pre-parse.
+- **`structuredOutputs: { json }` or `{ json_object: true }`** — same: `choices[0].message.content` is a JSON string. `JSON.parse` it.
+- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }`** — `choices[0].message.content` is a string matching the constraint. Not JSON; do not parse.
+- **`tools` request that returned a tool call** — `choices[0].message.tool_calls` is populated; `content` is omitted or `null`. Each `tool_calls[i].function.arguments` is itself a JSON-encoded string.
+
+`finish_reason: "tool_calls"` is the signal the model wants to call a function rather than emit a final answer; loop with the [tool calling round-trip](#tool-calling-round-trip).
+
+## Errors
+
+`infer` does **not** hand you a non-OK `Response`. The SDK calls into `CloudApiClient.chat`, which throws a `CloudApiError` whenever the backend returns a non-2xx status — by the time control returns from `await infer(...)`, you've either got a successful `Response` or an exception. Wrap each call in `try / catch` (or use `.catch()`) and branch on `err instanceof CloudApiError` to read `err.status` and `err.message`. The class is exported from `arkor` for that purpose.
+
+```ts
+import { CloudApiError } from "arkor";
+
+try {
+  const res = await infer({ messages, ... });
+  // Use the Response.
+} catch (err) {
+  if (err instanceof CloudApiError) {
+    // err.status is the HTTP status; err.message carries the upstream message.
+  }
+}
+```
+
+| Status | When | What to do |
+| --- | --- | --- |
+| `400` `tool_calling_not_configured` | `tools` set with implicit or explicit `toolChoice: "auto"`, but the inference endpoint is not configured for auto-tool-extraction. | Enable auto-tool-extraction on the endpoint, or fall back to `toolChoice: "required"` / `toolChoice: { type: "function", function: { name } }` (these go through the guided-decoding path and do not need the parser). Retrying without changing config will keep failing. |
+| `400` schema-validation error | `responseFormat.json_schema.schema` or a `tools[i].function.parameters` is not a valid JSON Schema; `structuredOutputs` was passed with zero or more than one constraint set; or `structuredOutputs` carries a constraint *and* `responseFormat` already supplies one (two constraints conflict at vLLM). | Fix the schema / pick exactly one constraint / drop the conflicting field. The TS type rejects multiple `structuredOutputs` keys at compile time; this status is mostly hit for runtime-built constraint objects or raw HTTP callers. |
+| `4xx` model rejection | Backend rejected the request (e.g. context length exceeded, unsupported message shape). | `err.message` carries the upstream message — surface it to the caller. |
+| `5xx` upstream | Inference cluster outage / cold start timeout. | The SDK does **not** retry inference requests automatically (the trainer's SSE reconnect loop is for the *job event* stream, not for `/v1/inference/chat`). Roll your own retry around `infer` if you want one. |
+
+Throws bubble out of `onCheckpoint` and are caught by the runtime's reconnect loop, so unhandled errors can lead to silent retries. Always handle inference errors locally.
+
 ## Constraints
 
 - `infer` lives **only** on `CheckpointContext`. There is no equivalent for completed jobs from the SDK side; for that path use the cloud-api directly or trigger the run again. Studio's Playground is the UI-level route to chat with a completed adapter.
 - The call is scoped to `{ kind: "checkpoint", jobId, step }`. You cannot retarget it to a different checkpoint or a different model from inside `onCheckpoint`.
 - The function is not memoized: every call hits the backend.
 
-## When you would use it
+## Use cases
 
 - **Sanity check during a run.** Compare a checkpoint at step 50 to one at step 100 against a fixed prompt. If the loss curve looks fine but outputs are degraded, you find out before the run finishes.
 - **Custom early-stopping.** Combine with a simple eval prompt: if outputs diverge, abort the run via `controller.abort()` (see [`abortSignal`](/sdk/trainer-control#abortsignal)) and call `trainer.cancel()` to stop the backend. See the [Early stopping recipe](/cookbook/early-stopping) for the full pattern.
 - **Live preview into your own UI.** Send the checkpoint output to Slack, an internal review queue, or your own app's preview channel.
+
+## See also
+
+- [`onCheckpoint`](/sdk/callbacks#oncheckpoint-step-adapter-job-infer-artifacts-) for the callback that hands you `infer`
+- [Mid-run eval recipe](/cookbook/mid-run-eval) for an end-to-end pattern
+- [Early stopping recipe](/cookbook/early-stopping) for tying `infer` output to `abortSignal` + `cancel()`
+- [Trainer control](/sdk/trainer-control) for `abortSignal` and `cancel()`

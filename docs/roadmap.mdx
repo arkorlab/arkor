@@ -7,13 +7,23 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
 
 ## In progress
 
-Nothing actively in development on the public surface this cycle. Current effort is on stabilizing what's already shipped (CLI, Studio, scaffolder).
+<CardGroup cols={2}>
+  <Card title="Hosted inference endpoint URL" icon="plug" href="/sdk/infer">
+    <div id="hosted-inference-endpoint" />
+    Surface a stable HTTPS endpoint URL for each fine-tuned model so you can call it from your product without going through the SDK.
+  </Card>
+
+  <Card title="Template-free project creation" icon="file-circle-plus" href="/cli/init">
+    <div id="template-free-projects" />
+    Scaffold a project without picking a starter template. Today `create-arkor` and `arkor init` require choosing `triage`, `translate`, or `redaction`; this opens the door to starting from a blank trainer.
+  </Card>
+</CardGroup>
 
 ## Up next
 
 <CardGroup cols={2}>
-  <Card title="Auth0 token auto-refresh" icon="key" href="/cli/auth">
-    <div id="auth0-token-auto-refresh" />
+  <Card title="OAuth token auto-refresh" icon="key" href="/cli/auth">
+    <div id="oauth-token-auto-refresh" />
     Silent refresh on expiry, so long-running sessions stop getting interrupted by re-login.
   </Card>
 
@@ -31,6 +41,11 @@ Nothing actively in development on the public surface this cycle. Current effort
     <div id="studio-dry-run" />
     Surface the existing dry-run option in the Studio UI for fast smoke tests before kicking off a full training run.
   </Card>
+
+  <Card title="Full Gemma 4 family support" icon="layer-group" href="/sdk/create-trainer">
+    <div id="gemma-4-family" />
+    Cover the full Gemma 4 family in the `model` field. Today every starter template uses `gemma-4-E4B-it`; opening up the rest of the family lets you pick the size that fits your latency and quality budget.
+  </Card>
 </CardGroup>
 
 ## Backlog
@@ -44,11 +59,6 @@ Nothing actively in development on the public surface this cycle. Current effort
   <Card title="deploy and eval slots" icon="rocket" href="/sdk/create-arkor">
     <div id="deploy-and-eval-slots" />
     Grow `createArkor` into an umbrella for shipping and evaluating models, not only training.
-  </Card>
-
-  <Card title="More base models" icon="cubes" href="/sdk/create-trainer">
-    <div id="more-base-models" />
-    Expand support beyond Gemma to additional open-weight model families.
   </Card>
 
   <Card title="Download trained models" icon="download">
@@ -69,5 +79,15 @@ Nothing actively in development on the public surface this cycle. Current effort
   <Card title="On-device model templates" icon="mobile-screen">
     <div id="on-device-templates" />
     Templates aimed at small models suitable for WebGPU and mobile targets.
+  </Card>
+
+  <Card title="Broader base model support" icon="cubes" href="/sdk/create-trainer">
+    <div id="more-base-models" />
+    Expand support beyond the Gemma 4 family to additional open-weight model families, so the `model` field becomes a real menu instead of a single supported value. We're concentrating on the Gemma 4 family in this earliest stage so we can deliver fast, stable inference and training to as many people as possible.
+  </Card>
+
+  <Card title="Multimodal training" icon="images" href="/sdk/create-trainer">
+    <div id="multimodal-training" />
+    Fine-tune on image (and eventually audio) inputs alongside text. Today every template is text-in, text-out.
   </Card>
 </CardGroup>

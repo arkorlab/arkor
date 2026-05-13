@@ -1,0 +1,68 @@
+---
+title: "arkor init"
+description: "既存のプロジェクトに Arkor を追加する。"
+---
+
+# `arkor init`
+
+Arkor のスターターファイルをカレントディレクトリーに展開します: `src/arkor/` 配下の [Trainer](/ja/concepts/trainer)、`arkor.config.ts`、`package.json` の `dev` / `build` / `start` script。
+
+既に自分が所有するディレクトリーの中で実行してください。新規プロジェクトは `<pm> create arkor` から始めます（[Quickstart](/ja/quickstart) を参照）。
+
+## 実行
+
+<CodeGroup>
+
+```bash pnpm
+pnpm arkor init
+```
+
+```bash npm
+npm arkor init
+```
+
+```bash yarn
+yarn arkor init
+```
+
+```bash yarn-berry
+yarn run arkor init
+```
+
+```bash bun
+bun arkor init
+```
+
+</CodeGroup>
+
+プロジェクト名、スターターテンプレート、`git init` の有無を聞かれた後、依存をインストールします。最初はデフォルトを採用してすぐに動かし、あとからカスタマイズしてください。
+
+## その次
+
+init が終わったら次のコマンドへ:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm dev
+```
+
+```bash npm
+npm run dev
+```
+
+```bash yarn
+yarn dev
+```
+
+```bash bun
+bun dev
+```
+
+</CodeGroup>
+
+Studio が `http://127.0.0.1:4000` で起動します。そこから学習ランをトリガーできます。
+
+## リファレンス
+
+すべてのフラグ、エラーメッセージ、パッケージマネージャ検出ルール、生成されるファイル一覧は [`arkor init` リファレンス](/ja/cli/init) を参照してください。

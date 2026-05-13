@@ -1,0 +1,44 @@
+---
+title: "Supported models"
+description: "Which base models the Arkor backend accepts today, why the list is short, and where it's headed."
+---
+
+Today both the `model` field of `createTrainer` and Studio's Playground (base-model mode) accept exactly one value: `gemma-4-E4B-it`. Below: what that value gets you, why the list is short on purpose, and what's next.
+
+## What you can pick today
+
+`gemma-4-E4B-it` is the Gemma 4 instruction-tuned build, packaged by Unsloth for fast LoRA / QLoRA fine-tuning. Every starter template (`triage`, `translate`, `redaction`) targets it by default.
+
+```ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+});
+```
+
+## Why one model, right now
+
+The priority in alpha is making both training and inference feel fast on one base model, not building a wide catalog. Tuning the whole path from `arkor dev` through `arkor start` to a chat-ready checkpoint against one model means optimizations to that model compound across runs, instead of getting diluted across many.
+
+Gemma 4 fits this stage because it is small enough to iterate on quickly, capable enough to be useful inside a product, and openly licensed.
+
+## What's coming
+
+<CardGroup cols={2}>
+  <Card title="Gemma 4 family" icon="layer-group" href="/roadmap#gemma-4-family">
+    Open the `model` field to the full Gemma 4 family so you can pick the variant that matches your use case (size, capability, latency, quality).
+  </Card>
+
+  <Card title="Other open-weight families" icon="cubes" href="/roadmap#more-base-models">
+    Expanding to additional open-weight families is on the roadmap Backlog. Today the focus stays on Gemma 4 to keep delivery on it fast and stable.
+  </Card>
+</CardGroup>
+
+## See also
+
+- [Trainer concept](/concepts/trainer) for what the `model` field is and where it sits among the other fields.
+- [`createTrainer` reference](/sdk/create-trainer) for the full `TrainerInput` type.
+- [Roadmap](/roadmap) for the broader picture of what's next.

@@ -53,7 +53,7 @@ export async function runBuild(opts: BuildOptions = {}): Promise<BuildResult> {
     bundle: true,
     platform: "node",
     format: "esm",
-    target: "node22.6",
+    target: "node22.22",
     outfile: outFile,
     packages: "external",
     logLevel: "error",

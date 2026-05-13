@@ -1,0 +1,46 @@
+---
+title: "createTrainer"
+description: "ファインチューニング学習を定義する。"
+---
+
+# `createTrainer`
+
+`createTrainer` は学習を記述する場所です。どのベースモデルを使い、どのデータセットを使い、どんなノブを回すか。返ってくる `Trainer` は `arkor start`（と Studio の **Run training** ボタン）が駆動します。
+
+```ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+## 最初に触るフィールド
+
+- `name`: Studio とクラウド側ログに表示。具体的な名前を。
+- `model`: ベースのオープンウェイトモデル。テンプレートは `gemma-4-E4B-it` を使用。[サポートしているモデル](/ja/models) を参照。
+- `dataset`: 学習データの所在。[`DatasetSource`](/ja/guides/sdk/dataset) を参照。
+- `lora`: LoRA / QLoRA のノブ。`r: 16, alpha: 16` で十分。省略するとバックエンドのデフォルト。
+- `maxSteps` または `numTrainEpochs`: ラン時間を区切る。
+- `callbacks`: [コールバック](/ja/guides/sdk/callbacks) を参照。
+
+## 本物のランを使わずに試す
+
+`dryRun: true` でバックエンドにデータセットを切り詰めとステップ制限を指示し、パイプラインの全段階を走らせつつ数分で終わるラン形式に変えられます。コールバックを初めて組むときに便利です。
+
+```ts
+createTrainer({
+  name: "smoke",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  dryRun: true,
+});
+```
+
+## リファレンス
+
+`TrainerInput` の全フィールド、各型付きオプションフィールド、`LoraConfig`、未安定の forwarded フィールド（`warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps` など）、マルチトレーナーのロードマップは [`createTrainer` リファレンス](/ja/sdk/create-trainer) を参照してください。

@@ -68,3 +68,9 @@ CLI フローの外で Arkor を駆動するコード（自前のサーバーや
 
 - `SDK_VERSION`、`defaultArkorCloudApiUrl()`: CLI と Studio サーバーが使う。深いパスから import しないでください。エクスポート契約は変わり得ます。
 - CLI コマンドランナー（`runBuild`、`runStart`、`runDev`、`runInit`、`runLogin`、`runLogout`、`runWhoami`）: `src/cli/commands/` 以下にあり、CLI 専用です。学習ランを駆動したいなら（上記の）`runTrainer` を使うか、`trainer.start()` / `trainer.wait()` を直接呼んでください。
+
+## 関連項目
+
+- [実行ライフサイクル](/ja/concepts/lifecycle): `start()` / `wait()` が実際に何をするか
+- [プロジェクト構成](/ja/concepts/project-structure): プロジェクト内でマニフェストとトレーナーがどこに置かれるか
+- [CLI 概要](/ja/cli/overview): SDK をシェルから駆動する面

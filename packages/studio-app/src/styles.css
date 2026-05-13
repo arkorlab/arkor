@@ -1,187 +1,59 @@
-:root {
-  color-scheme: dark;
-  --bg: #0e1116;
-  --panel: #161b22;
-  --border: #1f2937;
-  --text: #e5e7eb;
-  --muted: #9ca3af;
-  --accent: #60a5fa;
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --err: #f87171;
+@import "tailwindcss";
+
+/* Dark mode is opt-in via `data-theme="dark"` on <html> (set by the
+ * pre-paint script in index.html and toggled by ThemeToggle). Mirrors
+ * the marketing site's `.arkor-theme` scoping convention. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+  --font-sans:
+    "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
 }
 
-html, body, #root {
-  height: 100%;
-}
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  font-size: 14px;
-}
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-.app {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-}
-.app-header {
-  padding: 20px 32px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-.app-header h1 {
-  margin: 0;
-  font-size: 20px;
-  letter-spacing: 0.02em;
-}
-.app-header nav a {
-  color: var(--text);
-  text-decoration: none;
-  margin-right: 16px;
-  font-weight: 500;
-}
-.app-header nav a:hover { color: var(--accent); }
-.app-header .identity {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 12px;
-  font-family: ui-monospace, monospace;
-}
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
 
-main {
-  padding: 24px 32px;
-  flex: 1;
-}
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
 
-.columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-}
-@media (max-width: 960px) {
-  .columns { grid-template-columns: 1fr; }
-}
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    background-color: var(--color-white);
+    color: var(--color-zinc-900);
+  }
 
-section h2, .jobs-list h2, .job-detail h2, .playground h2 {
-  margin: 0 0 12px;
-  font-size: 16px;
-}
+  [data-theme="dark"] body {
+    background-color: #09090b;
+    color: var(--color-zinc-100);
+  }
 
-button {
-  background: #2563eb;
-  color: white;
-  border: 0;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-button:hover:not(:disabled) { background: #1d4ed8; }
+  /* Selection mirrors marketing's teal accent */
+  ::selection {
+    background-color: var(--color-teal-200);
+    color: var(--color-teal-950);
+  }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-th, td {
-  text-align: left;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-}
-th {
-  color: var(--muted);
-  font-weight: 500;
-}
-td code {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.status {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.status-queued { background: #1f2937; color: var(--muted); }
-.status-running { background: #1e3a8a; color: var(--accent); }
-.status-completed { background: #064e3b; color: var(--ok); }
-.status-failed { background: #7f1d1d; color: var(--err); }
-.status-cancelled { background: #1f2937; color: var(--muted); }
-
-.muted { color: var(--muted); }
-.error { color: var(--err); }
-
-.log {
-  background: #0a0d12;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 12px;
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  max-height: 260px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-}
-
-.run-training button { margin-bottom: 12px; }
-
-.jobs-head { display: flex; gap: 12px; align-items: center; }
-
-.job-detail .back {
-  display: inline-block;
-  margin-bottom: 12px;
-  color: var(--muted);
-  text-decoration: none;
-}
-.job-detail .back:hover { color: var(--accent); }
-
-.chart {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 16px;
-  margin: 16px 0;
-}
-
-.playground label { display: block; margin: 8px 0; }
-.playground select { margin-left: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 6px 8px; }
-.playground .mode-select { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
-.playground .mode-select legend { font-size: 12px; color: var(--muted); padding: 0 6px; }
-.playground .mode-select label { display: inline-flex; align-items: center; gap: 6px; margin: 0 12px 0 0; }
-.playground .chat {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 12px;
-  max-height: 360px;
-  overflow-y: auto;
-  margin: 12px 0;
-}
-.msg { display: block; margin: 8px 0; }
-.msg-role {
-  display: inline-block;
-  text-transform: uppercase;
-  font-size: 11px;
-  color: var(--muted);
-  margin-right: 8px;
-}
-.playground form { display: flex; gap: 8px; }
-.playground input {
-  flex: 1;
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 14px;
+  [data-theme="dark"] ::selection {
+    background-color: color-mix(in srgb, var(--color-teal-400) 30%, transparent);
+    color: var(--color-teal-50);
+  }
 }

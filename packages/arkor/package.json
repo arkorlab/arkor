@@ -1,6 +1,6 @@
 {
   "name": "arkor",
-  "version": "0.0.1-alpha.7",
+  "version": "0.0.1-alpha.9",
   "description": "Code-first TypeScript training SDK, CLI, and local Studio.",
   "private": false,
   "type": "module",
@@ -39,7 +39,7 @@
     "README.ja.md"
   ],
   "engines": {
-    "node": ">=22.6"
+    "node": ">=22.22.0"
   },
   "scripts": {
     "build": "pnpm --filter @arkor/studio-app bundle && tsc -p tsconfig.build.json --noEmit && tsdown && node scripts/copy-studio-assets.mjs && node scripts/copy-root-files.mjs && node scripts/copy-docs.mjs",

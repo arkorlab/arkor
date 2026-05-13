@@ -19,12 +19,24 @@ export const trainer = createTrainer({
 
 `createTrainer` は `start` / `wait` / `cancel` メソッドを持つ `Trainer` オブジェクトを返します（[トレーナー制御](/ja/sdk/trainer-control) を参照）。この関数は `TrainerInput` のクライアント側バリデーションを **しません**: TypeScript が型付きフィールドをコンパイル時にチェックし、それ以外は `start()` 実行時にクラウド API へ転送されます。不正な値は構築時のクライアント側 throw ではなく、学習中にバックエンドエラーとして現れます。
 
+## シグネチャー
+
+```ts
+function createTrainer(
+  input: TrainerInput,
+  /** @internal */
+  context?: TrainerInternalContext,
+): Trainer;
+```
+
+`TrainerInput` の全体は下記のパラメータで説明します。返ってくる `Trainer` は [トレーナー制御](/ja/sdk/trainer-control) ページにあります。第 2 引数 `context` は `@internal` 注釈付きで、テストと高度なオーバーライド用に予約されています。`TrainerInternalContext` 自体は形状が安定していないため `arkor` から export されていません。設定可能な既知のフィールド (`reconnectDelayMs` / `maxReconnectDelayMs` / `maxReconnectAttempts`) は [トレーナー制御 > 再接続](/ja/sdk/trainer-control#再接続) を参照してください。
+
 ## 必須フィールド
 
 | フィールド | 型 | 補足 |
 | --- | --- | --- |
 | `name` | `string` | ジョブ名。Studio とマネージドバックエンドに表示。 |
-| `model` | `string` | ベースモデル ID。今日のキュレートテンプレートは `unsloth/gemma-4-E4B-it` を使用。 |
+| `model` | `string` | ベースモデル ID。今日のキュレートテンプレートは `gemma-4-E4B-it` を使用（[サポートしているモデル](/ja/models) を参照）。 |
 | `dataset` | [`DatasetSource`](/ja/sdk/dataset) | HuggingFace データセット名 or blob URL。 |
 
 ## 型付きオプションフィールド
@@ -83,6 +95,13 @@ createTrainer({
 
 これらのフィールドは明示的に **安定ではありません**: バックエンド契約はリリース間で変わり得て、渡す値にコンパイル時チェックもありません。上記の型付きフィールドを優先し、他で賄えないときだけ手を出してください。
 
-## まだないもの
+## ロードマップ
 
 - マルチトレーナープロジェクト。`createArkor` は単一の `trainer` を受け付けます。配列形はありません。2 つ目のトレーナーを登録するには、エクスポートをランタイムで切り替えるか、API がその形を獲得するのを待つことになります。
+
+## 関連項目
+
+- [トレーナー制御](/ja/sdk/trainer-control): `Trainer` オブジェクトの `start` / `wait` / `cancel`
+- [ライフサイクルコールバック](/ja/sdk/callbacks): `callbacks` フィールド
+- [`DatasetSource`](/ja/sdk/dataset): `dataset` フィールドの形
+- [`createArkor`](/ja/sdk/create-arkor): トレーナーをプロジェクトマニフェストにラップ

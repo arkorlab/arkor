@@ -61,7 +61,7 @@ const GITIGNORE_PATH = ".gitignore";
 const PACKAGE_JSON_PATH = "package.json";
 const AGENTS_MD_PATH = "AGENTS.md";
 const CLAUDE_MD_PATH = "CLAUDE.md";
-const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.7";
+const DEFAULT_ARKOR_SPEC = "^0.0.1-alpha.9";
 
 // Marker pair scoped to arkor — do not reuse Next.js's `nextjs-` markers.
 // Anything between these markers is treated as canonical and replaced on

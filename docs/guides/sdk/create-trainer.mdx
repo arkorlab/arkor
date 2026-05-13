@@ -1,0 +1,46 @@
+---
+title: "createTrainer"
+description: "Define a fine-tuning run."
+---
+
+# `createTrainer`
+
+`createTrainer` is where you describe a fine-tuning run: which base model, which dataset, what knobs. The result is a `Trainer` that `arkor start` (and Studio's **Run training** button) drives.
+
+```ts
+import { createTrainer } from "arkor";
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+});
+```
+
+## The fields you reach for first
+
+- `name`: shows up in Studio and in cloud-side logs. Pick something specific.
+- `model`: the base open-weight model. Templates use `gemma-4-E4B-it`. See [Supported models](/models).
+- `dataset`: where the training data lives. See [`DatasetSource`](/guides/sdk/dataset).
+- `lora`: LoRA / QLoRA knobs. `r: 16, alpha: 16` is a fine default; omit to take the backend default.
+- `maxSteps` or `numTrainEpochs`: cap how long the run goes.
+- `callbacks`: see [Callbacks](/guides/sdk/callbacks).
+
+## Try it without a real run
+
+`dryRun: true` tells the backend to truncate the dataset and cap steps so a run finishes in a couple of minutes while still exercising every stage of the pipeline. Useful when wiring up callbacks for the first time.
+
+```ts
+createTrainer({
+  name: "smoke",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  dryRun: true,
+});
+```
+
+## Reference
+
+For the full `TrainerInput` shape, every typed optional field, `LoraConfig`, the unstable forwarded fields (`warmupSteps`, `loggingSteps`, `saveSteps`, `evalSteps`, etc.), and the multi-trainer roadmap note, see the [`createTrainer` reference](/sdk/create-trainer).

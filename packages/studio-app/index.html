@@ -4,7 +4,38 @@
     <meta charset="utf-8" />
     <title>Arkor Studio</title>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      // Pre-paint theme: read localStorage and prefers-color-scheme before
+      // React mounts so we don't flash the wrong palette. Mirrors the
+      // marketing site's `theme-init.js`.
+      (function () {
+        var stored = null;
+        try {
+          stored = localStorage.getItem("arkor-studio-theme");
+        } catch (_) {
+          // localStorage may throw under privacy modes / sandboxed
+          // iframes — fall through to prefers-color-scheme rather than
+          // hardcoding light, which would override an explicit OS-level
+          // dark preference.
+        }
+        var theme = stored === "light" || stored === "dark" ? stored : null;
+        if (theme === null) {
+          // matchMedia exists but throws in some embedded WebViews; the
+          // whole init script must not crash, so guard the call too.
+          try {
+            theme =
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          } catch (_) {
+            theme = "light";
+          }
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
