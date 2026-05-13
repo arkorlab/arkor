@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildStudioApp } from "./server";
 import { writeCredentials } from "../core/credentials";
-import { writeState } from "../core/state";
+import { readState, writeState } from "../core/state";
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
@@ -783,6 +783,51 @@ process.exit(0);
       expect(getRecordedDeprecation()?.message).toBe("jobs endpoint deprecated");
     });
 
+    it("targets the credentials-stamped host instead of the startup baseUrl", async () => {
+      // Regression: every Studio route used to use the closure-captured
+      // `baseUrl` (resolved at startup, env / production fallback only).
+      // For an OAuth user who logged into staging without keeping
+      // `ARKOR_CLOUD_API_URL` set, that meant Studio's `/api/jobs` hit
+      // production while only the deployments proxy reached the right
+      // host. Threading the loaded credentials through
+      // `defaultArkorCloudApiUrl(creds)` aligns every route on the
+      // auth-time URL — assert that here by writing creds whose
+      // `arkorCloudApiUrl` is *different* from `build()`'s baseUrl
+      // (`http://mock`) and verifying the upstream call goes there.
+      await writeCredentials({
+        mode: "auth0",
+        accessToken: "at-staging",
+        refreshToken: "rt",
+        expiresAt: 0,
+        auth0Domain: "tenant.auth0.com",
+        audience: "https://staging.example/",
+        clientId: "cid",
+        arkorCloudApiUrl: "https://staging.example",
+      });
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      let upstreamUrl = "";
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        upstreamUrl = input instanceof Request ? input.url : input.toString();
+        return new Response(JSON.stringify({ jobs: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(upstreamUrl).toMatch(/^https:\/\/staging\.example\/v1\/jobs/);
+    });
+
     it("uses the Studio training cwd for job event streams", async () => {
       await writeCredentials(ANON_CREDS);
       await writeState(
@@ -1335,6 +1380,913 @@ process.exit(0);
       expect(res.status).toBe(500);
       const body = (await res.json()) as { error?: string };
       expect(body.error).toMatch(/credentials|login/i);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Deployments (`/api/deployments/*`) — minimal coverage of the router
+  // boundary. Cloud-side semantics already have heavy test coverage in
+  // `core/client.deployments.test.ts`; here we verify only that the Studio
+  // server forwards correctly, returns the empty wrapper when no project
+  // state exists, and surfaces upstream errors verbatim.
+  // -------------------------------------------------------------------------
+  describe("/api/deployments", () => {
+    const ORIG_FETCH = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("returns an empty deployments list when no project state is on disk", async () => {
+      // Mirrors the `/api/jobs` empty path. No upstream fetch should happen.
+      await writeCredentials(ANON_CREDS);
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("should not call upstream when no scope");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        deployments: [],
+        scopeMissing: true,
+      });
+      expect(calls).toBe(0);
+    });
+
+    it("forwards GET /api/deployments to /v1/endpoints with project scope", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "anon-org",
+          projectSlug: "p",
+          projectId: "p-id",
+        },
+        trainCwd,
+      );
+      let upstreamUrl: string | null = null;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        upstreamUrl = String(input);
+        return new Response(
+          JSON.stringify({
+            deployments: [
+              {
+                id: "d1",
+                slug: "x",
+                orgId: "o",
+                projectId: "p",
+                target: { kind: "base_model", baseModel: "m" },
+                authMode: "none",
+                urlFormat: "openai_compat",
+                enabled: true,
+                customDomain: null,
+                createdAt: "2026-05-05T00:00:00Z",
+                updatedAt: "2026-05-05T00:00:00Z",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { deployments: { slug: string }[] };
+      expect(body.deployments[0]?.slug).toBe("x");
+      expect(upstreamUrl).toContain("/v1/endpoints");
+      expect(upstreamUrl).toContain("orgSlug=anon-org");
+      expect(upstreamUrl).toContain("projectSlug=p");
+    });
+
+    it("propagates upstream 409 with the upstream error message", async () => {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({ error: "Deployment slug is already taken" }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        )) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          slug: "taken",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/already taken/);
+    });
+
+    it("escapes quoted-string reserved chars in the re-emitted Warning header", async () => {
+      // RFC 7234 `Warning` is a `quoted-string`: `"`, `\`, and control
+      // chars (CR/LF) cannot appear unescaped, otherwise the value
+      // either gets truncated by the next double-quote or rejected as
+      // a malformed header. The capture / re-emit path here MUST
+      // sanitise — without it, an upstream message containing any of
+      // those characters silently produces a malformed response.
+      clearRecordedDeprecation();
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ deployments: [] }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            Deprecation: "true",
+            // The literal source message: a double-quote, a backslash,
+            // and a newline. Cloud-api would normally escape these
+            // before sending, but the Studio proxy can't trust that —
+            // it has to defensively sanitise on its own emit too.
+            Warning: '299 - "she said \\"hi\\" \\\\ then left"',
+          },
+        })) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      const warning = res.headers.get("Warning");
+      // Must start with the `299 - "` prefix and end with `"`, with
+      // no unescaped `"` / `\` / control chars in between.
+      expect(warning).toMatch(/^299 - ".*"$/);
+      const inner = warning!.slice('299 - "'.length, -1);
+      // Every `"` and `\` inside the quoted-string must be the second
+      // char of a `\X` escape sequence — i.e. preceded by an odd run
+      // of backslashes. A simple unescaped scan suffices: no bare `"`,
+      // no CR/LF.
+      expect(inner).not.toMatch(/(^|[^\\])"/);
+      expect(inner).not.toMatch(/[\r\n]/);
+    });
+
+    it("forwards upstream Deprecation / Warning / Sunset headers on success", async () => {
+      // The deployment proxy unwraps the upstream Response into a typed
+      // SDK result, then re-serialises it as JSON — that strips the
+      // upstream headers by default. `withDeploymentClient` re-emits
+      // `Deprecation` / `Warning` / `Sunset` from the per-request
+      // `onDeprecation` capture so the SPA gets the same upgrade /
+      // sunset signals it sees on `/api/me` and friends.
+      clearRecordedDeprecation();
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ deployments: [] }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            Deprecation: "true",
+            Warning: '299 - "endpoints API deprecated"',
+            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+          },
+        })) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Deprecation")).toBe("true");
+      expect(res.headers.get("Warning")).toContain("endpoints API deprecated");
+      expect(res.headers.get("Sunset")).toBe(
+        "Wed, 01 Jan 2030 00:00:00 GMT",
+      );
+      // Tee'd into the global recorder too so the CLI's end-of-run
+      // deprecation flush still surfaces the warning when the same
+      // SDK code path is exercised from a non-Studio context.
+      expect(getRecordedDeprecation()?.message).toBe(
+        "endpoints API deprecated",
+      );
+    });
+
+    it("forwards upstream Deprecation headers even on a 4xx error response", async () => {
+      // A deprecated cloud-api could surface a sunset header alongside
+      // a 4xx (e.g. on an `endpoints` route that's been replaced). The
+      // proxy must re-emit the headers in the error envelope too —
+      // dropping them on non-2xx would silently hide the deprecation
+      // signal from any request that happens to fail.
+      clearRecordedDeprecation();
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({ error: "Deployment slug is already taken" }),
+          {
+            status: 409,
+            headers: {
+              "content-type": "application/json",
+              Deprecation: "true",
+              Warning: '299 - "endpoints API deprecated"',
+            },
+          },
+        )) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          slug: "taken",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(409);
+      expect(res.headers.get("Deprecation")).toBe("true");
+      expect(res.headers.get("Warning")).toContain("endpoints API deprecated");
+    });
+
+    it("rejects mutating /api/deployments without a studio token", async () => {
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("bootstraps `.arkor/state.json` on first anonymous POST and forwards the create", async () => {
+      // Coverage for the write-path branch in `withDeploymentClient` that
+      // calls `ensureProjectState()` for anonymous workspaces with no
+      // state file. The first POST should create the project (PROJECT
+      // upsert), persist `.arkor/state.json`, and then forward the
+      // deployment create with the resolved scope. Without this branch
+      // working, the very first "Create endpoint" click on a fresh
+      // anonymous workspace would hard-fail.
+      await writeCredentials(ANON_CREDS);
+      const upstreamCalls: { url: string; method?: string }[] = [];
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: RequestInit,
+      ) => {
+        const url = String(input);
+        upstreamCalls.push({ url, method: init?.method });
+        if (url.includes("/v1/projects") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({
+              project: {
+                id: "p-id",
+                slug: "anon-cwd",
+                name: "anon-cwd",
+                orgId: "o-id",
+                createdAt: "2026-05-04T00:00:00Z",
+                updatedAt: "2026-05-04T00:00:00Z",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v1/endpoints") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({ deployment: deploymentResponse("first") }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        throw new Error(`unexpected upstream call: ${init?.method} ${url}`);
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          slug: "first",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { deployment: { slug: string } };
+      expect(body.deployment.slug).toBe("first");
+      // The bootstrap must precede the endpoint create, otherwise the
+      // endpoint POST would have nothing to scope itself to.
+      const projectIdx = upstreamCalls.findIndex((c) =>
+        c.url.includes("/v1/projects"),
+      );
+      const endpointIdx = upstreamCalls.findIndex((c) =>
+        c.url.includes("/v1/endpoints"),
+      );
+      expect(projectIdx).toBeGreaterThanOrEqual(0);
+      expect(endpointIdx).toBeGreaterThan(projectIdx);
+    });
+
+    it("distinguishes JSON-parse failure from valid-but-falsy bodies", async () => {
+      // Codex round 81 P2: `if (!body)` would lump `false`, `0`, `""`
+      // in with parse failures and surface "Invalid JSON" — masking
+      // the actual shape problem. Parse failure stays "Invalid JSON
+      // body"; valid-but-falsy bodies hit the schema validator and
+      // get a useful 400 about the missing fields.
+      await writeCredentials(ANON_CREDS);
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called");
+      }) as typeof fetch;
+      const app = build();
+      // 1. Genuine parse failure → "Invalid JSON body".
+      const malformedRes = await app.request("/api/deployments", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: "{not json",
+      });
+      expect(malformedRes.status).toBe(400);
+      expect((await malformedRes.json()).error).toBe("Invalid JSON body");
+
+      // 2-4. Valid JSON, valid-but-falsy → schema rejects with the
+      // structured `Invalid deployment create body` envelope, NOT
+      // the "Invalid JSON" generic.
+      for (const body of ["false", "0", '""']) {
+        const res = await app.request("/api/deployments", {
+          method: "POST",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body,
+        });
+        expect(res.status).toBe(400);
+        const out = (await res.json()) as { error?: string };
+        expect(out.error).not.toBe("Invalid JSON body");
+        expect(out.error).toMatch(/Invalid deployment create body/);
+      }
+      expect(upstreamCalls).toBe(0);
+    });
+
+    it("rejects PATCH / key-create bodies that aren't JSON objects (no upstream call)", async () => {
+      // Same pattern as the POST guard, but for the routes that
+      // delegate shape-validation to the cloud API (PATCH, key
+      // create). Local 400 with a deterministic message instead of a
+      // round-trip to cloud-api just to surface the same rejection.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called");
+      }) as typeof fetch;
+      const app = build();
+
+      // `null` is added to the matrix because `c.req.json()` *parses*
+      // it successfully — so the parse-failure check (now using a
+      // `Symbol` sentinel) doesn't catch it. The shape check has to
+      // explicitly reject `null` despite `typeof null === "object"`,
+      // otherwise the JS gotcha would forward it as the request body.
+      for (const body of ["false", "0", '""', "[]", "null"]) {
+        const patchRes = await app.request("/api/deployments/dep-1", {
+          method: "PATCH",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body,
+        });
+        expect(patchRes.status).toBe(400);
+        expect((await patchRes.json()).error).toMatch(/must be a JSON object/);
+
+        const keyRes = await app.request("/api/deployments/dep-1/keys", {
+          method: "POST",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body,
+        });
+        expect(keyRes.status).toBe(400);
+        // Key-create runs the schema validator, so the message
+        // mentions the missing `label` rather than the generic "must
+        // be a JSON object" copy used for PATCH.
+        expect((await keyRes.json()).error).toMatch(/`label`/);
+      }
+      expect(upstreamCalls).toBe(0);
+    });
+
+    it("rejects key-create bodies that lack a non-empty `label` string", async () => {
+      // The "must include a `label` string" 400 copy has to actually
+      // be true — without the schema check, `{}` and `{ label: 123 }`
+      // would forward upstream and the error would come from cloud-
+      // api instead. Guard the contract here so the local 400 message
+      // matches the actual reason.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called");
+      }) as typeof fetch;
+      const app = build();
+
+      const badBodies: unknown[] = [
+        {}, // missing label
+        { label: 123 }, // wrong type
+        { label: "" }, // empty string
+        { label: "   " }, // whitespace-only (trim → empty)
+        { label: "x".repeat(81) }, // over the 80-char cap
+      ];
+      for (const body of badBodies) {
+        const res = await app.request("/api/deployments/dep-1/keys", {
+          method: "POST",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify(body),
+        });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toMatch(/`label`/);
+      }
+      expect(upstreamCalls).toBe(0);
+    });
+
+    it("PARSE_FAILED sentinel keeps valid `null` distinct from a parse failure", async () => {
+      // Reviewer point: `c.req.json()` returns the literal `null`
+      // successfully. Coercing the `.catch()` branch to `null` would
+      // collapse "parse failed" and "valid `null` body" into one case
+      // and surface "Invalid JSON body" for both. Use a `Symbol`
+      // sentinel so:
+      //   - genuinely malformed JSON  → "Invalid JSON body"
+      //   - well-formed `null` body   → schema/shape error ("must be
+      //                                  a JSON object" / `label`)
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      const app = build();
+      // PATCH with literal `null` body — well-formed JSON, MUST hit
+      // the shape error, not the parse-failure copy.
+      const patchRes = await app.request("/api/deployments/dep-1", {
+        method: "PATCH",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: "null",
+      });
+      expect(patchRes.status).toBe(400);
+      const patchBody = (await patchRes.json()) as { error?: string };
+      expect(patchBody.error).not.toBe("Invalid JSON body");
+      expect(patchBody.error).toMatch(/must be a JSON object/);
+
+      // PATCH with malformed JSON — MUST hit the parse-failure copy.
+      const malformedPatch = await app.request("/api/deployments/dep-1", {
+        method: "PATCH",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: "{not json",
+      });
+      expect(malformedPatch.status).toBe(400);
+      expect((await malformedPatch.json()).error).toBe("Invalid JSON body");
+    });
+
+    it("rejects malformed POST bodies BEFORE bootstrapping scope (no orphan project)", async () => {
+      // Codex round 73 P2: a primitive-shape check would still pass
+      // semantically invalid bodies like `{ authMode: "bogus" }` or
+      // a `target: {}` with no discriminator. On a fresh anonymous
+      // workspace those would still enter `ensureProjectState()` and
+      // create + persist a remote project as a side effect — even
+      // though the cloud API would 400 immediately afterwards. The
+      // request-body schema rejects those here, before any local /
+      // remote scope mutation can happen.
+      await writeCredentials(ANON_CREDS);
+      // Crucial: no `.arkor/state.json` on disk. Any upstream call
+      // (specifically the `POST /v1/projects` bootstrap) is a bug.
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called for malformed body");
+      }) as typeof fetch;
+      const app = build();
+
+      const cases = [
+        // Bogus authMode (closed enum violation).
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "bogus",
+        },
+        // target with no discriminator → discriminated-union violation.
+        {
+          slug: "valid-slug",
+          target: {},
+          authMode: "none",
+        },
+        // adapter target missing required `adapter.kind`.
+        {
+          slug: "valid-slug",
+          target: { kind: "adapter", adapter: { jobId: "j" } },
+          authMode: "none",
+        },
+        // Slug too short (must be 2-50).
+        {
+          slug: "x",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        },
+        // Slug pattern violation (leading dash).
+        {
+          slug: "-bad-leading",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        },
+        // runRetentionMode "bogus" — Codex round 79 P2 evidence:
+        // a primitive shape check used to let this through.
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+          runRetentionMode: "bogus",
+        },
+        // `runRetentionDays` without `runRetentionMode === "days"` —
+        // the discriminated coupling must reject this here so the
+        // server isn't asked to bootstrap a project just to
+        // disambiguate.
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+          runRetentionMode: "unlimited",
+          runRetentionDays: 7,
+        },
+        // mode "days" without runRetentionDays — mirror coupling.
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+          runRetentionMode: "days",
+        },
+        // Negative runRetentionDays (must be a positive integer).
+        {
+          slug: "valid-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+          runRetentionMode: "days",
+          runRetentionDays: -1,
+        },
+      ];
+      for (const body of cases) {
+        const res = await app.request("/api/deployments", {
+          method: "POST",
+          headers: studioHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify(body),
+        });
+        expect(res.status).toBe(400);
+        const out = (await res.json()) as { error?: string };
+        expect(out.error).toMatch(/Invalid deployment create body/);
+      }
+      // Critical assertion: zero upstream calls means
+      // `ensureProjectState()` never ran, so no remote project was
+      // provisioned and no `.arkor/state.json` was written.
+      expect(upstreamCalls).toBe(0);
+      const stillNoState = await readState(trainCwd);
+      expect(stillNoState).toBeNull();
+    });
+
+    it("rejects POST /api/deployments with a manual-state hint when Auth0 creds have no state file", async () => {
+      // Coverage for the Auth0 branch in `withDeploymentClient`: we
+      // intentionally do NOT bootstrap because we don't know which org
+      // the logged-in user wants the deployment in. The error must
+      // point at the only working remediation today (write `.arkor/
+      // state.json` by hand), since `arkor login` and `arkor init`
+      // both leave that file untouched.
+      await writeCredentials({
+        mode: "auth0",
+        accessToken: "at",
+        refreshToken: "rt",
+        expiresAt: 0,
+        auth0Domain: "d",
+        audience: "a",
+        clientId: "c",
+      });
+      let upstreamCalls = 0;
+      globalThis.fetch = (async () => {
+        upstreamCalls++;
+        throw new Error("upstream must not be called");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          // 2+ chars, matches the slug pattern — the request-body
+          // schema must pass so we actually hit the
+          // `withDeploymentClient("create", …)` Auth0 branch instead
+          // of bouncing on schema validation.
+          slug: "my-slug",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/\.arkor\/state\.json/);
+      expect(body.error).toMatch(/by hand/);
+      expect(upstreamCalls).toBe(0);
+    });
+
+    // -----------------------------------------------------------------------
+    // Per-id and key-sub-route coverage. The previous block covered list +
+    // create + 409. Each handler below is an independent forward path with
+    // its own param parsing + body parsing + error normalization, so a
+    // boundary test per route catches regressions in any of those.
+    // -----------------------------------------------------------------------
+    function deploymentResponse(slug = "x") {
+      return {
+        id: "00000000-0000-4000-8000-000000000010",
+        slug,
+        orgId: "00000000-0000-4000-8000-000000000001",
+        projectId: "00000000-0000-4000-8000-000000000002",
+        target: { kind: "base_model", baseModel: "m" },
+        authMode: "none",
+        urlFormat: "openai_compat",
+        enabled: true,
+        customDomain: null,
+        createdAt: "2026-05-04T00:00:00Z",
+        updatedAt: "2026-05-04T00:00:00Z",
+      };
+    }
+
+    async function arrangeProjectState() {
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+    }
+
+    function studioHeaders(extra: Record<string, string> = {}) {
+      return {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+        ...extra,
+      };
+    }
+
+    it("GET /api/deployments/:id forwards to /v1/endpoints/:id", async () => {
+      await arrangeProjectState();
+      let upstreamUrl: string | null = null;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        upstreamUrl = String(input);
+        return new Response(
+          JSON.stringify({ deployment: deploymentResponse("alpha") }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(upstreamUrl).toContain("/v1/endpoints/dep-1");
+      expect(upstreamUrl).toContain("orgSlug=anon-org");
+    });
+
+    it("PATCH /api/deployments/:id sends the body verbatim to upstream", async () => {
+      await arrangeProjectState();
+      let upstreamMethod: string | undefined;
+      let upstreamBody: string | undefined;
+      globalThis.fetch = (async (
+        _input: Parameters<typeof fetch>[0],
+        init?: RequestInit,
+      ) => {
+        upstreamMethod = init?.method;
+        upstreamBody = init?.body as string | undefined;
+        return new Response(
+          JSON.stringify({
+            deployment: { ...deploymentResponse(), enabled: false },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        method: "PATCH",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ enabled: false }),
+      });
+      expect(res.status).toBe(200);
+      expect(upstreamMethod).toBe("PATCH");
+      expect(JSON.parse(upstreamBody as string)).toEqual({ enabled: false });
+    });
+
+    it("PATCH /api/deployments/:id rejects malformed JSON with 400 (no upstream call)", async () => {
+      await arrangeProjectState();
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("upstream should not be called");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        method: "PATCH",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: "not-json",
+      });
+      expect(res.status).toBe(400);
+      expect(calls).toBe(0);
+    });
+
+    it("DELETE /api/deployments/:id normalizes upstream 204 to a 200 `{}` envelope", async () => {
+      // The cloud API answers 204; the SDK promise resolves to void; the
+      // Studio router serializes that as JSON 200 `{}` so the SPA's JSON
+      // parsing path is uniform across every route.
+      await arrangeProjectState();
+      let upstreamMethod: string | undefined;
+      globalThis.fetch = (async (
+        _input: Parameters<typeof fetch>[0],
+        init?: RequestInit,
+      ) => {
+        upstreamMethod = init?.method;
+        return new Response(null, { status: 204 });
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        method: "DELETE",
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({});
+      expect(upstreamMethod).toBe("DELETE");
+    });
+
+    it("GET /api/deployments/:id/keys forwards to the keys sub-route", async () => {
+      await arrangeProjectState();
+      let upstreamUrl: string | null = null;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        upstreamUrl = String(input);
+        return new Response(
+          JSON.stringify({
+            keys: [
+              {
+                id: "k1",
+                label: "production",
+                prefix: "ark_live_",
+                enabled: true,
+                createdAt: "2026-05-04T00:00:00Z",
+                lastUsedAt: null,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1/keys", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(upstreamUrl).toContain("/v1/endpoints/dep-1/keys");
+    });
+
+    it("POST /api/deployments/:id/keys preserves the plaintext envelope", async () => {
+      await arrangeProjectState();
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            key: {
+              id: "k1",
+              label: "production",
+              plaintext: "ark_live_TESTSECRET",
+              prefix: "ark_live_T",
+              createdAt: "2026-05-04T00:00:00Z",
+            },
+          }),
+          { status: 201, headers: { "content-type": "application/json" } },
+        )) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1/keys", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ label: "production" }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        key: { plaintext: string };
+      };
+      expect(body.key.plaintext).toBe("ark_live_TESTSECRET");
+    });
+
+    it("DELETE /api/deployments/:id/keys/:keyId hits the right upstream path", async () => {
+      await arrangeProjectState();
+      let upstreamUrl: string | null = null;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        upstreamUrl = String(input);
+        return new Response(null, { status: 204 });
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1/keys/k1", {
+        method: "DELETE",
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({});
+      expect(upstreamUrl).toContain("/v1/endpoints/dep-1/keys/k1");
+    });
+
+    it("listing without project state returns an empty wrapper without calling getCredentials", async () => {
+      // Regression for the P2 review: previously this path failed when
+      // the credentials file was missing AND autoAnonymous was false,
+      // because withDeploymentClient's `getCredentials()` ran *before*
+      // the no-scope short-circuit and threw. The list view should be
+      // a local no-op on a fresh workspace.
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("should not call upstream when no scope");
+      }) as typeof fetch;
+      const app = build(); // build() pins autoAnonymous: false
+      const res = await app.request("/api/deployments", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        deployments: [],
+        scopeMissing: true,
+      });
+      expect(calls).toBe(0);
+    });
+
+    it("GET /api/deployments/:id on a fresh workspace returns 404 without calling getCredentials", async () => {
+      // Regression: the read-path short-circuit must run *before*
+      // `getCredentials()`. Otherwise on a fresh workspace where
+      // `~/.arkor/credentials.json` is absent and `autoAnonymous=false`,
+      // a bookmarked detail-page hit would surface a 500 ("Studio backend
+      // unavailable") instead of the documented "no deployments yet" 404.
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("should not call upstream when no scope");
+      }) as typeof fetch;
+      const app = build(); // build() pins autoAnonymous: false
+      const res = await app.request("/api/deployments/dep-1", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain(".arkor/state.json");
+      expect(calls).toBe(0);
+    });
+
+    it("GET /api/deployments/:id/keys on a fresh workspace returns 404 without calling getCredentials", async () => {
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("should not call upstream when no scope");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1/keys", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(404);
+      expect(calls).toBe(0);
+    });
+
+    it("returns 401 with a log-in hint when the credentials file is missing", async () => {
+      // autoAnonymous: false + no credentials + project state present →
+      // getCredentials() throws "No credentials on file. Run `arkor
+      // login` first." This is a recoverable setup problem, not a
+      // backend outage, so the SPA gets the actionable message
+      // verbatim with a 401 instead of an opaque 500.
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "p", projectId: "p-id" },
+        trainCwd,
+      );
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(401);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/no credentials on file/i);
+      expect(body.error).toMatch(/arkor login/);
     });
   });
 });

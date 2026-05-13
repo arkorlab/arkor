@@ -1,17 +1,18 @@
 ---
 title: "Studio"
-description: "学習を開始し、ストリームを眺め、完成したモデルとチャットするためのローカル Web UI。"
+description: "学習を開始し、ストリームを眺め、完成したモデルとチャットし、*.arkor.app URL で公開するためのローカル Web UI。"
 ---
 
 Studio は `arkor dev` 実行時に得られるローカル Web UI です。サインインする別サービスではありません。あなたのマシーン上で起動し、同じ Arkor CLI プロセスと話し、dev サーバーを止めれば消えます。
 
 ## Studio の役割
 
-3 つの仕事:
+4 つの仕事:
 
 1. **学習を開始する。** "Run training" ボタンが内部で `arkor start` をスポーンし、ジョブをマネージドバックエンドに投入します。`arkor start` は既存の `.arkor/build/index.mjs` 成果物を実行し（無いときだけ自動ビルド）、Studio が成果物を新鮮に保つ仕組みは下記の dev ループのメモを参照してください。
 2. **学習を眺める。** ライブステータス付きのジョブ一覧、ストリーム到着とともに更新される Loss チャート、学習イベントのテール。タブで開きっぱなしにして他の作業ができます。
 3. **完成モデルを試す。** Playground ページでベースモデルや任意の完了ジョブの最終アダプタを選んでチャットできます。中間チェックポイントは Playground からはロードしません。学習中の推論には [`onCheckpoint`](/ja/concepts/lifecycle) コールバックをトレーナーで使ってください。
+4. **`*.arkor.app` URL でモデルを公開する。** Endpoints ページで OpenAI 互換 chat completions を提供する deployment 専用サブドメインを作成し、その API キーを発行・取り消しできます。同じ操作は [`CloudApiClient`](/ja/sdk/deployments) からプログラマティックにも可能で、Studio が対話的な表面、SDK が下位レイヤーという位置付けです。
 
 dev ループのメモ: Studio の `/api/manifest` エンドポイントはリクエストごとにトレーナーをリビルド・再 import しますが（キャッシュバストクエリ付き、`packages/arkor/src/studio/manifest.ts` を参照）、UI が fetch するのは Run training ページがマウントされたときだけです。`src/arkor/` を編集して同じ Run training ページに留まり続けると、次のクリックは既存の `.arkor/build/index.mjs` を再利用して古いコードで走ります。確実に新しいコードを取り込むには、編集とクリックの間にページをリロード（あるいはターミナルから `arkor build`）してください。
 
@@ -50,8 +51,9 @@ Arkor マネージドバックエンド（学習、推論）
 - **Jobs。** ステータス、名前、作成時刻、ID。数秒ごとにポーリング。
 - **Job 詳細。** Loss チャート、ログのテール（直近のイベント）、ライブステータス。`Server-Sent Events` 経由でストリームされ、手動リロードなしで最新のままです。
 - **Playground。** アダプタセレクタ（ベースモデル or 任意の完了ジョブの最終アダプタ）、チャット UI、ストリーミングレスポンス。呼び出しは CLI を経由して、その先のマネージド推論エンドポイントに届きます。Playground は完了済みジョブだけを並べます。学習中に中間チェックポイントで推論したい場合は、代わりに [`onCheckpoint`](/ja/concepts/lifecycle) コールバックを使ってください。
+- **Endpoints。** アダプタやベースモデルに紐づく deployment 単位の `*.arkor.app` URL と、その API キーを管理するビュー。slug、target（最終アダプタ / 特定 checkpoint / ベースモデル）、auth mode、キー発行・revoke が同じ画面に集約されています。深い操作（既存 deployment の target 差し替え、カスタム run retention、バルク操作のスクリプト化）は [SDK](/ja/sdk/deployments) 側に残されています。
 
-各ビュー（Run training、Job 詳細、Playground）のウォークスルーは [Studio](/ja/studio/overview) セクションにあります。
+各ビュー（Run training、Job 詳細、Playground、Endpoints）のウォークスルーは [Studio](/ja/studio/overview) セクションにあります。
 
 ## Studio を使うべきでない場面
 

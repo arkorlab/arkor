@@ -1,0 +1,46 @@
+---
+title: "Deployments"
+description: "Publish a trained adapter or base model at a *.arkor.app URL from your own code."
+---
+
+# Deployments
+
+A **deployment** publishes a trained adapter (or a base model) at a dedicated subdomain (`https://<slug>.arkor.app/v1/chat/completions`) that speaks the OpenAI Chat Completions wire format. Point any OpenAI-compatible client (the official `openai` SDK, LangChain, etc.) at it and it just works.
+
+`CloudApiClient` is the typed entry point for managing these deployments programmatically — creating them, rotating API keys, deleting them — from a Node.js script or your own server. The Studio dashboard ([Endpoints](/studio/endpoints)) covers the common create / toggle / key-management actions interactively; the SDK is the lower-level surface those tools sit on top of, and it's what you reach for when:
+
+- **CI / IaC**: provision deployments alongside your other infra. A trained job's `final` adapter goes from "saved checkpoint" to "live URL" in one script step.
+- **Custom dashboards**: embed deployment management in your own admin UI.
+- **Bulk operations**: script revoking + re-issuing keys across many deployments after an incident.
+- **SDK-only operations**: re-targeting an existing deployment to a different job / checkpoint, configuring non-default run retention, etc. — Studio doesn't surface these today.
+
+```ts
+import {
+  CloudApiClient,
+  defaultArkorCloudApiUrl,
+  ensureCredentials,
+} from "arkor";
+
+const credentials = await ensureCredentials();
+const client = new CloudApiClient({
+  baseUrl: defaultArkorCloudApiUrl(credentials),
+  credentials,
+});
+
+const scope = { orgSlug: "my-org", projectSlug: "my-project" };
+const { deployment } = await client.createDeployment(scope, {
+  slug: "support-bot",
+  target: { kind: "adapter", adapter: { kind: "final", jobId: "<uuid>" } },
+  authMode: "fixed_api_key",
+});
+const { key } = await client.createDeploymentKey(deployment.id, scope, {
+  label: "production",
+});
+console.log(key.plaintext); // shown EXACTLY ONCE; store now
+```
+
+`defaultArkorCloudApiUrl(credentials)` keeps the client targeting the same staging / self-hosted control plane the user authenticated against — anonymous credentials carry that URL since signup, OAuth credentials since `arkor login`. The plaintext API key is also returned only on creation; subsequent `listDeploymentKeys()` calls return the label and a display prefix only.
+
+## Reference
+
+For the full method list, request / response shapes, the `target` discriminated union, run-retention configuration, error codes, and the public-vs-internal export contract, see the [`CloudApiClient` reference](/sdk/deployments).

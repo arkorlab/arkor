@@ -5,7 +5,7 @@ description: "Sign in to Arkor's managed backend, sign out, and inspect the curr
 
 # `arkor login`, `arkor logout`, `arkor whoami`
 
-Three short commands that read or write `~/.arkor/credentials.json`. None of them touches `.arkor/state.json`. For anonymous workspaces, project routing is auto-created by the runtime on the first `trainer.start()` (or first inference call). For OAuth workspaces, `.arkor/state.json` has to exist before the run: today, neither `arkor login` nor `arkor init` creates it, so the practical path is to create it manually with `{ orgSlug, projectSlug, projectId }`. The runtime points you at this fallback when it errors out on a missing state file.
+Three short commands that read or write `~/.arkor/credentials.json`. None of them touches `.arkor/state.json`. For anonymous workspaces, project routing is auto-created by the runtime on the first call that needs a scope: `trainer.start()`, base-model inference, or creating the first `*.arkor.app` deployment from Studio's [Endpoints](/studio/endpoints) page. For OAuth workspaces, `.arkor/state.json` has to exist before any of those calls: today, neither `arkor login` nor `arkor init` creates it, so the practical path is to create it manually with `{ orgSlug, projectSlug, projectId }`. The runtime points you at this fallback when it errors out on a missing state file.
 
 ## `arkor login`
 

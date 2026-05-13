@@ -3,6 +3,30 @@ packages:
   - "e2e/*"
   - "docs"
 minimumReleaseAge: 1440
+# Narrow exemption from the 24h release-age gate. Scope is intentionally
+# this single package, and the entry should NOT grow without thinking
+# through the trade-off below. The gate still applies to every other
+# third-party dep as a normal supply-chain guard.
+#
+# Why exempt `@arkor/cloud-api-client`:
+#   - It's our own package, published from this org's GitHub workflow
+#     via npm Trusted Publishing (OIDC). There's no long-lived NPM_TOKEN
+#     in CI / contributor secrets, so a malicious publish would require
+#     compromising the workflow itself, not a leaked credential.
+#   - The arkor SDK and the control-plane shape evolve together and we
+#     iterate the client multiple times per day during alpha. Sitting
+#     out 24h per publish would block this submodule's CI from picking
+#     up the matching server contract.
+#   - The package is private-org-scoped (`@arkor/`), so a typo-squat
+#     under the same name would fail npm's scope ownership check.
+#
+# Trade-off: a successful workflow compromise (or an internal mistake
+# that publishes to alpha) is consumable here within the same hour
+# instead of after 24h of cool-down. Mitigations: GitHub branch
+# protection on the publishing workflow + the trustPolicy below would
+# still block a downgrade attack.
+minimumReleaseAgeExclude:
+  - "@arkor/cloud-api-client"
 trustPolicy: no-downgrade
 trustPolicyExclude:
   # Pulled in by @vitejs/plugin-react -> @babel/core for Studio UI builds.

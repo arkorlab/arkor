@@ -16,7 +16,13 @@ export async function runWhoami(): Promise<void> {
     );
     return;
   }
-  const baseUrl = defaultArkorCloudApiUrl();
+  // Pass the loaded credentials so `/v1/me` lands on the same control
+  // plane the user authenticated against — anonymous tokens carry the
+  // signup URL, OAuth tokens carry the login URL since round 67.
+  // Without this, an OAuth user who signed in against staging would
+  // see `arkor whoami` 401 against production unless they also kept
+  // `ARKOR_CLOUD_API_URL` set in their shell.
+  const baseUrl = defaultArkorCloudApiUrl(creds);
   // Use the RPC client directly for /v1/me rather than CloudApiClient so we
   // hit the typed surface and avoid duplicating the plumbing.
   const rpc = createClient({
@@ -24,7 +30,17 @@ export async function runWhoami(): Promise<void> {
     token: () =>
       creds.mode === "anon" ? creds.token : creds.accessToken,
     clientVersion: SDK_VERSION,
-    onDeprecation: recordDeprecation,
+    // Wrap the deprecation callback so we return `null` (not `void`) —
+    // `@arkor/cloud-api-client` alpha.2 feeds the handler's return into
+    // `typeof result.then === 'function'`, which throws on a `void`
+    // return and logs `[@arkor/cloud-api-client] onDeprecation handler
+    // threw; ignoring:` on every deprecated `/v1/me` response. Same
+    // workaround as `CloudApiClient` and Studio's `createRpc`. Drop
+    // when alpha.3+ ships the upstream fix.
+    onDeprecation: (notice) => {
+      recordDeprecation(notice);
+      return null;
+    },
   });
   const res = await rpc.v1.me.$get();
   if (!res.ok) {

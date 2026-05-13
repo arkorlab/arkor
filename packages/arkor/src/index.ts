@@ -28,6 +28,7 @@ export {
   readCredentials,
   writeCredentials,
   credentialsPath,
+  defaultArkorCloudApiUrl,
   requestAnonymousToken,
   ensureCredentials,
   type Auth0Credentials,
@@ -39,3 +40,17 @@ export {
   writeState,
   statePath,
 } from "./core/state";
+export { CloudApiClient } from "./core/client";
+export type { CloudApiClientOptions } from "./core/client";
+export type {
+  CreateDeploymentInput,
+  CreateDeploymentKeyInput,
+  CreateDeploymentKeyResult,
+  DeploymentAuthMode,
+  DeploymentDto,
+  DeploymentKeyDto,
+  DeploymentRunRetentionMode,
+  DeploymentScope,
+  DeploymentTarget,
+  UpdateDeploymentInput,
+} from "./core/deployments";
