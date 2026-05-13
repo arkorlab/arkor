@@ -15,7 +15,7 @@ Arkor はアルファ版です。フレームワークの公開 API はあえて
 | [構造化出力と Function Calling](/ja/cookbook/structured-outputs) | チェックポイントの出力を JSON Schema で型として固定し、型付きオブジェクトとしてパースする。モデルから関数も呼ばせる。 | [`infer({ responseFormat, tools })`](/ja/sdk/infer) |
 | [Loss が悪化したら学習を自動で打ち切る（Early Stopping）](/ja/cookbook/early-stopping) | Loss（モデルの誤差）の曲線が悪い方向に進んだら学習を自動 Abort し、バックエンドの GPU も止める。 | [`onLog`](/ja/sdk/callbacks)、[`AbortSignal`](/ja/sdk/trainer-control)、[`trainer.cancel()`](/ja/sdk/trainer-control) |
 | [Slack / Discord 通知](/ja/cookbook/notifications) | トレーナーファイル内で完結したまま、完了時 / 失敗時に Webhook を叩く。 | [`onCompleted` / `onFailed`](/ja/sdk/callbacks)、`fetch` |
-| [プログラムからの学習実行（CLI なし）](/ja/cookbook/programmatic-runs) | `arkor dev` / `arkor start` を介さず、Next.js API ルート、cron ワーカー、CI から学習を駆動する。 | [`runTrainer`](/ja/sdk/overview)、[`Trainer.start / wait`](/ja/sdk/trainer-control) |
+| [プログラムからの学習実行（CLI なし）](/ja/cookbook/programmatic-runs) | `arkor dev` / `arkor start` を介さず、Next.js API ルート、cron ワーカー、CI から学習を実行する。 | [`runTrainer`](/ja/sdk/overview)、[`Trainer.start / wait`](/ja/sdk/trainer-control) |
 | [スターターテンプレートのカスタマイズ](/ja/cookbook/customizing-templates) | 生成されたテンプレートを起点として扱う。データセット、ハイパーパラメーター、コールバック、ベースモデルを変える。 | [`createTrainer`](/ja/sdk/create-trainer)、[`DatasetSource`](/ja/sdk/dataset) |
 
 ## 始める前にコールバックの例外について 1 つだけ
@@ -31,6 +31,6 @@ Arkor はアルファ版です。フレームワークの公開 API はあえて
 
 ## このセクションが扱わないこと
 
-- **本番デプロイ。** 現状 Arkor はマネージド GPU 上でしか動かず、`createArkor` の `deploy` スロットは型上の予約フィールドで実装はありません。サービング系のレシピはこの API が公開された段階で追加されます。
-- **プロジェクトごとの複数トレーナー。** `createArkor` は単一の `trainer` を受け付けます。複数を一緒に走らせるのはマニフェストパターンではなくプログラム駆動パターンです（該当レシピ参照）。
+- **本番デプロイ。** 現状 Arkor はマネージド GPU 上でしか動かず、`createArkor` の `deploy` スロットは型上の予約フィールドで実装はありません。推論サービス系のレシピはこの API が公開された段階で追加されます。
+- **プロジェクトごとの複数トレーナー。** `createArkor` は単一の `trainer` を受け付けます。複数を一緒に走らせるのはマニフェストパターンではなくプログラムによる実行パターンです（該当レシピ参照）。
 - **バックエンドが受け付ける以外のカスタムベースモデル。** `model` フィールドはクラウド API にそのまま転送されます。現在対応しているのは Gemma のみです。レシピはそれ以外のモデルがエンドツーエンドで動く前提では書かれていません。

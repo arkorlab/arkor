@@ -65,13 +65,13 @@ Loss チャートは `training.log` イベントから描画される SVG プロ
 チャートヘッダーの **Advanced** トグルを ON にすると、系列ごとの統計パネルが現れます。各カードに表示される項目:
 
 - **Mean loss ± 95% CI** — Loss 値の標本平均と 95% 信頼区間の半幅（Student の t 分布。n > 31 では z = 1.96 にフォールバック）。
-- **Std dev** と **Variance** — Bessel 補正済みの不偏推定量（`ddof=1`）。
+- **Std dev**（標準偏差）と **Variance**（分散） — Bessel 補正済みの不偏推定量（`ddof=1`）。
 - **p90** と **p95** — numpy のデフォルトに合わせた線形補間パーセンタイル。
 
 Eval カードは数値 `evalLoss` を含む `training.log` イベントが届くまでは空のままです。
 
 ## このページがしないこと
 
-- **キャンセルボタンなし。** 動作中ジョブを止めるには、トレーナーを駆動する自前コードから [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。現状 Studio は UI でこの機能を公開していません。
+- **キャンセルボタンなし。** 動作中ジョブを止めるには、トレーナーを実行している自前コードから [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。現状 Studio は UI でこの機能を公開していません。
 - **Artifact ブラウザーなし。** 完了済みジョブの artifact 数は出ますが、個別 artifact をリスト／リンクしません。完全な artifact アクセスにはクラウド API を、あるいは学習中の SDK の `onCompleted({ artifacts })` コールバックを使ってください。
 - **学習途中の推論なし。** Playground は完了済みジョブ専用です（[Playground](/ja/studio/playground) 参照）。学習途中のライブ確認には SDK の [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使ってください。

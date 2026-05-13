@@ -9,7 +9,7 @@ Studio は [`arkor dev`](/ja/cli/dev) を実行したときに起動するロー
 
 ## レイアウト
 
-ヘッダーには現在の identity が `<mode> · <org>[ / <project>][ · <baseUrl-host>]` の形で表示されます。`mode` は `anonymous` か `auth0`。クラウド API ホスト suffix は CLI が本番エンドポイントを指しているときは隠され、それ以外で表示されます。
+ヘッダーには現在の ID が `<mode> · <org>[ / <project>][ · <baseUrl-host>]` の形で表示されます。`mode` は `anonymous` か `auth0`。クラウド API ホスト suffix は CLI が本番エンドポイントを指しているときは隠され、それ以外で表示されます。
 
 3 ページ、アプリ内ナビで切り替えます:
 
@@ -34,8 +34,8 @@ Arkor マネージドバックエンド
 `/api/*` リクエストごとに 3 つのチェックが走ります:
 
 1. **Host ヘッダーのガード。** `127.0.0.1` と `localhost` のみ受理。`127.0.0.1` に DNS リバインディングされる悪意あるサイトに誘導された被害者でも、送信されるのは `Host: evil.com` で、ミドルウェアは HTTP 403 で拒否します。
-2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダー `X-Arkor-Studio-Token`、または `EventSource` リクエスト用に `?studioToken=`）。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較は `timingSafeEqual`。
-3. **CORS なし。** SPA は同一オリジンなので CORS は価値を加えません。`*` を反射すると「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまうので、トークンチェックがそれを拒否します。
+2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダー `X-Arkor-Studio-Token`、または `EventSource` リクエスト用に `?studioToken=`）。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較には `timingSafeEqual` を使用しているため、タイミング攻撃に対して安全です。
+3. **CORS なし。** SPA は同一オリジンなので CORS には意味がありません。`*` を反射すると「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまうので、トークンチェックがそれを拒否します。
 
 トークンは `arkor dev` 起動のたびにローテートされるので、前回起動時の古いタブはリロードするまで HTTP 403 で失敗します。
 
@@ -55,7 +55,7 @@ Arkor マネージドバックエンド
 | 不足 UI | 回避策 |
 | --- | --- |
 | 動作中ジョブのキャンセル / 一時停止 | 自前コードから [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼ぶ。 |
-| Playground での中間チェックポイントアダプター選択 | トレーナー内で [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使う。SDK の `infer` は今しがた保存されたチェックポイントに紐づく。 |
+| Playground での中間チェックポイントアダプター選択 | トレーナー内で [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使う。SDK の `infer` は直前に保存されたチェックポイントに紐づく。 |
 | Jobs リストのフィルター／検索／ページング | 現状のポーリング一覧ビューでは対象外。 |
 | プロジェクトごとの複数トレーナー | `/api/manifest` が単一の `trainer` を返す。SDK の [`createArkor`](/ja/sdk/create-arkor) も 1 つしか受け付けない。 |
 | Playground から `temperature` / `topP` / `maxTokens` を調整 | HTTP API（[`InferArgs`](/ja/sdk/infer)）はこれらを受け付ける。SDK から `infer` を呼ぶ際に渡してください。 |
@@ -64,4 +64,4 @@ Arkor マネージドバックエンド
 
 ## Studio を使うべきでない場面
 
-Studio は開発ツールです。ループバックでのみ、`arkor dev` が立ち上がっている間だけリッスンし、起動ごとに CSRF トークンをローテートします。プロダクション利用では Studio にユーザーを向けるのではなく、自前のアプリケーションコード（あるいは出荷するサービング層）から [`infer`](/ja/sdk/infer) を呼んでください。
+Studio は開発ツールです。ループバックでのみ、`arkor dev` が立ち上がっている間だけリッスンし、起動ごとに CSRF トークンをローテートします。プロダクション利用では Studio にユーザーを向けるのではなく、自前のアプリケーションコード（あるいはデプロイ済みの推論層）から [`infer`](/ja/sdk/infer) を呼んでください。

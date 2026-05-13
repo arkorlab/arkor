@@ -5,7 +5,7 @@ description: "チェックポイントコールバック内から学習中のモ
 
 # `infer`
 
-[`onCheckpoint`](/ja/guides/sdk/callbacks) の中で SDK は `infer` という関数を渡してくれます。これを呼ぶと、今しがた保存されたチェックポイントに対する推論リクエストを実行し、生の `Response` が返ります。学習途中のモデルを完了前に評価するための経路です。
+[`onCheckpoint`](/ja/guides/sdk/callbacks) の中で SDK は `infer` という関数を渡してくれます。これを呼ぶと、直前に保存されたチェックポイントに対する推論リクエストを実行し、生の `Response` が返ります。学習途中のモデルを完了前に評価するための経路です。
 
 ```ts
 onCheckpoint: async ({ step, infer }) => {
@@ -16,7 +16,7 @@ onCheckpoint: async ({ step, infer }) => {
 }
 ```
 
-デフォルトのレスポンスは SSE ストリームです（Studio の Playground が消費するのと同じ形）。単一 JSON ボディが欲しい場合は `stream: false`:
+デフォルトのレスポンスは SSE ストリームです（Studio の Playground が読み取るのと同じ形）。単一 JSON ボディが欲しい場合は `stream: false`:
 
 ```ts
 const res = await infer({ messages, stream: false });

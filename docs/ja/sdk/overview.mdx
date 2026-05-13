@@ -43,12 +43,12 @@ export const arkor = createArkor({ trainer });
 
 ## 補助ヘルパー（上級者向け）
 
-CLI フローの外で Arkor を駆動するコード（自前のサーバーやスクリプトから学習を走らせるなど）のためにエクスポートされています。ほとんどのプロジェクトでは不要です。
+CLI フローの外で Arkor を実行するコード（自前のサーバーやスクリプトから学習を走らせるなど）のためにエクスポートされています。ほとんどのプロジェクトでは不要です。
 
 | シンボル | ソース | 目的 |
 | --- | --- | --- |
 | `runTrainer(file?)` | `core/runner.ts` | `arkor start` が裏で呼んでいるもの。エントリーを解決し、トレーナーを選び（`arkor` を最優先、次に `trainer`、最後に default export）、`start()` + `wait()` を実行。 |
-| `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | `~/.arkor/credentials.json` の読み書き。`ensureCredentials` は既存レコードがあれば返し、無ければ **新規の匿名 identity をブートストラップ**（`requestAnonymousToken` を呼んで永続化）。次の経路で throw する場合あり: 認証情報ファイルが存在するが読めない／不正な JSON（`readCredentials` は素の `JSON.parse`）、匿名トークンのブートストラップ自体の失敗（ネットワーク／トークンエンドポイントエラー）。ファイルは SDK が書いている前提。 |
+| `readCredentials()` / `writeCredentials()` / `ensureCredentials()` | `core/credentials.ts` | `~/.arkor/credentials.json` の読み書き。`ensureCredentials` は既存レコードがあれば返し、無ければ **新規の匿名 ID を初期化**（`requestAnonymousToken` を呼んで永続化）。次の経路で throw する場合あり: 認証情報ファイルが存在するが読めない／不正な JSON（`readCredentials` は素の `JSON.parse`）、匿名トークン取得自体の失敗（ネットワーク／トークンエンドポイントエラー）。ファイルは SDK が書いている前提。 |
 | `requestAnonymousToken(baseUrl, kind?)` | `core/credentials.ts` | 新しい匿名トークンを直接発行。CLI は `arkor login --anonymous` と初回 `arkor dev` でこれを使う。 |
 | `credentialsPath()` | `core/credentials.ts` | `~/.arkor/credentials.json` の絶対パス。 |
 | `readState(cwd?)` / `writeState(state, cwd?)` / `statePath(cwd?)` | `core/state.ts` | `.arkor/state.json`（プロジェクトルーティング）の読み書き。 |
@@ -67,10 +67,10 @@ CLI フローの外で Arkor を駆動するコード（自前のサーバーや
 ソースツリーには存在しますが意図的に `arkor` からエクスポートされていないもの。内部扱いです:
 
 - `SDK_VERSION`、`defaultArkorCloudApiUrl()`: CLI と Studio サーバーが使う。深いパスから import しないでください。エクスポート契約は変わり得ます。
-- CLI コマンドランナー（`runBuild`、`runStart`、`runDev`、`runInit`、`runLogin`、`runLogout`、`runWhoami`）: `src/cli/commands/` 以下にあり、CLI 専用です。学習を駆動したいなら（上記の）`runTrainer` を使うか、`trainer.start()` / `trainer.wait()` を直接呼んでください。
+- CLI コマンドランナー（`runBuild`、`runStart`、`runDev`、`runInit`、`runLogin`、`runLogout`、`runWhoami`）: `src/cli/commands/` 以下にあり、CLI 専用です。学習を実行したいなら（上記の）`runTrainer` を使うか、`trainer.start()` / `trainer.wait()` を直接呼んでください。
 
 ## 関連項目
 
 - [実行ライフサイクル](/ja/concepts/lifecycle): `start()` / `wait()` が実際に何をするか
 - [プロジェクト構成](/ja/concepts/project-structure): プロジェクト内でマニフェストとトレーナーがどこに置かれるか
-- [CLI 概要](/ja/cli/overview): SDK をシェルから駆動するためのインターフェイス
+- [CLI 概要](/ja/cli/overview): SDK をシェルから実行するためのインターフェイス
