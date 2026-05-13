@@ -16,7 +16,7 @@
     "arkor": "workspace:*",
     "c8": "^10.1.3",
     "create-arkor": "workspace:*",
-    "typescript": "^5",
+    "typescript": "^6",
     "vitest": "^4.1.5"
   }
 }
