@@ -321,10 +321,15 @@ export function JobDetail({ jobId }: { jobId: string }) {
       es.close();
       setEventStreamConnected(false);
     });
-    es.onerror = () => {
-      setEventErr("Event stream interrupted.");
-      setEventStreamConnected(false);
-    };
+    // Deliberately do NOT drop `eventStreamConnected` on `onerror`: the
+    // EventSource fires `onerror` during its built-in reconnect loop
+    // (and, under the Hono `/api/jobs/:id/events` proxy on Linux CI,
+    // even on benign keep-alive transitions). Treating that as a real
+    // disconnect would yank the user out of the warm-up display while
+    // training is still going. The "stream interrupted" banner alone
+    // is enough; once a frame lands again, `pushEvent` clears it and
+    // reaffirms the connection.
+    es.onerror = () => setEventErr("Event stream interrupted.");
     return () => {
       es.close();
       setEventStreamConnected(false);
