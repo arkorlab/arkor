@@ -169,12 +169,25 @@ import { trainer } from "./trainer";
 export const arkor = createArkor({ trainer });
 `;
 
-export const STARTER_CONFIG = `// Training defaults. Project routing (orgSlug / projectSlug) is tracked
-// automatically in .arkor/state.json — do not put it here.
+export const STARTER_CONFIG = `// Placeholder for future project-level config — the runtime does not read
+// fields from this file yet. Training settings (\`maxSteps\`, \`lora\`, etc.)
+// live on the Trainer in src/arkor/trainer.ts. Project routing
+// (orgSlug / projectSlug) is tracked automatically in .arkor/state.json.
 export default {};
 `;
 
-export const STARTER_README = (name: string) => `# ${name}
+/**
+ * Body of the scaffolded `README.md`.
+ *
+ * `agentsMd` controls whether the AGENTS.md / CLAUDE.md bullet appears
+ * in the Files section: it must mirror what the scaffolder actually
+ * wrote to disk, otherwise a project created with `--no-agents-md`
+ * would ship a README that documents files that do not exist.
+ */
+export const STARTER_README = (
+  name: string,
+  options: { agentsMd: boolean } = { agentsMd: true },
+) => `# ${name}
 
 An arkor training project scaffolded by \`create-arkor\`.
 
@@ -211,11 +224,27 @@ npm run start    # runs the build artifact on the cloud
 
 - \`src/arkor/index.ts\` — entry-point manifest (\`createArkor({ trainer })\`).
   This is what the CLI and Studio discover.
-- \`src/arkor/trainer.ts\` — your trainer (\`createTrainer({...})\`). Add
+- \`src/arkor/trainer.ts\` — your trainer (\`createTrainer({...})\`). Training
+  settings (\`maxSteps\`, \`lora\`, etc.) live on the Trainer itself. Add
   sibling files for future primitives (\`deploy.ts\`, \`eval.ts\`) and
   register them in the \`createArkor\` call.
-- \`arkor.config.ts\` — training defaults. Project routing lives in
-  \`.arkor/state.json\`, managed by the CLI.
+- \`arkor.config.ts\` — placeholder for future project-level config. The
+  runtime does not read fields from this file yet. Project routing lives
+  in \`.arkor/state.json\`, managed by the CLI.${
+    options.agentsMd
+      ? `
+- \`AGENTS.md\` / \`CLAUDE.md\` — instructions for AI coding agents,
+  briefing them that arkor post-dates their training data. When the
+  scaffolder creates \`CLAUDE.md\` itself it is a one-liner that imports
+  \`AGENTS.md\` via the Claude Code \`@<path>\` directive; if you already
+  had a project-specific \`CLAUDE.md\`, the scaffolder leaves it alone
+  and your existing instructions stay authoritative. To opt out of
+  these files in **future** scaffolds, pass \`--no-agents-md\` to
+  \`create-arkor\` / \`arkor init\`; the flag does not delete files that
+  are already on disk, so remove them by hand if you no longer want
+  them.`
+      : ""
+  }
 
 Requires Node.js >= 22.22.0.
 `;

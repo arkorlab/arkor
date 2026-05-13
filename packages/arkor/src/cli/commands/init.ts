@@ -29,6 +29,13 @@ export interface InitOptions {
   git?: boolean;
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
+  /**
+   * Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor
+   * post-dates their training data. Undefined falls through to the
+   * scaffold default (off); `main.ts` resolves the CLI default-on so
+   * `arkor init` matches `create-arkor`.
+   */
+  agentsMd?: boolean;
 }
 
 const MANUAL_INSTALL_HINT =
@@ -136,12 +143,20 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
   // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
-  const { files } = await scaffold({ cwd, name: sanitise(projectName), template });
+  const { files, warnings } = await scaffold({
+    cwd,
+    name: sanitise(projectName),
+    template,
+    agentsMd: options.agentsMd,
+  });
 
   ui.note(
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
+  for (const w of warnings) {
+    ui.log.warn(w);
+  }
 
   // Resolve the git-init choice before kicking off install so the user can
   // walk away once they've answered every prompt; otherwise they'd sit at an

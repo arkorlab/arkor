@@ -51,8 +51,10 @@ bun arkor init
 | `--use-bun` | パッケージマネージャに bun を強制。 |
 | `--git` | 確認なしで git リポジトリを初期化し、初回コミットを作成。 |
 | `--skip-git` | git init を黙ってスキップ。 |
+| `--agents-md` | AI コーディングエージェントに「arkor は学習データより新しい」ことを伝える `AGENTS.md` と `CLAUDE.md` を書き出す。デフォルト。 |
+| `--no-agents-md` | `AGENTS.md` / `CLAUDE.md` の生成をスキップ。既存のユーザー記述の `AGENTS.md` は常に保持され、arkor 管理の block（`<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->` で区切られる）は初回は末尾追記、再 scaffold 時はその場で置換されます。 |
 
-`--git` と `--skip-git` は排他です。両方渡すと例外が発生します。
+`--git` と `--skip-git` は排他です。両方渡すと例外が発生します。`--agents-md` と `--no-agents-md` も同様です。
 
 ## 振る舞い
 
@@ -210,7 +212,7 @@ bun arkor init --template translate --use-bun
 
 ## 何が書かれるか
 
-ツールが触るパスは 6 つ。いずれもユーザーの既存内容を上書きしません:
+ツールが触るパスは最大 8 つ。いずれもユーザーの既存内容を上書きしません:
 
 | パス | 振る舞い |
 | --- | --- |
@@ -220,8 +222,18 @@ bun arkor init --template translate --use-bun
 | `README.md` | 無ければスターター README で **作成**。あれば **そのまま**。 |
 | `.gitignore` | 無ければ `node_modules/`、`dist/`、`.arkor/` で **作成**。ファイルがあって `.arkor/` が入っていなければ追記で **パッチ**。既に入っていれば変更なし（**Ok**）。 |
 | `package.json` | 無ければ name / `private` / `type: "module"` / `dev`+`build`+`start` のスターター scripts / `devDependencies.arkor` で **作成**。不足している script があれば追加し、`devDependencies.arkor` がなければ追加する **パッチ**。既存の値（カスタム `dev` script など）は **上書きしません**。すべて揃っていれば変更なし（**Ok**）。 |
+| `AGENTS.md` | 無ければ arkor 管理の block を含めて **作成**（デフォルト。`--no-agents-md` でスキップ可）。既存ファイルがあれば、arkor 管理 block（`<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->` で区切り）を **パッチ** — 初回は末尾に追記、再 scaffold ではその場で置換。marker 外のユーザー記述はすべて保持されます。canonical block が既に最新なら変更なし（**Ok**）。canonical 管理 block が複数含まれている場合、どちらを更新するかを推測すると壊れる可能性があるため、ファイルは **そのまま**にして警告を出します — ユーザーが重複を解消すれば次回の再 scaffold でその場でパッチされます。 |
+| `CLAUDE.md` | 無ければ Claude Code の import ディレクティブ `@AGENTS.md` で **作成**（デフォルト。`--no-agents-md` でスキップ可）。既にファイルがあれば **そのまま**で、プロジェクト固有の `CLAUDE.md` を上書きしません。`AGENTS.md` が canonical 管理 block 複数のため kept された場合は警告つきで **スキップ** されます — その状態で `@AGENTS.md` shim を作ると、未解決の重複ルールを Claude Code の context に auto-import してしまうためです。`AGENTS.md` を dedupe したあとの再 scaffold で作成されます。 |
 
-CLI は install 前に "Files" ノートとしてファイル一覧を表示し、各パスの `action`（`created` / `kept` / `patched` / `ok`）を出すので、何が変わったか正確に確認できます。
+CLI は install 前に "Files" ノートとしてファイル一覧を表示し、各パスの `action`（`created` / `kept` / `patched` / `ok` / `skipped`）を出すので、何が変わったか正確に確認できます。
+
+### 自分で AGENTS.md を編集するときの規約
+
+arkor 管理 block の判定は、BEGIN / END マーカー **+** 先頭シグネチャ行（`# arkor is newer than your training data`）の 3 条件をすべて満たす場合のみです。バッククオートで囲んだインラインのマーカー言及は安全ですが、**fenced code block の中身としてマーカーとシグネチャ行をそのままの行として書いた場合**、本物の管理 block と見分けがつきません。再 scaffold で自分のドキュメント例が誤って上書きされないよう、`AGENTS.md` を編集するときは次の規約に従ってください:
+
+- **マーカーはインラインのバッククオートで引用**してください（例: `` `<!-- BEGIN:arkor-agent-rules -->` ``）。本物の管理 block の外で、マーカーを単独行に書かないでください。
+- 仕様の説明などで verbatim ブロックとしてマーカーを示す必要がある場合は、**シグネチャ行を 1 文字でも変えてください**（例: `# arkor is newer than YOUR training data`）。これで検出ロジックにマッチしなくなります。
+- ファイルにシグネチャ一致のブロックが **2 つ以上**あると、scaffolder はパッチを拒否して warning を出します。その場合はファイルを dedupe してください — 通常は古い手編集の canonical block を消して、残った 1 つを再 scaffold が更新する形になります。
 
 ## 関連項目
 

@@ -92,6 +92,9 @@ describe("main (CLI Commander wiring)", () => {
       packageManager: "pnpm",
       git: undefined,
       skipGit: undefined,
+      // No --agents-md / --no-agents-md passed → main.ts resolves the
+      // CLI default-on (`opts.agentsMd !== false`).
+      agentsMd: true,
     });
   });
 
@@ -109,6 +112,19 @@ describe("main (CLI Commander wiring)", () => {
     ).rejects.toThrow(/--git \/ --skip-git, not both/);
     expect(runInit).not.toHaveBeenCalled();
   });
+
+  it("rejects `init --agents-md --no-agents-md` from main()'s argv (not process.argv)", async () => {
+    // The check must read the argv array passed to main(), not the
+    // surrounding process.argv. Using process.argv would (a) miss the
+    // conflict here because vitest's process.argv contains neither flag,
+    // and (b) false-positive in environments where the parent process
+    // happens to carry those tokens.
+    await expect(
+      main(["init", "--agents-md", "--no-agents-md"]),
+    ).rejects.toThrow(/--agents-md \/ --no-agents-md, not both/);
+    expect(runInit).not.toHaveBeenCalled();
+  });
+
 
   it("dispatches `login` with parsed --oauth / --no-browser flags", async () => {
     await main(["login", "--oauth", "--no-browser"]);

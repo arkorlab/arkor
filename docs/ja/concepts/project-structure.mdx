@@ -11,9 +11,13 @@ my-arkor-app/
 │   ├── index.ts        # createArkor({ trainer })
 │   └── trainer.ts      # createTrainer({ ... })
 ├── arkor.config.ts
+├── AGENTS.md           # AI コーディングエージェント向けの指示（create-arkor / arkor init の --no-agents-md で無効化）
+├── CLAUDE.md           # 生成時のデフォルト内容: @AGENTS.md の 1 行再エクスポート
 ├── .arkor/             # プロジェクトごとの状態（gitignore 済み）
 └── package.json        # dev / build / start
 ```
+
+AI エージェント向け指示の正本は `AGENTS.md` です。`CLAUDE.md` を別に置いているのは、Claude Code がプロジェクトルートの `CLAUDE.md` を自動的に読み込む仕様で、かつ `@<path>` というディレクティブで他ファイルを取り込めるためです。**scaffolder が `CLAUDE.md` を新規生成する場合の**デフォルト内容は `@AGENTS.md` の 1 行のみで、Claude Code が AGENTS.md の中身を自動的に context に展開してくれるため、2 ファイルを二重管理せずに済みます。プロジェクト固有の `CLAUDE.md` が既に存在する場合、scaffolder はそれを上書きせず、既存の内容が引き続き有効です。
 
 ソース以外に重要なのは 2 層の状態です: `.arkor/`（プロジェクトごと、リポジトリ内）と `~/.arkor/`（ユーザーごと、ホームディレクトリー）。
 

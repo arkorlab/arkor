@@ -51,8 +51,10 @@ bun arkor init
 | `--use-bun` | Force bun as the package manager. |
 | `--git` | Initialise a git repo and create an initial commit, without asking. |
 | `--skip-git` | Skip git init silently. |
+| `--agents-md` | Write `AGENTS.md` and `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data. Default. |
+| `--no-agents-md` | Skip generating `AGENTS.md` / `CLAUDE.md`. An existing user-authored `AGENTS.md` is always preserved; the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->`) is appended on first run and replaced in place on re-scaffold. |
 
-`--git` and `--skip-git` are mutually exclusive; passing both throws.
+`--git` and `--skip-git` are mutually exclusive; passing both throws. The same goes for `--agents-md` and `--no-agents-md`.
 
 ## Behavior
 
@@ -210,7 +212,7 @@ bun arkor init --template translate --use-bun
 
 ## What gets written
 
-The scaffolder touches six paths. None of them overwrites existing user content:
+The scaffolder touches up to eight paths. None of them overwrites existing user content:
 
 | Path | Behavior |
 | --- | --- |
@@ -220,8 +222,18 @@ The scaffolder touches six paths. None of them overwrites existing user content:
 | `README.md` | **Created** with a starter README if missing. **Kept** untouched if it exists. |
 | `.gitignore` | **Created** with `node_modules/`, `dist/`, `.arkor/` if missing. **Patched** by appending `.arkor/` if the file exists but does not already list it. **Ok** (no change) if `.arkor/` is already there. |
 | `package.json` | **Created** with name / `private` / `type: "module"` / starter `dev`+`build`+`start` scripts / `devDependencies.arkor` if missing. **Patched** to add any of those scripts that are absent and to add `arkor` under `devDependencies` if absent; existing values (e.g. a custom `dev` script) are **not** overwritten. **Ok** (no change) if everything is already in place. |
+| `AGENTS.md` | **Created** with the arkor-managed block if missing (default; skip with `--no-agents-md`). If the file exists, the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->`) is **patched** in place — appended on first run, replaced inline on re-scaffold — and any user content outside the markers is preserved. **Ok** (no change) if the canonical block is already present and up-to-date. **Kept** with a warning, instead of patched, when the file contains more than one canonical managed block: auto-picking either copy is unsafe, so the scaffolder leaves the file alone and asks you to dedupe before the next re-scaffold. |
+| `CLAUDE.md` | **Created** with `@AGENTS.md` (the Claude Code import directive) if missing (default; skip with `--no-agents-md`). **Kept** untouched if the file already exists, so a project-specific `CLAUDE.md` is never overwritten. **Skipped** with a warning when `AGENTS.md` was kept due to duplicate managed blocks — creating the `@AGENTS.md` shim in that state would auto-import the unresolved duplicate rules into Claude Code's context. The next re-scaffold creates the file once you dedupe `AGENTS.md`. |
 
-The CLI prints the file list as a "Files" note before installing, with an `action` (`created` / `kept` / `patched` / `ok`) per path so you can see exactly what changed.
+The CLI prints the file list as a "Files" note before installing, with an `action` (`created` / `kept` / `patched` / `ok` / `skipped`) per path so you can see exactly what changed.
+
+### Editing your AGENTS.md alongside the managed block
+
+The arkor-managed block is identified by the BEGIN / END markers **plus** a signature first line (`# arkor is newer than your training data`). The detector requires all three on their own lines, so inline marker mentions inside backticks are safe — but a fenced code block whose body literally contains the markers and that signature heading on their own lines will look identical to a real managed block. To avoid having a re-scaffold misidentify and overwrite a documentation example you wrote yourself, follow these conventions when editing `AGENTS.md`:
+
+- **Quote markers inline with backticks**, e.g. `` `<!-- BEGIN:arkor-agent-rules -->` ``, rather than putting them on their own lines outside the real managed block.
+- If you must show the markers as a verbatim block (for example when documenting the spec for other tooling), **change at least one character of the signature line** in your example — e.g. `# arkor is newer than YOUR training data` — so the detector does not match it.
+- The scaffolder also refuses to patch (and emits a warning) when it finds **two or more** signature-matching blocks in the file. If you see that warning, dedupe the file: typically that means deleting the older, hand-edited copy of the canonical block and letting the re-scaffold update the surviving one in place.
 
 ## See also
 

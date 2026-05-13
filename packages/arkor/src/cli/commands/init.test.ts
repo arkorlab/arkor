@@ -35,6 +35,7 @@ vi.mock("@arkor/cli-internal", () => {
         .slice(0, 60) || "arkor-project",
     scaffold: vi.fn(async () => ({
       files: [{ action: "created", path: "package.json" }],
+      warnings: [],
     })),
     TEMPLATES: {
       triage: {},
@@ -109,16 +110,39 @@ describe("runInit", () => {
       template: "triage",
       packageManager: "pnpm",
     });
-    // sanitise() mock lowercases + dashes the explicit name.
+    // sanitise() mock lowercases + dashes the explicit name. agentsMd is
+    // undefined here because the test calls runInit directly (the CLI
+    // default-on resolution lives in main.ts); scaffold treats undefined
+    // as off, matching the historical no-AGENTS.md behaviour.
     expect(scaffold).toHaveBeenCalledWith({
       cwd,
       name: "my-app",
       template: "triage",
+      agentsMd: undefined,
     });
     expect(install).toHaveBeenCalledWith("pnpm", cwd);
     expect(gitInitialCommit).toHaveBeenCalledWith(
       cwd,
       "Initial commit from `arkor init`",
+    );
+  });
+
+  it("forwards agentsMd through to scaffold when supplied", async () => {
+    // Coverage for the CLI → runInit → scaffold pipe. main.ts resolves the
+    // --agents-md / --no-agents-md flag to a boolean before invoking
+    // runInit; runInit must pass it through unchanged so the helper writes
+    // (or skips) AGENTS.md / CLAUDE.md.
+    await runInit({
+      yes: true,
+      name: "explicit",
+      template: "triage",
+      packageManager: "pnpm",
+      skipInstall: true,
+      skipGit: true,
+      agentsMd: true,
+    });
+    expect(scaffold).toHaveBeenCalledWith(
+      expect.objectContaining({ agentsMd: true }),
     );
   });
 

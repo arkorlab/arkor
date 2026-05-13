@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scaffold, templateChoices } from "./scaffold";
@@ -33,6 +33,14 @@ afterEach(() => {
   }
   rmSync(cwd, { recursive: true, force: true });
 });
+
+const AGENTS_BEGIN = "<!-- BEGIN:arkor-agent-rules -->";
+const AGENTS_END = "<!-- END:arkor-agent-rules -->";
+// Mirror of the signature line that scaffold.ts looks for as a secondary
+// guard against false-positive marker matches (e.g. user-authored docs
+// inside fenced code blocks). Test fixtures that want their block to be
+// recognised as the managed one must include this line right after BEGIN.
+const AGENTS_SIGNATURE_LINE = "# arkor is newer than your training data";
 
 describe("scaffold", () => {
   it("writes all starter files in an empty directory", async () => {
@@ -255,6 +263,491 @@ describe("scaffold", () => {
     } finally {
       rmSync(parent, { recursive: true, force: true });
     }
+  });
+
+  it("does not write AGENTS.md or CLAUDE.md when agentsMd is omitted", async () => {
+    // Default behavior: scaffold() leaves AGENTS.md / CLAUDE.md alone unless
+    // the caller opts in. Protects existing arkor init flow that doesn't pass
+    // the flag.
+    const result = await scaffold({ cwd, name: "no-agents", template: "triage" });
+    expect(result.files.map((f) => f.path)).not.toContain("AGENTS.md");
+    expect(result.files.map((f) => f.path)).not.toContain("CLAUDE.md");
+    expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+  });
+
+  it("creates AGENTS.md and CLAUDE.md when agentsMd is true and neither file exists", async () => {
+    const result = await scaffold({
+      cwd,
+      name: "agentic",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = result.files.find((f) => f.path === "AGENTS.md");
+    const claude = result.files.find((f) => f.path === "CLAUDE.md");
+    expect(agents?.action).toBe("created");
+    expect(claude?.action).toBe("created");
+
+    const agentsBody = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(agentsBody).toContain(AGENTS_BEGIN);
+    expect(agentsBody).toContain(AGENTS_END);
+    expect(agentsBody).toContain("arkor is newer than your training data");
+    expect(agentsBody).toContain("node_modules/arkor/docs/");
+    // No trailing junk past the closing marker on a fresh write.
+    expect(agentsBody.endsWith(`${AGENTS_END}\n`)).toBe(true);
+
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe("@AGENTS.md\n");
+  });
+
+  it("appends the managed block to an existing AGENTS.md without markers", async () => {
+    const existing = "# My project\n\nSome notes from the user.\n";
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+    const result = await scaffold({
+      cwd,
+      name: "merge",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = result.files.find((f) => f.path === "AGENTS.md");
+    expect(agents?.action).toBe("patched");
+
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // Existing user content must survive verbatim ahead of the block.
+    expect(body.startsWith(existing)).toBe(true);
+    expect(body).toContain(AGENTS_BEGIN);
+    expect(body).toContain(AGENTS_END);
+    // Exactly one blank line between user content and the block.
+    expect(body).toMatch(/Some notes from the user\.\n\n<!-- BEGIN:arkor-agent-rules -->/);
+  });
+
+  it("replaces only the block contents when AGENTS.md already has the markers", async () => {
+    const before = "# Project\n\n";
+    const after = "\n\n## Manual notes outside the block\n";
+    // The fixture must include the signature line to be recognised as
+    // the managed block (otherwise the patch path treats it as user
+    // content and falls through to append).
+    const stale = `${before}${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nstale content\n${AGENTS_END}${after}`;
+    writeFileSync(join(cwd, "AGENTS.md"), stale);
+    const result = await scaffold({
+      cwd,
+      name: "patch",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = result.files.find((f) => f.path === "AGENTS.md");
+    expect(agents?.action).toBe("patched");
+
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(body.startsWith(before)).toBe(true);
+    expect(body.endsWith(after)).toBe(true);
+    // Stale content gone; canonical body present.
+    expect(body).not.toContain("stale content");
+    expect(body).toContain("arkor is newer than your training data");
+  });
+
+  it("ignores stray marker mentions outside the managed block (does not duplicate on re-scaffold)", async () => {
+    // Regression: previously the END marker was located via
+    // `current.indexOf(END)` from the start of the file, so a user-
+    // authored mention of the END marker (in notes / explanation text)
+    // before the real managed block would either patch the wrong span
+    // (when END appeared between BEGIN and the real END) or fall through
+    // to the append path entirely (when END appeared before BEGIN). On
+    // every re-scaffold the append path would add a fresh canonical
+    // block, growing the file unboundedly.
+    const userNotes =
+      "# Project\n" +
+      "\n" +
+      "Note: the canonical block is delimited by `<!-- BEGIN:arkor-agent-rules -->` " +
+      "and `<!-- END:arkor-agent-rules -->`.\n" +
+      "\n";
+    // Real managed block sits *after* the prose mentions above. The END
+    // string in the prose appears earlier in the file than the real END.
+    // Signature line distinguishes the real managed block from any
+    // line-anchored marker pair the user might paste in their notes.
+    const realBlock = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\noriginal canonical body\n${AGENTS_END}`;
+    writeFileSync(join(cwd, "AGENTS.md"), `${userNotes}${realBlock}\n`);
+
+    // Counting helper: only line-anchored markers (start of file or
+    // immediately after a newline) count as canonical markers; inline
+    // mentions inside prose / backticks are just text that must be
+    // preserved verbatim.
+    const countAnchored = (s: string, marker: string): number => {
+      const re = new RegExp(`(?:^|\\n)${marker.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}`, "g");
+      return (s.match(re) ?? []).length;
+    };
+
+    // First re-scaffold: should patch the real block in place.
+    const first = await scaffold({
+      cwd,
+      name: "stray-marker",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(first.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
+      "patched",
+    );
+    const after = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(after).toContain("arkor is newer than your training data");
+    expect(after).not.toContain("original canonical body");
+    // Exactly one canonical (line-anchored) BEGIN/END pair — the prose
+    // mention is preserved verbatim but does not count as a canonical
+    // marker because it is inside backticks.
+    expect(countAnchored(after, AGENTS_BEGIN)).toBe(1);
+    expect(countAnchored(after, AGENTS_END)).toBe(1);
+    expect(after).toContain("Note: the canonical block is delimited by");
+
+    // Second re-scaffold: must be idempotent — file size and marker
+    // count both stable, no second block appended.
+    const second = await scaffold({
+      cwd,
+      name: "stray-marker",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
+      "ok",
+    );
+    const final = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(final).toBe(after);
+    expect(countAnchored(final, AGENTS_BEGIN)).toBe(1);
+    expect(countAnchored(final, AGENTS_END)).toBe(1);
+  });
+
+  it("returns 'ok' when AGENTS.md already has the canonical block", async () => {
+    // First scaffold creates the file; second scaffold should detect the
+    // block is already up-to-date and skip the write.
+    await scaffold({ cwd, name: "idempotent", template: "triage", agentsMd: true });
+    const before = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    const second = await scaffold({
+      cwd,
+      name: "idempotent",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = second.files.find((f) => f.path === "AGENTS.md");
+    expect(agents?.action).toBe("ok");
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(before);
+  });
+
+  it("preserves CRLF line endings when patching a CRLF AGENTS.md", async () => {
+    // The block is authored with LF; without the eol-aware patch path it
+    // would land as LF inside an otherwise-CRLF file, mixing styles and
+    // breaking diff hygiene on Windows checkouts.
+    const existing = "# Project\r\n\r\nNotes.\r\n";
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+    await scaffold({
+      cwd,
+      name: "crlf",
+      template: "triage",
+      agentsMd: true,
+    });
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // No bare LFs anywhere in the patched file.
+    expect(body).not.toMatch(/[^\r]\n/);
+    expect(body).toContain(`${AGENTS_BEGIN}\r\n`);
+    expect(body).toContain(`\r\n${AGENTS_END}`);
+  });
+
+  it("re-scaffolding a CRLF AGENTS.md is idempotent (does not stack a second managed block)", async () => {
+    // Regression: the previous `findManagedBlock` regex hard-coded `\n`
+    // between BEGIN/signature/END, so it failed to recognise a managed
+    // block in a CRLF-formatted file (where the actual line breaks are
+    // `\r\n`). The detector returned null on every re-scaffold and the
+    // append path stacked a fresh canonical block on each run, growing
+    // the file unboundedly on Windows checkouts.
+    const existing = "# Project\r\n\r\nNotes.\r\n";
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+
+    // First scaffold: append (action `patched`).
+    await scaffold({
+      cwd,
+      name: "crlf-idempotent",
+      template: "triage",
+      agentsMd: true,
+    });
+    const afterFirst = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // Exactly one canonical block landed.
+    expect(afterFirst.match(new RegExp(AGENTS_BEGIN, "g"))?.length).toBe(1);
+    expect(afterFirst.match(new RegExp(AGENTS_END, "g"))?.length).toBe(1);
+
+    // Second scaffold: must detect the existing block (despite CRLF
+    // breaks), find no diff, and return `ok` without growing the file.
+    const second = await scaffold({
+      cwd,
+      name: "crlf-idempotent",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
+      "ok",
+    );
+    const afterSecond = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(afterSecond).toBe(afterFirst);
+    expect(afterSecond.match(new RegExp(AGENTS_BEGIN, "g"))?.length).toBe(1);
+  });
+
+  it("detects an existing managed block in a UTF-8-with-BOM AGENTS.md", async () => {
+    // Regression: the previous regex anchored BEGIN at `^` or after a
+    // newline. A BOM at the file start (Windows Notepad's pre-2019
+    // default save mode) put a U+FEFF byte ahead of BEGIN, so neither
+    // anchor matched. The detector returned null and re-scaffolding
+    // appended a second canonical block instead of patching in place.
+    // Re-scaffolds of a BOM file must therefore be idempotent.
+    const BOM = "﻿";
+    const block = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\noriginal canonical body\n${AGENTS_END}`;
+    writeFileSync(join(cwd, "AGENTS.md"), `${BOM}${block}\n`);
+
+    const first = await scaffold({
+      cwd,
+      name: "bom",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(first.warnings).toEqual([]);
+    // The block was detected and patched in place — file still has
+    // exactly one BEGIN / END pair and the BOM survives at byte 0.
+    const after = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(after.startsWith(BOM)).toBe(true);
+    expect(after.match(new RegExp(AGENTS_BEGIN, "g"))?.length).toBe(1);
+    expect(after.match(new RegExp(AGENTS_END, "g"))?.length).toBe(1);
+    // Stale content gone; canonical body present.
+    expect(after).not.toContain("original canonical body");
+    expect(after).toContain("arkor is newer than your training data");
+
+    // Second re-scaffold: idempotent.
+    const second = await scaffold({
+      cwd,
+      name: "bom",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
+      "ok",
+    );
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(after);
+  });
+
+  it("refuses to patch when AGENTS.md contains multiple canonical blocks (warns instead) AND skips CLAUDE.md", async () => {
+    // Auto-picking first/last is unsafe — `writeAgentsMd` lets users
+    // put content on either side of the managed block, so a duplicate
+    // could be a real earlier block + a user-pasted example below it
+    // (or vice versa). The conservative response is to refuse the
+    // patch and surface a warning so the user can dedupe. Also skip
+    // CLAUDE.md in this state: it would auto-import the unresolved
+    // duplicate rules into Claude Code's context via the `@AGENTS.md`
+    // shim, amplifying the broken state instead of waiting for the
+    // user to fix it.
+    const block = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nfirst copy\n${AGENTS_END}`;
+    const dup = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nsecond copy\n${AGENTS_END}`;
+    const original = `# Project\n\n${block}\n\nUser notes\n\n${dup}\n`;
+    writeFileSync(join(cwd, "AGENTS.md"), original);
+
+    const result = await scaffold({
+      cwd,
+      name: "ambiguous",
+      template: "triage",
+      agentsMd: true,
+    });
+    const agents = result.files.find((f) => f.path === "AGENTS.md");
+    expect(agents?.action).toBe("kept");
+    // File must be byte-identical — no auto-patch happened.
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(original);
+
+    // CLAUDE.md was skipped — action `skipped`, not `kept` (which would
+    // imply an existing file we left alone). Nothing on disk.
+    const claude = result.files.find((f) => f.path === "CLAUDE.md");
+    expect(claude?.action).toBe("skipped");
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+
+    // The README must not advertise AGENTS.md / CLAUDE.md as present
+    // when CLAUDE.md was actually skipped — otherwise the fresh README
+    // documents files that aren't on disk.
+    const readme = readFileSync(join(cwd, "README.md"), "utf8");
+    expect(readme).not.toContain("CLAUDE.md");
+    expect(readme).not.toContain("--no-agents-md");
+
+    // Two warnings: AGENTS.md ambiguity + CLAUDE.md skip explanation.
+    expect(result.warnings).toHaveLength(2);
+    const [agentsWarning, claudeWarning] = result.warnings;
+    expect(agentsWarning).toContain("AGENTS.md");
+    expect(agentsWarning).toContain("2");
+    expect(agentsWarning).toContain(AGENTS_BEGIN);
+    expect(claudeWarning).toContain("CLAUDE.md");
+    expect(claudeWarning).toContain("AGENTS.md");
+  });
+
+  it("does not overwrite an existing CLAUDE.md even when AGENTS.md is ambiguous (no extra warning)", async () => {
+    // Companion to the test above: when CLAUDE.md is already on disk,
+    // the existing-file branch of writeClaudeMd ("kept") covers the
+    // user — no `@AGENTS.md` shim is created, so we don't need to add
+    // a second warning about not creating one.
+    const dup = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nbody\n${AGENTS_END}`;
+    const original = `${dup}\n\n${dup}\n`;
+    writeFileSync(join(cwd, "AGENTS.md"), original);
+    const userClaude = "# project-specific\nrules I want kept\n";
+    writeFileSync(join(cwd, "CLAUDE.md"), userClaude);
+
+    const result = await scaffold({
+      cwd,
+      name: "ambiguous-with-claude",
+      template: "triage",
+      agentsMd: true,
+    });
+    const claude = result.files.find((f) => f.path === "CLAUDE.md");
+    expect(claude?.action).toBe("kept");
+    // The user's CLAUDE.md is preserved verbatim.
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe(userClaude);
+    // Only the AGENTS.md ambiguity warning is surfaced; CLAUDE.md was
+    // already on disk so the "not created" advisory would be confusing.
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("AGENTS.md");
+  });
+
+  it("scaffolds README.md without the AGENTS.md / CLAUDE.md bullet when agentsMd is false", async () => {
+    // Regression: `STARTER_README` previously hard-coded an
+    // `AGENTS.md / CLAUDE.md` bullet that ran for every fresh scaffold.
+    // A `--no-agents-md` project would then ship a README documenting
+    // files that were intentionally not created. The bullet must
+    // mirror what was actually written to disk.
+    await scaffold({ cwd, name: "no-agents-readme", template: "triage" });
+    const readme = readFileSync(join(cwd, "README.md"), "utf8");
+    expect(readme).not.toContain("AGENTS.md");
+    expect(readme).not.toContain("CLAUDE.md");
+    expect(readme).not.toContain("--no-agents-md");
+    // Other Files-section entries still present.
+    expect(readme).toContain("src/arkor/index.ts");
+    expect(readme).toContain("arkor.config.ts");
+  });
+
+  it("scaffolds README.md with the AGENTS.md / CLAUDE.md bullet when agentsMd is true", async () => {
+    await scaffold({
+      cwd,
+      name: "with-agents-readme",
+      template: "triage",
+      agentsMd: true,
+    });
+    const readme = readFileSync(join(cwd, "README.md"), "utf8");
+    expect(readme).toContain("AGENTS.md");
+    expect(readme).toContain("CLAUDE.md");
+    expect(readme).toContain("--no-agents-md");
+  });
+
+  it("treats a stray CRLF in an otherwise-LF AGENTS.md as LF (dominant style)", async () => {
+    // Regression for the previous detectEol implementation that flipped
+    // the inserted block to CRLF as soon as a single \r\n appeared
+    // anywhere in the file. Real-world AGENTS.md files often pick up a
+    // stray CRLF from a copy-paste; the patch must keep matching the
+    // dominant convention (LF here, three lines vs. one).
+    const existing = "# Project\nLine A\nLine B (stray)\r\nLine C\n";
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+    await scaffold({
+      cwd,
+      name: "mixed-eol",
+      template: "triage",
+      agentsMd: true,
+    });
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // The pre-existing stray CRLF must survive untouched outside the block.
+    expect(body).toContain("Line B (stray)\r\n");
+    // The inserted block — checked via its first newline after BEGIN —
+    // must be LF, not CRLF.
+    expect(body).toContain(`${AGENTS_BEGIN}\n`);
+    expect(body).not.toContain(`${AGENTS_BEGIN}\r\n`);
+  });
+
+  it("preserves the user's trailing-newline pattern when appending the block", async () => {
+    // Regression: previously the append path called
+    // `current.replace(/(\r?\n)+$/, "")` which collapsed any trailing
+    // run of newlines, destroying intentional formatting (a user's file
+    // ending in two blank lines would silently lose them on first
+    // re-scaffold). The non-destructive guarantee requires the user's
+    // own bytes outside the managed block to be byte-identical.
+    const existing = "# Project\n\nNotes.\n\n\n\n"; // four trailing newlines
+    writeFileSync(join(cwd, "AGENTS.md"), existing);
+    await scaffold({
+      cwd,
+      name: "trailing-newlines",
+      template: "triage",
+      agentsMd: true,
+    });
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    // The original tail (including all four trailing newlines) survives
+    // intact ahead of the appended block.
+    expect(body.startsWith(existing)).toBe(true);
+    // And the canonical block follows.
+    expect(body).toContain(AGENTS_BEGIN);
+    expect(body).toContain(AGENTS_END);
+  });
+
+  it("ignores a fenced-code-block marker example earlier in AGENTS.md (signature line distinguishes managed block from user docs)", async () => {
+    // Coverage for the signature-line guard in `findManagedBlock`. A user
+    // can legitimately document the marker syntax inside a fenced code
+    // block, putting the BEGIN/END markers on their own lines. Earlier
+    // passes (line-anchored markers + first/last selection) misclassified
+    // such examples as the managed block and overwrote them on re-scaffold.
+    // The current matcher requires the canonical signature line
+    // (`# arkor is newer than your training data`) to appear immediately
+    // after BEGIN, which a typical documentation example will not contain;
+    // when *several* signature-matching blocks coexist (rarer, e.g. an
+    // aggregator README pasting the canonical body twice), the matcher
+    // refuses to patch and surfaces a warning instead of guessing.
+    const docExample =
+      "# AGENTS.md primer\n" +
+      "\n" +
+      "Tools that follow the AGENTS.md spec emit a managed block like this:\n" +
+      "\n" +
+      "```md\n" +
+      `${AGENTS_BEGIN}\n` +
+      "<!-- canonical content from a tool would go here -->\n" +
+      `${AGENTS_END}\n` +
+      "```\n" +
+      "\n" +
+      "End of primer.\n";
+    writeFileSync(join(cwd, "AGENTS.md"), docExample);
+
+    await scaffold({
+      cwd,
+      name: "fenced-example",
+      template: "triage",
+      agentsMd: true,
+    });
+    const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+
+    // The fenced documentation example survives byte-for-byte at the
+    // top of the file (we only verify the example's distinctive line —
+    // the surrounding fence + markers stay because they are not the
+    // trailing line-anchored pair).
+    expect(body).toContain(
+      "<!-- canonical content from a tool would go here -->",
+    );
+    expect(body).toContain("End of primer.");
+    // A real canonical block was appended after the example.
+    expect(body).toContain("arkor is newer than your training data");
+
+    // Re-scaffold must be idempotent: only the trailing pair gets
+    // patched, so file content is byte-stable across runs and the
+    // documentation example is never touched.
+    await scaffold({
+      cwd,
+      name: "fenced-example",
+      template: "triage",
+      agentsMd: true,
+    });
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(body);
+  });
+
+  it("never overwrites an existing CLAUDE.md", async () => {
+    const userClaude = "# my own claude file\nproject-specific instructions\n";
+    writeFileSync(join(cwd, "CLAUDE.md"), userClaude);
+    const result = await scaffold({
+      cwd,
+      name: "claude-kept",
+      template: "triage",
+      agentsMd: true,
+    });
+    const claude = result.files.find((f) => f.path === "CLAUDE.md");
+    expect(claude?.action).toBe("kept");
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe(userClaude);
   });
 
   it("renders each template with a distinct trainer body", async () => {

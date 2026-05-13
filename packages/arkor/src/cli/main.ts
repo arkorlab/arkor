@@ -19,7 +19,9 @@ export async function main(argv: string[]): Promise<void> {
 
   program
     .command("init")
-    .description("Scaffold src/arkor/index.ts + arkor.config.ts in the current directory")
+    .description(
+      "Scaffold an Arkor project in the current directory: src/arkor/{index,trainer}.ts, arkor.config.ts, README.md, .gitignore, package.json, and AGENTS.md / CLAUDE.md (skip the agent files with --no-agents-md). Existing files are patched non-destructively.",
+    )
     .option("-y, --yes", "Accept defaults instead of prompting")
     .option("--name <name>", "Project name (default: directory name)")
     .option("--template <template>", "Starter template: triage | translate | redaction")
@@ -33,6 +35,11 @@ export async function main(argv: string[]): Promise<void> {
       "Initialise a git repo and create an initial commit (skips the prompt)",
     )
     .option("--skip-git", "Skip the git init prompt and do not initialise git")
+    .option(
+      "--agents-md",
+      "Include AGENTS.md and CLAUDE.md to guide AI coding agents (default)",
+    )
+    .option("--no-agents-md", "Skip generating AGENTS.md and CLAUDE.md")
     .action(
       withTelemetry("init", async (opts: {
         yes?: boolean;
@@ -45,9 +52,33 @@ export async function main(argv: string[]): Promise<void> {
         useBun?: boolean;
         git?: boolean;
         skipGit?: boolean;
+        // Commander v13 leaves this undefined unless one of --agents-md /
+        // --no-agents-md was passed; the action treats undefined as the
+        // default-on value.
+        agentsMd?: boolean;
       }) => {
         if (opts.git && opts.skipGit) {
           throw new Error("Pick one of --git / --skip-git, not both.");
+        }
+        // Commander treats `--agents-md` and `--no-agents-md` as the same
+        // option (last-wins), so it will not surface a conflict on its
+        // own. Mirror the `--git` / `--skip-git` check by inspecting the
+        // raw argv passed to `main()` — using `process.argv` directly
+        // would miss the conflict when called from tests via
+        // `main([...])` and could false-positive on the parent process's
+        // own arguments. Stop scanning at the POSIX `--` end-of-options
+        // sentinel so a positional that happens to start with `--` is
+        // not misclassified as a conflicting flag.
+        const sentinelIdx = argv.indexOf("--");
+        const flagsArgv =
+          sentinelIdx === -1 ? argv : argv.slice(0, sentinelIdx);
+        if (
+          flagsArgv.includes("--agents-md") &&
+          flagsArgv.includes("--no-agents-md")
+        ) {
+          throw new Error(
+            "Pick one of --agents-md / --no-agents-md, not both.",
+          );
         }
         const packageManager = resolvePackageManager({
           useNpm: opts.useNpm,
@@ -63,6 +94,10 @@ export async function main(argv: string[]): Promise<void> {
           packageManager,
           git: opts.git,
           skipGit: opts.skipGit,
+          // Commander v13 leaves opts.agentsMd undefined when no flag is
+          // passed; default to on so `arkor init` matches `create-arkor`.
+          // Only explicit `--no-agents-md` (which sets `false`) opts out.
+          agentsMd: opts.agentsMd !== false,
         });
       }),
     );
