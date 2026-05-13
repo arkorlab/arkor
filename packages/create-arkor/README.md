@@ -76,12 +76,13 @@ The block is identified by **three** signals together — the BEGIN marker
 (`<!-- BEGIN:arkor-agent-rules -->`), the END marker
 (`<!-- END:arkor-agent-rules -->`), and the canonical first content line
 (`# arkor is newer than your training data`) — all on their own lines. If you
-hand-edit the heading, the matcher no longer recognises the block as managed
-and a re-scaffold appends a fresh canonical block alongside the edited one;
-the scaffolder then refuses to patch and warns you to dedupe. As a safety net,
-when an existing `AGENTS.md` already contains more than one canonical managed
-block the scaffolder refuses to guess which copy is current — the file is
-kept untouched and a warning is printed so you can dedupe before the next
+hand-edit that heading, the matcher no longer recognises the block as managed
+and treats it as ordinary user content; a re-scaffold then appends a fresh
+canonical block alongside the edited one without any warning. The ambiguous-
+block warning fires only when **multiple signature-matching blocks** are
+present at once — typically from pasting the canonical block twice, not from
+heading edits — in which case the scaffolder refuses to guess which copy is
+current, leaves the file untouched, and asks you to dedupe before the next
 re-scaffold patches in place.
 `CLAUDE.md` is created with `@AGENTS.md` only when it does not already
 exist *and* `AGENTS.md` does not contain duplicate managed blocks. In

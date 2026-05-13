@@ -269,7 +269,6 @@ describe("scaffold", () => {
     // Default behavior: scaffold() leaves AGENTS.md / CLAUDE.md alone unless
     // the caller opts in. Protects existing arkor init flow that doesn't pass
     // the flag.
-    const { existsSync } = await import("node:fs");
     const result = await scaffold({ cwd, name: "no-agents", template: "triage" });
     expect(result.files.map((f) => f.path)).not.toContain("AGENTS.md");
     expect(result.files.map((f) => f.path)).not.toContain("CLAUDE.md");
