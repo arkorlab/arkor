@@ -1,0 +1,46 @@
+---
+title: "Deployments"
+description: "学習済みアダプタやベースモデルを *.arkor.app URL として自分のコードから公開する。"
+---
+
+# Deployments
+
+**Deployment** とは、学習済みアダプタ（または素のベースモデル）を専用サブドメイン `https://<slug>.arkor.app/v1/chat/completions` に公開する仕組みです。OpenAI Chat Completions のワイヤーフォーマットで応答するので、OpenAI 互換クライアント（公式 `openai` SDK、LangChain など）の `baseURL` を向けるだけで使えます。
+
+`CloudApiClient` はこれらの deployment をプログラムで管理（作成、API キーのローテーション、削除）する型付きエントリポイントです。Studio ダッシュボード（[Endpoints](/ja/studio/endpoints)）が共通操作を対話的にカバーしますが、SDK はその下に位置する低レベル面で、次のような場面で使います:
+
+- **CI / IaC**: 他のインフラと一緒に deployment をプロビジョニング。学習済み job の `final` アダプタが、1 ステップのスクリプトで「保存済みチェックポイント」から「ライブ URL」に。
+- **独自ダッシュボード**: 自前の管理 UI に deployment 管理を組み込む。
+- **一括操作**: インシデント後に多数の deployment のキーをまとめて revoke + 再発行する。
+- **SDK 限定の操作**: 既存 deployment の target 差し替え、デフォルト以外の run retention 設定など — Studio は今のところ公開していません。
+
+```ts
+import {
+  CloudApiClient,
+  defaultArkorCloudApiUrl,
+  ensureCredentials,
+} from "arkor";
+
+const credentials = await ensureCredentials();
+const client = new CloudApiClient({
+  baseUrl: defaultArkorCloudApiUrl(credentials),
+  credentials,
+});
+
+const scope = { orgSlug: "my-org", projectSlug: "my-project" };
+const { deployment } = await client.createDeployment(scope, {
+  slug: "support-bot",
+  target: { kind: "adapter", adapter: { kind: "final", jobId: "<uuid>" } },
+  authMode: "fixed_api_key",
+});
+const { key } = await client.createDeploymentKey(deployment.id, scope, {
+  label: "production",
+});
+console.log(key.plaintext); // 表示は **1 回限り**。今すぐ保存
+```
+
+`defaultArkorCloudApiUrl(credentials)` は credentials が認証された control plane に追従させます — 匿名認証情報は signup 時、OAuth 認証情報は `arkor login` 時に URL を保存しています。API キーの平文も作成時にのみ返り、以降の `listDeploymentKeys()` ではラベルと表示用 prefix だけが返ります。
+
+## リファレンス
+
+完全なメソッド一覧、リクエスト / レスポンスの形、`target` 判別共用体、run retention 設定、エラーコード、公開 / 内部のエクスポート契約は [`CloudApiClient` リファレンス](/ja/sdk/deployments) を参照してください。

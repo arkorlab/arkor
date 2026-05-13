@@ -3,6 +3,7 @@ import {
   jobStatusSchema,
   trainingJobSchema,
   anonymousTokenResponseSchema,
+  listDeploymentKeysResponseSchema,
 } from "./schemas";
 
 describe("jobStatusSchema", () => {
@@ -34,12 +35,18 @@ describe("trainingJobSchema", () => {
     expect(parsed.status).toBe("queued");
   });
 
-  it("normalises Date timestamps to strings", () => {
+  it("normalises Date timestamps to ISO-8601 strings", () => {
+    // Regression: a previous implementation used `String(v)`, which
+    // turns a Date into the locale-ish form (`"Tue May 12 …"`) rather
+    // than the ISO-8601 the DTO contract documents. Mocks / tests / a
+    // future producer that hands a Date to the decoder must still
+    // observe the ISO form on the way out.
+    const iso = "2026-01-01T00:00:00.000Z";
     const parsed = trainingJobSchema.parse({
       ...valid,
-      createdAt: new Date("2026-01-01T00:00:00Z"),
+      createdAt: new Date(iso),
     });
-    expect(typeof parsed.createdAt).toBe("string");
+    expect(parsed.createdAt).toBe(iso);
   });
 
   it("allows extra fields (looseObject)", () => {
@@ -56,19 +63,21 @@ describe("trainingJobSchema", () => {
     expect(() => trainingJobSchema.parse(rest)).toThrow();
   });
 
-  it("normalises non-null startedAt/completedAt strings via the truthy branch", () => {
-    // Branch coverage for the `v ? String(v) : null` transforms — the
-    // `null` branch is exercised by every other test in this file
-    // (the `valid` fixture has both fields null), but the `String(v)`
-    // branch only fires when the field carries an actual timestamp.
+  it("normalises non-null startedAt/completedAt: strings pass through, Dates ISO-coerce", () => {
+    // Branch coverage for the `toIsoOrNull` transforms — the `null`
+    // branch is exercised by every other test in this file (the
+    // `valid` fixture has both fields null), but the truthy branch
+    // only fires when the field carries an actual timestamp. Strings
+    // must round-trip verbatim (the cloud API is the canonical
+    // source for their format); Dates must come out as ISO-8601.
+    const completedIso = "2026-01-01T00:00:02.000Z";
     const parsed = trainingJobSchema.parse({
       ...valid,
       startedAt: "2026-01-01T00:00:01Z",
-      completedAt: new Date("2026-01-01T00:00:02Z"),
+      completedAt: new Date(completedIso),
     });
-    expect(typeof parsed.startedAt).toBe("string");
     expect(parsed.startedAt).toBe("2026-01-01T00:00:01Z");
-    expect(typeof parsed.completedAt).toBe("string");
+    expect(parsed.completedAt).toBe(completedIso);
   });
 });
 
@@ -91,5 +100,69 @@ describe("anonymousTokenResponseSchema", () => {
         personalOrg: { slug: "anon-a" },
       }),
     ).toThrow();
+  });
+});
+
+describe("listDeploymentKeysResponseSchema", () => {
+  // The list-keys response is documented as the no-plaintext shape
+  // (`DeploymentKeyDto` has no `plaintext` field). The parse step has
+  // a defensive `.transform` that strips `plaintext` if a regressed
+  // server ever included it — tested here so a future change to the
+  // sanitiser can't silently leak raw API keys to SDK callers.
+  const minimalKey = {
+    id: "k1",
+    label: "production",
+    prefix: "ark_live_",
+    enabled: true,
+    createdAt: "2026-05-04T00:00:00Z",
+    lastUsedAt: null,
+  };
+
+  it("accepts the documented no-plaintext shape", () => {
+    const parsed = listDeploymentKeysResponseSchema.parse({
+      keys: [minimalKey],
+    });
+    expect(parsed.keys).toHaveLength(1);
+    expect(parsed.keys[0]?.id).toBe("k1");
+  });
+
+  it("strips an unexpected `plaintext` field from a list entry", () => {
+    // Regression guard: if the control plane ever (incorrectly) returns
+    // a plaintext key on the list response, the SDK's `.transform`
+    // must drop it before it reaches the caller. The exported
+    // `DeploymentKeyDto` type has no `plaintext`, so leaking it would
+    // both violate the type contract and expose the raw secret.
+    const parsed = listDeploymentKeysResponseSchema.parse({
+      keys: [
+        {
+          ...minimalKey,
+          plaintext: "ark_live_LEAKED_SECRET",
+        },
+      ],
+    });
+    expect(parsed.keys[0]).not.toHaveProperty("plaintext");
+    // Stringifying the parsed payload — the form the SPA / SDK callers
+    // would re-emit — must not contain the secret either.
+    expect(JSON.stringify(parsed)).not.toContain("LEAKED_SECRET");
+  });
+
+  it("strips `plaintext` even when other unknown fields are present", () => {
+    // The schema is intentionally `looseObject`, so future server-side
+    // additions (e.g. a new metadata field) flow through untouched.
+    // The strip targets `plaintext` specifically — make sure it
+    // doesn't drop unrelated unknown keys as collateral damage.
+    const parsed = listDeploymentKeysResponseSchema.parse({
+      keys: [
+        {
+          ...minimalKey,
+          plaintext: "ark_live_LEAKED",
+          someFutureField: "preserved",
+        },
+      ],
+    });
+    expect(parsed.keys[0]).not.toHaveProperty("plaintext");
+    expect((parsed.keys[0] as Record<string, unknown>).someFutureField).toBe(
+      "preserved",
+    );
   });
 });

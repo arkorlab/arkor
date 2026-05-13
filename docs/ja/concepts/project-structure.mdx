@@ -67,7 +67,7 @@ export default {};
 
 このディレクトリーはコミットしないでください。
 
-- **`.arkor/state.json`**。プロジェクトのルーティング: `orgSlug`、`projectSlug`、`projectId`。これによってランタイムはローカルリポジトリをマネージドバックエンドのワークスペースにマップします。ファイルは `ensureProjectState()` が作成し、これは初回の学習開始（または初回のベースモデル推論）の際に走ります。**匿名**ワークスペースではこの初回呼び出しで自動作成されます。**OAuth** ワークスペースの場合はランタイムがエラーを返します。今のところ `arkor login` も `arkor init` もこのファイルに値を書き込まないので、`{ orgSlug, projectSlug, projectId }` を手動で書いて作るのが現実的な方法です。一度作られた後は手で編集しないでください。
+- **`.arkor/state.json`**。プロジェクトのルーティング: `orgSlug`、`projectSlug`、`projectId`。これによってランタイムはローカルリポジトリをマネージドバックエンドのワークスペースにマップします。ファイルは `ensureProjectState()` が作成し、CLI や Studio がスコープを必要とする最初のアクション（学習の開始、ベースモデル推論、Studio の [Endpoints](/ja/studio/endpoints) ページからの初回 deployment 作成など）で走ります。純粋な read 経路（Endpoints / Jobs の一覧表示など）は意図的に初期化を起こさないので、新規チェックアウト直後に Studio を開いてもリモートにプロジェクトを副作用で作ったりせず、空一覧が表示されるだけです。**匿名**ワークスペースではこの初回 write 呼び出しで自動作成されます。**OAuth** ワークスペースの場合はランタイムがエラーを返します。今のところ `arkor login` も `arkor init` もこのファイルに値を書き込まないので、`{ orgSlug, projectSlug, projectId }` を手動で書いて作るのが現実的な方法です。一度作られた後は手で編集しないでください。
 - **`.arkor/build/index.mjs`**。`arkor build` の出力。`src/arkor/index.ts` を Node 22.22 ターゲットで esbuild した単一バンドルで、bare specifier は外部のままにしてあります。`arkor start` がこれを実行します。
 
 ## `~/.arkor/`（ユーザーごと）

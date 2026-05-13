@@ -57,8 +57,8 @@ importers:
   packages/arkor:
     dependencies:
       '@arkor/cloud-api-client':
-        specifier: ^0.0.1-alpha.1
-        version: 0.0.1-alpha.1
+        specifier: ^0.0.1-alpha.2
+        version: 0.0.1-alpha.2
       '@clack/prompts':
         specifier: ^0.8.0
         version: 0.8.2
@@ -223,8 +223,8 @@ packages:
   '@ark/util@0.55.0':
     resolution: {integrity: sha512-aWFNK7aqSvqFtVsl1xmbTjGbg91uqtJV7Za76YGNEwIO4qLjMfyY8flmmbhooYMuqPCO2jyxu8hve943D+w3bA==}
 
-  '@arkor/cloud-api-client@0.0.1-alpha.1':
-    resolution: {integrity: sha512-kp7CYpa5bGuylELH4GuoUmrg+v7C+YrrLLc9O5TzVncUUpn8GwHTwjkk1f1qOyT1e8AsXwQ6EiQFHx+1QecWzA==}
+  '@arkor/cloud-api-client@0.0.1-alpha.2':
+    resolution: {integrity: sha512-FhH1mEIk9rciU1bW9XPht+43uPJLKZcGk1ZwYzTtYsa+tTJ3aPXWA6qgUwMhtvebrH2kepCVRK+NlevLc3I4dQ==}
 
   '@asamuzakjp/css-color@5.1.11':
     resolution: {integrity: sha512-KVw6qIiCTUQhByfTd78h2yD1/00waTmm9uy/R7Ck/ctUyAPj+AEDLkQIdJW0T8+qGgj3j5bpNKK7Q3G+LedJWg==}
@@ -5726,7 +5726,7 @@ snapshots:
 
   '@ark/util@0.55.0': {}
 
-  '@arkor/cloud-api-client@0.0.1-alpha.1':
+  '@arkor/cloud-api-client@0.0.1-alpha.2':
     dependencies:
       eventsource-parser: 3.0.8
       hono: 4.12.14
