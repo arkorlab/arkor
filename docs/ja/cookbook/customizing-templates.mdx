@@ -14,13 +14,30 @@ description: "生成されたテンプレートを起点として扱う。デー
 import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
-  name: "support-bot-v1",
+  name: "triage-run",
   model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
-  lora: { r: 16, alpha: 16 },
+  datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
+  callbacks: {
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
+    },
+  },
 });
 ```
+
+`evalSteps: 25` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます — Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。各 `field=…` セグメントは `Number.isFinite` でガードされているので、eval-only ステップで `loss=null` が出たり、training-only ステップで `evalLoss=null` が出ることはありません（SDK は欠損値を `null` に正規化し、`evalLoss` の型は `number | null` です）。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 関連も合わせて削ってください。
 
 ## 1. データセットを差し替える
 
@@ -97,8 +114,16 @@ export const trainer = createTrainer({
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
   callbacks: {
-    onLog: ({ step, loss }) => {
-      if (loss !== null) console.log(`step=${step} loss=${loss.toFixed(4)}`);
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCheckpoint: async ({ step, infer }) => {
       // /ja/cookbook/mid-run-eval を参照
@@ -163,10 +188,16 @@ export const trainer = createTrainer({
   maxSteps: 500,
   learningRate: 2e-4,
   callbacks: {
-    onLog: ({ step, loss }) => {
-      if (loss !== null && Number.isFinite(loss)) {
-        console.log(`step=${step} loss=${loss.toFixed(4)}`);
-      }
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCompleted: async ({ job, artifacts }) => {
       await postSlack(`✓ ${job.name} done (${artifacts.length} artifact(s))`);

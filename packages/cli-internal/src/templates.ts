@@ -24,8 +24,51 @@ export interface Template {
 // prompt baked into the conversation - so `datasetFormat: { type: "chatml" }`
 // hands the right shape to the trainer's apply_chat_template step.
 //
+// `evalSteps: 25` is wired in by default so a fresh scaffold produces both
+// training and eval loss out of the box — Studio's loss chart picks the
+// `evalLoss` series up automatically, and `onLog` prints it on the steps
+// where the trainer actually evaluates (`evalLoss` is null on non-eval
+// steps, so the segment is omitted there).
+//
 // Use `dryRun: true` for a 2-3 minute smoke test (50 rows, max_steps=10) before
 // committing to a full run.
+
+// Shared `onLog` body interpolated into every trainer template below so
+// the formatter stays in lock-step across `triage` / `translate` /
+// `redaction`. Indentation is baked into this constant (`    ` for the
+// `onLog:` line, `      ` for the body), and the `${ONLOG_BODY}`
+// interpolation in each trainer string sits at column 0 with **no
+// leading space** — adding one would push the rendered `onLog:` block
+// one column right of the surrounding `callbacks: {`. Reviewers / bots
+// occasionally flag the bare `${ONLOG_BODY}` line as misaligned because
+// neighbouring source lines (`  callbacks: {` above, `  },` below)
+// carry their own leading whitespace; that read is wrong, the rendered
+// output lines up correctly. Verify by running
+// `pnpm --filter @arkor/cli-internal exec node --input-type=module -e
+// "import('./src/templates.ts').then(m =>
+// process.stdout.write(m.TEMPLATES.triage.trainer))"` before changing
+// the indentation.
+//
+// Escaping note: this string is itself a JS template literal whose
+// product is the *runtime* trainer-source backticks/interpolations. So
+// `\`` and `\${...}` here become `` ` `` and `${...}` in the emitted
+// source code — exactly what the user-visible `console.log` template
+// literal needs.
+const ONLOG_BODY = `    onLog: ({ step, loss, evalLoss }) => {
+      // Omit each \`field=…\` segment when its value isn't a finite number
+      // so the line stays readable on eval-only steps (where \`loss\` is
+      // null) and on training-only steps (where \`evalLoss\` is null) —
+      // matches the format Studio's event log uses.
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? \` loss=\${loss.toFixed(4)}\`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? \` evalLoss=\${evalLoss.toFixed(4)}\`
+          : "";
+      console.log(\`step=\${step}\${lossPart}\${evalPart}\`);
+    },`;
 
 const REDACTION_TRAINER = `import { createTrainer } from "arkor";
 
@@ -35,11 +78,12 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // Set dryRun: true for a fast end-to-end smoke test before a full run.
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+${ONLOG_BODY}
     // See /cookbook/structured-outputs to add a JSON-schema mid-run check
     // (e.g. force \`{ redactedText, redactedCount, tags }\`) here.
   },
@@ -54,10 +98,11 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/translate-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+${ONLOG_BODY}
     // See /cookbook/structured-outputs to add a JSON-schema mid-run check
     // (e.g. force \`{ translation, detectedLanguage }\`) here.
   },
@@ -91,10 +136,11 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
-    onLog: ({ step, loss }) => console.log(\`step=\${step} loss=\${loss}\`),
+${ONLOG_BODY}
     // Mid-run sanity check: force the half-trained model to return the
     // triage object shape via JSON Schema, then log it. See
     // /cookbook/structured-outputs for the full pattern (and how to wire

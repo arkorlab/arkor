@@ -14,13 +14,30 @@ The starting trainer (after `--template triage`) looks like this:
 import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
-  name: "support-bot-v1",
+  name: "triage-run",
   model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
-  lora: { r: 16, alpha: 16 },
+  datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
+  callbacks: {
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
+    },
+  },
 });
 ```
+
+`evalSteps: 25` is wired in by default so the run produces an eval-loss series alongside the training-loss curve — Studio's loss chart picks `evalLoss` up automatically, and the `onLog` callback above appends ` evalLoss=…` to the terminal line on the steps where the trainer evaluates (every 25 steps with `maxSteps: 100`, so four eval points per run). Each `field=…` segment is gated on `Number.isFinite` so eval-only steps don't print `loss=null` and training-only steps don't print `evalLoss=null` (the SDK normalizes both to `null` — `evalLoss` is typed as `number | null`). Drop or change `evalSteps` if you don't want eval, and remove the `evalLoss` plumbing from `onLog` if you only care about training loss.
 
 ## 1. Swap the dataset
 
@@ -97,8 +114,16 @@ export const trainer = createTrainer({
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
   callbacks: {
-    onLog: ({ step, loss }) => {
-      if (loss !== null) console.log(`step=${step} loss=${loss.toFixed(4)}`);
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCheckpoint: async ({ step, infer }) => {
       // see /cookbook/mid-run-eval
@@ -163,10 +188,16 @@ export const trainer = createTrainer({
   maxSteps: 500,
   learningRate: 2e-4,
   callbacks: {
-    onLog: ({ step, loss }) => {
-      if (loss !== null && Number.isFinite(loss)) {
-        console.log(`step=${step} loss=${loss.toFixed(4)}`);
-      }
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCompleted: async ({ job, artifacts }) => {
       await postSlack(`✓ ${job.name} done (${artifacts.length} artifact(s))`);
