@@ -162,6 +162,16 @@ jobs:
           cache: pnpm
 
       - name: Install
+        # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
+        # already gates which packages may run postinstall, and
+        # `playwright` is not in that list — so `pnpm install` won't
+        # invoke Playwright's browser-download script today. Setting
+        # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` keeps that contract
+        # explicit so a future `allowBuilds` change can't silently
+        # re-enable a 150 MB postinstall download that the following
+        # cache + `playwright install` steps are meant to satisfy.
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       - name: Build
@@ -169,6 +179,17 @@ jobs:
           ARKOR_POSTHOG_KEY: ${{ secrets.ARKOR_POSTHOG_KEY }}
           ARKOR_POSTHOG_HOST: ${{ secrets.ARKOR_POSTHOG_HOST }}
         run: pnpm run build
+
+      # The Test step below transitively runs `@arkor/e2e-studio#test`
+      # (Playwright/Chromium), so we need the browser binaries on disk
+      # before that. Unlike ci.yaml, the release path intentionally
+      # *does not* cache: a poisoned `~/.cache/ms-playwright` entry
+      # would run inside the same job that pre-flights what build.yaml
+      # is about to publish. The ~150 MB download per release is
+      # cheaper than that supply-chain risk. The release `test` job is
+      # Linux-only, so we always pass `--with-deps`.
+      - name: Install Playwright (Linux)
+        run: pnpm --filter @arkor/e2e-studio exec playwright install --with-deps chromium
 
       - name: Pack tarballs for e2e scaffold tests
         run: |
