@@ -64,7 +64,7 @@ importers:
         version: 0.8.2
       '@hono/node-server':
         specifier: ^1.14.0
-        version: 1.19.14(hono@4.12.14)
+        version: 1.19.14(hono@4.12.18)
       commander:
         specifier: ^13.0.0
         version: 13.1.0
@@ -72,8 +72,8 @@ importers:
         specifier: ^0.28.0
         version: 0.28.0
       hono:
-        specifier: ^4.7.0
-        version: 4.12.14
+        specifier: ^4.12.18
+        version: 4.12.18
       open:
         specifier: ^10.0.0
         version: 10.2.0
@@ -2015,6 +2015,7 @@ packages:
 
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
+    deprecated: Potential CWE-502 - Update to 1.3.1 or higher
 
   '@vitejs/plugin-react@4.7.0':
     resolution: {integrity: sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA==}
@@ -3298,8 +3299,8 @@ packages:
     resolution: {integrity: sha512-NQO+lgVUCtHxZ792FodgW0zflK+ozS9X9dwGp9XvvmPlH7pyxd588cn24TD3rmPm/N0AIRXF10Otah8yKqGw4w==}
     engines: {node: '>=12'}
 
-  hono@4.12.14:
-    resolution: {integrity: sha512-am5zfg3yu6sqn5yjKBNqhnTX7Cv+m00ox+7jbaKkrLMRJ4rAdldd1xPd/JzbBWspqaQv6RSTrgFN95EsfhC+7w==}
+  hono@4.12.18:
+    resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -5729,7 +5730,7 @@ snapshots:
   '@arkor/cloud-api-client@0.0.1-alpha.2':
     dependencies:
       eventsource-parser: 3.0.8
-      hono: 4.12.14
+      hono: 4.12.18
       zod: 4.3.6
 
   '@asamuzakjp/css-color@5.1.11':
@@ -6154,9 +6155,9 @@ snapshots:
 
   '@fontsource-variable/geist@5.2.8': {}
 
-  '@hono/node-server@1.19.14(hono@4.12.14)':
+  '@hono/node-server@1.19.14(hono@4.12.18)':
     dependencies:
-      hono: 4.12.14
+      hono: 4.12.18
 
   '@img/sharp-darwin-arm64@0.33.5':
     optionalDependencies:
@@ -9228,7 +9229,7 @@ snapshots:
 
   hex-rgb@5.0.0: {}
 
-  hono@4.12.14: {}
+  hono@4.12.18: {}
 
   hookable@6.1.1: {}
 
