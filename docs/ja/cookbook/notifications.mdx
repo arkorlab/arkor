@@ -59,9 +59,9 @@ export const trainer = createTrainer({
 
 ## なぜ内側の `try / catch` が大事か
 
-Webhook リクエストが throw すると（Slack 障害、DNS の不調、コードが 200 番台以外を再 throw するなど）、コールバックは reject します。Arkor ランタイムはその reject を catch して SSE 再接続ループに送ります（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）。`maxReconnectAttempts` がデフォルトの無制限のままだと、不安定な Webhook が静かに永遠にリトライされ得て、リトライ間で `Last-Event-ID` が進めば元のイベントが飲み込まれます。
+Webhook リクエストが throw すると（Slack 障害、DNS の不調、コードが 200 番台以外を再 throw するなど）、コールバックは reject します。Arkor ランタイムはその reject を catch して SSE 再接続ループに送ります（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）。`maxReconnectAttempts` がデフォルトの無制限のままだと、不安定な Webhook が気付かないうちに無期限にリトライされ続け得て、リトライ間で `Last-Event-ID` が進めば元のイベントが飲み込まれます。
 
-Webhook は学習成功の判定基準ではなく副作用として扱ってください。内側で catch、知りたければログに残す。
+Webhook は学習成功の判定基準ではなく副作用として扱ってください。内側で catch し、必要に応じてログに残します。
 
 ## バリエーション
 
@@ -76,7 +76,7 @@ onLog: async ({ step, loss }) => {
 
 うるさいので、重要な学習だけにしたいなら `process.env.NOTIFY_PROGRESS === "1"` でゲートしてください。
 
-**学習中のサンプル共有。** [学習中の評価レシピ](/ja/cookbook/mid-run-eval) と組み合わせる: 各チェックポイントのサンプルをレビューチャネルに投稿し、学習が続いている間に同僚がリアクションで反応できます。
+**学習中のサンプル共有。** [学習中の評価レシピ](/ja/cookbook/mid-run-eval) と組み合わせる: 各チェックポイントのサンプルをレビューチャネルに投稿し、学習が続いている間にチームメンバーがリアクションで反応できます。
 
 ```ts
 onCheckpoint: async ({ step, infer }) => {
@@ -97,10 +97,10 @@ onCheckpoint: async ({ step, infer }) => {
 }
 ```
 
-**他の宛先。** PostHog の `capture()`、Datadog のイベント、DB への insert: 形は同じです。副作用を自分でエラーを飲み込む `async` ヘルパーの裏に置き、ライフサイクルコールバックから呼ぶ。トレーナーファイルに追加のオーケストレーションは不要です。
+**他の宛先。** PostHog の `capture()`、Datadog のイベント、DB への insert: パターンは同じです。副作用をエラーを飲み込む `async` ヘルパーの内部に閉じ込め、ライフサイクルコールバックから呼び出します。トレーナーファイルに追加のオーケストレーションは不要です。
 
 ## 心に留めておくこと
 
-- **内側の `try / catch` は必須。** 通知は あれば便利、ですが Webhook の障害が学習イベントストリームを静かにリトライさせていいわけがありません。
-- **シークレットをトレーナーファイルに置かない。** 例では `SLACK_WEBHOOK_URL` を `process.env` から読み、Webhook が `git` に入らないようにしています。トークンベースの宛先全般に同じ考え方を。
-- **`error` は `string` であることを忘れない。** `onFailed` の `error` 引数はバックエンドが送った文字列で（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）、`Error` インスタンスではありません。直接埋め込み、`.message` を呼んだりしないでください。
+- **内側の `try / catch` は必須。** 通知はあれば便利ですが、Webhook の障害が学習イベントストリームを暗黙のうちにリトライさせるのは望ましくありません。
+- **シークレットをトレーナーファイルに置かない。** 例では `SLACK_WEBHOOK_URL` を `process.env` から読み、Webhook が `git` に入らないようにしています。トークンベースの宛先全般に同じ考え方を適用してください。
+- **`error` は `string` であることを忘れない。** `onFailed` の `error` 引数はバックエンドが送った文字列で（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）、`Error` インスタンスではありません。そのまま埋め込んでください。`.message` を参照しないでください。
