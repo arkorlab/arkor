@@ -71,12 +71,18 @@ collision: interactive runs re-prompt for a different name, and `-y` /
 non-interactive runs exit with an error.
 
 `AGENTS.md` is patched non-destructively: an existing user file is preserved
-and the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->`
-and `<!-- END:arkor-agent-rules -->`) is appended or, on re-scaffold, replaced
-in place. As a safety net, when an existing `AGENTS.md` already contains more
-than one canonical managed block the scaffolder refuses to guess which copy
-is current — the file is kept untouched and a warning is printed so you can
-dedupe before the next re-scaffold patches in place.
+and the arkor-managed block is appended or, on re-scaffold, replaced in place.
+The block is identified by **three** signals together — the BEGIN marker
+(`<!-- BEGIN:arkor-agent-rules -->`), the END marker
+(`<!-- END:arkor-agent-rules -->`), and the canonical first content line
+(`# arkor is newer than your training data`) — all on their own lines. If you
+hand-edit the heading, the matcher no longer recognises the block as managed
+and a re-scaffold appends a fresh canonical block alongside the edited one;
+the scaffolder then refuses to patch and warns you to dedupe. As a safety net,
+when an existing `AGENTS.md` already contains more than one canonical managed
+block the scaffolder refuses to guess which copy is current — the file is
+kept untouched and a warning is printed so you can dedupe before the next
+re-scaffold patches in place.
 `CLAUDE.md` is created with `@AGENTS.md` only when it does not already
 exist *and* `AGENTS.md` does not contain duplicate managed blocks. In
 the duplicate-block case the scaffolder skips `CLAUDE.md` too, since it
