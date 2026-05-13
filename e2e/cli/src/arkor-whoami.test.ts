@@ -230,7 +230,7 @@ describe("arkor whoami × SDK version gate (E2E)", () => {
       res.setHeader("Deprecation", "true");
       res.setHeader(
         "Warning",
-        '299 - "Arkor SDK 0.0.2-alpha.1 is deprecated; supported range: >=2.0.0"',
+        '299 - "Arkor SDK 0.0.2-alpha.2 is deprecated; supported range: >=2.0.0"',
       );
       res.end(
         JSON.stringify({
