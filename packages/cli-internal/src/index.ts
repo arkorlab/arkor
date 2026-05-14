@@ -24,3 +24,10 @@ export {
   type InitialCommitResult,
 } from "./git";
 export { sanitise } from "./sanitise";
+export {
+  isClaudeCode,
+  missingClaudeCodeFlags,
+  formatClaudeCodeMissingMessage,
+  type ClaudeCodeOptionsCheck,
+  type MissingClaudeCodeFlag,
+} from "./claude-code";

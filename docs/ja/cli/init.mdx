@@ -122,6 +122,35 @@ bun arkor init --yes --template triage --use-bun --skip-git
 
 非対話シェルで `--yes` を忘れてもコマンドは完走します（プロンプトはデフォルトを使う）が、静かに動作するためログからは見落としやすい挙動になります。上記の明示形を推奨します。
 
+### Claude Code（`CLAUDECODE=1`）厳格モード
+
+Claude Code は子プロセスに `CLAUDECODE=1` を渡し、対話プロンプトに応答できません。エージェントが隠れたデフォルトで黙ってプロジェクトを生成してしまうのを防ぐため、この環境変数下では `arkor init` は厳格モードに切り替わります。対話プロンプトに対応するフラグはすべて必須となり、不足があれば実行ではなく、再実行用のコマンドを stderr に出して終了します。
+
+必須フラグ（または `-y`/`--yes` で「すべてデフォルトで進める」にオプトインしてください）:
+
+- `--template <triage|translate|redaction>`
+- `--git`（推奨。対話モードのデフォルトと同じ）または `--skip-git`
+- パッケージマネージャー系フラグ: `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun`、または `--skip-install`
+- `--agents-md`（特に CLAUDECODE 下では推奨）または `--no-agents-md`
+
+フラグが不足したときの stderr 例。各フラグには一行の説明が併記され、ドキュメントを往復しなくてもエージェントが値を決められるようになっています:
+
+```text
+arkor init: CLAUDECODE=1 detected. Interactive prompts are disabled.
+Re-run with explicit flags:
+  --template <triage|translate|redaction>
+      Starter template: `triage` (support routing), `translate` (9-language translation), or `redaction` (PII removal).
+  --git (recommended) or --skip-git
+      `--git` runs `git init` and creates an initial commit (matches the interactive default); `--skip-git` leaves git setup to the user.
+  --use-pnpm (or --use-npm / --use-yarn / --use-bun, or --skip-install)
+      Which package manager to run `install` with after scaffolding. `--skip-install` leaves the install step to the user.
+  --agents-md (recommended) or --no-agents-md
+      `--agents-md` writes `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data (recommended, especially under CLAUDECODE); `--no-agents-md` skips them.
+Or pass -y/--yes to accept all defaults.
+```
+
+終了コードは `1`、早期終了の前にファイル生成は一切行われないので、ディレクトリは元の状態のままです。同じルールは [`create-arkor`](/ja/quickstart#1-プロジェクトを生成する) にも適用され、加えて `[dir]` か `--name <name>` も必須となります（プロジェクト名を明示的に決めさせるため）。
+
 ## エラー
 
 | メッセージ | 意味 | 対処 |

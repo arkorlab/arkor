@@ -511,4 +511,86 @@ describe("create-arkor (E2E)", () => {
     },
     180_000,
   );
+
+  describe("CLAUDECODE=1 strict mode", () => {
+    // Claude Code (the Anthropic agent CLI) spawns child processes with
+    // `CLAUDECODE=1` and cannot answer interactive prompts. Falling through
+    // to silent defaults would hide decisions the agent should be making, so
+    // `create-arkor` refuses to run unless every interactive-equivalent flag
+    // is supplied (or `--yes` opts back into the legacy "accept defaults"
+    // path). Unlike `arkor init`, this includes `[dir]` / `--name` because
+    // the otherwise-default project name (`arkor-project`) is generic enough
+    // that it almost always reflects an oversight rather than intent.
+    it("exits 1 with a flag list (and per-flag description) when no options are given (missing [dir])", async () => {
+      // Bypass `runCreateArkor` because that helper always injects
+      // `target` as the positional; to exercise the missing-[dir]
+      // branch we need an argv with no positional at all.
+      const result = await runCli(CREATE_ARKOR_BIN, [], parentDir, {
+        CLAUDECODE: "1",
+      });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        "create-arkor: CLAUDECODE=1 detected",
+      );
+      expect(result.stderr).toContain("[dir]");
+      expect(result.stderr).toContain("--template <triage|translate|redaction>");
+      expect(result.stderr).toContain("--git (recommended) or --skip-git");
+      expect(result.stderr).toContain("--use-pnpm");
+      expect(result.stderr).toContain(
+        "--agents-md (recommended) or --no-agents-md",
+      );
+      // Each flag is paired with a description so the agent can pick a
+      // value without round-tripping to the docs.
+      expect(result.stderr).toContain("Project directory");
+      expect(result.stderr).toContain("Starter template");
+      expect(result.stderr).toContain("git init");
+      expect(result.stderr).toContain("package manager");
+      expect(result.stderr).toContain("AGENTS.md");
+      // Sanity: exit happened before any scaffold work.
+      expect(existsSync(join(parentDir, "package.json"))).toBe(false);
+    });
+
+    it("still exits 1 when [dir] is given but other prompts are missing", async () => {
+      // Mirror an agent invocation that knows the project name but hasn't
+      // yet committed to template / git / pm / agents-md; the [dir]
+      // alone is not enough to bypass the strict check.
+      const { result } = await runCreateArkor([], { CLAUDECODE: "1" });
+      expect(result.code).toBe(1);
+      // `[dir]` is satisfied (runCreateArkor passes "target"), so the
+      // missing list must omit it.
+      expect(result.stderr).not.toContain("[dir]");
+      expect(result.stderr).toContain("--template");
+      expect(result.stderr).toContain("--git (recommended) or --skip-git");
+      expect(result.stderr).toContain(
+        "--agents-md (recommended) or --no-agents-md",
+      );
+    });
+
+    it("runs to completion when every required flag is set", async () => {
+      const { result, targetDir } = await runCreateArkor(
+        [
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(0);
+      expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
+      expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(false);
+    });
+
+    it("accepts --yes as a wholesale opt-out of the strict check", async () => {
+      // `-y` keeps the legacy "use defaults for everything" semantics for
+      // callers who have explicitly delegated those decisions.
+      const { result, targetDir } = await runCreateArkor(
+        ["-y", "--skip-install", "--skip-git"],
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(0);
+      expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
+    });
+  });
 });

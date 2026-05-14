@@ -13,7 +13,11 @@ import * as clack from "@clack/prompts";
  */
 
 export function isInteractive(): boolean {
-  return Boolean(process.stdout.isTTY) && !process.env.CI;
+  return (
+    Boolean(process.stdout.isTTY) &&
+    !process.env.CI &&
+    process.env.CLAUDECODE !== "1"
+  );
 }
 
 class CliCancelled extends Error {

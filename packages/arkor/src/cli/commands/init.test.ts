@@ -63,8 +63,12 @@ const ORIG_CWD = process.cwd();
 // Capture the original env / TTY state so the after-each can restore
 // conditionally. CI runners typically have CI already set, and an
 // unconditional `delete` would leak a different environment to later
-// test files when vitest reuses a worker.
+// test files when vitest reuses a worker. CLAUDECODE is captured
+// because vitest workers spawned from Claude Code inherit it (=`1`),
+// which would otherwise force isInteractive() to false and break the
+// "interactive" branch tests.
 const ORIG_CI = process.env.CI;
+const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 const ORIG_TTY = process.stdout.isTTY;
 
 beforeEach(() => {
@@ -76,8 +80,11 @@ beforeEach(() => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), "arkor-init-test-")));
   process.chdir(cwd);
   // Pin non-interactive so promptText/Select fall through to skipWith /
-  // initialValue without opening clack.
+  // initialValue without opening clack. Strip CLAUDECODE so individual
+  // tests can opt back into the interactive branch by unsetting CI +
+  // setting isTTY without inheriting Claude Code's CLAUDECODE=1.
   process.env.CI = "1";
+  delete process.env.CLAUDECODE;
   vi.mocked(scaffold).mockClear();
   vi.mocked(install).mockClear();
   vi.mocked(gitInitialCommit).mockClear();
@@ -92,6 +99,8 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
   if (ORIG_CI === undefined) delete process.env.CI;
   else process.env.CI = ORIG_CI;
+  if (ORIG_CLAUDECODE === undefined) delete process.env.CLAUDECODE;
+  else process.env.CLAUDECODE = ORIG_CLAUDECODE;
   // Restore the TTY flag in case an interactive test mutated it —
   // otherwise a later test that unsets CI would unexpectedly enter
   // interactive prompt paths.

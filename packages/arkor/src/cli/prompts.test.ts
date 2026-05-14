@@ -31,12 +31,14 @@ import {
 const CLACK_CANCEL = Symbol.for("clack:cancel");
 
 const ORIG_CI = process.env.CI;
+const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 const ORIG_TTY = process.stdout.isTTY;
 
 beforeEach(() => {
   // Default to non-interactive: CI set OR no TTY. Individual tests can flip
   // the toggle.
   process.env.CI = "1";
+  delete process.env.CLAUDECODE;
   Object.defineProperty(process.stdout, "isTTY", {
     value: false,
     configurable: true,
@@ -46,6 +48,8 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIG_CI === undefined) delete process.env.CI;
   else process.env.CI = ORIG_CI;
+  if (ORIG_CLAUDECODE === undefined) delete process.env.CLAUDECODE;
+  else process.env.CLAUDECODE = ORIG_CLAUDECODE;
   Object.defineProperty(process.stdout, "isTTY", {
     value: ORIG_TTY,
     configurable: true,
@@ -78,6 +82,31 @@ describe("isInteractive", () => {
       value: true,
       configurable: true,
     });
+    expect(isInteractive()).toBe(true);
+  });
+
+  it("returns false when CLAUDECODE === '1' even if stdout is a TTY", () => {
+    // Claude Code spawns the CLI with CLAUDECODE=1 and cannot answer
+    // interactive prompts; falling through to clack would hang forever.
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    process.env.CLAUDECODE = "1";
+    expect(isInteractive()).toBe(false);
+  });
+
+  it("ignores CLAUDECODE values other than the literal '1'", () => {
+    // Exact-match contract: any other value (legacy CI envs that
+    // happen to set CLAUDECODE for unrelated reasons) must not flip
+    // the CLI into the strict mode.
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    process.env.CLAUDECODE = "true";
     expect(isInteractive()).toBe(true);
   });
 });

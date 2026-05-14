@@ -32,6 +32,11 @@ const ORIG_USERPROFILE = process.env.USERPROFILE;
 const ORIG_HOMEDRIVE = process.env.HOMEDRIVE;
 const ORIG_HOMEPATH = process.env.HOMEPATH;
 const ORIG_CI = process.env.CI;
+// CLAUDECODE is captured because vitest workers spawned from Claude Code
+// inherit `CLAUDECODE=1`, which forces isInteractive() to false and
+// breaks the interactive-branch test below. Strip it in beforeEach and
+// restore in afterEach.
+const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 // Capture the original `process.stdout.isTTY` so the interactive test
 // below can flip it without leaking into other test files when vitest
 // reuses a worker process.
@@ -56,6 +61,7 @@ beforeEach(() => {
   // promptConfirm honours skipWith first, but in non-skip paths it falls
   // through to initialValue when CI=1. Pin CI so the prompt never opens.
   process.env.CI = "1";
+  delete process.env.CLAUDECODE;
 });
 
 afterEach(() => {
@@ -69,6 +75,8 @@ afterEach(() => {
   else delete process.env.HOMEPATH;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
+  if (ORIG_CLAUDECODE !== undefined) process.env.CLAUDECODE = ORIG_CLAUDECODE;
+  else delete process.env.CLAUDECODE;
   // Restore the TTY flag in case the interactive test mutated it —
   // otherwise a later test that unsets CI would unexpectedly enter
   // interactive prompt paths.

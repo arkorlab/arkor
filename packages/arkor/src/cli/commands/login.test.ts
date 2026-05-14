@@ -23,6 +23,10 @@ const ORIG_HOME = process.env.HOME;
 // tests via `~/.arkor/credentials.json`.
 const ORIG_USERPROFILE = process.env.USERPROFILE;
 const ORIG_CI = process.env.CI;
+// CLAUDECODE is captured because vitest workers spawned from Claude Code
+// inherit `CLAUDECODE=1`, which forces isInteractive() to false and
+// breaks the "interactive" branch tests below that flip CI off + isTTY on.
+const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 const ORIG_FETCH = globalThis.fetch;
 const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;
 
@@ -34,6 +38,7 @@ beforeEach(() => {
   // Force isInteractive() → false so promptSelect returns its initialValue
   // instead of trying to open a real clack prompt.
   process.env.CI = "1";
+  delete process.env.CLAUDECODE;
   vi.mocked(open).mockReset();
 });
 
@@ -44,6 +49,8 @@ afterEach(() => {
   else delete process.env.USERPROFILE;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
+  if (ORIG_CLAUDECODE !== undefined) process.env.CLAUDECODE = ORIG_CLAUDECODE;
+  else delete process.env.CLAUDECODE;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
   globalThis.fetch = ORIG_FETCH;

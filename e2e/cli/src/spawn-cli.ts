@@ -280,6 +280,16 @@ function runCliOnce(
       env: {
         ...cleanEnv,
         CI: "1",
+        // The CLI's CLAUDECODE strict mode hard-fails on any invocation
+        // that doesn't declare every interactive-equivalent flag. When
+        // the e2e suite itself is run from a Claude Code session,
+        // `process.env.CLAUDECODE` is `"1"` in the parent and leaks
+        // through `cleanEnv` to every spawned child, which then turns
+        // unrelated assertions (e.g. tests that only set `--name` +
+        // `--template`) into surprise exit-1s. Clear it here so the
+        // default test environment matches a vanilla CI shell; the
+        // CLAUDECODE-specific tests opt back in via `extraEnv`.
+        CLAUDECODE: "",
         npm_config_user_agent: "",
         GIT_AUTHOR_NAME: "Arkor E2E",
         GIT_AUTHOR_EMAIL: "e2e@arkor.test",

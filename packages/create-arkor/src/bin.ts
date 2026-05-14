@@ -6,9 +6,12 @@ import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
+  formatClaudeCodeMissingMessage,
   gitInitialCommit,
   install,
+  isClaudeCode,
   isInGitRepo,
+  missingClaudeCodeFlags,
   resolvePackageManager,
   sanitise,
   scaffold,
@@ -41,7 +44,11 @@ const MANUAL_INSTALL_HINT =
   "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 function isInteractive(): boolean {
-  return Boolean(process.stdout.isTTY) && !process.env.CI;
+  return (
+    Boolean(process.stdout.isTTY) &&
+    !process.env.CI &&
+    process.env.CLAUDECODE !== "1"
+  );
 }
 
 /**
@@ -367,6 +374,38 @@ program
         throw new Error(
           "Pick one of --agents-md / --no-agents-md, not both.",
         );
+      }
+      // Under CLAUDECODE=1, refuse to fall through to interactive prompts
+      // (they'd hang) or to silent defaults (they'd hide decisions the
+      // agent should be making). Print the suggested re-invocation and
+      // exit 1 so the agent can re-run with explicit flags. `agentsMd`
+      // is checked from raw argv so default-on doesn't satisfy the
+      // requirement: the agent should opt in or out deliberately.
+      if (isClaudeCode()) {
+        const agentsMdSpecified =
+          flagsArgv.includes("--agents-md") ||
+          flagsArgv.includes("--no-agents-md");
+        const missing = missingClaudeCodeFlags({
+          yes: opts.yes,
+          template: opts.template,
+          git: opts.git,
+          skipGit: opts.skipGit,
+          skipInstall: opts.skipInstall,
+          useNpm: opts.useNpm,
+          usePnpm: opts.usePnpm,
+          useYarn: opts.useYarn,
+          useBun: opts.useBun,
+          name: opts.name,
+          dir,
+          agentsMd: agentsMdSpecified ? opts.agentsMd ?? true : undefined,
+          requireProjectName: true,
+        });
+        if (missing.length > 0) {
+          process.stderr.write(
+            formatClaudeCodeMissingMessage("create-arkor", missing),
+          );
+          process.exit(1);
+        }
       }
       // Use `Object.hasOwn` (not `in`) so prototype keys like `toString` /
       // `__proto__` can't pass validation and crash later inside scaffold().
