@@ -71,6 +71,38 @@ bun create arkor my-arkor-app --template triage
 
 </CodeGroup>
 
+### Claude Code 下での実行（`CLAUDECODE=1`）
+
+Claude Code は子プロセスに `CLAUDECODE=1` を渡し、対話プロンプトに応答できません。エージェントが隠れたデフォルトで黙ってプロジェクトを生成してしまうのを防ぐため、この環境変数下では `create-arkor` も厳格モードに切り替わります。対話プロンプトに対応するフラグはすべて必須となり、不足があれば実行ではなく、再実行用のコマンドを stderr に出して終了します。同じルールは [`arkor init`](/ja/cli/init#claude-code-claudecode-1-厳格モード) にも適用されますが、`create-arkor` だけ追加で `[dir]`（または `--name`）も必須となります。デフォルトの `arkor-project` は意図的に選ぶより誤指定であることがほとんどなので、明示的に決めさせる方針です。空白だけ・記号だけのように `sanitise()` がフォールバックしてしまう値も拒否されます。
+
+必須フラグ（または `-y`/`--yes` で「すべてデフォルトで進める」にオプトイン）:
+
+- `[dir]`（例 `my-arkor-app`）または `--name <name>`: 明示的なプロジェクト名。`sanitise()` で `arkor-project` フォールバックに落ちる値は不可。
+- `--template <triage|translate|redaction>`
+- `--git`（推奨。対話モードのデフォルトと同じ）または `--skip-git`
+- パッケージマネージャー系フラグ: `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun`、または `--skip-install`
+- `--agents-md`（特に CLAUDECODE 下では推奨）または `--no-agents-md`
+
+フラグが不足したときの stderr 例:
+
+```text
+create-arkor: CLAUDECODE=1 detected. Interactive prompts are disabled.
+Re-run with explicit flags:
+  [dir] (e.g. `my-arkor-app`) or --name <name>
+      Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Empty / whitespace-only values that `sanitise()` would collapse to the generic `arkor-project` fallback do not count as explicit.
+  --template <triage|translate|redaction>
+      Starter template: `triage` (support routing), `translate` (9-language translation), or `redaction` (PII removal).
+  --git (recommended) or --skip-git
+      `--git` runs `git init` and creates an initial commit (matches the interactive default); `--skip-git` leaves git setup to the user.
+  --use-pnpm (or --use-npm / --use-yarn / --use-bun, or --skip-install)
+      Which package manager to run `install` with after scaffolding. `--skip-install` leaves the install step to the user.
+  --agents-md (recommended) or --no-agents-md
+      `--agents-md` writes `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data (recommended, especially under CLAUDECODE); `--no-agents-md` skips them.
+Or pass -y/--yes to accept all defaults.
+```
+
+終了コードは `1`、早期終了の前にファイル生成は一切行われないので、親ディレクトリは元の状態のままです。
+
 ## 2. 生成されたものを眺める
 
 ```

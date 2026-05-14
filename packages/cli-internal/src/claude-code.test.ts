@@ -87,6 +87,62 @@ describe("missingClaudeCodeFlags", () => {
     expect(missing).toEqual([]);
   });
 
+  it("rejects --name values that sanitise() collapses to the `arkor-project` fallback", () => {
+    // The strict-mode contract is that the agent commits to a real
+    // project name. `--name ""` / `--name "!!!"` / `--name "   "` all
+    // pass `sanitise()` through the empty-string fallback path and end
+    // up as `arkor-project` in `package.json`, which is exactly the
+    // silent default we want to surface.
+    for (const name of ["", "   ", "!!!", "***", "@@@"]) {
+      const missing = missingClaudeCodeFlags({
+        requireProjectName: true,
+        name,
+        template: "triage",
+        skipGit: true,
+        useNpm: true,
+        agentsMd: false,
+      });
+      expect(missing.map((m) => m.flag)).toContain(
+        "[dir] (e.g. `my-arkor-app`) or --name <name>",
+      );
+    }
+  });
+
+  it("rejects [dir] basenames that sanitise() collapses to the fallback", () => {
+    // Same trap via the positional: `create-arkor "   "` would otherwise
+    // count as a satisfied project-name requirement even though it
+    // also lands on `arkor-project`.
+    const missing = missingClaudeCodeFlags({
+      requireProjectName: true,
+      dir: "!!!",
+      template: "triage",
+      skipGit: true,
+      useNpm: true,
+      agentsMd: false,
+    });
+    expect(missing.map((m) => m.flag)).toContain(
+      "[dir] (e.g. `my-arkor-app`) or --name <name>",
+    );
+  });
+
+  it("still accepts the literal `arkor-project` when the caller asked for it explicitly", () => {
+    // Carve-out so a user who genuinely wants the name `arkor-project`
+    // isn't blocked by the fallback-detection heuristic. Case- and
+    // whitespace-insensitive on the input side; the sanitised slug is
+    // already canonical.
+    for (const name of ["arkor-project", "ARKOR-PROJECT", "  arkor-project  "]) {
+      const missing = missingClaudeCodeFlags({
+        requireProjectName: true,
+        name,
+        template: "triage",
+        skipGit: true,
+        useNpm: true,
+        agentsMd: false,
+      });
+      expect(missing).toEqual([]);
+    }
+  });
+
   it("counts --skip-install as satisfying the package-manager requirement", () => {
     const missing = missingClaudeCodeFlags({
       template: "triage",

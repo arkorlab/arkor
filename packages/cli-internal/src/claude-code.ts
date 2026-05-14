@@ -1,3 +1,6 @@
+import { basename } from "node:path";
+import { sanitise } from "./sanitise";
+
 /**
  * Claude Code (the Anthropic agent CLI) sets `CLAUDECODE=1` in every spawned
  * shell. It cannot answer interactive prompts, and silently falling through to
@@ -12,6 +15,22 @@
  */
 export function isClaudeCode(): boolean {
   return process.env.CLAUDECODE === "1";
+}
+
+/**
+ * Thrown by the CLI strict-mode validator after it has already written
+ * the human-readable missing-flags block to stderr. The outer bin.ts
+ * `catch` recognises this class and exits `1` *without* re-printing the
+ * message or its stack; the throw still unwinds through
+ * `program.parseAsync()` so the `finally` in `main()` runs (telemetry
+ * flush, deprecation notice, etc.), which a bare `process.exit(1)`
+ * inside the action handler would have skipped.
+ */
+export class ClaudeCodeStrictExit extends Error {
+  constructor() {
+    super("CLAUDECODE strict-mode early exit");
+    this.name = "ClaudeCodeStrictExit";
+  }
 }
 
 export interface ClaudeCodeOptionsCheck {
@@ -61,6 +80,24 @@ export interface MissingClaudeCodeFlag {
 }
 
 /**
+ * True when `opts` supplies a project name that survives `sanitise()`
+ * without falling back to the generic `arkor-project` default. Empty
+ * strings, whitespace-only inputs, and strings that contain no
+ * `[a-z0-9-]` characters all collapse to `arkor-project` inside
+ * `sanitise()`, which is exactly the silent-default outcome strict mode
+ * is trying to prevent. The literal `arkor-project` (case-insensitive
+ * after trimming) is still accepted because the caller has explicitly
+ * asked for that name.
+ */
+function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
+  const raw = opts.name ?? (opts.dir !== undefined ? basename(opts.dir) : undefined);
+  if (raw === undefined) return false;
+  const sanitised = sanitise(raw);
+  if (sanitised !== "arkor-project") return true;
+  return raw.trim().toLowerCase() === "arkor-project";
+}
+
+/**
  * Returns the list of missing flags under CLAUDECODE=1, each paired with a
  * short description of what it controls, so the stderr message is
  * self-explanatory and the agent can pick a value without round-tripping to
@@ -72,15 +109,11 @@ export function missingClaudeCodeFlags(
 ): MissingClaudeCodeFlag[] {
   if (opts.yes) return [];
   const missing: MissingClaudeCodeFlag[] = [];
-  if (
-    opts.requireProjectName &&
-    opts.dir === undefined &&
-    opts.name === undefined
-  ) {
+  if (opts.requireProjectName && !hasMeaningfulProjectName(opts)) {
     missing.push({
       flag: "[dir] (e.g. `my-arkor-app`) or --name <name>",
       description:
-        "Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used.",
+        "Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Empty / whitespace-only values that `sanitise()` would collapse to the generic `arkor-project` fallback do not count as explicit.",
     });
   }
   if (opts.template === undefined) {

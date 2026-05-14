@@ -7,6 +7,7 @@ import { runDev } from "./commands/dev";
 import { runBuild } from "./commands/build";
 import { runStart } from "./commands/start";
 import {
+  ClaudeCodeStrictExit,
   formatClaudeCodeMissingMessage,
   isClaudeCode,
   missingClaudeCodeFlags,
@@ -117,7 +118,11 @@ export async function main(argv: string[]): Promise<void> {
             process.stderr.write(
               formatClaudeCodeMissingMessage("arkor init", missing),
             );
-            process.exit(1);
+            // Throw (don't `process.exit`) so the `finally` at the bottom of
+            // main() still runs telemetry shutdown / the deprecation notice.
+            // bin.ts recognises this sentinel and exits without re-printing
+            // the message.
+            throw new ClaudeCodeStrictExit();
           }
         }
         const packageManager = resolvePackageManager({

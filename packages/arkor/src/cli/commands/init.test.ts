@@ -26,6 +26,7 @@ vi.mock("@arkor/cli-internal", () => {
   return {
     gitInitialCommit: vi.fn(async () => ({ signingFallback: false })),
     install: vi.fn(async () => undefined),
+    isClaudeCode: () => process.env.CLAUDECODE === "1",
     isInGitRepo: vi.fn(async () => false),
     sanitise: (s: string) =>
       s
@@ -71,7 +72,7 @@ const ORIG_CI = process.env.CI;
 const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 const ORIG_TTY = process.stdout.isTTY;
 
-beforeEach(() => {
+beforeEach(async () => {
   // macOS resolves `/tmp/...` through realpath to `/private/tmp/...`, so
   // a chdir into the raw `mkdtemp` result leaves `process.cwd()` (the
   // value runInit reads internally) and our captured `cwd` mismatched.
@@ -92,6 +93,14 @@ beforeEach(() => {
   vi.mocked(isInGitRepo).mockResolvedValue(false);
   vi.mocked(gitInitialCommit).mockResolvedValue({ signingFallback: false });
   vi.mocked(install).mockResolvedValue(undefined);
+  // Reset call counts on the clack prompt mocks so per-test
+  // assertions like `expect(clack.text).not.toHaveBeenCalled()` aren't
+  // tripped by earlier tests' invocations accumulating in the shared
+  // mock state.
+  const clack = await import("@clack/prompts");
+  vi.mocked(clack.text).mockClear();
+  vi.mocked(clack.select).mockClear();
+  vi.mocked(clack.confirm).mockClear();
 });
 
 afterEach(() => {
@@ -448,6 +457,41 @@ describe("runInit", () => {
     expect(installOrder).toBeDefined();
     expect(commitOrder).toBeDefined();
     expect(installOrder).toBeLessThan(commitOrder!);
+  });
+
+  it("under CLAUDECODE=1 + TTY (no --yes), skips clack prompts via skipWith instead of opening them", async () => {
+    // ENG-736 PR review (#141): the original implementation forced
+    // `isInteractive()` to false under CLAUDECODE, which broke other
+    // commands (e.g. `arkor logout` would silently delete credentials).
+    // The CLAUDECODE awareness now lives inside `runInit` itself,
+    // applied per-call as `skipWith` so promptText/promptSelect resolve
+    // without opening a real clack prompt. Mirror a Claude Code session
+    // that managed to acquire a TTY (theoretical but the safe path):
+    // clack.text / clack.select / clack.confirm must NOT be invoked.
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    process.env.CLAUDECODE = "1";
+    const clack = await import("@clack/prompts");
+
+    await runInit({
+      // No --yes: the strict-mode validator in main.ts is what enforces
+      // explicit flags; once we reach runInit, CLAUDECODE alone must be
+      // enough to bypass the prompts.
+      name: "my-app",
+      template: "triage",
+      packageManager: "pnpm",
+      skipInstall: true,
+      skipGit: true,
+    });
+    expect(clack.text).not.toHaveBeenCalled();
+    expect(clack.select).not.toHaveBeenCalled();
+    expect(clack.confirm).not.toHaveBeenCalled();
+    expect(scaffold).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "my-app", template: "triage" }),
+    );
   });
 
   it("interactive: prompts for git init before install so the user can walk away", async () => {

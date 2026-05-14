@@ -6,6 +6,7 @@ import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
+  ClaudeCodeStrictExit,
   formatClaudeCodeMissingMessage,
   gitInitialCommit,
   install,
@@ -44,11 +45,7 @@ const MANUAL_INSTALL_HINT =
   "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 function isInteractive(): boolean {
-  return (
-    Boolean(process.stdout.isTTY) &&
-    !process.env.CI &&
-    process.env.CLAUDECODE !== "1"
-  );
+  return Boolean(process.stdout.isTTY) && !process.env.CI;
 }
 
 /**
@@ -157,7 +154,13 @@ async function run(options: RunOptions): Promise<void> {
   let name = sanitise(options.name ?? defaultName);
   let template: TemplateId = options.template ?? "triage";
 
-  if (!options.yes && isInteractive()) {
+  // Under CLAUDECODE=1 the action handler below has already gated strict
+  // mode: by the time we get here either every flag is present or `--yes`
+  // was passed. Treat CLAUDECODE as an implicit "skip prompts" so a Claude
+  // Code TTY (which can't answer clack) never opens a real prompt; other
+  // CLIs keep their pre-existing interactive semantics because
+  // `isInteractive()` is no longer overridden globally.
+  if (!options.yes && !isClaudeCode() && isInteractive()) {
     // Re-prompt loop: when the project name is auto-derived into a fresh
     // `./<name>/` subdirectory, refuse to merge into an existing non-empty
     // directory (likely a typo or a forgotten earlier scaffold). Explicit
@@ -404,7 +407,11 @@ program
           process.stderr.write(
             formatClaudeCodeMissingMessage("create-arkor", missing),
           );
-          process.exit(1);
+          // Throw (don't `process.exit`) so the outer `program.parseAsync`
+          // catch block recognises this sentinel and exits silently. The
+          // "create-arkor failed:" prefix it normally adds would double up
+          // on our already-printed missing-flags block.
+          throw new ClaudeCodeStrictExit();
         }
       }
       // Use `Object.hasOwn` (not `in`) so prototype keys like `toString` /
@@ -444,6 +451,12 @@ program
   );
 
 program.parseAsync(process.argv).catch((err) => {
+  // The strict-mode validator throws this sentinel after writing the
+  // missing-flags block; exit silently so the prefix below doesn't
+  // double up on the already-printed message.
+  if (err instanceof ClaudeCodeStrictExit) {
+    process.exit(1);
+  }
   process.stderr.write(
     `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,
   );

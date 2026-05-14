@@ -25,6 +25,7 @@ export {
 } from "./git";
 export { sanitise } from "./sanitise";
 export {
+  ClaudeCodeStrictExit,
   isClaudeCode,
   missingClaudeCodeFlags,
   formatClaudeCodeMissingMessage,

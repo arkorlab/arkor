@@ -85,28 +85,20 @@ describe("isInteractive", () => {
     expect(isInteractive()).toBe(true);
   });
 
-  it("returns false when CLAUDECODE === '1' even if stdout is a TTY", () => {
-    // Claude Code spawns the CLI with CLAUDECODE=1 and cannot answer
-    // interactive prompts; falling through to clack would hang forever.
+  it("does NOT special-case CLAUDECODE (only init / create-arkor opt in to that branch via their own check, so the shared helper stays neutral for other commands)", () => {
+    // ENG-736 PR review (#141): forcing this helper to false under
+    // CLAUDECODE=1 leaked into commands that don't have strict-mode
+    // validation (e.g. `arkor logout` would silently delete credentials
+    // because its `promptConfirm` would fall through to
+    // `initialValue: true`). The CLAUDECODE awareness now lives in
+    // `runInit` / create-arkor's `run()` instead, gated to the
+    // already-strict scaffold commands.
     delete process.env.CI;
     Object.defineProperty(process.stdout, "isTTY", {
       value: true,
       configurable: true,
     });
     process.env.CLAUDECODE = "1";
-    expect(isInteractive()).toBe(false);
-  });
-
-  it("ignores CLAUDECODE values other than the literal '1'", () => {
-    // Exact-match contract: any other value (legacy CI envs that
-    // happen to set CLAUDECODE for unrelated reasons) must not flip
-    // the CLI into the strict mode.
-    delete process.env.CI;
-    Object.defineProperty(process.stdout, "isTTY", {
-      value: true,
-      configurable: true,
-    });
-    process.env.CLAUDECODE = "true";
     expect(isInteractive()).toBe(true);
   });
 });

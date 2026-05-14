@@ -566,6 +566,42 @@ describe("create-arkor (E2E)", () => {
       );
     });
 
+    it.each([
+      ["empty string", ""],
+      ["whitespace only", "   "],
+      ["punctuation only", "!!!"],
+    ])(
+      "rejects --name %s because sanitise() would collapse it to the generic arkor-project fallback",
+      async (_label, name) => {
+        // ENG-736 PR review (#141): the previous check only looked at
+        // whether `--name` was defined, so empty strings and inputs that
+        // sanitise away to nothing both satisfied strict mode and then
+        // silently became `package.json: { name: "arkor-project" }`,
+        // exactly the silent-default outcome strict mode is meant to
+        // surface.
+        const result = await runCli(
+          CREATE_ARKOR_BIN,
+          [
+            "--name",
+            name,
+            "--template",
+            "triage",
+            "--skip-git",
+            "--skip-install",
+            "--no-agents-md",
+          ],
+          parentDir,
+          { CLAUDECODE: "1" },
+        );
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("[dir]");
+        // Even though `--name <something>` was passed, the requirement
+        // is reported as missing because the value would have collapsed
+        // to the fallback. The description hints at that subtlety.
+        expect(result.stderr).toContain("arkor-project");
+      },
+    );
+
     it("runs to completion when every required flag is set", async () => {
       const { result, targetDir } = await runCreateArkor(
         [

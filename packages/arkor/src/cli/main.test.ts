@@ -218,6 +218,59 @@ describe("main (CLI Commander wiring)", () => {
     expect(shutdownTelemetry).toHaveBeenCalledOnce();
   });
 
+  it("under CLAUDECODE=1 + missing flags, throws ClaudeCodeStrictExit so the finally block still runs (shutdownTelemetry fires, no project name skip)", async () => {
+    // ENG-736 PR review (#141): the validator used to `process.exit(1)`
+    // inside the action handler, which bypassed main()'s finally and
+    // lost telemetry / deprecation flushing. The validator now throws
+    // a sentinel so the finally still runs; bin.ts is the layer that
+    // recognises the sentinel and sets exitCode without re-printing.
+    process.env.CLAUDECODE = "1";
+    const stderrChunks: string[] = [];
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(((c: unknown) => {
+        stderrChunks.push(String(c));
+        return true;
+      }) as typeof process.stderr.write);
+    try {
+      await expect(
+        main(["init", "--template", "triage", "--skip-git"]),
+        // Missing: pm flag + agents-md flag.
+      ).rejects.toMatchObject({ name: "ClaudeCodeStrictExit" });
+    } finally {
+      spy.mockRestore();
+      delete process.env.CLAUDECODE;
+    }
+    expect(shutdownTelemetry).toHaveBeenCalledOnce();
+    const buf = stderrChunks.join("");
+    expect(buf).toContain("arkor init: CLAUDECODE=1 detected");
+    expect(buf).toContain("--use-pnpm");
+    expect(buf).toContain("--agents-md (recommended) or --no-agents-md");
+    expect(runInit).not.toHaveBeenCalled();
+  });
+
+  it("under CLAUDECODE=1 with every flag set (no --yes), passes the strict check and delegates to runInit", async () => {
+    // The happy-path mirror of the test above: a fully-specified
+    // invocation still runs to completion under CLAUDECODE, since the
+    // validator is gated on missing flags only.
+    process.env.CLAUDECODE = "1";
+    try {
+      await main([
+        "init",
+        "--name",
+        "my-app",
+        "--template",
+        "triage",
+        "--skip-git",
+        "--skip-install",
+        "--no-agents-md",
+      ]);
+    } finally {
+      delete process.env.CLAUDECODE;
+    }
+    expect(runInit).toHaveBeenCalledOnce();
+  });
+
   it("omits the Cutoff suffix when the deprecation has no sunset value", async () => {
     // Branch coverage for the `notice.sunset ? ` Cutoff: …` : ""` ternary.
     mockDeprecation.value = {
