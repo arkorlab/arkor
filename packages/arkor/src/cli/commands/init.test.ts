@@ -65,9 +65,11 @@ const ORIG_CWD = process.cwd();
 // conditionally. CI runners typically have CI already set, and an
 // unconditional `delete` would leak a different environment to later
 // test files when vitest reuses a worker. CLAUDECODE is captured
-// because vitest workers spawned from Claude Code inherit it (=`1`),
-// which would otherwise force isInteractive() to false and break the
-// "interactive" branch tests.
+// because the new strict-mode tests below toggle it (and the helper
+// `isClaudeCode()` reads it directly inside `runInit` for the
+// prompt-bypass branch), so it must be restored to whatever the
+// outer environment supplied (vitest workers spawned from a Claude
+// Code session inherit `CLAUDECODE=1` in the parent).
 const ORIG_CI = process.env.CI;
 const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 const ORIG_TTY = process.stdout.isTTY;

@@ -43,10 +43,15 @@ import { runWhoami } from "./commands/whoami";
 import { shutdownTelemetry } from "../core/telemetry";
 import { main } from "./main";
 
-// Capture once so the after-each can restore — without this, tests that
+// Capture once so the after-each can restore. Without this, tests that
 // set `npm_config_user_agent` to drive package-manager detection leak the
 // override into later test files when vitest reuses a worker process.
 const ORIG_USER_AGENT = process.env.npm_config_user_agent;
+// Same rationale for CLAUDECODE: the new strict-mode tests below set it
+// to "1" and the worker may already have it set (vitest spawned from a
+// Claude Code session), so afterEach restores rather than unconditionally
+// deletes.
+const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 
 beforeEach(() => {
   vi.mocked(runInit).mockReset();
@@ -66,6 +71,11 @@ afterEach(() => {
     process.env.npm_config_user_agent = ORIG_USER_AGENT;
   } else {
     delete process.env.npm_config_user_agent;
+  }
+  if (ORIG_CLAUDECODE !== undefined) {
+    process.env.CLAUDECODE = ORIG_CLAUDECODE;
+  } else {
+    delete process.env.CLAUDECODE;
   }
   vi.restoreAllMocks();
 });
@@ -224,6 +234,11 @@ describe("main (CLI Commander wiring)", () => {
     // lost telemetry / deprecation flushing. The validator now throws
     // a sentinel so the finally still runs; bin.ts is the layer that
     // recognises the sentinel and sets exitCode without re-printing.
+    // afterEach restores CLAUDECODE from ORIG_CLAUDECODE, so the
+    // explicit `delete` we used to do in the test's own `finally`
+    // would have leaked into later tests when vitest was launched
+    // from a Claude Code session (CLAUDECODE already set in the
+    // parent worker).
     process.env.CLAUDECODE = "1";
     const stderrChunks: string[] = [];
     const spy = vi
@@ -239,7 +254,6 @@ describe("main (CLI Commander wiring)", () => {
       ).rejects.toMatchObject({ name: "ClaudeCodeStrictExit" });
     } finally {
       spy.mockRestore();
-      delete process.env.CLAUDECODE;
     }
     expect(shutdownTelemetry).toHaveBeenCalledOnce();
     const buf = stderrChunks.join("");
@@ -254,20 +268,16 @@ describe("main (CLI Commander wiring)", () => {
     // invocation still runs to completion under CLAUDECODE, since the
     // validator is gated on missing flags only.
     process.env.CLAUDECODE = "1";
-    try {
-      await main([
-        "init",
-        "--name",
-        "my-app",
-        "--template",
-        "triage",
-        "--skip-git",
-        "--skip-install",
-        "--no-agents-md",
-      ]);
-    } finally {
-      delete process.env.CLAUDECODE;
-    }
+    await main([
+      "init",
+      "--name",
+      "my-app",
+      "--template",
+      "triage",
+      "--skip-git",
+      "--skip-install",
+      "--no-agents-md",
+    ]);
     expect(runInit).toHaveBeenCalledOnce();
   });
 

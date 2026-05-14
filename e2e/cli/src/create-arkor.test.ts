@@ -602,6 +602,33 @@ describe("create-arkor (E2E)", () => {
       },
     );
 
+    it("accepts `create-arkor .` (resolves to the parent dir basename, not the literal `.`)", async () => {
+      // Regression for PR #141 review (codex + Copilot): the strict
+      // check used to compute the project name as `basename(opts.dir)`
+      // which is `"."` for `create-arkor .`, then sanitise() collapsed
+      // it to the `arkor-project` fallback and strict mode falsely
+      // refused the run. The check now mirrors `create-arkor`'s own
+      // default-name derivation (`basename(resolve(opts.dir))`), so
+      // `.` resolves to the parent dir's basename: a meaningful name.
+      const result = await runCli(
+        CREATE_ARKOR_BIN,
+        [
+          ".",
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        parentDir,
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(0);
+      // Sanity: the run reached scaffold (package.json is present in
+      // the parent dir because `.` was the target).
+      expect(existsSync(join(parentDir, "package.json"))).toBe(true);
+    });
+
     it("runs to completion when every required flag is set", async () => {
       const { result, targetDir } = await runCreateArkor(
         [

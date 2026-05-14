@@ -32,10 +32,12 @@ const ORIG_USERPROFILE = process.env.USERPROFILE;
 const ORIG_HOMEDRIVE = process.env.HOMEDRIVE;
 const ORIG_HOMEPATH = process.env.HOMEPATH;
 const ORIG_CI = process.env.CI;
-// CLAUDECODE is captured because vitest workers spawned from Claude Code
-// inherit `CLAUDECODE=1`, which forces isInteractive() to false and
-// breaks the interactive-branch test below. Strip it in beforeEach and
-// restore in afterEach.
+// `arkor logout` itself doesn't read CLAUDECODE (since `isInteractive()`
+// was reverted to its pre-PR shape), but vitest workers spawned from a
+// Claude Code session inherit `CLAUDECODE=1`. Strip it in beforeEach
+// (and restore from ORIG_CLAUDECODE in afterEach) so any future
+// strict-mode wiring added to logout doesn't surprise these tests, and
+// so the test environment matches what CI runners see.
 const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 // Capture the original `process.stdout.isTTY` so the interactive test
 // below can flip it without leaking into other test files when vitest

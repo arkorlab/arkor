@@ -23,9 +23,12 @@ const ORIG_HOME = process.env.HOME;
 // tests via `~/.arkor/credentials.json`.
 const ORIG_USERPROFILE = process.env.USERPROFILE;
 const ORIG_CI = process.env.CI;
-// CLAUDECODE is captured because vitest workers spawned from Claude Code
-// inherit `CLAUDECODE=1`, which forces isInteractive() to false and
-// breaks the "interactive" branch tests below that flip CI off + isTTY on.
+// `arkor login` itself doesn't read CLAUDECODE (since `isInteractive()`
+// was reverted to its pre-PR shape), but vitest workers spawned from a
+// Claude Code session inherit `CLAUDECODE=1`. Strip it in beforeEach
+// (and restore from ORIG_CLAUDECODE in afterEach) so any future
+// strict-mode wiring added to login doesn't surprise these tests, and
+// so the test environment matches what CI runners see.
 const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 const ORIG_FETCH = globalThis.fetch;
 const ORIG_URL = process.env.ARKOR_CLOUD_API_URL;

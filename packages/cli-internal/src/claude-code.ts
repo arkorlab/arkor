@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import { sanitise } from "./sanitise";
 
 /**
@@ -88,9 +88,17 @@ export interface MissingClaudeCodeFlag {
  * is trying to prevent. The literal `arkor-project` (case-insensitive
  * after trimming) is still accepted because the caller has explicitly
  * asked for that name.
+ *
+ * `[dir]` is derived through `basename(resolve(opts.dir))` to mirror
+ * `create-arkor`'s own default-name derivation. Without `resolve()`,
+ * `basename(".")` returns `"."` (which sanitises to the fallback) and
+ * the validator would falsely reject explicit invocations like
+ * `create-arkor . --template ...` even though the scaffolder would
+ * pick up the current directory's name at runtime.
  */
 function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
-  const raw = opts.name ?? (opts.dir !== undefined ? basename(opts.dir) : undefined);
+  const raw =
+    opts.name ?? (opts.dir !== undefined ? basename(resolve(opts.dir)) : undefined);
   if (raw === undefined) return false;
   const sanitised = sanitise(raw);
   if (sanitised !== "arkor-project") return true;

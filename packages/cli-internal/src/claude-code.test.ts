@@ -125,6 +125,33 @@ describe("missingClaudeCodeFlags", () => {
     );
   });
 
+  it("resolves [dir] before taking the basename so `.` / `..` are treated like the surrounding directory", () => {
+    // Regression for PR #141 review (codex + Copilot): `basename(".")`
+    // is `"."` which sanitise() collapses to the fallback, so the
+    // previous implementation falsely rejected `create-arkor .
+    // --template ...`. Mirroring `basename(resolve(opts.dir))` (what
+    // the scaffolder itself uses to derive `defaultName`) makes the
+    // strict check agree with the runtime: `.` / `..` resolve to the
+    // current / parent directory's basename, and only then are
+    // sanitised.
+    const baseOpts = {
+      requireProjectName: true,
+      template: "triage",
+      skipGit: true,
+      useNpm: true,
+      agentsMd: false,
+    } as const;
+    // `process.cwd()` is the vitest worker's cwd; its basename is
+    // some non-empty slug (e.g. `cli-internal` here). The exact value
+    // doesn't matter as long as it isn't the `arkor-project` fallback.
+    expect(missingClaudeCodeFlags({ ...baseOpts, dir: "." })).toEqual([]);
+    expect(missingClaudeCodeFlags({ ...baseOpts, dir: "./" })).toEqual([]);
+    // Relative path that resolves to a meaningful basename also passes.
+    expect(
+      missingClaudeCodeFlags({ ...baseOpts, dir: "foo/bar/my-app" }),
+    ).toEqual([]);
+  });
+
   it("still accepts the literal `arkor-project` when the caller asked for it explicitly", () => {
     // Carve-out so a user who genuinely wants the name `arkor-project`
     // isn't blocked by the fallback-detection heuristic. Case- and
