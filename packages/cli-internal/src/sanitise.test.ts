@@ -47,6 +47,19 @@ describe("sanitise", () => {
     expect(sanitise(long)).toBe("a".repeat(60));
   });
 
+  it("does not leak a trailing dash when the 60-char cap cuts on a separator", () => {
+    // PR #141 review (Copilot): the trim used to run before the cap,
+    // so an input like 59 alphanumerics followed by `_b` ended up as
+    // `aaa…a-` (60 chars, ends with `-`) because the cap landed on
+    // the dash. The chain is now slice-then-trim, so the trailing
+    // separator gets stripped after the cap and the slug satisfies
+    // the documented contract.
+    const input = `${"a".repeat(59)}_b`;
+    const result = sanitise(input);
+    expect(result.endsWith("-")).toBe(false);
+    expect(result).toBe("a".repeat(59));
+  });
+
   it("preserves digits and dashes", () => {
     expect(sanitise("v2-runner-01")).toBe("v2-runner-01");
   });

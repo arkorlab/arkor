@@ -152,12 +152,23 @@ describe("missingClaudeCodeFlags", () => {
     ).toEqual([]);
   });
 
-  it("still accepts the literal `arkor-project` when the caller asked for it explicitly", () => {
-    // Carve-out so a user who genuinely wants the name `arkor-project`
-    // isn't blocked by the fallback-detection heuristic. Case- and
-    // whitespace-insensitive on the input side; the sanitised slug is
-    // already canonical.
-    for (const name of ["arkor-project", "ARKOR-PROJECT", "  arkor-project  "]) {
+  it("accepts deliberate names that happen to sanitise to `arkor-project`", () => {
+    // PR #141 review (codex + Copilot): the previous check compared the
+    // raw input to the literal `arkor-project` string, so inputs like
+    // `Arkor Project`, `arkor_project`, or a `[dir]` basename
+    // `Arkor_Project` were rejected because their trimmed/lowercased
+    // raw form differed from the sanitised slug. They are deliberate
+    // names, not silent defaults; the rewritten check (input contains
+    // any `[a-z0-9]`) accepts them because the alphanumeric content
+    // proves the user typed a real name.
+    for (const name of [
+      "arkor-project",
+      "ARKOR-PROJECT",
+      "  arkor-project  ",
+      "Arkor Project",
+      "arkor_project",
+      "ArkorProject",
+    ]) {
       const missing = missingClaudeCodeFlags({
         requireProjectName: true,
         name,

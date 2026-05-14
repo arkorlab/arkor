@@ -1,5 +1,4 @@
 import { basename, resolve } from "node:path";
-import { sanitise } from "./sanitise";
 
 /**
  * Claude Code (the Anthropic agent CLI) sets `CLAUDECODE=1` in every spawned
@@ -81,18 +80,20 @@ export interface MissingClaudeCodeFlag {
 
 /**
  * True when `opts` supplies a project name that survives `sanitise()`
- * without falling back to the generic `arkor-project` default. Empty
- * strings, whitespace-only inputs, and strings that contain no
- * `[a-z0-9-]` characters all collapse to `arkor-project` inside
- * `sanitise()`, which is exactly the silent-default outcome strict mode
- * is trying to prevent. The literal `arkor-project` (case-insensitive
- * after trimming) is still accepted because the caller has explicitly
- * asked for that name.
+ * without falling back to the generic `arkor-project` default. The
+ * fallback only fires when `sanitise()`'s pre-fallback slug is empty,
+ * which happens iff the input contains zero `[a-z0-9]` characters
+ * (case-insensitive). So an input is "meaningful" iff it has at least
+ * one alphanumeric character — this single check captures every silent
+ * default we want strict mode to surface (empty strings, whitespace
+ * only, punctuation only) without falsely rejecting deliberate names
+ * that happen to *sanitise* to `arkor-project` such as `Arkor Project`
+ * or `arkor_project`.
  *
  * `[dir]` is derived through `basename(resolve(opts.dir))` to mirror
  * `create-arkor`'s own default-name derivation. Without `resolve()`,
- * `basename(".")` returns `"."` (which sanitises to the fallback) and
- * the validator would falsely reject explicit invocations like
+ * `basename(".")` returns `"."` (no alphanumerics) and the validator
+ * would falsely reject explicit invocations like
  * `create-arkor . --template ...` even though the scaffolder would
  * pick up the current directory's name at runtime.
  */
@@ -100,9 +101,7 @@ function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
   const raw =
     opts.name ?? (opts.dir !== undefined ? basename(resolve(opts.dir)) : undefined);
   if (raw === undefined) return false;
-  const sanitised = sanitise(raw);
-  if (sanitised !== "arkor-project") return true;
-  return raw.trim().toLowerCase() === "arkor-project";
+  return /[a-z0-9]/i.test(raw);
 }
 
 /**
