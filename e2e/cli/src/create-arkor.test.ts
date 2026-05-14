@@ -546,8 +546,17 @@ describe("create-arkor (E2E)", () => {
       expect(result.stderr).toContain("git init");
       expect(result.stderr).toContain("package manager");
       expect(result.stderr).toContain("AGENTS.md");
-      // Sanity: exit happened before any scaffold work.
+      // Sanity: exit happened before any scaffold work. Without [dir],
+      // a non-strict create-arkor run would have created
+      // `./arkor-project/` (its auto-derived default subdirectory) and
+      // a `package.json` inside it — not in parentDir itself — so
+      // asserting `parentDir/package.json` alone wouldn't catch a
+      // regression where strict mode failed and the scaffolder still
+      // ran. Assert that `parentDir` is byte-for-byte unchanged
+      // instead (it was empty going in via `makeTempDir`).
       expect(existsSync(join(parentDir, "package.json"))).toBe(false);
+      expect(existsSync(join(parentDir, "arkor-project"))).toBe(false);
+      expect(readdirSync(parentDir)).toEqual([]);
     });
 
     it("still exits 1 when [dir] is given but other prompts are missing", async () => {
