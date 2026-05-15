@@ -50,11 +50,19 @@ export interface ScaffoldOptions {
    * `@esbuild/<platform>` as an `optionalDependency` (see
    * `pnpmWorkspaceContent()`'s comment for the exception cases).
    *
-   * Wired only through `pnpm-workspace.yaml` — yarn / npm / bun ignore
-   * the file, so this flag has no observable effect for those package
-   * managers today. We still accept it unconditionally so scaffolding
-   * a project with `--use-npm` and switching to pnpm later doesn't
-   * silently strip the user's earlier `--allow-builds` choice.
+   * Wired only through `pnpm-workspace.yaml`; yarn / npm / bun ignore
+   * the file, so this flag is a **no-op for explicit non-pnpm runs**:
+   * `--use-npm` / `--use-yarn` / `--use-bun` skips
+   * `pnpm-workspace.yaml` emission entirely (axis (1) of the gate at
+   * the call site), so the flag's chosen value isn't persisted
+   * anywhere for a later pnpm switch to pick up. We still accept it
+   * unconditionally at the API surface to keep CLI argument parsing
+   * symmetrical: the flag remains valid syntax across every pm. If
+   * the user re-runs with `--use-pnpm --allow-builds` after switching
+   * toolchains the choice takes effect at THAT run; the earlier
+   * non-pnpm run simply had nothing to write it into. Round 40
+   * (Copilot, PR #99) flagged the previous wording that read as if
+   * the flag was persisted across the switch.
    */
   allowBuilds?: boolean;
 }

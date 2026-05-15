@@ -250,13 +250,38 @@ describe("install", () => {
       // The variable is yarn-berry-specific. Setting it for npm/pnpm/bun
       // is harmless (they ignore it) but we keep the env surface tight
       // to make the contract obvious in install.ts.
-      const marker = join(cwd, "marker.log");
-      makeFakePm("pnpm", 0, marker);
+      //
+      // Round 40 (Copilot, PR #99): `install()` only STRIPS this
+      // variable in the yarn branch; for non-yarn pms the strip is
+      // skipped, so a parent shell or CI image that exports
+      // `YARN_ENABLE_IMMUTABLE_INSTALLS=false` would leak through
+      // `{ ...process.env, ... }` into the spawn and fail this
+      // assertion nondeterministically. Explicitly delete every
+      // case-insensitive variant (Windows env-var lookup is case-
+      // insensitive, mirroring install.ts's own deletion loop)
+      // before the assertion so the test asserts the IMPLEMENTATION
+      // behaviour rather than the developer's shell hygiene; restore
+      // in finally so the suite doesn't perturb sibling tests.
+      const saved: Record<string, string | undefined> = {};
+      for (const key of Object.keys(process.env)) {
+        if (key.toUpperCase() === "YARN_ENABLE_IMMUTABLE_INSTALLS") {
+          saved[key] = process.env[key];
+          delete process.env[key];
+        }
+      }
+      try {
+        const marker = join(cwd, "marker.log");
+        makeFakePm("pnpm", 0, marker);
 
-      await install("pnpm", cwd);
+        await install("pnpm", cwd);
 
-      const log = (await import("node:fs")).readFileSync(marker, "utf8");
-      expect(log).not.toContain("\nfalse\n");
+        const log = (await import("node:fs")).readFileSync(marker, "utf8");
+        expect(log).not.toContain("\nfalse\n");
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value !== undefined) process.env[key] = value;
+        }
+      }
     },
   );
 

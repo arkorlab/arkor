@@ -186,6 +186,15 @@ export async function runInit(options: InitOptions): Promise<void> {
   const pm = options.packageManager;
 
   let installed = false;
+  // Round 40 (Copilot, PR #99): stash any `install()` throw so the
+  // `Retry manually` hint can be deferred to AFTER the recovery
+  // gate runs. pnpm 11 / bun-Windows have been observed exiting
+  // non-zero AFTER writing both `node_modules` and the lockfile,
+  // in which case the gate flips `installSucceeded` to true and
+  // the outro omits the install step. Printing `Retry manually`
+  // inline from the catch directly contradicted that recovered
+  // branch's outcome.
+  let installThrewError: string | undefined;
   // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
   // lockfile BEFORE install so the post-install gate can prove
   // install actually changed something on disk. Without the
@@ -221,8 +230,13 @@ export async function runInit(options: InitOptions): Promise<void> {
         await install(pm, cwd);
         installed = true;
       } catch (err) {
-        ui.log.warn(err instanceof Error ? err.message : String(err));
-        ui.log.info(`Retry manually: ${pm} install`);
+        // Surface the pm error itself immediately (visibility). The
+        // `Retry manually` hint is DEFERRED to after the recovery
+        // gate computes `installSucceeded` below; see the
+        // `installThrewError` declaration above for the rationale.
+        installThrewError =
+          err instanceof Error ? err.message : String(err);
+        ui.log.warn(installThrewError);
       }
     }
   }
@@ -298,6 +312,15 @@ export async function runInit(options: InitOptions): Promise<void> {
     installed ||
     (lockfileChangedSince(cwd, pm, lockfileBefore) &&
       nodeModulesChangedSince(cwd, nodeModulesBefore));
+  // Round 40 (Copilot, PR #99): print the `Retry manually` hint
+  // ONLY when install actually threw AND the recovery gate did
+  // NOT salvage it. In the recovered branch (pnpm 11 / bun-
+  // Windows non-zero-after-write) the outro proceeds with no
+  // install step, and re-stating "retry install" inline would
+  // tell the user to redo work the CLI just accepted as done.
+  if (installThrewError !== undefined && !installSucceeded) {
+    ui.log.info(`Retry manually: ${pm} install`);
+  }
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(

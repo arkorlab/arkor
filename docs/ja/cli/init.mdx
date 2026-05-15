@@ -63,7 +63,7 @@ bun arkor init
 
 ### postinstall スクリプト（pnpm 11+）
 
-選んだパッケージマネージャが pnpm のとき — 明示的に `--use-pnpm` を指定したか、`--use-*` フラグなしでパッケージマネージャー検出も解決せず空の新規ディレクトリーに scaffold する場合 — `package.json` と同階層に `pnpm-workspace.yaml` を出力します。
+選んだパッケージマネージャが pnpm のとき（明示的に `--use-pnpm` を指定したか、`npm_config_user_agent` から pnpm が検出された場合、例: `pnpm arkor init`、あるいは `--use-*` フラグなしでパッケージマネージャー検出も解決せず空の新規ディレクトリーに scaffold する場合）、`package.json` と同階層に `pnpm-workspace.yaml` を出力します。
 
 ```yaml
 packages: []
@@ -77,7 +77,7 @@ allowBuilds:
 - ターゲットディレクトリーに既存ファイルがあり、`--use-*` 指定がない（推測でワークスペース設定を他人のプロジェクトに置かない）。
 - 祖先ディレクトリーに既に `pnpm-workspace.yaml` がある（親モノレポのワークスペースが支配的。ここでネストして作ると親を遮蔽し、上位の `workspace:*` 解決が壊れます）。
 
-ターゲットに `pnpm-workspace.yaml` が既にある場合は patch します。トップレベルの `allowBuilds:` ブロックに `esbuild: false` を追記（無ければブロックごと作成）し、無関係なキーは触りません。esbuild が既に明示的に値（true / false）でピン留めされていたり、ファイルが `allowBuilds: false` / `allowBuilds: true` のスカラー形（global pin）を使っている場合は何もせず no-op で終わります。
+ターゲットに `pnpm-workspace.yaml` が既にある場合、**pnpm があり得る** とき（新規作成と同じく `--use-pnpm` / UA 検出が pnpm / 未解決のいずれか。`--use-npm` / `--use-yarn` / `--use-bun` の場合は既存ファイルも触りません）のみ patch します。トップレベルの `allowBuilds:` ブロックに `esbuild: false`（`--allow-builds` が指定されている場合は `esbuild: true`）を追記（無ければブロックごと作成）し、無関係なキーは触りません。esbuild が既に明示的に値（true / false）でピン留めされていたり、ファイルが `allowBuilds: false` / `allowBuilds: true` のスカラー形（global pin）を使っている場合は何もせず no-op で終わります。
 
 pnpm 11 から postinstall スクリプトの既定が「明示的に承認しない限り実行しない」に変わり、未承認のスクリプトに当たると `ERR_PNPM_IGNORED_BUILDS`（exit code 1）で失敗するようになりました。esbuild はそうしたスクリプト（`node install.js`、プラットフォーム別バイナリの検証/取得）を持つため、scaffold したばかりのプロジェクトでそのまま `pnpm install` するとこのエラーになります。
 
@@ -241,7 +241,7 @@ bun arkor init --template translate --use-bun
 
 ## 何が書かれるか
 
-ツールが触るパスは 6 つ。いずれもユーザーの既存内容を上書きしません:
+ツールが触るパスは最大 8 つで、無条件の 6 つに加え、パッケージマネージャー設定 2 つが条件付きで追加されます。いずれもユーザーの既存内容を上書きしません:
 
 | パス | 振る舞い |
 | --- | --- |
@@ -251,6 +251,8 @@ bun arkor init --template translate --use-bun
 | `README.md` | 無ければスターター README で **作成**。あれば **そのまま**。 |
 | `.gitignore` | 無ければ `node_modules/`、`dist/`、`.arkor/` で **作成**。ファイルがあって `.arkor/` が入っていなければ追記で **パッチ**。既に入っていれば変更なし（**Ok**）。 |
 | `package.json` | 無ければ name / `private` / `type: "module"` / `dev`+`build`+`start` のスターター scripts / `devDependencies.arkor` で **作成**。不足している script があれば追加し、`devDependencies.arkor` がなければ追加する **パッチ**。既存の値（カスタム `dev` script など）は **上書きしません**。すべて揃っていれば変更なし（**Ok**）。 |
+| `pnpm-workspace.yaml` | _条件付き。_ 詳細は [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプトpnpm-11) を参照。pnpm があり得て、かつ祖先に `pnpm-workspace.yaml` が無い場合に `packages: []` + `allowBuilds.esbuild: false`（`--allow-builds` 指定時は `: true`）で **作成**。ファイルが既にあって pnpm があり得る場合は **パッチ**: esbuild が未ピンならば `esbuild: <bool>` を `allowBuilds:` に追記。`--use-npm` / `--use-yarn` / `--use-bun` と pnpm モノレポのサブディレクトリ内では **スキップ**。 |
+| `.yarnrc.yml` | _条件付き。_ レイヤード判定の全文は `packages/cli-internal/src/scaffold.ts` を参照。yarn があり得る新規 scaffold（`--use-yarn`、UA 検出が yarn、または `--use-*` なしで UA 検出失敗）でのみ `nodeLinker: node-modules` で **作成**。あれば **そのまま**（デフォルト以外の `nodeLinker:` は競合警告、`nodeLinker:` キー欠落は yarn-berry caveat）。明示的な非 yarn pm、および positive yarn-berry signal がない既存非空ディレクトリでの `--use-yarn` では **スキップ**。 |
 
 CLI は install 前に "Files" ノートとしてファイル一覧を表示し、各パスの `action`（`created` / `kept` / `patched` / `ok`）を出すので、何が変わったか正確に確認できます。
 

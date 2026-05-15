@@ -19,14 +19,19 @@ afterEach(() => {
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
 
 // pnpm 10 cannot parse Windows-drive `file:` URIs in any form
-// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break — pnpm strips
+// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break: pnpm strips
 // the prefix and joins to the install cwd, then aborts with
 // `ENOENT: scandir '<cwd>\D:\...'`). The install-matrix tests sidestep
-// that by pre-packing arkor into a tarball once per file and copying it
-// into each test's cwd as `vendor/arkor-*.tgz`, then overriding the
-// scaffold spec to `file:./vendor/<basename>` — a relative path with no
-// drive letter to misparse. SKIP_INSTALL=1 short-circuits the pack since
-// none of the gated tests will run.
+// that by pre-packing arkor into a tarball once per file and (per test)
+// staging it ONE LEVEL ABOVE the project cwd (`parentDir/arkor-*.tgz`
+// with the actual install running inside `parentDir/project/`), then
+// overriding the scaffold spec to `file:../<basename>`. A parent-
+// relative path has no drive letter to misparse and keeps the tarball
+// outside the cwd where pnpm's tarball-cache resolution can re-read it.
+// (Round 40 Copilot, PR #99: the earlier `cwd/vendor/<basename>` layout
+// was renamed to this parentDir shape but the comment lagged behind.)
+// SKIP_INSTALL=1 short-circuits the pack since none of the gated tests
+// will run.
 let arkorTarball: string | undefined;
 let arkorPackDir: string | undefined;
 
@@ -302,11 +307,24 @@ describe("arkor init (E2E)", () => {
   // observable difference. Round 28 (Copilot, PR #99) flagged
   // that dropping the bun assertion ENTIRELY leaves a real
   // regression window in the install-matrix. Compromise: skip
-  // ONLY the Windows × bun combination here. bun on
-  // Linux/macOS keeps the strict lockfile-in-initial-commit
-  // assertion, and create-arkor's bun lane (which works
-  // cross-platform) covers the bun-specific install path on
-  // Windows too.
+  // ONLY the Windows × bun lockfile assertion here. node_modules
+  // creation, `result.code === 0`, `.git/HEAD`, and the initial-
+  // commit subject are all still asserted, so a regression in
+  // those invariants would still fail this lane.
+  //
+  // Known coverage gap (Round 40, Copilot, PR #99): this skip
+  // means the **lockfile-in-initial-commit invariant** is NOT
+  // verified for `arkor init --use-bun --git` on Windows. The
+  // create-arkor bun-on-Windows lane covers bun ITSELF and the
+  // create-arkor spawn shape, but `arkor init` is a separate
+  // production entry point with a separate `install()` call from
+  // `cli-internal/install.ts` and we have no E2E that asserts
+  // the lockfile ends up in HEAD for that specific binary on
+  // Windows. The honest fix is to debug why `arkor init`'s spawn
+  // shape (Node parent → cli-internal spawn) and create-arkor's
+  // (Node parent → cli-internal spawn, same code path) diverge
+  // for bun on Windows and not on Linux/macOS. Pending that,
+  // the gap is documented here rather than masked.
   function shouldSkipBunLockfileAssertion(flag: string): boolean {
     return flag === "bun" && process.platform === "win32";
   }
