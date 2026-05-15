@@ -176,6 +176,12 @@ describe("missingClaudeCodeFlags", () => {
     // doesn't matter as long as it isn't the `arkor-project` fallback.
     expect(missingClaudeCodeFlags({ ...baseOpts, dir: "." })).toEqual([]);
     expect(missingClaudeCodeFlags({ ...baseOpts, dir: "./" })).toEqual([]);
+    // `..` resolves to the parent directory (e.g. `packages` when
+    // vitest is run from `packages/cli-internal`), whose basename is
+    // also a meaningful slug. Pinning this case matches the test
+    // title's claim and guards the symmetric `.` / `..` branch in
+    // the `basename(resolve(opts.dir))` derivation.
+    expect(missingClaudeCodeFlags({ ...baseOpts, dir: ".." })).toEqual([]);
     // Relative path that resolves to a meaningful basename also passes.
     expect(
       missingClaudeCodeFlags({ ...baseOpts, dir: "foo/bar/my-app" }),

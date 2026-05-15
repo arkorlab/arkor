@@ -32,7 +32,7 @@ description: "arkor CLI: 全コマンドリファレンス。"
 | `DO_NOT_TRACK=1` | すべてのコマンドでテレメトリーを無効化。永続テレメトリー ID ファイルは作成も読込もされません。 |
 | `ARKOR_TELEMETRY_DISABLED=1` | `DO_NOT_TRACK` と同じ。`DO_NOT_TRACK` で他ツールをゲートしているがスイッチを分けたい構成のための Arkor 専用エイリアス。 |
 | `ARKOR_TELEMETRY_DEBUG=1` | テレメトリーモジュール内部の冗長ログを有効化（init 失敗、ID ファイルの read/write エラー、capture 失敗、shutdown エラー）。このフラグが ON でも **テレメトリーは送信されます**。診断補助で、dry-run スイッチではありません。送信を止めるには `DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` を使ってください。 |
-| `CI=1`（または stdout が非 TTY） | 非対話モードを強制。`arkor init` はプロンプトをスキップしてフラグで渡された値（`--yes` 時は組み込みのデフォルト）を使い、`--git` か `--yes` 指定時は git init が確認なしで走り、それ以外では黙ってスキップされます。[`arkor init` § CI / 非対話シェル](/ja/cli/init#ci--非対話シェル) を参照。 |
+| `CI=1`（または stdout が非 TTY） | 非対話モードを強制。`arkor init` はプロンプトをスキップしてフラグで渡された値（`--yes` 時は組み込みのデフォルト）を使い、`--git` か `--yes` 指定時は git init が確認なしで走り、それ以外では黙ってスキップされます。[`arkor init` § CI / 非対話シェル](/ja/cli/init#ci-/-非対話シェル) を参照。 |
 
 ### ロードマップ上
 
