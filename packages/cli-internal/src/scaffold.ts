@@ -191,11 +191,33 @@ async function ensureDirExists(cwd: string): Promise<void> {
   }
 }
 
-async function ensureEmptyEnough(cwd: string): Promise<void> {
-  const entries = (await readdir(cwd)).filter((f) => f !== "." && f !== "..");
-  if (entries.length === 0) return;
-  // Allow scaffolding into an existing project — but prevent overwriting if
-  // any target files already exist. `ensureFile` below keeps existing files.
+/**
+ * List `cwd`'s direct entries (excluding `.` and `..`). Empty array
+ * means a fresh directory; non-empty means scaffold is merging
+ * into an existing project. The merge policy is "allow but don't
+ * overwrite": `ensureFile` and `patch*` below keep existing files
+ * untouched and only fill in missing ones.
+ *
+ * Used to derive `isExistingProject`, which gates the yarn-config
+ * and `pnpm-workspace.yaml` emission rules — the policy there is
+ * "don't mutate workspace-level config in someone else's project"
+ * (round 5 / 14 / 15). Caller's responsibility to invoke AFTER
+ * `ensureDirExists` (a readdir ENOENTs on a freshly-created dir)
+ * and BEFORE the first `ensureFile` / `patch*` (so we don't see
+ * our own writes as pre-existing content).
+ *
+ * Round 40 (Copilot, PR #99): the previous `ensureEmptyEnough`
+ * helper read the entries and discarded the result without
+ * enforcing anything, then `scaffold()` re-ran the same
+ * readdir+filter immediately afterwards to compute
+ * `isExistingProject`. The comment claimed the snapshot reused
+ * the predicate `ensureEmptyEnough` "already applied", but the
+ * helper applied nothing — it was a misleadingly-named no-op.
+ * Folded into a single listing call so the predicate is computed
+ * once and the comment matches the code.
+ */
+async function listExistingEntries(cwd: string): Promise<readonly string[]> {
+  return (await readdir(cwd)).filter((f) => f !== "." && f !== "..");
 }
 
 async function ensureFile(
@@ -1139,7 +1161,6 @@ export async function scaffold(
 ): Promise<ScaffoldResult> {
   const cwd = resolve(options.cwd);
   await ensureDirExists(cwd);
-  await ensureEmptyEnough(cwd);
 
   const files: ScaffoldResult["files"] = [];
   const warnings: string[] = [];
@@ -1158,14 +1179,12 @@ export async function scaffold(
   // sub-dir scaffolded for a new package, etc). Those would be
   // misclassified as "fresh" under the package.json predicate and
   // still get repo-level yarn writes — reintroducing the
-  // workspace-mutation hazard rounds 5/14 closed. Use the same
-  // "non-empty entries" predicate `ensureEmptyEnough` already
-  // applies; the snapshot has to be taken AFTER `ensureDirExists`
-  // (so the readdir doesn't ENOENT on a freshly-created dir) and
-  // BEFORE the first ensureFile/patch (so we don't see our own
-  // writes as pre-existing content).
-  const isExistingProject =
-    (await readdir(cwd)).filter((f) => f !== "." && f !== "..").length > 0;
+  // workspace-mutation hazard rounds 5/14 closed. See
+  // `listExistingEntries` for the predicate's "AFTER
+  // `ensureDirExists`, BEFORE any `ensureFile` / `patch*`" timing
+  // contract; a single readdir+filter feeds both the
+  // allow-but-don't-overwrite merge policy and this snapshot.
+  const isExistingProject = (await listExistingEntries(cwd)).length > 0;
   // Snapshot the pre-existing `package.json#packageManager` field
   // BEFORE `patchPackageJson` runs — same timing rationale as
   // `isExistingProject` above. `patchPackageJson` will create a
