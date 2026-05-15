@@ -73,7 +73,7 @@ bun create arkor my-arkor-app --template triage
 
 ### Claude Code 下での実行（`CLAUDECODE=1`）
 
-Claude Code は子プロセスに `CLAUDECODE=1` を渡し、対話プロンプトに応答できません。エージェントが隠れたデフォルトで黙ってプロジェクトを生成してしまうのを防ぐため、この環境変数下では `create-arkor` も厳格モードに切り替わります。対話プロンプトに対応するフラグはすべて必須となり、不足があれば実行ではなく、再実行用のコマンドを stderr に出して終了します。同じルールは [`arkor init`](/ja/cli/init#claude-code（claudecode=1）厳格モード) にも適用されますが、`create-arkor` だけ追加で `[dir]`（または `--name`）も必須となります。デフォルトの `arkor-project` は意図的に選ぶより誤指定であることがほとんどなので、明示的に決めさせる方針です。空白だけ・記号だけのように `sanitise()` がフォールバックしてしまう値も拒否されます。
+Claude Code は子プロセスに `CLAUDECODE=1` を渡し、対話プロンプトに応答できません。エージェントが隠れたデフォルトで黙ってプロジェクトを生成してしまうのを防ぐため、この環境変数下では `create-arkor` も厳格モードに切り替わります。下記のキュレーション済みフラグセットが必須となり、不足があれば実行ではなく、再実行用のコマンドを stderr に出して終了します。同じルールは [`arkor init`](/ja/cli/init#claude-code（claudecode=1）厳格モード) にも適用されますが、`create-arkor` だけ追加で `[dir]`（または `--name`）も必須となります。これは positional 省略時のフォールバック先 `arkor-project/` サブディレクトリが意図的に選ばれることはまずなく、ほぼ常に指定漏れだからです。ASCII の英数字を 1 文字も含まない入力（空、空白だけ、`!!!` のような記号だけ）も拒否されます。`sanitise()` が同じ generic フォールバックに collapse させてしまうためです。一方、サニタイズ結果がたまたま `arkor-project` になるような **意図的な名前**（例: `Arkor Project`、`arkor_project`、`ArkorProject`）は受け入れます。英数字が含まれていることがエージェントの明示的入力の証拠になるためです。
 
 必須フラグ（または `-y`/`--yes` で「すべてデフォルトで進める」にオプトイン）:
 

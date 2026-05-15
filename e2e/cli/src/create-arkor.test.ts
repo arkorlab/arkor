@@ -611,6 +611,39 @@ describe("create-arkor (E2E)", () => {
       },
     );
 
+    it.each([
+      ["empty positional", ""],
+      ["whitespace-only positional", "   "],
+    ])(
+      "rejects %s without leaning on resolve()'s cwd fallback",
+      async (_label, dir) => {
+        // PR #141 review (Copilot): `resolve("")` returns the current
+        // working directory, whose basename is usually alphanumeric.
+        // Without an early guard, `create-arkor "" --template ...` (or a
+        // quoted empty shell variable) would silently scaffold in-place
+        // under the parent dir's basename, defeating the rejection we
+        // already enforce for `--name ""`. The check now refuses any
+        // positional that is empty/whitespace before resolution.
+        const result = await runCli(
+          CREATE_ARKOR_BIN,
+          [
+            dir,
+            "--template",
+            "triage",
+            "--skip-git",
+            "--skip-install",
+            "--no-agents-md",
+          ],
+          parentDir,
+          { CLAUDECODE: "1" },
+        );
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("[dir]");
+        // Sanity: parent dir stays empty.
+        expect(readdirSync(parentDir)).toEqual([]);
+      },
+    );
+
     it("accepts `create-arkor .` (resolves to the parent dir basename, not the literal `.`)", async () => {
       // Regression for PR #141 review (codex + Copilot): the strict
       // check used to compute the project name as `basename(opts.dir)`

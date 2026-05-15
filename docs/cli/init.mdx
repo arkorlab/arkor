@@ -124,7 +124,7 @@ If you forget `--yes` in a non-interactive shell, the command still completes (p
 
 ### Claude Code (`CLAUDECODE=1`) strict mode
 
-Claude Code spawns child processes with `CLAUDECODE=1`, and it cannot answer interactive prompts. To prevent the agent from silently scaffolding with hidden defaults, `arkor init` flips into a strict mode under this env var: every flag that mirrors an interactive prompt becomes required, and a missing one produces a stderr message listing the suggested re-invocation rather than running.
+Claude Code spawns child processes with `CLAUDECODE=1`, and it cannot answer interactive prompts. To prevent the agent from silently scaffolding with hidden defaults, `arkor init` flips into a strict mode under this env var: a curated set of flags becomes required (see the list below), and a missing one produces a stderr message listing the suggested re-invocation rather than running. Project name is intentionally not required here, because `arkor init` already derives it from `basename(cwd)`, which is the same value the interactive prompt would have suggested. The package-manager flag is required even though it isn't strictly a prompt, so the agent picks `--use-*` vs. `--skip-install` deliberately rather than relying on `npm_config_user_agent` detection.
 
 Required flags (or pass `-y`/`--yes` to opt back into "accept all defaults"):
 

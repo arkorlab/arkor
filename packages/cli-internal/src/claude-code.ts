@@ -5,9 +5,24 @@ import { basename, resolve } from "node:path";
  * shell. It cannot answer interactive prompts, and silently falling through to
  * defaults masks decisions the agent should be making explicitly. So the
  * scaffolders (`create-arkor`, `arkor init`) flip into a strict mode under
- * this env var: every flag that mirrors an interactive prompt becomes
- * required, and missing ones produce a stderr message listing the suggested
- * re-invocation rather than running with hidden defaults.
+ * this env var: a curated set of flags becomes required, and missing ones
+ * produce a stderr message listing the suggested re-invocation rather than
+ * running with hidden defaults.
+ *
+ * "Curated" (not "every interactive prompt") because the runtime defaults
+ * for a couple of decisions are well-understood enough that forcing them
+ * would just add noise:
+ *
+ *   - **Project name** is not required by `arkor init`: the scaffolder
+ *     derives it from `basename(cwd)`, which is the same value the
+ *     interactive prompt offers. `create-arkor` *does* require it because
+ *     a missing `[dir]` falls all the way back to the generic
+ *     `arkor-project` slug, which is almost always an oversight.
+ *   - **Package manager** is not actually prompted for at runtime; it's
+ *     a defaulted decision (UA-sniffed, or skipped silently when
+ *     detection fails). It's required here because the agent should
+ *     pick `--use-*` vs. `--skip-install` deliberately, not because the
+ *     interactive UX would have asked.
  *
  * `--yes` opts back into the legacy "accept all defaults" path; callers that
  * have explicitly delegated those decisions to the CLI keep working unchanged.
@@ -98,10 +113,20 @@ export interface MissingClaudeCodeFlag {
  * pick up the current directory's name at runtime.
  */
 function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
-  const raw =
-    opts.name ?? (opts.dir !== undefined ? basename(resolve(opts.dir)) : undefined);
-  if (raw === undefined) return false;
-  return /[a-z0-9]/i.test(raw);
+  if (opts.name !== undefined) return /[a-z0-9]/i.test(opts.name);
+  if (opts.dir === undefined) return false;
+  // Reject empty / whitespace-only positionals BEFORE resolving them.
+  // `resolve("")` (and `resolve("   ")` after trimming through shell
+  // word-splitting in practice) returns `process.cwd()`, whose basename
+  // is almost always alphanumeric; so without this guard,
+  // `create-arkor "" --template ...` or a quoted shell variable that
+  // happened to be empty would slip through strict mode and scaffold
+  // in-place against the cwd basename, mirroring the silent-default
+  // outcome we reject for `--name ""`. `.` / `./` etc. still pass
+  // because they are *deliberate* "scaffold in this directory" idioms
+  // that share the same runtime semantics as a non-empty path.
+  if (opts.dir.trim() === "") return false;
+  return /[a-z0-9]/i.test(basename(resolve(opts.dir)));
 }
 
 /**
@@ -120,7 +145,7 @@ export function missingClaudeCodeFlags(
     missing.push({
       flag: "[dir] (e.g. `my-arkor-app`) or --name <name>",
       description:
-        "Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Empty / whitespace-only values that `sanitise()` would collapse to the generic `arkor-project` fallback do not count as explicit.",
+        "Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Inputs with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!` / `***`) are rejected because they would collapse to the generic `arkor-project` fallback inside `sanitise()`.",
     });
   }
   if (opts.template === undefined) {
