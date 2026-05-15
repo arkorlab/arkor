@@ -115,16 +115,21 @@ export interface MissingClaudeCodeFlag {
 function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
   if (opts.name !== undefined) return /[a-z0-9]/i.test(opts.name);
   if (opts.dir === undefined) return false;
-  // Reject empty / whitespace-only positionals BEFORE resolving them.
-  // `resolve("")` (and `resolve("   ")` after trimming through shell
-  // word-splitting in practice) returns `process.cwd()`, whose basename
-  // is almost always alphanumeric; so without this guard,
-  // `create-arkor "" --template ...` or a quoted shell variable that
-  // happened to be empty would slip through strict mode and scaffold
-  // in-place against the cwd basename, mirroring the silent-default
-  // outcome we reject for `--name ""`. `.` / `./` etc. still pass
-  // because they are *deliberate* "scaffold in this directory" idioms
-  // that share the same runtime semantics as a non-empty path.
+  // Reject empty / whitespace-only positionals before consulting
+  // `resolve()`. The motivating case is the **empty string**:
+  // `path.resolve("")` returns `process.cwd()` whose basename is
+  // almost always alphanumeric, so `create-arkor "" --template ...`
+  // (or a quoted shell variable that expanded to empty) would slip
+  // through strict mode and scaffold in-place against the cwd
+  // basename, the exact silent-default outcome we already reject
+  // for `--name ""`. Whitespace-only inputs (`"   "`, `"\t"`) would
+  // *also* survive `resolve()` as a path with a whitespace basename,
+  // and the alphanumeric check below would catch them on its own;
+  // the trim here is the cheaper, earlier guard that gives both
+  // shapes the same rejection without depending on the downstream
+  // regex. `.` / `./` etc. still pass because they are deliberate
+  // "scaffold in this directory" idioms with the same runtime
+  // semantics as any non-empty path.
   if (opts.dir.trim() === "") return false;
   return /[a-z0-9]/i.test(basename(resolve(opts.dir)));
 }

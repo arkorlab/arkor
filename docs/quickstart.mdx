@@ -77,7 +77,7 @@ Claude Code spawns child processes with `CLAUDECODE=1`, and it cannot answer int
 
 Required flags (or pass `-y`/`--yes` to opt back into "accept all defaults"):
 
-- `[dir]` (e.g. `my-arkor-app`) or `--name <name>`: explicit project name; values that sanitise to the generic `arkor-project` fallback do not count.
+- `[dir]` (e.g. `my-arkor-app`) or `--name <name>`: explicit project name. Values with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!`) are rejected because they would collapse to the generic `arkor-project` fallback; deliberate inputs that *happen* to sanitise to `arkor-project` (`Arkor Project`, `arkor_project`, …) are accepted.
 - `--template <triage|translate|redaction>`
 - `--git` (recommended; matches the interactive default) or `--skip-git`
 - A package-manager flag: `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun`, or `--skip-install`
@@ -89,7 +89,7 @@ Sample stderr when a flag is missing:
 create-arkor: CLAUDECODE=1 detected. Interactive prompts are disabled.
 Re-run with explicit flags:
   [dir] (e.g. `my-arkor-app`) or --name <name>
-      Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Empty / whitespace-only values that `sanitise()` would collapse to the generic `arkor-project` fallback do not count as explicit.
+      Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Inputs with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!` / `***`) are rejected because they would collapse to the generic `arkor-project` fallback inside `sanitise()`.
   --template <triage|translate|redaction>
       Starter template: `triage` (support routing), `translate` (9-language translation), or `redaction` (PII removal).
   --git (recommended) or --skip-git

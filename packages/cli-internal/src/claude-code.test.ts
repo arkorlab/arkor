@@ -129,29 +129,31 @@ describe("missingClaudeCodeFlags", () => {
     ["empty positional", ""],
     ["whitespace-only positional", "   "],
     ["tab-only positional", "\t"],
-  ])(
-    "rejects %s without consulting `resolve()` (which would yield process.cwd())",
-    (_label, dir) => {
-      // PR #141 review (Copilot): `resolve("")` returns the current
-      // working directory, whose basename is usually alphanumeric. So
-      // before this guard, `create-arkor "" --template ...` or a quoted
-      // empty shell variable would silently scaffold in-place under the
-      // cwd basename, defeating the rejection we already enforce for
-      // `--name ""`. `.` / `./` still pass because they are deliberate
-      // "scaffold in this directory" idioms, not accidental empties.
-      const missing = missingClaudeCodeFlags({
-        requireProjectName: true,
-        dir,
-        template: "triage",
-        skipGit: true,
-        useNpm: true,
-        agentsMd: false,
-      });
-      expect(missing.map((m) => m.flag)).toContain(
-        "[dir] (e.g. `my-arkor-app`) or --name <name>",
-      );
-    },
-  );
+  ])("rejects %s before resolve()", (_label, dir) => {
+    // PR #141 review (Copilot): the motivating case is the EMPTY
+    // string. `path.resolve("")` returns `process.cwd()` whose
+    // basename is usually alphanumeric, so without the trim guard
+    // `create-arkor "" --template ...` (or a quoted empty shell
+    // variable) would slip through and scaffold against the cwd
+    // basename. Whitespace-only inputs would also be rejected by the
+    // downstream alphanumeric regex on their own (since
+    // `resolve("   ")` keeps the spaces as a basename), but exercising
+    // them here pins the guard's contract: trim semantics apply to
+    // *every* empty-shaped input, not only `""`. `.` / `./` are
+    // covered elsewhere as deliberate "scaffold in this directory"
+    // idioms.
+    const missing = missingClaudeCodeFlags({
+      requireProjectName: true,
+      dir,
+      template: "triage",
+      skipGit: true,
+      useNpm: true,
+      agentsMd: false,
+    });
+    expect(missing.map((m) => m.flag)).toContain(
+      "[dir] (e.g. `my-arkor-app`) or --name <name>",
+    );
+  });
 
   it("resolves [dir] before taking the basename so `.` / `..` are treated like the surrounding directory", () => {
     // Regression for PR #141 review (codex + Copilot): `basename(".")`

@@ -615,15 +615,17 @@ describe("create-arkor (E2E)", () => {
       ["empty positional", ""],
       ["whitespace-only positional", "   "],
     ])(
-      "rejects %s without leaning on resolve()'s cwd fallback",
+      "rejects %s under strict mode",
       async (_label, dir) => {
-        // PR #141 review (Copilot): `resolve("")` returns the current
-        // working directory, whose basename is usually alphanumeric.
-        // Without an early guard, `create-arkor "" --template ...` (or a
-        // quoted empty shell variable) would silently scaffold in-place
-        // under the parent dir's basename, defeating the rejection we
-        // already enforce for `--name ""`. The check now refuses any
-        // positional that is empty/whitespace before resolution.
+        // PR #141 review (Copilot): the motivating case is the empty
+        // string. `path.resolve("")` returns `process.cwd()` and
+        // would scaffold against the parent's alphanumeric basename
+        // without the early trim guard. Whitespace inputs would also
+        // fail strict mode via the downstream alphanumeric check on
+        // their own (since `resolve("   ")` resolves to a whitespace-
+        // basename path), but pinning both shapes here keeps the
+        // contract that empty-shaped positionals get the same
+        // rejection as `--name ""`.
         const result = await runCli(
           CREATE_ARKOR_BIN,
           [
