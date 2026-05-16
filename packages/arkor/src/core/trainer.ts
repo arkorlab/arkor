@@ -128,7 +128,15 @@ export function createTrainer(
   /** @internal */
   context: TrainerInternalContext = {},
 ): Trainer {
-  const baseUrl = context.baseUrl ?? defaultArkorCloudApiUrl();
+  // `baseUrl` is intentionally resolved *inside* `getClient()`, after
+  // credentials are loaded, so it can follow the auth-time host stamped
+  // onto anonymous and OAuth credentials by signup / `arkor login`.
+  // Resolving it eagerly at construction time would lock the trainer
+  // to the env / production fallback for OAuth users who logged in
+  // against staging — `arkor start` would 401 against production
+  // unless `ARKOR_CLOUD_API_URL` was also set in the shell. The
+  // explicit `context.baseUrl` override (used by tests and by
+  // anything that wants to pin a specific host) still wins.
   const initialReconnectDelayMs = context.reconnectDelayMs ?? 1000;
   const maxReconnectDelayMs = context.maxReconnectDelayMs ?? 60_000;
   const maxReconnectAttempts = context.maxReconnectAttempts;
@@ -143,6 +151,8 @@ export function createTrainer(
     if (!clientPromise) {
       clientPromise = (async () => {
         const credentials = context.credentials ?? (await ensureCredentials());
+        const baseUrl =
+          context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
         return new CloudApiClient({ baseUrl, credentials });
       })();
     }
@@ -233,6 +243,10 @@ export function createTrainer(
               topP: args.topP,
               maxTokens: args.maxTokens,
               stream: args.stream ?? true,
+              tools: args.tools,
+              toolChoice: args.toolChoice,
+              responseFormat: args.responseFormat,
+              structuredOutputs: args.structuredOutputs,
             },
             signal: args.signal,
           });

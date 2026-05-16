@@ -38,10 +38,17 @@ export interface InitOptions {
    * to `scaffold()` so the emitted `pnpm-workspace.yaml#allowBuilds.esbuild`
    * is `true` instead of the secure-by-default `false`. Only meaningful for
    * pnpm (yarn / npm / bun ignore the workspace yaml), but we plumb the
-   * flag unconditionally — a user who scaffolds with `--use-npm` today and
+   * flag unconditionally: a user who scaffolds with `--use-npm` today and
    * later switches to pnpm would otherwise have to re-run with the flag.
    */
   allowBuilds?: boolean;
+  /**
+   * Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor
+   * post-dates their training data. Undefined falls through to the
+   * scaffold default (off); `main.ts` resolves the CLI default-on so
+   * `arkor init` matches `create-arkor`.
+   */
+  agentsMd?: boolean;
 }
 
 const MANUAL_INSTALL_HINT =
@@ -157,6 +164,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     template,
     packageManager: options.packageManager,
     allowBuilds: options.allowBuilds,
+    agentsMd: options.agentsMd,
   });
 
   ui.note(
@@ -165,11 +173,12 @@ export async function runInit(options: InitOptions): Promise<void> {
   );
   // Surface non-fatal scaffolder advisories (currently: existing
   // `.yarnrc.yml` with `nodeLinker:` set to a value the arkor runtime
-  // can't load through, or yarn-berry merge into an existing project
-  // where we declined to write `.yarnrc.yml` defensively). The
+  // can't load through, yarn-berry merge into an existing project
+  // where we declined to write `.yarnrc.yml` defensively, or
+  // duplicate canonical blocks in an existing `AGENTS.md`). The
   // install step below also consults `blockInstall` and bows out
-  // when these advisories fire — running `yarn install` against an
-  // unfixed PnP setup produces no `node_modules` and leaves the
+  // when yarn-config advisories fire: running `yarn install` against
+  // an unfixed PnP setup produces no `node_modules` and leaves the
   // project broken, so install would be worse than useless.
   for (const warning of warnings) {
     ui.log.warn(warning);

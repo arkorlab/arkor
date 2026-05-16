@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudApiClient, CloudApiError } from "./client";
 import type { AnonymousCredentials } from "./credentials";
+import type { ChatMessage } from "./types";
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
@@ -364,6 +365,103 @@ describe("CloudApiClient.chat", () => {
       signal: ac.signal,
     });
     expect(calls).toHaveLength(1);
+  });
+
+  it("forwards tools / toolChoice / responseFormat / structuredOutputs verbatim through the JSON body", async () => {
+    const { fetch: f, calls } = recorder(
+      () => new Response("ok", { status: 200 }),
+    );
+    const client = new CloudApiClient({
+      baseUrl: "http://mock",
+      credentials: anonCreds,
+      fetch: f,
+    });
+    const tools = [
+      {
+        type: "function" as const,
+        function: {
+          name: "get_weather",
+          parameters: {
+            type: "object",
+            properties: { city: { type: "string" } },
+            required: ["city"],
+          },
+        },
+      },
+    ];
+    const responseFormat = {
+      type: "json_schema" as const,
+      json_schema: {
+        name: "weather_reply",
+        schema: { type: "object", properties: { tempC: { type: "number" } } },
+        strict: true,
+      },
+    };
+    const structuredOutputs = { regex: "^[A-Z]+$" };
+    await client.chat({
+      scope: { orgSlug: "o", projectSlug: "p" },
+      body: {
+        messages: [{ role: "user", content: "weather?" }],
+        adapter: { kind: "checkpoint", jobId: "j1", step: 5 },
+        tools,
+        toolChoice: "auto",
+        responseFormat,
+        structuredOutputs,
+      },
+    });
+    const parsed = JSON.parse(calls[0]?.body ?? "null") as Record<
+      string,
+      unknown
+    >;
+    // The SDK is a thin pass-through over JSON.stringify — every field on
+    // `input.body` must appear under the same key on the wire so cloud-api
+    // can route it to control-plane → vLLM.
+    expect(parsed.tools).toEqual(tools);
+    expect(parsed.toolChoice).toBe("auto");
+    expect(parsed.responseFormat).toEqual(responseFormat);
+    expect(parsed.structuredOutputs).toEqual(structuredOutputs);
+  });
+
+  it("accepts an assistant message with tool_calls but no content (common SDK persistence shape)", async () => {
+    const { fetch: f, calls } = recorder(
+      () => new Response("ok", { status: 200 }),
+    );
+    const client = new CloudApiClient({
+      baseUrl: "http://mock",
+      credentials: anonCreds,
+      fetch: f,
+    });
+    // Mirrors the OpenAI history shape: an assistant turn that's purely
+    // a tool call, followed by the tool's response. The `ChatMessage[]`
+    // annotation lets TS narrow each entry to the right discriminated
+    // variant — in particular, the assistant entry's `tool_calls` has to
+    // satisfy the non-empty-tuple `[ToolCall, ...ToolCall[]]` shape.
+    const messages: ChatMessage[] = [
+      { role: "user", content: "weather?" },
+      {
+        role: "assistant",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "get_weather", arguments: '{"city":"Tokyo"}' },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: '{"tempC":21}',
+        tool_call_id: "call_1",
+      },
+    ];
+    await client.chat({
+      scope: { orgSlug: "o", projectSlug: "p" },
+      body: { messages, adapter: { kind: "final", jobId: "j2" } },
+    });
+    const parsed = JSON.parse(calls[0]?.body ?? "null") as {
+      messages: unknown;
+    };
+    expect(parsed.messages).toEqual(messages);
   });
 
   it("throws CloudApiError on non-2xx with the upstream error message", async () => {

@@ -39,9 +39,14 @@ interface RunOptions {
    * `true` when the user explicitly passed `--allow-builds`. Threads through
    * to `scaffold()` so the emitted `pnpm-workspace.yaml#allowBuilds.esbuild`
    * is `true` instead of the secure-by-default `false`. Mirror of the same
-   * field on `arkor init`'s `InitOptions` — see that interface for details.
+   * field on `arkor init`'s `InitOptions`; see that interface for details.
    */
   allowBuilds?: boolean;
+  /**
+   * Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor is
+   * newer than their training data. Defaults to true; `--no-agents-md` opts out.
+   */
+  agentsMd: boolean;
 }
 
 const MANUAL_INSTALL_HINT =
@@ -331,6 +336,7 @@ export async function run(options: RunOptions): Promise<void> {
     template,
     packageManager: pm,
     allowBuilds: options.allowBuilds,
+    agentsMd: options.agentsMd,
   });
   spin.stop("Done");
 
@@ -340,9 +346,9 @@ export async function run(options: RunOptions): Promise<void> {
   );
   // Surface non-fatal scaffolder advisories (see arkor init for the
   // mirror of this loop and the rationale). The install step below
-  // also consults `blockInstall` and bows out when these advisories
-  // fire — running `yarn install` against an unfixed PnP setup
-  // produces no `node_modules` and leaves the project broken.
+  // also consults `blockInstall` and bows out when yarn-config
+  // advisories fire: running `yarn install` against an unfixed PnP
+  // setup produces no `node_modules` and leaves the project broken.
   for (const warning of warnings) {
     clack.log.warn(warning);
   }
@@ -616,6 +622,11 @@ program
     "--allow-builds",
     "opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
   )
+  .option(
+    "--agents-md",
+    "include AGENTS.md and CLAUDE.md to guide AI coding agents (default)",
+  )
+  .option("--no-agents-md", "skip generating AGENTS.md and CLAUDE.md")
   .action(
     async (
       dir: string | undefined,
@@ -631,10 +642,35 @@ program
         git?: boolean;
         skipGit?: boolean;
         allowBuilds?: boolean;
+        // Commander v13 leaves this undefined unless one of --agents-md /
+        // --no-agents-md was passed; the action treats undefined as the
+        // default-on value.
+        agentsMd?: boolean;
       },
     ) => {
       if (opts.git && opts.skipGit) {
         throw new Error("Pick one of --git / --skip-git, not both.");
+      }
+      // Commander treats `--agents-md` and `--no-agents-md` as the same
+      // option (last-wins), so it will not surface a conflict on its own.
+      // Mirror the explicit `--git` / `--skip-git` check by inspecting raw
+      // argv: passing both is almost always a mistake — refuse early
+      // instead of silently honouring whichever came last. Stop scanning
+      // at the POSIX `--` end-of-options sentinel so a positional `[dir]`
+      // that happens to start with `--` (e.g. `create-arkor --agents-md
+      // -- --no-agents-md`) is not misclassified as a conflicting flag.
+      const sentinelIdx = process.argv.indexOf("--");
+      const flagsArgv =
+        sentinelIdx === -1
+          ? process.argv
+          : process.argv.slice(0, sentinelIdx);
+      if (
+        flagsArgv.includes("--agents-md") &&
+        flagsArgv.includes("--no-agents-md")
+      ) {
+        throw new Error(
+          "Pick one of --agents-md / --no-agents-md, not both.",
+        );
       }
       // Use `Object.hasOwn` (not `in`) so prototype keys like `toString` /
       // `__proto__` can't pass validation and crash later inside scaffold().
@@ -665,6 +701,10 @@ program
         git: opts.git,
         skipGit: opts.skipGit,
         allowBuilds: opts.allowBuilds,
+        // Commander v13 leaves opts.agentsMd undefined when no flag is
+        // passed (it doesn't auto-default --no-foo to `foo: true`). Default
+        // to on; only explicit `--no-agents-md` (which sets `false`) opts out.
+        agentsMd: opts.agentsMd !== false,
       });
     },
   );

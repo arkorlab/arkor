@@ -135,10 +135,12 @@ describe("runInit", () => {
     // notably `.yarnrc.yml` with `nodeLinker: node-modules` for yarn).
     // `objectContaining` so the assertion stays robust against
     // ScaffoldOptions gaining new optional fields (round-39 Copilot
-    // review re-flagged this twice — vitest currently treats missing
+    // review re-flagged this twice: vitest currently treats missing
     // keys and `undefined` as equal in deep equality, but a partial
     // matcher makes the intent explicit and won't break under a
-    // future matcher tightening).
+    // future matcher tightening). agentsMd is undefined here because
+    // the test calls runInit directly (the CLI default-on resolution
+    // lives in main.ts).
     expect(scaffold).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd,
@@ -151,6 +153,25 @@ describe("runInit", () => {
     expect(gitInitialCommit).toHaveBeenCalledWith(
       cwd,
       "Initial commit from `arkor init`",
+    );
+  });
+
+  it("forwards agentsMd through to scaffold when supplied", async () => {
+    // Coverage for the CLI → runInit → scaffold pipe. main.ts resolves the
+    // --agents-md / --no-agents-md flag to a boolean before invoking
+    // runInit; runInit must pass it through unchanged so the helper writes
+    // (or skips) AGENTS.md / CLAUDE.md.
+    await runInit({
+      yes: true,
+      name: "explicit",
+      template: "triage",
+      packageManager: "pnpm",
+      skipInstall: true,
+      skipGit: true,
+      agentsMd: true,
+    });
+    expect(scaffold).toHaveBeenCalledWith(
+      expect.objectContaining({ agentsMd: true }),
     );
   });
 

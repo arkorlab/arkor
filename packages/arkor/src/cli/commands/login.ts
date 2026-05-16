@@ -166,6 +166,13 @@ async function runAuth0Login(
   cfg: ResolvedCliConfig,
   options: LoginOptions,
 ): Promise<void> {
+  // Pin the cloud API base URL onto the persisted credentials so
+  // subsequent `arkor` runs (and SDK `defaultArkorCloudApiUrl(creds)`
+  // call sites) keep targeting the same staging / self-hosted control
+  // plane the user just authenticated against — without this, the
+  // OAuth token would silently fall back to production on the next
+  // run and 401.
+  const baseUrl = defaultArkorCloudApiUrl();
   const pkce = generatePkce();
   const loopback = await startLoopbackServer(cfg.callbackPorts);
   const spin = ui.spinner();
@@ -194,7 +201,10 @@ async function runAuth0Login(
       codeVerifier: pkce.verifier,
       redirectUri,
     });
-    const creds = credentialsFromExchange(cfg, exchange);
+    const creds = credentialsFromExchange(
+      { ...cfg, arkorCloudApiUrl: baseUrl },
+      exchange,
+    );
     await writeCredentials(creds);
     spin.stop("Signed in");
   } catch (err) {

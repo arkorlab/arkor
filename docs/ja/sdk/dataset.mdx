@@ -1,6 +1,6 @@
 ---
 title: "DatasetSource"
-description: "トレーナーがデータを引いてくる場所: HuggingFace 名 or blob URL。"
+description: "トレーナーがデータを取得する場所: HuggingFace 名 or blob URL。"
 ---
 
 # `DatasetSource`
@@ -53,13 +53,13 @@ dataset: {
 | `url` | `string` | バックエンドが取得できる HTTPS URL。 |
 | `token` | `string?` | ジョブ設定としてクラウド API に転送され、バックエンドが blob を取得する際に使われます。具体的な HTTP ワイヤーフォーマット（ヘッダー、scheme など）はバックエンド側で定義され、SDK の契約には含まれません。 |
 
-自分がホストしているデータセット（署名付き S3 URL、社内 CDN など）に使ってください。バックエンドは学習の開始時に URL を一度引きます。
+自分がホストしているデータセット（署名付き S3 URL、社内 CDN など）に使ってください。バックエンドは学習の開始時に URL を一度取得します。
 
 ## 振る舞い
 
 ### どちらを選ぶか
 
-- データセットが既に Hub にあるなら `huggingface`。最もテストされたパス。
+- データセットが既に Hub にあるなら `huggingface`。最もよくテストされている経路です。
 - Hub に置けないデータセット（プロプライエタリな内容、署名付き URL、社内専用）なら `blob`。
 
 ローカルファイル（`{ type: "file", path: "./data.jsonl" }`）は今のところ `DatasetSource` にありません。使うには blob URL としてホストするか、プライベート HuggingFace リポジトリにアップロードしてください。

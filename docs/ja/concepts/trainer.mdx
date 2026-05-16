@@ -3,7 +3,7 @@ title: "トレーナー"
 description: "createTrainer: 必須フィールド、データセットソース、LoRA 設定、start / wait / cancel のライフサイクル。"
 ---
 
-`createTrainer` は Arkor プロジェクトの心臓部です。Arkor がファインチューニングについて知っているすべて（ベースモデルから LoRA ランクまで）は、ここに渡したオブジェクトに乗っています。
+`createTrainer` は Arkor プロジェクトの中核です。Arkor がファインチューニングについて把握する情報（ベースモデルから LoRA ランクまで）はすべて、ここに渡したオブジェクトに集約されます。
 
 ## 最小例
 
@@ -24,7 +24,7 @@ export const trainer = createTrainer({
 | フィールド | 型              | 補足                                                         |
 | ---------- | --------------- | ------------------------------------------------------------ |
 | `name`     | `string`        | Studio とマネージドバックエンドに表示されるジョブ名。         |
-| `model`    | `string`        | バックエンドが認識するモデル ID（今は Gemma）。             |
+| `model`    | `string`        | バックエンドが認識するモデル ID。[サポートしているモデル](/ja/models) を参照。 |
 | `dataset`  | `DatasetSource` | [データセットソース](#データセットソース) を参照。            |
 
 ## データセットソース
@@ -53,7 +53,7 @@ lora?: {
 }
 ```
 
-`lora` を省略するとバックエンドが妥当なデフォルトを適用します。同梱テンプレートでの出発点としては `r: 16, alpha: 16` が良い線です。
+`lora` を省略するとバックエンドが妥当なデフォルトを適用します。同梱テンプレートでの出発点としては `r: 16, alpha: 16` が無難な選択です。
 
 ## よく使うハイパーパラメーター
 
@@ -61,9 +61,9 @@ lora?: {
 | ------------------- | -------- | --------------------------------------------------------- |
 | `maxSteps`          | `number` | 学習ステップの上限。最も単純に回せるツマミ。             |
 | `numTrainEpochs`    | `number` | `maxSteps` の代替: データセットを何周するか。            |
-| `learningRate`      | `number` | オプティマイザのステップサイズ。                         |
+| `learningRate`      | `number` | オプティマイザーのステップサイズ。                         |
 | `batchSize`         | `number` | デバイスごとの学習バッチサイズ。                         |
-| `optim`             | `string` | オプティマイザ名（バックエンドのリストが有効値を決める）。 |
+| `optim`             | `string` | オプティマイザー名（バックエンドのリストが有効値を決める）。 |
 | `lrSchedulerType`   | `string` | LR スケジュール（linear、cosine など）。                 |
 | `weightDecay`       | `number` | 正則化の重み。                                           |
 
@@ -95,9 +95,9 @@ interface Trainer {
 
 - **`start()`** はマネージドバックエンドにジョブを投入し、割り当てられた `jobId` を返します。完了は待たず、コールバックも単独では発火しません。
 - **`wait()`** は学習の SSE イベントストリームを開き、学習が終わる（or 失敗する）と返ります。登録したコールバックはすべて `wait()` 内から発火します。`start()` を呼んだ後 `wait()` を呼ばないと、コールバックは決して動きません。
-- **`cancel()`** はバックエンドに学習の停止をお願いします。これはベストエフォートのリクエスト: 学習がすでに終端状態（completed、failed、cancelled）にある場合バックエンドはエラーを返すことがあるので、catch する準備をしてください。
+- **`cancel()`** はバックエンドに学習の停止を依頼します。これはベストエフォートのリクエストです。学習がすでに終端状態（completed、failed、cancelled）にある場合バックエンドはエラーを返すことがあるので、catch する準備をしてください。
 
-`arkor start` があなたの代わりに `start()` と `wait()` を呼びます（Studio の "Run training" ボタンが内部でスポーンするものです）。`start()` と `wait()` を直接呼ぶのは、CLI の外側で学習を自分のコードに組み込む場合だけです。`arkor dev` 自体はトレーナーを実行しません。Studio UI を起動するだけです。
+`arkor start` が代わりに `start()` と `wait()` を呼びます（Studio の "Run training" ボタンが内部で起動するのもこの CLI です）。`start()` と `wait()` を直接呼ぶのは、CLI の外側で学習を自分のコードに組み込む場合だけです。`arkor dev` 自体はトレーナーを実行しません。Studio UI を起動するだけです。
 
 ## `AbortSignal` で `wait()` を止める
 
@@ -139,4 +139,4 @@ await trainer.cancel();      // バックエンドにジョブ停止を依頼
 
 ## イベントへのリアクション
 
-これを TypeScript でやる目的は、学習に [ライフサイクルコールバック](/ja/concepts/lifecycle)（`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`）を仕掛けられることです。次に読むべきコンセプトです。
+これを TypeScript で行う目的は、学習に [ライフサイクルコールバック](/ja/concepts/lifecycle)（`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`）を組み込めることです。次に読むべきコンセプトです。

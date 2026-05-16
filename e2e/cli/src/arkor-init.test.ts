@@ -76,11 +76,51 @@ describe("arkor init (E2E)", () => {
     expect(result.code).toBe(0);
     expect(existsSync(join(cwd, "src/arkor/index.ts"))).toBe(true);
     expect(existsSync(join(cwd, "arkor.config.ts"))).toBe(true);
+    // AGENTS.md / CLAUDE.md ship by default — must match `create-arkor`
+    // so users get the same project layout regardless of entry point.
+    expect(existsSync(join(cwd, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(true);
+    const agents = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+    expect(agents).toContain("<!-- BEGIN:arkor-agent-rules -->");
+    expect(agents).toContain("arkor is newer than your training data");
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe("@AGENTS.md\n");
 
     expect(result.stdout).toContain("Next:");
     // pm undefined → manual install hint surfaces in the outro.
     expect(result.stdout).toContain(
       "install dependencies (npm i / pnpm install / yarn / bun install)",
+    );
+  });
+
+  it("skips AGENTS.md and CLAUDE.md when --no-agents-md is passed", async () => {
+    const result = await runCli(
+      ARKOR_BIN,
+      ["init", "-y", "--skip-install", "--skip-git", "--no-agents-md"],
+      cwd,
+    );
+    expect(result.code).toBe(0);
+    expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+    // Other starter files unaffected by the opt-out.
+    expect(existsSync(join(cwd, "src/arkor/index.ts"))).toBe(true);
+  });
+
+  it("rejects --agents-md --no-agents-md with a clear error", async () => {
+    const result = await runCli(
+      ARKOR_BIN,
+      [
+        "init",
+        "-y",
+        "--skip-install",
+        "--skip-git",
+        "--agents-md",
+        "--no-agents-md",
+      ],
+      cwd,
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain(
+      "Pick one of --agents-md / --no-agents-md, not both.",
     );
   });
 

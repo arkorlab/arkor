@@ -3,7 +3,7 @@
 Scaffolder for [Arkor](https://github.com/arkorlab/arkor) projects. Run via
 `npm create` / `pnpm create` / `yarn create` / `bun create`.
 
-> Status: alpha (`0.0.1-alpha.9`).
+> Status: alpha (`0.0.2-alpha.2`).
 
 ## Usage
 
@@ -47,6 +47,7 @@ pnpm create arkor my-app \
 | `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun` | Force a package manager (otherwise auto-detected from `npm_config_user_agent`) |
 | `--git` / `--skip-git` | Initialise a git repo with an initial commit, or skip the prompt |
 | `--allow-builds` | Opt esbuild's `postinstall` script into running on `pnpm install` (pnpm-only; default: deny). See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) below |
+| `--agents-md` / `--no-agents-md` | Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data (default: on) |
 
 ## What it writes
 
@@ -59,6 +60,8 @@ my-app/
 ├── README.md
 ├── .gitignore          # node_modules/, dist/, .arkor/
 ├── package.json        # scripts: dev / build / start
+├── AGENTS.md           # AI-agent rules (omit with --no-agents-md)
+├── CLAUDE.md           # @AGENTS.md re-export for Claude Code
 ├── .yarnrc.yml         # OPTIONAL — yarn-berry nodeLinker pin (see below)
 └── pnpm-workspace.yaml # OPTIONAL — pnpm 11 allowBuilds (see below)
 ```
@@ -91,13 +94,40 @@ hand-edited `build: "tsc"` survives. When the target directory is auto-derived
 collision: interactive runs re-prompt for a different name, and `-y` /
 non-interactive runs exit with an error.
 
+`AGENTS.md` is patched non-destructively: an existing user file is preserved
+and the arkor-managed block is appended or, on re-scaffold, replaced in place.
+The block is identified by **three** signals together — the BEGIN marker
+(`<!-- BEGIN:arkor-agent-rules -->`), the END marker
+(`<!-- END:arkor-agent-rules -->`), and the canonical first content line
+(`# arkor is newer than your training data`) — all on their own lines. If you
+hand-edit that heading, the matcher no longer recognises the block as managed
+and treats it as ordinary user content; a re-scaffold then appends a fresh
+canonical block alongside the edited one without any warning. The ambiguous-
+block warning fires only when **multiple signature-matching blocks** are
+present at once — typically from pasting the canonical block twice, not from
+heading edits — in which case the scaffolder refuses to guess which copy is
+current, leaves the file untouched, and asks you to dedupe before the next
+re-scaffold patches in place.
+`CLAUDE.md` is created with `@AGENTS.md` only when it does not already
+exist *and* `AGENTS.md` does not contain duplicate managed blocks. In
+the duplicate-block case the scaffolder skips `CLAUDE.md` too, since it
+would otherwise auto-import the unresolved rules into Claude Code via
+the `@<path>` directive — the next re-scaffold creates the file once
+`AGENTS.md` is deduped.
+
+Claude Code auto-loads `CLAUDE.md` from the project root, and the
+`@<path>` directive is a built-in import — writing `@AGENTS.md` inlines
+the AGENTS.md contents into Claude's context, so the two files stay in
+sync without duplication. Other agents that follow the AGENTS.md
+convention read `AGENTS.md` directly.
+
 ## Templates
 
 - **triage** — support ticket triage. Free-text in → `{category, urgency, summary, nextAction}` JSON. Dataset: `arkorlab/triage-demo`. ~7 min training.
 - **translate** — multilingual support-intake translation across 9 languages. → `{translation, detectedLanguage}` JSON. Dataset: `arkorlab/translate-demo`. ~7 min training.
 - **redaction** — PII redaction. Free-text in → `{redactedText, redactedCount, tags}` JSON with `[REDACTED]` substitutions. Dataset: `arkorlab/redaction-demo`. ~12 min training.
 
-All three pair `unsloth/gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The `src/arkor/index.ts` entry point is identical across templates; only `src/arkor/trainer.ts` differs.
+All three pair `gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The `src/arkor/index.ts` entry point is identical across templates; only `src/arkor/trainer.ts` differs.
 
 ## Next step
 

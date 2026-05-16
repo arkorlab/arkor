@@ -50,7 +50,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
       - uses: actions/setup-node@v6
         with:
@@ -151,7 +151,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
       - uses: actions/setup-node@v6
         with:
@@ -160,10 +160,30 @@ jobs:
           cache: pnpm
 
       - name: Install
+        # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
+        # already gates which packages may run postinstall, and
+        # `playwright` is not in that list — so `pnpm install` won't
+        # invoke Playwright's browser-download script today. Setting
+        # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` keeps that contract
+        # explicit so a future `allowBuilds` change can't silently
+        # re-enable a 150 MB postinstall download that the following
+        # cache + `playwright install` steps are meant to satisfy.
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm run build
+
+      # The Test step below transitively runs `@arkor/e2e-studio#test`
+      # (Playwright/Chromium), so we need the browser binaries on disk
+      # before that. Dry-run mirrors release.yaml's no-cache stance:
+      # this job pre-flights the same shape build.yaml would publish,
+      # so we avoid a `~/.cache/ms-playwright` poisoning vector even
+      # though dry-run never actually uploads. The dry-run `test` job
+      # is Linux-only, so we always pass `--with-deps`.
+      - name: Install Playwright (Linux)
+        run: pnpm --filter @arkor/e2e-studio exec playwright install --with-deps chromium
 
       - name: Pack tarballs for e2e scaffold tests
         run: |
