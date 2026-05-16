@@ -71,6 +71,38 @@ bun create arkor my-arkor-app --template triage
 
 </CodeGroup>
 
+### Claude Code 下での実行（`CLAUDECODE=1`）
+
+Claude Code は子プロセスに `CLAUDECODE=1` を渡し、対話プロンプトに応答できません。エージェントが隠れたデフォルトで黙ってプロジェクトを生成してしまうのを防ぐため、この環境変数下では `create-arkor` も厳格モードに切り替わります。下記のキュレーション済みフラグセットが必須となり、不足があれば実行ではなく、再実行用のコマンドを stderr に出して終了します。同じルールは [`arkor init`](/ja/cli/init#claude-code（claudecode=1）厳格モード) にも適用されますが、`create-arkor` だけ追加で `[dir]`（または `--name`）も必須となります。これは positional 省略時のフォールバック先 `arkor-project/` サブディレクトリが意図的に選ばれることはまずなく、ほぼ常に指定漏れだからです。ASCII の英数字を 1 文字も含まない入力（空、空白だけ、`!!!` のような記号だけ）も拒否されます。`sanitise()` が同じ generic フォールバックに collapse させてしまうためです。一方、サニタイズ結果がたまたま `arkor-project` になるような **意図的な名前**（例: `Arkor Project`、`arkor_project`、`Arkor.Project` のようにセパレータ文字が `-` に書き換えられるもの）は受け入れます。英数字が含まれていることがエージェントの明示的入力の証拠になるためです。
+
+必須フラグ（または `-y`/`--yes` で「すべてデフォルトで進める」にオプトイン）:
+
+- `[dir]`（例 `my-arkor-app`）または `--name <name>`: 明示的なプロジェクト名。ASCII の英数字を 1 文字も含まない入力（空、空白だけ、`!!!` のような記号だけ）は、`arkor-project` フォールバックに collapse させてしまうため拒否。`Arkor Project`、`arkor_project` のように **意図的でたまたま** サニタイズ結果が `arkor-project` になる入力は受け入れます。
+- `--template <triage|translate|redaction>`
+- `--git`（推奨。対話モードのデフォルトと同じ）または `--skip-git`
+- パッケージマネージャー系フラグ: `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun`、または `--skip-install`
+- `--agents-md`（特に CLAUDECODE 下では推奨）または `--no-agents-md`
+
+フラグが不足したときの stderr 例:
+
+```text
+create-arkor: CLAUDECODE=1 detected. Interactive prompts are disabled.
+Re-run with explicit flags:
+  [dir] (e.g. `my-arkor-app`) or --name <name>
+      Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Inputs with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!` / `***`) are rejected because they would collapse to the generic `arkor-project` fallback inside `sanitise()`.
+  --template <triage|translate|redaction>
+      Starter template: `triage` (support routing), `translate` (9-language translation), or `redaction` (PII removal).
+  --git (recommended) or --skip-git
+      `--git` runs `git init` and creates an initial commit (matches the interactive default); `--skip-git` leaves git setup to the user.
+  --use-pnpm (or --use-npm / --use-yarn / --use-bun, or --skip-install)
+      Which package manager to run `install` with after scaffolding. `--skip-install` leaves the install step to the user.
+  --agents-md (recommended) or --no-agents-md
+      `--agents-md` writes `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data (recommended, especially under CLAUDECODE); `--no-agents-md` skips them.
+Or pass -y/--yes to accept all defaults.
+```
+
+終了コードは `1`、早期終了の前にファイル生成は一切行われないので、親ディレクトリは元の状態のままです。
+
 ## 2. 生成されたものを眺める
 
 ```

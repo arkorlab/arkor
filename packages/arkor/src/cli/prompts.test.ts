@@ -31,12 +31,14 @@ import {
 const CLACK_CANCEL = Symbol.for("clack:cancel");
 
 const ORIG_CI = process.env.CI;
+const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 const ORIG_TTY = process.stdout.isTTY;
 
 beforeEach(() => {
   // Default to non-interactive: CI set OR no TTY. Individual tests can flip
   // the toggle.
   process.env.CI = "1";
+  delete process.env.CLAUDECODE;
   Object.defineProperty(process.stdout, "isTTY", {
     value: false,
     configurable: true,
@@ -46,6 +48,8 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIG_CI === undefined) delete process.env.CI;
   else process.env.CI = ORIG_CI;
+  if (ORIG_CLAUDECODE === undefined) delete process.env.CLAUDECODE;
+  else process.env.CLAUDECODE = ORIG_CLAUDECODE;
   Object.defineProperty(process.stdout, "isTTY", {
     value: ORIG_TTY,
     configurable: true,
@@ -78,6 +82,23 @@ describe("isInteractive", () => {
       value: true,
       configurable: true,
     });
+    expect(isInteractive()).toBe(true);
+  });
+
+  it("does NOT special-case CLAUDECODE (only init / create-arkor opt in to that branch via their own check, so the shared helper stays neutral for other commands)", () => {
+    // ENG-736 PR review (#141): forcing this helper to false under
+    // CLAUDECODE=1 leaked into commands that don't have strict-mode
+    // validation (e.g. `arkor logout` would silently delete credentials
+    // because its `promptConfirm` would fall through to
+    // `initialValue: true`). The CLAUDECODE awareness now lives in
+    // `runInit` / create-arkor's `run()` instead, gated to the
+    // already-strict scaffold commands.
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    process.env.CLAUDECODE = "1";
     expect(isInteractive()).toBe(true);
   });
 });

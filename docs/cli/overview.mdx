@@ -32,7 +32,8 @@ The `arkor` CLI is the command surface around an Arkor project. The [scaffolder]
 | `DO_NOT_TRACK=1` | Disable telemetry across every command. The persistent telemetry-id file is not created or read. |
 | `ARKOR_TELEMETRY_DISABLED=1` | Same as `DO_NOT_TRACK`. Provided as an Arkor-specific alias for setups that already gate other tools on `DO_NOT_TRACK` and want a separate switch. |
 | `ARKOR_TELEMETRY_DEBUG=1` | Enable verbose internal logging from the telemetry module (init failures, identity-file read/write errors, capture failures, shutdown errors). Telemetry **is still sent** when this flag is on; this is a diagnostic aid, not a dry-run switch. To stop sending events, use `DO_NOT_TRACK=1` or `ARKOR_TELEMETRY_DISABLED=1`. |
-| `CI=1` (or any non-TTY stdout) | Force non-interactive mode. `arkor init` skips its prompts and uses the values you passed via flags (or built-in defaults under `--yes`); git init runs without asking when `--git` or `--yes` is set, and is skipped silently otherwise. See [`arkor init` § CI / non-interactive shells](/cli/init#ci--non-interactive-shells). |
+| `CI=1` (or any non-TTY stdout) | Force non-interactive mode. `arkor init` skips its prompts and uses the values you passed via flags (or built-in defaults under `--yes`); git init runs without asking when `--git` or `--yes` is set, and is skipped silently otherwise. See [`arkor init` § CI / non-interactive shells](/cli/init#ci-/-non-interactive-shells). |
+| `CLAUDECODE=1` | Strict mode for AI agents that spawn the CLI without being able to answer interactive prompts. `arkor init` (and `create-arkor`) refuse to run unless every curated flag is present, printing a multi-line stderr block with the suggested re-invocation; pass `-y`/`--yes` to opt back into "accept all defaults". See [`arkor init` § Claude Code (`CLAUDECODE=1`) strict mode](/cli/init#claude-code-claudecode=1-strict-mode). |
 
 ### On the roadmap
 

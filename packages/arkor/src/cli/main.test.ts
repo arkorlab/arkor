@@ -43,10 +43,15 @@ import { runWhoami } from "./commands/whoami";
 import { shutdownTelemetry } from "../core/telemetry";
 import { main } from "./main";
 
-// Capture once so the after-each can restore — without this, tests that
+// Capture once so the after-each can restore. Without this, tests that
 // set `npm_config_user_agent` to drive package-manager detection leak the
 // override into later test files when vitest reuses a worker process.
 const ORIG_USER_AGENT = process.env.npm_config_user_agent;
+// Same rationale for CLAUDECODE: the new strict-mode tests below set it
+// to "1" and the worker may already have it set (vitest spawned from a
+// Claude Code session), so afterEach restores rather than unconditionally
+// deletes.
+const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 
 beforeEach(() => {
   vi.mocked(runInit).mockReset();
@@ -66,6 +71,11 @@ afterEach(() => {
     process.env.npm_config_user_agent = ORIG_USER_AGENT;
   } else {
     delete process.env.npm_config_user_agent;
+  }
+  if (ORIG_CLAUDECODE !== undefined) {
+    process.env.CLAUDECODE = ORIG_CLAUDECODE;
+  } else {
+    delete process.env.CLAUDECODE;
   }
   vi.restoreAllMocks();
 });
@@ -216,6 +226,59 @@ describe("main (CLI Commander wiring)", () => {
     vi.mocked(runWhoami).mockRejectedValueOnce(new Error("boom"));
     await expect(main(["whoami"])).rejects.toThrow(/boom/);
     expect(shutdownTelemetry).toHaveBeenCalledOnce();
+  });
+
+  it("under CLAUDECODE=1 + missing flags, throws ClaudeCodeStrictExit so the finally block still runs (shutdownTelemetry fires, no project name skip)", async () => {
+    // ENG-736 PR review (#141): the validator used to `process.exit(1)`
+    // inside the action handler, which bypassed main()'s finally and
+    // lost telemetry / deprecation flushing. The validator now throws
+    // a sentinel so the finally still runs; bin.ts is the layer that
+    // recognises the sentinel and sets exitCode without re-printing.
+    // afterEach restores CLAUDECODE from ORIG_CLAUDECODE, so the
+    // explicit `delete` we used to do in the test's own `finally`
+    // would have leaked into later tests when vitest was launched
+    // from a Claude Code session (CLAUDECODE already set in the
+    // parent worker).
+    process.env.CLAUDECODE = "1";
+    const stderrChunks: string[] = [];
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(((c: unknown) => {
+        stderrChunks.push(String(c));
+        return true;
+      }) as typeof process.stderr.write);
+    try {
+      await expect(
+        main(["init", "--template", "triage", "--skip-git"]),
+        // Missing: pm flag + agents-md flag.
+      ).rejects.toMatchObject({ name: "ClaudeCodeStrictExit" });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(shutdownTelemetry).toHaveBeenCalledOnce();
+    const buf = stderrChunks.join("");
+    expect(buf).toContain("arkor init: CLAUDECODE=1 detected");
+    expect(buf).toContain("--use-pnpm");
+    expect(buf).toContain("--agents-md (recommended) or --no-agents-md");
+    expect(runInit).not.toHaveBeenCalled();
+  });
+
+  it("under CLAUDECODE=1 with every flag set (no --yes), passes the strict check and delegates to runInit", async () => {
+    // The happy-path mirror of the test above: a fully-specified
+    // invocation still runs to completion under CLAUDECODE, since the
+    // validator is gated on missing flags only.
+    process.env.CLAUDECODE = "1";
+    await main([
+      "init",
+      "--name",
+      "my-app",
+      "--template",
+      "triage",
+      "--skip-git",
+      "--skip-install",
+      "--no-agents-md",
+    ]);
+    expect(runInit).toHaveBeenCalledOnce();
   });
 
   it("omits the Cutoff suffix when the deprecation has no sunset value", async () => {

@@ -230,6 +230,132 @@ describe("arkor init (E2E)", () => {
     expect(pkg.name).toBe("foo-bar");
   });
 
+  describe("CLAUDECODE=1 strict mode", () => {
+    // Claude Code (the Anthropic agent CLI) spawns child processes with
+    // `CLAUDECODE=1` and cannot answer interactive prompts. Falling through
+    // to silent defaults would hide decisions the agent should be making, so
+    // `arkor init` refuses to run unless every interactive-equivalent flag
+    // is supplied (or `--yes` opts back into the legacy "accept defaults"
+    // path).
+    it("exits 1 with a flag list (and per-flag description) when no options are given", async () => {
+      const result = await runCli(ARKOR_BIN, ["init"], cwd, {
+        CLAUDECODE: "1",
+      });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        "arkor init: CLAUDECODE=1 detected",
+      );
+      expect(result.stderr).toContain("--template <triage|translate|redaction>");
+      expect(result.stderr).toContain("--git (recommended) or --skip-git");
+      expect(result.stderr).toContain("--use-pnpm");
+      expect(result.stderr).toContain(
+        "--agents-md (recommended) or --no-agents-md",
+      );
+      expect(result.stderr).toContain("-y/--yes");
+      // Each flag is paired with a description so the agent can pick a
+      // value without round-tripping to the docs.
+      expect(result.stderr).toContain("Starter template");
+      expect(result.stderr).toContain("git init");
+      expect(result.stderr).toContain("package manager");
+      expect(result.stderr).toContain("AGENTS.md");
+      // No scaffold side effects must have occurred; the tree must be
+      // pristine after the early exit.
+      expect(existsSync(join(cwd, "src/arkor/index.ts"))).toBe(false);
+      expect(existsSync(join(cwd, "package.json"))).toBe(false);
+    });
+
+    it("rejects an arkor init run whose cwd basename has no alphanumerics (would silently fall back to `arkor-project`)", async () => {
+      // PR #141 review (Copilot): `arkor init` without `--name`
+      // derives the project name from `basename(process.cwd())`. In
+      // a directory like `!!!`, runtime would sanitise that to the
+      // generic `arkor-project` fallback, which is exactly the
+      // silent default strict mode is meant to surface for explicit
+      // `--name` values. Strict mode now validates `basename(cwd)`
+      // through the same alphanumeric check.
+      const punctDir = join(cwd, "!!!");
+      mkdirSync(punctDir, { recursive: true });
+      const result = await runCli(
+        ARKOR_BIN,
+        [
+          "init",
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        punctDir,
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("--name <name>");
+      // Sanity: nothing scaffolded.
+      expect(existsSync(join(punctDir, "package.json"))).toBe(false);
+    });
+
+    it("rejects explicit garbage --name even though strict mode does not require a name", async () => {
+      // PR #141 review (Copilot): under strict mode `arkor init` does
+      // not require `--name` (the runtime derives it from
+      // `basename(cwd)`), but if the agent went out of its way to
+      // pass `--name "!!!"` strict mode used to ignore it and let
+      // `sanitise()` quietly collapse the value to `arkor-project`.
+      // Now an explicit `--name` is validated regardless of the
+      // `requireProjectName` branch.
+      const result = await runCli(
+        ARKOR_BIN,
+        [
+          "init",
+          "--name",
+          "!!!",
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        cwd,
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("--name <name>");
+      // Sanity: nothing was scaffolded.
+      expect(existsSync(join(cwd, "package.json"))).toBe(false);
+    });
+
+    it("runs to completion when every required flag is set", async () => {
+      const result = await runCli(
+        ARKOR_BIN,
+        [
+          "init",
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        cwd,
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(0);
+      expect(existsSync(join(cwd, "src/arkor/index.ts"))).toBe(true);
+      // --no-agents-md was honoured.
+      expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
+    });
+
+    it("accepts --yes as a wholesale opt-out of the strict check", async () => {
+      // `-y` keeps the legacy "use defaults for everything" semantics for
+      // callers who have explicitly delegated those decisions.
+      const result = await runCli(
+        ARKOR_BIN,
+        ["init", "-y", "--skip-install", "--skip-git"],
+        cwd,
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(0);
+      expect(existsSync(join(cwd, "src/arkor/index.ts"))).toBe(true);
+    });
+  });
+
   it("skips git init when the target is already a git repo", async () => {
     // Pre-seed a git repo so isInGitRepo() short-circuits.
     const initRes = await runGit(cwd, ["init", "-q"]);

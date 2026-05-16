@@ -260,6 +260,19 @@ function runCliOnce(
     if (lower.startsWith("npm_config_") || lower.startsWith("pnpm_config_")) {
       continue;
     }
+    // Strip CLAUDECODE case-insensitively for the same Windows reason
+    // as the npm-config / pnpm-config keys above: env-var names are
+    // case-insensitive on Windows (CreateProcessW deduplicates by
+    // uppercased key), so an inherited `claudecode` / `ClaudeCode`
+    // could otherwise survive `cleanEnv` under a different JS key and
+    // reach the spawned CLI nondeterministically, flipping it into
+    // strict mode for tests that don't expect it. There is no default
+    // `CLAUDECODE` value in the env block below; tests that need to
+    // opt INTO strict mode set `CLAUDECODE` via `extraEnv`, which is
+    // spread last so it wins.
+    if (lower === "claudecode") {
+      continue;
+    }
     cleanEnv[key] = value;
   }
   return new Promise((resolve, reject) => {
@@ -280,6 +293,11 @@ function runCliOnce(
       env: {
         ...cleanEnv,
         CI: "1",
+        // No explicit `CLAUDECODE` override here: any inherited
+        // entry (any case variant) has already been dropped from
+        // `cleanEnv` above so the default test environment matches a
+        // vanilla CI shell. CLAUDECODE-specific tests opt in via
+        // `extraEnv`, which is spread last.
         npm_config_user_agent: "",
         GIT_AUTHOR_NAME: "Arkor E2E",
         GIT_AUTHOR_EMAIL: "e2e@arkor.test",
