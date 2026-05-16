@@ -26,10 +26,11 @@ describe("sanitise", () => {
 
   it("stays linear on adversarial dash-heavy inputs (CodeQL hardening)", () => {
     // CodeQL's "polynomial regex on uncontrolled data" query flagged
-    // the previous chain once `claude-code.ts` started feeding it
-    // CLI-arg input. The original `+`-quantified replaces were already
-    // linear in practice (this isn't a real ReDoS regression test),
-    // but a 100k-character pathological input is a cheap belt-and-
+    // the previous chain because `sanitise()` sits on the
+    // `--name` / `[dir]` data flow from both CLI scaffolders. The
+    // original `+`-quantified replaces were already linear in practice
+    // (this isn't a real ReDoS regression test), but a 100k-character
+    // pathological input is a cheap belt-and-
     // suspenders check that the rewritten chain remains linear, and
     // anchors the alert resolution so a future rewrite that
     // accidentally introduced an ambiguous quantifier would trip the

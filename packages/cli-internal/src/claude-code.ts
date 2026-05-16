@@ -33,12 +33,26 @@ export function isClaudeCode(): boolean {
 
 /**
  * Thrown by the CLI strict-mode validator after it has already written
- * the human-readable missing-flags block to stderr. The outer bin.ts
- * `catch` recognises this class and exits `1` *without* re-printing the
- * message or its stack; the throw still unwinds through
- * `program.parseAsync()` so the `finally` in `main()` runs (telemetry
- * flush, deprecation notice, etc.), which a bare `process.exit(1)`
- * inside the action handler would have skipped.
+ * the human-readable missing-flags block to stderr. Both consumers
+ * (`arkor` and `create-arkor`) catch this class at the outermost layer
+ * and exit `1` *without* re-printing the message or its stack; what
+ * each call path gains by throwing instead of `process.exit(1)`-ing
+ * inside the action handler differs:
+ *
+ *   - `arkor`: the throw unwinds through `program.parseAsync()` so the
+ *     `finally` in `main()` runs (telemetry flush, deprecation notice).
+ *     A bare `process.exit(1)` inside the action would have skipped it.
+ *   - `create-arkor`: there is no `main()` / telemetry path to preserve,
+ *     but the outer `program.parseAsync(...).catch(...)` prefixes every
+ *     non-sentinel error with `"create-arkor failed: "`. Recognising the
+ *     sentinel lets the catch exit silently so that prefix does not
+ *     double up on the multi-line missing-flags block already on stderr.
+ *
+ * Both consumers set `process.exitCode = 1` (rather than calling
+ * `process.exit(1)`) so Node lets the event loop drain naturally before
+ * exiting; on piped stdio that prevents truncating queued writes, which
+ * on the strict-mode path would lose the trailing lines of the
+ * missing-flags block.
  */
 export class ClaudeCodeStrictExit extends Error {
   constructor() {
@@ -113,24 +127,22 @@ export interface MissingClaudeCodeFlag {
  * pick up the current directory's name at runtime.
  */
 function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
+  // Reject an empty / whitespace-only positional even when `--name`
+  // is set, because `create-arkor`'s runtime uses `opts.dir` for the
+  // **target directory** (not just the project name): `resolve("")`
+  // returns `process.cwd()`, so `create-arkor "" --name my-app
+  // --template ...` would scaffold *in-place* under the parent dir
+  // instead of into `./my-app/`. Strict mode should surface that
+  // mis-input, not let `--name` mask it. Whitespace-only inputs
+  // (`"   "`, `"\t"`) survive `resolve()` as a whitespace-basename
+  // path and would also be caught by the alphanumeric check below,
+  // but the early trim guard handles both shapes uniformly without
+  // depending on downstream regex behaviour. `.` / `./` etc. still
+  // pass because they are deliberate "scaffold in this directory"
+  // idioms with the same runtime semantics as any non-empty path.
+  if (opts.dir !== undefined && opts.dir.trim() === "") return false;
   if (opts.name !== undefined) return /[a-z0-9]/i.test(opts.name);
   if (opts.dir === undefined) return false;
-  // Reject empty / whitespace-only positionals before consulting
-  // `resolve()`. The motivating case is the **empty string**:
-  // `path.resolve("")` returns `process.cwd()` whose basename is
-  // almost always alphanumeric, so `create-arkor "" --template ...`
-  // (or a quoted shell variable that expanded to empty) would slip
-  // through strict mode and scaffold in-place against the cwd
-  // basename, the exact silent-default outcome we already reject
-  // for `--name ""`. Whitespace-only inputs (`"   "`, `"\t"`) would
-  // *also* survive `resolve()` as a path with a whitespace basename,
-  // and the alphanumeric check below would catch them on its own;
-  // the trim here is the cheaper, earlier guard that gives both
-  // shapes the same rejection without depending on the downstream
-  // regex. `.` / `./` etc. still pass because they are deliberate
-  // "scaffold in this directory" idioms with the same runtime
-  // semantics as any non-empty path.
-  if (opts.dir.trim() === "") return false;
   return /[a-z0-9]/i.test(basename(resolve(opts.dir)));
 }
 

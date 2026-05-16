@@ -125,6 +125,28 @@ describe("missingClaudeCodeFlags", () => {
     );
   });
 
+  it("rejects empty positional even when --name is set (positional drives the runtime target dir)", () => {
+    // PR #141 review (Copilot): `create-arkor` uses `opts.dir` for the
+    // *target directory*, not just the slug. So
+    // `CLAUDECODE=1 create-arkor "" --name my-app --template ...`
+    // would otherwise pass strict mode (because `--name` is meaningful)
+    // and then scaffold in-place under the parent dir at runtime via
+    // `resolve("")`. The empty-positional guard now fires before the
+    // `--name` shortcut so this mis-input is rejected up front.
+    const missing = missingClaudeCodeFlags({
+      requireProjectName: true,
+      dir: "",
+      name: "my-app",
+      template: "triage",
+      skipGit: true,
+      useNpm: true,
+      agentsMd: false,
+    });
+    expect(missing.map((m) => m.flag)).toContain(
+      "[dir] (e.g. `my-arkor-app`) or --name <name>",
+    );
+  });
+
   it.each([
     ["empty positional", ""],
     ["whitespace-only positional", "   "],
@@ -192,19 +214,43 @@ describe("missingClaudeCodeFlags", () => {
     // PR #141 review (codex + Copilot): the previous check compared the
     // raw input to the literal `arkor-project` string, so inputs like
     // `Arkor Project`, `arkor_project`, or a `[dir]` basename
-    // `Arkor_Project` were rejected because their trimmed/lowercased
+    // `Arkor.Project` were rejected because their trimmed/lowercased
     // raw form differed from the sanitised slug. They are deliberate
     // names, not silent defaults; the rewritten check (input contains
     // any `[a-z0-9]`) accepts them because the alphanumeric content
-    // proves the user typed a real name.
+    // proves the user typed a real name. Every entry below sanitises
+    // exactly to `arkor-project` (separator rewritten to `-`) which
+    // is what makes this test about the *fallback collision*; names
+    // with no separator (e.g. `ArkorProject` → `arkorproject`) are
+    // covered by the sibling "any alphanumeric content" test so the
+    // theme of each test stays honest.
     for (const name of [
       "arkor-project",
       "ARKOR-PROJECT",
       "  arkor-project  ",
       "Arkor Project",
       "arkor_project",
-      "ArkorProject",
+      "Arkor.Project",
     ]) {
+      const missing = missingClaudeCodeFlags({
+        requireProjectName: true,
+        name,
+        template: "triage",
+        skipGit: true,
+        useNpm: true,
+        agentsMd: false,
+      });
+      expect(missing).toEqual([]);
+    }
+  });
+
+  it("accepts deliberate names whose sanitised slug is unrelated to `arkor-project`", () => {
+    // Sibling case to the fallback-collision test above: deliberate
+    // names that contain alphanumerics but have no separator (so
+    // `sanitise()` lowercases them straight through, producing
+    // `arkorproject` etc.) are also accepted. The check is "contains
+    // an alphanumeric", not "sanitised slug equals X".
+    for (const name of ["ArkorProject", "MyApp", "v2"]) {
       const missing = missingClaudeCodeFlags({
         requireProjectName: true,
         name,
