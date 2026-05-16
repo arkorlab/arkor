@@ -264,11 +264,12 @@ function runCliOnce(
     // as the npm-config / pnpm-config keys above: env-var names are
     // case-insensitive on Windows (CreateProcessW deduplicates by
     // uppercased key), so an inherited `claudecode` / `ClaudeCode`
-    // could coexist with our explicit `CLAUDECODE` override below and
-    // be picked nondeterministically, defeating the strict-mode
-    // opt-out we rely on for non-strict-mode tests. Tests that need
-    // to opt INTO strict mode still set `CLAUDECODE` via `extraEnv`,
-    // which is spread last so it wins.
+    // could otherwise survive `cleanEnv` under a different JS key and
+    // reach the spawned CLI nondeterministically, flipping it into
+    // strict mode for tests that don't expect it. There is no default
+    // `CLAUDECODE` value in the env block below; tests that need to
+    // opt INTO strict mode set `CLAUDECODE` via `extraEnv`, which is
+    // spread last so it wins.
     if (lower === "claudecode") {
       continue;
     }

@@ -111,7 +111,12 @@ export interface ClaudeCodeOptionsCheck {
    * directory like `/tmp/!!!/` doesn't silently collapse to the
    * `arkor-project` fallback. Callers pass `process.cwd()` here; we
    * take it as a parameter rather than reading `process.cwd()` inside
-   * this helper so the function stays pure and easy to test.
+   * this helper so init-path tests can pin a deterministic cwd
+   * without `chdir`-ing the vitest worker. (The create-arkor branch
+   * still calls `resolve(opts.dir)` for its own check, which leans on
+   * the real `process.cwd()` for relative paths like `.`/`..`; this
+   * helper isn't fully cwd-free, just decoupled where the init path
+   * needs it most.)
    */
   initCwd?: string;
 }
