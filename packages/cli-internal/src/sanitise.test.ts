@@ -24,21 +24,21 @@ describe("sanitise", () => {
     expect(sanitise("---abc---")).toBe("abc");
   });
 
-  it("stays linear on adversarial dash-heavy inputs (CodeQL hardening)", () => {
+  it("returns the fallback on a 100k-char dash run (CodeQL hardening anchor)", () => {
     // CodeQL's "polynomial regex on uncontrolled data" query flagged
     // the previous chain because `sanitise()` sits on the
     // `--name` / `[dir]` data flow from both CLI scaffolders. The
-    // original `+`-quantified replaces were already linear in practice
-    // (this isn't a real ReDoS regression test), but a 100k-character
-    // pathological input is a cheap belt-and-
-    // suspenders check that the rewritten chain remains linear, and
-    // anchors the alert resolution so a future rewrite that
-    // accidentally introduced an ambiguous quantifier would trip the
-    // timeout instead of silently re-opening the CodeQL alert.
+    // original `+`-quantified replaces were already linear in
+    // practice, so this isn't a real ReDoS regression test; the
+    // 100k-char input is an output-correctness assertion that
+    // doubles as a smoke check that the rewritten chain still
+    // handles long, mostly-separator inputs (which was the alert's
+    // pathological shape) without any change in observable result.
+    // Vitest's per-file timeout catches a truly exponential rewrite
+    // for free, so no fixed wall-clock threshold is asserted here
+    // (PR #141 review: those make the suite flaky on overloaded CI).
     const adversarial = "-".repeat(100_000);
-    const start = Date.now();
     expect(sanitise(adversarial)).toBe("arkor-project");
-    expect(Date.now() - start).toBeLessThan(1_000);
   });
 
   it("falls back to `arkor-project` when the result would be empty", () => {

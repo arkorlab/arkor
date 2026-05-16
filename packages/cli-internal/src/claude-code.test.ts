@@ -125,6 +125,48 @@ describe("missingClaudeCodeFlags", () => {
     );
   });
 
+  it.each([
+    ["empty --name", ""],
+    ["whitespace --name", "   "],
+    ["punctuation-only --name", "!!!"],
+  ])(
+    "in init mode (requireProjectName=false), still rejects %s because the validator surfaces explicit-but-garbage names",
+    (_label, name) => {
+      // PR #141 review (Copilot): under `requireProjectName: false`
+      // the old check skipped the helper entirely, so
+      // `arkor init --name "!!!" --template ...` passed strict mode
+      // and `runInit` silently sanitised the value to the generic
+      // `arkor-project` fallback. The validator now treats an
+      // explicit `--name` as a deliberate commitment regardless of
+      // `requireProjectName`, and asks the agent to pick a value with
+      // at least one ASCII letter or digit (or drop `--name`).
+      const missing = missingClaudeCodeFlags({
+        requireProjectName: false,
+        name,
+        template: "triage",
+        skipGit: true,
+        useNpm: true,
+        agentsMd: false,
+      });
+      expect(missing.map((m) => m.flag)).toContain("--name <name>");
+    },
+  );
+
+  it("in init mode, accepts the absence of --name (runtime uses basename(cwd))", () => {
+    // Mirror of the test above: omitting `--name` is the documented
+    // default path for `arkor init`, so strict mode must NOT demand
+    // it. Pin this branch so a regression that forces `--name`
+    // everywhere is caught immediately.
+    const missing = missingClaudeCodeFlags({
+      requireProjectName: false,
+      template: "triage",
+      skipGit: true,
+      useNpm: true,
+      agentsMd: false,
+    });
+    expect(missing).toEqual([]);
+  });
+
   it("rejects empty positional even when --name is set (positional drives the runtime target dir)", () => {
     // PR #141 review (Copilot): `create-arkor` uses `opts.dir` for the
     // *target directory*, not just the slug. So

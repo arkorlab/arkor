@@ -264,6 +264,35 @@ describe("arkor init (E2E)", () => {
       expect(existsSync(join(cwd, "package.json"))).toBe(false);
     });
 
+    it("rejects explicit garbage --name even though strict mode does not require a name", async () => {
+      // PR #141 review (Copilot): under strict mode `arkor init` does
+      // not require `--name` (the runtime derives it from
+      // `basename(cwd)`), but if the agent went out of its way to
+      // pass `--name "!!!"` strict mode used to ignore it and let
+      // `sanitise()` quietly collapse the value to `arkor-project`.
+      // Now an explicit `--name` is validated regardless of the
+      // `requireProjectName` branch.
+      const result = await runCli(
+        ARKOR_BIN,
+        [
+          "init",
+          "--name",
+          "!!!",
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        cwd,
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("--name <name>");
+      // Sanity: nothing was scaffolded.
+      expect(existsSync(join(cwd, "package.json"))).toBe(false);
+    });
+
     it("runs to completion when every required flag is set", async () => {
       const result = await runCli(
         ARKOR_BIN,

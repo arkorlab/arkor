@@ -260,6 +260,18 @@ function runCliOnce(
     if (lower.startsWith("npm_config_") || lower.startsWith("pnpm_config_")) {
       continue;
     }
+    // Strip CLAUDECODE case-insensitively for the same Windows reason
+    // as the npm-config / pnpm-config keys above: env-var names are
+    // case-insensitive on Windows (CreateProcessW deduplicates by
+    // uppercased key), so an inherited `claudecode` / `ClaudeCode`
+    // could coexist with our explicit `CLAUDECODE` override below and
+    // be picked nondeterministically, defeating the strict-mode
+    // opt-out we rely on for non-strict-mode tests. Tests that need
+    // to opt INTO strict mode still set `CLAUDECODE` via `extraEnv`,
+    // which is spread last so it wins.
+    if (lower === "claudecode") {
+      continue;
+    }
     cleanEnv[key] = value;
   }
   return new Promise((resolve, reject) => {
@@ -280,16 +292,11 @@ function runCliOnce(
       env: {
         ...cleanEnv,
         CI: "1",
-        // The CLI's CLAUDECODE strict mode hard-fails on any invocation
-        // that doesn't declare every interactive-equivalent flag. When
-        // the e2e suite itself is run from a Claude Code session,
-        // `process.env.CLAUDECODE` is `"1"` in the parent and leaks
-        // through `cleanEnv` to every spawned child, which then turns
-        // unrelated assertions (e.g. tests that only set `--name` +
-        // `--template`) into surprise exit-1s. Clear it here so the
-        // default test environment matches a vanilla CI shell; the
-        // CLAUDECODE-specific tests opt back in via `extraEnv`.
-        CLAUDECODE: "",
+        // No explicit `CLAUDECODE` override here: any inherited
+        // entry (any case variant) has already been dropped from
+        // `cleanEnv` above so the default test environment matches a
+        // vanilla CI shell. CLAUDECODE-specific tests opt in via
+        // `extraEnv`, which is spread last.
         npm_config_user_agent: "",
         GIT_AUTHOR_NAME: "Arkor E2E",
         GIT_AUTHOR_EMAIL: "e2e@arkor.test",

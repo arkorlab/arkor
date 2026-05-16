@@ -49,10 +49,14 @@ export function isClaudeCode(): boolean {
  *     double up on the multi-line missing-flags block already on stderr.
  *
  * Both consumers set `process.exitCode = 1` (rather than calling
- * `process.exit(1)`) so Node lets the event loop drain naturally before
- * exiting; on piped stdio that prevents truncating queued writes, which
- * on the strict-mode path would lose the trailing lines of the
- * missing-flags block.
+ * `process.exit(1)`) **for the strict-mode path specifically** so Node
+ * lets the event loop drain naturally before exiting; on piped stdio
+ * that prevents truncating queued writes, which on the strict-mode
+ * path would lose the trailing lines of the missing-flags block.
+ * Other failure paths in `create-arkor` (where `run()` may have
+ * started a `clack.spinner()`) still use `process.exit(1)` so a
+ * lingering UI interval can't keep the event loop alive past the
+ * catch.
  */
 export class ClaudeCodeStrictExit extends Error {
   constructor() {
@@ -141,7 +145,18 @@ function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
   // pass because they are deliberate "scaffold in this directory"
   // idioms with the same runtime semantics as any non-empty path.
   if (opts.dir !== undefined && opts.dir.trim() === "") return false;
+  // An explicitly-passed `--name` is validated even for `arkor init`
+  // (where `requireProjectName` is false). The reasoning: when the
+  // agent went out of its way to write `--name <value>`, that value
+  // is its intended project name, so if `value` would collapse to
+  // the silent `arkor-project` fallback inside `sanitise()` the
+  // mis-input should surface here instead of being masked.
   if (opts.name !== undefined) return /[a-z0-9]/i.test(opts.name);
+  // No `--name` at all: only `create-arkor` (requireProjectName=true)
+  // needs a meaningful `[dir]`; `arkor init` falls back to `basename(cwd)`
+  // at runtime, which is the same value its interactive prompt would
+  // have offered, so strict mode does not require an explicit name there.
+  if (!opts.requireProjectName) return true;
   if (opts.dir === undefined) return false;
   return /[a-z0-9]/i.test(basename(resolve(opts.dir)));
 }
@@ -158,12 +173,26 @@ export function missingClaudeCodeFlags(
 ): MissingClaudeCodeFlag[] {
   if (opts.yes) return [];
   const missing: MissingClaudeCodeFlag[] = [];
-  if (opts.requireProjectName && !hasMeaningfulProjectName(opts)) {
-    missing.push({
-      flag: "[dir] (e.g. `my-arkor-app`) or --name <name>",
-      description:
-        "Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Inputs with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!` / `***`) are rejected because they would collapse to the generic `arkor-project` fallback inside `sanitise()`.",
-    });
+  if (!hasMeaningfulProjectName(opts)) {
+    // The two consumers want slightly different prompts: `create-arkor`
+    // is the only one that demands an explicit name (positional or
+    // `--name`), so its message lists both. `arkor init` falls back to
+    // `basename(cwd)` when `--name` is unset, but if the agent did pass
+    // `--name <garbage>` strict mode still trips here; surface it as
+    // a name-only ask rather than asking for a `[dir]` it doesn't have.
+    if (opts.requireProjectName) {
+      missing.push({
+        flag: "[dir] (e.g. `my-arkor-app`) or --name <name>",
+        description:
+          "Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Inputs with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!` / `***`) are rejected because they would collapse to the generic `arkor-project` fallback inside `sanitise()`.",
+      });
+    } else {
+      missing.push({
+        flag: "--name <name>",
+        description:
+          "The `--name` you passed contains no ASCII letter or digit, so `sanitise()` would collapse it to the generic `arkor-project` fallback. Pick a value with at least one alphanumeric character, or drop `--name` entirely to let `arkor init` derive the name from `basename(cwd)`.",
+      });
+    }
   }
   if (opts.template === undefined) {
     missing.push({

@@ -452,15 +452,17 @@ program
 
 program.parseAsync(process.argv).catch((err) => {
   // The strict-mode validator throws this sentinel after writing the
-  // missing-flags block; exit silently so the prefix below doesn't
-  // double up on the already-printed message.
+  // missing-flags block; exit silently so the `create-arkor failed:`
+  // prefix below doesn't double up on the already-printed message.
   //
-  // Both branches set `process.exitCode` (rather than calling
-  // `process.exit(1)`) so Node lets the event loop drain naturally
-  // before exiting. On piped stdio, `process.exit()` is synchronous
-  // and can truncate queued writes; the strict-mode message is a
-  // multi-line block that agents need to read to re-invoke, so
-  // dropping its tail would defeat the whole point.
+  // Use `process.exitCode` for the strict path (not `process.exit`):
+  // Node then lets the event loop drain naturally so the multi-line
+  // stderr block flushes on piped stdio. Generic failures still go
+  // through `process.exit(1)` because `run()` may have started a
+  // `clack.spinner()` whose internal interval would otherwise keep
+  // the event loop alive past the catch and stall the exit; a forced
+  // exit is safer there than waiting for unknown UI resources to
+  // tidy up (PR #141 review).
   if (err instanceof ClaudeCodeStrictExit) {
     process.exitCode = 1;
     return;
@@ -468,5 +470,5 @@ program.parseAsync(process.argv).catch((err) => {
   process.stderr.write(
     `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,
   );
-  process.exitCode = 1;
+  process.exit(1);
 });
