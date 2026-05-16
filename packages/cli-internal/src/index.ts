@@ -17,7 +17,15 @@ export {
   type PackageManager,
   type PackageManagerFlags,
 } from "./package-manager";
-export { install } from "./install";
+export {
+  install,
+  lockfileChangedSince,
+  nodeModulesChangedSince,
+  snapshotLockfile,
+  snapshotNodeModules,
+  type LockfileSnapshot,
+  type NodeModulesSnapshot,
+} from "./install";
 export {
   gitInitialCommit,
   isInGitRepo,

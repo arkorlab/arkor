@@ -84,18 +84,26 @@ describe("main (CLI Commander wiring)", () => {
       "triage",
       "--skip-install",
     ]);
-    expect(runInit).toHaveBeenCalledWith({
-      yes: true,
-      name: "my-app",
-      template: "triage",
-      skipInstall: true,
-      packageManager: "pnpm",
-      git: undefined,
-      skipGit: undefined,
-      // No --agents-md / --no-agents-md passed → main.ts resolves the
-      // CLI default-on (`opts.agentsMd !== false`).
-      agentsMd: true,
-    });
+    // `objectContaining` so the assertion stays robust against
+    // commander parsing widening the option object (round-39 Copilot
+    // review re-flagged the previous exact-shape assertion after
+    // `--allow-builds` was added). Vitest currently treats missing
+    // keys and `undefined` as equal, but the partial matcher makes
+    // the contract explicit. `agentsMd: true` here reflects the CLI
+    // default-on resolution in main.ts when neither --agents-md nor
+    // --no-agents-md is passed.
+    expect(runInit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        yes: true,
+        name: "my-app",
+        template: "triage",
+        skipInstall: true,
+        packageManager: "pnpm",
+        git: undefined,
+        skipGit: undefined,
+        agentsMd: true,
+      }),
+    );
   });
 
   it("forwards --use-* flags to the package-manager resolver", async () => {

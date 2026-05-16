@@ -46,6 +46,7 @@ pnpm create arkor my-app \
 | `--skip-install` | Don't run `<pm> install` after scaffolding |
 | `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun` | Force a package manager (otherwise auto-detected from `npm_config_user_agent`) |
 | `--git` / `--skip-git` | Initialise a git repo with an initial commit, or skip the prompt |
+| `--allow-builds` | Opt esbuild's `postinstall` script into running on `pnpm install` (pnpm-only; default: deny). See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) below |
 | `--agents-md` / `--no-agents-md` | Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data (default: on) |
 
 ## What it writes
@@ -58,10 +59,33 @@ my-app/
 ├── arkor.config.ts
 ├── README.md
 ├── .gitignore          # node_modules/, dist/, .arkor/
+├── package.json        # scripts: dev / build / start
 ├── AGENTS.md           # AI-agent rules (omit with --no-agents-md)
 ├── CLAUDE.md           # @AGENTS.md re-export for Claude Code
-└── package.json        # scripts: dev / build / start
+├── .yarnrc.yml         # OPTIONAL — yarn-berry nodeLinker pin (see below)
+└── pnpm-workspace.yaml # OPTIONAL — pnpm 11 allowBuilds (see below)
 ```
+
+`src/arkor/`, `arkor.config.ts`, `README.md`, `.gitignore`, and `package.json` are always written. The two yaml files are conditional:
+
+- **`.yarnrc.yml`** is *created* with `nodeLinker: node-modules` only on **fresh scaffolds** where yarn is the plausible package manager (i.e. `--use-yarn` is set, `npm_config_user_agent` resolves to yarn (e.g. `yarn create arkor`), OR no `--use-*` flag is set AND UA detection failed to identify the invoking pm). This protects yarn-berry users reading the manual-install hint who then run `yarn install`: without the pin, yarn-berry defaults to PnP and the arkor runtime can't resolve modules through PnP. When `--use-yarn` runs against an **existing** non-empty directory and no `.yarnrc.yml` is present, the scaffolder deliberately does **not** drop one in (writing `nodeLinker: node-modules` at the root of an unfamiliar project could flip install mode for an enclosing yarn-berry workspace deliberately on PnP). Whether it then surfaces a yarn-berry caveat advisory depends on whether a positive yarn-berry signal is detected: an ancestor `.yarnrc.yml` or `.yarn/` directory, a corepack `packageManager: yarn@2+` field declared anywhere up the tree, or `yarn --version` reporting yarn 2+. Yarn-classic users see no caveat (PnP isn't a yarn 1 concern, so there's nothing to nudge them about). An existing `.yarnrc.yml` is left untouched: already-`node-modules` is a no-op, a non-default `nodeLinker:` produces a conflict warning, and a missing `nodeLinker:` key surfaces the same berry caveat (the file's existence is itself a yarn-berry signal, since yarn 1 reads `.yarnrc`, not `.yarnrc.yml`). Skipped entirely for explicit non-yarn pms (including the common `npm create arkor` flow, where UA detection lands on npm).
+- **`pnpm-workspace.yaml`** is created when pnpm is the plausible package manager (`--use-pnpm`, `npm_config_user_agent` resolves to pnpm (e.g. `pnpm create arkor`), or pm-detection failed AND the target is a fresh empty directory) AND no ancestor directory already declares one. When a target already has the file and pnpm is plausible, it is *patched* in place: `esbuild: false` is merged into the existing top-level `allowBuilds:` (other keys, comments, and entries are preserved). Skipped for `--use-npm` / `--use-yarn` / `--use-bun` (and likewise the `npm create` / `yarn create` / `bun create` flows that resolve via UA) and inside pnpm monorepo subdirs (the parent's workspace file governs; we never shadow it).
+
+## Postinstall scripts (pnpm 11+)
+
+pnpm 11 errors with `ERR_PNPM_IGNORED_BUILDS` when an unapproved postinstall is encountered. esbuild ships such a script (verifying/fetching the platform-specific binary), so a vanilla `pnpm install` against a fresh scaffold would otherwise exit non-zero.
+
+The scaffolded `pnpm-workspace.yaml` pins:
+
+```yaml
+packages: []
+allowBuilds:
+  esbuild: false
+```
+
+`esbuild: false` is an explicit deny — pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. yarn / npm / bun all ignore the workspace yaml.
+
+If you genuinely need the postinstall to run (rare; typically a broken installer or unusual platform), pass `--allow-builds`. The flag controls only the value the scaffold *writes*: a fresh-scaffold run emits `esbuild: true` instead of `esbuild: false`, and a patch-into-existing-file run that adds a new `esbuild` entry uses `true`. An *existing* explicit pin is always preserved — if the file already has `allowBuilds.esbuild: false` (or `: true`), the scaffold leaves it untouched even when `--allow-builds` is passed. To change a prior explicit deny, edit `pnpm-workspace.yaml` by hand.
 
 When `[dir]` is given explicitly, existing files are kept (never overwritten)
 and `package.json` is patched in place — only missing keys are added, so a

@@ -3,8 +3,12 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  lockfileChangedSince,
+  nodeModulesChangedSince,
   sanitise,
   scaffold,
+  snapshotLockfile,
+  snapshotNodeModules,
   TEMPLATES,
   templateChoices,
   type PackageManager,
@@ -29,6 +33,15 @@ export interface InitOptions {
   git?: boolean;
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
+  /**
+   * `true` when the user explicitly passed `--allow-builds`. Threads through
+   * to `scaffold()` so the emitted `pnpm-workspace.yaml#allowBuilds.esbuild`
+   * is `true` instead of the secure-by-default `false`. Only meaningful for
+   * pnpm (yarn / npm / bun ignore the workspace yaml), but we plumb the
+   * flag unconditionally: a user who scaffolds with `--use-npm` today and
+   * later switches to pnpm would otherwise have to re-run with the flag.
+   */
+  allowBuilds?: boolean;
   /**
    * Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor
    * post-dates their training data. Undefined falls through to the
@@ -143,10 +156,14 @@ export async function runInit(options: InitOptions): Promise<void> {
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
   // `--yes` / non-interactive) doesn't end up in `package.json` as-is.
-  const { files, warnings } = await scaffold({
+  // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
+  // yarn-berry's PnP default which the arkor runtime can't load through).
+  const { files, warnings, blockInstall } = await scaffold({
     cwd,
     name: sanitise(projectName),
     template,
+    packageManager: options.packageManager,
+    allowBuilds: options.allowBuilds,
     agentsMd: options.agentsMd,
   });
 
@@ -154,8 +171,17 @@ export async function runInit(options: InitOptions): Promise<void> {
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
-  for (const w of warnings) {
-    ui.log.warn(w);
+  // Surface non-fatal scaffolder advisories (currently: existing
+  // `.yarnrc.yml` with `nodeLinker:` set to a value the arkor runtime
+  // can't load through, yarn-berry merge into an existing project
+  // where we declined to write `.yarnrc.yml` defensively, or
+  // duplicate canonical blocks in an existing `AGENTS.md`). The
+  // install step below also consults `blockInstall` and bows out
+  // when yarn-config advisories fire: running `yarn install` against
+  // an unfixed PnP setup produces no `node_modules` and leaves the
+  // project broken, so install would be worse than useless.
+  for (const warning of warnings) {
+    ui.log.warn(warning);
   }
 
   // Resolve the git-init choice before kicking off install so the user can
@@ -169,26 +195,206 @@ export async function runInit(options: InitOptions): Promise<void> {
   const pm = options.packageManager;
 
   let installed = false;
+  // Round 40 (Copilot, PR #99): stash any `install()` throw so the
+  // `Retry manually` hint can be deferred to AFTER the recovery
+  // gate runs. pnpm 11 / bun-Windows have been observed exiting
+  // non-zero AFTER writing both `node_modules` and the lockfile,
+  // in which case the gate flips `installSucceeded` to true and
+  // the outro omits the install step. Printing `Retry manually`
+  // inline from the catch directly contradicted that recovered
+  // branch's outcome.
+  let installThrewError: string | undefined;
+  // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
+  // lockfile BEFORE install so the post-install gate can prove
+  // install actually changed something on disk. Without the
+  // pre-snapshot, a workspace-subdir scaffold with a stale
+  // ancestor lockfile would treat any failed install as
+  // "lockfile landed" via existsSync alone — letting the CLI
+  // run git init over an untouched tree.
+  const lockfileBefore = snapshotLockfile(cwd, pm);
+  // Round 39 follow-up #2 (Codex P1, PR #99): pair the
+  // lockfile-changed signal with `node_modules` change. The
+  // earlier `hasEnclosingNodeModules` static-existence check
+  // false-positived against pre-existing parent `node_modules`
+  // (monorepo subdir scaffolds), so a failed install that
+  // never populated the project's deps still passed the gate.
+  // Snapshot at cwd specifically so the after-install diff
+  // proves THIS install did the work.
+  const nodeModulesBefore = snapshotNodeModules(cwd);
   if (!options.skipInstall && pm) {
-    ui.log.step(`Installing dependencies with ${pm}`);
-    try {
-      await install(pm, cwd);
-      installed = true;
-    } catch (err) {
-      ui.log.warn(err instanceof Error ? err.message : String(err));
-      ui.log.info(`Retry manually: ${pm} install`);
+    if (blockInstall) {
+      // Round 17 (Copilot, PR #99): the yarn-config advisories above
+      // tell the user to fix `.yarnrc.yml` before running `yarn
+      // install`. Running install ourselves first would produce an
+      // empty `node_modules` (yarn 4 PnP) and leave `arkor dev` /
+      // `arkor train` broken — the install becomes worse than
+      // useless. Skip and surface the manual-retry hint instead, so
+      // the user fixes the config first and retries.
+      ui.log.info(
+        `Skipping install — fix the advisory above first, then run: ${pm} install`,
+      );
+    } else {
+      ui.log.step(`Installing dependencies with ${pm}`);
+      try {
+        await install(pm, cwd);
+        installed = true;
+      } catch (err) {
+        // Surface the pm error itself immediately (visibility). The
+        // `Retry manually` hint is DEFERRED to after the recovery
+        // gate computes `installSucceeded` below; see the
+        // `installThrewError` declaration above for the rationale.
+        installThrewError =
+          err instanceof Error ? err.message : String(err);
+        ui.log.warn(installThrewError);
+      }
     }
   }
 
-  if (shouldInitGit) await runGitInit(cwd);
+  // Round 19 (Copilot, PR #99): when blockInstall is true AND
+  // an install was actually going to run, skipping git init
+  // preserves the "lockfile lands in the initial commit"
+  // invariant — committing now would capture an empty
+  // `node_modules`-less tree, and a re-run after the advisory
+  // is fixed would either skip git ("already inside a git repo")
+  // or stack a second commit on top.
+  //
+  // Round 21 (Codex P2, PR #99): the rationale only applies when
+  // install was actually going to run. If the user explicitly
+  // passed `--skip-install`, no install was happening anyway,
+  // there's no lockfile to wait for, and `--git`/`-y` is an
+  // explicit request we shouldn't second-guess. Same goes for
+  // `pm === undefined` (manual install hint flow). Gate the
+  // skip on "install would have run".
+  //
+  // Round 21 (Copilot, PR #99): the recovery hint used to
+  // prescribe `arkor init` as the rerun command, but the local
+  // `arkor` bin isn't on PATH yet (we just skipped install) and
+  // the hint dropped any flags the user originally passed
+  // (`--use-yarn` / `--git` / `--name` / etc). Drop the
+  // prescriptive command — point at the advisory and let the
+  // user re-invoke with whatever they originally typed.
+  // Round 35 (Copilot, PR #99): the lockfile-in-initial-commit
+  // invariant is broken in TWO failure modes, not just the
+  // round-19 advisory case:
+  //   1. blockInstall=true → install was deliberately skipped.
+  //   2. install was attempted but THREW (caught above, set
+  //      installed=false). The catch surfaced a `Retry manually`
+  //      hint, but the original code still ran `git init` on
+  //      the no-lockfile tree — same dirty-repo / amend
+  //      headache as the round-19 case.
+  // Either way: if install was supposed to run AND didn't
+  // succeed, skip git too and tell the user to retry. The
+  // wouldHaveInstalled gate (round 21) still guards the
+  // `--skip-install --git` honor case where no install was
+  // attempted by design.
+  const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
+  // Round 39 (Copilot, PR #99): pnpm 11 and bun on Windows have
+  // been observed exiting non-zero AFTER writing both
+  // `node_modules` and the lockfile. The round-35 gate keyed on
+  // the throw alone, which silently dropped a `--git` user's
+  // initial commit even though the bootstrap was effectively
+  // complete.
+  //
+  // Round 39 follow-up (Codex P1, PR #99): falling back to
+  // `existsSync(lockfile)` alone is too loose — a workspace-
+  // subdir scaffold with a stale ancestor lockfile would let a
+  // totally failed install pass the gate. Compare against the
+  // pre-install snapshot so only a forward-moving mtime (or a
+  // freshly created lockfile) counts as "install touched
+  // something material on disk".
+  //
+  // Round 39 follow-up #2 (Codex P1, PR #99): mtime change
+  // alone still admits a failed-mid-install case where the pm
+  // rewrote the lockfile but errored BEFORE populating
+  // `node_modules` (preinstall / install lifecycle hook
+  // failure on an existing project). Pair the lockfile-changed
+  // signal with a `node_modules` before/after diff so the
+  // recovery path only fires when BOTH artefacts moved during
+  // this install. The earlier `hasEnclosingNodeModules` static
+  // check (round 39 follow-up #2 first attempt) false-
+  // positived against ambient ancestor `node_modules` from a
+  // prior root install — the snapshot/diff at cwd
+  // specifically proves this install did the work, not a
+  // hoisted parent install from earlier.
+  const installSucceeded =
+    !wouldHaveInstalled ||
+    installed ||
+    (lockfileChangedSince(cwd, pm, lockfileBefore) &&
+      nodeModulesChangedSince(cwd, nodeModulesBefore));
+  // Round 40 (Copilot, PR #99): print the `Retry manually` hint
+  // ONLY when install actually threw AND the recovery gate did
+  // NOT salvage it. In the recovered branch (pnpm 11 / bun-
+  // Windows non-zero-after-write) the outro proceeds with no
+  // install step, and re-stating "retry install" inline would
+  // tell the user to redo work the CLI just accepted as done.
+  if (installThrewError !== undefined && !installSucceeded) {
+    ui.log.info(`Retry manually: ${pm} install`);
+  }
+  let gitInitSkipped = false;
+  if (shouldInitGit && wouldHaveInstalled && blockInstall) {
+    ui.log.info(
+      "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
+    );
+    gitInitSkipped = true;
+  } else if (shouldInitGit && !installSucceeded) {
+    ui.log.info(
+      `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
+    );
+    gitInitSkipped = true;
+  } else if (shouldInitGit) {
+    await runGitInit(cwd);
+  }
 
   const devCmd =
     pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
+  // Round 39 (Copilot, PR #99): when git init was skipped (install
+  // blocked or threw) but the user originally requested `--git`,
+  // the closing outro must remind them to create the repo + initial
+  // commit themselves once install succeeds. Without it, a `--git`
+  // user following "Next: ..." verbatim ends up with install fixed
+  // but no repository.
+  //
+  // Round 40 (Codex P2, PR #99): the recovery hint must work when
+  // copy-pasted into ANY shell — POSIX (bash/zsh), cmd.exe, and
+  // PowerShell. Single quotes are POSIX-only: cmd.exe treats them
+  // as literal characters, so `git commit -m 'Initial commit ...'`
+  // tokenizes on whitespace and fails with `pathspec` errors. Use
+  // double quotes (universally honored) and drop the inner
+  // `\`arkor init\`` backticks, since POSIX expands backticks
+  // inside double quotes (would shell-execute `arkor init`). The
+  // auto-commit path (Trainer.gitInitialCommit) keeps the
+  // backticked message — that goes via spawn argv, not a shell.
+  const gitTail = gitInitSkipped
+    ? ', then `git init && git add -A && git commit -m "Initial commit from arkor init"`'
+    : "";
+  // Round 39 (Copilot, PR #99): the install-blocked branch already
+  // told the user to fix the yarn-config advisory first; printing
+  // the generic `Next: <pm> install` outro after that contradicts
+  // the warning. Repeat the fix-first recovery instead so the
+  // closing line stays consistent with the advisory above.
+  if (wouldHaveInstalled && blockInstall) {
+    const fixRetry = pm
+      ? `\`${pm} install\``
+      : MANUAL_INSTALL_HINT;
+    ui.outro(
+      `Next: fix the advisory above, then ${fixRetry}${gitTail}, then \`${devCmd}\``,
+    );
+    return;
+  }
+  // Round 39 (Copilot, PR #99): the outro must use the SAME
+  // "effectively installed" signal as the git-init gate. Keying
+  // on `installed` alone tells a recovered-install user (install
+  // threw but lockfile is on disk) to run `<pm> install` again
+  // even though we've already accepted the bootstrap as complete
+  // and let git init proceed. `installSucceeded` captures both
+  // the in-memory success and the on-disk recovery, so they stay
+  // aligned.
+  const treeIsReady = installSucceeded && wouldHaveInstalled;
   ui.outro(
-    installed
-      ? `Next: \`${devCmd}\``
+    treeIsReady
+      ? `Next: \`${devCmd}\`${gitTail}`
       : pm
-        ? `Next: \`${pm} install\`, then \`${devCmd}\``
-        : `Next: ${MANUAL_INSTALL_HINT}, then \`${devCmd}\``,
+        ? `Next: \`${pm} install\`${gitTail}, then \`${devCmd}\``
+        : `Next: ${MANUAL_INSTALL_HINT}${gitTail}, then \`${devCmd}\``,
   );
 }

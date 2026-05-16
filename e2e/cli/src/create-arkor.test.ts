@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { CREATE_ARKOR_BIN } from "./bins";
+import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
 
 let parentDir: string;
@@ -75,6 +76,7 @@ beforeAll(() => {
 afterAll(() => {
   if (arkorPackDir) cleanup(arkorPackDir);
 });
+
 
 describe("create-arkor (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -176,6 +178,32 @@ describe("create-arkor (E2E)", () => {
     const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
     expect(log.code).toBe(0);
     expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
+  });
+
+  it("writes pnpm-workspace.yaml with allowBuilds esbuild=false by default (deny)", async () => {
+    const { result, targetDir } = await runCreateArkor([
+      "-y",
+      "--skip-install",
+      "--skip-git",
+      "--use-pnpm",
+    ]);
+    expect(result.code).toBe(0);
+    const yaml = readFileSync(join(targetDir, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+false/);
+  });
+
+  it("flips allowBuilds esbuild=true when --allow-builds is set", async () => {
+    const { result, targetDir } = await runCreateArkor([
+      "-y",
+      "--skip-install",
+      "--skip-git",
+      "--use-pnpm",
+      "--allow-builds",
+    ]);
+    expect(result.code).toBe(0);
+    const yaml = readFileSync(join(targetDir, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+true/);
+    expect(yaml).not.toMatch(/esbuild:[ \t]+false/);
   });
 
   it("skips AGENTS.md and CLAUDE.md when --no-agents-md is passed", async () => {
@@ -477,38 +505,82 @@ describe("create-arkor (E2E)", () => {
     expect(existsSync(join(target, "package.json"))).toBe(true);
   });
 
-  it.skipIf(SKIP_INSTALL).each([
-    { pm: "npm", lockfile: "package-lock.json" },
-    { pm: "pnpm", lockfile: "pnpm-lock.yaml" },
-  ])(
-    "runs real $pm install + git commit (gated by SKIP_E2E_INSTALL)",
-    async ({ pm, lockfile }) => {
-      if (!arkorTarball) throw new Error("arkor tarball wasn't packed in beforeAll");
-      // Copy the pre-packed tarball into parentDir so the scaffolded
-      // project (target/) can resolve it via a relative `file:../<tgz>`
-      // path. See the beforeAll comment for why we can't pass an
-      // absolute Windows path through pnpm 10's URL parser.
-      const tarballName = basename(arkorTarball);
-      copyFileSync(arkorTarball, join(parentDir, tarballName));
+  // Mirror of the install-matrix in arkor-init.test.ts. See
+  // ./install-matrix.ts for the case list and gating rules — both
+  // test files share that source so the matrix can't drift.
+  //
+  // Per-case the test stages a pre-packed `arkor-*.tgz` under
+  // parentDir and points the scaffold spec at the relative path —
+  // see the top-of-file beforeAll for why pnpm 10 can't parse an
+  // absolute Windows `file:` URI directly. Lockfile-by-flag drives
+  // the post-install assertion that verifies git init runs *after*
+  // install (so the bootstrap commit is reproducible).
+  const LOCKFILE_BY_FLAG: Record<"npm" | "pnpm" | "yarn" | "bun", string> = {
+    npm: "package-lock.json",
+    pnpm: "pnpm-lock.yaml",
+    yarn: "yarn.lock",
+    bun: "bun.lock",
+  };
+  for (const { label, flag } of INSTALL_CASES) {
+    it.skipIf(shouldSkipInstallCase(label))(
+      `runs real ${label} install + git commit (gated by SKIP_E2E_INSTALL)`,
+      async () => {
+        if (!arkorTarball) {
+          throw new Error("arkor tarball wasn't packed in beforeAll");
+        }
+        const tarballName = basename(arkorTarball);
+        copyFileSync(arkorTarball, join(parentDir, tarballName));
 
-      const { result, targetDir } = await runCreateArkor(
-        ["-y", `--use-${pm}`, "--git"],
-        { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
-      );
-      expect(result.code).toBe(0);
-      expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
-      expect(existsSync(join(targetDir, ".git/HEAD"))).toBe(true);
+        const { result, targetDir } = await runCreateArkor(
+          ["-y", `--use-${flag}`, "--git"],
+          { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
+        );
+        // create-arkor swallows `<pm> install` failures into a warning
+        // (so the user can retry manually) — same gotcha as
+        // arkor-init.test.ts. Surface the captured output eagerly when
+        // the install-matrix run is about to fail an assertion, so the
+        // CI logs aren't bare `expected false to be true` lines.
+        //
+        // Round 35 (PR #99) added a follow-up failure mode: install
+        // can throw AFTER writing node_modules, create-arkor's catch
+        // fires, and git is now also skipped — leaving result.code===0
+        // + node_modules present + .git/HEAD missing. Trigger the
+        // diagnostic dump for that combination too.
+        const expectedGit = existsSync(join(targetDir, ".git/HEAD"));
+        if (
+          result.code !== 0 ||
+          !existsSync(join(targetDir, "node_modules")) ||
+          !expectedGit
+        ) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[install-matrix:${label}] create-arkor missing expected artefact:\n` +
+              `  exit: ${result.code}\n` +
+              `  node_modules: ${existsSync(join(targetDir, "node_modules"))}\n` +
+              `  .git/HEAD: ${expectedGit}\n` +
+              `  --- stdout ---\n${result.stdout}\n` +
+              `  --- stderr ---\n${result.stderr}`,
+          );
+        }
+        expect(result.code).toBe(0);
+        // See arkor-init.test.ts for the node_modules invariant — the
+        // scaffold pins `nodeLinker: node-modules` for yarn so PnP can't
+        // hide deps from the arkor runtime.
+        expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
+        expect(existsSync(join(targetDir, ".git/HEAD"))).toBe(true);
 
-      const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
-      expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
+        const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
+        expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
 
-      // Lockfile-in-initial-commit invariant: the git-init prompt is
-      // surfaced *before* install so the user can walk away, but git init
-      // execution still happens *after* install — otherwise the lockfile
-      // wouldn't be tracked and the bootstrap commit wouldn't be reproducible.
-      const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
-      expect(tracked.stdout).toContain(lockfile);
-    },
-    180_000,
-  );
+        // Lockfile-in-initial-commit invariant: the git-init prompt
+        // is surfaced *before* install so the user can walk away, but
+        // git init execution still happens *after* install — otherwise
+        // the lockfile wouldn't be tracked and the bootstrap commit
+        // wouldn't be reproducible.
+        const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
+        expect(tracked.stdout).toContain(LOCKFILE_BY_FLAG[flag]);
+      },
+      180_000,
+    );
+  }
 });

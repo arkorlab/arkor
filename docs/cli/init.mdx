@@ -51,6 +51,7 @@ bun arkor init
 | `--use-bun` | Force bun as the package manager. |
 | `--git` | Initialise a git repo and create an initial commit, without asking. |
 | `--skip-git` | Skip git init silently. |
+| `--allow-builds` | Opt esbuild's `postinstall` script into running on `pnpm install`. pnpm-only — yarn / npm / bun ignore the workspace yaml. Default: deny. See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) below. |
 | `--agents-md` | Write `AGENTS.md` and `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data. Default. |
 | `--no-agents-md` | Skip generating `AGENTS.md` / `CLAUDE.md`. An existing user-authored `AGENTS.md` is always preserved; the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->`) is appended on first run and replaced in place on re-scaffold. |
 
@@ -61,6 +62,36 @@ bun arkor init
 ### Default flow
 
 By default, the command is partly interactive: it prompts for a project name, a starter template, and (when not in a git repo) whether to run `git init`, and only then starts the package manager's `install` step (no confirmation prompt) unless `--skip-install` is set. The `git init` confirmation is surfaced before install so you can answer every prompt upfront and walk away while install runs unattended; the actual `git init` + initial commit still execute after install so the generated lockfile lands in the initial commit. If no package manager can be resolved (no `--use-*` flag and detection from `npm_config_user_agent` fails), the install step is skipped and the outro prints a manual install hint.
+
+### Postinstall scripts (pnpm 11+)
+
+When the chosen package manager is pnpm (explicitly via `--use-pnpm`, detected as pnpm from `npm_config_user_agent` such as `pnpm arkor init`, or implicitly because pm detection didn't resolve and the target is a fresh empty directory), the scaffold writes a small `pnpm-workspace.yaml` alongside `package.json`:
+
+```yaml
+packages: []
+allowBuilds:
+  esbuild: false
+```
+
+The file is **not** written when:
+
+- `--use-npm` / `--use-yarn` / `--use-bun` is set (those toolchains don't read it).
+- The target directory already contains files and no `--use-*` flag is set (we don't drop workspace-level config into someone else's project on a guess).
+- An ancestor directory already has a `pnpm-workspace.yaml` (the parent monorepo workspace governs; creating a nested one here would shadow it and break `workspace:*` resolution above).
+
+If `pnpm-workspace.yaml` already exists at the target AND pnpm is plausible (the same `--use-pnpm` / UA-detected pnpm / unresolved-detection conditions that gate fresh creation above; `--use-npm` / `--use-yarn` / `--use-bun` runs leave any existing file untouched), the scaffold patches it: it appends `esbuild: false` (or `esbuild: true` if `--allow-builds` is set) to the existing top-level `allowBuilds:` block (or creates one) without touching unrelated keys, and bows out as a no-op when esbuild is already pinned (allow or deny) or when the file uses the global scalar form `allowBuilds: false` / `allowBuilds: true`.
+
+pnpm 11 changed the default for postinstall scripts to "deny unless explicitly approved", and exits with `ERR_PNPM_IGNORED_BUILDS` (code 1) when an unapproved script is encountered. esbuild ships such a script (`node install.js`, which verifies/downloads the platform-specific binary), so a vanilla `pnpm install` against a freshly scaffolded project would otherwise fail.
+
+The scaffolded `allowBuilds: { esbuild: false }` is an explicit deny — pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works, because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. yarn / npm / bun all ignore `pnpm-workspace.yaml`, so the file is inert under those package managers.
+
+If you genuinely need esbuild's postinstall to run (rare; usually a broken installer or unusual platform), pass `--allow-builds`:
+
+```bash
+pnpm arkor init --yes --use-pnpm --allow-builds
+```
+
+— or flip the entry to `true` in `pnpm-workspace.yaml` after the fact. The flag is only consulted on runs that actually emit or patch `pnpm-workspace.yaml`, so passing it under `--use-npm` / `--use-yarn` / `--use-bun` is a no-op (those runs don't touch the file at all). Re-run `arkor init --use-pnpm --allow-builds` later if you switch to pnpm.
 
 ### Templates
 
@@ -212,7 +243,7 @@ bun arkor init --template translate --use-bun
 
 ## What gets written
 
-The scaffolder touches up to eight paths. None of them overwrites existing user content:
+The scaffolder touches up to ten paths: six unconditional plus two AGENTS.md-related plus two conditional package-manager configs. None of them overwrites existing user content:
 
 | Path | Behavior |
 | --- | --- |
@@ -224,6 +255,8 @@ The scaffolder touches up to eight paths. None of them overwrites existing user 
 | `package.json` | **Created** with name / `private` / `type: "module"` / starter `dev`+`build`+`start` scripts / `devDependencies.arkor` if missing. **Patched** to add any of those scripts that are absent and to add `arkor` under `devDependencies` if absent; existing values (e.g. a custom `dev` script) are **not** overwritten. **Ok** (no change) if everything is already in place. |
 | `AGENTS.md` | **Created** with the arkor-managed block if missing (default; skip with `--no-agents-md`). If the file exists, the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->`) is **patched** in place — appended on first run, replaced inline on re-scaffold — and any user content outside the markers is preserved. **Ok** (no change) if the canonical block is already present and up-to-date. **Kept** with a warning, instead of patched, when the file contains more than one canonical managed block: auto-picking either copy is unsafe, so the scaffolder leaves the file alone and asks you to dedupe before the next re-scaffold. |
 | `CLAUDE.md` | **Created** with `@AGENTS.md` (the Claude Code import directive) if missing (default; skip with `--no-agents-md`). **Kept** untouched if the file already exists, so a project-specific `CLAUDE.md` is never overwritten. **Skipped** with a warning when `AGENTS.md` was kept due to duplicate managed blocks — creating the `@AGENTS.md` shim in that state would auto-import the unresolved duplicate rules into Claude Code's context. The next re-scaffold creates the file once you dedupe `AGENTS.md`. |
+| `pnpm-workspace.yaml` | _Conditional._ See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) for the full conditions. **Created** with `packages: []` + `allowBuilds.esbuild: false` (or `: true` with `--allow-builds`) when pnpm is plausible AND no ancestor already declares one. **Patched** when the file already exists AND pnpm is plausible: appends `esbuild: <bool>` to `allowBuilds:` only if esbuild isn't already pinned. **Skipped** for explicit `--use-npm` / `--use-yarn` / `--use-bun` and inside pnpm monorepo subdirs. |
+| `.yarnrc.yml` | _Conditional._ See [Yarn-config gating](/cli/init#git-policy) (or `packages/cli-internal/src/scaffold.ts` for the full layered policy). **Created** with `nodeLinker: node-modules` on fresh scaffolds where yarn is plausible (`--use-yarn`, UA-detected yarn, or no `--use-*` flag with UA detection failing). **Kept** untouched if it exists; non-default `nodeLinker:` produces a conflict warning, missing `nodeLinker:` surfaces a yarn-berry caveat. **Skipped** for explicit non-yarn pms and for `--use-yarn` against an existing non-empty dir without a positive yarn-berry signal. |
 
 The CLI prints the file list as a "Files" note before installing, with an `action` (`created` / `kept` / `patched` / `ok` / `skipped`) per path so you can see exactly what changed.
 

@@ -47,6 +47,12 @@ jobs:
           - '24.12.0'              # exact boundary version where type stripping became stable
           - '>=24.12.0 <25'        # stable Node 24 range after 24.12.0
 
+          # Node 26 (Current). Follow the same floor + latest pattern as
+          # Node 24: 26.0.0 catches initial-release behaviour, the open
+          # range pulls in patch updates without manual bumps.
+          - '26.0.0'               # exact 26.x floor (initial release)
+          - '>=26.0.0 <27'         # latest 26.x
+
     steps:
       - uses: actions/checkout@v6
 
@@ -186,6 +192,233 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  # Cross-pm install matrix: exercises `arkor init --use-<pm>` and
+  # `create-arkor --use-<pm>` against every package manager the SDK accepts,
+  # crossed with OS and a curated set of Node versions known to shift
+  # spawn / pipe / strip-types behaviour (e.g. libuv 1.51 in Node 22.17
+  # changed macOS pipe-flush timing — the kind of thing that ate hours of
+  # debugging in eng-606). The build job above already runs `pnpm test`
+  # end-to-end, but its install assertions only cover the pms that a
+  # typical contributor has on PATH (npm + pnpm). The yarn / yarn-berry /
+  # bun lanes pull their runtimes in CI-only because they aren't a
+  # development prerequisite and we don't want `pnpm test` on a fresh
+  # checkout to require them.
+  #
+  # Each runner sets `ARKOR_E2E_PM=<label>`; the e2e suites
+  # (e2e/cli/src/{arkor-init,create-arkor}.test.ts) gate their install
+  # cases on that env var so exactly one pm's install assertions run per
+  # matrix entry. The rest of the e2e suite runs unfiltered — setup
+  # (workspace install + CLI build + corepack/bun bootstrap) dominates
+  # each job's wall time, so the marginal cost of running every e2e test
+  # over the matrix pm/Node/OS triple is small and occasionally surfaces
+  # cross-axis interactions outside the install path (e.g. yarn-berry's
+  # PnP fs layout influencing scaffold or spawn assertions).
+  install-matrix:
+    name: install · ${{ matrix.id }} · ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Curated Node versions — the supported LTS lines. main's
+        # engines bump (`packages/arkor/package.json` →
+        # `>=22.22.0`) made the prior pre-22.22 entries
+        # (22.13/17/21) point at unsupported configurations, so
+        # they've been dropped along with the yarn × pre-22.22
+        # excludes that masked the engines mismatch.
+        #
+        # Each LTS line gets two entries — exact engines floor
+        # (so the lowest officially supported version is actually
+        # exercised, not just whatever 22.22+ patch setup-node
+        # happens to resolve) plus the live `<minor>` range. The
+        # build matrix above uses the same pattern.
+        node:
+          - '22.22.0'             # exact engines floor (DoS-patched 22 LTS)
+          - '>=22.22.0 <23'       # latest 22.x
+          - '24.0.0'              # exact 24.x floor (initial release; type-stripping default-on / Stability: RC)
+          - '24.12.0'             # exact boundary where type stripping became Stable
+          - '>=24.12.0 <25'       # latest 24.x
+          - '26.0.0'              # exact 26.x floor (initial release)
+          - '>=26.0.0 <27'        # latest 26.x
+        id: [pnpm-9, pnpm-10, pnpm-11, npm, yarn, yarn-berry, bun]
+    steps:
+      - uses: actions/checkout@v6
+
+      # The prior `rolldownIncompat` bootstrap path (separate Node 24
+      # checkout to install + build CLIs before exercising them under
+      # a matrix Node where rolldown's native binding wouldn't load)
+      # was for the pre-22.22 Node entries that the engines bump
+      # removed from this matrix. Every supported Node now satisfies
+      # rolldown's `^20.19 || >=22.12` requirement, so the bootstrap
+      # path is no longer needed and the matrix uses a single Node
+      # setup throughout.
+      - name: Setup matrix Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          # Intentionally no `cache: pnpm` — at this point pnpm isn't on
+          # PATH yet (the install-matrix job uses Node's bundled corepack
+          # to provision pnpm in the *next* step instead of running
+          # `pnpm/action-setup` up-front), so setup-node's pnpm-aware
+          # cache lookup fails with `Unable to locate executable file:
+          # pnpm`. Each job re-fetches deps fresh; ~30 s/job extra is
+          # noise next to the 2–3 min setup cost, and skipping the cache
+          # avoids a class of cross-OS pitfalls (e.g. corepack writing
+          # shims into a system-owned bin dir on Windows).
+
+      # We deliberately use Node's bundled corepack instead of
+      # pnpm/action-setup. action-setup adds its pnpm to PATH in a way
+      # that shadows corepack's shim, which would defeat the matrix
+      # --activate below: every entry would end up running action-setup's
+      # pinned pnpm regardless of which version we asked corepack to
+      # activate. Workspace `pnpm install` still resolves to pnpm 10.33.2
+      # because corepack reads `packageManager` from the root
+      # package.json; only the matrix pm test runs in tmpdirs (no
+      # packageManager field there), so corepack falls back to the
+      # activated default.
+      - name: Enable corepack
+        run: |
+          # Some Node 22.x minors ship a corepack predating the
+          # npm-registry signing-key rotation, so a plain `corepack
+          # enable` followed by `pnpm install` blows up in
+          # `verifySignature`. Upgrade first to be safe across the
+          # matrix Nodes — `corepack@0.34.7` carries the
+          # post-rotation keys and its engines `^20.10.0 ||
+          # ^22.11.0 || >=24.0.0` cover every supported entry.
+          # `--force` is required on Windows to clobber the runner
+          # image's pre-seeded `C:\npm\prefix\yarn.cmd`. Pinned
+          # (not `@latest`) so an upstream corepack release can't
+          # change resolution behaviour or raise its supported-Node
+          # floor and start failing this matrix without any
+          # repository change — mirrors the same pinning policy
+          # applied to pnpm/yarn/bun below.
+          npm install -g --force corepack@0.34.7
+          corepack enable
+          echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
+
+      - name: Install workspace + build CLIs
+        run: |
+          pnpm install
+          pnpm --filter create-arkor build
+          pnpm --filter arkor build
+
+      # NOTE: an earlier "Pack arkor into a scaffold tarball" step
+      # used to run `pnpm pack` and expose the result as a workflow
+      # output, fed into the now-removed `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC`
+      # job env. With the per-case `file:../<tgz>` override (the
+      # only viable shape on Windows + pnpm-10 / bun) the real-
+      # install tests now pack their own tarball in `beforeAll`,
+      # so the workflow-level pack was paying its `pnpm pack` cost
+      # on every leg of the (very large) matrix without anything
+      # consuming the output. PR #99 round-39 Copilot review.
+
+      - name: Setup pm under test (${{ matrix.id }})
+        if: ${{ matrix.id != 'bun' }}
+        run: |
+          case "${{ matrix.id }}" in
+            pnpm-9)     corepack prepare "pnpm@9.15.9"   --activate ;;
+            pnpm-10)    corepack prepare "pnpm@10.33.2"  --activate ;;
+            pnpm-11)    corepack prepare "pnpm@11.0.3"   --activate ;;
+            npm)        echo "Using bundled npm $(npm --version)" ;;
+            yarn)       corepack prepare "yarn@1.22.22"  --activate ;;
+            # yarn classic and berry both use the `yarn` npm package;
+            # only the version line differs (1.x vs 4.x).
+            yarn-berry) corepack prepare "yarn@4.14.1"   --activate ;;
+          esac
+
+      # bun isn't on corepack's package list and its official `curl |
+      # bash` installer is POSIX-only, so on Windows it'd silently no-op.
+      # `oven-sh/setup-bun` handles all three OSes uniformly and adds
+      # bun to PATH via $GITHUB_PATH for us.
+      #
+      # Pinning the version (rather than `latest`) keeps the matrix
+      # reproducible in lockstep with the corepack-prepared
+      # pnpm-*/yarn versions above — Copilot review on PR #99 flagged
+      # `bun-version: latest` as a way for an upstream bun release to
+      # silently flip CI green/red without a repo change. Bump in a
+      # dedicated commit when intentionally rolling forward.
+      - name: Setup bun
+        if: ${{ matrix.id == 'bun' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.13'
+
+      - name: Confirm pm version
+        run: |
+          # Run from $RUNNER_TEMP, not the workspace cwd. corepack
+          # enforces the workspace's `packageManager: pnpm@10.33.2` and
+          # rejects `yarn --version` / `bun --version` with "This project
+          # is configured to use pnpm". Stepping out into a directory
+          # without a packageManager field lets corepack fall back to the
+          # version we just `--activate`d for the matrix pm — which is
+          # also more useful diagnostically (it prints the matrix
+          # version, not the workspace's pinned 10.33.2 for pnpm-N
+          # entries).
+          cd "$RUNNER_TEMP"
+          case "${{ matrix.id }}" in
+            pnpm-*)         pnpm --version ;;
+            npm)            npm --version ;;
+            yarn|yarn-berry) yarn --version ;;
+            bun)            bun --version ;;
+          esac
+
+      # `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC` is deliberately NOT
+      # set at the job level. The real-install matrix tests
+      # (`runs real <pm> install + git commit` in
+      # `e2e/cli/src/{arkor-init,create-arkor}.test.ts`) pack
+      # their own `arkor-*.tgz` in `beforeAll` and pass a per-case
+      # `file:../<tgz>` override into `runCli` / `runCreateArkor`,
+      # which is required because pnpm 10 rejects absolute
+      # Windows-drive `file:` URIs (`file:D:\…`) and bun on Windows
+      # skips `bun.lock` generation for multi-segment relative
+      # `file:` paths. Setting a job-wide absolute fallback here
+      # would mask that requirement — a future test that performs
+      # a real install without overriding would silently pass on
+      # Linux/macOS and break only on Windows × pnpm-10. (PR #99
+      # round-39 Copilot review — that earlier fallback predated
+      # the per-case override and is now vestigial.)
+      #
+      # `YARN_NETWORK_CONCURRENCY=1` (yarn 1 optionalDeps
+      # extraction race) lives in e2e/cli/src/spawn-cli.ts — set
+      # per spawn so local `ARKOR_E2E_PM=yarn-berry pnpm --filter
+      # @arkor/e2e-cli test` runs work without extra env-var
+      # threading. The round-13 yarn-4 immutable-install fix lives
+      # in `packages/cli-internal/src/install.ts` itself (the SDK
+      # forwards `YARN_ENABLE_IMMUTABLE_INSTALLS=false` to the
+      # spawned `yarn install`), so real users running `arkor init
+      # --use-yarn` in their CI no longer fail on the missing
+      # initial lockfile.
+      - name: Run e2e suite under matrix pm
+        run: |
+          # Derive the e2e install-test gate label from the matrix id.
+          # yarn-berry and the pnpm-N entries share a common label
+          # across versions because the test only cares about which
+          # `--use-<flag>` to pass — the binary version is selected by
+          # corepack / setup-bun above.
+          #
+          # The label vocabulary lives in
+          # `e2e/cli/src/install-matrix.ts` (`InstallCaseLabel` /
+          # `INSTALL_CASES`). When adding or removing a matrix `id`
+          # here, update that file in lockstep — the e2e suite's gate
+          # function reads `ARKOR_E2E_PM` against the same label set.
+          case "${{ matrix.id }}" in
+            pnpm-*)     PM_LABEL=pnpm ;;
+            yarn-berry) PM_LABEL=yarn-berry ;;
+            *)          PM_LABEL="${{ matrix.id }}" ;;
+          esac
+          # We deliberately don't `-t`-filter to "real <pm> install" —
+          # setup (workspace install + CLI build + corepack/bun) is the
+          # bulk of each job's wall time, so dropping the filter to run
+          # the full e2e suite is ~30 s/job extra and surfaces any
+          # cross-axis interactions we didn't anticipate (e.g. yarn-berry
+          # PnP affecting unrelated spawn paths). The install cases
+          # themselves are still pm-gated via `ARKOR_E2E_PM` so only one
+          # pm's install assertions run per job.
+          ARKOR_E2E_PM="$PM_LABEL" pnpm --filter @arkor/e2e-cli exec vitest run
 
   coverage:
     name: coverage · upload to Codecov

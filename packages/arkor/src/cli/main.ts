@@ -36,6 +36,10 @@ export async function main(argv: string[]): Promise<void> {
     )
     .option("--skip-git", "Skip the git init prompt and do not initialise git")
     .option(
+      "--allow-builds",
+      "Opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
+    )
+    .option(
       "--agents-md",
       "Include AGENTS.md and CLAUDE.md to guide AI coding agents (default)",
     )
@@ -52,6 +56,7 @@ export async function main(argv: string[]): Promise<void> {
         useBun?: boolean;
         git?: boolean;
         skipGit?: boolean;
+        allowBuilds?: boolean;
         // Commander v13 leaves this undefined unless one of --agents-md /
         // --no-agents-md was passed; the action treats undefined as the
         // default-on value.
@@ -94,6 +99,7 @@ export async function main(argv: string[]): Promise<void> {
           packageManager,
           git: opts.git,
           skipGit: opts.skipGit,
+          allowBuilds: opts.allowBuilds,
           // Commander v13 leaves opts.agentsMd undefined when no flag is
           // passed; default to on so `arkor init` matches `create-arkor`.
           // Only explicit `--no-agents-md` (which sets `false`) opts out.

@@ -274,8 +274,85 @@ function runCliOnce(
     // can still set USERPROFILE explicitly: extraEnv is spread last.
     const homeMirror: NodeJS.ProcessEnv =
       extraEnv.HOME !== undefined ? { USERPROFILE: extraEnv.HOME } : {};
+    // Per-spawn yarn cache. Vitest runs test files in parallel workers;
+    // when two workers each call `arkor init --use-yarn`, both yarn 1
+    // processes hammer the shared `~/.cache/yarn/v6/` and race during
+    // tarball extraction — the inner mkdir-then-write sequence collides
+    // and the second loser dies with `ENOENT: ... open
+    // '...integrity/node_modules/<pkg>/.yarn-tarball.tgz'`. yarn 1's
+    // `--mutex network` would also work, but it's a flag (we'd need
+    // pm-aware install args in the SDK); a per-spawn `YARN_CACHE_FOLDER`
+    // sidesteps the issue at the env layer for free, and yarn-berry /
+    // npm / pnpm / bun all ignore the variable.
+    // Per-spawn bun install cache. Same parallel-worker race
+    // story as yarn above, observed concretely on Windows + CI:
+    // bun's tarball extraction does an
+    // NtSetInformationFile rename of a `.<hash>-<n>.<pkg>`
+    // staging dir into `<pkg>@<ver>@@@<n>`. When two vitest
+    // workers race the same staging dir under
+    // `~/.bun/install/cache/`, the rename fails with
+    // `ENOTEMPTY: Directory not empty (NtSetInformationFile)` →
+    // `error: InstallFailed extracting tarball from <pkg>`
+    // (CI run 25349847532, install · bun · windows-latest).
+    // Per-spawn `BUN_INSTALL_CACHE_DIR` isolates each worker
+    // (yarn / npm / pnpm all ignore the variable).
+    //
+    // Round 39 (Copilot, PR #99): the two `mkdtempSync` calls
+    // run sequentially. If the SECOND throws (tmpdir EACCES /
+    // ENOSPC / permissions race), the first dir would leak —
+    // the close/error listeners that fire `cleanup()` haven't
+    // attached yet because `spawn(...)` runs even later. Wrap
+    // both in a try/catch and unwind the first if the second
+    // mkdtemp throws.
+    const yarnCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-yarn-cache-"));
+    let bunCacheDir: string;
+    try {
+      bunCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-bun-cache-"));
+    } catch (mkErr) {
+      rmSync(yarnCacheDir, { recursive: true, force: true });
+      reject(mkErr);
+      return;
+    }
+    // Cleanup closure declared up-front so a synchronous `spawn`
+    // throw (invalid `binPath`, exec-time platform error, etc.)
+    // can run the same teardown the close/error events use.
+    // Without this, the per-spawn yarn / bun cache tmp dirs leak
+    // every time spawn rejects synchronously — CI accumulates
+    // `arkor-e2e-{yarn,bun}-cache-*` indefinitely on retry-heavy
+    // matrices. Round-39 Copilot review.
+    const cleanup = () => {
+      // Per-spawn caches are single-use; remove on close or error
+      // so `arkor-e2e-{yarn,bun}-cache-*` dirs don't pile up in
+      // tmpdir on long CI runs.
+      //
+      // Round 40 (Copilot, PR #99): wrap each `rmSync` in a
+      // try/catch. Even with `force: true`, `rmSync` can throw
+      // on Windows with transient EPERM/EBUSY (an antivirus
+      // scanner holding a handle, a worker process still
+      // releasing a lock, etc.). `cleanup()` runs from the
+      // child's `close` / `error` listeners, so a throw here
+      // would propagate into the spawn promise — turning an
+      // otherwise-successful test into a rejection (worse,
+      // masking the real failure on the error path). Cleanup
+      // is best-effort: a leaked tmp dir is recoverable, a
+      // bogus test result is not.
+      try {
+        rmSync(yarnCacheDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+      try {
+        rmSync(bunCacheDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    };
+    // Wall-clock start for the ENG-632 SIGKILL retry gate
+    // (`elapsedMs` in RunResult — see shouldRetryAfterSigkill).
     const start = Date.now();
-    const child = spawn(process.execPath, [binPath, ...argv], {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(process.execPath, [binPath, ...argv], {
       cwd,
       env: {
         ...cleanEnv,
@@ -285,17 +362,58 @@ function runCliOnce(
         GIT_AUTHOR_EMAIL: "e2e@arkor.test",
         GIT_COMMITTER_NAME: "Arkor E2E",
         GIT_COMMITTER_EMAIL: "e2e@arkor.test",
+        YARN_CACHE_FOLDER: yarnCacheDir,
+        BUN_INSTALL_CACHE_DIR: bunCacheDir,
+        // yarn 1 has a long-standing race extracting esbuild-style
+        // platform-specific optionalDependencies inside a single
+        // process — the parent `node_modules/@<scope>/<arch>/` dir
+        // gets created racily and the tarball write fails with ENOENT.
+        // The per-spawn YARN_CACHE_FOLDER above already prevents
+        // *inter*-process races (different test workers don't share a
+        // cache); this serialises *intra*-process resolution as a
+        // belt-and-braces measure. yarn-berry reads
+        // `networkConcurrency` from `.yarnrc.yml` instead, so the env
+        // is a no-op for it.
+        YARN_NETWORK_CONCURRENCY: "1",
+        // yarn-berry has its own cache layer (`enableGlobalCache:
+        // true` by default) that lives at
+        // `%LOCALAPPDATA%\Yarn\Berry\cache` on Windows and
+        // `~/.yarn/berry/cache` elsewhere — separate from
+        // `YARN_CACHE_FOLDER`, which yarn-berry only honours when
+        // global cache is disabled. Parallel vitest workers running
+        // `yarn install` against that shared dir race the same
+        // tarball-rename sequence as bun above and produce
+        // `EPERM: operation not permitted, rename '<pkg>.zip-<hash>.tmp'
+        // -> '<pkg>.zip'` (CI run 25351227697, install · yarn-berry ·
+        // windows-latest · node 24.12). Forcing
+        // `enableGlobalCache: false` flips the cache target to the
+        // per-spawn `cacheFolder` (== `YARN_CACHE_FOLDER` above), so
+        // each worker writes into its own tmp dir. yarn 1 ignores the
+        // env, npm / pnpm / bun ignore it.
+        YARN_ENABLE_GLOBAL_CACHE: "false",
         ...homeMirror,
         ...extraEnv,
       },
       stdio: ["ignore", "pipe", "pipe"],
-    });
+      });
+    } catch (err) {
+      // Synchronous spawn failure — clean the per-spawn cache
+      // tmp dirs before propagating, otherwise they leak on
+      // every retry. (Round-39 Copilot review.)
+      cleanup();
+      reject(err);
+      return;
+    }
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    child.stdout.on("data", (c: Buffer) => out.push(c));
-    child.stderr.on("data", (c: Buffer) => err.push(c));
-    child.on("error", reject);
-    child.on("close", (code, signal) =>
+    child.stdout?.on("data", (c: Buffer) => out.push(c));
+    child.stderr?.on("data", (c: Buffer) => err.push(c));
+    child.on("error", (err) => {
+      cleanup();
+      reject(err);
+    });
+    child.on("close", (code, signal) => {
+      cleanup();
       resolve({
         code: code ?? -1,
         signal,
@@ -303,8 +421,8 @@ function runCliOnce(
         stdout: Buffer.concat(out).toString("utf8"),
         stderr: Buffer.concat(err).toString("utf8"),
         dir: cwd,
-      }),
-    );
+      });
+    });
   });
 }
 

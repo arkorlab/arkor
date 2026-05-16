@@ -51,6 +51,7 @@ bun arkor init
 | `--use-bun` | パッケージマネージャーに bun を強制。 |
 | `--git` | 確認なしで git リポジトリを初期化し、初回コミットを作成。 |
 | `--skip-git` | git init を黙ってスキップ。 |
+| `--allow-builds` | esbuild の `postinstall` スクリプトを `pnpm install` で実行することを許可（pnpm 専用 — yarn / npm / bun はワークスペース yaml を無視）。デフォルトは deny。下記 [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプトpnpm-11) を参照。 |
 | `--agents-md` | AI コーディングエージェントに「arkor は学習データより新しい」ことを伝える `AGENTS.md` と `CLAUDE.md` を書き出す。デフォルト。 |
 | `--no-agents-md` | `AGENTS.md` / `CLAUDE.md` の生成をスキップ。既存のユーザー記述の `AGENTS.md` は常に保持され、arkor 管理の block（`<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->` で区切られる）は初回は末尾追記、再 scaffold 時はその場で置換されます。 |
 
@@ -61,6 +62,36 @@ bun arkor init
 ### デフォルトの流れ
 
 デフォルトでは部分的に対話的です。プロジェクト名、スターターテンプレート、（git リポジトリ内でなければ）`git init` を実行するかを先にすべて尋ねたうえで、`--skip-install` が指定されない限り（確認プロンプトなしで）パッケージマネージャーの `install` を自動実行します。`git init` の確認を install よりも前に出すことで、すべてのプロンプトに先に答えてしまえば、install を放置して離席できるようにしています。実際の `git init` と初回コミットは install の後に走り、生成されたロックファイルが初回コミットに含まれます。パッケージマネージャーが解決できない（`--use-*` フラグなし、`npm_config_user_agent` からの検出も失敗）ときは install ステップはスキップされ、最後に手動 install のヒントが表示されます。
+
+### postinstall スクリプト（pnpm 11+）
+
+選んだパッケージマネージャが pnpm のとき（明示的に `--use-pnpm` を指定したか、`npm_config_user_agent` から pnpm が検出された場合、例: `pnpm arkor init`、あるいは `--use-*` フラグなしでパッケージマネージャー検出も解決せず空の新規ディレクトリーに scaffold する場合）、`package.json` と同階層に `pnpm-workspace.yaml` を出力します。
+
+```yaml
+packages: []
+allowBuilds:
+  esbuild: false
+```
+
+次の場合は **書き出されません**:
+
+- `--use-npm` / `--use-yarn` / `--use-bun` が指定されている（これらのツールはこのファイルを読まない）。
+- ターゲットディレクトリーに既存ファイルがあり、`--use-*` 指定がない（推測でワークスペース設定を他人のプロジェクトに置かない）。
+- 祖先ディレクトリーに既に `pnpm-workspace.yaml` がある（親モノレポのワークスペースが支配的。ここでネストして作ると親を遮蔽し、上位の `workspace:*` 解決が壊れます）。
+
+ターゲットに `pnpm-workspace.yaml` が既にある場合、**pnpm があり得る** とき（新規作成と同じく `--use-pnpm` / UA 検出が pnpm / 未解決のいずれか。`--use-npm` / `--use-yarn` / `--use-bun` の場合は既存ファイルも触りません）のみ patch します。トップレベルの `allowBuilds:` ブロックに `esbuild: false`（`--allow-builds` が指定されている場合は `esbuild: true`）を追記（無ければブロックごと作成）し、無関係なキーは触りません。esbuild が既に明示的に値（true / false）でピン留めされていたり、ファイルが `allowBuilds: false` / `allowBuilds: true` のスカラー形（global pin）を使っている場合は何もせず no-op で終わります。
+
+pnpm 11 から postinstall スクリプトの既定が「明示的に承認しない限り実行しない」に変わり、未承認のスクリプトに当たると `ERR_PNPM_IGNORED_BUILDS`（exit code 1）で失敗するようになりました。esbuild はそうしたスクリプト（`node install.js`、プラットフォーム別バイナリの検証/取得）を持つため、scaffold したばかりのプロジェクトでそのまま `pnpm install` するとこのエラーになります。
+
+scaffold が書く `allowBuilds: { esbuild: false }` は明示的な deny です。pnpm は「決定済み」と判断してスクリプトをサイレントにスキップし、エラーになりません。esbuild 自身は動作します — pnpm が `@esbuild/<platform>` を `optionalDependency` としてすでにインストールしているからです。yarn / npm / bun は `pnpm-workspace.yaml` を読まないので、それらでは無効化されたファイルとして扱われます。
+
+esbuild の postinstall を実際に走らせる必要がある場合（まれ、通常は壊れたインストーラーや特殊なプラットフォーム）は `--allow-builds` を渡してください。
+
+```bash
+pnpm arkor init --yes --use-pnpm --allow-builds
+```
+
+— あるいは後から `pnpm-workspace.yaml` のエントリーを `true` に書き換えてください。このフラグは `pnpm-workspace.yaml` を実際に出力 / patch する run でのみ参照されるため、`--use-npm` / `--use-yarn` / `--use-bun` の指定下では no-op になります（それらの run はファイルに一切触れません）。後から pnpm に切り替えた場合は `arkor init --use-pnpm --allow-builds` を再実行してください。
 
 ### テンプレート
 
@@ -212,7 +243,7 @@ bun arkor init --template translate --use-bun
 
 ## 何が書かれるか
 
-ツールが触るパスは最大 8 つ。いずれもユーザーの既存内容を上書きしません:
+ツールが触るパスは最大 10 つで、無条件の 6 つに加え、AGENTS.md 関連の 2 つ、パッケージマネージャー設定 2 つが条件付きで追加されます。いずれもユーザーの既存内容を上書きしません:
 
 | パス | 振る舞い |
 | --- | --- |
@@ -224,6 +255,8 @@ bun arkor init --template translate --use-bun
 | `package.json` | 無ければ name / `private` / `type: "module"` / `dev`+`build`+`start` のスターター scripts / `devDependencies.arkor` で **作成**。不足している script があれば追加し、`devDependencies.arkor` がなければ追加する **パッチ**。既存の値（カスタム `dev` script など）は **上書きしません**。すべて揃っていれば変更なし（**Ok**）。 |
 | `AGENTS.md` | 無ければ arkor 管理の block を含めて **作成**（デフォルト。`--no-agents-md` でスキップ可）。既存ファイルがあれば、arkor 管理 block（`<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->` で区切り）を **パッチ** — 初回は末尾に追記、再 scaffold ではその場で置換。marker 外のユーザー記述はすべて保持されます。canonical block が既に最新なら変更なし（**Ok**）。canonical 管理 block が複数含まれている場合、どちらを更新するかを推測すると壊れる可能性があるため、ファイルは **そのまま**にして警告を出します — ユーザーが重複を解消すれば次回の再 scaffold でその場でパッチされます。 |
 | `CLAUDE.md` | 無ければ Claude Code の import ディレクティブ `@AGENTS.md` で **作成**（デフォルト。`--no-agents-md` でスキップ可）。既にファイルがあれば **そのまま**で、プロジェクト固有の `CLAUDE.md` を上書きしません。`AGENTS.md` が canonical 管理 block 複数のため kept された場合は警告つきで **スキップ** されます — その状態で `@AGENTS.md` shim を作ると、未解決の重複ルールを Claude Code の context に auto-import してしまうためです。`AGENTS.md` を dedupe したあとの再 scaffold で作成されます。 |
+| `pnpm-workspace.yaml` | _条件付き。_ 詳細は [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプトpnpm-11) を参照。pnpm があり得て、かつ祖先に `pnpm-workspace.yaml` が無い場合に `packages: []` + `allowBuilds.esbuild: false`（`--allow-builds` 指定時は `: true`）で **作成**。ファイルが既にあって pnpm があり得る場合は **パッチ**: esbuild が未ピンならば `esbuild: <bool>` を `allowBuilds:` に追記。`--use-npm` / `--use-yarn` / `--use-bun` と pnpm モノレポのサブディレクトリ内では **スキップ**。 |
+| `.yarnrc.yml` | _条件付き。_ レイヤード判定の全文は `packages/cli-internal/src/scaffold.ts` を参照。yarn があり得る新規 scaffold（`--use-yarn`、UA 検出が yarn、または `--use-*` なしで UA 検出失敗）でのみ `nodeLinker: node-modules` で **作成**。あれば **そのまま**（デフォルト以外の `nodeLinker:` は競合警告、`nodeLinker:` キー欠落は yarn-berry caveat）。明示的な非 yarn pm、および positive yarn-berry signal がない既存非空ディレクトリでの `--use-yarn` では **スキップ**。 |
 
 CLI は install 前に "Files" ノートとしてファイル一覧を表示し、各パスの `action`（`created` / `kept` / `patched` / `ok` / `skipped`）を出すので、何が変わったか正確に確認できます。
 

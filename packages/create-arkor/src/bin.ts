@@ -1,14 +1,19 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  lockfileChangedSince,
+  nodeModulesChangedSince,
+  snapshotLockfile,
+  snapshotNodeModules,
   resolvePackageManager,
   sanitise,
   scaffold,
@@ -30,6 +35,13 @@ interface RunOptions {
   git?: boolean;
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
+  /**
+   * `true` when the user explicitly passed `--allow-builds`. Threads through
+   * to `scaffold()` so the emitted `pnpm-workspace.yaml#allowBuilds.esbuild`
+   * is `true` instead of the secure-by-default `false`. Mirror of the same
+   * field on `arkor init`'s `InitOptions`; see that interface for details.
+   */
+  allowBuilds?: boolean;
   /**
    * Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor is
    * newer than their training data. Defaults to true; `--no-agents-md` opts out.
@@ -61,6 +73,87 @@ async function isOccupied(path: string): Promise<boolean> {
 
 function collisionMessage(name: string): string {
   return `Directory "${name}/" already exists and is not empty.`;
+}
+
+/**
+ * Shell-quote a path so the `cd ${path}` recovery hints survive
+ * paths with spaces or metacharacters. Round-39 Copilot review:
+ * `create-arkor "My App"` would otherwise emit a copy-paste-
+ * broken `cd My App && pnpm install`.
+ *
+ * Skips quoting for the common safe case (alphanumerics + a few
+ * unambiguous extras like `-_./+@:,`) so the printed hint stays
+ * clean for typical project names.
+ *
+ * Quoting style is platform-aware (round-39 Codex P2 / Copilot):
+ *
+ *   - POSIX (Linux / macOS): single quotes. Embedded `'` is
+ *     escaped via the standard `'\''` close-literal-open
+ *     sequence — the bytes `'`, `\`, `'`, `'` parse as
+ *     end-quote, literal `'`, start-quote.
+ *   - Windows (cmd.exe / PowerShell): double quotes with a
+ *     MIXED escape strategy — there is no single quoting form
+ *     that's clean for both shells, so we pick the safer
+ *     escape per metacharacter:
+ *       * `` ` `` (backtick) and `$`: PS-style backtick prefix
+ *         (`` ` `` → `` `` ``, `$` → `` `$ ``). PowerShell
+ *         interpolates `$VAR` / `$()` inside double quotes, so
+ *         a path containing those would let a copy-pasted
+ *         `cd "..." && <pm> install` evaluate a subexpression
+ *         when pasted into a PS prompt (round-39 Copilot
+ *         flagged this as the copy-paste injection vector). In
+ *         cmd these chars are literal so the backtick-prefix
+ *         is just a cosmetic mismatch.
+ *       * `\` and `"`: backslash-style (`\` → `\\`, `"` → `\"`).
+ *         These match the `_setargv` / msvcrt argv parsing
+ *         convention used when the quoted path is forwarded to
+ *         a child program from cmd. PS doesn't honour `\` as an
+ *         escape inside double quotes (the literal text is
+ *         what `Set-Location` sees), but `cd "C:\\foo\\bar"`
+ *         still resolves to `C:\foo\bar` because NTFS
+ *         normalizes adjacent separators. PS-style would be
+ *         `` `" `` for embedded `"`; we keep `\"` because cmd
+ *         users with literal `"` in a path are no rarer than
+ *         PS users with the same, and the cmd msvcrt
+ *         convention is what gets the path correctly through
+ *         to programs spawned via argv.
+ *       * `%`: NOT escaped — there is no transparent escape for
+ *         `%VAR%` inside double quotes in interactive `cmd.exe`
+ *         (`^%` only suppresses expansion in batch files, not
+ *         at the prompt; `%%` becomes literal `%%` outside
+ *         batch). PowerShell treats `%` as literal in double
+ *         quotes, so PS users see correct hints. cmd users
+ *         with a path like `My%Project%App` would see
+ *         `%Project%` substituted with the env var of that
+ *         name (or left as-is if undefined on Windows 10+).
+ *         Same level of edge case as the other documented
+ *         mismatches; round-39 Copilot flagged it explicitly.
+ *     `cmd.exe` users with paths containing `` ` ``, `$`, or
+ *     `%` see a slightly mangled but not-injection-vector hint;
+ *     PS users with paths containing `"` see a broken-but-not-
+ *     injection hint. Paths with these metachars are
+ *     vanishingly rare in practice. The single-line cd-recovery
+ *     print is a pragmatic compromise — emitting separate cmd
+ *     / PS lines would more than double the closing summary
+ *     length for a hazard most users will never hit.
+ */
+export function shellQuoteIfNeeded(value: string): string {
+  if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
+  if (process.platform === "win32") {
+    // Order matters: backtick first (it's the PS escape
+    // character for the others, so escaping it first prevents
+    // double-decoding), then the metachars it protects (`$`,
+    // `"`). Backslash escape is independent — it's for
+    // `_setargv` / msvcrt argv parsing when the quoted path
+    // is forwarded to a child program.
+    const escaped = value
+      .replace(/`/g, "``")
+      .replace(/\$/g, "`$")
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"');
+    return `"${escaped}"`;
+  }
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 /**
@@ -132,7 +225,11 @@ async function runGitInit(cwd: string): Promise<void> {
   }
 }
 
-async function run(options: RunOptions): Promise<void> {
+// Exported so the focused unit test in `bin.test.ts` can call `run()`
+// directly without spawning the bundled binary. Commander still owns
+// argv parsing in production — `run()` is the side-effecting kernel
+// the parser hands off to.
+export async function run(options: RunOptions): Promise<void> {
   clack.intro("create-arkor");
 
   // When `dir` is explicit, derive the project name from its basename so
@@ -227,12 +324,18 @@ async function run(options: RunOptions): Promise<void> {
     process.exit(1);
   }
 
+  const pm = options.packageManager;
+
   const spin = clack.spinner();
   spin.start(`Scaffolding in ${cwd}`);
-  const { files, warnings } = await scaffold({
+  // Pass `packageManager` so yarn picks up `.yarnrc.yml` (avoids
+  // yarn-berry's PnP default which the arkor runtime can't load through).
+  const { files, warnings, blockInstall } = await scaffold({
     cwd,
     name,
     template,
+    packageManager: pm,
+    allowBuilds: options.allowBuilds,
     agentsMd: options.agentsMd,
   });
   spin.stop("Done");
@@ -241,8 +344,13 @@ async function run(options: RunOptions): Promise<void> {
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
-  for (const w of warnings) {
-    clack.log.warn(w);
+  // Surface non-fatal scaffolder advisories (see arkor init for the
+  // mirror of this loop and the rationale). The install step below
+  // also consults `blockInstall` and bows out when yarn-config
+  // advisories fire: running `yarn install` against an unfixed PnP
+  // setup produces no `node_modules` and leaves the project broken.
+  for (const warning of warnings) {
+    clack.log.warn(warning);
   }
 
   // Resolve the git-init choice before kicking off install so the user can
@@ -253,39 +361,230 @@ async function run(options: RunOptions): Promise<void> {
   // after `--git` / `-y` and the bootstrap commit wouldn't be reproducible.
   const shouldInitGit = await decideGitInit(cwd, options);
 
-  const pm = options.packageManager;
-
   let installed = false;
+  // Round 40 (Copilot, PR #99): stash any `install()` throw so the
+  // `Retry manually` hint can be deferred to AFTER the recovery
+  // gate runs. pnpm 11 / bun-Windows have been observed exiting
+  // non-zero AFTER writing both `node_modules` and the lockfile,
+  // in which case the gate flips `installSucceeded` to true and
+  // the outro omits the install step. Printing `Retry manually`
+  // inline from the catch directly contradicted that recovered
+  // branch's outcome.
+  let installThrewError: string | undefined;
+  // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
+  // lockfile BEFORE install so the post-install gate can prove
+  // install actually changed something on disk. See `arkor init`
+  // for the full rationale.
+  const lockfileBefore = snapshotLockfile(cwd, pm);
+  // Round 39 follow-up #2 (Codex P1, PR #99): mirror of
+  // `arkor init`'s `node_modules` snapshot. The earlier
+  // `hasEnclosingNodeModules` static check false-positived on
+  // ambient ancestor `node_modules` from a prior root install
+  // — snapshot at cwd before install so the post-install diff
+  // proves THIS install touched the project's deps, not the
+  // monorepo's hoisted node_modules.
+  const nodeModulesBefore = snapshotNodeModules(cwd);
   if (!options.skipInstall && pm) {
-    clack.log.step(`Installing dependencies with ${pm}`);
-    try {
-      await install(pm, cwd);
-      installed = true;
-    } catch (err) {
-      clack.log.warn(err instanceof Error ? err.message : String(err));
+    if (blockInstall) {
+      // Round 17 (Copilot, PR #99): the yarn-config advisories above
+      // tell the user to fix `.yarnrc.yml` before running `yarn
+      // install`. Running install ourselves first would produce an
+      // empty `node_modules` (yarn 4 PnP) and leave `arkor dev` /
+      // `arkor train` broken — the install becomes worse than
+      // useless. Skip and surface the manual-retry hint instead.
+      const retry = inPlace
+        ? `${pm} install`
+        : `cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`;
       clack.log.info(
-        inPlace
-          ? `Retry manually: ${pm} install`
-          : `Retry manually: cd ${cdTarget} && ${pm} install`,
+        `Skipping install — fix the advisory above first, then run: ${retry}`,
       );
+    } else {
+      clack.log.step(`Installing dependencies with ${pm}`);
+      try {
+        await install(pm, cwd);
+        installed = true;
+      } catch (err) {
+        // Surface the pm error itself immediately (visibility). The
+        // `Retry manually` hint is DEFERRED to after the recovery
+        // gate computes `installSucceeded` below; see the
+        // `installThrewError` declaration above for the rationale.
+        installThrewError =
+          err instanceof Error ? err.message : String(err);
+        clack.log.warn(installThrewError);
+      }
     }
   }
 
-  if (shouldInitGit) await runGitInit(cwd);
+  // Round 19 (Copilot, PR #99): when blockInstall is true AND
+  // an install was actually going to run, skipping git init
+  // preserves the "lockfile lands in the initial commit"
+  // invariant.
+  //
+  // Round 21 (Codex P2, PR #99): the rationale only applies when
+  // install was actually going to run. If the user explicitly
+  // passed `--skip-install`, no install was happening anyway,
+  // there's no lockfile to wait for, and `--git`/`-y` is an
+  // explicit request we shouldn't second-guess. Same goes for
+  // `pm === undefined`. Gate the skip on "install would have
+  // run".
+  //
+  // Round 21 (Copilot, PR #99): the recovery hint used to
+  // prescribe `create-arkor` as the rerun command, but real
+  // users invoke this via `npm create` / `pnpm create` /
+  // `yarn create` / `bun create` (the `create-arkor` bin
+  // usually isn't on PATH directly), and the hint dropped any
+  // flags the user originally passed (`--use-yarn` / `--git` /
+  // `--name` / etc). Drop the prescriptive command — point at
+  // the advisory and let the user re-invoke with whatever they
+  // originally typed.
+  // Round 35 (Copilot, PR #99): the lockfile-in-initial-commit
+  // invariant is broken in TWO failure modes, not just the
+  // round-19 advisory case. install can also THROW (caught above,
+  // sets `installed=false` + surfaces a manual-retry hint). In
+  // that case the original code still ran `git init` on the
+  // no-lockfile tree — same dirty-repo / amend headache as the
+  // round-19 case. Skip git in both modes; the
+  // wouldHaveInstalled gate (round 21) still honors the
+  // `--skip-install --git` no-install-attempted case.
+  const wouldHaveInstalled = !options.skipInstall && pm !== undefined;
+  // Round 39 (Copilot, PR #99): mirror of `arkor init`'s
+  // lockfile-on-disk fallback. pnpm 11 and bun on Windows can
+  // exit non-zero AFTER writing both `node_modules` and the
+  // lockfile, so treating the throw alone as "install failed"
+  // silently dropped the requested initial commit even when the
+  // bootstrap was effectively complete.
+  //
+  // Round 39 follow-up (Codex P1, PR #99): compare against the
+  // pre-install snapshot rather than `existsSync` alone — a
+  // workspace-subdir scaffold has a stale ancestor lockfile, so
+  // the loose existence check would treat a totally failed
+  // install as "lockfile landed" and proceed with `git init`
+  // over an untouched tree.
+  //
+  // Round 39 follow-up #2 (Codex P1, PR #99): pair the
+  // lockfile-changed signal with a `node_modules` before/after
+  // diff so a preinstall / install-hook failure that rewrote
+  // the lockfile but never populated `node_modules` doesn't
+  // slip through, AND so an ambient ancestor `node_modules`
+  // (monorepo subdir) doesn't false-positive the gate. See
+  // `arkor init` for the full rationale.
+  const installSucceeded =
+    !wouldHaveInstalled ||
+    installed ||
+    (lockfileChangedSince(cwd, pm, lockfileBefore) &&
+      nodeModulesChangedSince(cwd, nodeModulesBefore));
+  // Round 40 (Copilot, PR #99): print the `Retry manually` hint
+  // ONLY when install actually threw AND the recovery gate did
+  // NOT salvage it. In the recovered branch (pnpm 11 / bun-
+  // Windows non-zero-after-write) the outro proceeds with no
+  // install step, and re-stating "retry install" inline would
+  // tell the user to redo work the CLI just accepted as done.
+  if (installThrewError !== undefined && !installSucceeded) {
+    clack.log.info(
+      inPlace
+        ? `Retry manually: ${pm} install`
+        : `Retry manually: cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`,
+    );
+  }
+  // Round 39 (Copilot, PR #99): the previous "re-run this command"
+  // hint is only safe when re-invoking would actually merge into
+  // the same target. With no `[dir]` argument, `run()` derives a
+  // fresh subdir and the occupied-directory guard at the top of
+  // `run()` aborts on re-run instead of finishing the bootstrap.
+  // Tell those users to recover inside the existing directory; for
+  // explicit `[dir]` (and the `.` in-place case), the guard
+  // doesn't fire, so re-run still works.
+  const reRunIsSafe = options.dir !== undefined;
+  const recoverInDir = inPlace
+    ? `\`${pm} install\` (then \`git init\` + commit)`
+    : `\`cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install\` (then \`git init\` + commit)`;
+  let gitInitSkipped = false;
+  if (shouldInitGit && wouldHaveInstalled && blockInstall) {
+    clack.log.info(
+      reRunIsSafe
+        ? "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit."
+        : `Skipping git init too — fix the advisory above, then run ${recoverInDir} to finish the bootstrap.`,
+    );
+    gitInitSkipped = true;
+  } else if (shouldInitGit && !installSucceeded) {
+    clack.log.info(
+      reRunIsSafe
+        ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
+        : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`,
+    );
+    gitInitSkipped = true;
+  } else if (shouldInitGit) {
+    await runGitInit(cwd);
+  }
 
-  const installLine = installed
+  // Round 39 (Copilot, PR #99): align the outro hint with the
+  // widened `installSucceeded` gate. Keying on `installed` alone
+  // would tell a recovered-install user (install threw but the
+  // lockfile is on disk) to run `<pm> install` again even though
+  // git init was already allowed to proceed. `installSucceeded
+  // && wouldHaveInstalled` captures both the in-memory success
+  // and the on-disk recovery while still pointing `--skip-install`
+  // / no-pm users at a manual install step.
+  const treeIsReady = installSucceeded && wouldHaveInstalled;
+  const installLine = treeIsReady
     ? null
     : pm
       ? `  ${pm} install`
       : `  ${MANUAL_INSTALL_HINT}`;
   const devLine =
     pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
+  // Round 39 (Copilot, PR #99): when git init was skipped (install
+  // blocked or threw) but the user originally requested `--git`,
+  // remind them in the closing outro that they still need to
+  // create the repo + initial commit themselves once install
+  // succeeds. Without this step, a `--git` user following the
+  // outro verbatim ends up with the install fixed but no repo.
+  // Round 40 (Codex P2, PR #99): the recovery hint must survive
+  // copy-paste into ANY shell — POSIX (bash/zsh), cmd.exe, and
+  // PowerShell. Single quotes are POSIX-only: cmd.exe treats
+  // them as literal characters, so the previous
+  // `git commit -m 'Initial commit from Create Arkor'` form
+  // tokenized on whitespace on Windows and produced `pathspec`
+  // errors. Double quotes are universally honored as quote
+  // delimiters. The current message has no metachars (no `$`,
+  // no backticks), so POSIX shells won't expand anything inside
+  // them either — safe everywhere.
+  const gitLine = gitInitSkipped
+    ? `  git init && git add -A && git commit -m "Initial commit from Create Arkor"`
+    : null;
+  // Round 39 (Copilot, PR #99): the install-blocked branch told
+  // the user to fix the yarn-config advisory before running
+  // install. Printing the generic `<pm> install` line in the
+  // closing outro right after that contradicts the warning and
+  // can lead users straight back into the same broken install.
+  //
+  // Round 40 (Copilot, PR #99): the previous fix prepended a
+  // `  # Fix the advisory above first, then:` line inside the
+  // multi-line block, but `#` is NOT a comment in `cmd.exe` —
+  // pasting that line at a cmd prompt errors with `'#' is not
+  // recognized as an internal or external command`. There's no
+  // portable comment syntax across cmd / PowerShell / bash, so
+  // instead of a fake-comment row, the advisory branch swaps
+  // the outro's intro line ("Next steps:") for a sentence that
+  // names the prerequisite ("After fixing the advisory above,
+  // finish the bootstrap with:"). Prose-with-colon as the lead
+  // line is the same shape as the default branch and won't be
+  // mistaken for a command. The two earlier `clack.log.info`
+  // advisories ("Skipping install — fix the advisory above
+  // first, ...", "Skipping git init too — fix the advisory
+  // above first, ...") still anchor the warning prominently
+  // before the outro lands.
+  const outroIntro =
+    wouldHaveInstalled && blockInstall
+      ? `After fixing the advisory above, finish the bootstrap with:`
+      : `Next steps:`;
 
   clack.outro(
     [
-      `Next steps:`,
-      ...(inPlace ? [] : [`  cd ${cdTarget}`]),
+      outroIntro,
+      ...(inPlace ? [] : [`  cd ${shellQuoteIfNeeded(cdTarget)}`]),
       ...(installLine ? [installLine] : []),
+      ...(gitLine ? [gitLine] : []),
       devLine,
     ].join("\n"),
   );
@@ -320,6 +619,10 @@ program
   )
   .option("--skip-git", "skip the git init prompt and do not initialise git")
   .option(
+    "--allow-builds",
+    "opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
+  )
+  .option(
     "--agents-md",
     "include AGENTS.md and CLAUDE.md to guide AI coding agents (default)",
   )
@@ -338,6 +641,7 @@ program
         useBun?: boolean;
         git?: boolean;
         skipGit?: boolean;
+        allowBuilds?: boolean;
         // Commander v13 leaves this undefined unless one of --agents-md /
         // --no-agents-md was passed; the action treats undefined as the
         // default-on value.
@@ -396,6 +700,7 @@ program
         packageManager,
         git: opts.git,
         skipGit: opts.skipGit,
+        allowBuilds: opts.allowBuilds,
         // Commander v13 leaves opts.agentsMd undefined when no flag is
         // passed (it doesn't auto-default --no-foo to `foo: true`). Default
         // to on; only explicit `--no-agents-md` (which sets `false`) opts out.
@@ -404,9 +709,49 @@ program
     },
   );
 
-program.parseAsync(process.argv).catch((err) => {
-  process.stderr.write(
-    `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,
-  );
-  process.exit(1);
-});
+// Only parse argv when this module is the entrypoint. Tests
+// (`bin.test.ts`) import `run` directly to exercise the side-effect
+// kernel without commander spinning up on vitest's argv.
+//
+// `process.argv[1]` is the path Node was invoked with — under
+// `npm create arkor` / `pnpm create arkor` / `npx create-arkor` it's
+// the symlink/shim at `node_modules/.bin/create-arkor`, while
+// `import.meta.url` is the *resolved* path Node loaded the module
+// from (`--preserve-symlinks-main` defaults to false). A naïve
+// equality check between the two skips `program.parseAsync` for
+// every package-manager invocation and the CLI silently exits doing
+// nothing — Codex P1 / Copilot review on PR #99 round 7 flagged
+// the regression I introduced in round 6. Realpath both sides
+// before comparing so the symlink and its target collapse.
+// Exported so `bin.test.ts` can drive the comparison with a synthetic
+// symlink/target pair without spawning the real binary.
+export function shouldRunAsCli(
+  argv1: string | undefined,
+  moduleUrl: string,
+): boolean {
+  if (!argv1) return false;
+  const resolveSafe = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  let modulePath: string;
+  try {
+    modulePath = fileURLToPath(moduleUrl);
+  } catch {
+    // Non-file URL (e.g. data:, vitest's transform URL) — never CLI.
+    return false;
+  }
+  return resolveSafe(argv1) === resolveSafe(modulePath);
+}
+
+if (shouldRunAsCli(process.argv[1], import.meta.url)) {
+  program.parseAsync(process.argv).catch((err) => {
+    process.stderr.write(
+      `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(1);
+  });
+}
