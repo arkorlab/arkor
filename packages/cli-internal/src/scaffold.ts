@@ -1446,7 +1446,6 @@ export async function scaffold(
   // disk, so generating the README earlier locks in the wrong content
   // when `writeAgentsMd` later refuses to patch (duplicate-block case)
   // and `CLAUDE.md` is consequently skipped.
-  const warnings: string[] = [];
   type AgentEntry = { path: string; action: FileAction };
   const agentEntries: AgentEntry[] = [];
   let claudeWritten = false;

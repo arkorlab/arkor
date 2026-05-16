@@ -114,6 +114,7 @@ describe("create-arkor run()", () => {
   it("forwards packageManager to scaffold()", async () => {
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: "yarn",
@@ -128,6 +129,7 @@ describe("create-arkor run()", () => {
   it("forwards an undefined packageManager unchanged (manual install hint flow)", async () => {
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: undefined,
@@ -158,6 +160,7 @@ describe("create-arkor run()", () => {
     const clack = await import("@clack/prompts");
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: "yarn",
@@ -173,6 +176,7 @@ describe("create-arkor run()", () => {
     const clack = await import("@clack/prompts");
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: "pnpm",
@@ -198,6 +202,7 @@ describe("create-arkor run()", () => {
     const clack = await import("@clack/prompts");
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: "yarn",
@@ -229,6 +234,7 @@ describe("create-arkor run()", () => {
     const clack = await import("@clack/prompts");
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: "yarn",
@@ -263,6 +269,7 @@ describe("create-arkor run()", () => {
     });
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: "yarn",
@@ -284,6 +291,7 @@ describe("create-arkor run()", () => {
     const clack = await import("@clack/prompts");
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: "yarn",
@@ -305,6 +313,7 @@ describe("create-arkor run()", () => {
     // Default mock already returns blockInstall: false.
     await run({
       dir: "target",
+      agentsMd: false,
       yes: true,
       template: "triage",
       packageManager: "yarn",
