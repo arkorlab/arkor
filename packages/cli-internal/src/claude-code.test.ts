@@ -167,6 +167,44 @@ describe("missingClaudeCodeFlags", () => {
     expect(missing).toEqual([]);
   });
 
+  it.each([
+    ["punctuation-only cwd basename", "/tmp/!!!"],
+    ["whitespace-only cwd basename", "/tmp/   "],
+    ["empty cwd basename (filesystem root)", "/"],
+  ])(
+    "in init mode without --name, rejects %s because basename(cwd) would collapse to the fallback",
+    (_label, initCwd) => {
+      // PR #141 review (Copilot): `arkor init` without `--name`
+      // derives the project name from `basename(process.cwd())`. If
+      // the user runs the CLI from `/tmp/!!!/` or similar, strict
+      // mode used to return early (no `--name` to validate) and
+      // `runInit` silently sanitised the basename to the generic
+      // `arkor-project` fallback. The validator now mirrors the
+      // explicit `--name` check against `basename(initCwd)`.
+      const missing = missingClaudeCodeFlags({
+        requireProjectName: false,
+        initCwd,
+        template: "triage",
+        skipGit: true,
+        useNpm: true,
+        agentsMd: false,
+      });
+      expect(missing.map((m) => m.flag)).toContain("--name <name>");
+    },
+  );
+
+  it("in init mode, accepts a meaningful cwd basename without --name", () => {
+    const missing = missingClaudeCodeFlags({
+      requireProjectName: false,
+      initCwd: "/home/alice/my-arkor-app",
+      template: "triage",
+      skipGit: true,
+      useNpm: true,
+      agentsMd: false,
+    });
+    expect(missing).toEqual([]);
+  });
+
   it("rejects empty positional even when --name is set (positional drives the runtime target dir)", () => {
     // PR #141 review (Copilot): `create-arkor` uses `opts.dir` for the
     // *target directory*, not just the slug. So

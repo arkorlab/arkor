@@ -102,6 +102,18 @@ export interface ClaudeCodeOptionsCheck {
    * project name deliberately.
    */
   requireProjectName?: boolean;
+  /**
+   * The working directory `arkor init` would derive its default project
+   * name from (`basename(initCwd)`). Used only when `requireProjectName`
+   * is false and `--name` was not passed: the strict-mode validator
+   * runs the same alphanumeric check it applies to explicit `--name`
+   * values against this basename, so an agent running `arkor init` in a
+   * directory like `/tmp/!!!/` doesn't silently collapse to the
+   * `arkor-project` fallback. Callers pass `process.cwd()` here; we
+   * take it as a parameter rather than reading `process.cwd()` inside
+   * this helper so the function stays pure and easy to test.
+   */
+  initCwd?: string;
 }
 
 export interface MissingClaudeCodeFlag {
@@ -153,10 +165,16 @@ function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
   // mis-input should surface here instead of being masked.
   if (opts.name !== undefined) return /[a-z0-9]/i.test(opts.name);
   // No `--name` at all: only `create-arkor` (requireProjectName=true)
-  // needs a meaningful `[dir]`; `arkor init` falls back to `basename(cwd)`
-  // at runtime, which is the same value its interactive prompt would
-  // have offered, so strict mode does not require an explicit name there.
-  if (!opts.requireProjectName) return true;
+  // needs a meaningful `[dir]`; `arkor init` falls back to
+  // `basename(initCwd)` at runtime. We still validate that basename so
+  // an agent running `arkor init` inside `/tmp/!!!/` doesn't silently
+  // collapse to the generic `arkor-project` fallback that strict mode
+  // rejects for explicit `--name` and `[dir]` values. Callers may omit
+  // `initCwd` (e.g. tests), in which case we conservatively accept.
+  if (!opts.requireProjectName) {
+    if (opts.initCwd === undefined) return true;
+    return /[a-z0-9]/i.test(basename(opts.initCwd));
+  }
   if (opts.dir === undefined) return false;
   return /[a-z0-9]/i.test(basename(resolve(opts.dir)));
 }
@@ -190,7 +208,7 @@ export function missingClaudeCodeFlags(
       missing.push({
         flag: "--name <name>",
         description:
-          "The `--name` you passed contains no ASCII letter or digit, so `sanitise()` would collapse it to the generic `arkor-project` fallback. Pick a value with at least one alphanumeric character, or drop `--name` entirely to let `arkor init` derive the name from `basename(cwd)`.",
+          "Strict mode could not derive a meaningful project name. Either `--name` was passed but its value contains no ASCII letter or digit (so `sanitise()` would collapse it to the generic `arkor-project` fallback), or `--name` was omitted and the current directory's basename has no alphanumerics either. Pass `--name <value>` with at least one ASCII letter or digit.",
       });
     }
   }

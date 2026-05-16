@@ -109,10 +109,15 @@ export async function main(argv: string[]): Promise<void> {
             useBun: opts.useBun,
             name: opts.name,
             agentsMd: agentsMdSpecified ? opts.agentsMd ?? true : undefined,
-            // arkor init operates on `process.cwd()`; basename(cwd) is a
-            // meaningful default name, so an explicit --name isn't
-            // required.
+            // arkor init operates on `process.cwd()`; basename(cwd) is
+            // the runtime default for the project name, so strict mode
+            // doesn't require an explicit `--name`. Passing `initCwd`
+            // lets the validator reject the pathological case where
+            // the cwd basename itself has no alphanumerics (e.g.
+            // `/tmp/!!!/`), which would otherwise sanitise to the
+            // generic `arkor-project` fallback.
             requireProjectName: false,
+            initCwd: process.cwd(),
           });
           if (missing.length > 0) {
             process.stderr.write(

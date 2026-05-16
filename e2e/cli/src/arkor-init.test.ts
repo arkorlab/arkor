@@ -264,6 +264,35 @@ describe("arkor init (E2E)", () => {
       expect(existsSync(join(cwd, "package.json"))).toBe(false);
     });
 
+    it("rejects an arkor init run whose cwd basename has no alphanumerics (would silently fall back to `arkor-project`)", async () => {
+      // PR #141 review (Copilot): `arkor init` without `--name`
+      // derives the project name from `basename(process.cwd())`. In
+      // a directory like `!!!`, runtime would sanitise that to the
+      // generic `arkor-project` fallback, which is exactly the
+      // silent default strict mode is meant to surface for explicit
+      // `--name` values. Strict mode now validates `basename(cwd)`
+      // through the same alphanumeric check.
+      const punctDir = join(cwd, "!!!");
+      mkdirSync(punctDir, { recursive: true });
+      const result = await runCli(
+        ARKOR_BIN,
+        [
+          "init",
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        punctDir,
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("--name <name>");
+      // Sanity: nothing scaffolded.
+      expect(existsSync(join(punctDir, "package.json"))).toBe(false);
+    });
+
     it("rejects explicit garbage --name even though strict mode does not require a name", async () => {
       // PR #141 review (Copilot): under strict mode `arkor init` does
       // not require `--name` (the runtime derives it from
