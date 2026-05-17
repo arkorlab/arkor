@@ -401,18 +401,15 @@ function readNodeLinkerValue(yarnrc: string): string | undefined {
   for (const line of yarnrc.split(/\r?\n/)) {
     if (!line.trim() || /^\s*#/.test(line)) continue;
     // Skip YAML structural markers — directives (`%YAML 1.2`,
-    // `%TAG …`) and document boundaries (`---`, `...`). They aren't
+    // `%TAG …`) and document boundaries (`---`, `...`, each
+    // optionally with a trailing `# comment`). They aren't
     // mapping entries, so anchoring `rootIndent` at their column
     // would misclassify legitimately top-level keys at the
     // document's actual indent as "nested" (e.g. an explicit
     // `---\n  nodeLinker: node-modules\n` would be read as
-    // missing). PR #99 round-11 review.
+    // missing). PR #99 round-11 / round-40 reviews.
     const trimmed = line.trim();
-    if (
-      trimmed === "---" ||
-      trimmed === "..." ||
-      trimmed.startsWith("%")
-    ) {
+    if (isYamlDocumentMarker(trimmed) || trimmed.startsWith("%")) {
       continue;
     }
     const indent = /^(\s*)/.exec(line)?.[1].length ?? 0;
@@ -574,9 +571,12 @@ async function readPackageManagerField(
  * ancestor (including `cwd` itself) contains an entry named
  * `name`. Used to detect yarn-berry workspace artefacts —
  * `.yarnrc.yml` and `.yarn/` — that yarn itself walks up to find
- * during resolution. Bound to 20 iterations as a defensive cap
- * against pathological symlinks; matches the
- * `findEnclosingPackageManagerField` budget.
+ * during resolution. Delegates to `findEnclosingPath`, which
+ * walks until the `dirname()` self-loop (filesystem root) with
+ * no iteration cap. An earlier round had a defensive 20-iteration
+ * limit, but that misclassified real deeply-nested workspaces
+ * as having no enclosing config (PR #99 round 39 Codex P2);
+ * `dirname` is purely syntactic and terminates naturally.
  *
  * (PR #99 round 34 — Copilot flagged that the cwd-only check
  * missed monorepo-subdir scaffolds whose workspace root pins the
@@ -1092,7 +1092,27 @@ const TRAILING_COMMENT_AND_EOL = "[ \\t]*(?:#[^\\r\\n]*)?\\r?$";
 // script policy across re-runs (round-39 Copilot review:
 // `allowBuilds: { ... } # explanation` had its trailing comment
 // silently dropped on patch).
-const TRAILING_COMMENT_AND_EOL_CAPTURED = "([ \\t]*(?:#[^\\r\\n]*)?)\\r?$";
+// `\r?` lives INSIDE the capture so a CRLF line's trailing `\r`
+// is preserved when the replacement re-emits the captured group.
+// Round-40 (Copilot, PR #99): the previous form put `\r?` outside
+// the capture, so an inline `allowBuilds: { ... }` patch against
+// a CRLF `pnpm-workspace.yaml` consumed the `\r` via the regex
+// but re-emitted only the spacing/comment, leaving the original
+// `\n` behind and converting just that line to LF in the process.
+const TRAILING_COMMENT_AND_EOL_CAPTURED = "([ \\t]*(?:#[^\\r\\n]*)?\\r?)$";
+
+// True when `trimmed` is a YAML document-boundary marker. Per
+// the YAML 1.2 spec a marker line can be `---` (or `...`)
+// followed by optional whitespace and a `#` comment — e.g.
+// `--- # pnpm config`. The exact-string check the previous
+// rounds used would treat the commented form as a real content
+// line, mis-anchoring `rootIndent` to the marker's column and
+// causing the patchers to mis-detect nested keys as top-level
+// (round-40 Copilot: `.yarnrc.yml` false-positive berry caveat
+// and `pnpm-workspace.yaml` duplicate-key insertions).
+function isYamlDocumentMarker(trimmed: string): boolean {
+  return /^(?:---|\.\.\.)(?:[ \t]+#.*)?$/.test(trimmed);
+}
 
 // Returns the document root's leading whitespace (or `""` for
 // canonical column-0 YAML). YAML allows the root mapping to be
@@ -1104,18 +1124,14 @@ const TRAILING_COMMENT_AND_EOL_CAPTURED = "([ \\t]*(?:#[^\\r\\n]*)?)\\r?$";
 // `rootIndent` logic in `readNodeLinkerValue` for `.yarnrc.yml`.
 //
 // Skips empty lines, comments, and YAML structural markers
-// (directives `%YAML 1.2`, document boundaries `---` / `...`)
-// so an explicit document boundary doesn't anchor `rootIndent`
-// to its column.
+// (directives `%YAML 1.2`, document boundaries `---` / `...`,
+// each optionally with a trailing `# comment`) so an explicit
+// document boundary doesn't anchor `rootIndent` to its column.
 function detectYamlRootIndent(contents: string): string {
   for (const rawLine of contents.split(/\r?\n/)) {
     if (!rawLine.trim() || /^\s*#/.test(rawLine)) continue;
     const trimmed = rawLine.trim();
-    if (
-      trimmed === "---" ||
-      trimmed === "..." ||
-      trimmed.startsWith("%")
-    ) {
+    if (isYamlDocumentMarker(trimmed) || trimmed.startsWith("%")) {
       continue;
     }
     return /^(\s*)/.exec(rawLine)?.[1] ?? "";
@@ -1268,7 +1284,7 @@ function prependPackagesEmptyList(contents: string): string {
     if (
       trimmed === "" ||
       trimmed.startsWith("#") ||
-      trimmed === "---" ||
+      isYamlDocumentMarker(trimmed) ||
       trimmed.startsWith("%")
     ) {
       offset = lineEnd;

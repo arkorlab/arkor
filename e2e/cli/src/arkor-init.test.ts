@@ -439,8 +439,17 @@ describe("arkor init (E2E)", () => {
           // wouldn't be reproducible. Skipped for the bun-on-Windows
           // sub-case only; see `shouldSkipBunLockfileAssertion` for the
           // bun-on-Windows divergence create-arkor's identical-fixture
-          // lane doesn't reproduce.
-          if (!shouldSkipBunLockfileAssertion(flag)) {
+          // lane doesn't reproduce. Round-40 (Copilot, PR #99): emit
+          // an explicit per-run console line so the coverage gap is
+          // visible in CI logs each time it triggers, not only in the
+          // source comment. The other invariants above (exit code,
+          // node_modules, .git/HEAD, commit subject) still run.
+          if (shouldSkipBunLockfileAssertion(flag)) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[install-matrix:${label}] SKIPPING lockfile-in-initial-commit assertion for arkor init + bun on Windows. Known divergence between arkor init's spawn shape and create-arkor's (which passes on the same fixture). The other invariants (exit, node_modules, .git/HEAD, commit subject) were verified above.`,
+            );
+          } else {
             const tracked = await runGit(projectDir, [
               "ls-tree",
               "-r",

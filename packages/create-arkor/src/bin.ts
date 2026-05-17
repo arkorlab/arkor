@@ -138,7 +138,17 @@ function collisionMessage(name: string): string {
  *     length for a hazard most users will never hit.
  */
 export function shellQuoteIfNeeded(value: string): string {
-  if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
+  // Safe-unquote criteria: only alphanumerics + a small set of
+  // unambiguous extras (`-_./+@:,`), AND the value must NOT
+  // start with `-`. A leading dash makes POSIX shells and
+  // PowerShell treat the argument as an option/switch (`cd -foo`
+  // is parsed as `cd` with `-foo` flag, not a directory),
+  // breaking the copy-paste recovery hint. Quoting forces the
+  // shell to take the literal path. Round-40 (Copilot, PR #99)
+  // flagged this for `create-arkor -- -foo` -style explicit
+  // directories. The first character class excludes `-`; the
+  // tail still allows it so `my-app` stays unquoted.
+  if (/^[a-zA-Z0-9_./+@:,][a-zA-Z0-9_./+@:,-]*$/.test(value)) return value;
   if (process.platform === "win32") {
     // Order matters: backtick first (it's the PS escape
     // character for the others, so escaping it first prevents
@@ -484,6 +494,19 @@ export async function run(options: RunOptions): Promise<void> {
       inPlace
         ? `Retry manually: ${pm} install`
         : `Retry manually: cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`,
+    );
+  }
+  // Round 40 (Copilot, PR #99): same soft-warn as `arkor init`'s
+  // recovered branch — see init.ts for the rationale. A real
+  // lifecycle / postinstall failure can leave both the lockfile
+  // and `node_modules` touched but the install incomplete; the
+  // mtime-diff recovery can't distinguish that from the documented
+  // benign non-zero-after-write cases (pnpm 11 / bun-on-Windows).
+  // Surface the captured error so the user knows we proceeded on
+  // on-disk evidence and can verify before relying on the tree.
+  if (installThrewError !== undefined && installSucceeded) {
+    clack.log.warn(
+      `\`${pm} install\` exited non-zero, but the lockfile and node_modules look populated — proceeding. Verify with \`${pm} run dev\` before relying on the install.`,
     );
   }
   // Round 39 (Copilot, PR #99): the previous "re-run this command"

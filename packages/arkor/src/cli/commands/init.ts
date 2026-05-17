@@ -37,9 +37,14 @@ export interface InitOptions {
    * `true` when the user explicitly passed `--allow-builds`. Threads through
    * to `scaffold()` so the emitted `pnpm-workspace.yaml#allowBuilds.esbuild`
    * is `true` instead of the secure-by-default `false`. Only meaningful for
-   * pnpm (yarn / npm / bun ignore the workspace yaml), but we plumb the
-   * flag unconditionally: a user who scaffolds with `--use-npm` today and
-   * later switches to pnpm would otherwise have to re-run with the flag.
+   * pnpm: yarn / npm / bun ignore the workspace yaml, and `scaffold()`
+   * skips `pnpm-workspace.yaml` emission entirely when an explicit non-pnpm
+   * `--use-*` is set, so under those toolchains the flag is a **no-op**
+   * (nothing is written, nothing is persisted). We still accept it
+   * unconditionally for CLI symmetry; users switching to pnpm later need to
+   * re-run with `--use-pnpm --allow-builds` to take effect. Round 40
+   * (Copilot, PR #99) flagged the previous wording that implied
+   * persistence across toolchain switches.
    */
   allowBuilds?: boolean;
   /**
@@ -329,6 +334,22 @@ export async function runInit(options: InitOptions): Promise<void> {
   // tell the user to redo work the CLI just accepted as done.
   if (installThrewError !== undefined && !installSucceeded) {
     ui.log.info(`Retry manually: ${pm} install`);
+  }
+  // Round 40 (Copilot, PR #99): the lockfile + `node_modules`
+  // mtime diff is the round-39 signal for "install effectively
+  // succeeded" — but a real lifecycle/postinstall script failure
+  // can fail AFTER both artefacts are written, leaving the user
+  // with a committed but broken dependency tree. The recovery
+  // path can't tell those apart from the documented benign cases
+  // (pnpm 11 ignored-builds noise, bun-on-Windows exit-code
+  // quirks) without pm-specific knowledge it doesn't have here.
+  // Soft-warn so the recovery isn't silent: the user sees the
+  // captured error, knows we proceeded based on on-disk evidence
+  // alone, and can verify their tree before relying on it.
+  if (installThrewError !== undefined && installSucceeded) {
+    ui.log.warn(
+      `\`${pm} install\` exited non-zero, but the lockfile and node_modules look populated — proceeding. Verify with \`${pm} run dev\` before relying on the install.`,
+    );
   }
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
