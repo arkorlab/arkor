@@ -443,3 +443,95 @@ describe("runCli orchestration", () => {
     expect(result.code).toBe(0);
   });
 });
+
+describe("runCli CLAUDECODE env scrub", () => {
+  // PR #141 review: when the vitest worker (or any parent shell) sets
+  // `CLAUDECODE=1`, `cleanEnv` must strip it case-insensitively before
+  // the child env is assembled so the spawned CLI doesn't surprise-flip
+  // into strict mode for tests that don't expect it. Tests that DO
+  // want strict mode opt back in via `extraEnv`, which is spread last.
+  let cwd: string;
+  const ORIG_ENV = { ...process.env };
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "spawn-cli-claudecode-"));
+    spawnMock.mockReset();
+    // Make the canonical retry gate unreachable so a stray SIGKILL
+    // close-emit doesn't trigger a snapshot+restore branch that's
+    // irrelevant to this suite.
+    Object.defineProperty(process, "platform", {
+      value: "linux",
+      configurable: true,
+    });
+    delete process.env.CI;
+    // Reset to a clean baseline; individual tests seed the variants
+    // they want to assert on.
+    delete process.env.CLAUDECODE;
+    delete process.env.claudecode;
+    delete process.env.ClaudeCode;
+  });
+
+  afterEach(() => {
+    rmSync(cwd, { recursive: true, force: true });
+    // Restore the captured env so other suites in the same worker
+    // (notably the orchestration suite above) see their original state.
+    for (const key of ["CI", "CLAUDECODE", "claudecode", "ClaudeCode"]) {
+      const original = ORIG_ENV[key];
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
+  });
+
+  /**
+   * Resolve the env object passed to the (mocked) `spawn` call. The
+   * child is faked out with a clean close so `runCli` returns
+   * promptly; we only care about how the env was assembled.
+   */
+  async function captureSpawnedEnv(
+    extraEnv?: NodeJS.ProcessEnv,
+  ): Promise<NodeJS.ProcessEnv> {
+    spawnMock.mockImplementationOnce(() =>
+      makeFakeChild({ code: 0, signal: null }),
+    );
+    await runCli("/fake/bin", [], cwd, extraEnv);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const opts = spawnMock.mock.calls[0]![2] as { env: NodeJS.ProcessEnv };
+    return opts.env;
+  }
+
+  it("drops an inherited CLAUDECODE=1 from the spawned env by default", async () => {
+    process.env.CLAUDECODE = "1";
+    const env = await captureSpawnedEnv();
+    expect(env.CLAUDECODE).toBeUndefined();
+  });
+
+  it.each(["claudecode", "ClaudeCode", "CLAUDECODE", "claudeCODE"])(
+    "drops case variant %s case-insensitively (Windows env-var safety)",
+    async (key) => {
+      // CreateProcessW dedupes env names case-insensitively on Windows,
+      // so any case spelling inherited from the parent must be
+      // stripped before it can collide with our intended state.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (process.env as any)[key] = "1";
+      const env = await captureSpawnedEnv();
+      // Every case variant has been removed from the spawned env.
+      for (const k of Object.keys(env)) {
+        expect(k.toLowerCase()).not.toBe("claudecode");
+      }
+    },
+  );
+
+  it("lets extraEnv opt INTO strict mode even when no inherited CLAUDECODE exists", async () => {
+    const env = await captureSpawnedEnv({ CLAUDECODE: "1" });
+    expect(env.CLAUDECODE).toBe("1");
+  });
+
+  it("extraEnv CLAUDECODE wins over an inherited value (spread last)", async () => {
+    // Inverse safety: even if the scrub somehow missed a variant, the
+    // `extraEnv` opt-in must still take precedence so the strict-mode
+    // tests can rely on it.
+    process.env.CLAUDECODE = "0";
+    const env = await captureSpawnedEnv({ CLAUDECODE: "1" });
+    expect(env.CLAUDECODE).toBe("1");
+  });
+});

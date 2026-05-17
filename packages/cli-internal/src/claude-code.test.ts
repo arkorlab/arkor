@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   formatClaudeCodeMissingMessage,
@@ -266,6 +269,15 @@ describe("missingClaudeCodeFlags", () => {
     // strict check agree with the runtime: `.` / `..` resolve to the
     // current / parent directory's basename, and only then are
     // sanitised.
+    //
+    // The two `.`/`..` cases used to lean on `process.cwd()` directly,
+    // which made the test passively dependent on the worker checkout
+    // path having an alphanumeric basename (PR #141 review: a checkout
+    // under e.g. `/tmp/!!!/` would have falsely failed strict mode
+    // here). Pin a controlled cwd inside a fresh tmp dir whose
+    // basename ends in a guaranteed-alphanumeric prefix so the
+    // assertion exercises the `resolve()`-then-`basename()` derivation
+    // without depending on ambient state.
     const baseOpts = {
       requireProjectName: true,
       template: "triage",
@@ -273,21 +285,35 @@ describe("missingClaudeCodeFlags", () => {
       useNpm: true,
       agentsMd: false,
     } as const;
-    // `process.cwd()` is the vitest worker's cwd; its basename is
-    // some non-empty slug (e.g. `cli-internal` here). The exact value
-    // doesn't matter as long as it isn't the `arkor-project` fallback.
-    expect(missingClaudeCodeFlags({ ...baseOpts, dir: "." })).toEqual([]);
-    expect(missingClaudeCodeFlags({ ...baseOpts, dir: "./" })).toEqual([]);
-    // `..` resolves to the parent directory (e.g. `packages` when
-    // vitest is run from `packages/cli-internal`), whose basename is
-    // also a meaningful slug. Pinning this case matches the test
-    // title's claim and guards the symmetric `.` / `..` branch in
-    // the `basename(resolve(opts.dir))` derivation.
-    expect(missingClaudeCodeFlags({ ...baseOpts, dir: ".." })).toEqual([]);
-    // Relative path that resolves to a meaningful basename also passes.
-    expect(
-      missingClaudeCodeFlags({ ...baseOpts, dir: "foo/bar/my-app" }),
-    ).toEqual([]);
+    const tmpRoot = mkdtempSync(join(tmpdir(), "arkor-strict-dot-"));
+    // `mkdtempSync` appends 6 random alphanumeric characters; the
+    // basename is therefore non-empty even if `tmpdir()` itself happens
+    // to land somewhere weird. Create a child so the `..` case also
+    // resolves to a known meaningful basename (`tmpRoot` itself).
+    const child = join(tmpRoot, "child");
+    mkdirSync(child);
+    const ORIG_CWD = process.cwd();
+    try {
+      process.chdir(child);
+      // `.` resolves to `child`, basename `child`. Alphanumeric.
+      expect(missingClaudeCodeFlags({ ...baseOpts, dir: "." })).toEqual([]);
+      expect(missingClaudeCodeFlags({ ...baseOpts, dir: "./" })).toEqual([]);
+      // `..` resolves to `tmpRoot`, basename starts with
+      // `arkor-strict-dot-` so it always satisfies the
+      // alphanumeric requirement regardless of which dir vitest
+      // happened to be launched from.
+      expect(missingClaudeCodeFlags({ ...baseOpts, dir: ".." })).toEqual([]);
+      // Relative path that resolves to a meaningful basename also
+      // passes. This case never depended on cwd-basename letters since
+      // the trailing segment (`my-app`) is what `basename(resolve(...))`
+      // returns, but pin it here too for parity.
+      expect(
+        missingClaudeCodeFlags({ ...baseOpts, dir: "foo/bar/my-app" }),
+      ).toEqual([]);
+    } finally {
+      process.chdir(ORIG_CWD);
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 
   it("accepts deliberate names that happen to sanitise to `arkor-project`", () => {
