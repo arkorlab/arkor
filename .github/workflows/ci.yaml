@@ -224,14 +224,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        # Curated Node versions — the supported LTS lines. main's
-        # engines bump (`packages/arkor/package.json` →
-        # `>=22.22.0`) made the prior pre-22.22 entries
-        # (22.13/17/21) point at unsupported configurations, so
-        # they've been dropped along with the yarn × pre-22.22
-        # excludes that masked the engines mismatch.
+        # Curated Node versions — the supported Node lines: the
+        # active LTS lines (22, 24) plus Current (26, not yet LTS
+        # — promotes in Oct 2026). main's engines bump
+        # (`packages/arkor/package.json` → `>=22.22.0`) made the
+        # prior pre-22.22 entries (22.13/17/21) point at
+        # unsupported configurations, so they've been dropped
+        # along with the yarn × pre-22.22 excludes that masked
+        # the engines mismatch.
         #
-        # Each LTS line gets two entries — exact engines floor
+        # Each Node line gets two entries — exact engines floor
         # (so the lowest officially supported version is actually
         # exercised, not just whatever 22.22+ patch setup-node
         # happens to resolve) plus the live `<minor>` range. The

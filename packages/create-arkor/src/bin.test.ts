@@ -18,7 +18,7 @@ vi.mock("@arkor/cli-internal", () => ({
   // semantics. Tests that need the "install threw but lockfile
   // landed" path can override per-call via
   // `vi.mocked(lockfileChangedSince).mockReturnValueOnce(true)`.
-  snapshotLockfile: vi.fn(() => ({ exists: false, mtimeMs: 0 })),
+  snapshotLockfile: vi.fn(() => ({ exists: false, path: null, mtimeMs: 0 })),
   lockfileChangedSince: vi.fn(() => false),
   // Round 39 follow-up #2: same default-false posture for the
   // `node_modules` snapshot/diff pair. Tests that exercise the

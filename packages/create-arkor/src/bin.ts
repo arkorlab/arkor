@@ -478,10 +478,18 @@ export async function run(options: RunOptions): Promise<void> {
   // slip through, AND so an ambient ancestor `node_modules`
   // (monorepo subdir) doesn't false-positive the gate. See
   // `arkor init` for the full rationale.
+  // Round 40 (Copilot, PR #99): restrict the on-disk recovery to
+  // pnpm and bun — the only pms with a documented "non-zero exit
+  // after both artefacts written" failure mode. See arkor init for
+  // the full rationale. npm and yarn fall back to the round-35
+  // conservative default (throw → skip git).
+  const RECOVERY_ELIGIBLE_PMS: Array<PackageManager> = ["pnpm", "bun"];
   const installSucceeded =
     !wouldHaveInstalled ||
     installed ||
-    (lockfileChangedSince(cwd, pm, lockfileBefore) &&
+    (pm !== undefined &&
+      RECOVERY_ELIGIBLE_PMS.includes(pm) &&
+      lockfileChangedSince(cwd, pm, lockfileBefore) &&
       nodeModulesChangedSince(cwd, nodeModulesBefore));
   // Round 40 (Copilot, PR #99): print the `Retry manually` hint
   // ONLY when install actually threw AND the recovery gate did

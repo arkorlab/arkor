@@ -33,62 +33,87 @@ const LOCKFILE_BY_PM: Record<PackageManager, string> = {
 export interface LockfileSnapshot {
   /** True when a lockfile of the expected name was on disk. */
   exists: boolean;
+  /**
+   * Absolute path of the resolved lockfile, or `null` when none
+   * was found. Round-40 (Copilot, PR #99): tracked so the diff
+   * can spot the "ancestor lockfile pre-existed, but install
+   * created a CLOSER cwd-local one" case. Comparing mtimes alone
+   * would miss that — the BEFORE-mtime is the ancestor's, the
+   * AFTER-mtime is the newer (but possibly older-on-clock)
+   * cwd-local one — and incorrectly classify install as failed.
+   */
+  path: string | null;
   /** `mtime` in ms; `0` when the file didn't exist or was unreadable. */
   mtimeMs: number;
 }
 
 /**
  * Find the closest-enclosing `<pm>` lockfile (cwd-or-above) and
- * record its existence + mtime. Walks ancestors because scaffold
- * targets inside an existing workspace (`monorepo/packages/foo`)
- * install against a root-hoisted lockfile, not a cwd-local one.
- * Mirrors `hasEnclosingYarnLock`'s walk policy and applies the
- * same termination signal (`dirname() === self`).
+ * record its existence + mtime + absolute path. Walks ancestors
+ * because scaffold targets inside an existing workspace
+ * (`monorepo/packages/foo`) install against a root-hoisted
+ * lockfile, not a cwd-local one. Mirrors `hasEnclosingYarnLock`'s
+ * walk policy and applies the same termination signal
+ * (`dirname() === self`).
  *
- * Returns `{ exists: false, mtimeMs: 0 }` when `pm` is
- * `undefined`, no lockfile exists anywhere up the tree, or the
- * file is unreadable (rare permissions edge — falls through to
- * "no snapshot" so the comparison can't assert a stale mtime).
+ * Returns `{ exists: false, path: null, mtimeMs: 0 }` when `pm`
+ * is `undefined`, no lockfile exists anywhere up the tree, or
+ * the file is unreadable (rare permissions edge — falls through
+ * to "no snapshot" so the comparison can't assert a stale mtime).
  */
 export function snapshotLockfile(
   cwd: string,
   pm: PackageManager | undefined,
 ): LockfileSnapshot {
-  if (pm === undefined) return { exists: false, mtimeMs: 0 };
+  if (pm === undefined) return { exists: false, path: null, mtimeMs: 0 };
   const lockfile = LOCKFILE_BY_PM[pm];
   let dir = cwd;
   while (true) {
     const candidate = join(dir, lockfile);
     if (existsSync(candidate)) {
       try {
-        return { exists: true, mtimeMs: statSync(candidate).mtimeMs };
+        return {
+          exists: true,
+          path: candidate,
+          mtimeMs: statSync(candidate).mtimeMs,
+        };
       } catch {
-        return { exists: false, mtimeMs: 0 };
+        return { exists: false, path: null, mtimeMs: 0 };
       }
     }
     const parent = dirname(dir);
-    if (parent === dir) return { exists: false, mtimeMs: 0 };
+    if (parent === dir) return { exists: false, path: null, mtimeMs: 0 };
     dir = parent;
   }
 }
 
 /**
  * True when the closest-enclosing lockfile state at `cwd` is
- * materially different from `before` — either freshly created or
- * with a forward-moving `mtime`. Used by the CLI's git-init gate
- * to recover from a non-zero install exit that still produced a
- * complete tree (pnpm 11 and bun on Windows have been observed
- * exiting non-zero AFTER writing both `node_modules` and the
- * lockfile — round-39 Copilot review).
+ * materially different from `before` — freshly created, a NEW
+ * closer lockfile appearing under cwd, or the same path's
+ * `mtime` advancing. Used by the CLI's git-init gate to recover
+ * from a non-zero install exit that still produced a complete
+ * tree (pnpm 11 and bun on Windows have been observed exiting
+ * non-zero AFTER writing both `node_modules` and the lockfile —
+ * round-39 Copilot review).
  *
  * Comparing against a *pre-install* snapshot is what closes the
  * round-39-follow-up Codex P1 hazard: a workspace-subdir scaffold
  * has a pre-existing root lockfile, so any `existsSync`-only
  * check would treat a totally failed install as "lockfile
  * landed" and proceed with `git init` over an untouched tree.
- * Forward-moving mtime is the proof we need; equal mtime + same
- * existence means "install didn't change anything" and the
- * caller should NOT recover.
+ *
+ * Round-40 (Copilot, PR #99): also treat a **path change** as
+ * material — if `before.path` pointed at an ancestor lockfile
+ * but `after.path` resolves to a closer cwd-local one, install
+ * just materialized a new lockfile and the mtime-only check
+ * would miss that (the new lockfile can plausibly have an mtime
+ * <= the old ancestor's, on filesystems with second-resolution
+ * timestamps or under clock skew). The two paths describe
+ * different files; an mtime comparison between them is
+ * meaningless. The pair {existence change, forward mtime on same
+ * path, path change} together captures every shape of "install
+ * touched the closest-relevant lockfile".
  */
 export function lockfileChangedSince(
   cwd: string,
@@ -97,6 +122,9 @@ export function lockfileChangedSince(
 ): boolean {
   const after = snapshotLockfile(cwd, pm);
   if (!before.exists && after.exists) return true;
+  if (before.path !== null && after.path !== null && before.path !== after.path) {
+    return true;
+  }
   if (after.mtimeMs > before.mtimeMs) return true;
   return false;
 }

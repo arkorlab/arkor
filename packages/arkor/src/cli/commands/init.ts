@@ -321,10 +321,31 @@ export async function runInit(options: InitOptions): Promise<void> {
   // prior root install — the snapshot/diff at cwd
   // specifically proves this install did the work, not a
   // hoisted parent install from earlier.
+  // Round 40 (Copilot, PR #99): restrict the on-disk recovery
+  // path to package managers with documented "non-zero exit
+  // after both artefacts written" failure modes — pnpm (exits
+  // with `ERR_PNPM_IGNORED_BUILDS` once the install otherwise
+  // finished) and bun (Windows-only quirks observed in CI; see
+  // e2e/cli's bun-on-Windows comments). npm and yarn don't have
+  // this benign-non-zero pattern documented; a real lifecycle /
+  // postinstall failure there can rewrite both the lockfile and
+  // `node_modules` before erroring, and proceeding with git init
+  // would commit a broken tree. Keep the throw → skip-git
+  // semantics for those, mirroring the round-35 conservative
+  // default. pnpm/bun users get the round-39 recovery; npm/yarn
+  // users get the safer "fix install first" loop. The mtime-diff
+  // gate's known limitation (can't tell a benign exit from a
+  // real lifecycle failure when both artefacts moved) is
+  // bounded by this pm-allow-list to where it has empirical
+  // benign cases. See `init.test.ts` for the recovery vs no-
+  // recovery coverage per pm.
+  const RECOVERY_ELIGIBLE_PMS: Array<PackageManager> = ["pnpm", "bun"];
   const installSucceeded =
     !wouldHaveInstalled ||
     installed ||
-    (lockfileChangedSince(cwd, pm, lockfileBefore) &&
+    (pm !== undefined &&
+      RECOVERY_ELIGIBLE_PMS.includes(pm) &&
+      lockfileChangedSince(cwd, pm, lockfileBefore) &&
       nodeModulesChangedSince(cwd, nodeModulesBefore));
   // Round 40 (Copilot, PR #99): print the `Retry manually` hint
   // ONLY when install actually threw AND the recovery gate did

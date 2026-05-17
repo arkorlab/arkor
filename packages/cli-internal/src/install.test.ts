@@ -326,6 +326,7 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
   it("snapshotLockfile returns no-existence when pm is undefined", () => {
     expect(snapshotLockfile(dir, undefined)).toEqual({
       exists: false,
+      path: null,
       mtimeMs: 0,
     });
   });
@@ -403,6 +404,34 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
     const newer = (before.mtimeMs + 5_000) / 1000;
     utimesSync(join(dir, "pnpm-lock.yaml"), newer, newer);
     expect(lockfileChangedSince(dir, "pnpm", before)).toBe(true);
+  });
+
+  // Round 40 (Copilot, PR #99): the resolved-path tracking lets
+  // the diff catch a topology mtime alone misses. When the
+  // BEFORE snapshot resolved an ancestor lockfile but install
+  // creates a CLOSER cwd-local one, the two paths are different
+  // files; an mtime comparison between them is meaningless (the
+  // new lockfile can plausibly have an older mtime than the
+  // ancestor's on second-resolution filesystems or under clock
+  // skew). Path change = material change.
+  it("lockfileChangedSince returns true when install creates a closer lockfile under cwd", () => {
+    const sub = join(dir, "packages", "foo");
+    mkdirSync(sub, { recursive: true });
+    // BEFORE: only the ancestor (monorepo root) has a lockfile.
+    // Make its mtime artificially HIGH so a naive mtime-only
+    // comparison would fail to detect the new closer one if its
+    // mtime happens to be lower.
+    writeFileSync(join(dir, "pnpm-lock.yaml"), "ancestor\n");
+    const farFuture = (Date.now() + 60_000) / 1000;
+    utimesSync(join(dir, "pnpm-lock.yaml"), farFuture, farFuture);
+    const before: LockfileSnapshot = snapshotLockfile(sub, "pnpm");
+    expect(before.path).toBe(join(dir, "pnpm-lock.yaml"));
+    // AFTER: install creates a cwd-local lockfile. The closer
+    // one now wins the walk, so `after.path` differs from
+    // `before.path` — that's the install-touched-something
+    // signal even though `after.mtimeMs < before.mtimeMs`.
+    writeFileSync(join(sub, "pnpm-lock.yaml"), "local\n");
+    expect(lockfileChangedSince(sub, "pnpm", before)).toBe(true);
   });
 });
 

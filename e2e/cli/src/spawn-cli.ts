@@ -309,7 +309,17 @@ function runCliOnce(
     try {
       bunCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-bun-cache-"));
     } catch (mkErr) {
-      rmSync(yarnCacheDir, { recursive: true, force: true });
+      // Round 40 (Copilot, PR #99): mirror the `cleanup()` closure
+      // below — `rmSync` can throw on Windows with transient
+      // EPERM/EBUSY. Without the guard, a cleanup throw replaces
+      // the original `mkdtemp` failure in the promise rejection
+      // AND can still leak `yarnCacheDir`. Swallow the cleanup
+      // error so the original mkdtemp error reaches the caller.
+      try {
+        rmSync(yarnCacheDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
       reject(mkErr);
       return;
     }
