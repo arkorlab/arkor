@@ -452,13 +452,27 @@ describe("runCli CLAUDECODE env scrub", () => {
   // want strict mode opt back in via `extraEnv`, which is spread last.
   let cwd: string;
   const ORIG_ENV = { ...process.env };
+  const ORIG_PLATFORM = process.platform;
+  // Every CLAUDECODE case variant a test in this suite seeds: keeping
+  // them in one list lets the before/after loop strip and restore the
+  // full set without drifting from the `it.each` matrix below (PR #141
+  // review: `claudeCODE` was missed from the previous cleanup and
+  // leaked `claudeCODE=1` into later tests).
+  const CLAUDECODE_VARIANTS = [
+    "CLAUDECODE",
+    "claudecode",
+    "ClaudeCode",
+    "claudeCODE",
+  ] as const;
 
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "spawn-cli-claudecode-"));
     spawnMock.mockReset();
     // Make the canonical retry gate unreachable so a stray SIGKILL
     // close-emit doesn't trigger a snapshot+restore branch that's
-    // irrelevant to this suite.
+    // irrelevant to this suite. `afterEach` restores the original
+    // platform so subsequent tests in the same worker (which may
+    // assert on macOS-specific retry behaviour) aren't mutated.
     Object.defineProperty(process, "platform", {
       value: "linux",
       configurable: true,
@@ -466,20 +480,24 @@ describe("runCli CLAUDECODE env scrub", () => {
     delete process.env.CI;
     // Reset to a clean baseline; individual tests seed the variants
     // they want to assert on.
-    delete process.env.CLAUDECODE;
-    delete process.env.claudecode;
-    delete process.env.ClaudeCode;
+    for (const key of CLAUDECODE_VARIANTS) {
+      delete process.env[key];
+    }
   });
 
   afterEach(() => {
     rmSync(cwd, { recursive: true, force: true });
     // Restore the captured env so other suites in the same worker
     // (notably the orchestration suite above) see their original state.
-    for (const key of ["CI", "CLAUDECODE", "claudecode", "ClaudeCode"]) {
+    for (const key of ["CI", ...CLAUDECODE_VARIANTS]) {
       const original = ORIG_ENV[key];
       if (original === undefined) delete process.env[key];
       else process.env[key] = original;
     }
+    Object.defineProperty(process, "platform", {
+      value: ORIG_PLATFORM,
+      configurable: true,
+    });
   });
 
   /**
