@@ -35,7 +35,7 @@ export interface ManifestSummary {
   /**
    * Stable hash of the trainer's cloud-side `JobConfig`. The server is
    * always paired with this SPA in the same package, so the field is
-   * always present in the wire payload — `null` when no inspectable
+   * always present in the wire payload: `null` when no inspectable
    * trainer is loaded, a hex string otherwise. Not optional.
    */
   configHash: string | null;
@@ -59,7 +59,7 @@ const STUDIO_TOKEN = readStudioToken();
  * Whether `arkor dev` wired in an HMR coordinator at server boot.
  * The studio server emits `<meta name="arkor-hmr-enabled" content="true">`
  * into `index.html` only when `options.hmr` is set, so we can tell
- * dev-mode usage from prod-mode usage at runtime — `vite build`'s
+ * dev-mode usage from prod-mode usage at runtime: `vite build`'s
  * output ships with `import.meta.env.DEV === false`, so a build-time
  * gate inside the SPA bundle would (wrongly) suppress HMR even in
  * real `arkor dev` sessions. `RunTraining` consults this flag before
@@ -68,7 +68,7 @@ const STUDIO_TOKEN = readStudioToken();
  *
  * The Vite SPA dev workflow (`pnpm --filter @arkor/studio-app dev`)
  * serves its own `index.html`, so the SPA's `vite.config.ts` plugin
- * also injects this meta alongside the studio-token meta — that way
+ * also injects this meta alongside the studio-token meta. That way
  * a single meta-presence check covers both the production-built SPA
  * (served by `arkor dev`) and the Vite-served dev SPA, instead of
  * needing a separate `import.meta.env.DEV` fallback that would diverge
@@ -121,7 +121,7 @@ export async function fetchJobs(): Promise<{ jobs: Job[] }> {
 /**
  * Fetch a serialisable summary of the user's `createArkor({...})` manifest.
  * Returns `{ error }` (not a thrown exception) on 4xx so the SPA can render a
- * targeted hint — typically "no src/arkor/index.ts yet" right after scaffold.
+ * targeted hint, typically "no src/arkor/index.ts yet" right after scaffold.
  */
 export async function fetchManifest(): Promise<ManifestResult> {
   const res = await apiFetch("/api/manifest");
@@ -184,7 +184,7 @@ export interface ChatRequestBody {
  * Stream assistant text deltas from `/api/inference/chat`.
  *
  * The Studio server proxies cloud-api's `/v1/inference/chat` SSE stream
- * verbatim, so the body is `event: …\ndata: {…}\n\n` frames — not plain
+ * verbatim, so the body is `event: …\ndata: {…}\n\n` frames, not plain
  * text. We parse the frames with `eventsource-parser` (the same parser
  * the SDK's `iterateEvents` uses) and pull the assistant text out of
  * each frame's `data` payload.
@@ -208,7 +208,7 @@ export async function* streamInferenceContent(
   }
   // `iterateSseFrames` mirrors cloud-api-client's `iterateEvents` and silently
   // exits when there's no body. That's fine for the SDK but in the Playground
-  // it would leave an empty assistant bubble with no error surfaced — make
+  // it would leave an empty assistant bubble with no error surfaced. Make
   // the missing-body case loud here instead.
   if (!res.body) {
     throw new Error("Inference response has no body");
@@ -272,7 +272,7 @@ export function extractInferenceDelta(data: string): string | null {
     return data;
   }
   // Some providers/proxies serialize token chunks as plain JSON strings
-  // (`data: "Hel"`) rather than objects — surface those directly so we
+  // (`data: "Hel"`) rather than objects; surface those directly so we
   // don't end up with a silently empty assistant bubble.
   if (typeof parsed === "string") return parsed;
   if (!parsed || typeof parsed !== "object") return null;
@@ -311,7 +311,7 @@ export async function streamTraining(
   // through as a "successful" silent run. Without this, the SPA
   // would call `onSpawn(null)` (the failure response carries no
   // `X-Arkor-Train-Pid`), then hit `!res.body` or read an empty
-  // body and resolve as if the run completed cleanly — leaving the
+  // body and resolve as if the run completed cleanly, leaving the
   // user looking at an idle UI and no log output. Read the body
   // text for diagnostics so the caller's error log shows the
   // server's reason instead of a bare status code.
@@ -320,7 +320,7 @@ export async function streamTraining(
     try {
       detail = (await res.text()).trim();
     } catch {
-      // Body unreadable (already consumed, network gone, etc.) —
+      // Body unreadable (already consumed, network gone, etc.):
       // surface the status alone rather than masking the failure
       // entirely.
     }
@@ -344,7 +344,7 @@ export async function streamTraining(
   const onAbort = () => void reader.cancel().catch(() => {});
   // Cover the case where the signal was already aborted before we
   // got here (or aborted in the small window between `getReader()`
-  // and `addEventListener`) — `addEventListener("abort", ...)` won't
+  // and `addEventListener`): `addEventListener("abort", ...)` won't
   // fire after the fact, so the trainer process spawned upstream
   // would never be killed. Cancel synchronously instead.
   if (signal?.aborted) {

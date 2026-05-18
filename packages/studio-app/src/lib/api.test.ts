@@ -34,7 +34,7 @@ describe("extractInferenceDelta", () => {
     // Some providers/proxies serialize token chunks as `data: "Hel"`
     // (a JSON string, not an object). Previously these parsed as a
     // string, hit the `typeof parsed !== "object"` branch, and returned
-    // null — leaving the assistant bubble silently empty.
+    // null, leaving the assistant bubble silently empty.
     expect(extractInferenceDelta('"Hel"')).toBe("Hel");
     expect(extractInferenceDelta('""')).toBe("");
   });
@@ -59,7 +59,7 @@ describe("extractInferenceDelta", () => {
 });
 
 // Mount a SSE-shaped Response from a list of frames and let the SPA's
-// stream consumer assemble the assistant text. Regression for ENG-358 —
+// stream consumer assemble the assistant text. Regression for ENG-358:
 // the previous Playground code concatenated raw `data: …\n\n` frames
 // straight into the message bubble.
 describe("streamInferenceContent (regression for ENG-358)", () => {
@@ -140,7 +140,7 @@ describe("streamInferenceContent (regression for ENG-358)", () => {
     // closed cleanly without writing any frames) used to surface as
     // `Error("No response body")` in the Playground. After the SSE rewrite
     // the silent-exit branch in `iterateSseFrames` would have left the
-    // assistant bubble empty with no feedback — guard against that.
+    // assistant bubble empty with no feedback; guard against that.
     globalThis.fetch = vi.fn(
       async () => new Response(null, { status: 204 }),
     ) as typeof fetch;
@@ -282,7 +282,7 @@ describe("fetchManifest", () => {
 
   it("returns the structured error envelope on 400 (e.g. missing src/arkor/index.ts)", async () => {
     // The SPA renders this error inline as a hint instead of a generic
-    // failure — the helper must therefore distinguish 400 from other 4xx.
+    // failure; the helper must therefore distinguish 400 from other 4xx.
     globalThis.fetch = vi.fn(
       async () =>
         new Response(
@@ -367,7 +367,7 @@ describe("streamTraining", () => {
     // proceeded to call `onSpawn` + read the body even on 403/500
     // failures. The SPA would treat a failed spawn (auth rejection,
     // server-side EACCES surfacing as 500, etc.) as a normal
-    // completion — `onChunk` got nothing, `onSpawn` was called with
+    // completion: `onChunk` got nothing, `onSpawn` was called with
     // a `null` pid, and `run()` resolved cleanly. The user saw an
     // idle UI with no log line and no clue what went wrong. Fail
     // fast so the caller's catch path surfaces the server's reason.
@@ -391,7 +391,7 @@ describe("streamTraining", () => {
       ),
     ).rejects.toThrow(/403.*anonymous tokens disabled/);
     // The body must NOT have been streamed and `onSpawn` must NOT
-    // have been called with the bogus null pid — both would mislead
+    // have been called with the bogus null pid; both would mislead
     // the SPA into treating the failure as a successful run.
     expect(onChunkCalls).toEqual([]);
     expect(onSpawnCalls).toBe(0);
@@ -466,7 +466,7 @@ describe("streamTraining", () => {
       cancel() {
         cancelled = true;
       },
-      // intentionally no enqueue / no close — would block on read()
+      // intentionally no enqueue / no close; would block on read()
     });
     globalThis.fetch = vi.fn(
       async () =>
@@ -601,7 +601,7 @@ describe("isHmrEnabled", () => {
   //
   // The package's vitest config doesn't load jsdom (the rest of the
   // suite runs in Node), so we stub the minimal `document` API
-  // `isHmrEnabled` uses — `querySelector('meta[name=...]')` —
+  // `isHmrEnabled` uses (`querySelector('meta[name=...]')`)
   // directly on `globalThis`. The reader's contract is just "look
   // up a meta tag and return its content === 'true'", which a tiny
   // hand-rolled stub covers without dragging the whole DOM in.

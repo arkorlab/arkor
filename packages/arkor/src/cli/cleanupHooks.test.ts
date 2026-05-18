@@ -80,7 +80,7 @@ describe("registerCleanupHook", () => {
     expect(order).toEqual(["sync-cleanup", "async-cleanup-finished"]);
     // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) so parent
     // shells / orchestrators can distinguish "user interrupted"
-    // from "ran to completion (0)" — see SIGNAL_EXIT_CODE in
+    // from "ran to completion (0)"; see SIGNAL_EXIT_CODE in
     // cleanupHooks.ts.
     expect(codes).toEqual([130]);
   });
@@ -139,7 +139,7 @@ describe("registerCleanupHook", () => {
     expect(order).toEqual(["sync-cleanup", "async-cleanup-finished"]);
     // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) so parent
     // shells / orchestrators can distinguish "user interrupted"
-    // from "ran to completion (0)" — see SIGNAL_EXIT_CODE in
+    // from "ran to completion (0)"; see SIGNAL_EXIT_CODE in
     // cleanupHooks.ts.
     expect(codes).toEqual([130]);
   });
@@ -149,7 +149,7 @@ describe("registerCleanupHook", () => {
     // `process.exit(0)`, regardless of which signal fired the
     // shutdown. Parent shells / orchestrators / CI runners that
     // gate on signal-style nonzero status would mis-classify a
-    // Ctrl-C (SIGINT) as a clean run — `arkor dev || cleanup`
+    // Ctrl-C (SIGINT) as a clean run: `arkor dev || cleanup`
     // would skip the cleanup branch and leave whatever it owned
     // unreaped. POSIX convention is 128 + signo (SIGINT=2 → 130,
     // SIGTERM=15 → 143, SIGHUP=1 → 129); SIGNAL_EXIT_CODE in
@@ -163,7 +163,7 @@ describe("registerCleanupHook", () => {
       registerCleanupHook({ cleanup: () => {}, exitOnSignal: true });
       const codes = mockExit();
       process.emit(sig, sig);
-      // queueMicrotask + Promise.allSettled chain — two flushes
+      // queueMicrotask + Promise.allSettled chain: two flushes
       // mirror the existing tests.
       await flushMicrotasks();
       await flushMicrotasks();
@@ -201,7 +201,7 @@ describe("registerCleanupHook", () => {
     expect(process.listeners("SIGHUP").length).toBe(sighupBefore + 1);
 
     // Firing one signal must detach BOTH that registration's signal
-    // listener AND its sibling exit listener — the registration is
+    // listener AND its sibling exit listener: the registration is
     // done after first fire regardless of which channel triggered it.
     process.emit("SIGINT", "SIGINT");
 
@@ -213,7 +213,7 @@ describe("registerCleanupHook", () => {
 
   it("__resetCleanupHooksForTests detaches every still-armed registration", () => {
     // Test-only escape hatch for registrations whose handler never
-    // fires inside the test (no signal emitted) — without it, those
+    // fires inside the test (no signal emitted); without it, those
     // listeners would persist across the vitest worker's test queue.
     const exitBefore = process.listeners("exit").length;
     registerCleanupHook({ cleanup: () => {}, exitOnSignal: false });
@@ -249,7 +249,7 @@ describe("registerCleanupHook", () => {
     // listener after auto-detach, so codes has exactly one entry.
     // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) so parent
     // shells / orchestrators can distinguish "user interrupted"
-    // from "ran to completion (0)" — see SIGNAL_EXIT_CODE in
+    // from "ran to completion (0)"; see SIGNAL_EXIT_CODE in
     // cleanupHooks.ts.
     expect(codes).toEqual([130]);
   });

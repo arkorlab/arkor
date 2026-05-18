@@ -1,13 +1,13 @@
 /**
  * Starter templates written out by `create-arkor` / `arkor init`.
- * Single source of truth — both consumers bundle this module at build time.
+ * Single source of truth: both consumers bundle this module at build time.
  *
  * Layout written to disk:
  *
  *   src/arkor/index.ts    ← entry-point manifest (`createArkor({ trainer })`)
  *   src/arkor/trainer.ts  ← per-template trainer (`createTrainer({...})`)
  *
- * `index.ts` is identical across templates — only the trainer body differs.
+ * `index.ts` is identical across templates; only the trainer body differs.
  */
 export type TemplateId = "redaction" | "translate" | "triage";
 
@@ -76,7 +76,7 @@ export const trainer = createTrainer({
 });
 `;
 
-// Order is significant — `templateChoices()` preserves insertion order so the
+// Order is significant: `templateChoices()` preserves insertion order so the
 // CLI prompt lists demos first (sorted by estimated training time).
 //
 // Estimated training times assume A100 80GB on Runpod Serverless with the
@@ -101,7 +101,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
 };
 
 /**
- * Body of `src/arkor/index.ts` — identical across templates. The `createArkor`
+ * Body of `src/arkor/index.ts`: identical across templates. The `createArkor`
  * factory is what `arkor build` / Studio discovers; per-role primitives
  * (`trainer`, future `deploy`, `eval`) live in sibling files and get gathered
  * here.
@@ -113,7 +113,7 @@ export const arkor = createArkor({ trainer });
 `;
 
 export const STARTER_CONFIG = `// Training defaults. Project routing (orgSlug / projectSlug) is tracked
-// automatically in .arkor/state.json — do not put it here.
+// automatically in .arkor/state.json; do not put it here.
 export default {};
 `;
 
@@ -125,7 +125,7 @@ An arkor training project scaffolded by \`create-arkor\`.
 
 The \`dev\` / \`build\` / \`start\` package scripts forward to the matching
 \`arkor\` subcommands, so the script form works across every package
-manager (\`npm\` does not run package binaries via \`npm <bin>\` — use
+manager (\`npm\` does not run package binaries via \`npm <bin>\`; use
 \`npm run <script>\` or \`npx arkor <subcommand>\`).
 
 \`\`\`
@@ -137,7 +137,7 @@ npm install && npm run dev
 
 \`arkor dev\` opens the local Studio GUI (most workflows live there).
 
-Optional — log in to your own org instead of using anonymous tokens:
+Optional: log in to your own org instead of using anonymous tokens:
 
 \`\`\`
 npx arkor login
@@ -152,12 +152,12 @@ npm run start    # runs the build artifact on the cloud
 
 ## Files
 
-- \`src/arkor/index.ts\` — entry-point manifest (\`createArkor({ trainer })\`).
+- \`src/arkor/index.ts\`: entry-point manifest (\`createArkor({ trainer })\`).
   This is what the CLI and Studio discover.
-- \`src/arkor/trainer.ts\` — your trainer (\`createTrainer({...})\`). Add
+- \`src/arkor/trainer.ts\`: your trainer (\`createTrainer({...})\`). Add
   sibling files for future primitives (\`deploy.ts\`, \`eval.ts\`) and
   register them in the \`createArkor\` call.
-- \`arkor.config.ts\` — training defaults. Project routing lives in
+- \`arkor.config.ts\`: training defaults. Project routing lives in
   \`.arkor/state.json\`, managed by the CLI.
 
 Requires Node.js >= 22.22.0.

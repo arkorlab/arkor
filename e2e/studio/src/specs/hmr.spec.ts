@@ -13,13 +13,13 @@ import { expect, test } from "../harness/fixture";
  *
  *  1. The trainer carries the `Symbol.for("arkor.trainer.inspect")`
  *     brand so `findInspectableTrainer` (used by `studio/hmr.ts`'s
- *     `inspectBundle`) can read its name + config — without the
+ *     `inspectBundle`) can read its name + config: without the
  *     brand, every SSE rebuild frame gets `trainerName: null` and
  *     the SSE-level test below can't distinguish the post-edit
  *     rebuild from the cached initial-build replay. The seed
  *     fixture skips the brand because its existing tests only
  *     exercise the `/api/manifest` path (which uses
- *     `findTrainerInModule`, brand-less) — extending it would
+ *     `findTrainerInModule`, brand-less). Extending it would
  *     couple every test to inspection internals it doesn't care
  *     about.
  *
@@ -33,7 +33,7 @@ import { expect, test } from "../harness/fixture";
  *
  * `Symbol.for` keys round-trip across the dev process / built
  * bundle realm boundary because they live in the global symbol
- * registry — same mechanism `core/trainerInspection.ts` documents
+ * registry, the same mechanism `core/trainerInspection.ts` documents
  * for the runtime CLI / `.arkor/build/index.mjs` split.
  */
 function rewriteManifest(projectDir: string, name: string): void {
@@ -160,7 +160,7 @@ test.describe("Studio HMR", () => {
     await expect(hmrMeta).toHaveAttribute("content", "true");
 
     // Endpoint sanity-check: a GET without the studio token must 403
-    // (regression for the CSRF allow-list — `eventStreamPathPattern`
+    // (regression for the CSRF allow-list: `eventStreamPathPattern`
     // permits the query-token form, but a raw GET stays gated).
     const noToken = await fetch(`${studio.url}/api/dev/events`);
     expect(noToken.status).toBe(403);
@@ -176,7 +176,7 @@ test.describe("Studio HMR", () => {
     // connect; subscribing first then editing would force a
     // drain step. Going edit → subscribe is simpler: the
     // predicate explicitly requires `trainerName === newName`,
-    // which only the post-edit BUNDLE_END can satisfy — any
+    // which only the post-edit BUNDLE_END can satisfy; any
     // cached or in-flight frame for the seed name fails the
     // predicate and `awaitSseFrame` keeps reading until the
     // matching one arrives.
@@ -228,7 +228,7 @@ test.describe("Studio HMR", () => {
     // dynamic-imports the freshly-built artefact via
     // `summariseBuiltManifest`. The HMR rebuild must have completed
     // *and* the cache-bust URL must reflect the new bytes for this
-    // assertion to pass — exercises the rebuild → write artefact →
+    // assertion to pass: exercises the rebuild → write artefact →
     // re-import → return summary chain end-to-end.
     const newName = `studio-e2e-trainer-renamed-${Date.now()}`;
     rewriteManifest(fixturePaths.projectDir, newName);

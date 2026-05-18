@@ -52,7 +52,7 @@ describe("hashJobConfig", () => {
   it("treats `undefined` object properties identically to omitted ones (JSON parity)", () => {
     // Regression: the previous `stableStringify` delegated to
     // `JSON.stringify(undefined)` which returns `undefined` (not a
-    // string) — concatenated via template literal that became the
+    // string), concatenated via template literal that became the
     // substring `"undefined"` in the hash input. So `{ a: 1 }` and
     // `{ a: 1, b: undefined }` produced different hashes even though
     // they're indistinguishable on the wire (`JSON.stringify` drops
@@ -122,7 +122,7 @@ describe("hashJobConfig", () => {
     //
     // The fixture's `toJSON(key)` returns `"key=<key>"`. Compare
     // against an explicit string field holding what JSON.stringify
-    // would produce — matching hashes prove the key reached toJSON.
+    // would produce; matching hashes prove the key reached toJSON.
     const ctx = {
       toJSON(key: string) {
         return `key=${key}`;
@@ -143,13 +143,13 @@ describe("hashJobConfig", () => {
 
   it("omits an object property whose `toJSON(key)` returns undefined (JSON parity)", () => {
     // Regression: `JSON.stringify({ a: { toJSON: () => undefined } })`
-    // produces `"{}"` — `toJSON` returning `undefined` is the spec's
+    // produces `"{}"`: `toJSON` returning `undefined` is the spec's
     // "skip me" signal in object position. The previous
     // `stableStringify` collapsed every non-representable value to
     // the literal string `"null"` at recursion time, so the same
     // input hashed as `{"a":null}` instead of `{}`. That divergence
     // forced unnecessary SIGTERM restarts whenever a `JobConfig`
-    // field's serialiser opted out — `configHash` would diverge from
+    // field's serialiser opted out: `configHash` would diverge from
     // the wire-format payload (which DOES omit the field).
     const omitting = {
       toJSON() {

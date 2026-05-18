@@ -6,10 +6,10 @@ import type { ChildProcess } from "node:child_process";
  * rebuilds can decide, per child, between:
  *
  *   - **SIGUSR2** (callback hot-swap) when the new bundle's `configHash`
- *     matches the one captured at spawn time — the cloud-side run is
+ *     matches the one captured at spawn time: the cloud-side run is
  *     unaffected, only in-process callbacks need to update.
  *   - **SIGTERM** (graceful early-stop + restart) when the configs
- *     diverge — the runner's internal early-stop entry point lets the
+ *     diverge: the runner's internal early-stop entry point lets the
  *     next checkpoint finish, the subprocess exits, and the SPA
  *     re-spawns with the rebuilt artefact.
  */
@@ -17,18 +17,18 @@ export interface ActiveTrain {
   child: ChildProcess;
   trainFile?: string;
   /** Cloud-side config hash captured at spawn time (may be null if the
-   *  manifest wasn't inspectable yet — e.g. spawn raced an in-flight
+   *  manifest wasn't inspectable yet, e.g. spawn raced an in-flight
    *  build). A null entry forces SIGTERM on the next rebuild because we
    *  can't prove the configs match. */
   configHash: string | null;
   /**
-   * Content hash (sha256, truncated — see `studio/hmr.ts`'s
+   * Content hash (sha256, truncated; see `studio/hmr.ts`'s
    * `contentHashOrNull`) of the on-disk `.arkor/build/index.mjs`
    * at spawn time. Used **only** to gate the pre-ready-spawn
    * backfill: if a rebuild eventually fires while `configHash` is
    * still null and this content hash equals the rebuild's
    * `event.contentHash`, the child is provably reading the same
-   * bundle bytes the new hash describes — safe to backfill
+   * bundle bytes the new hash describes: safe to backfill
    * `configHash` and skip dispatch. A mismatch (or null here)
    * means the on-disk artefact has changed between spawn and
    * rebuild (user edited mid-spawn, fresh project never built, …)
@@ -38,7 +38,7 @@ export interface ActiveTrain {
    *
    * Content-hash (vs the timestamp `mtime+ctime+size` shape used
    * by `event.hash` for SSE dedup) avoids a false-positive
-   * mismatch when a watcher rebuild produces identical bytes —
+   * mismatch when a watcher rebuild produces identical bytes:
    * timestamps still bump, but content is the same and we
    * shouldn't force a spurious cancel+restart cycle. Null when
    * HMR isn't enabled or read failed.
@@ -47,7 +47,7 @@ export interface ActiveTrain {
   /**
    * `true` once we've already SIGTERM'd this child for an HMR-driven
    * early-stop. Subsequent rebuilds (which can land before the child
-   * has reached its next checkpoint) must NOT re-send SIGTERM —
+   * has reached its next checkpoint) must NOT re-send SIGTERM:
    * the runner's shutdown handler treats a second SIGTERM as the
    * emergency `process.exit(143)` escape hatch, which would defeat
    * the whole point of preserving the in-flight checkpoint. Kept
@@ -61,7 +61,7 @@ export interface ActiveTrain {
    * before that or for runs whose stdout we never saw the line on
    * (early spawn failure, custom user bins, etc.). The
    * `/api/train` cancel handler reads this to fire a fire-and-forget
-   * `POST /v1/jobs/:id/cancel` before SIGKILLing the subprocess —
+   * `POST /v1/jobs/:id/cancel` before SIGKILLing the subprocess.
    * SIGKILL bypasses the runner's `installShutdownHandlers`, so
    * without this server-side cancel the cloud-side job would live
    * until the cloud reaper / TTL fires (continued GPU spend).
@@ -108,9 +108,9 @@ export interface DispatchResult {
  * - `"gone"`: process was already exited. Surfaces both as `kill`
  *   returning `false` (Node's mapped form) and as a thrown `ESRCH`
  *   (a race where the child exits between the `entries` lookup and
- *   the `kill` call — POSIX `kill(2)` raises `ESRCH` for
+ *   the `kill` call: POSIX `kill(2)` raises `ESRCH` for
  *   non-existent PIDs and Node propagates it on some versions).
- * - `"unsupported"`: any *other* `kill` throw — i.e. the signal
+ * - `"unsupported"`: any *other* `kill` throw, i.e. the signal
  *   couldn't be delivered for a reason that isn't "process is gone".
  *   The motivating case is the platform not supporting this signal
  *   kind (Windows + `SIGUSR2` → `ENOSYS`; bad signal name →
@@ -118,8 +118,8 @@ export interface DispatchResult {
  *   for. The bucket is intentionally a catch-all rather than a
  *   whitelist of error codes: rare cases like `EPERM` (lost the
  *   right to signal a re-parented child) and platform-specific
- *   surprises take the same conservative fallback — try the next
- *   signal, otherwise drop the entry — which is what callers want
+ *   surprises take the same conservative fallback (try the next
+ *   signal, otherwise drop the entry), which is what callers want
  *   from "kill failed for some non-recoverable reason".
  */
 type KillResult = "ok" | "gone" | "unsupported";
@@ -128,7 +128,7 @@ function safeKill(child: ChildProcess, signal: NodeJS.Signals): KillResult {
   try {
     return child.kill(signal) ? "ok" : "gone";
   } catch (err) {
-    // `ESRCH` ("no such process") means the child already exited —
+    // `ESRCH` ("no such process") means the child already exited:
     // semantically identical to `kill returning false`. Mis-classifying
     // it as `"unsupported"` would route a hash-match hot-swap candidate
     // into the SIGTERM fallback, which then also no-ops (also gone) but
@@ -165,8 +165,8 @@ export class TrainRegistry {
       // HMR-disabled server, a hand-rolled fake) can omit it.
       // Defaults to `null`, which forces the pre-ready-spawn
       // branch to fall through to SIGTERM-restart on the next
-      // non-null rebuild — the safe choice when we genuinely
-      // don't know what bytes the child loaded. Real `/api/train`
+      // non-null rebuild (the safe choice when we genuinely
+      // don't know what bytes the child loaded). Real `/api/train`
       // calls in HMR mode capture this from
       // `coordinator.getCurrentArtifactContentHash()`.
       spawnArtifactContentHash?: string | null;
@@ -185,7 +185,7 @@ export class TrainRegistry {
       spawnArtifactContentHash: init.spawnArtifactContentHash ?? null,
       scope: init.scope ?? null,
       earlyStopRequested: false,
-      // `jobId` starts null — populated later by `recordJobId(pid,
+      // `jobId` starts null; populated later by `recordJobId(pid,
       // id)` when the server's stdout parser sees the runner's
       // `Started job <id>` line. Tests that don't exercise the
       // cancel-POST path can leave it null.
@@ -215,7 +215,7 @@ export class TrainRegistry {
   /**
    * Read the recorded cloud-side job id for a pid. `/api/train`'s
    * cancel handler consults this to POST `/v1/jobs/:id/cancel`
-   * before SIGKILLing the local subprocess — without that POST,
+   * before SIGKILLing the local subprocess; without that POST,
    * a user-initiated stop would leave the cloud job running
    * until TTL (the SIGKILL bypasses the runner's `installShutdownHandlers`
    * so the runner can't issue cancel itself). Returns null when
@@ -249,7 +249,7 @@ export class TrainRegistry {
    * SIGTERM to this child as part of an HMR cycle. Consulted by
    * `/api/train`'s ReadableStream `cancel()` handler so a client-
    * driven cancel (tab close, navigation, aborted fetch) doesn't
-   * pile a second SIGTERM on top of an in-progress early-stop —
+   * pile a second SIGTERM on top of an in-progress early-stop:
    * the runner's `installShutdownHandlers` interprets a second
    * SIGTERM as the emergency `exit(143)` fast-path, which bypasses
    * the checkpoint-preserving early-stop + `cancel()` flow and
@@ -279,7 +279,7 @@ export class TrainRegistry {
    *
    * Combines what was previously `notifyCallbackReload` +
    * `requestEarlyStopOnMismatch` into one pass so the per-child
-   * decision is atomic — important because the hot-swap path can
+   * decision is atomic: important because the hot-swap path can
    * gracefully degrade into the restart path on platforms (Windows)
    * where SIGUSR2 isn't supported, which is hard to express across
    * two separate iterations of the registry.
@@ -337,7 +337,7 @@ export class TrainRegistry {
       //     config are guaranteed to align. Without this gate, an
       //     edit landing between spawn and the first BUNDLE_END would
       //     silently teach the registry to use the post-edit hash as
-      //     the child's baseline — later same-hash rebuilds would
+      //     the child's baseline; later same-hash rebuilds would
       //     then hot-swap callbacks into a child whose cloud-side
       //     `JobConfig` was *actually* spawned against an older
       //     version, leaving the cloud run on a stale config.
@@ -362,8 +362,8 @@ export class TrainRegistry {
       if (matches) {
         // On Windows, Node's `child.kill(signal)` for any unknown
         // POSIX signal (including SIGUSR2) is documented to
-        // **forcefully terminate** the process — same effect as
-        // SIGKILL — and `kill()` returns `true` like a successful
+        // **forcefully terminate** the process (same effect as
+        // SIGKILL), and `kill()` returns `true` like a successful
         // delivery. `safeKill` would then report `"ok"`, the entry
         // would land in `hotSwapTargets`, and the SPA would never
         // schedule a restart even though the child is *dead*. Skip
@@ -384,7 +384,7 @@ export class TrainRegistry {
             continue;
           }
           // Cross-platform safety net: SIGUSR2 reported `"unsupported"`
-          // on a non-win32 platform (rare — `ENOSYS` from libuv signal
+          // on a non-win32 platform (rare: `ENOSYS` from libuv signal
           // wrap on exotic builds, future Node versions removing the
           // signal, etc.). Same fallback as the win32 skip above:
           // route to SIGTERM-restart so callback edits still take

@@ -36,7 +36,7 @@ import { __resetCleanupHooksForTests } from "../cleanupHooks";
 import { ensureCredentialsForStudio, runDev } from "./dev";
 
 /**
- * Yield one `setImmediate` tick — enough for the cleanupHooks
+ * Yield one `setImmediate` tick: enough for the cleanupHooks
  * coordinator's `Promise.allSettled(...).then(() => process.exit(0))`
  * chain to drain when there are no async cleanups in flight (the
  * common case in this file: signal handler → queueMicrotask →
@@ -46,13 +46,13 @@ import { ensureCredentialsForStudio, runDev } from "./dev";
  *
  * `setImmediate` is the right primitive (vs `Promise.resolve` /
  * `queueMicrotask`) because we need the event loop to actually
- * turn — the `process.exit` mock fires inside a `.then` callback
+ * turn: the `process.exit` mock fires inside a `.then` callback
  * scheduled from a previous microtask checkpoint, and a microtask-
  * only flush would resume *before* that callback gets to run.
  *
  * Tests that drive a chain with extra microtask hops (e.g. async
  * sibling cleanups whose promises also pass through
- * `Promise.allSettled`) await this helper twice in a row — see
+ * `Promise.allSettled`) await this helper twice in a row; see
  * the cleanupHooks tests.
  */
 function flushMicrotasks(): Promise<void> {
@@ -109,7 +109,7 @@ describe("ensureCredentialsForStudio", () => {
   });
 
   // When OAuth is advertised by the deployment, `arkor dev` no longer
-  // hands off to `runLogin` — that would block the Studio launch on a
+  // hands off to `runLogin`; that would block the Studio launch on a
   // browser flow. Instead we bootstrap anon and show a hint pointing at
   // `arkor login`, leaving the upgrade in the user's hands.
   it("bootstraps anonymous credentials even when OAuth is configured", async () => {
@@ -184,7 +184,7 @@ describe("ensureCredentialsForStudio", () => {
     });
   });
 
-  // Regression for ENG-403 — when the cloud-api is unreachable, `arkor dev`
+  // Regression for ENG-403: when the cloud-api is unreachable, `arkor dev`
   // previously failed to start because the anonymous bootstrap's network
   // error wasn't caught.
   it("does not throw when the anonymous bootstrap fails after a successful config fetch", async () => {
@@ -266,7 +266,7 @@ describe("ensureCredentialsForStudio", () => {
   // must surface at startup instead of being silently warned.
   it("re-throws when ARKOR_CLOUD_API_URL is malformed (config error)", async () => {
     process.env.ARKOR_CLOUD_API_URL = "";
-    // No fetch mock — let real fetch raise the URL parse error so we
+    // No fetch mock: let real fetch raise the URL parse error so we
     // exercise the actual undici contract, not a synthetic TypeError.
     await expect(ensureCredentialsForStudio()).rejects.toThrow(TypeError);
     await expect(ensureCredentialsForStudio()).rejects.not.toThrow(
@@ -307,7 +307,7 @@ describe("ensureCredentialsForStudio", () => {
     );
   });
 
-  // Codex P1 review on PR #65 — OAuth-only deployments advertise Auth0 in
+  // Codex P1 review on PR #65: OAuth-only deployments advertise Auth0 in
   // /v1/auth/cli/config but reject /v1/auth/anonymous. The new "always try
   // anon first" flow used to leave first-run users on those deployments
   // with a bare "Failed to acquire anonymous token (4xx)" error and no way
@@ -346,7 +346,7 @@ describe("ensureCredentialsForStudio", () => {
     expect(await readCredentials()).toBeNull();
   });
 
-  // Codex P2 review on PR #65 — the OAuth-only wrap used to span the whole
+  // Codex P2 review on PR #65: the OAuth-only wrap used to span the whole
   // anon bootstrap, so fs errors from `writeCredentials` were also rewritten
   // as "deployment may require sign-in", hiding the actionable fs cause.
   //
@@ -356,8 +356,8 @@ describe("ensureCredentialsForStudio", () => {
   // `writeFile` would raise EACCES under the bootstrap) only works on
   // POSIX as a non-root user: root bypasses chmod (Codex on PR #65), and
   // on Windows POSIX permission bits don't durably block writes inside a
-  // directory at all — Node maps `chmod` to the legacy read-only
-  // attribute, which NTFS only enforces on files. Both edges silently
+  // directory at all (Node maps `chmod` to the legacy read-only
+  // attribute, which NTFS only enforces on files). Both edges silently
   // turned the test green for the wrong reason. Mocking lifts the
   // "produce an EACCES" half of the test out of the host filesystem
   // entirely so every CI matrix entry exercises the wrap-narrowing
@@ -421,7 +421,7 @@ describe("ensureCredentialsForStudio", () => {
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
+        // Missing `personalOrg`: anonymousTokenResponseSchema rejects.
         return new Response(
           JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
           { status: 200 },
@@ -439,7 +439,7 @@ describe("ensureCredentialsForStudio", () => {
   it("forwards a non-Error throwable from requestAnonymousToken (String() coercion)", async () => {
     // Defensive coverage of the `err instanceof Error ? err.message : String(err)`
     // helper inside the warn branch isn't exercised here because the
-    // helper is in the dev.ts catch — but the symmetrical path inside
+    // helper is in the dev.ts catch; but the symmetrical path inside
     // the schema-error case rethrows with the original value preserved.
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
@@ -475,7 +475,7 @@ describe("ensureCredentialsForStudio", () => {
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
+        // Missing `personalOrg`: anonymousTokenResponseSchema rejects.
         return new Response(
           JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
           { status: 200 },
@@ -664,7 +664,7 @@ describe("runDev", () => {
     // ~/.arkor read-only after writeCredentials (so readCredentials still
     // works) so the per-launch token write hits EACCES.
     if (typeof process.getuid === "function" && process.getuid() === 0) {
-      // Root bypasses chmod permission checks — skip on root containers.
+      // Root bypasses chmod permission checks; skip on root containers.
       return;
     }
     chmodSync(join(fakeHome, ".arkor"), 0o555);
@@ -710,10 +710,10 @@ describe("runDev", () => {
       // Sync side effect (token unlink) lands inside the synchronous
       // portion of the handler.
       expect(existsSync(studioTokenPath())).toBe(false);
-      // Exit fires after `Promise.allSettled(asyncCleanups)` resolves —
+      // Exit fires after `Promise.allSettled(asyncCleanups)` resolves;
       // a few microticks later. Flush to let the queued exit run.
       await flushMicrotasks();
-      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) — see
+      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2): see
       // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
       // the nonzero code to distinguish interrupt from clean exit.
       expect(exitSpy).toHaveBeenCalledWith(130);
@@ -724,14 +724,14 @@ describe("runDev", () => {
 
   it("keeps the SIGINT exit handler armed even when persisting the studio token fails", async () => {
     // Regression: if `persistStudioToken` threw, the previous code
-    // skipped `scheduleStudioTokenCleanup` — and that was the *only*
+    // skipped `scheduleStudioTokenCleanup`, and that was the *only*
     // hook that called `process.exit(0)` on SIGINT. The leftover HMR
     // hook overrides Node's default "exit on SIGINT" behaviour, so the
     // dev server would idle in the foreground forever. The fix
     // registers the token cleanup unconditionally; here we make
     // persist throw and verify SIGINT still terminates.
     if (typeof process.getuid === "function" && process.getuid() === 0) {
-      // Root bypasses chmod permission checks — skip on root containers.
+      // Root bypasses chmod permission checks; skip on root containers.
       return;
     }
     chmodSync(join(fakeHome, ".arkor"), 0o555);
@@ -758,7 +758,7 @@ describe("runDev", () => {
       // ran (best-effort `unlinkSync` swallows ENOENT) and the
       // exit-on-signal arm fired (after async cleanup tails settle).
       await flushMicrotasks();
-      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2) — see
+      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2): see
       // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
       // the nonzero code to distinguish interrupt from clean exit.
       expect(exitSpy).toHaveBeenCalledWith(130);

@@ -7,9 +7,9 @@ import { pathToFileURL } from "node:url";
  * Why this matters: Node's ESM loader caches every dynamically-imported
  * URL for the lifetime of the process and exposes no API to evict a
  * record. A naive `?t=Date.now()` cache-bust produces a fresh URL on
- * every call, so a long-running `arkor dev` session — where the SPA
+ * every call, so a long-running `arkor dev` session (where the SPA
  * polls `/api/manifest` every few seconds and every save fires
- * `BUNDLE_END` + SIGUSR2 — accumulates one module record per call,
+ * `BUNDLE_END` + SIGUSR2) accumulates one module record per call,
  * unbounded.
  *
  * Keying on `mtimeMs + ctimeMs + size` collapses repeated reads of the
@@ -24,7 +24,7 @@ import { pathToFileURL } from "node:url";
  * the same key, which made Node's loader return the *stale* module
  * for the second edit (HMR/manifest staleness on fast filesystems).
  * `ctimeMs` is included as belt-and-braces against the (rare) case
- * where mtime collides but ctime moves — `touch -m` and some build
+ * where mtime collides but ctime moves: `touch -m` and some build
  * tools update one without the other.
  *
  * Falls back to a stable literal on stat failure so the eventual

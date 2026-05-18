@@ -49,8 +49,8 @@ describe("moduleCacheBustKey", () => {
     // The eventual `await import(url)` will throw on a missing
     // file; the helper itself should produce a value rather than
     // bubbling the stat error and turning every consumer into a
-    // try/catch site. Three zeros — one each for mtimeMs, ctimeMs,
-    // size — to keep the shape uniform with the success branch.
+    // try/catch site. Three zeros (one each for mtimeMs, ctimeMs,
+    // size) to keep the shape uniform with the success branch.
     expect(moduleCacheBustKey(join(dir, "does-not-exist.mjs"))).toBe("0-0-0");
   });
 });

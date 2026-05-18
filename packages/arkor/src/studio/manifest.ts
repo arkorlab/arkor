@@ -44,7 +44,7 @@ export async function summariseBuiltManifest(
   // mtime+ctime+size cache-bust (vs `Date.now()`): the SPA polls
   // `/api/manifest` every ~5 s, so a `Date.now()` suffix would
   // accumulate one ESM module record per poll across a long
-  // `arkor dev` session — Node's loader has no eviction. Keying on
+  // `arkor dev` session: Node's loader has no eviction. Keying on
   // the artefact bytes (via `moduleCacheBustUrl`) collapses
   // unchanged-poll reads onto the existing record.
   const mod = (await import(moduleCacheBustUrl(outFile))) as Record<
@@ -61,7 +61,7 @@ export async function summariseBuiltManifest(
   // Trainer name renders in the UI even for hand-rolled trainers
   // that bypass `createTrainer` and therefore don't carry the SDK
   // inspection brand. The brand is required only for the
-  // `configHash` used by HMR routing — without it, HMR conservatively
+  // `configHash` used by HMR routing; without it, HMR conservatively
   // SIGTERM-restarts on every rebuild (correct fallback).
   const name =
     typeof trainer.name === "string" ? trainer.name : "(unnamed trainer)";
@@ -103,7 +103,7 @@ export interface ReadManifestOptions {
  * Each call rebuilds and re-imports so edits to the user's source
  * surface without restarting Studio. When `prebuiltOutFile` is
  * supplied (HMR-enabled servers), the `runBuild()` step is bypassed
- * — see `ReadManifestOptions.prebuiltOutFile` for the rationale.
+ * (see `ReadManifestOptions.prebuiltOutFile` for the rationale).
  */
 export async function readManifestSummary(
   cwd: string,

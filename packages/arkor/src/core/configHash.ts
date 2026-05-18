@@ -8,7 +8,7 @@ import type { JobConfig } from "./types";
  * `buildJobConfig` revisions or user-side spread-merge tricks.
  *
  * Returns `string | undefined`. `undefined` is the "omit me from my
- * containing object" sentinel — it propagates from any value
+ * containing object" sentinel: it propagates from any value
  * `JSON.stringify` would silently drop in object position
  * (`undefined`, functions, symbols, *and* objects whose `toJSON(key)`
  * returns one of those). Callers sit at three boundaries:
@@ -22,7 +22,7 @@ import type { JobConfig } from "./types";
  *
  * The previous implementation collapsed every non-representable to
  * the literal string `"null"` at recursion time, which leaked into
- * object slots as `{"a":null}` instead of the JSON-correct `{}` —
+ * object slots as `{"a":null}` instead of the JSON-correct `{}`,
  * making `configHash` diverge from the wire-format payload for
  * `JobConfig` fields whose `toJSON(key)` happened to return
  * `undefined` (the spec-defined "skip me" signal). That divergence
@@ -44,7 +44,7 @@ function stableStringify(value: unknown, key: string = ""): string | undefined {
   // user-side `toJSON(key)` implementations that branch on the
   // hosting property/index see the same value JSON.stringify would.
   // If `toJSON` returns `undefined`, that propagates as the omit
-  // sentinel — the spec-defined "skip me" path.
+  // sentinel: the spec-defined "skip me" path.
   const maybeToJSON = (value as { toJSON?: unknown }).toJSON;
   if (typeof maybeToJSON === "function") {
     return stableStringify(

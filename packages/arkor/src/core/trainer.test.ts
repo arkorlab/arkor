@@ -270,7 +270,7 @@ describe("createTrainer (credentials defaulting)", () => {
             model: "m",
             dataset: { type: "huggingface", name: "x" },
           },
-          // Note: NO `credentials` here — trainer must call ensureCredentials.
+          // Note: NO `credentials` here, so trainer must call ensureCredentials.
           {
             baseUrl: "http://mock",
             cwd: localCwd,
@@ -562,7 +562,7 @@ describe("createTrainer (SSE event stream)", () => {
   });
 });
 
-// Regression for ENG-406 — the previous reconnect loop had no upper bound
+// Regression for ENG-406: the previous reconnect loop had no upper bound
 // and no jitter, so a permanently-down cloud-api would keep retrying every
 // `reconnectDelayMs` forever (and on recovery several SDK clients would
 // reconnect at exactly the same instant).
@@ -690,7 +690,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
             step: 1,
             loss: 1,
           })}\n\n`,
-          // No terminal event — stream closes cleanly, outer loop reconnects.
+          // No terminal event: stream closes cleanly, outer loop reconnects.
         ],
       },
       { kind: "throw", error: new TypeError("fetch failed") },
@@ -728,8 +728,8 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   // when `Math.random()` lands near 1.
   // Codex review on PR #13 (round 3) flagged that a 200-OK stream that
   // EOFs without emitting any frame would loop forever at the base delay
-  // — `maxReconnectAttempts` was bypassed because clean closes never
-  // touched the failure counter. Misconfigured proxies / load-balancers
+  // because `maxReconnectAttempts` was bypassed (clean closes never
+  // touched the failure counter). Misconfigured proxies / load-balancers
   // that accept the connection and immediately drop it would hang
   // `wait()` indefinitely.
   it("counts clean closes with no frames toward maxReconnectAttempts", async () => {
@@ -850,7 +850,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     };
     // The trainer fires `POST /v1/jobs` synchronously inside the start()
     // path, so cancel() needs the job row to be assigned. We never open the
-    // event stream — cancel() should not depend on it.
+    // event stream; cancel() should not depend on it.
     const sse = [
       `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
         type: "training.completed",
@@ -907,7 +907,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const original = globalThis.fetch;
     globalThis.fetch = fetcher;
     try {
-      // Start the run by awaiting wait() — the streamed completion event
+      // Start the run by awaiting wait(): the streamed completion event
       // closes the loop quickly so cancel() runs against a fully-resolved
       // startedJob/scope pair.
       await trainer.wait();
@@ -981,7 +981,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   });
 
   it("skips malformed event payloads without aborting the stream", async () => {
-    // Branch coverage for the `try/catch` around JSON.parse — a single
+    // Branch coverage for the `try/catch` around JSON.parse: a single
     // malformed `data:` line shouldn't tear down the whole training run.
     // Send one garbage frame followed by a real terminal event.
     await writeState(
@@ -1048,7 +1048,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   });
 
   it("recovers when the SSE body itself errors mid-stream", async () => {
-    // Branch coverage for the catch around the for-await iterator —
+    // Branch coverage for the catch around the for-await iterator:
     // covers the case where the stream's underlying body emits an error
     // (e.g. a network disconnect partway through). The reconnect loop
     // should treat it as a failure, count it toward the limit, then
@@ -1158,7 +1158,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,
     );
-    // No fetch mock at all — if cancel() reached the API we'd see a real
+    // No fetch mock at all: if cancel() reached the API we'd see a real
     // network error. Safety net for callers that wire up cancel() to
     // SIGINT before kicking off the run.
     const trainer = createTrainer(
@@ -1392,8 +1392,8 @@ describe("createTrainer (early stop)", () => {
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
           // Arm the early-stop latch from inside the on-log callback so it
-          // fires before the checkpoint dispatch — mirrors the real CLI
-          // path where SIGTERM arrives mid-run. Fire-and-forget so the
+          // fires before the checkpoint dispatch (mirrors the real CLI
+          // path where SIGTERM arrives mid-run). Fire-and-forget so the
           // dispatch loop isn't blocked waiting for the latch's own
           // checkpoint trigger to arrive.
           onLog: () => {
@@ -1416,7 +1416,7 @@ describe("createTrainer (early stop)", () => {
     // `{ terminal: true }` to break out of `wait()`'s loop without
     // waiting for a cloud-side terminal event. The `TrainingResult`
     // it resolves with must therefore reflect a terminal status
-    // locally — otherwise `wait()` violates its documented contract
+    // locally; otherwise `wait()` violates its documented contract
     // ("Resolve when the job reaches a terminal status") and a
     // subsequent `requestEarlyStop` wouldn't see the
     // `TERMINAL_STATUSES` short-circuit.
@@ -1512,7 +1512,7 @@ describe("createTrainer (early stop)", () => {
       globalThis.fetch = original;
     }
     // The artefacts the checkpoint event carried must travel
-    // through to the wait() result — that's the whole point of
+    // through to the wait() result; that's the whole point of
     // graceful-stop-at-next-checkpoint preserving the in-flight
     // work.
     expect(result.artifacts).toEqual(checkpointArtifacts);
@@ -1636,7 +1636,7 @@ describe("createTrainer (early stop)", () => {
     const original = globalThis.fetch;
     globalThis.fetch = fetcher;
     try {
-      // wait() rejects — handleFailure wraps the user callback
+      // wait() rejects: handleFailure wraps the user callback
       // throw because maxReconnectAttempts is 0.
       await expect(trainer.wait()).rejects.toThrow();
       // Critical: the latch SETTLED via the early-stop branch
@@ -1655,7 +1655,7 @@ describe("createTrainer (early stop)", () => {
     // Regression: previously, an `await trainer.cancel()` that threw
     // (network failure / cloud-api 5xx during the cancel POST) was
     // *swallowed*, the deferred resolved cleanly, and the runner
-    // exited 0 — the UI declared the run cancelled while the cloud
+    // exited 0: the UI declared the run cancelled while the cloud
     // job kept running, orphaning GPU spend with no visible error.
     // The fix REJECTS the deferred so the runner's
     // `installShutdownHandlers` `.catch()` writes the failure to
@@ -1730,7 +1730,7 @@ describe("createTrainer (early stop)", () => {
           onLog: () => {
             // Arm exactly once and capture the returned promise.
             // requestTrainerEarlyStop is idempotent across repeat
-            // calls, but we only need the FIRST armed deferred —
+            // calls, but we only need the FIRST armed deferred:
             // the cancel-throw rejects exactly that promise.
             if (armedPromise === null) {
               armedPromise = requestTrainerEarlyStop(trainer, {
@@ -1763,7 +1763,7 @@ describe("createTrainer (early stop)", () => {
     }
     // cancel() was attempted (and threw).
     expect(cancelAttempts).toBe(1);
-    // The armed deferred REJECTED — the runner's `.catch()` would
+    // The armed deferred REJECTED: the runner's `.catch()` would
     // see this error and log it to stderr instead of silently
     // exiting 0. Critically: it didn't hang on "pending"; the
     // failure case still settles, just via reject not resolve.
@@ -1780,7 +1780,7 @@ describe("createTrainer (early stop)", () => {
     // checkpoint landed (a common case for short jobs or runs that
     // had already saved their last checkpoint when SIGTERM arrived),
     // the deferred stayed pending until the (default 5-min) timeout
-    // fired — the SIGTERM handler in `installShutdownHandlers`
+    // fired; the SIGTERM handler in `installShutdownHandlers`
     // awaits that promise before exit, so shutdown was delayed up to
     // `timeoutMs`. Both terminal branches now settle the latch
     // explicitly so the signal path completes immediately when the
@@ -1791,7 +1791,7 @@ describe("createTrainer (early stop)", () => {
     );
     // started → log (arms early-stop) → completed; no checkpoint.saved
     // in between, so the checkpoint-triggered resolution path is *not*
-    // exercised — only the new terminal-branch settlement is.
+    // exercised; only the new terminal-branch settlement is.
     const sse = [
       `id: 1\nevent: training.started\ndata: ${JSON.stringify({
         type: "training.started",
@@ -1873,7 +1873,7 @@ describe("createTrainer (early stop)", () => {
       // observes the resolution before we assert.
       await new Promise((r) => setImmediate(r));
       expect(result.job.status).toBe("completed");
-      // No cancel POST was issued — the terminal branch just
+      // No cancel POST was issued: the terminal branch just
       // releases the latch; it doesn't cancel a run that already
       // completed on its own.
       expect(cancelCalls).toBe(0);
@@ -1890,7 +1890,7 @@ describe("createTrainer (early stop)", () => {
     // Regression: previously `settleEarlyStopLatch()` was called
     // *after* awaiting `callbacks.onCompleted` / `onFailed`. A
     // thrown user callback propagated out of `dispatch()` before
-    // the settle ran, leaving `earlyStopDeferred` pending — the
+    // the settle ran, leaving `earlyStopDeferred` pending; the
     // SIGTERM handler in `installShutdownHandlers` would block on
     // that promise until the (default 5-min) timeout fired,
     // delaying shutdown for a user-code bug. Wrapping in
@@ -1952,7 +1952,7 @@ describe("createTrainer (early stop)", () => {
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onLog: () => {
-            // Arm early-stop with a long timeout — if the latch
+            // Arm early-stop with a long timeout; if the latch
             // isn't released by `finally`, this would hang for the
             // full 60 seconds.
             void requestTrainerEarlyStop(trainer, {
@@ -1980,7 +1980,7 @@ describe("createTrainer (early stop)", () => {
         // its reconnect loop; with the default unbounded retry the
         // user-callback throw above would loop forever and the test
         // would just time out. Cap retries at 0 so the first thrown
-        // dispatch surfaces as a `wait()` rejection — that lets us
+        // dispatch surfaces as a `wait()` rejection; that lets us
         // observe the *latch* settlement (the actual contract under
         // test) cleanly.
         maxReconnectAttempts: 0,
@@ -1993,7 +1993,7 @@ describe("createTrainer (early stop)", () => {
       // The user-callback throw is wrapped by `handleFailure` after
       // `maxReconnectAttempts: 0` exhausts; the original error is
       // preserved as `cause`. We just need wait() to settle so the
-      // test doesn't hang — the *body* of the assertion is the
+      // test doesn't hang. The *body* of the assertion is the
       // latch state below.
       await expect(trainer.wait()).rejects.toThrow();
       // The latch must have settled (via `finally`) BEFORE wait()
@@ -2014,7 +2014,7 @@ describe("createTrainer (early stop)", () => {
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,
     );
-    // No checkpoint in the stream — only training.completed, which would
+    // No checkpoint in the stream, only training.completed, which would
     // normally finish the run. We hand-roll a stream that never ends so
     // the timeout fallback is what actually triggers cancel.
     let streamController: ReadableStreamDefaultController<Uint8Array> | null =
@@ -2102,7 +2102,7 @@ describe("createTrainer (early stop)", () => {
     // Companion to the checkpoint-branch reject test: when no
     // checkpoint arrives within `timeoutMs`, the timeout fallback
     // does its own `trainer.cancel()`. Old code swallowed cancel
-    // errors and ALWAYS resolved the deferred — same false-success
+    // errors and ALWAYS resolved the deferred: same false-success
     // failure mode as the checkpoint branch had: local runner
     // exits cleanly while the cloud job keeps consuming GPU
     // budget. The fix mirrors the checkpoint reject path: capture
@@ -2173,7 +2173,7 @@ describe("createTrainer (early stop)", () => {
     try {
       await trainer.start();
       // Tiny timeout so the timeout fallback fires fast (no
-      // checkpoint will land — stream only carries
+      // checkpoint will land; stream only carries
       // training.started). The returned promise should REJECT
       // because the cancel POST throws.
       await expect(
@@ -2204,7 +2204,7 @@ describe("createTrainer (early stop)", () => {
     // job is being created but `startedJob` is still null. If a
     // runner-side SIGTERM lands in that window, an immediate
     // "no-op" early-stop would let `installShutdownHandlers` exit
-    // the process — leaving the just-created cloud job running
+    // the process, leaving the just-created cloud job running
     // with no cancel POST. The fix is to await the in-flight
     // `start()` promise inside `requestEarlyStop()` so the cancel
     // path sees a definite job id (or a definite start failure).
@@ -2226,7 +2226,7 @@ describe("createTrainer (early stop)", () => {
       if (method === "POST" && url.includes("/v1/jobs?")) {
         // Hold createJob open so we can fire `requestEarlyStop`
         // mid-flight. Once the test releases the gate, return a
-        // valid job — that establishes the post-create state
+        // valid job: that establishes the post-create state
         // requestEarlyStop should then act on (cancel POST).
         await createJobReleased;
         return new Response(JSON.stringify({ job: minimalJobRow }), {
@@ -2256,7 +2256,7 @@ describe("createTrainer (early stop)", () => {
     const original = globalThis.fetch;
     globalThis.fetch = fetcher;
     try {
-      // Fire start() but DON'T await — its createJob is gated.
+      // Fire start() but DON'T await; its createJob is gated.
       const startPromise = trainer.start();
       // Yield once so the start microtasks queue up to the
       // `await client.createJob`.
@@ -2264,14 +2264,14 @@ describe("createTrainer (early stop)", () => {
       // requestEarlyStop fires while start() is mid-flight. With
       // the fix it awaits start() rather than no-op'ing immediately.
       // Tiny `timeoutMs` so once `start()` resolves the latch's
-      // timeout-fallback fires the cancel POST quickly — there's no
+      // timeout-fallback fires the cancel POST quickly. There's no
       // SSE stream in this test, so the checkpoint-driven path
       // never arrives. We're testing the "stop awaited start()" leg
       // of the contract, not the checkpoint plumbing.
       const stopPromise = requestTrainerEarlyStop(trainer, {
         timeoutMs: 50,
       });
-      // Sanity: stop hasn't resolved yet — it's blocked on
+      // Sanity: stop hasn't resolved yet; it's blocked on
       // start() which is blocked on createJob.
       let stopSettled = false;
       void stopPromise.then(() => {
@@ -2356,8 +2356,8 @@ describe("createTrainer (early stop)", () => {
             calls.push(`v1:onLog(${step})`);
             // After the first onLog call, swap to v2 callbacks via the
             // internal `Symbol.for("arkor.trainer.replaceCallbacks")`
-            // brand — the same brand `arkor dev`'s SIGUSR2 handler
-            // uses. The next event must dispatch via the new object.
+            // brand (the same brand `arkor dev`'s SIGUSR2 handler
+            // uses). The next event must dispatch via the new object.
             if (step === 1) {
               replaceTrainerCallbacks(trainer, {
                 onLog: ({ step: s }) => void calls.push(`v2:onLog(${s})`),
@@ -2378,7 +2378,7 @@ describe("createTrainer (early stop)", () => {
     expect(calls).toEqual(["v1:onLog(1)", "v2:onLog(2)"]);
   });
 
-  it("is idempotent — repeated calls share the same in-flight promise", async () => {
+  it("is idempotent: repeated calls share the same in-flight promise", async () => {
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,

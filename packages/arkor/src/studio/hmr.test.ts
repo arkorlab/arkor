@@ -129,7 +129,7 @@ describe("createHmrCoordinator", () => {
     // Regression: previously `startWatcher` bailed out and never
     // retried, so an SPA already connected to `/api/dev/events` against
     // a fresh scaffold would be stuck on the initial `error` event
-    // forever — EventSource doesn't reconnect on application-level
+    // forever: EventSource doesn't reconnect on application-level
     // errors. The coordinator now polls for the entry file in the
     // background and starts the watcher the moment it appears.
     const events: HmrEvent[] = [];
@@ -137,7 +137,7 @@ describe("createHmrCoordinator", () => {
     hmr.subscribe((e) => events.push(e));
     try {
       await nextEvent(events, (e) => e.type === "error", 1000);
-      // Same subscriber — no reconnect, no second `subscribe` call.
+      // Same subscriber: no reconnect, no second `subscribe` call.
       mkdirSync(join(cwd, "src/arkor"), { recursive: true });
       writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
       const ready = await nextEvent(
@@ -166,7 +166,7 @@ describe("createHmrCoordinator", () => {
       // We assert "the late subscriber sees the same event the prior one
       // saw last" rather than literally "ready" because rolldown@1.0.0-rc.17
       // on macOS occasionally fires a spurious second BUNDLE_END (FSEvents
-      // coalescing inside the watcher) — there, `firstEvents` already
+      // coalescing inside the watcher): there, `firstEvents` already
       // contains the spurious `rebuild` by the time we late-subscribe, and
       // the contract under test (replay of the cached state) holds either
       // way.
@@ -187,7 +187,7 @@ describe("createHmrCoordinator", () => {
     // a fresh subscriber for the late-mount-cached-state contract.
     // Previously the replay had no try/catch, so a subscriber that
     // threw during that one call (typical case: an SSE controller
-    // that closed mid-replay — `controller.enqueue` on a closed
+    // that closed mid-replay: `controller.enqueue` on a closed
     // stream throws) propagated out of `subscribe()` and broke
     // whoever just registered. `broadcast()` already swallowed
     // subscriber throws defensively; this test pins the symmetric
@@ -246,7 +246,7 @@ describe("createHmrCoordinator", () => {
     // Regression: the BUNDLE_END handler used to fire
     // `emitBuildSucceeded` without awaiting, so two quick rebuilds
     // could run `inspectBundle` concurrently and broadcast out of
-    // order — leaving `lastEvent` pointing at the older snapshot.
+    // order, leaving `lastEvent` pointing at the older snapshot.
     // We can't deterministically synthesise a race against rolldown's
     // real watcher, but we *can* assert the user-visible invariant:
     // after a sequence of edits, the cached state must match the
@@ -270,12 +270,12 @@ describe("createHmrCoordinator", () => {
         join(cwd, "src/arkor/index.ts"),
         FAKE_MANIFEST.replace(`"alpha"`, `"gamma"`),
       );
-      // Wait for the watcher to settle — any rebuild that's going to
+      // Wait for the watcher to settle; any rebuild that's going to
       // fire (including spurious extras from FSEvents on macOS or
       // chokidar polling on Windows) lands within this window. The
       // assertion then compares the cached `lastEvent.hash` against
       // the *actual* fingerprint of the on-disk artefact, not a
-      // captured "last expected" hash from earlier in the test —
+      // captured "last expected" hash from earlier in the test:
       // that earlier capture was brittle on Windows where rolldown
       // routinely emits a 4th BUNDLE_END after the explicit edits
       // settle, producing a slightly different output byte (a
@@ -308,14 +308,14 @@ describe("createHmrCoordinator", () => {
     const events: HmrEvent[] = [];
     const hmr = createHmrCoordinator({ cwd });
     // Before any subscriber attaches, no watcher is running and no
-    // event has been broadcast — getter must return null without
+    // event has been broadcast: getter must return null without
     // throwing.
     expect(hmr.getCurrentConfigHash()).toBeNull();
     hmr.subscribe((e) => events.push(e));
     try {
       const ready = await nextEvent(events, (e) => e.type === "ready");
       // FAKE_MANIFEST is hand-rolled (no SDK brand) so the cached
-      // hash is null — but the *getter* must still return whatever
+      // hash is null, but the *getter* must still return whatever
       // the cached event carries, not throw.
       expect(hmr.getCurrentConfigHash()).toBe(ready.configHash ?? null);
     } finally {
@@ -333,7 +333,7 @@ describe("createHmrCoordinator", () => {
     // returns a non-null, non-artefact-derived hash. That
     // silently breaks `dispatchRebuild`'s pre-ready-spawn gate
     // which relies on null === "no artefact, force restart".
-    // The fix uses `fingerprintOrNull` — single statSync, true
+    // The fix uses `fingerprintOrNull`: single statSync, true
     // null on failure.
     //
     // We assert the getter on a project that has NEVER built
@@ -345,7 +345,7 @@ describe("createHmrCoordinator", () => {
 
     const hmr = createHmrCoordinator({ cwd });
     try {
-      // No subscribe() yet — watcher hasn't started, so no
+      // No subscribe() yet: watcher hasn't started, so no
       // BUNDLE_END has written the artefact. The on-disk
       // `.arkor/build/index.mjs` doesn't exist.
       expect(hmr.getCurrentArtifactHash()).toBeNull();
@@ -372,7 +372,7 @@ describe("createHmrCoordinator", () => {
     try {
       const ready = await nextEvent(events, (e) => e.type === "ready");
       const artifactHash = hmr.getCurrentArtifactHash();
-      // Same shape as the SSE event's `hash` field — both feed
+      // Same shape as the SSE event's `hash` field: both feed
       // through the same `mtimeMs-ctimeMs-size` formula.
       expect(artifactHash).toBe(ready.hash ?? null);
       expect(artifactHash).toMatch(/^[\d.]+-[\d.]+-\d+$/);
@@ -385,7 +385,7 @@ describe("createHmrCoordinator", () => {
     // Regression: previously `getCurrentConfigHash()` returned
     // `lastEvent?.configHash ?? null`. After an ERROR landed,
     // `lastEvent` was the error event (no `configHash`) so the
-    // getter went null — even though `.arkor/build/index.mjs` still
+    // getter went null even though `.arkor/build/index.mjs` still
     // held the previous *successful* bundle bytes (ERROR doesn't
     // overwrite the output). A child spawned via `/api/train` in
     // that window would register `configHash: null`, and the next
@@ -411,7 +411,7 @@ describe("createHmrCoordinator", () => {
       );
       await nextEvent(events, (e) => e.type === "error", 4000);
       // After the error, the cached `lastEvent` is the error frame
-      // — but the on-disk artifact still holds the previous
+      // but the on-disk artifact still holds the previous
       // success. The getter must return that previous-success hash
       // so any `/api/train` spawn during this window still gets a
       // useful spawn-time hash for the *next* rebuild's routing.

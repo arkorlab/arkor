@@ -52,10 +52,10 @@ export function RunTraining() {
   const runningRef = useRef(false);
   const currentPidRef = useRef<number | null>(null);
   // Browser `window.setTimeout` returns a numeric handle, not Node's
-  // `Timeout` object — explicit `number` so TS doesn't pick up the
+  // `Timeout` object; explicit `number` so TS doesn't pick up the
   // Node typing from the global `setTimeout`.
   const hotSwapTimerRef = useRef<number | null>(null);
-  // SSE events that arrived during the startup window — after `run()`
+  // SSE events that arrived during the startup window: after `run()`
   // set `runningRef.current = true` but before `streamTraining`'s
   // `onSpawn` populated `currentPidRef`. The per-pid filter would
   // otherwise drop any HMR dispatch landing in this window because
@@ -70,7 +70,7 @@ export function RunTraining() {
   // Grace window after the train stream closes during which the SSE
   // handler can still latch a *late* restart event onto our just-
   // exited child. The `/api/train` stream and `/api/dev/events` SSE
-  // are independent connections — under the race where the child
+  // are independent connections: under the race where the child
   // exits before the matching `rebuild` event lands on the SSE
   // channel (fast child exit, network jitter), `run()`'s finally
   // would synchronously settle "no restart" and the user would be
@@ -79,13 +79,13 @@ export function RunTraining() {
   // the SSE handler can still match per-pid; if the late event
   // arrives within the window it sets `restartPendingRef` and the
   // timer's callback fires the auto-restart from there. The window
-  // is short (a few hundred ms) — well under user perception for
+  // is short (a few hundred ms), well under user perception for
   // the no-restart outcome but long enough to absorb realistic
   // cross-connection delivery skew.
   const restartGraceTimerRef = useRef<number | null>(null);
   // Tracks "is this React tree still mounted?". The HMR auto-restart
   // path schedules `queueMicrotask(() => run(...))` after the prior
-  // run's `finally` — without this gate, navigating away during the
+  // run's `finally`. Without this gate, navigating away during the
   // tiny window between scheduling and the microtask running would
   // fire a fresh `/api/train` POST from an unmounted view, spawning
   // an invisible cloud job the user can't see or stop.
@@ -161,7 +161,7 @@ export function RunTraining() {
   // than `import.meta.env.DEV`: the SPA is shipped via `vite build`
   // and served by `arkor dev` as static assets, so DEV is `false` in
   // every real session. The server-side flag is `true` exactly when
-  // `arkor dev` wired in an HMR coordinator — i.e. when
+  // `arkor dev` wired in an HMR coordinator, i.e. when
   // `/api/dev/events` actually exists. Without this flag the
   // EventSource would either be dead in real dev sessions (DEV gate)
   // or retry forever against a 404 (no gate).
@@ -171,7 +171,7 @@ export function RunTraining() {
     // Typed as `Event` (not `MessageEvent`) because the same handler
     // is registered for the `error` event, which EventSource fires
     // as a plain `Event` on connection failures (server crashed,
-    // browser dropped the SSE) — those carry no `.data`. Custom
+    // browser dropped the SSE) carry no `.data`. Custom
     // server-sent events (`event: ready` / `event: rebuild` / the
     // SSE `event: error` frame the HMR server emits) all arrive as
     // `MessageEvent` instances, so we narrow before reading
@@ -194,7 +194,7 @@ export function RunTraining() {
         // the source → error event → child eventually exits) would
         // hit `run()`'s finally branch, see the still-set latch,
         // and auto-restart from the **previous** artefact even
-        // though the latest source state is broken — silent
+        // though the latest source state is broken: silent
         // stale-code background churn until the user notices.
         // Clearing here makes the user's broken-state edit the
         // source of truth: no auto-restart fires until the next
@@ -259,7 +259,7 @@ export function RunTraining() {
         restartPendingRef.current = true;
         setHmrStatus("early-stopping");
       } else if (myHotSwap) {
-        // Callbacks were swapped in place — the cloud-side run is
+        // Callbacks were swapped in place; the cloud-side run is
         // unaffected. Flash a brief "hot-swapped" indicator so users
         // know the new code is live. The previous timer (if any) is
         // cleared so two close-together rebuilds don't race for the
@@ -273,7 +273,7 @@ export function RunTraining() {
           hotSwapTimerRef.current = null;
         }, 1500);
       } else {
-        // Nothing pertaining to this tab's child — leave any in-
+        // Nothing pertaining to this tab's child: leave any in-
         // progress status spans alone but make sure stale "early-
         // stopping" / "restarting" labels from a prior run don't
         // linger past the next quiet rebuild.
@@ -320,7 +320,7 @@ export function RunTraining() {
           // stays pinned for the entire restarted run because
           // `setHmrStatus("restarting")` is set in the *prior* run's
           // `finally` and nothing else clears it. We only knock out
-          // "restarting" specifically — "early-stopping" / "hot-
+          // "restarting" specifically; "early-stopping" / "hot-
           // swapped" should land via their own state transitions.
           setHmrStatus((s) => (s === "restarting" ? "idle" : s));
           // Drain any HMR events that landed in the pre-spawn race
@@ -369,7 +369,7 @@ export function RunTraining() {
       );
     } finally {
       runningRef.current = false;
-      // DO NOT null `currentPidRef` here — the SSE handler needs to
+      // DO NOT null `currentPidRef` here: the SSE handler needs to
       // be able to match per-pid during the post-exit grace window
       // below to catch a `rebuild` event that races behind the
       // train stream's close on the separate connection. Captured
@@ -389,7 +389,7 @@ export function RunTraining() {
       setRunning(false);
 
       if (ac.signal.aborted) {
-        // User Stop wins over any pending or in-flight HMR restart —
+        // User Stop wins over any pending or in-flight HMR restart:
         // clear everything synchronously and skip the grace window
         // so the tab really settles instead of bouncing back up.
         restartPendingRef.current = false;
@@ -412,7 +412,7 @@ export function RunTraining() {
         const fileForRestart = lastTrainFileRef.current;
         queueMicrotask(() => {
           // Don't auto-spawn a fresh /api/train request from an
-          // unmounted view — the user navigated away in the small
+          // unmounted view: the user navigated away in the small
           // window between scheduling and running this microtask, so
           // their intent was "stop interacting with this view", not
           // "kick off another cloud job invisibly". The unmount
@@ -434,7 +434,7 @@ export function RunTraining() {
       restartGraceTimerRef.current = window.setTimeout(() => {
         restartGraceTimerRef.current = null;
         // A new run started during the window (overwrote the pid).
-        // Leave its lifecycle alone — its own finally will manage
+        // Leave its lifecycle alone; its own finally will manage
         // the cleanup eventually.
         if (currentPidRef.current !== pidAtExit) return;
         currentPidRef.current = null;
@@ -514,7 +514,7 @@ export function RunTraining() {
         </div>
         <Button
           // While `running`, the same button doubles as the abort
-          // affordance — clicking aborts the in-flight stream so the
+          // affordance: clicking aborts the in-flight stream so the
           // visible StopCircle icon actually does what the user
           // expects. When idle, it kicks off a new run.
           onClick={running ? stop : () => run(lastTrainFileRef.current)}
@@ -534,7 +534,7 @@ export function RunTraining() {
           {hmrStatus === "early-stopping" && "Stopping at next checkpoint…"}
           {hmrStatus === "restarting" && "Restarting with updated code…"}
           {hmrStatus === "hot-swapped" &&
-            "Callbacks hot-swapped — run continues."}
+            "Callbacks hot-swapped: run continues."}
         </div>
       )}
 

@@ -48,7 +48,7 @@ describe("TrainRegistry", () => {
   });
 
   it("dispatchRebuild SIGTERMs everything when nextConfigHash is null", () => {
-    // null nextHash means "we couldn't inspect the new bundle" — be
+    // null nextHash means "we couldn't inspect the new bundle": be
     // conservative and SIGTERM every active child since we can't
     // prove their configs are unaffected.
     const reg = new TrainRegistry();
@@ -72,7 +72,7 @@ describe("TrainRegistry", () => {
     // and now: if `spawnArtifactContentHash === nextArtifactContentHash`, the
     // child read exactly the bytes the new hash describes →
     // backfill + skip dispatch (no spurious cancel+restart cycle).
-    // Otherwise — see the next test — SIGTERM-restart so cloud
+    // Otherwise (see the next test) SIGTERM-restart so cloud
     // and child stay aligned.
     const reg = new TrainRegistry();
     const c = fakeChild(401);
@@ -82,7 +82,7 @@ describe("TrainRegistry", () => {
       spawnArtifactContentHash: "art-v1",
     });
     const result = reg.dispatchRebuild("first-real-hash", "art-v1");
-    // Neither bucket — no signal sent, nothing for the SPA to react to.
+    // Neither bucket: no signal sent, nothing for the SPA to react to.
     expect(result.hotSwapTargets).toEqual([]);
     expect(result.restartTargets).toEqual([]);
     expect(c.kill).not.toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe("TrainRegistry", () => {
     // watcher's first BUNDLE_END means the bytes the child loaded
     // differ from what the new `configHash` describes. Backfilling
     // unconditionally would silently teach the registry to use the
-    // post-edit hash as the child's baseline — later same-hash
+    // post-edit hash as the child's baseline; later same-hash
     // rebuilds would then hot-swap callbacks into a child whose
     // cloud-side `JobConfig` was actually spawned against an older
     // version, leaving the cloud run on a stale config. The artefact
@@ -180,7 +180,7 @@ describe("TrainRegistry", () => {
     expect(reg.isEarlyStopRequested(undefined)).toBe(false);
     expect(reg.isEarlyStopRequested(99999)).toBe(false);
     // Once the child unregisters (close handler) the flag effectively
-    // resets — subsequent queries return false rather than retaining
+    // resets: subsequent queries return false rather than retaining
     // stale state.
     reg.unregister(901);
     expect(reg.isEarlyStopRequested(901)).toBe(false);
@@ -215,7 +215,7 @@ describe("TrainRegistry", () => {
     // Regression: previously the implementation always pushed onto
     // `targets` even when `kill()` threw, so a child that had already
     // exited would still be reported back to the SPA as a restart
-    // target — the SPA would then wait forever for the (already-
+    // target: the SPA would then wait forever for the (already-
     // delivered) `exit=...` line and never re-spawn.
     const reg = new TrainRegistry();
     const dead = fakeChild(601);
@@ -237,7 +237,7 @@ describe("TrainRegistry", () => {
     // Regression: `safeKill` previously treated any thrown error as
     // `"unsupported"`, which on the hash-match branch triggers a
     // SIGTERM fallback (intended for Windows + SIGUSR2 unsupported).
-    // POSIX `kill(2)` raises `ESRCH` for an already-exited child —
+    // POSIX `kill(2)` raises `ESRCH` for an already-exited child:
     // classifying that as "unsupported" caused a needless SIGTERM
     // attempt against a dead PID. Now ESRCH routes through the
     // "gone" branch (no fallback, no restart-target push) so the
@@ -258,7 +258,7 @@ describe("TrainRegistry", () => {
     // as gone, NOT routed into the SIGTERM fallback path).
     expect(result.hotSwapTargets).toEqual([]);
     expect(result.restartTargets).toEqual([]);
-    // Single SIGUSR2 attempt — no SIGTERM fallback was issued.
+    // Single SIGUSR2 attempt: no SIGTERM fallback was issued.
     expect(goneOnSigusr2.kill).toHaveBeenCalledTimes(1);
     expect(goneOnSigusr2.kill).toHaveBeenCalledWith("SIGUSR2");
   });
@@ -267,7 +267,7 @@ describe("TrainRegistry", () => {
     // Regression: `ChildProcess.kill()` returns `false` (without
     // throwing) when the target process is already gone. The previous
     // implementation treated any non-throw as success and reported the
-    // child as a restart target — the SPA would then wait forever for
+    // child as a restart target; the SPA would then wait forever for
     // an exit line that already arrived.
     const reg = new TrainRegistry();
     const gone = fakeChild(701);
@@ -278,7 +278,7 @@ describe("TrainRegistry", () => {
     });
     const result = reg.dispatchRebuild("fresh");
     expect(result.restartTargets).toEqual([]);
-    // We still attempted the kill — only the bookkeeping is skipped.
+    // We still attempted the kill; only the bookkeeping is skipped.
     expect(gone.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
@@ -353,7 +353,7 @@ describe("TrainRegistry", () => {
         trainFile: "/tmp/win.ts",
       });
       const result = reg.dispatchRebuild("match");
-      // Restart bucket only — hot-swap is unsafe on win32 even
+      // Restart bucket only: hot-swap is unsafe on win32 even
       // when kill() reported "ok".
       expect(result.hotSwapTargets).toEqual([]);
       expect(result.restartTargets).toEqual([
@@ -378,7 +378,7 @@ describe("TrainRegistry", () => {
     // implementation silently swallowed that throw, so on Windows a
     // hash-match rebuild produced neither hot-swap nor restart and
     // callback edits never landed. Now we degrade to a SIGTERM-driven
-    // restart so the new code does take effect — at the cost of a
+    // restart so the new code does take effect, at the cost of a
     // brief gap rather than an in-place swap.
     const reg = new TrainRegistry();
     const a = fakeChild(901);

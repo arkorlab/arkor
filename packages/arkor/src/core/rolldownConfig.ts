@@ -41,7 +41,7 @@ export function resolveBuildEntry(opts: BuildEntryOptions): ResolvedBuildEntry {
  * `process.execPath`), so the bundle can target precisely what will execute it.
  */
 export function resolveNodeTarget(): string {
-  // Fallback aligns with the published `engines.node` floor — see
+  // Fallback aligns with the published `engines.node` floor; see
   // [packages/arkor/package.json] / `AGENTS.md`'s "Node version" note.
   const [major = "22", minor = "22"] = process.versions.node.split(".");
   return `node${major}.${minor}`;
@@ -50,8 +50,8 @@ export function resolveNodeTarget(): string {
 /**
  * Build the shared rolldown options object used by both `runBuild` (one-shot)
  * and the HMR coordinator (`watch()`). Centralising the configuration here
- * keeps the two pipelines aligned: anything that affects the bundle shape —
- * external resolution, transform target, platform — is set in one place so
+ * keeps the two pipelines aligned: anything that affects the bundle shape
+ * (external resolution, transform target, platform) is set in one place so
  * the artifact a watcher writes is byte-equivalent to a one-shot rebuild.
  */
 export function rolldownInputOptions(

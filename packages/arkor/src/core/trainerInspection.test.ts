@@ -12,7 +12,7 @@ import type { Trainer } from "./types";
 
 function brandedTrainer(name: string) {
   // Real `createTrainer` attaches the inspection brand. We only need
-  // a no-op trainer for these shape tests — `start`/`wait` etc. are
+  // a no-op trainer for these shape tests; `start`/`wait` etc. are
   // never invoked.
   return createTrainer({
     name,
@@ -22,7 +22,7 @@ function brandedTrainer(name: string) {
 }
 
 function unbrandedTrainer(name: string) {
-  // Hand-rolled trainer — passes the `start`/`wait`/`cancel` shape
+  // Hand-rolled trainer: passes the `start`/`wait`/`cancel` shape
   // check `findTrainerInModule` requires but DOESN'T carry the SDK
   // inspection brand. Mirrors a user who wraps or re-exports a
   // trainer outside the SDK helpers.
@@ -93,7 +93,7 @@ describe("findInspectableTrainer (brand-required path)", () => {
     // `mod.arkor ?? mod.default`, missing shapes #2 and #4. As a
     // result, projects bare-exporting `trainer` always produced
     // `configHash: null` and HMR conservatively SIGTERM-restarted on
-    // every rebuild — never hot-swapping callbacks. The fix routes
+    // every rebuild, never hot-swapping callbacks. The fix routes
     // through `findInspectableTrainer` which walks every supported
     // shape via `findTrainerInModule` and pulls inspection off the
     // discovered trainer.
@@ -125,7 +125,7 @@ describe("findInspectableTrainer (brand-required path)", () => {
     // HMR can't compute their `configHash`. The Studio still shows
     // the trainer name (via `findTrainerInModule` in
     // `summariseBuiltManifest`), but HMR routing falls back to the
-    // SIGTERM-restart-everything path — which is the documented
+    // SIGTERM-restart-everything path, which is the documented
     // safe behaviour when configs can't be diffed.
     const trainer = unbrandedTrainer("plain");
     expect(findInspectableTrainer({ trainer })).toBeNull();
@@ -137,7 +137,7 @@ describe("requestTrainerEarlyStop / replaceTrainerCallbacks brand-missing fallba
   // Regression: previously these helpers asserted the brand was
   // present and threw a synchronous TypeError on hand-rolled trainers.
   // `runner.ts`'s `extractTrainer` accepts ANY `{start, wait, cancel}`
-  // shape — that's a documented public path for unbranded trainers —
+  // shape (a documented public path for unbranded trainers),
   // so the SIGTERM handler crashed instead of stopping the run.
 
   it("requestTrainerEarlyStop falls back to trainer.cancel() for unbranded trainers", async () => {

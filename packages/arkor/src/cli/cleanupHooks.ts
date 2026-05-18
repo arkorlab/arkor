@@ -3,7 +3,7 @@ const TERMINATING_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 /**
  * POSIX-style exit code for a signal-terminated process: `128 + signo`.
  * Parent shells / orchestrators rely on this to distinguish "user
- * interrupted" (nonzero) from "ran to completion" (zero) — exiting 0
+ * interrupted" (nonzero) from "ran to completion" (zero): exiting 0
  * for a SIGINT'd `arkor dev` would make CI / shell loops / `&&`
  * chains misclassify the interruption as success. The numbers below
  * are the canonical signo values from POSIX (1=HUP, 2=INT, 15=TERM).
@@ -36,10 +36,10 @@ export interface CleanupHookOptions {
    * own the exit. Default: `false`.
    *
    * The exit code is the POSIX `128 + signo` for the signal that
-   * triggered shutdown — 130 for SIGINT, 143 for SIGTERM, 129 for
+   * triggered shutdown: 130 for SIGINT, 143 for SIGTERM, 129 for
    * SIGHUP (see `SIGNAL_EXIT_CODE`). Parent shells / orchestrators /
    * CI runners distinguish "user interrupted" (nonzero) from "ran
-   * to completion" (zero) on this — exiting 0 for a Ctrl-C'd
+   * to completion" (zero) on this: exiting 0 for a Ctrl-C'd
    * `arkor dev` would let `arkor dev || cleanup_on_failure` skip
    * its cleanup branch.
    */
@@ -50,9 +50,9 @@ export interface CleanupHookOptions {
  * Module-scoped tracker of cleanup promises that haven't settled yet.
  * The exit-owning hook waits on the union of (its own cleanup) +
  * (every other in-flight cleanup) before calling `process.exit(...)`,
- * so a fire-and-forget async cleanup in a sibling registration —
- * `hmr.dispose()` is the canonical example — isn't cut off by an
- * eager exit. (Exit code is signal-specific — see `SIGNAL_EXIT_CODE`.)
+ * so a fire-and-forget async cleanup in a sibling registration
+ * (`hmr.dispose()` is the canonical example) isn't cut off by an
+ * eager exit. (Exit code is signal-specific; see `SIGNAL_EXIT_CODE`.)
  *
  * Auto-prunes via the `.finally(() => inFlightCleanups.delete(...))`
  * each `run()` attaches, so the set doesn't grow without bound across
@@ -87,7 +87,7 @@ const attachedHandlers = new Set<() => void>();
  * a process that goes through many register → fire cycles doesn't
  * accumulate stale listeners on `process`.
  *
- * `process.on("exit", ...)` listeners cannot be async — Node fires
+ * `process.on("exit", ...)` listeners cannot be async: Node fires
  * them right before the process terminates and discards any returned
  * promise. We still register so sync cleanups (e.g. `unlinkSync`) run
  * on a normal `process.exit(0)` path that never reached a signal
@@ -134,7 +134,7 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       // Capture which signal triggered shutdown so the exit code
       // below reflects "interrupted by SIG<X>" (POSIX 128 + signo)
       // rather than "ran to completion" (0). Parent shells /
-      // orchestrators / CI runners distinguish these — a script
+      // orchestrators / CI runners distinguish these: a script
       // that runs `arkor dev || cleanup_on_failure` would otherwise
       // mis-classify a Ctrl-C as success and skip its cleanup.
       const exitCode = SIGNAL_EXIT_CODE[sig];

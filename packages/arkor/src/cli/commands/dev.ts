@@ -118,7 +118,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     // wrap fires only for genuine deployment rejection (401/403/404 et
     // al). 5xx is a transient cloud-api failure where retrying makes
     // sense, ZodErrors signal a malformed response (server bug), and fs
-    // failures are out of scope for the anon endpoint entirely — none of
+    // failures are out of scope for the anon endpoint entirely; none of
     // these should be mislabelled as a sign-in requirement.
     if (
       err instanceof AnonymousTokenRejectedError &&
@@ -126,7 +126,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       err.status < 500 &&
       oauthAvailable
     ) {
-      // Surface only the status code at the top level — the inner
+      // Surface only the status code at the top level: the inner
       // `err.message` already starts with "Failed to acquire…" and
       // includes the response-body snippet, which would double-prefix the
       // wrap and risk leaking noisy HTML/JSON error pages. The full
@@ -205,7 +205,7 @@ function scheduleStudioTokenCleanup(
 
 function scheduleHmrCleanup(hmr: { dispose: () => Promise<void> }): void {
   // Registered before the studio-token cleanup so it runs first on
-  // shutdown — Node fires signal handlers in registration order, and we
+  // shutdown: Node fires signal handlers in registration order, and we
   // want the watcher to release file handles before the outermost
   // process.exit.
   registerCleanupHook({ cleanup: () => hmr.dispose() });
@@ -224,7 +224,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // `src/arkor` graph. The coordinator itself is lazy (`subscribe()`
   // is what starts the watcher, not `createHmrCoordinator`), but
   // `buildStudioApp` registers its per-rebuild signal-dispatch
-  // subscriber unconditionally — that subscriber needs to run on
+  // subscriber unconditionally: that subscriber needs to run on
   // every BUNDLE_END regardless of whether any SSE client is
   // connected, so it can SIGUSR2/SIGTERM active `/api/train`
   // children and keep `lastSuccessConfigHash` warm for spawn-time
@@ -278,7 +278,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // attempt above failed (e.g. cloud-api was unreachable at launch).
   const app = buildStudioApp({ studioToken, hmr });
   // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
-  // only — `@hono/node-server` passes hostname to `net.Server.listen`, which
+  // only; `@hono/node-server` passes hostname to `net.Server.listen`, which
   // calls `dns.lookup`. On hosts where `/etc/hosts` orders `::1 localhost`
   // before `127.0.0.1 localhost`, a "localhost" bind would refuse IPv4
   // connections, breaking the studio-app Vite proxy (hardcoded to

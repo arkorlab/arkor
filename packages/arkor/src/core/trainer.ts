@@ -27,7 +27,7 @@ import type {
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 /**
- * Internal runtime context. Not part of the public API surface — exposed only
+ * Internal runtime context. Not part of the public API surface; exposed only
  * for tests and advanced power-user scenarios that need to inject a mock
  * `fetch` or override the working directory.
  *
@@ -120,7 +120,7 @@ function buildJobConfig(input: TrainerInput): JobConfig {
 /**
  * Build a `Trainer` bound to the user's configuration.
  *
- * Public signature: `createTrainer(input)` — runtime options like
+ * Public signature: `createTrainer(input)`. Runtime options like
  * `baseUrl` / `credentials` / `cwd` come from the environment and `.arkor/`
  * state, never from user code. The optional second argument is reserved for
  * tests and advanced overrides.
@@ -163,14 +163,14 @@ export function createTrainer(
   // effect on the next event. Events already mid-await keep their
   // old reference until they resolve, which matches the "replace,
   // don't interrupt" contract. Public `Trainer` deliberately doesn't
-  // expose this — it's a dev-only HMR primitive driven by the
+  // expose this; it's a dev-only HMR primitive driven by the
   // SIGUSR2 path in `core/runnerSignals.ts`.
   let currentCallbacks: Partial<TrainerCallbacks> = input.callbacks ?? {};
 
   // Early-stop state. `requestEarlyStop()` arms the latch; the next
   // `checkpoint.saved` dispatch (or the timeout, whichever fires first)
   // calls cancel() and resolves the deferred. Idempotent across repeat
-  // calls — they share the same deferred.
+  // calls (they share the same deferred).
   const DEFAULT_EARLY_STOP_TIMEOUT_MS = 5 * 60 * 1000;
   let earlyStopDeferred: {
     promise: Promise<void>;
@@ -184,13 +184,13 @@ export function createTrainer(
    * Drop the early-stop latch (clear timer + resolve deferred + reset
    * the request flag). Called from any path that means "wait()'s
    * cancel-after-checkpoint promise is no longer waiting on anything"
-   * — the checkpoint-driven cancel branch, the terminal `completed`
+   * (the checkpoint-driven cancel branch, the terminal `completed`
    * / `failed` branches, and the up-front guard in
-   * `requestEarlyStop()` when the job is already terminal. Without
+   * `requestEarlyStop()` when the job is already terminal). Without
    * this called from terminal branches, a `requestEarlyStop()` armed
    * mid-run that races a `training.completed` / `training.failed`
    * before the next `checkpoint.saved` would leave the deferred
-   * pending until the (default 5-min) timeout fires — the SIGTERM
+   * pending until the (default 5-min) timeout fires; the SIGTERM
    * handler in `installShutdownHandlers` would block on that promise
    * and delay shutdown for up to `timeoutMs`.
    */
@@ -224,7 +224,7 @@ export function createTrainer(
    * many SDK clients retry at once.
    *
    * The final value is clamped at `maxReconnectDelayMs` because jitter
-   * sits *outside* the exponential clamp — without the outer clamp, a
+   * sits *outside* the exponential clamp; without the outer clamp, a
    * long outage where `exp` already hit the cap could wait up to 1.25 ×
    * the documented cap when `Math.random()` lands near 1.
    */
@@ -312,7 +312,7 @@ export function createTrainer(
         };
         // Capture (don't propagate yet) any throw from the user's
         // `onCheckpoint`. The early-stop branch below MUST run
-        // even on a callback throw — without this wrap a thrown
+        // even on a callback throw; without this wrap a thrown
         // `onCheckpoint` would skip the cancel + latch settlement,
         // leaving the SIGTERM handler waiting on the deferred
         // until the (default 5-min) timeout fires. Surface the
@@ -328,7 +328,7 @@ export function createTrainer(
         // is durable. Cancel the cloud job and end `wait()` cleanly.
         if (earlyStopRequested && earlyStopDeferred) {
           // Capture the cancel error (if any) but DON'T swallow
-          // silently — propagate via the deferred's reject path so
+          // silently; propagate via the deferred's reject path so
           // the runner's `installShutdownHandlers` `.catch()` writes
           // the failure to stderr. The previous swallow let a
           // transient cloud-api failure during early-stop appear
@@ -339,7 +339,7 @@ export function createTrainer(
           // it and intervene.
           //
           // We still mark `startedJob.status` terminal locally
-          // either way — from the runner's perspective the run is
+          // either way: from the runner's perspective the run is
           // over, and a subsequent `requestEarlyStop()` call must
           // hit the `TERMINAL_STATUSES.has(...)` short-circuit
           // (re-arming a fresh latch on a dead run would hang
@@ -358,7 +358,7 @@ export function createTrainer(
           // `TERMINAL_STATUSES.has(...)` short-circuit it relies on.
           //
           // Status is `"failed"` when the cancel POST itself threw
-          // (cloud-api transient failure mid-cancel) — labelling
+          // (cloud-api transient failure mid-cancel): labelling
           // such runs `"cancelled"` would lie about the cloud-side
           // state, which may still be running. `"failed"` is
           // terminal too, so the latch / TERMINAL_STATUSES short-
@@ -393,7 +393,7 @@ export function createTrainer(
             settleEarlyStopLatch();
           }
           // Return the *checkpoint's* artifacts (the ones the user
-          // just saved) — that's the work HMR went out of its way
+          // just saved): that's the work HMR went out of its way
           // to preserve before issuing cancel(). The previous
           // `terminalResult?.artifacts ?? []` always resolved to
           // `[]` because `wait()` calls `dispatch(parsed, null)` so
@@ -403,7 +403,7 @@ export function createTrainer(
           // the very artifacts the early-stop existed to keep.
           // Surface the user's `onCheckpoint` throw (if any) so
           // `wait()`'s reconnect / failure path keeps the same
-          // semantics it had before the wrap — the checkpoint
+          // semantics it had before the wrap: the checkpoint
           // workload is preserved, but the user still sees their
           // callback error.
           if (onCheckpointError !== null) throw onCheckpointError;
@@ -431,7 +431,7 @@ export function createTrainer(
         // SIGTERM handler awaiting `requestEarlyStop()` would block
         // until the timeout (default 5 min). The throw still
         // propagates through `dispatch()` → `wait()` so callers see
-        // the original error — we just don't strand the shutdown
+        // the original error; we just don't strand the shutdown
         // path along with it.
         try {
           await callbacks.onCompleted?.({ job: startedJob, artifacts });
@@ -447,7 +447,7 @@ export function createTrainer(
           error: event.error,
           completedAt: event.timestamp,
         };
-        // Symmetric to the `completed` branch above — terminal
+        // Symmetric to the `completed` branch above: terminal
         // status settles the latch even when the run failed *and*
         // the user's `onFailed` callback itself throws.
         try {
@@ -479,7 +479,7 @@ export function createTrainer(
       // out the `client.createJob` POST. We set `scope` *before*
       // the await (it's needed by the await itself), so a SIGTERM
       // landing during the await would otherwise see
-      // `!startedJob && scope` and exit immediately — leaving the
+      // `!startedJob && scope` and exit immediately, leaving the
       // newly created cloud job uncancelled.
       const startPromise = (async () => {
         const client = await getClient();
@@ -554,7 +554,7 @@ export function createTrainer(
         try {
           for await (const sse of iterateEvents(response)) {
             // Any frame from the server (including pings) means we're
-            // connected and making progress — reset the failure counter
+            // connected and making progress; reset the failure counter
             // so subsequent transient blips get the full retry budget.
             receivedAny = true;
             attempt = 0;
@@ -585,7 +585,7 @@ export function createTrainer(
         if (terminal) break;
 
         if (receivedAny) {
-          // Stream had real activity then closed cleanly. Not a failure —
+          // Stream had real activity then closed cleanly. Not a failure;
           // reconnect with Last-Event-ID at the base delay (no exponential
           // backoff, no counter increment).
           await delay(initialReconnectDelayMs, abortSignal);
@@ -630,14 +630,14 @@ export function createTrainer(
     // after this returns, leaving the newly created cloud job
     // running with no cancel POST. Awaiting `startInFlight` collapses
     // the race onto a definite startedJob (success) or a definite
-    // start failure (rejection) — either way the branches below
+    // start failure (rejection); either way the branches below
     // can decide on real state. Swallow the rejection: if `start()`
     // failed there's nothing to cancel anyway.
     if (startInFlight) {
       try {
         await startInFlight;
       } catch {
-        // intentionally ignored — failed start has no job to cancel
+        // intentionally ignored: failed start has no job to cancel
       }
     }
     // Nothing in flight: cleanup any prior latch and resolve.
@@ -657,14 +657,14 @@ export function createTrainer(
     });
     const timeoutMs = opts.timeoutMs ?? DEFAULT_EARLY_STOP_TIMEOUT_MS;
     const timer = setTimeout(() => {
-      // Timed out waiting for a checkpoint — fall back to immediate cancel.
+      // Timed out waiting for a checkpoint; fall back to immediate cancel.
       // Capture the active deferred reference: by the time the cancel POST
       // resolves, the checkpoint branch may have nulled out the shared
       // slot, but this fallback path still owns the deferred it created.
       const active = earlyStopDeferred;
       // Capture (don't swallow) any cancel error so we can surface it
       // through the deferred's reject path. Mirrors the checkpoint
-      // branch — a swallow here lets the runner's
+      // branch: a swallow here lets the runner's
       // `installShutdownHandlers` exit "successfully" while the cloud
       // job lives on (orphaned GPU spend with zero diagnostic), the
       // exact failure mode that a "stop-after-checkpoint" deadline
@@ -710,7 +710,7 @@ export function createTrainer(
             // SIGTERM handler's `.catch()` writes the error to
             // stderr and the operator can see that the cloud job
             // may still be live. The latch always settles either
-            // way — shutdown won't hang.
+            // way; shutdown won't hang.
             if (cancelError !== null) active.reject(cancelError);
             else active.resolve();
           }
@@ -735,7 +735,7 @@ export function createTrainer(
   // subprocess on SIGUSR2, and (c) drive a graceful "stop after the
   // next checkpoint" on SIGTERM. All three brands live behind
   // `Symbol.for` keys so they don't appear on the public `Trainer`
-  // interface — see `trainerInspection.ts` for the rationale.
+  // interface (see `trainerInspection.ts` for the rationale).
   attachTrainerInspection(trainer, () => ({
     name: input.name,
     config,

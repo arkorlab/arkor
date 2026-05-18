@@ -70,7 +70,7 @@ export interface HmrCoordinator {
    * the child read the same bytes. Without this gate, an edit
    * landing between spawn and the watcher's first BUNDLE_END would
    * silently teach the registry to use the post-edit `configHash`
-   * as the child's baseline — later same-hash rebuilds would then
+   * as the child's baseline; later same-hash rebuilds would then
    * hot-swap callbacks into a child whose cloud-side `JobConfig`
    * was actually spawned against an older version, leaving the
    * cloud run on a stale config. `null` when stat fails (artefact
@@ -81,7 +81,7 @@ export interface HmrCoordinator {
    * Content-derived hash (sha256, truncated) of the on-disk
    * artefact RIGHT NOW. Used by `/api/train` to capture a
    * spawn-time content-hash for the registry's pre-ready-spawn
-   * equality gate — paired with the rebuild's `event.contentHash`,
+   * equality gate; paired with the rebuild's `event.contentHash`,
    * a mismatch unambiguously means the bytes changed (not just
    * timestamps), so `dispatchRebuild` only SIGTERM-restarts when
    * the child genuinely loaded different bytes than the new
@@ -93,7 +93,7 @@ export interface HmrCoordinator {
    * Last broadcast event's `type`, or `null` if nothing has been
    * broadcast yet. `/api/manifest`'s HMR fast path consults this to
    * suppress its "serve last good artefact" behaviour while the
-   * watcher is in an `error` state — without that gate, the SPA's
+   * watcher is in an `error` state; without that gate, the SPA's
    * 5 s `/api/manifest` poll would keep getting a 200 stale
    * manifest and silently overwrite the SSE-driven build-error UI,
    * letting users run with stale code/config while the latest
@@ -128,7 +128,7 @@ function contentHashOrNull(outFile: string): string | null {
 }
 
 /**
- * Single-stat fingerprint with a clean `null` on failure — used by
+ * Single-stat fingerprint with a clean `null` on failure: used by
  * `getCurrentArtifactHash()` whose contract is "return a fingerprint
  * derived from the artefact bytes, or `null` if no artefact". A
  * separate exists-check + `fingerprint()` here would race: the file
@@ -139,7 +139,7 @@ function contentHashOrNull(outFile: string): string | null {
 function fingerprintOrNull(outFile: string): string | null {
   try {
     const s = statSync(outFile);
-    // Same shape as `fingerprint()`'s success branch — `ctimeMs` is
+    // Same shape as `fingerprint()`'s success branch; `ctimeMs` is
     // the belt-and-braces guard for `touch -m`-style edits where
     // mtime stays put.
     return `${s.mtimeMs}-${s.ctimeMs}-${s.size}`;
@@ -169,7 +169,7 @@ type InspectionResult = {
  *
  * Walks every entry shape `runner.ts` accepts (named `arkor`, named
  * `trainer`, `default` Arkor manifest, `default.trainer`) via the
- * shared `findInspectableTrainer` helper — keeping inspection in sync
+ * shared `findInspectableTrainer` helper, keeping inspection in sync
  * with execution. Without this, projects that only `export const
  * trainer` (a documented shortcut) would always produce `configHash:
  * null` and the SPA would unnecessarily SIGTERM-restart on every
@@ -181,7 +181,7 @@ type InspectionResult = {
  *   - Node's ESM loader caches every dynamically-imported URL for the
  *     lifetime of the process and never evicts. A `?t=Date.now()`
  *     suffix produces a unique URL per call, so a long `arkor dev`
- *     session would accumulate one module record per BUNDLE_END —
+ *     session would accumulate one module record per BUNDLE_END:
  *     unbounded memory growth.
  *   - The composite key (`mtimeMs-ctimeMs-size`) keys the cache to
  *     "the actual bytes in this file", so spurious watcher events
@@ -189,7 +189,7 @@ type InspectionResult = {
  *     leak shrinks from "one entry per keystroke" to "one entry per
  *     actual rebuild", which for a realistic dev session (hundreds
  *     of saves over hours) is bounded by the number of distinct file
- *     states the user produces — and that's fundamentally what HMR
+ *     states the user produces, and that's fundamentally what HMR
  *     has to track to surface up-to-date trainer state. There's no
  *     public Node API for evicting an ESM module record, so this is
  *     the tightest bound we can offer without spawning a child
@@ -222,8 +222,8 @@ async function inspectBundle(outFile: string): Promise<InspectionResult> {
  * `/api/dev/events` SSE notifications to the SPA.
  *
  * Lazy: the watcher only starts on the first `subscribe` call so a Studio
- * launch in a project without `src/arkor/index.ts` doesn't immediately fail
- * — the watcher kicks in once the user creates the file and the SPA opens
+ * launch in a project without `src/arkor/index.ts` doesn't immediately fail.
+ * The watcher kicks in once the user creates the file and the SPA opens
  * an EventSource. After every successful build the watcher caches the
  * latest state and replays it to new subscribers so a late-mounting
  * component still sees the trainer.
@@ -240,8 +240,8 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
    * entry file yet, a poll timer takes over and waits for the file to
    * appear. Without this, an SPA that opened `/api/dev/events` against
    * a fresh scaffold would hang on the initial `error` event forever
-   * — `startWatcher` is only re-entered on `subscribe()`, but EventSource
-   * doesn't reconnect on application-level errors.
+   * (`startWatcher` is only re-entered on `subscribe()`, but EventSource
+   * doesn't reconnect on application-level errors).
    */
   let entryWaitTimer: ReturnType<typeof setInterval> | null = null;
   /**
@@ -254,7 +254,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
    * This matters because `inspectBundle` does an asynchronous
    * dynamic-import of the just-written artifact. Two rebuilds A → B
    * landing within the import window can race, with A's inspection
-   * resolving *after* B's — the previous "fire-and-forget" code
+   * resolving *after* B's. The previous "fire-and-forget" code
    * would then publish A on top of B and leave `lastEvent` pointing
    * at the older `configHash`/`trainerName`. That in turn drove
    * `/api/dev/events` to make hot-swap-vs-restart decisions against
@@ -266,7 +266,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
    * Whether a `ready` event has actually broadcast yet. Tracked
    * separately from `firstBuild` because the inspection await means
    * the first BUNDLE_END's broadcast can land *after* a second
-   * BUNDLE_END schedules its own — pinning the type to
+   * BUNDLE_END schedules its own. Pinning the type to
    * "broadcast-time" rather than "schedule-time" guarantees the SPA
    * still sees `ready` first even when the initial inspection loses
    * the race.
@@ -280,7 +280,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
    * `/api/train` reads via `getCurrentConfigHash()`. The on-disk
    * `.arkor/build/index.mjs` doesn't change on ERROR, so a child
    * spawned during an error state is running the *previous* successful
-   * bundle — and the next BUNDLE_END's hash should be compared
+   * bundle, and the next BUNDLE_END's hash should be compared
    * against THAT. Without this separate cache, the whole rebuild gets
    * routed through SIGTERM-restart and SIGUSR2 hot-swap stops working
    * for the rest of the session whenever the user briefly broke their
@@ -294,7 +294,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       try {
         fn(event);
       } catch {
-        // Subscribers are SSE controllers — a thrown error usually means
+        // Subscribers are SSE controllers; a thrown error usually means
         // the connection closed mid-flight. Drop it so one bad subscriber
         // can't poison the broadcast for the rest.
       }
@@ -314,7 +314,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     const type: HmrEventType = firstBroadcast ? "ready" : "rebuild";
     firstBroadcast = false;
     const configHash = inspection?.configHash ?? null;
-    // BUNDLE_END always reflects what's now on disk — even when the
+    // BUNDLE_END always reflects what's now on disk: even when the
     // bundle is unbranded (`configHash === null`), that's the
     // current truth. Capture it so `/api/train` spawning during a
     // *subsequent* transient error still has the right spawn-time
@@ -343,7 +343,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       });
       // Hand off to a low-frequency poll so an SPA already connected to
       // `/api/dev/events` transitions from "error" to "ready" the moment
-      // the user creates the entry file — no manual reconnect required.
+      // the user creates the entry file (no manual reconnect required).
       // The poll is `unref()`'d so it never blocks process exit, and
       // `dispose()` clears it.
       if (!entryWaitTimer) {
@@ -363,7 +363,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       }
       return;
     }
-    // The entry exists now — clear any leftover poll timer from a prior
+    // The entry exists now: clear any leftover poll timer from a prior
     // failed startWatcher invocation.
     if (entryWaitTimer) {
       clearInterval(entryWaitTimer);
@@ -379,12 +379,12 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
         event.result.close().catch(() => {});
         // The event type ("ready" vs "rebuild") is decided inside
         // `emitBuildSucceeded` *after* the inspection await, based on
-        // whether any prior broadcast actually landed — see the
+        // whether any prior broadcast actually landed (see the
         // `firstBroadcast` comment for why pinning the type at this
-        // schedule point would be wrong under inspection races.
+        // schedule point would be wrong under inspection races).
         void emitBuildSucceeded();
       } else if (event.code === "ERROR") {
-        // Rolldown's ERROR events don't always carry a `result` —
+        // Rolldown's ERROR events don't always carry a `result`:
         // when the failure is in the parse/resolve phase there's
         // no per-build output to close, so `event.result` is
         // `undefined`. Calling `.close()` then would throw
@@ -426,7 +426,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       //
       // Wrapped in the same defensive try/catch as `broadcast` so a
       // throw inside the subscriber (typically an SSE controller that
-      // closed mid-replay — `controller.enqueue` on a closed stream
+      // closed mid-replay: `controller.enqueue` on a closed stream
       // throws) doesn't propagate out of `subscribe()` and crash
       // whoever just registered. One bad subscriber must not be able
       // to break HMR initialisation for the rest of the process.
@@ -434,7 +434,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
         try {
           fn(lastEvent);
         } catch {
-          // Swallow — subscribers own their own teardown; we just
+          // Swallow: subscribers own their own teardown; we just
           // shouldn't poison their `subscribe()` call site.
         }
       }
@@ -448,7 +448,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       // `lastEvent.configHash`. The two diverge after an ERROR:
       // `lastEvent` becomes the error event (no `configHash`), but
       // `.arkor/build/index.mjs` still holds the previous successful
-      // bundle bytes — and a child spawned in that window is running
+      // bundle bytes, and a child spawned in that window is running
       // those bytes. Returning the cached success hash keeps
       // `/api/train` registering accurate spawn-time hashes so the
       // next successful BUNDLE_END can route hot-swap vs restart
@@ -457,7 +457,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       return lastSuccessConfigHash;
     },
     getCurrentArtifactHash() {
-      // Fresh stat — not the cached `lastEvent.hash`. The cached
+      // Fresh stat (not the cached `lastEvent.hash`). The cached
       // hash describes the bytes the watcher last broadcast about,
       // but the on-disk artefact may be newer (a BUNDLE_END is
       // queued, file already written, inspection still pending) or
@@ -467,7 +467,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       // RIGHT NOW".
       //
       // `fingerprintOrNull` does ONE statSync and returns null on
-      // failure — preserving the documented contract. A previous
+      // failure, preserving the documented contract. A previous
       // implementation here did `statSync(...)` first and then
       // called `fingerprint()` (which has a `Date.now()` fallback
       // baked in for SSE dedup uniqueness). That double-stat
@@ -483,12 +483,12 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       // pre-ready-spawn equality gate. Reads + sha256s the file
       // at call time so the result describes the exact bytes the
       // just-spawned child will see in its `await import()`.
-      // Same null-on-failure contract — caller treats null as
+      // Same null-on-failure contract: caller treats null as
       // "force restart" (the conservative default).
       return contentHashOrNull(resolved.outFile);
     },
     getLastEventType() {
-      // `lastEvent` is the latest broadcast — `ready` / `rebuild` /
+      // `lastEvent` is the latest broadcast: `ready` / `rebuild` /
       // `error`. Returning the type lets `/api/manifest`'s HMR
       // fast path skip serving the stale built artefact when the
       // watcher is currently in `error` (current source fails to

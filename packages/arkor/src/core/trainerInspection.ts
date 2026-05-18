@@ -7,7 +7,7 @@ import type { Arkor, JobConfig, Trainer, TrainerCallbacks } from "./types";
  * "callbacks-only vs full restart" decision and (b) extract the new
  * callbacks reference when hot-swapping.
  *
- * **Internal API — not part of the user-facing SDK surface.** Both this
+ * **Internal API (not part of the user-facing SDK surface).** Both this
  * snapshot and the companion `replaceTrainerCallbacks` mutator are
  * exposed only via `Symbol.for(...)`-keyed properties on the trainer
  * object so they don't appear on the public `Trainer` type. They exist
@@ -27,7 +27,7 @@ export interface TrainerInspection {
 /**
  * The CLI runtime (`dist/bin.mjs`) and the user's compiled bundle
  * (`.arkor/build/index.mjs`, which keeps `arkor` external) end up loading
- * two separate copies of this SDK as distinct ESM module records — so a
+ * two separate copies of this SDK as distinct ESM module records, so a
  * module-local `WeakMap<Trainer, ...>` would split into two halves that
  * can't see each other.
  *
@@ -69,7 +69,7 @@ export function attachTrainerInspection(
 
 /**
  * Pull the snapshot off a Trainer-like value. Returns `null` for plain
- * objects that don't carry the brand — used by the Studio server to
+ * objects that don't carry the brand; used by the Studio server to
  * gracefully ignore third-party wrappers or pre-SDK shapes.
  */
 export function getTrainerInspection(
@@ -116,7 +116,7 @@ export function attachTrainerCallbackReplacer(
  * Replace the trainer's lifecycle callbacks atomically. The brand is
  * attached by `createTrainer`, but `runTrainer`'s `extractTrainer`
  * also accepts hand-rolled trainers (any `{ start, wait, cancel }`
- * shape) — those don't carry the brand. The HMR pipeline never
+ * shape), and those don't carry the brand. The HMR pipeline never
  * routes SIGUSR2 to such trainers in practice (they always produce
  * `configHash: null` upstream, which forces the SIGTERM-restart
  * path), so this helper is a no-op for them rather than throwing.
@@ -137,8 +137,8 @@ export function replaceTrainerCallbacks(
  * in the runner subprocess can request a graceful "stop after the next
  * checkpoint" without us exposing the operation on the public `Trainer`
  * interface. User code that wants the same semantics should compose
- * the cookbook's `abortSignal` + `cancel()` recipe instead — see
- * `docs/cookbook/early-stopping.mdx`.
+ * the cookbook's `abortSignal` + `cancel()` recipe instead (see
+ * `docs/cookbook/early-stopping.mdx`).
  */
 export function attachTrainerEarlyStopper(
   trainer: object,
@@ -159,7 +159,7 @@ export function attachTrainerEarlyStopper(
  *
  * `createTrainer` attaches the brand unconditionally, but
  * `runTrainer`'s `extractTrainer` also accepts hand-rolled trainers
- * — any `{ start, wait, cancel }` shape — which legitimately don't
+ * (any `{ start, wait, cancel }` shape), which legitimately don't
  * carry the brand. Falling back to the public `Trainer.cancel()` for
  * those is the closest semantic match available without the SDK's
  * checkpoint-aware machinery; it's also what the runner's SIGTERM
@@ -170,7 +170,7 @@ export function attachTrainerEarlyStopper(
  */
 // async wrapper (rather than a bare function returning Promise) so
 // any *synchronous* throw inside the brand call (or its arguments)
-// becomes a rejected promise — the SIGTERM handler's `.catch()` then
+// becomes a rejected promise; the SIGTERM handler's `.catch()` then
 // catches it instead of the throw escaping past the `.finally()`
 // chain and taking the runner down.
 export async function requestTrainerEarlyStop(
@@ -189,7 +189,7 @@ export async function requestTrainerEarlyStop(
     try {
       await trainer.cancel();
     } catch {
-      // intentionally ignored — see comment above.
+      // intentionally ignored; see comment above.
     }
     return;
   }
@@ -200,7 +200,7 @@ export async function requestTrainerEarlyStop(
  * Trainer-shaped value pulled from a re-imported bundle. We don't
  * import the public `Trainer` type here because consumers of this
  * helper want to read minimal fields (`name` for display) without
- * type-narrowing on the full SDK interface — many tests fabricate
+ * type-narrowing on the full SDK interface. Many tests fabricate
  * hand-rolled trainer literals that don't structurally match
  * `Trainer` (no `requestEarlyStop` etc.) but are still legitimate
  * user shapes the runner accepts.
@@ -221,7 +221,7 @@ function isTrainerLike(value: unknown): value is TrainerLike {
  * Walk a freshly-imported user bundle in the same precedence order
  * as `runner.ts`'s `extractTrainer` and return the first
  * trainer-shaped value (anything that has `start`/`wait`/`cancel`
- * functions). Doesn't require the SDK inspection brand — the
+ * functions). Doesn't require the SDK inspection brand: the
  * manifest UI displays the trainer's `name` for hand-rolled trainers
  * too, even when HMR can't compute a `configHash` for them.
  *
@@ -279,7 +279,7 @@ export function findTrainerInModule(
  * export shapes count as "a trainer is exported here".
  *
  * Returns `null` when none of the candidates carry the inspection
- * brand — typically because the bundle has no SDK-built trainer
+ * brand: typically because the bundle has no SDK-built trainer
  * (hand-rolled trainer, fresh scaffold, syntax error, or a
  * third-party shape).
  */

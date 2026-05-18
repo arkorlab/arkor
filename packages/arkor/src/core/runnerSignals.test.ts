@@ -48,7 +48,7 @@ function makeTrainer(): Trainer & {
   // Wire the internal callback-replacer + early-stop brands the same
   // way `createTrainer` does. SIGUSR2 looks them up via
   // `replaceTrainerCallbacks` and SIGTERM via `requestTrainerEarlyStop`
-  // — there are no public methods on `Trainer` for either any more.
+  // (there are no public methods on `Trainer` for either any more).
   attachTrainerCallbackReplacer(trainer, (cbs) => {
     replace.lastCallbacks = cbs;
     replace.calls += 1;
@@ -226,7 +226,7 @@ describe("installCallbackReloadHandler", () => {
     // (notably Windows). Previously this would surface as a hard
     // crash at `arkor start` boot. The handler now wraps the
     // registration in try/catch and degrades to a no-op disposer so
-    // the rest of the runner stays up — the server's
+    // the rest of the runner stays up: the server's
     // `safeKill(child, "SIGUSR2")` already detects the same
     // condition and falls back to SIGTERM-restart there.
     const trainer = makeTrainer();
@@ -260,13 +260,13 @@ describe("installCallbackReloadHandler", () => {
   it("drops a stale reload's result when a newer SIGUSR2 starts before the import resolves", async () => {
     // Regression: each SIGUSR2 starts a fire-and-forget
     // `import()` + `replaceTrainerCallbacks`. Two same-`configHash`
-    // rebuilds firing back-to-back can race — the earlier import's
+    // rebuilds firing back-to-back can race: the earlier import's
     // bytes sometimes resolve *after* the newer one, and
     // `replaceTrainerCallbacks` overwrites the freshly-loaded
     // callbacks with the prior version. The fix version-gates each
     // reload via a monotonic `loadSeq`; this test pins the contract
     // by firing two signals back-to-back and asserting that
-    // `replaceTrainerCallbacks` was invoked exactly **once** —
+    // `replaceTrainerCallbacks` was invoked exactly **once**:
     // proving the older IIFE dropped its result at the
     // `seq !== loadSeq` check before reaching the replace call.
     const trainer = makeTrainer();
@@ -288,14 +288,14 @@ describe("installCallbackReloadHandler", () => {
       .mockImplementation((() => true) as typeof process.stderr.write);
     const dispose = installCallbackReloadHandler(trainer, file);
     try {
-      // First signal — captures seq=1 inside the IIFE.
+      // First signal: captures seq=1 inside the IIFE.
       process.emit("SIGUSR2", "SIGUSR2");
       // Rewrite the bundle to v2 BEFORE letting either import
       // resolve. mtime+ctime+size change → distinct cache-bust URL.
       writeUserBundle("v2");
-      // Second signal — captures seq=2, bumps loadSeq to 2.
+      // Second signal: captures seq=2, bumps loadSeq to 2.
       process.emit("SIGUSR2", "SIGUSR2");
-      // Generous fixed wait so both imports definitely settle —
+      // Generous fixed wait so both imports definitely settle;
       // we can't poll on `lastCallbacks !== null` because the v1
       // IIFE might land first and short-circuit our wait, hiding
       // the count assertion below.

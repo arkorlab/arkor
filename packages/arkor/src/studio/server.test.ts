@@ -83,14 +83,14 @@ describe("Studio server", () => {
         baseUrl: "http://mock",
         assetsDir,
         autoAnonymous: false,
-        // @ts-expect-error — intentionally omitted to assert the runtime guard
+        // @ts-expect-error: intentionally omitted to assert the runtime guard
         studioToken: undefined,
       }),
     ).toThrow(/studioToken/);
   });
 
   it("HTML-escapes special characters in the studio token before injecting", async () => {
-    // Branch coverage for `htmlAttrEscape` — a defensive guard against
+    // Branch coverage for `htmlAttrEscape`: a defensive guard against
     // a token that contains `<`, `>`, `&`, `"`, `'`. randomBytes/base64url
     // never produces these, but the helper must still escape them so a
     // future token strategy can't break index.html parsing or open a
@@ -112,7 +112,7 @@ describe("Studio server", () => {
     expect(html).toContain(
       '<meta name="arkor-studio-token" content="&lt;&gt;&amp;&quot;&#39;-1234567890ab">',
     );
-    // The raw exotic token must not leak into HTML — an attacker who
+    // The raw exotic token must not leak into HTML: an attacker who
     // could influence the token (hypothetical) shouldn't be able to
     // inject markup.
     expect(html).not.toMatch(/content="<>/);
@@ -143,7 +143,7 @@ describe("Studio server", () => {
 
   it("injects <meta name=\"arkor-hmr-enabled\"> when an HMR coordinator is supplied", async () => {
     // Regression: the SPA can't tell dev-mode usage from prod-mode
-    // usage at runtime — `vite build` ships with
+    // usage at runtime: `vite build` ships with
     // `import.meta.env.DEV === false`, so a build-time DEV gate inside
     // the SPA bundle would (wrongly) suppress HMR even in real
     // `arkor dev` sessions. The server-side flag is `true` exactly
@@ -399,7 +399,7 @@ describe("Studio server", () => {
     expect(res.status).toBe(403);
   });
 
-  // Regression for ENG-404 — `path.resolve` doesn't follow symlinks, so a
+  // Regression for ENG-404: `path.resolve` doesn't follow symlinks, so a
   // link inside the project directory pointing outside it would previously
   // pass the containment check and be handed to `arkor start` (which would
   // then dlopen the link's target).
@@ -476,7 +476,7 @@ describe("Studio server", () => {
     expect(body.error).toMatch(/does not exist/);
   });
 
-  // Regression for ENG-356 — `/api/train` previously resolved the bundled
+  // Regression for ENG-356: `/api/train` previously resolved the bundled
   // bin at `<pkg>/bin.mjs` (one level above `dist/`), which never existed.
   // The DI'd `binPath` lets us assert (a) a working bin streams its stdout
   // through the response, and (b) a missing bin surfaces ENOENT-grade errors
@@ -600,7 +600,7 @@ process.exit(0);
 
     it("captures the spawn-time configHash from the HMR coordinator (no extra rebuild)", async () => {
       // Regression: `/api/train` previously called `readManifestSummary`
-      // which ran a full `runBuild()` per spawn — wasteful and racy
+      // which ran a full `runBuild()` per spawn: wasteful and racy
       // against the HMR watcher writing the same `.arkor/build/index.mjs`.
       // The new server reads the cached hash from
       // `coordinator.getCurrentConfigHash()` instead. We assert the
@@ -654,7 +654,7 @@ process.exit(0);
       // stdout marker arrives later but our `getJobId(...) === null`
       // gate has already short-circuited subsequent scans, so
       // Stop-training POSTs cancel for the wrong (decoy) job and
-      // the real one keeps running — silent cloud orphan.
+      // the real one keeps running: silent cloud orphan.
       // Splitting into a stdout-only `onStdoutChunk` parser and a
       // forward-only `onStderrChunk` makes stderr unable to
       // populate `jobId` regardless of what the user logs there.
@@ -768,7 +768,7 @@ process.exit(0);
       // *before* SIGKILLing.
       await writeCredentials(ANON_CREDS);
       // The cancel POST reads scope from `.arkor/state.json` (not
-      // from the anon creds' orgSlug — that's a different code
+      // from the anon creds' orgSlug; that's a different code
       // path). Pre-seed so the POST can address the cloud job.
       await writeState(
         {
@@ -781,7 +781,7 @@ process.exit(0);
       // Bin prints the canonical "Started job <id>" line then
       // hangs (just like the real runner after `start()` resolves).
       // The id is the same kind of identifier cloud-api would
-      // mint — opaque string we'll verify shows up in the cancel
+      // mint: an opaque string we'll verify shows up in the cancel
       // POST URL below.
       const FAKE_JOB_ID = "j-cancel-test";
       const fakeBin = join(trainCwd, "started-job-bin.mjs");
@@ -820,7 +820,7 @@ process.exit(0);
             headers: { "content-type": "application/json" },
           });
         }
-        // Pass-through default: anything else 404s — which would
+        // Pass-through default: anything else 404s, which would
         // surface as a test-side failure if our cancel POST
         // doesn't match the expected URL shape.
         return new Response("not found", { status: 404 });
@@ -858,7 +858,7 @@ process.exit(0);
           if (done) break;
           buf += decoder.decode(value, { stream: true });
         }
-        // Trigger cancel — should fire the cloud POST + SIGKILL.
+        // Trigger cancel: should fire the cloud POST + SIGKILL.
         await reader.cancel();
         // Fire-and-forget: give the void IIFE a tick to actually
         // dispatch the fetch + receive the 200 response.
@@ -866,7 +866,7 @@ process.exit(0);
 
         expect(cancelHits).toHaveLength(1);
         expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
-        // Scope is required by the cloud-api contract — comes from
+        // Scope is required by the cloud-api contract: comes from
         // `.arkor/state.json` (seeded above), not the anon creds.
         expect(cancelHits[0]?.url).toContain("orgSlug=cancel-test-org");
         expect(cancelHits[0]?.url).toContain("projectSlug=cancel-test-project");
@@ -1077,7 +1077,7 @@ process.exit(0);
       // graceful early-stop request (wait for the next checkpoint,
       // up to ~5 min). For HMR-driven cancels that's correct, but
       // for a Stop-training click the user wants the run STOPPED
-      // immediately — leaving it running in the background for
+      // immediately. Leaving it running in the background for
       // minutes consuming GPU spend silently is a regression
       // introduced by this PR's graceful-shutdown work. We assert
       // SIGKILL by giving the bin a SIGTERM no-op handler: SIGTERM
@@ -1122,7 +1122,7 @@ process.exit(0);
       await new Promise((r) => setTimeout(r, 300));
 
       // `process.kill(pid, 0)` is the standard "is this pid alive?"
-      // probe — sends signal 0 (no-op) but the syscall still
+      // probe: sends signal 0 (no-op) but the syscall still
       // surfaces ESRCH for non-existent pids. SIGKILL → reaped →
       // ESRCH. SIGTERM (with the bin's no-op handler) → still
       // alive → no throw → test fails.
@@ -1184,13 +1184,13 @@ process.exit(0);
       // `controller.enqueue(...)` listeners on `child.stdout` /
       // `child.stderr` and an unguarded `controller.close()` in
       // `child.on("close")`. After the client cancelled the
-      // ReadableStream, those handlers kept firing — and calling
+      // ReadableStream, those handlers kept firing, and calling
       // `enqueue` / `close` on a closed controller throws "Invalid
       // state". The throw escaped the request pipeline as an
       // unhandled exception. The fix flips a `closed` flag in
       // `cancelTeardown` and try/catches the post-cancel enqueue
       // paths defensively. NOTE: cancel intentionally does NOT
-      // detach the `data` listeners — leaving them attached keeps
+      // detach the `data` listeners; leaving them attached keeps
       // the OS pipe draining while the child checkpoints / exits
       // gracefully (otherwise a full pipe back-pressures and
       // deadlocks the very graceful exit we're preserving).
@@ -1201,7 +1201,7 @@ process.exit(0);
       const fakeBin = join(trainCwd, "fake-bin.mjs");
       // Bin spits a chunk every ~5 ms forever. We cancel while it's
       // mid-stream so the child is *still alive* when listeners are
-      // removed — the previous bug only surfaced in this window.
+      // removed: the previous bug only surfaced in this window.
       writeFileSync(
         fakeBin,
         `setInterval(() => process.stdout.write("tick\\n"), 5);\nsetInterval(() => {}, 60_000);\n`,
@@ -1226,7 +1226,7 @@ process.exit(0);
       expect(res.status).toBe(200);
       const reader = res.body!.getReader();
       // Read at least one chunk so the child is definitely streaming
-      // before we cancel — that's the race window the previous code
+      // before we cancel: that's the race window the previous code
       // crashed in.
       const decoder = new TextDecoder();
       let received = "";
@@ -1236,7 +1236,7 @@ process.exit(0);
         received += decoder.decode(value, { stream: true });
       }
       // Listen for unhandled rejections / uncaught exceptions during
-      // and shortly after the cancel — before the fix, the child's
+      // and shortly after the cancel: before the fix, the child's
       // next `data` chunk would synchronously throw inside the
       // enqueue callback.
       const errors: unknown[] = [];
@@ -1264,7 +1264,7 @@ process.exit(0);
     });
 
     it("acquires + persists an anonymous token on the first /api/credentials hit when autoAnonymous=true", async () => {
-      // No credentials on disk — buildStudioApp's autoAnonymous default
+      // No credentials on disk: buildStudioApp's autoAnonymous default
       // (true) lets the server bootstrap on first hit so a fresh `arkor
       // dev` works even when the up-front bootstrap in dev.ts skipped due
       // to a transient network blip.
@@ -1306,7 +1306,7 @@ process.exit(0);
       expect(body).toMatchObject({ token: "lazy-anon", mode: "anon" });
       expect(calls).toBe(1);
 
-      // Subsequent calls use the persisted credentials — no re-bootstrap.
+      // Subsequent calls use the persisted credentials (no re-bootstrap).
       const res2 = await app.request("/api/credentials", {
         headers: {
           host: "127.0.0.1:4000",
@@ -1381,7 +1381,7 @@ process.exit(0);
       // The cloud-api-client wrapper around `onDeprecation` synchronously
       // checks `typeof result.then` on the callback's return value; a plain
       // `void` return throws and gets swallowed with a stderr log. The
-      // wrapper in `createRpc` returns null to short-circuit that check —
+      // wrapper in `createRpc` returns null to short-circuit that check;
       // assert that no such log fires here.
       const errorSpy = vi
         .spyOn(console, "error")
@@ -1845,7 +1845,7 @@ process.exit(0);
       // pre-existing artefact directly when HMR's coordinator is
       // wired in. We assert by pre-writing a hand-rolled artefact
       // bundle and verifying `/api/manifest` returns its trainer
-      // *without* the source file existing — `runBuild()` would
+      // *without* the source file existing: `runBuild()` would
       // throw on the missing entry, so a 200 here proves we never
       // called it.
       await writeCredentials(ANON_CREDS);
@@ -1866,7 +1866,7 @@ process.exit(0);
         `,
       );
       // Notice: NO `src/arkor/index.ts`. `runBuild()` would fail with
-      // "Build entry not found" — the test fails if the fast path
+      // "Build entry not found"; the test fails if the fast path
       // regresses and falls through to it.
       const fakeHmr = {
         subscribe: () => () => undefined,
@@ -1919,7 +1919,7 @@ process.exit(0);
           },
         });`,
       );
-      // No pre-existing `.arkor/build/index.mjs` — the artefact
+      // No pre-existing `.arkor/build/index.mjs`: the artefact
       // doesn't exist. `existsSync` is false → `runBuild()` runs.
       const fakeHmr = {
         subscribe: () => () => undefined,
@@ -1955,7 +1955,7 @@ process.exit(0);
       // even when the watcher's most recent event was `error`. The
       // SPA's `/api/manifest` poll runs every ~5s, so a successful
       // 200 with stale data would silently overwrite the SSE-driven
-      // build-error UI within 5s of the user breaking their source —
+      // build-error UI within 5s of the user breaking their source:
       // they'd then unknowingly run stale code/config while the
       // latest edit is still failing to compile. Gating the fast
       // path on `getLastEventType() === "error"` keeps both
@@ -1976,7 +1976,7 @@ process.exit(0);
         export default arkor;
         `,
       );
-      // Coordinator is currently in error state — the latest
+      // Coordinator is currently in error state: the latest
       // broadcast was a compile failure.
       const fakeHmr = {
         subscribe: () => () => undefined,
@@ -2000,7 +2000,7 @@ process.exit(0);
           "x-arkor-studio-token": STUDIO_TOKEN,
         },
       });
-      // 400 — the SPA's existing 4xx-handling path renders the
+      // 400: the SPA's existing 4xx-handling path renders the
       // build-error hint instead of a fake-healthy manifest.
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error?: string };
@@ -2019,7 +2019,7 @@ process.exit(0);
 
     it("auto-bootstraps project state and proxies base-model inference", async () => {
       await writeCredentials(ANON_CREDS);
-      // No state.json — server should derive a slug from cwd, create the
+      // No state.json: server should derive a slug from cwd, create the
       // project on cloud-api, persist state, and forward the inference call.
 
       const calls: Array<{
@@ -2148,7 +2148,7 @@ process.exit(0);
       });
       expect(res.status).toBe(200);
 
-      // Only the inference call should have hit the network — no project
+      // Only the inference call should have hit the network: no project
       // create/list when state is already present.
       expect(calls.filter((c) => c.url.includes("/v1/projects"))).toHaveLength(0);
       const chat = calls.find((c) => c.url.includes("/v1/inference/chat"));
@@ -2157,7 +2157,7 @@ process.exit(0);
 
     it("propagates the cloud-api status when project bootstrap fails", async () => {
       await writeCredentials(ANON_CREDS);
-      // No state.json — bootstrap will hit cloud-api, which returns 503.
+      // No state.json: bootstrap will hit cloud-api, which returns 503.
       // We expect that 503 to be passed through, not collapsed to 400.
 
       globalThis.fetch = (async (
@@ -2263,7 +2263,7 @@ process.exit(0);
         coordinator,
         emit(event: HmrEvent) {
           // Track the latest event type so `getLastEventType()`
-          // mirrors the real coordinator's `lastEvent?.type` —
+          // mirrors the real coordinator's `lastEvent?.type`;
           // the `/api/manifest` HMR-error gate consults this.
           lastEventType = event.type;
           for (const fn of subs) fn(event);
@@ -2326,7 +2326,7 @@ process.exit(0);
       // The server subscribes to the HMR coordinator exactly once at
       // build time (so multiple SSE clients don't fan signal dispatch
       // out to the same child N times). Per-client cleanup happens on
-      // the SSE listener set, not against the coordinator — so
+      // the SSE listener set, not against the coordinator, so
       // `fake.subscriberCount` stays at 1 across the connection
       // lifecycle. We assert that here rather than expect the
       // pre-refactor "0 after cancel" behaviour.
@@ -2420,7 +2420,7 @@ process.exit(0);
       // (which would have triggered the runner's `exit(143)`
       // emergency path and broken cloud cancel POSTing). With
       // SIGKILL replacing the user-stop SIGTERM, the
-      // double-signal worry no longer applies — and the gate
+      // double-signal worry no longer applies, and the gate
       // turned a Stop click during HMR's graceful window into a
       // total no-op, leaving the run alive until checkpoint /
       // 5-min timeout. Manual stop now overrides HMR's graceful
@@ -2438,7 +2438,7 @@ process.exit(0);
       const FAKE_JOB_ID = "manual-stop-during-hmr";
       const fakeBin = join(trainCwd, "manual-during-hmr-bin.mjs");
       // SIGTERM no-op so HMR's graceful SIGTERM doesn't terminate
-      // the bin — we need it alive so the subsequent manual
+      // the bin; we need it alive so the subsequent manual
       // cancel actually has something to SIGKILL. Marker uses the
       // server-injected nonce prefix so the parser accepts it.
       writeFileSync(
@@ -2498,7 +2498,7 @@ process.exit(0);
           if (done) break;
           buf += decoder.decode(value, { stream: true });
         }
-        // Emit an HMR mismatch — server's dispatch SIGTERMs the
+        // Emit an HMR mismatch: server's dispatch SIGTERMs the
         // bin and sets `earlyStopRequested = true` on the entry.
         // The bin's SIGTERM no-op keeps it alive so the manual
         // cancel below has a target.
@@ -2512,7 +2512,7 @@ process.exit(0);
         // Let the dispatch run + signal land.
         await new Promise((r) => setTimeout(r, 80));
 
-        // Manual cancel — old code would have early-returned; new
+        // Manual cancel: old code would have early-returned; new
         // code POSTs cloud cancel + SIGKILLs.
         await reader.cancel();
         await new Promise((r) => setTimeout(r, 250));
@@ -2520,7 +2520,7 @@ process.exit(0);
         // Cloud cancel POST landed for the right job.
         expect(cancelHits).toHaveLength(1);
         expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
-        // And the bin is dead — SIGKILL bypassed its SIGTERM
+        // And the bin is dead: SIGKILL bypassed its SIGTERM
         // no-op (which had been masking HMR's earlier SIGTERM).
         let probeError: NodeJS.ErrnoException | null = null;
         try {
@@ -2540,7 +2540,7 @@ process.exit(0);
       // the watcher's first successful BUNDLE_END (the very first
       // success is broadcast as `ready`, and the entry-wait recovery
       // path also emits `ready`) would never get SIGUSR2/SIGTERM-
-      // routed when that build eventually landed — leaving it
+      // routed when that build eventually landed, leaving it
       // running a stale or empty artifact. Exercise the contract
       // here by spawning a hanging child, then emitting `ready`
       // with a different `configHash`; dispatch should pick up the
@@ -2599,7 +2599,7 @@ process.exit(0);
           received += decoder.decode(value, { stream: true });
         }
         expect(received).toContain("event: ready");
-        // The dispatch augmentation marker — would be absent if the
+        // The dispatch augmentation marker: would be absent if the
         // `event.type !== "error"` filter regressed back to gating on
         // `=== "rebuild"`, and `restart`/`restartTargets` would never
         // appear on a `ready` frame.

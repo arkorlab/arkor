@@ -33,13 +33,13 @@ const SECOND_SIGNAL_EXIT_CODE: Record<
  *   - 1st signal → `trainer.requestEarlyStop()`. The trainer keeps
  *     running, lets the next `checkpoint.saved` event land, then issues
  *     `cancel()`.
- *   - 2nd signal → immediate `process.exit(POSIX 128+signo)` —
+ *   - 2nd signal → immediate `process.exit(POSIX 128+signo)`:
  *     130 for SIGINT, 143 for SIGTERM, 129 for SIGHUP. Escape hatch
  *     for an impatient operator or a hung early-stop. Per-signal
  *     exit code so parent shells see the actual interruption type.
  *
  * The returned dispose function removes the handlers so a normal
- * `wait()` completion doesn't leave stale listeners behind — important
+ * `wait()` completion doesn't leave stale listeners behind: important
  * because `runTrainer` can be called multiple times in tests within a
  * single Node process.
  */
@@ -108,7 +108,7 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
  * SIGUSR2 handler: re-import the freshly-rebuilt artefact and rotate
  * the trainer's callback cell via the internal
  * `Symbol.for("arkor.trainer.replaceCallbacks")` brand. The cloud-side
- * training run is untouched — only the in-process callbacks change.
+ * training run is untouched; only the in-process callbacks change.
  *
  * Studio sends SIGUSR2 from the `/api/dev/events` HMR pipeline when
  * (and only when) the rebuilt bundle's `JobConfig` hash matches the
@@ -125,7 +125,7 @@ export function installCallbackReloadHandler(
    * dynamic-import await begins, so each in-flight reload knows its
    * arrival order. When the import resolves, the IIFE compares its
    * captured `seq` against `loadSeq` and silently drops the result
-   * if a newer signal already started a newer reload — without this,
+   * if a newer signal already started a newer reload. Without this,
    * two same-`configHash` rebuilds firing back-to-back can race on
    * the import: the earlier import's bytes (now stale on disk)
    * resolve *after* the newer one, and `replaceTrainerCallbacks`
@@ -142,7 +142,7 @@ export function installCallbackReloadHandler(
     // session with frequent SIGUSR2 reloads would accumulate one
     // record per signal forever. Keying on the actual artefact bytes
     // (via `moduleCacheBustUrl`) collapses no-op signals onto the
-    // same URL — the leak is bounded to "one per real edit", which
+    // same URL; the leak is bounded to "one per real edit", which
     // is fundamentally what HMR has to retain.
     const url = moduleCacheBustUrl(entryPath);
     void (async () => {
@@ -174,7 +174,7 @@ export function installCallbackReloadHandler(
   // escapes to userland on some Node versions). The server-side
   // `trainRegistry.safeKill(child, "SIGUSR2")` already detects this
   // ("unsupported" → falls back to SIGTERM-restart), so an unarmed
-  // listener here is the documented contract on those platforms —
+  // listener here is the documented contract on those platforms:
   // quietly degrade to a no-op disposer rather than crashing
   // `arkor start` at boot.
   try {

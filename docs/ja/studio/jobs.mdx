@@ -55,8 +55,8 @@ Jobs リストはマウント時に 1 度、その後 5 秒ごとに `GET /api/j
 
 Loss チャートは `training.log` イベントから描画される SVG プロットです。Y 軸は最小値と最大値によるスケーリング、X 軸はステップ番号で、最大 2 系列を表示します:
 
-- **Training loss** — 実線のティール色。数値 `loss` を含むイベントごとに 1 頂点。
-- **Eval loss** — 破線のピンク色（点マーカー付き）。数値 `evalLoss` を含むイベント（通常は `evalSteps` 刻み）から描画。系列はイベントから直接構築するため、`evalLoss` のみを持ち `loss` を含まない eval-only フレームも線・凡例・統計に反映されます。Eval ポイントが 1 つも来ていない間は凡例にも表示されません。
+- **Training loss**: 実線のティール色。数値 `loss` を含むイベントごとに 1 頂点。
+- **Eval loss**: 破線のピンク色（点マーカー付き）。数値 `evalLoss` を含むイベント（通常は `evalSteps` 刻み）から描画。系列はイベントから直接構築するため、`evalLoss` のみを持ち `loss` を含まない eval-only フレームも線・凡例・統計に反映されます。Eval ポイントが 1 つも来ていない間は凡例にも表示されません。
 
 ホバーすると最寄りステップと、そのステップに含まれる `loss` / `evalLoss` のうち存在する値が表示されます（eval-only ステップでは `loss` 値は出ず、その逆も同様）。チャートは `loss` または `evalLoss` のいずれかが数値であるイベントが 1 件以上届くまで `Waiting for training.log events…`（`training.log` イベント待ち）プレースホルダーを表示します。両方とも null / 省略の `training.log` フレームはカウントされません。
 
@@ -64,9 +64,9 @@ Loss チャートは `training.log` イベントから描画される SVG プロ
 
 チャートヘッダーの **Advanced** トグルを ON にすると、系列ごとの統計パネルが現れます。各カードに表示される項目:
 
-- **Mean loss ± 95% CI** — Loss 値の標本平均と 95% 信頼区間の半幅（Student の t 分布。n > 31 では z = 1.96 にフォールバック）。
-- **Std dev** と **Variance** — Bessel 補正済みの不偏推定量（`ddof=1`）。
-- **p90** と **p95** — numpy のデフォルトに合わせた線形補間パーセンタイル。
+- **Mean loss ± 95% CI**: Loss 値の標本平均と 95% 信頼区間の半幅（Student の t 分布。n > 31 では z = 1.96 にフォールバック）。
+- **Std dev** と **Variance**: Bessel 補正済みの不偏推定量（`ddof=1`）。
+- **p90** と **p95**: numpy のデフォルトに合わせた線形補間パーセンタイル。
 
 Eval カードは数値 `evalLoss` を含む `training.log` イベントが届くまでは空のままです。
 

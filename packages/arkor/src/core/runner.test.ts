@@ -49,7 +49,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-describe("runTrainer — entry extraction", () => {
+describe("runTrainer: entry extraction", () => {
   it("throws when the entry file does not exist", async () => {
     await expect(runTrainer("missing.ts")).rejects.toThrow(
       /Training entry not found/,
@@ -124,7 +124,7 @@ describe("runTrainer — entry extraction", () => {
   });
 
   it("throws when default export is a primitive (typeof !== 'object' branch)", async () => {
-    // The second half of `mod.default && typeof mod.default === "object"` —
+    // The second half of `mod.default && typeof mod.default === "object"`:
     // a primitive default like `42` or `"foo"` must short-circuit out of
     // the nested-trainer probe.
     const entry = join(cwd, "primitive-default.mjs");
@@ -135,7 +135,7 @@ describe("runTrainer — entry extraction", () => {
   });
 
   it("accepts a default export wrapping a `trainer` field (legacy power-user shape)", async () => {
-    // Hits the `if (isTrainer(nested)) return nested` branch — the only
+    // Hits the `if (isTrainer(nested)) return nested` branch: the only
     // place line 38 is reachable.
     const entry = join(cwd, "default-with-trainer.mjs");
     writeFileSync(
@@ -154,7 +154,7 @@ describe("runTrainer — entry extraction", () => {
 
   it("falls back to DEFAULT_ENTRY (src/arkor/index.ts) when called with no argument", async () => {
     // Branch coverage for `file ?? DEFAULT_ENTRY`. Place the entry at
-    // `<cwd>/src/arkor/index.ts` and invoke runTrainer() — the default
+    // `<cwd>/src/arkor/index.ts` and invoke runTrainer(): the default
     // path is what `arkor start` and Studio's "Run training" button use.
     const arkorDir = join(cwd, "src", "arkor");
     mkdirSync(arkorDir, { recursive: true });
@@ -174,8 +174,8 @@ describe("runTrainer — entry extraction", () => {
       join(arkorDir, "index.ts"),
       `export * from "./index.mjs";\n`,
     );
-    // Pass undefined explicitly to exercise the `?? DEFAULT_ENTRY` branch
-    // — Node's built-in TypeScript stripping handles the .ts extension at
+    // Pass undefined explicitly to exercise the `?? DEFAULT_ENTRY` branch.
+    // Node's built-in TypeScript stripping handles the .ts extension at
     // runtime. (vitest also strips TS so this works under test too.)
     await expect(runTrainer()).resolves.toBeUndefined();
   });
@@ -208,7 +208,7 @@ describe("runTrainer — entry extraction", () => {
   });
 });
 
-describe("runTrainer — shutdown signal handling", () => {
+describe("runTrainer: shutdown signal handling", () => {
   it("first SIGTERM calls trainer.requestEarlyStop and exits 0; second SIGTERM exits 143", async () => {
     // Fake trainer whose `wait()` hangs until the test manually resolves it
     // (via a global helper). This lets us hold the run in flight long
@@ -265,7 +265,7 @@ describe("runTrainer — shutdown signal handling", () => {
       const runPromise = runTrainer("src/arkor/index.mjs");
       // Wait for import + start() to settle so the handler is registered
       // before we synthesise SIGTERM. Poll for the probe rather than
-      // relying on a fixed timer — under load (e.g. running alongside
+      // relying on a fixed timer: under load (e.g. running alongside
       // sibling test files in turbo) the dynamic import + top-level
       // body can take longer than a hardcoded 25 ms window.
       type Probe = { earlyStopCalls: number; finishWait: () => void };
