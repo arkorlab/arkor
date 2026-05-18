@@ -67,6 +67,20 @@ export interface ActiveTrain {
    * until the cloud reaper / TTL fires (continued GPU spend).
    */
   jobId: string | null;
+  /**
+   * Cloud-api scope (org + project slugs) captured at spawn time
+   * from `.arkor/state.json`. Pinned on the registry entry so the
+   * `/api/train` cancel handler can address the cloud cancel POST
+   * without re-reading the filesystem at stop time. Without this
+   * pin, a user who deleted or made unreadable `.arkor/state.json`
+   * mid-training would have their manual stop silently skip the
+   * cancel POST (state read returns null, handler bails) and
+   * the cloud job would orphan. Null when `/api/train` ran without
+   * state (auto-anonymous bootstrap failed, etc.); cancel POST is
+   * skipped then too, but the SIGKILL still tears down the local
+   * subprocess.
+   */
+  scope: { orgSlug: string; projectSlug: string } | null;
 }
 
 export interface RestartTarget {
@@ -140,7 +154,11 @@ export class TrainRegistry {
     child: ChildProcess,
     init: Omit<
       ActiveTrain,
-      "child" | "earlyStopRequested" | "spawnArtifactContentHash" | "jobId"
+      | "child"
+      | "earlyStopRequested"
+      | "spawnArtifactContentHash"
+      | "jobId"
+      | "scope"
     > & {
       // Optional in the signature so tests / future callers that
       // don't track the on-disk artefact content hash (e.g. an
@@ -152,6 +170,12 @@ export class TrainRegistry {
       // calls in HMR mode capture this from
       // `coordinator.getCurrentArtifactContentHash()`.
       spawnArtifactContentHash?: string | null;
+      // Optional too: tests don't need scope for HMR-routing
+      // assertions. Real `/api/train` calls in production pass a
+      // non-null scope captured from `.arkor/state.json` so the
+      // cancel POST can address the cloud job without re-reading
+      // the filesystem at stop time.
+      scope?: { orgSlug: string; projectSlug: string } | null;
     },
   ): void {
     if (typeof child.pid !== "number") return;
@@ -159,6 +183,7 @@ export class TrainRegistry {
       child,
       ...init,
       spawnArtifactContentHash: init.spawnArtifactContentHash ?? null,
+      scope: init.scope ?? null,
       earlyStopRequested: false,
       // `jobId` starts null — populated later by `recordJobId(pid,
       // id)` when the server's stdout parser sees the runner's
@@ -201,6 +226,22 @@ export class TrainRegistry {
   getJobId(pid: number | undefined): string | null {
     if (typeof pid !== "number") return null;
     return this.entries.get(pid)?.jobId ?? null;
+  }
+
+  /**
+   * Read the spawn-time cloud-api scope for a pid. Paired with
+   * `getJobId` by `/api/train`'s cancel handler to build the cloud
+   * cancel POST URL without re-reading `.arkor/state.json` at stop
+   * time: if the file was deleted or made unreadable mid-training,
+   * the read would return null and the cancel POST would silently
+   * skip, orphaning the cloud run. Captured at spawn time, immutable
+   * for the entry's lifetime.
+   */
+  getScope(
+    pid: number | undefined,
+  ): { orgSlug: string; projectSlug: string } | null {
+    if (typeof pid !== "number") return null;
+    return this.entries.get(pid)?.scope ?? null;
   }
 
   /**

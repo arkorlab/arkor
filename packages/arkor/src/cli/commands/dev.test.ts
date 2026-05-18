@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -761,6 +762,60 @@ describe("runDev", () => {
       // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
       // the nonzero code to distinguish interrupt from clean exit.
       expect(exitSpy).toHaveBeenCalledWith(130);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("does NOT unlink a pre-existing token file when this process failed to persist its own token (concurrent arkor dev safety)", async () => {
+    // Regression: a failed-persist `arkor dev` used to unconditionally
+    // `unlinkSync(studioTokenPath())` on shutdown. If a concurrent
+    // `arkor dev` (different port, same user) had already persisted a
+    // valid token to the shared path, this run's cleanup would wipe
+    // it out from under them, breaking that session's Vite SPA dev
+    // workflow with mystery 403s on /api/*. The fix gates the unlink
+    // on `tokenPersisted` so a failed-persist run is a no-op at
+    // shutdown.
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      // Root bypasses chmod permission checks: skip on root containers.
+      return;
+    }
+    // Pre-place a "concurrent" token (the other dev session's). Body
+    // content lets us assert byte-equality after cleanup, not just
+    // file existence, to rule out an unlink+recreate cycle.
+    const path = studioTokenPath();
+    writeFileSync(path, "concurrent-token-value", { mode: 0o600 });
+    // Make the FILE unwritable so persistStudioToken's `writeFile`
+    // throws EACCES, but leave the *directory* writable so unlinkSync
+    // (which requires dir-write, not file-write perms) would happily
+    // delete the file if the cleanup hook weren't gated.
+    chmodSync(path, 0o444);
+
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await expect(runDev({ port: 4207 })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => {
+        return undefined as never;
+      }) as typeof process.exit);
+    try {
+      // Restore read perms so we can `readFileSync` to verify content.
+      chmodSync(path, 0o644);
+      const sigintListeners = process.listeners("SIGINT");
+      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      handler();
+      await flushMicrotasks();
+      // The pre-existing token is still on disk AND unchanged: this
+      // failed-persist run did not wipe it.
+      expect(existsSync(path)).toBe(true);
+      expect(readFileSync(path, "utf8")).toBe("concurrent-token-value");
     } finally {
       exitSpy.mockRestore();
     }

@@ -10,6 +10,27 @@ import type { Trainer } from "./types";
 
 const DEFAULT_ENTRY = "src/arkor/index.ts";
 
+/**
+ * Per-spawn nonce that `/api/train` injects via env so the server can
+ * recognise the runner's `Started job <id>` line without it being
+ * forgeable from user code. Captured at module load (i.e. BEFORE
+ * `runTrainer` does its `await import(userEntry)`) and the env var
+ * is deleted right after so the dynamically-imported user module
+ * cannot read it via `process.env`. If a user callback then writes
+ * `Started job <token>` to stdout, the line won't carry the nonce
+ * prefix and the server's anchored regex will reject it: no
+ * spoofed cloud `cancel()` POST against an attacker-chosen job id.
+ *
+ * Null when the runner was launched directly (e.g. `arkor start` from
+ * a shell), in which case the runner falls back to the plain
+ * `Started job <id>` form for backwards compatibility. The server only
+ * uses the nonce-prefixed form because every server spawn sets the
+ * env var.
+ */
+const STARTED_JOB_NONCE: string | null =
+  process.env.ARKOR_JOB_ID_MARKER_NONCE ?? null;
+delete process.env.ARKOR_JOB_ID_MARKER_NONCE;
+
 function isTrainer(value: unknown): value is Trainer {
   if (!value || typeof value !== "object") return false;
   const t = value as Record<string, unknown>;
@@ -61,7 +82,10 @@ export async function runTrainer(file?: string): Promise<void> {
   const removeCallbackReload = installCallbackReloadHandler(trainer, abs);
   try {
     const { jobId } = await trainer.start();
-    process.stdout.write(`Started job ${jobId}\n`);
+    const startedJobPrefix = STARTED_JOB_NONCE
+      ? `[arkor:${STARTED_JOB_NONCE}] `
+      : "";
+    process.stdout.write(`${startedJobPrefix}Started job ${jobId}\n`);
     const result = await trainer.wait();
     process.stdout.write(
       `Job ${result.job.id} finished with status=${result.job.status}\n`,

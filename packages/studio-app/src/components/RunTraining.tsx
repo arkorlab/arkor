@@ -200,6 +200,15 @@ export function RunTraining() {
         // source of truth: no auto-restart fires until the next
         // successful rebuild re-arms the latch.
         restartPendingRef.current = false;
+        // Same hazard via the pre-spawn buffer: a `rebuild` event
+        // that landed before `onSpawn` populated the pid is parked
+        // in `pendingPreSpawnEventsRef`. If the user then breaks
+        // the source and the next event is `error`, `onSpawn`'s
+        // later drain would still find the stale restart target
+        // and latch `restartPendingRef = true` → auto-restart
+        // against the broken state. Drop the buffer alongside the
+        // latch so the error event is the new source of truth.
+        pendingPreSpawnEventsRef.current = [];
         return;
       }
       // Always refresh the manifest on ready/rebuild.

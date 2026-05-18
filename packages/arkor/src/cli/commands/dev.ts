@@ -172,9 +172,25 @@ async function persistStudioToken(token: string): Promise<string> {
   return path;
 }
 
-function scheduleStudioTokenCleanup(path: string): void {
+function scheduleStudioTokenCleanup(
+  path: string,
+  // Read at cleanup time so a `persistStudioToken` call that's still
+  // in flight when the user hits Ctrl-C (or one that resolved
+  // successfully *after* this scheduler ran) has its outcome
+  // respected. A plain boolean parameter would be captured at hook
+  // registration time, well before persist resolves.
+  shouldUnlink: () => boolean,
+): void {
   registerCleanupHook({
     cleanup: () => {
+      // Skip the unlink entirely if THIS process never persisted the
+      // file. Without this gate, a failed-persist `arkor dev` would
+      // happily `unlinkSync` on shutdown, and if a concurrent
+      // `arkor dev` process (different port, same user) had persisted
+      // a valid token to the same shared path, our cleanup would
+      // wipe it out from under them, breaking that session's Vite
+      // SPA dev workflow with mystery 403s on /api/*.
+      if (!shouldUnlink()) return;
       try {
         unlinkSync(path);
       } catch {
@@ -227,14 +243,20 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // is the only one that calls `process.exit(0)` on SIGINT/SIGTERM/SIGHUP
   // (the HMR hook above only disposes), and `registerCleanupHook` overrides
   // Node's default "exit on signal" behaviour for any signal it listens
-  // on. If we were to gate this hook behind a successful `persistStudioToken`
-  // and the persist threw, Ctrl-C would run the HMR dispose and then leave
-  // the server idle in the foreground — no exit ever fires. Registering
-  // first means the hook is in place even if persist fails; the cleanup
-  // body is best-effort (`unlinkSync` in a try/catch) so calling it on a
-  // file that was never written is a silent no-op.
+  // on. If we were to gate registration behind a successful
+  // `persistStudioToken` and the persist threw, Ctrl-C would run the HMR
+  // dispose and then leave the server idle in the foreground: no exit
+  // ever fires.
+  //
+  // The cleanup body itself, however, gates `unlinkSync` on
+  // `tokenPersisted` (set only after `persistStudioToken` resolves) so a
+  // failed-persist run doesn't clobber a concurrent `arkor dev` process's
+  // valid token at the shared `~/.arkor/studio-token` path. Both
+  // protections together: hook is always registered (so exits behave),
+  // but only deletes a file *we* wrote.
   const tokenPath = studioTokenPath();
-  scheduleStudioTokenCleanup(tokenPath);
+  let tokenPersisted = false;
+  scheduleStudioTokenCleanup(tokenPath, () => tokenPersisted);
 
   // Persisting the token to disk is *only* needed for the Vite SPA dev
   // workflow. The bundled `:port` flow injects the meta tag at request time
@@ -242,6 +264,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // locked-down CI / restrictive umask) must not block the server.
   try {
     await persistStudioToken(studioToken);
+    tokenPersisted = true;
   } catch (err) {
     ui.log.warn(
       `Could not write ${tokenPath} (${

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { readFile, realpath } from "node:fs/promises";
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { createClient } from "@arkor/cloud-api-client";
 import { CloudApiClient, CloudApiError } from "../core/client";
@@ -27,28 +27,31 @@ import { TrainRegistry, type RestartTarget } from "./trainRegistry";
  *  `restart` events to the run *this* tab actually started. */
 const TRAIN_PID_HEADER = "x-arkor-train-pid";
 /**
- * Strict full-line match for the runner's `Started job <id>` line.
- * `core/runner.ts` prints exactly that text — `process.stdout.write(\`Started job ${jobId}\n\`)` —
- * after `trainer.start()` resolves; the server's `/api/train`
- * stdout forwarder line-buffers chunks (chunk boundaries are
- * arbitrary, so a substring scan against raw chunks would miss
- * splits) and applies this regex to each complete line so it can
- * POST `/v1/jobs/:id/cancel` to cloud-api on user-initiated
- * cancel (SIGKILL bypasses the runner's own shutdown handlers —
- * see the `cancel()` comment for the full rationale).
+ * Build the strict full-line match for the runner's `[arkor:<nonce>] Started job <id>` line.
  *
- * Anchors `^…$` matter for two reasons:
- *   - Avoid false matches when a user `console.log` happens to
- *     contain the substring "Started job <token>" *before* the
- *     runner's canonical line lands; once we record an id we
- *     stop scanning, so a stray earlier match would stick and
- *     Stop-training would POST cancel for the wrong (or
- *     non-existent) job.
- *   - Restrict the id capture to non-whitespace, mirroring what
- *     `runner.ts` writes (cloud-api job ids are word-shaped,
- *     never contain spaces).
+ * `core/runner.ts` prefixes that text with the per-spawn nonce we
+ * inject via `ARKOR_JOB_ID_MARKER_NONCE`; without the prefix, a
+ * user `console.log("Started job <attacker-id>")` from inside
+ * `trainer.start()` / `onCheckpoint` / etc. could land in stdout
+ * *before* the runner's real line and we'd record the wrong id, so
+ * Stop-training would then POST `/v1/jobs/:attacker-id/cancel`
+ * against a job the attacker chose. Anchoring on a 32-hex nonce
+ * known only to the server + runner (the env var is deleted by
+ * runner.ts BEFORE the user module is dynamically imported, so the
+ * user can't read it) closes that hole.
+ *
+ * Pattern is per-spawn because the nonce is per-spawn.
+ *
+ * Anchors `^…$` and `(\S+)` job-id capture mirror the runner's
+ * exact write shape (cloud-api job ids never contain whitespace),
+ * so a chatty bin that wraps the line in other content cannot
+ * collide either.
  */
-const STARTED_JOB_PATTERN = /^Started job (\S+)$/;
+function buildStartedJobPattern(nonce: string): RegExp {
+  // Nonce is a 32-char hex string from `randomBytes(16).toString("hex")`,
+  // i.e. only `[0-9a-f]` (safe to interpolate into the regex literal).
+  return new RegExp(`^\\[arkor:${nonce}\\] Started job (\\S+)$`);
+}
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
 function copyDeprecationHeaders(from: Headers, to: Headers): void {
@@ -442,8 +445,30 @@ export function buildStudioApp(options: StudioServerOptions) {
     const spawnArtifactContentHash: string | null = options.hmr
       ? options.hmr.getCurrentArtifactContentHash()
       : null;
+    // Capture the cloud-api scope NOW (at spawn time) so the cancel
+    // handler can POST `/v1/jobs/:id/cancel` without re-reading
+    // `.arkor/state.json` at stop time. If the user removed or made
+    // the state file unreadable mid-training, the stop-time read
+    // would return null and the cancel POST would silently skip:
+    // local SIGKILL still tears down the subprocess but the cloud
+    // run orphans. Pinning the scope on the registry entry
+    // decouples cancel correctness from mutable filesystem state.
+    const spawnState = await readState(trainCwd);
+    const spawnScope = spawnState
+      ? { orgSlug: spawnState.orgSlug, projectSlug: spawnState.projectSlug }
+      : null;
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
+    // Per-spawn 16-byte nonce passed via env var so the runner can
+    // prefix its `Started job <id>` line with `[arkor:<nonce>] `. The
+    // server matches that nonce-prefixed shape (see
+    // `buildStartedJobPattern` for why). 32-hex chars of entropy
+    // guarantees a user-code spoof attempt can't guess the prefix in
+    // a single shot, and `core/runner.ts` deletes the env var BEFORE
+    // dynamically importing the user module so user code can't read
+    // it via `process.env` either.
+    const startedJobNonce = randomBytes(16).toString("hex");
+    const startedJobPattern = buildStartedJobPattern(startedJobNonce);
     // `spawn()` is mostly async (filesystem failures surface as the
     // child's `error` event), but Node can still throw synchronously
     // for argument-shape problems (e.g. invalid stdio descriptor on
@@ -462,6 +487,10 @@ export function buildStudioApp(options: StudioServerOptions) {
       child = spawn(process.execPath, args, {
         stdio: "pipe",
         cwd: trainCwd,
+        env: {
+          ...process.env,
+          ARKOR_JOB_ID_MARKER_NONCE: startedJobNonce,
+        },
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -474,6 +503,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       trainFile,
       configHash,
       spawnArtifactContentHash,
+      scope: spawnScope,
     });
     // Hoisted out of the `ReadableStream` underlying-source so the
     // `start` handler can hand its closure-bound teardown helper to
@@ -481,6 +511,16 @@ export function buildStudioApp(options: StudioServerOptions) {
     // not through `controller`, so the two need a parent-scope
     // rendez-vous variable.
     let cancelTeardown: (() => void) | null = null;
+    // Mirror of the cloud `jobId` parsed out of the runner's
+    // stdout, accessible to both the `start` (parser writes) and
+    // `cancel` (post-unregister read) handlers. We can't just call
+    // `activeTrains.getJobId(pid)` from `cancel` because cancel
+    // unregisters the entry first, so subsequent reads of the
+    // registry would always be `null` even if the parser races a
+    // late line in afterwards. This closure variable keeps the id
+    // observable even after unregister, so the cancel POST poll
+    // below can pick up a jobId that lands a few ms after Stop.
+    let parsedJobId: string | null = null;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         // After `cancel()` runs, calling `controller.enqueue` /
@@ -553,9 +593,14 @@ export function buildStudioApp(options: StudioServerOptions) {
               // the same anchored pattern.
               const line = stdoutLineBuf.slice(0, nl).replace(/\r$/, "");
               stdoutLineBuf = stdoutLineBuf.slice(nl + 1);
-              const m = STARTED_JOB_PATTERN.exec(line);
+              const m = startedJobPattern.exec(line);
               if (m && m[1]) {
                 activeTrains.recordJobId(child.pid, m[1]);
+                // Mirror to the parent-scope closure so the cancel
+                // handler can pick this up even AFTER it called
+                // `activeTrains.unregister(...)` (the registry
+                // read would return null post-unregister).
+                parsedJobId = m[1];
                 stdoutLineBuf = "";
                 break;
               }
@@ -671,36 +716,67 @@ export function buildStudioApp(options: StudioServerOptions) {
         // the local subprocess teardown snappy and let the
         // server-side cancel POST handle the cloud-side release.
         //
-        // Capture the cloud job id BEFORE unregistering — once the
-        // entry is gone, `getJobId(pid)` returns null and the
-        // fire-and-forget POST below would no-op.
-        const jobIdForCancel = activeTrains.getJobId(child.pid);
-        activeTrains.unregister(child.pid);
+        // Capture the cloud job id + spawn-time scope BEFORE
+        // unregistering: once the entry is gone, the getters
+        // return null and the fire-and-forget POST below would
+        // no-op.
+        //
+        // `pid` is captured once here because the closure below
+        // runs after `unregister` and we want a stable handle.
+        const cancelPid = child.pid;
+        // Scope: pinned at spawn time on the registry entry, NOT
+        // re-read from `.arkor/state.json` here. A user who
+        // deleted or made state unreadable mid-training shouldn't
+        // be able to silently orphan their cloud job by losing
+        // the cancel-time read.
+        const scopeForCancel = activeTrains.getScope(cancelPid);
+        activeTrains.unregister(cancelPid);
         cancelTeardown?.();
         // Fire-and-forget cloud-side cancel so the cloud job is
         // released even though the SIGKILL below bypasses the
         // runner's `installShutdownHandlers` (which would
         // otherwise issue cancel itself via the graceful
-        // early-stop chain). Best-effort: we don't await because
-        // user-cancel UX should be snappy — the SIGKILL kills the
-        // local subprocess regardless of whether the cloud POST
-        // succeeded, and a transient cloud-api blip just means the
-        // job sits in "running" until the cloud reaper / TTL
-        // catches it (same fallback as a network drop). `jobId`
-        // is null when the runner never emitted its `Started job`
-        // line (early spawn failure, race against a fast cancel,
-        // custom user bin); skip the POST in that case.
-        if (jobIdForCancel) {
+        // early-stop chain). The IIFE polls for the jobId
+        // *briefly* before giving up: there's a real race
+        // window where the user clicks Stop after the cloud
+        // job has been created but before the runner's
+        // `Started job <id>` line has been parsed (cloud
+        // createJob roundtrip is ~50-200ms; UI clicks can land
+        // sub-100ms into that window). Polling closes the most
+        // common case; beyond ~500 ms we accept the cloud-side
+        // orphan as a follow-up (the cloud reaper / TTL is the
+        // safety net, and the alternative of querying cloud-api
+        // for matching jobs at cancel time is brittle in
+        // multi-tab/multi-spawn scenarios).
+        if (scopeForCancel) {
           void (async () => {
+            // Brief poll on `parsedJobId` (the closure mirror,
+            // see top-of-handler for why it can't be the
+            // registry's `getJobId`): the runner's
+            // `Started job <id>` line may not have been parsed by
+            // the time the user clicked Stop. Most runs hit it
+            // within ~50-200 ms of spawn (cloud createJob
+            // roundtrip), so polling for up to ~500 ms catches
+            // nearly all races. Beyond that we accept the
+            // cloud-side orphan as a documented follow-up: cloud
+            // reaper / TTL is the safety net, and the
+            // alternative (querying cloud-api for matching jobs
+            // at cancel time) is brittle for multi-tab /
+            // multi-spawn cases.
+            if (parsedJobId === null) {
+              const start = Date.now();
+              while (parsedJobId === null && Date.now() - start < 500) {
+                await new Promise((r) => setTimeout(r, 25));
+              }
+            }
+            if (parsedJobId === null) return;
             try {
-              const state = await readState(trainCwd);
-              if (!state) return; // no scope, can't address the job
               const rpc = createRpc();
               await rpc.v1.jobs[":id"].cancel.$post({
-                param: { id: jobIdForCancel },
+                param: { id: parsedJobId },
                 query: {
-                  orgSlug: state.orgSlug,
-                  projectSlug: state.projectSlug,
+                  orgSlug: scopeForCancel.orgSlug,
+                  projectSlug: scopeForCancel.projectSlug,
                 },
               });
             } catch {

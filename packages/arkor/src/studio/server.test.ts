@@ -674,12 +674,20 @@ process.exit(0);
       const REAL_JOB_ID = "real-job-id";
       const DECOY_JOB_ID = "decoy-from-stderr";
       const fakeBin = join(trainCwd, "stderr-decoy-bin.mjs");
+      // The real runner prefixes its canonical line with the
+      // per-spawn nonce the server injected via
+      // ARKOR_JOB_ID_MARKER_NONCE; the decoy on stderr deliberately
+      // uses the nonce too (worst-case: a user who somehow learned
+      // the nonce still can't hijack the parser by writing to the
+      // wrong stream). With the parser correctly stdout-only the
+      // real line wins regardless.
       writeFileSync(
         fakeBin,
-        `process.stderr.write("Started job ${DECOY_JOB_ID}\\n");
+        `const nonce = process.env.ARKOR_JOB_ID_MARKER_NONCE ?? "";
+        process.stderr.write(\`[arkor:\${nonce}] Started job ${DECOY_JOB_ID}\\n\`);
         // Slight delay so stderr lands first.
         setTimeout(() => {
-          process.stdout.write("Started job ${REAL_JOB_ID}\\n");
+          process.stdout.write(\`[arkor:\${nonce}] Started job ${REAL_JOB_ID}\\n\`);
         }, 30);
         process.on("SIGTERM", () => {});
         setInterval(() => {}, 60_000);
@@ -777,9 +785,15 @@ process.exit(0);
       // POST URL below.
       const FAKE_JOB_ID = "j-cancel-test";
       const fakeBin = join(trainCwd, "started-job-bin.mjs");
+      // Prefix the marker with the per-spawn nonce the server
+      // injected via ARKOR_JOB_ID_MARKER_NONCE: that's the only
+      // shape the server's parser accepts, since user code can't
+      // know the nonce ahead of time (real runner deletes the env
+      // var before importing user modules).
       writeFileSync(
         fakeBin,
-        `process.stdout.write("Started job ${FAKE_JOB_ID}\\n");
+        `const nonce = process.env.ARKOR_JOB_ID_MARKER_NONCE ?? "";
+        process.stdout.write(\`[arkor:\${nonce}] Started job ${FAKE_JOB_ID}\\n\`);
         process.on("SIGTERM", () => {});
         setInterval(() => {}, 60_000);
         `,
@@ -856,6 +870,202 @@ process.exit(0);
         // `.arkor/state.json` (seeded above), not the anon creds.
         expect(cancelHits[0]?.url).toContain("orgSlug=cancel-test-org");
         expect(cancelHits[0]?.url).toContain("projectSlug=cancel-test-project");
+      } finally {
+        globalThis.fetch = ORIG_FETCH;
+      }
+    });
+
+    it("/api/train cancel uses the spawn-time scope from the registry even when state.json was deleted mid-training", async () => {
+      // Regression: the cancel handler used to re-read
+      // `.arkor/state.json` at stop time to address the cloud cancel
+      // POST. If the user removed or made the file unreadable
+      // mid-training (rm -rf .arkor, accidental git clean -fdx, fs
+      // unmounted), the read returned null and the handler silently
+      // skipped the POST: the local SIGKILL still tore down the
+      // subprocess but the cloud job orphaned until TTL/reaper. The
+      // fix captures `{orgSlug, projectSlug}` on the registry entry
+      // at spawn time so the cancel POST is decoupled from
+      // mutable filesystem state.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "scope-pin-org",
+          projectSlug: "scope-pin-project",
+          projectId: "p-scope-pin",
+        },
+        trainCwd,
+      );
+      const FAKE_JOB_ID = "j-scope-pin";
+      const fakeBin = join(trainCwd, "scope-pin-bin.mjs");
+      writeFileSync(
+        fakeBin,
+        `const nonce = process.env.ARKOR_JOB_ID_MARKER_NONCE ?? "";
+        process.stdout.write(\`[arkor:\${nonce}] Started job ${FAKE_JOB_ID}\\n\`);
+        process.on("SIGTERM", () => {});
+        setInterval(() => {}, 60_000);
+        `,
+      );
+      let cancelHits: Array<{ url: string }> = [];
+      const ORIG_FETCH = globalThis.fetch;
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
+          cancelHits.push({ url });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+
+      try {
+        const app = buildStudioApp({
+          baseUrl: "http://mock-cloud-api",
+          assetsDir,
+          autoAnonymous: false,
+          studioToken: STUDIO_TOKEN,
+          cwd: trainCwd,
+          binPath: fakeBin,
+        });
+        const trainRes = await app.request("/api/train", {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:4000",
+            "x-arkor-studio-token": STUDIO_TOKEN,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        expect(trainRes.status).toBe(200);
+        const reader = trainRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (!buf.includes(`Started job ${FAKE_JOB_ID}`)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+        }
+        // The hostile mid-training mutation: nuke the state file
+        // that the OLD code would have re-read at cancel time.
+        rmSync(join(trainCwd, ".arkor"), { recursive: true, force: true });
+        // Cancel: under the bug, the handler's state read returns
+        // null and the cancel POST is silently skipped. With the
+        // fix, the registry-pinned scope is used and the POST goes
+        // out anyway.
+        await reader.cancel();
+        await new Promise((r) => setTimeout(r, 200));
+
+        expect(cancelHits).toHaveLength(1);
+        expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
+        expect(cancelHits[0]?.url).toContain("orgSlug=scope-pin-org");
+        expect(cancelHits[0]?.url).toContain("projectSlug=scope-pin-project");
+      } finally {
+        globalThis.fetch = ORIG_FETCH;
+      }
+    });
+
+    it("/api/train job-id parser ignores stdout lines that lack the per-spawn nonce prefix so user code can't forge a `Started job` marker", async () => {
+      // Regression: the parser used to match any `Started job <id>`
+      // line in stdout. User code (which runs inside the runner's
+      // `await import(userEntry)` chain and therefore shares the
+      // child's stdout) could write `console.log("Started job
+      // attacker-chosen-id")` before the runner's canonical line
+      // arrives, the parser would record the attacker's id, and
+      // Stop-training would POST `/v1/jobs/<attacker-id>/cancel`
+      // against a job the attacker picked. The fix injects a
+      // per-spawn 32-hex nonce via ARKOR_JOB_ID_MARKER_NONCE that
+      // the server's regex anchors on; runner.ts deletes the env
+      // var before dynamically importing the user module, so user
+      // code can't read the nonce via `process.env` either.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "nonce-org",
+          projectSlug: "nonce-project",
+          projectId: "p-nonce",
+        },
+        trainCwd,
+      );
+      const REAL_JOB_ID = "real-nonce-job";
+      const SPOOF_JOB_ID = "attacker-chosen-id";
+      const fakeBin = join(trainCwd, "spoof-bin.mjs");
+      // Bin first emits an UNPREFIXED spoof on stdout (mimicking
+      // hostile user code), THEN the real nonce-prefixed canonical
+      // line. With the fix the spoof is rejected; the real line
+      // wins and the cancel POST targets the real id.
+      writeFileSync(
+        fakeBin,
+        `const nonce = process.env.ARKOR_JOB_ID_MARKER_NONCE ?? "";
+        process.stdout.write("Started job ${SPOOF_JOB_ID}\\n");
+        setTimeout(() => {
+          process.stdout.write(\`[arkor:\${nonce}] Started job ${REAL_JOB_ID}\\n\`);
+        }, 30);
+        process.on("SIGTERM", () => {});
+        setInterval(() => {}, 60_000);
+        `,
+      );
+      let cancelHits: Array<{ url: string }> = [];
+      const ORIG_FETCH = globalThis.fetch;
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
+          cancelHits.push({ url });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+
+      try {
+        const app = buildStudioApp({
+          baseUrl: "http://mock-cloud-api",
+          assetsDir,
+          autoAnonymous: false,
+          studioToken: STUDIO_TOKEN,
+          cwd: trainCwd,
+          binPath: fakeBin,
+        });
+        const trainRes = await app.request("/api/train", {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:4000",
+            "x-arkor-studio-token": STUDIO_TOKEN,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        expect(trainRes.status).toBe(200);
+        const reader = trainRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        // Wait for the REAL line (with nonce prefix) to be visible
+        // in the body. Both lines forward to the SPA log
+        // regardless of which (if any) the parser captures, so the
+        // body is a reliable readiness signal.
+        while (!buf.includes(`Started job ${REAL_JOB_ID}`)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+        }
+        await reader.cancel();
+        await new Promise((r) => setTimeout(r, 200));
+
+        // Cancel POST landed against the REAL id: the spoof was
+        // rejected by the anchored nonce-prefixed regex.
+        expect(cancelHits).toHaveLength(1);
+        expect(cancelHits[0]?.url).toContain(`/v1/jobs/${REAL_JOB_ID}/cancel`);
+        expect(cancelHits[0]?.url).not.toContain(SPOOF_JOB_ID);
       } finally {
         globalThis.fetch = ORIG_FETCH;
       }
@@ -2229,10 +2439,12 @@ process.exit(0);
       const fakeBin = join(trainCwd, "manual-during-hmr-bin.mjs");
       // SIGTERM no-op so HMR's graceful SIGTERM doesn't terminate
       // the bin — we need it alive so the subsequent manual
-      // cancel actually has something to SIGKILL.
+      // cancel actually has something to SIGKILL. Marker uses the
+      // server-injected nonce prefix so the parser accepts it.
       writeFileSync(
         fakeBin,
-        `process.stdout.write("Started job ${FAKE_JOB_ID}\\n");
+        `const nonce = process.env.ARKOR_JOB_ID_MARKER_NONCE ?? "";
+        process.stdout.write(\`[arkor:\${nonce}] Started job ${FAKE_JOB_ID}\\n\`);
         process.on("SIGTERM", () => {});
         setInterval(() => {}, 60_000);
         `,
