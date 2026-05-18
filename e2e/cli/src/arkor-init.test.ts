@@ -346,29 +346,37 @@ describe("arkor init (E2E)", () => {
   // narrowed the divergence to the CLI-binary axis with no other
   // observable difference.
   //
-  // Round 40 (Copilot, PR #99) — escalation: prior rounds tried
-  // running the test and skipping only the lockfile assertion
-  // for the Windows × bun sub-case, with a runtime `console.warn`
-  // to surface the gap in CI logs. Copilot kept re-flagging the
-  // soft-skip approach because the lockfile-in-initial-commit
-  // invariant is exactly what this matrix is supposed to enforce
-  // and the surviving assertions (exit code, `node_modules`,
-  // `.git/HEAD`, commit subject) overlap heavily with what
-  // create-arkor's lane covers for the same fixture. Escalate to
-  // a test-level skip via `it.skipIf` so vitest reports the case
-  // as `skipped` in the run summary — making the gap visible at
-  // the test-runner level on every CI run, not only in CI logs
-  // when the assertion path is reached. The honest long-term
-  // fix is to debug why `arkor init`'s and `create-arkor`'s
-  // identical `cli-internal` spawn diverge for bun on Windows;
-  // until then, marking the case as a known skip is the most
-  // truthful representation of coverage.
-  function shouldSkipBunOnWindows(flag: string): boolean {
+  // Round 40 (Copilot, PR #99) — repeated re-flag. Prior rounds
+  // tried (a) skipping the lockfile assertion + warning at
+  // runtime, then (b) `it.skipIf` the whole test. Copilot kept
+  // pushing for an allow-listed expected-failure pattern instead
+  // of a silent skip. Switch to `it.fails` for the Windows × bun
+  // case: vitest runs the test, expects an assertion to fail,
+  // and marks the test as PASSED only when something fails. The
+  // current state (lockfile missing → `.toContain` throws) makes
+  // `it.fails` happy. When bun fixes the divergence (or arkor
+  // init's spawn shape converges with create-arkor's) the test
+  // body's assertions all pass, `it.fails` flips to FAILED, and
+  // CI surfaces a hard signal to remove this scaffolding and
+  // re-enable the normal `it` for this case. Diagnostic console
+  // dumps stay so a different regression on Windows × bun (e.g.
+  // `node_modules` missing) still shows up in CI logs even when
+  // `it.fails` marks the test as passed.
+  function isBunOnWindows(flag: string): boolean {
     return flag === "bun" && process.platform === "win32";
   }
   for (const { label, flag } of INSTALL_CASES) {
-    it.skipIf(shouldSkipInstallCase(label) || shouldSkipBunOnWindows(flag))(
-      `runs real ${label} install + git commit (gated by SKIP_E2E_INSTALL)`,
+    // `it.fails.skipIf(...)` isn't a supported chain in vitest;
+    // pick the test function deliberately, gating skip first.
+    const testFn = shouldSkipInstallCase(label)
+      ? it.skip
+      : isBunOnWindows(flag)
+        ? it.fails
+        : it;
+    testFn(
+      isBunOnWindows(flag)
+        ? `runs real ${label} install + git commit (KNOWN DIVERGENCE on Windows × bun — expected to fail until the lockfile-in-initial-commit gap is fixed; remove the it.fails wrapper when this starts passing)`
+        : `runs real ${label} install + git commit (gated by SKIP_E2E_INSTALL)`,
       async () => {
         if (!arkorTarball) {
           throw new Error("arkor tarball wasn't packed in beforeAll");

@@ -321,56 +321,58 @@ export async function runInit(options: InitOptions): Promise<void> {
   // prior root install — the snapshot/diff at cwd
   // specifically proves this install did the work, not a
   // hoisted parent install from earlier.
-  // Round 40 (Copilot, PR #99): restrict the on-disk recovery
-  // path to package managers with documented "non-zero exit
-  // after both artefacts written" failure modes — pnpm (exits
-  // with `ERR_PNPM_IGNORED_BUILDS` once the install otherwise
-  // finished) and bun (Windows-only quirks observed in CI; see
-  // e2e/cli's bun-on-Windows comments). npm and yarn don't have
-  // this benign-non-zero pattern documented; a real lifecycle /
-  // postinstall failure there can rewrite both the lockfile and
-  // `node_modules` before erroring, and proceeding with git init
-  // would commit a broken tree. Keep the throw → skip-git
-  // semantics for those, mirroring the round-35 conservative
-  // default. pnpm/bun users get the round-39 recovery; npm/yarn
-  // users get the safer "fix install first" loop. The mtime-diff
-  // gate's known limitation (can't tell a benign exit from a
-  // real lifecycle failure when both artefacts moved) is
-  // bounded by this pm-allow-list to where it has empirical
-  // benign cases. See `init.test.ts` for the recovery vs no-
-  // recovery coverage per pm.
+  // Round 40 (Copilot, PR #99) — repeated re-flag of the
+  // recovery gate. Earlier rounds used the on-disk artefact
+  // diff (lockfile + `node_modules` both moved, gated on
+  // pm-allowlist) to decide BOTH the git auto-run AND the
+  // outro's "Next:" hint. Copilot flagged that auto-running git
+  // on any non-zero pm exit is unsafe — even with the
+  // pm-allowlist, a real lifecycle/postinstall failure on pnpm
+  // or bun can satisfy "lockfile + node_modules changed" and
+  // we'd silently commit a broken tree.
+  //
+  // We can't distinguish "benign non-zero exit"
+  // (pnpm 11 `ERR_PNPM_IGNORED_BUILDS` once `allowBuilds:
+  // { esbuild: false }` is in place, this is rare; bun-on-
+  // Windows quirks) from "real lifecycle failure" without
+  // parsing pm-specific stderr — and `install()` currently
+  // uses `stdio: "inherit"`, so we don't capture it. The
+  // honest fix is to split the signal:
+  //
+  //   - `installAttemptCompleted`: STRICT. The pm exited 0
+  //     (or install was skipped by design). Used to decide
+  //     whether to AUTO-RUN `git init` + initial commit. On
+  //     any throw, this is `false` regardless of artefacts.
+  //   - `installArtifactsLanded`: LENIENT. The pm threw, but
+  //     for an allowlisted pm the lockfile + `node_modules`
+  //     diff says the tree was populated. Used to:
+  //       (a) Suppress the "Retry manually" inline (since the
+  //           tree looks done) and instead suggest manual
+  //           inspection + commit.
+  //       (b) Drive the outro's "Next:" to point at `dev`
+  //           rather than `<pm> install`, so a user whose
+  //           install really did finish can pick up where
+  //           they were.
+  //
+  // The user makes the final call on whether to commit. This
+  // is the smallest change that addresses Copilot's concern
+  // ("recovery should not treat install as successful for
+  // git/outro purposes") while preserving the round-39 UX
+  // benefit for users with a populated tree.
   const RECOVERY_ELIGIBLE_PMS: Array<PackageManager> = ["pnpm", "bun"];
-  const installSucceeded =
-    !wouldHaveInstalled ||
-    installed ||
-    (pm !== undefined &&
-      RECOVERY_ELIGIBLE_PMS.includes(pm) &&
-      lockfileChangedSince(cwd, pm, lockfileBefore) &&
-      nodeModulesChangedSince(cwd, nodeModulesBefore));
-  // Round 40 (Copilot, PR #99): print the `Retry manually` hint
-  // ONLY when install actually threw AND the recovery gate did
-  // NOT salvage it. In the recovered branch (pnpm 11 / bun-
-  // Windows non-zero-after-write) the outro proceeds with no
-  // install step, and re-stating "retry install" inline would
-  // tell the user to redo work the CLI just accepted as done.
-  if (installThrewError !== undefined && !installSucceeded) {
+  const installAttemptCompleted = !wouldHaveInstalled || installed;
+  const installArtifactsLanded =
+    installThrewError !== undefined &&
+    pm !== undefined &&
+    RECOVERY_ELIGIBLE_PMS.includes(pm) &&
+    lockfileChangedSince(cwd, pm, lockfileBefore) &&
+    nodeModulesChangedSince(cwd, nodeModulesBefore);
+  if (
+    installThrewError !== undefined &&
+    !installAttemptCompleted &&
+    !installArtifactsLanded
+  ) {
     ui.log.info(`Retry manually: ${pm} install`);
-  }
-  // Round 40 (Copilot, PR #99): the lockfile + `node_modules`
-  // mtime diff is the round-39 signal for "install effectively
-  // succeeded" — but a real lifecycle/postinstall script failure
-  // can fail AFTER both artefacts are written, leaving the user
-  // with a committed but broken dependency tree. The recovery
-  // path can't tell those apart from the documented benign cases
-  // (pnpm 11 ignored-builds noise, bun-on-Windows exit-code
-  // quirks) without pm-specific knowledge it doesn't have here.
-  // Soft-warn so the recovery isn't silent: the user sees the
-  // captured error, knows we proceeded based on on-disk evidence
-  // alone, and can verify their tree before relying on it.
-  if (installThrewError !== undefined && installSucceeded) {
-    ui.log.warn(
-      `\`${pm} install\` exited non-zero, but the lockfile and node_modules look populated — proceeding. Verify with \`${pm} run dev\` before relying on the install.`,
-    );
   }
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
@@ -378,9 +380,16 @@ export async function runInit(options: InitOptions): Promise<void> {
       "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
     );
     gitInitSkipped = true;
-  } else if (shouldInitGit && !installSucceeded) {
+  } else if (shouldInitGit && !installAttemptCompleted) {
+    // Throw → never auto-run git (round 40 Copilot, PR #99).
+    // Differentiate the message based on whether the on-disk
+    // artefacts look populated. If they do, the user might want
+    // to commit themselves after a quick inspection; if they
+    // don't, the install genuinely failed.
     ui.log.info(
-      `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
+      installArtifactsLanded
+        ? `Skipping git init — \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first and re-run.`
+        : `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
     );
     gitInitSkipped = true;
   } else if (shouldInitGit) {
@@ -423,15 +432,15 @@ export async function runInit(options: InitOptions): Promise<void> {
     );
     return;
   }
-  // Round 39 (Copilot, PR #99): the outro must use the SAME
-  // "effectively installed" signal as the git-init gate. Keying
-  // on `installed` alone tells a recovered-install user (install
-  // threw but lockfile is on disk) to run `<pm> install` again
-  // even though we've already accepted the bootstrap as complete
-  // and let git init proceed. `installSucceeded` captures both
-  // the in-memory success and the on-disk recovery, so they stay
-  // aligned.
-  const treeIsReady = installSucceeded && wouldHaveInstalled;
+  // Round 39 → Round 40 (Copilot, PR #99): the outro's "Next:"
+  // hint uses the LENIENT signal so a user whose throw was the
+  // documented benign kind (artefacts landed) sees `<pm> dev`
+  // rather than being told to re-run install they just
+  // completed. The git decision above used the strict signal —
+  // we don't auto-commit on throw — but the outro is purely
+  // informational and benefits from the on-disk evidence.
+  const treeIsReady =
+    (installAttemptCompleted || installArtifactsLanded) && wouldHaveInstalled;
   ui.outro(
     treeIsReady
       ? `Next: \`${devCmd}\`${gitTail}`

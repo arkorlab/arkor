@@ -478,43 +478,35 @@ export async function run(options: RunOptions): Promise<void> {
   // slip through, AND so an ambient ancestor `node_modules`
   // (monorepo subdir) doesn't false-positive the gate. See
   // `arkor init` for the full rationale.
-  // Round 40 (Copilot, PR #99): restrict the on-disk recovery to
-  // pnpm and bun — the only pms with a documented "non-zero exit
-  // after both artefacts written" failure mode. See arkor init for
-  // the full rationale. npm and yarn fall back to the round-35
-  // conservative default (throw → skip git).
+  // Round 40 (Copilot, PR #99) — see `arkor init`'s mirror of
+  // this comment for the full rationale. Split the signal:
+  //
+  //   - `installAttemptCompleted` (strict): drives the auto-git
+  //     decision. On any throw, false regardless of artefacts.
+  //     Closes the "real lifecycle failure on pnpm/bun satisfies
+  //     the diff" hazard Copilot kept re-flagging — we never
+  //     auto-commit on throw.
+  //   - `installArtifactsLanded` (lenient): drives the outro's
+  //     "Next:" hint and differentiates the skip-git message
+  //     between "looks populated, inspect & commit manually"
+  //     and "real failure, fix & re-run".
   const RECOVERY_ELIGIBLE_PMS: Array<PackageManager> = ["pnpm", "bun"];
-  const installSucceeded =
-    !wouldHaveInstalled ||
-    installed ||
-    (pm !== undefined &&
-      RECOVERY_ELIGIBLE_PMS.includes(pm) &&
-      lockfileChangedSince(cwd, pm, lockfileBefore) &&
-      nodeModulesChangedSince(cwd, nodeModulesBefore));
-  // Round 40 (Copilot, PR #99): print the `Retry manually` hint
-  // ONLY when install actually threw AND the recovery gate did
-  // NOT salvage it. In the recovered branch (pnpm 11 / bun-
-  // Windows non-zero-after-write) the outro proceeds with no
-  // install step, and re-stating "retry install" inline would
-  // tell the user to redo work the CLI just accepted as done.
-  if (installThrewError !== undefined && !installSucceeded) {
+  const installAttemptCompleted = !wouldHaveInstalled || installed;
+  const installArtifactsLanded =
+    installThrewError !== undefined &&
+    pm !== undefined &&
+    RECOVERY_ELIGIBLE_PMS.includes(pm) &&
+    lockfileChangedSince(cwd, pm, lockfileBefore) &&
+    nodeModulesChangedSince(cwd, nodeModulesBefore);
+  if (
+    installThrewError !== undefined &&
+    !installAttemptCompleted &&
+    !installArtifactsLanded
+  ) {
     clack.log.info(
       inPlace
         ? `Retry manually: ${pm} install`
         : `Retry manually: cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`,
-    );
-  }
-  // Round 40 (Copilot, PR #99): same soft-warn as `arkor init`'s
-  // recovered branch — see init.ts for the rationale. A real
-  // lifecycle / postinstall failure can leave both the lockfile
-  // and `node_modules` touched but the install incomplete; the
-  // mtime-diff recovery can't distinguish that from the documented
-  // benign non-zero-after-write cases (pnpm 11 / bun-on-Windows).
-  // Surface the captured error so the user knows we proceeded on
-  // on-disk evidence and can verify before relying on the tree.
-  if (installThrewError !== undefined && installSucceeded) {
-    clack.log.warn(
-      `\`${pm} install\` exited non-zero, but the lockfile and node_modules look populated — proceeding. Verify with \`${pm} run dev\` before relying on the install.`,
     );
   }
   // Round 39 (Copilot, PR #99): the previous "re-run this command"
@@ -537,26 +529,35 @@ export async function run(options: RunOptions): Promise<void> {
         : `Skipping git init too — fix the advisory above, then run ${recoverInDir} to finish the bootstrap.`,
     );
     gitInitSkipped = true;
-  } else if (shouldInitGit && !installSucceeded) {
+  } else if (shouldInitGit && !installAttemptCompleted) {
+    // Throw → never auto-run git (round 40 Copilot, PR #99).
+    // Differentiate the message based on whether artefacts
+    // look populated. Mirror of arkor init's skip-git branch;
+    // the `reRunIsSafe` axis is create-arkor-specific (the
+    // auto-derived subdir's occupied-directory guard).
     clack.log.info(
-      reRunIsSafe
-        ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
-        : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`,
+      installArtifactsLanded
+        ? `Skipping git init — \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
+        : reRunIsSafe
+          ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
+          : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`,
     );
     gitInitSkipped = true;
   } else if (shouldInitGit) {
     await runGitInit(cwd);
   }
 
-  // Round 39 (Copilot, PR #99): align the outro hint with the
-  // widened `installSucceeded` gate. Keying on `installed` alone
-  // would tell a recovered-install user (install threw but the
-  // lockfile is on disk) to run `<pm> install` again even though
-  // git init was already allowed to proceed. `installSucceeded
-  // && wouldHaveInstalled` captures both the in-memory success
-  // and the on-disk recovery while still pointing `--skip-install`
-  // / no-pm users at a manual install step.
-  const treeIsReady = installSucceeded && wouldHaveInstalled;
+  // Round 39 → Round 40 (Copilot, PR #99): the outro's "Next:"
+  // hint uses the LENIENT signal (artefacts landed counts as
+  // "tree is ready") so a user whose throw was the benign kind
+  // doesn't get told to re-run install they just completed. The
+  // git decision above used the strict signal — we never
+  // auto-commit on throw — but the outro is informational and
+  // benefits from the on-disk evidence. `wouldHaveInstalled`
+  // still pivots `--skip-install` / no-pm users to a manual
+  // install step.
+  const treeIsReady =
+    (installAttemptCompleted || installArtifactsLanded) && wouldHaveInstalled;
   const installLine = treeIsReady
     ? null
     : pm

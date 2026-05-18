@@ -305,6 +305,28 @@ export function nodeModulesChangedSince(
  * fire, letting yarn rewrite the root `monorepo/yarn.lock`
  * silently in CI.)
  */
+/**
+ * Mirror yarn's own boolean-string parser so we can decide
+ * whether an inherited `YARN_ENABLE_IMMUTABLE_INSTALLS` value
+ * is an explicit "enable" (worth preserving in the existing-
+ * lockfile branch) or an explicit "disable" (worth stripping
+ * to keep yarn's CI immutability guard intact).
+ *
+ * Yarn 4's config parser treats `false`, `0`, `no`, and empty
+ * string as falsy; anything else as truthy. We use the same
+ * rule here so a user-typed `=true` / `=1` / `=yes` /
+ * `=anything-else` is preserved, and the canonical disable
+ * spellings are stripped. Case-insensitive on the VALUE
+ * because the same env-var name is case-insensitive on
+ * Windows (whatever casing leaked through, the value parser
+ * stays uniform).
+ */
+function isYarnTruthy(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const lc = value.toLowerCase();
+  return lc !== "" && lc !== "false" && lc !== "0" && lc !== "no";
+}
+
 function hasEnclosingYarnLock(cwd: string): boolean {
   let dir = cwd;
   while (true) {
@@ -382,18 +404,37 @@ export async function install(
   // re-set the canonical form. POSIX env vars are case-
   // sensitive so the loop is a no-op outside Windows in
   // practice, but the pattern is portable.
+  //
+  // Round 40 (Copilot, PR #99): the round-39 strip was too
+  // broad — it stripped EVERY value, including an explicit
+  // `=true`. In the existing-lockfile branch we want to
+  // PRESERVE a user-set `=true` (it's their explicit request
+  // to protect the committed lockfile, especially valuable in
+  // non-CI shells where yarn's immutable-install default is
+  // `false`). Only strip "disable" values (yarn parses
+  // `false`/`0`/`no`/empty as disabling) in the existing-
+  // lockfile branch; the fresh-scaffold branch still strips
+  // unconditionally because we need to OVERRIDE to `false`
+  // there to let yarn create the lockfile for the first time.
   if (packageManager === "yarn") {
+    const hasLockfile = hasEnclosingYarnLock(cwd);
     for (const key of Object.keys(env)) {
       if (key.toUpperCase() === "YARN_ENABLE_IMMUTABLE_INSTALLS") {
+        if (hasLockfile && isYarnTruthy(env[key])) {
+          // User explicitly opted into immutable installs in
+          // a context where we want to honour that decision.
+          continue;
+        }
         delete env[key];
       }
     }
-    if (!hasEnclosingYarnLock(cwd)) {
+    if (!hasLockfile) {
       env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
     }
-    // else: keep it deleted — yarn-berry's default `CI=1` behaviour
-    // is to refuse a lockfile-rewriting install, exactly the safety
-    // we want with an enclosing lockfile.
+    // else: keep it deleted (or preserved-truthy) — yarn-berry's
+    // default `CI=1` behaviour is to refuse a lockfile-rewriting
+    // install, exactly the safety we want with an enclosing
+    // lockfile.
   }
   return new Promise((resolve, reject) => {
     const child = spawn(packageManager, ["install"], {
