@@ -415,9 +415,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   // inside double quotes (would shell-execute `arkor init`). The
   // auto-commit path (Trainer.gitInitialCommit) keeps the
   // backticked message — that goes via spawn argv, not a shell.
-  const gitTail = gitInitSkipped
-    ? ', then `git init && git add -A && git commit -m "Initial commit from arkor init"`'
-    : "";
+  const gitCmd = '`git init && git add -A && git commit -m "Initial commit from arkor init"`';
   // Round 39 (Copilot, PR #99): the install-blocked branch already
   // told the user to fix the yarn-config advisory first; printing
   // the generic `Next: <pm> install` outro after that contradicts
@@ -427,6 +425,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     const fixRetry = pm
       ? `\`${pm} install\``
       : MANUAL_INSTALL_HINT;
+    const gitTail = gitInitSkipped ? `, then ${gitCmd}` : "";
     ui.outro(
       `Next: fix the advisory above, then ${fixRetry}${gitTail}, then \`${devCmd}\``,
     );
@@ -439,13 +438,22 @@ export async function runInit(options: InitOptions): Promise<void> {
   // completed. The git decision above used the strict signal —
   // we don't auto-commit on throw — but the outro is purely
   // informational and benefits from the on-disk evidence.
+  //
+  // Round 40 follow-up (Copilot, PR #99): when git was skipped
+  // AND the tree is ready (recovered-artefacts path), order the
+  // hint as `git init && commit`, then `dev` — not `dev, then
+  // git`. The skip-git message says "commit manually with the
+  // command in the outro below", so the outro must put the
+  // commit command BEFORE the dev command, matching the natural
+  // "init repo, then start working" sequence the user expects.
+  // The previous form appended `gitTail` after `devCmd` and read
+  // as "dev first, then git", inverting the implied ordering.
   const treeIsReady =
     (installAttemptCompleted || installArtifactsLanded) && wouldHaveInstalled;
-  ui.outro(
-    treeIsReady
-      ? `Next: \`${devCmd}\`${gitTail}`
-      : pm
-        ? `Next: \`${pm} install\`${gitTail}, then \`${devCmd}\``
-        : `Next: ${MANUAL_INSTALL_HINT}${gitTail}, then \`${devCmd}\``,
-  );
+  const installCmd = pm ? `\`${pm} install\`` : MANUAL_INSTALL_HINT;
+  const steps: string[] = [];
+  if (!treeIsReady) steps.push(installCmd);
+  if (gitInitSkipped) steps.push(gitCmd);
+  steps.push(`\`${devCmd}\``);
+  ui.outro(`Next: ${steps.join(", then ")}`);
 }

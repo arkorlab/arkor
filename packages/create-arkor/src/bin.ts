@@ -138,17 +138,29 @@ function collisionMessage(name: string): string {
  *     length for a hazard most users will never hit.
  */
 export function shellQuoteIfNeeded(value: string): string {
+  // Round 40 follow-up (Copilot, PR #99): a leading dash makes
+  // POSIX shells, PowerShell, AND cmd.exe treat the argument as
+  // an option/switch even when QUOTED. `cd '-foo'` and
+  // `cd "-foo"` both still fail with "invalid option" in bash,
+  // because the shell strips the quotes before `cd` sees the
+  // argument. The portable fix is path-disambiguation: prefix
+  // a relative `-`-starting path with `./` (or `.\\` on
+  // Windows). `./-foo` and `.\-foo` are unambiguous filesystem
+  // paths the shell hands to `cd` verbatim, sidestepping the
+  // option parser entirely. Absolute paths never start with `-`,
+  // so this is a no-op for them. Apply BEFORE the safe-unquote
+  // and quoting paths below so a quoted `-`-prefixed name also
+  // gets the prefix (e.g. a path with both leading dash and a
+  // space).
+  if (value.startsWith("-")) {
+    const prefix = process.platform === "win32" ? ".\\" : "./";
+    value = `${prefix}${value}`;
+  }
   // Safe-unquote criteria: only alphanumerics + a small set of
-  // unambiguous extras (`-_./+@:,`), AND the value must NOT
-  // start with `-`. A leading dash makes POSIX shells and
-  // PowerShell treat the argument as an option/switch (`cd -foo`
-  // is parsed as `cd` with `-foo` flag, not a directory),
-  // breaking the copy-paste recovery hint. Quoting forces the
-  // shell to take the literal path. Round-40 (Copilot, PR #99)
-  // flagged this for `create-arkor -- -foo` -style explicit
-  // directories. The first character class excludes `-`; the
-  // tail still allows it so `my-app` stays unquoted.
-  if (/^[a-zA-Z0-9_./+@:,][a-zA-Z0-9_./+@:,-]*$/.test(value)) return value;
+  // unambiguous extras (`-_./+@:,`). After the leading-dash
+  // disambiguation above, `value` no longer starts with `-`
+  // even if the user-supplied path did.
+  if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
   if (process.platform === "win32") {
     // Order matters: backtick first (it's the PS escape
     // character for the others, so escaping it first prevents

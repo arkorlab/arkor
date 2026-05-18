@@ -67,7 +67,13 @@ vi.mock("@clack/prompts", () => ({
   spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
 }));
 
-import { gitInitialCommit, install, scaffold } from "@arkor/cli-internal";
+import {
+  gitInitialCommit,
+  install,
+  lockfileChangedSince,
+  nodeModulesChangedSince,
+  scaffold,
+} from "@arkor/cli-internal";
 import { run, shellQuoteIfNeeded, shouldRunAsCli } from "./bin";
 
 let parentDir: string;
@@ -306,6 +312,79 @@ describe("create-arkor run()", () => {
     expect(infoMessages).toMatch(/Skipping git init/);
     expect(infoMessages).toMatch(/yarn install.*failed/);
     expect(infoMessages).toMatch(/re-run this command/);
+  });
+
+  // Round 40 (Copilot, PR #99): mirror of arkor init's
+  // recovered-artefacts test. install throws + lockfile +
+  // node_modules diffs flip to true + pm is pnpm (in the
+  // recovery allow-list). git is NOT auto-run (strict gate),
+  // but the skip-git message says "looks populated, inspect and
+  // commit manually" and the outro (multi-line for create-arkor)
+  // shows the install line as null (treeIsReady=true).
+  it("on install throw + artefacts landed + pnpm: skips git with recovered-artefacts message, outro omits install step", async () => {
+    vi.mocked(install).mockRejectedValueOnce(
+      new Error("`pnpm install` exited with code 1"),
+    );
+    vi.mocked(lockfileChangedSince).mockReturnValueOnce(true);
+    vi.mocked(nodeModulesChangedSince).mockReturnValueOnce(true);
+    const clack = await import("@clack/prompts");
+    await run({
+      dir: "target",
+      agentsMd: false,
+      yes: true,
+      template: "triage",
+      packageManager: "pnpm",
+      git: true,
+    });
+    expect(vi.mocked(install)).toHaveBeenCalled();
+    expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    // No inline "Retry manually" — the skip-git message + outro
+    // cover the next step.
+    expect(infoMessages).not.toMatch(/Retry manually/);
+    expect(infoMessages).toMatch(/look populated/);
+    expect(infoMessages).toMatch(/inspect the tree/);
+    const outroMessages = vi
+      .mocked(clack.outro)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    // Outro is multi-line for create-arkor; treeIsReady=true
+    // means the install line is OMITTED (no `<pm> install`).
+    expect(outroMessages).not.toMatch(/^ {2}pnpm install/m);
+    // Manual git command appears before the dev command (order
+    // matters for the natural "init repo, then start dev"
+    // sequence).
+    const gitIdx = outroMessages.indexOf("git init &&");
+    const devIdx = outroMessages.indexOf("pnpm arkor dev");
+    expect(gitIdx).toBeGreaterThanOrEqual(0);
+    expect(devIdx).toBeGreaterThan(gitIdx);
+  });
+
+  it("on install throw + artefacts landed + npm: NOT in recovery allow-list, falls through to failure message", async () => {
+    vi.mocked(install).mockRejectedValueOnce(
+      new Error("`npm install` exited with code 1"),
+    );
+    vi.mocked(lockfileChangedSince).mockReturnValueOnce(true);
+    vi.mocked(nodeModulesChangedSince).mockReturnValueOnce(true);
+    const clack = await import("@clack/prompts");
+    await run({
+      dir: "target",
+      agentsMd: false,
+      yes: true,
+      template: "triage",
+      packageManager: "npm",
+      git: true,
+    });
+    expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(infoMessages).toMatch(/Retry manually/);
+    expect(infoMessages).not.toMatch(/look populated/);
   });
 
   // Counterpart: regression guard for the no-warning path.

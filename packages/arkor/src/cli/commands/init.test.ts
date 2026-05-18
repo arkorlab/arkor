@@ -73,6 +73,8 @@ import {
   gitInitialCommit,
   install,
   isInGitRepo,
+  lockfileChangedSince,
+  nodeModulesChangedSince,
   scaffold,
 } from "@arkor/cli-internal";
 import { runInit } from "./init";
@@ -646,6 +648,89 @@ describe("runInit", () => {
     expect(infoMessages).toMatch(/Skipping git init/);
     expect(infoMessages).toMatch(/yarn install.*failed/);
     expect(infoMessages).toMatch(/re-run this command/);
+  });
+
+  // Round 40 (Copilot, PR #99): when install throws but the
+  // lockfile + node_modules diff says artefacts landed AND the pm
+  // is in the recovery allow-list (pnpm/bun), we still SKIP git
+  // (the round-40 strict gate) but show the "looks populated,
+  // inspect and commit manually" message and let the outro point
+  // at `<pm> dev` (the lenient outro signal). This test pins down
+  // every branch of that recovered-artefacts path so a future
+  // refactor that re-merges the strict / lenient signals trips
+  // the assertions instead of silently regressing the UX.
+  it("on install throw + artefacts landed + pnpm: skips git with the recovered-artefacts message and outro points at dev", async () => {
+    vi.mocked(install).mockRejectedValueOnce(
+      new Error("`pnpm install` exited with code 1"),
+    );
+    // The recovery gate requires BOTH diffs to flip on for the
+    // run we're testing. The mocks' shared `mockReturnValueOnce`
+    // semantics mean we only need to set them for this test's
+    // single `install` call.
+    vi.mocked(lockfileChangedSince).mockReturnValueOnce(true);
+    vi.mocked(nodeModulesChangedSince).mockReturnValueOnce(true);
+    const clack = await import("@clack/prompts");
+    await runInit({
+      yes: true,
+      packageManager: "pnpm",
+      git: true,
+    });
+    expect(vi.mocked(install)).toHaveBeenCalled();
+    // Strict gate: git is NOT auto-run when install threw, even
+    // when artefacts landed.
+    expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
+    // Inline "Retry manually" is SUPPRESSED in the recovered
+    // branch (the closing skip-git message + outro already cover
+    // the next step).
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(infoMessages).not.toMatch(/Retry manually/);
+    // Skip-git message names the recovered branch specifically.
+    expect(infoMessages).toMatch(/look populated/);
+    expect(infoMessages).toMatch(/inspect the tree/);
+    // Outro uses the lenient signal so the user is pointed at
+    // `dev`, with the manual `git init && commit` BEFORE `dev`
+    // (round-40 ordering fix).
+    const outroMessages = vi
+      .mocked(clack.outro)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(outroMessages).toMatch(/Next: `git init && git add -A && git commit/);
+    expect(outroMessages).toMatch(/pnpm arkor dev/);
+    // The dev command comes AFTER the git command in the outro
+    // (manual commit precedes starting the dev server).
+    const gitIdx = outroMessages.indexOf("git init &&");
+    const devIdx = outroMessages.indexOf("pnpm arkor dev");
+    expect(gitIdx).toBeGreaterThanOrEqual(0);
+    expect(devIdx).toBeGreaterThan(gitIdx);
+  });
+
+  it("on install throw + artefacts landed + npm: NOT in recovery allow-list, falls through to the failure message", async () => {
+    // npm doesn't have a documented "non-zero exit after both
+    // artefacts written" failure mode, so the pm-allow-list
+    // skips the recovery branch even when both diffs flip on.
+    // The user should see the failure message + retry hint, not
+    // the "looks populated" message.
+    vi.mocked(install).mockRejectedValueOnce(
+      new Error("`npm install` exited with code 1"),
+    );
+    vi.mocked(lockfileChangedSince).mockReturnValueOnce(true);
+    vi.mocked(nodeModulesChangedSince).mockReturnValueOnce(true);
+    const clack = await import("@clack/prompts");
+    await runInit({
+      yes: true,
+      packageManager: "npm",
+      git: true,
+    });
+    expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
+    const infoMessages = vi
+      .mocked(clack.log.info)
+      .mock.calls.map((c) => c[0])
+      .join("\n");
+    expect(infoMessages).toMatch(/Retry manually/);
+    expect(infoMessages).not.toMatch(/look populated/);
   });
 
   // Counterpart: regression guard so the gate doesn't accidentally

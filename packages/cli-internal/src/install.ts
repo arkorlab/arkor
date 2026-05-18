@@ -305,6 +305,16 @@ export function nodeModulesChangedSince(
  * fire, letting yarn rewrite the root `monorepo/yarn.lock`
  * silently in CI.)
  */
+function hasEnclosingYarnLock(cwd: string): boolean {
+  let dir = cwd;
+  while (true) {
+    if (existsSync(join(dir, "yarn.lock"))) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false; // reached filesystem root
+    dir = parent;
+  }
+}
+
 /**
  * Mirror yarn's own boolean-string parser so we can decide
  * whether an inherited `YARN_ENABLE_IMMUTABLE_INSTALLS` value
@@ -325,16 +335,6 @@ function isYarnTruthy(value: string | undefined): boolean {
   if (value === undefined) return false;
   const lc = value.toLowerCase();
   return lc !== "" && lc !== "false" && lc !== "0" && lc !== "no";
-}
-
-function hasEnclosingYarnLock(cwd: string): boolean {
-  let dir = cwd;
-  while (true) {
-    if (existsSync(join(dir, "yarn.lock"))) return true;
-    const parent = dirname(dir);
-    if (parent === dir) return false; // reached filesystem root
-    dir = parent;
-  }
 }
 
 /**
