@@ -612,4 +612,67 @@ describe("shellQuoteIfNeeded", () => {
       });
     });
   });
+
+  // Round 40 (Copilot, PR #99): a leading dash makes POSIX
+  // shells, PowerShell, AND cmd.exe treat the argument as an
+  // option/switch even when the value is quoted (the shell
+  // strips the quotes before `cd` sees the argument). The
+  // implementation path-disambiguates by prefixing `./` (POSIX)
+  // or `.\` (Windows) before the safe-unquote / quoting paths
+  // run, so the resulting hint hands `cd` an unambiguous
+  // relative path. Lock that contract down here so a future
+  // quoting refactor doesn't regress the option-parser bypass.
+  describe("leading-dash paths (option-parser disambiguation)", () => {
+    it("prefixes ./ on POSIX for a bare leading-dash name", () => {
+      withPlatform("linux", () => {
+        // After ./-prefix the remaining chars are safe alphanums,
+        // so the safe-unquote regex matches and no quoting is
+        // applied: the output stays a bare `./-foo`.
+        expect(shellQuoteIfNeeded("-foo")).toBe("./-foo");
+        expect(shellQuoteIfNeeded("--foo")).toBe("./--foo");
+        expect(shellQuoteIfNeeded("-")).toBe("./-");
+      });
+    });
+
+    it("prefixes .\\ on Windows for a bare leading-dash name (quoted; msvcrt-style `\\` doubling applied by the win32 quoter)", () => {
+      withPlatform("win32", () => {
+        // On Windows, the existing win32 quoter escapes `\` to
+        // `\\` to satisfy `_setargv` / msvcrt argv parsing when
+        // the quoted path is forwarded to a child program. The
+        // path-disambiguation `.\` prefix flows through the same
+        // escape, so the bytes are `\\` inside the quoted form
+        // (Windows path normalization collapses `.\\-foo` to
+        // `.\-foo` for `cd` / `Set-Location`, so the doubling is
+        // functionally benign).
+        expect(shellQuoteIfNeeded("-foo")).toBe('".\\\\-foo"');
+        expect(shellQuoteIfNeeded("--foo")).toBe('".\\\\--foo"');
+      });
+    });
+
+    it("combines the ./ prefix with single-quoting on POSIX when the name also has a space", () => {
+      withPlatform("linux", () => {
+        // The prefix is applied BEFORE quoting, so the resulting
+        // single-quoted form contains `./` inside the quotes.
+        expect(shellQuoteIfNeeded("-foo bar")).toBe("'./-foo bar'");
+      });
+    });
+
+    it("combines the .\\ prefix with double-quoting on Windows when the name also has a space", () => {
+      withPlatform("win32", () => {
+        // Same `\\` doubling as above; the space triggers
+        // double-quoting which subsumes the bare ./--prefix path.
+        expect(shellQuoteIfNeeded("-foo bar")).toBe('".\\\\-foo bar"');
+      });
+    });
+
+    it("does NOT prefix names that don't start with `-` even when they contain a dash later", () => {
+      withPlatform("linux", () => {
+        expect(shellQuoteIfNeeded("my-app")).toBe("my-app");
+        expect(shellQuoteIfNeeded("foo-bar")).toBe("foo-bar");
+      });
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("my-app")).toBe("my-app");
+      });
+    });
+  });
 });

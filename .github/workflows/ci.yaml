@@ -214,14 +214,15 @@ jobs:
   # test-runner level in `e2e/cli/src/arkor-init.test.ts` via `it.skip`
   # so vitest reports the case as skipped per CI run; the
   # `create-arkor.test.ts` lane DOES run bun on Windows and covers bun
-  # itself + the create-arkor spawn shape. The `arkor init --use-bun` CLI
-  # flag stays exposed without an OS caveat in the SDK docs because the
-  # divergence is treated as a bug to fix, not a permanent constraint;
-  # the docs/cli/init.mdx page and `--use-bun` flag description carry an
-  # explicit Windows note pointing here so users hitting it have signal
-  # that this is known. Re-enable the case (drop the `isBunOnWindows`
-  # arm in arkor-init.test.ts AND this comment block) when the spawn-
-  # shape divergence is fixed.
+  # itself + the create-arkor spawn shape. The `arkor init --use-bun`
+  # CLI flag stays exposed because the divergence is treated as a bug
+  # to fix, not a permanent constraint; until then, the
+  # docs/cli/init.mdx page and `docs/ja/cli/init.mdx` mirror carry an
+  # explicit Windows caveat on the `--use-bun` flag so users hitting it
+  # have signal that this is known. Re-enable the case (drop the
+  # `isBunOnWindows` arm in arkor-init.test.ts, drop the caveat in
+  # both docs/cli/init.mdx files, AND this comment block) when the
+  # spawn-shape divergence is fixed.
   #
   # Each runner sets `ARKOR_E2E_PM=<label>`; the e2e suites
   # (e2e/cli/src/{arkor-init,create-arkor}.test.ts) gate their install

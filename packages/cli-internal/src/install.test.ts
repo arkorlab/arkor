@@ -313,10 +313,15 @@ describe("install", () => {
         // does NOT strip non-yarn env, only yarn env.
         expect(log).toContain("\nfalse\n");
       } finally {
+        // Delete the test-injected canonical value FIRST so the
+        // restore loop below doesn't get clobbered by a later
+        // delete (which would drop an original canonical value
+        // the dev/CI shell had set). Round-40 (Copilot, PR #99)
+        // flagged this ordering bug.
+        delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
         for (const [key, value] of Object.entries(saved)) {
           if (value !== undefined) process.env[key] = value;
         }
-        delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
       }
     },
   );
@@ -395,10 +400,14 @@ describe("install", () => {
         // CI default (immutable=true), protecting the lockfile.
         expect(log).not.toContain("\nfalse\n");
       } finally {
+        // Delete-then-restore order matters: see the "FORWARDS"
+        // test's finally for the rationale (round 40 Copilot,
+        // PR #99 — deleting after restore drops any original
+        // canonical value the dev/CI shell had set).
+        delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
         for (const [key, value] of Object.entries(saved)) {
           if (value !== undefined) process.env[key] = value;
         }
-        delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
       }
     },
   );
@@ -457,18 +466,37 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
   ])(
     "snapshotLockfile records existence + mtime for $pm's $file when present",
     ({ pm, file }) => {
-      expect(snapshotLockfile(dir, pm).exists).toBe(false);
+      // Note: `snapshotLockfile` walks ancestors, so a pre-write
+      // `exists === false` guard would be flaky if an ambient
+      // lockfile sits in `/tmp/` or above. Instead, after writing
+      // the fixture's lockfile, assert the resolved path equals
+      // the file we just wrote — that proves the walk found
+      // OUR lockfile, regardless of ambient state above.
       writeFileSync(join(dir, file), "");
       const snap = snapshotLockfile(dir, pm);
       expect(snap.exists).toBe(true);
+      expect(snap.path).toBe(join(dir, file));
       expect(snap.mtimeMs).toBeGreaterThan(0);
     },
   );
 
-  it("snapshotLockfile does not match a different pm's lockfile (e.g. yarn.lock when pm=npm)", () => {
+  it("snapshotLockfile does not match a different pm's lockfile (e.g. yarn.lock when pm=npm) inside the fixture", () => {
     writeFileSync(join(dir, "yarn.lock"), "");
-    expect(snapshotLockfile(dir, "npm").exists).toBe(false);
-    expect(snapshotLockfile(dir, "yarn").exists).toBe(true);
+    // The yarn assertion verifies the fixture-owned file is found.
+    const yarnSnap = snapshotLockfile(dir, "yarn");
+    expect(yarnSnap.exists).toBe(true);
+    expect(yarnSnap.path).toBe(join(dir, "yarn.lock"));
+    // For npm, the fixture has no `package-lock.json`, but an
+    // ambient ancestor (e.g. `/tmp/package-lock.json`) might.
+    // Assert that — if anything is found — it's NOT the fixture's
+    // file. The contract under test is "this fixture's yarn.lock
+    // doesn't satisfy the npm lookup", which holds regardless of
+    // ambient state.
+    const npmSnap = snapshotLockfile(dir, "npm");
+    if (npmSnap.exists) {
+      expect(npmSnap.path).not.toBe(join(dir, "yarn.lock"));
+      expect(npmSnap.path).not.toBe(join(dir, "package-lock.json"));
+    }
   });
 
   // Round 39 (Copilot, PR #99): when the scaffold target is a
@@ -505,10 +533,20 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
     expect(lockfileChangedSince(dir, "pnpm", before)).toBe(false);
   });
 
-  it("lockfileChangedSince returns true when the lockfile is newly created", () => {
+  it("lockfileChangedSince returns true when a fixture-owned lockfile is newly created", () => {
+    // The `snapshotLockfile` walk may resolve to an ambient
+    // ancestor lockfile (e.g. `/tmp/pnpm-lock.yaml`), so we
+    // can't assert `before.exists === false` directly. Instead,
+    // capture the BEFORE state — whatever it found — and verify
+    // the AFTER state reports a forward-moving change once we
+    // write a CLOSER lockfile under the fixture.
     const before: LockfileSnapshot = snapshotLockfile(dir, "pnpm");
-    expect(before.exists).toBe(false);
     writeFileSync(join(dir, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+    const after: LockfileSnapshot = snapshotLockfile(dir, "pnpm");
+    expect(after.path).toBe(join(dir, "pnpm-lock.yaml"));
+    // EITHER the BEFORE snap saw nothing (clean ancestor chain,
+    // appearance counts) OR it resolved to a farther ancestor
+    // (closer one now wins — path change counts).
     expect(lockfileChangedSince(dir, "pnpm", before)).toBe(true);
   });
 
@@ -582,10 +620,17 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("snapshotNodeModules records no-existence when cwd has no node_modules", () => {
+  it("snapshotNodeModules records cwd-no-existence; enclosing chain may contain ambient ancestors", () => {
+    // The `snapshot` walk goes all the way to the filesystem
+    // root, so `enclosing.size` can be non-zero if any ancestor
+    // (e.g. a developer's `/tmp/node_modules`) is on disk. The
+    // assertion under test is the cwd slot — the fixture has no
+    // local `node_modules` until we create one.
     const snap = snapshotNodeModules(dir);
     expect(snap.cwd).toEqual({ exists: false, mtimeMs: 0 });
-    expect(snap.enclosing.size).toBe(0);
+    // The fixture's own future `node_modules` path is not yet
+    // in the chain (it doesn't exist yet).
+    expect(snap.enclosing.has(join(dir, "node_modules"))).toBe(false);
   });
 
   it("snapshotNodeModules records existence + mtime when cwd has node_modules", () => {
@@ -652,17 +697,24 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
     expect(nodeModulesChangedSince(sub, before)).toBe(true);
   });
 
-  // Topology #4a (Codex P2, round 40): NO ancestor before
-  // install, but install creates one. Previously regressed by
-  // the round-39 #3 design that pinned to a single captured
-  // path — `before.enclosing.path === null` short-circuited the
-  // probe entirely.
-  it("nodeModulesChangedSince returns true when an ancestor node_modules newly appears (no prior enclosing)", () => {
+  // Topology #4a (Codex P2, round 40): a NEW closer ancestor
+  // appears during install. Previously regressed by the round-39
+  // #3 design that pinned to a single captured path —
+  // `before.enclosing.path === null` short-circuited the probe
+  // entirely. The fixture demonstrates the closer-ancestor case
+  // by creating `dir/node_modules` AFTER snapshotting from
+  // `dir/packages/foo`. The snapshot's enclosing chain may also
+  // contain unrelated ambient ancestors (the walk reaches the
+  // filesystem root); we only assert behaviour about paths
+  // INSIDE the fixture.
+  it("nodeModulesChangedSince returns true when a closer fixture-local ancestor node_modules newly appears", () => {
     const sub = join(dir, "packages", "foo");
     mkdirSync(sub, { recursive: true });
     const before: NodeModulesSnapshot = snapshotNodeModules(sub);
     expect(before.cwd.exists).toBe(false);
-    expect(before.enclosing.size).toBe(0);
+    // The fixture's `dir/node_modules` doesn't exist yet at
+    // snapshot time, so it's NOT in the BEFORE enclosing chain.
+    expect(before.enclosing.has(join(dir, "node_modules"))).toBe(false);
     // Hoisted install creates the ancestor for the first time.
     mkdirSync(join(dir, "node_modules"));
     expect(nodeModulesChangedSince(sub, before)).toBe(true);
