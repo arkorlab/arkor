@@ -244,24 +244,20 @@ describe("install", () => {
     },
   );
 
+  // Round 40 follow-up (Copilot, PR #99): renamed from the
+  // earlier "does NOT forward..." framing because that overstated
+  // the contract. `install()` only manages
+  // `YARN_ENABLE_IMMUTABLE_INSTALLS` in the yarn branch; for
+  // non-yarn pms it forwards `process.env` unchanged. What this
+  // test really pins down is the BASELINE: with a clean env (no
+  // inherited variant), the non-yarn spawn doesn't introduce the
+  // variable on its own. We delete every case-insensitive
+  // variant up-front so the assertion describes the
+  // implementation behaviour rather than the developer's shell
+  // hygiene.
   onPosix(
-    "does NOT forward YARN_ENABLE_IMMUTABLE_INSTALLS for non-yarn package managers",
+    "does not synthesise YARN_ENABLE_IMMUTABLE_INSTALLS for non-yarn pms when the parent env doesn't set it",
     async () => {
-      // The variable is yarn-berry-specific. Setting it for npm/pnpm/bun
-      // is harmless (they ignore it) but we keep the env surface tight
-      // to make the contract obvious in install.ts.
-      //
-      // Round 40 (Copilot, PR #99): `install()` only STRIPS this
-      // variable in the yarn branch; for non-yarn pms the strip is
-      // skipped, so a parent shell or CI image that exports
-      // `YARN_ENABLE_IMMUTABLE_INSTALLS=false` would leak through
-      // `{ ...process.env, ... }` into the spawn and fail this
-      // assertion nondeterministically. Explicitly delete every
-      // case-insensitive variant (Windows env-var lookup is case-
-      // insensitive, mirroring install.ts's own deletion loop)
-      // before the assertion so the test asserts the IMPLEMENTATION
-      // behaviour rather than the developer's shell hygiene; restore
-      // in finally so the suite doesn't perturb sibling tests.
       const saved: Record<string, string | undefined> = {};
       for (const key of Object.keys(process.env)) {
         if (key.toUpperCase() === "YARN_ENABLE_IMMUTABLE_INSTALLS") {
@@ -276,11 +272,133 @@ describe("install", () => {
         await install("pnpm", cwd);
 
         const log = (await import("node:fs")).readFileSync(marker, "utf8");
+        // The fake pm dumps `printenv YARN_ENABLE_IMMUTABLE_INSTALLS`,
+        // which prints an empty line when the variable is absent.
+        // No `\nfalse\n` or `\ntrue\n` means install() didn't
+        // introduce the variable.
+        expect(log).not.toContain("\nfalse\n");
+        expect(log).not.toContain("\ntrue\n");
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value !== undefined) process.env[key] = value;
+        }
+      }
+    },
+  );
+
+  // Companion: when the parent env DOES set the variable,
+  // `install()` forwards it unchanged for non-yarn pms (no strip,
+  // no override). This pins down the round-40 contract that the
+  // yarn-specific normalization is yarn-only.
+  onPosix(
+    "FORWARDS an inherited YARN_ENABLE_IMMUTABLE_INSTALLS verbatim for non-yarn pms",
+    async () => {
+      const saved: Record<string, string | undefined> = {};
+      for (const key of Object.keys(process.env)) {
+        if (key.toUpperCase() === "YARN_ENABLE_IMMUTABLE_INSTALLS") {
+          saved[key] = process.env[key];
+          delete process.env[key];
+        }
+      }
+      process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
+      try {
+        const marker = join(cwd, "marker.log");
+        makeFakePm("pnpm", 0, marker);
+
+        await install("pnpm", cwd);
+
+        const log = (await import("node:fs")).readFileSync(marker, "utf8");
+        // The variable leaked through to the non-yarn spawn —
+        // that's fine, pnpm ignores it. The contract: install()
+        // does NOT strip non-yarn env, only yarn env.
+        expect(log).toContain("\nfalse\n");
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value !== undefined) process.env[key] = value;
+        }
+        delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
+      }
+    },
+  );
+
+  // Round 40 (Copilot, PR #99): preserving an explicit
+  // `YARN_ENABLE_IMMUTABLE_INSTALLS=true` in the existing-
+  // lockfile branch is what protects a user who deliberately
+  // opted into immutable installs in a non-CI shell (where
+  // yarn's default is `false`). The previous round's broader
+  // strip removed even truthy values; the `isYarnTruthy` gate
+  // now preserves `true` / `1` / `yes` / etc. Lock that down so
+  // a future env-normalization refactor doesn't accidentally
+  // strip the user's opt-in.
+  onPosix(
+    "PRESERVES a user-set YARN_ENABLE_IMMUTABLE_INSTALLS=true when yarn.lock exists",
+    async () => {
+      writeFileSync(join(cwd, "yarn.lock"), "# pre-existing\n");
+      const ORIG = process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
+      // Save + strip every case-variant first so the test
+      // asserts the implementation, not the shell's hygiene.
+      const saved: Record<string, string | undefined> = {};
+      for (const key of Object.keys(process.env)) {
+        if (key.toUpperCase() === "YARN_ENABLE_IMMUTABLE_INSTALLS") {
+          saved[key] = process.env[key];
+          delete process.env[key];
+        }
+      }
+      process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = "true";
+      try {
+        const marker = join(cwd, "marker.log");
+        makeFakePm("yarn", 0, marker);
+
+        await install("yarn", cwd);
+
+        const log = (await import("node:fs")).readFileSync(marker, "utf8");
+        // The child sees the truthy value, NOT the strip.
+        expect(log).toContain("\ntrue\n");
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value !== undefined) process.env[key] = value;
+        }
+        if (ORIG === undefined) {
+          delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
+        } else {
+          process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = ORIG;
+        }
+      }
+    },
+  );
+
+  // Counterpart: even with a `yarn.lock` present, an EXPLICIT
+  // `=false` from the parent still gets stripped (round-32 anti-
+  // leak invariant). The asymmetry — preserve truthy, strip
+  // falsy — is what addresses both Copilot reviews (round-32:
+  // anti-leak; round-40: don't override user's immutable opt-in).
+  onPosix(
+    "still STRIPS YARN_ENABLE_IMMUTABLE_INSTALLS=false when yarn.lock exists (round-32 anti-leak)",
+    async () => {
+      writeFileSync(join(cwd, "yarn.lock"), "# pre-existing\n");
+      const saved: Record<string, string | undefined> = {};
+      for (const key of Object.keys(process.env)) {
+        if (key.toUpperCase() === "YARN_ENABLE_IMMUTABLE_INSTALLS") {
+          saved[key] = process.env[key];
+          delete process.env[key];
+        }
+      }
+      process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
+      try {
+        const marker = join(cwd, "marker.log");
+        makeFakePm("yarn", 0, marker);
+
+        await install("yarn", cwd);
+
+        const log = (await import("node:fs")).readFileSync(marker, "utf8");
+        // The `=false` did NOT survive — yarn falls back to its
+        // CI default (immutable=true), protecting the lockfile.
         expect(log).not.toContain("\nfalse\n");
       } finally {
         for (const [key, value] of Object.entries(saved)) {
           if (value !== undefined) process.env[key] = value;
         }
+        delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
       }
     },
   );

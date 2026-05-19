@@ -521,6 +521,18 @@ export async function run(options: RunOptions): Promise<void> {
         : `Retry manually: cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`,
     );
   }
+  // Round 40 follow-up (Copilot, PR #99): mirror of arkor init's
+  // `installArtifactsLanded && !shouldInitGit` branch. Without
+  // this, a `--skip-git` user whose install threw with artefacts
+  // landed sees no warning before the outro proceeds with "Next:
+  // dev" — silently treating the non-zero exit as fine. Surface
+  // the recovered-artefacts guidance independently of git so the
+  // warning appears in every shape of the run.
+  if (installArtifactsLanded && !shouldInitGit) {
+    clack.log.info(
+      `\`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. Inspect the tree before relying on the install; if the exit was real, fix and re-run.`,
+    );
+  }
   // Round 39 (Copilot, PR #99): the previous "re-run this command"
   // hint is only safe when re-invoking would actually merge into
   // the same target. With no `[dir]` argument, `run()` derives a

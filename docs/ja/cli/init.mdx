@@ -48,7 +48,7 @@ bun arkor init
 | `--use-npm` | パッケージマネージャーに npm を強制。 |
 | `--use-pnpm` | パッケージマネージャーに pnpm を強制。 |
 | `--use-yarn` | パッケージマネージャーに yarn を強制。 |
-| `--use-bun` | パッケージマネージャーに bun を強制。 |
+| `--use-bun` | パッケージマネージャーに bun を強制。（Windows 既知の問題: `arkor init --use-bun` は `node_modules` までは作成されるものの `bun.lock` が生成されないため、bootstrap commit の lockfile-in-HEAD 不変条件が成立しません。この理由で CI install matrix では Windows × bun を `arkor init` lane から外しています。`.github/workflows/ci.yaml` の `install-matrix` セクションコメント参照。`bun install` 直接実行および `create-arkor --use-bun` は Windows で正常動作しており、`arkor init` の spawn shape に固有の divergence です。） |
 | `--git` | 確認なしで git リポジトリを初期化し、初回コミットを作成。 |
 | `--skip-git` | git init を黙ってスキップ。 |
 | `--allow-builds` | esbuild の `postinstall` スクリプトを `pnpm install` で実行することを許可（pnpm 専用 — yarn / npm / bun はワークスペース yaml を無視）。デフォルトは deny。下記 [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプトpnpm-11) を参照。 |
@@ -79,7 +79,7 @@ allowBuilds:
 - ターゲットディレクトリーに既存ファイルがあり、`--use-*` 指定がない（推測でワークスペース設定を他人のプロジェクトに置かない）。
 - 祖先ディレクトリーに既に `pnpm-workspace.yaml` がある（親モノレポのワークスペースが支配的。ここでネストして作ると親を遮蔽し、上位の `workspace:*` 解決が壊れます）。
 
-ターゲットに `pnpm-workspace.yaml` が既にある場合、**pnpm があり得る** とき（新規作成と同じく `--use-pnpm` / UA 検出が pnpm / 未解決のいずれか。`--use-npm` / `--use-yarn` / `--use-bun` の場合は既存ファイルも触りません）のみ patch します。トップレベルの `allowBuilds:` ブロックに `esbuild: false`（`--allow-builds` が指定されている場合は `esbuild: true`）を追記（無ければブロックごと作成）し、無関係なキーは触りません。esbuild が既に明示的に値（true / false）でピン留めされていたり、ファイルが `allowBuilds: false` / `allowBuilds: true` のスカラー形（global pin）を使っている場合は何もせず no-op で終わります。
+ターゲットに `pnpm-workspace.yaml` が既にある場合、**pnpm があり得る** とき（新規作成と同じく `--use-pnpm` / UA 検出が pnpm / 未解決のいずれか。`--use-npm` / `--use-yarn` / `--use-bun` の場合は既存ファイルも触りません）のみ patch します。トップレベルの `allowBuilds:` ブロックに `esbuild: false`（`--allow-builds` が指定されている場合は `esbuild: true`）を追記（無ければブロックごと作成）し、無関係なキーは触りません。esbuild が既に明示的に値（true / false）でピン留めされていたり、ファイルが `allowBuilds: false` / `allowBuilds: true` のスカラー形（global pin）を使っている場合、`allowBuilds` の判断については no-op で終わります。ただし `allowBuilds` no-op の run でも、トップレベルに `packages:` キーが無ければ `packages: []` を補完します（pnpm 9 が `packages:` 欠落の `pnpm-workspace.yaml` に対して "packages field missing or empty" でエラーになるため。round-38 review）。保持されるのは `allowBuilds.esbuild` の判断であって、ファイル自体はこの 1 つの構造的キーが追加され得る点に注意してください。
 
 pnpm 11 から postinstall スクリプトの既定が「明示的に承認しない限り実行しない」に変わり、未承認のスクリプトに当たると `ERR_PNPM_IGNORED_BUILDS`（exit code 1）で失敗するようになりました。esbuild はそうしたスクリプト（`node install.js`、プラットフォーム別バイナリの検証/取得）を持つため、scaffold したばかりのプロジェクトでそのまま `pnpm install` するとこのエラーになります。
 

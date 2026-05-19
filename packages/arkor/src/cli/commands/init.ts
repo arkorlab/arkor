@@ -374,6 +374,22 @@ export async function runInit(options: InitOptions): Promise<void> {
   ) {
     ui.log.info(`Retry manually: ${pm} install`);
   }
+  // Round 40 follow-up (Copilot, PR #99): when artefacts landed
+  // despite the throw, the inline retry hint above is suppressed
+  // because the skip-git branch below handles the user
+  // messaging. But that branch only fires when `shouldInitGit`
+  // is true. For users who passed `--skip-git` (or who are in a
+  // non-interactive shell with no `--git` flag) the skip-git
+  // branch never runs, leaving the user with NO surfacing of
+  // the non-zero exit before the outro proceeds with "Next:
+  // dev". Emit the recovered-artefacts guidance independently
+  // of the git decision so the warning surfaces in every shape
+  // of the run.
+  if (installArtifactsLanded && !shouldInitGit) {
+    ui.log.info(
+      `\`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. Inspect the tree before relying on the install; if the exit was real, fix and re-run.`,
+    );
+  }
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(
