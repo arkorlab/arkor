@@ -1651,6 +1651,89 @@ describe("createTrainer (early stop)", () => {
     }
   });
 
+  it("re-throws a falsy onCheckpoint throw (e.g. `throw null`) instead of silently suppressing it", async () => {
+    // Regression: `onCheckpointError !== null` was the discriminant for
+    // "did the user callback throw?". User code can legitimately
+    // `throw null` / `throw 0` / `throw ""`; the truthiness of
+    // `onCheckpointError` was then indistinguishable from the no-error
+    // path, and the post-early-stop re-throw at the end of the
+    // checkpoint dispatch silently dropped the user's signal. With the
+    // fix, a separate `onCheckpointThrew` boolean discriminates so
+    // ANY throwable (including falsy ones) propagates uniformly.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-falsy",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+        type: "checkpoint.saved",
+        jobId: "j-falsy",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 5,
+      })}\n\n`,
+    ];
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-falsy/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          // `throw null`: a falsy throwable. Under the bug this was
+          // silently swallowed and wait() resolved as if no callback
+          // had thrown. With the fix `wait()` rejects (handleFailure
+          // wraps the throw because maxReconnectAttempts is 0).
+          onCheckpoint: () => {
+            throw null;
+          },
+        },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectAttempts: 0,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      // Under the bug `wait()` resolved cleanly (the falsy throw was
+      // captured by `onCheckpointError = err` but the
+      // `if (onCheckpointError !== null) throw` guard saw `null` and
+      // skipped the re-throw). With the fix `wait()` rejects.
+      await expect(trainer.wait()).rejects.toBeDefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("early-stop checkpoint branch rejects the deferred when cancel() throws (visible to shutdown handler)", async () => {
     // Regression: previously, an `await trainer.cancel()` that threw
     // (network failure / cloud-api 5xx during the cancel POST) was

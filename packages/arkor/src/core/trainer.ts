@@ -318,11 +318,20 @@ export function createTrainer(
         // until the (default 5-min) timeout fires. Surface the
         // original throw via re-throw at the end so `wait()`'s
         // reconnect / failure path keeps its existing semantics.
+        // Discriminant for the user-callback-threw branch. Tracked as
+        // a separate boolean (not `onCheckpointError !== null`) because
+        // user code can legitimately `throw null` / `throw 0` /
+        // `throw ""`; the truthiness of `onCheckpointError` would then
+        // be indistinguishable from the no-error path, and the re-throw
+        // at the end would silently swallow the user's falsy throw
+        // (callback's "I want to stop" signal gets dropped on the floor).
         let onCheckpointError: unknown = null;
+        let onCheckpointThrew = false;
         try {
           await callbacks.onCheckpoint?.(ctx);
         } catch (err) {
           onCheckpointError = err;
+          onCheckpointThrew = true;
         }
         // Early-stop latch: a checkpoint just landed, so the in-flight work
         // is durable. Cancel the cloud job and end `wait()` cleanly.
@@ -424,7 +433,7 @@ export function createTrainer(
           // semantics it had before the wrap: the checkpoint
           // workload is preserved, but the user still sees their
           // callback error.
-          if (onCheckpointError !== null) throw onCheckpointError;
+          if (onCheckpointThrew) throw onCheckpointError;
           return {
             terminal: true,
             artifacts: (event.artifacts ?? []) as unknown[],
@@ -433,7 +442,7 @@ export function createTrainer(
         // Same re-throw on the non-early-stop branch: keep
         // `wait()`'s reconnect loop seeing the user's original
         // callback error so reconnection counters work as before.
-        if (onCheckpointError !== null) throw onCheckpointError;
+        if (onCheckpointThrew) throw onCheckpointError;
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
       }
       case "training.completed": {

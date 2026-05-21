@@ -451,8 +451,21 @@ export function buildStudioApp(options: StudioServerOptions) {
     // the state file unreadable mid-training, the stop-time read
     // would return null and the cancel POST would silently skip:
     // local SIGKILL still tears down the subprocess but the cloud
-    // run orphans. Pinning the scope on the registry entry
-    // decouples cancel correctness from mutable filesystem state.
+    // run orphans. Pinning the scope on the registry entry when it
+    // exists decouples cancel correctness from mutable filesystem state.
+    //
+    // `spawnScope` may legitimately be `null` on a first-run anonymous
+    // project: `.arkor/state.json` is created by `ensureProjectState`
+    // INSIDE the child during `trainer.start()`, i.e. AFTER spawn but
+    // possibly before the user clicks Stop. The cancel handler treats
+    // a null registry scope as a signal to fall back to reading
+    // `.arkor/state.json` at cancel time (the file should exist by
+    // then because the runner emits its `Started job <id>` line AFTER
+    // `trainer.start()` resolved, which is the same point at which
+    // `ensureProjectState` has finished writing the state file). The
+    // delete-mid-training hazard the spawn-time capture exists to
+    // close only applies when the SPAWN read succeeded; once we have
+    // a non-null capture we never re-read.
     const spawnState = await readState(trainCwd);
     const spawnScope = spawnState
       ? { orgSlug: spawnState.orgSlug, projectSlug: spawnState.projectSlug }
@@ -583,8 +596,20 @@ export function buildStudioApp(options: StudioServerOptions) {
         // Two dedicated handlers share `forward` for the byte
         // pipeline but only the stdout one runs the parse.
         const onStdoutChunk = (d: Buffer): void => {
-          if (closed) return;
-          if (activeTrains.getJobId(child.pid) === null) {
+          // Intentionally NOT gated on `closed`: when the SPA cancels,
+          // `cancelTeardown()` flips `closed = true` so the controller
+          // path no-ops, but the cancel IIFE then POLLS `parsedJobId`
+          // for up to 500 ms to catch a `Started job <id>` line that
+          // landed just after the user clicked Stop. The parser has to
+          // keep running during that window for the poll to ever
+          // observe a value. (`forward()` has its own `closed` check
+          // for the controller-enqueue side, so the SSE-body path
+          // stays sealed.) Gate the parse on `parsedJobId === null`
+          // (not `activeTrains.getJobId(...) === null`): the latter
+          // returns null forever after `unregister`, which would make
+          // us re-enter and re-parse the buffer on every subsequent
+          // chunk during the poll window.
+          if (parsedJobId === null) {
             stdoutLineBuf += d.toString("utf8");
             let nl = stdoutLineBuf.indexOf("\n");
             while (nl !== -1) {
@@ -724,12 +749,20 @@ export function buildStudioApp(options: StudioServerOptions) {
         // `pid` is captured once here because the closure below
         // runs after `unregister` and we want a stable handle.
         const cancelPid = child.pid;
-        // Scope: pinned at spawn time on the registry entry, NOT
-        // re-read from `.arkor/state.json` here. A user who
-        // deleted or made state unreadable mid-training shouldn't
-        // be able to silently orphan their cloud job by losing
-        // the cancel-time read.
-        const scopeForCancel = activeTrains.getScope(cancelPid);
+        // Scope resolution order:
+        //   1. Registry entry's pinned scope (captured at spawn time).
+        //      Authoritative when non-null: a user who deleted or made
+        //      `.arkor/state.json` unreadable AFTER spawn shouldn't be
+        //      able to silently orphan their cloud job by losing the
+        //      cancel-time read.
+        //   2. Cancel-time re-read of `.arkor/state.json`, ONLY when
+        //      the spawn-time capture was null. This handles the
+        //      first-run anon case where `ensureProjectState` writes
+        //      the state file from inside the child during
+        //      `trainer.start()` (i.e. AFTER spawn). The read happens
+        //      inside the fire-and-forget IIFE below so the cancel
+        //      handler stays sync.
+        const pinnedScope = activeTrains.getScope(cancelPid);
         activeTrains.unregister(cancelPid);
         cancelTeardown?.();
         // Fire-and-forget cloud-side cancel so the cloud job is
@@ -748,43 +781,64 @@ export function buildStudioApp(options: StudioServerOptions) {
         // safety net, and the alternative of querying cloud-api
         // for matching jobs at cancel time is brittle in
         // multi-tab/multi-spawn scenarios).
-        if (scopeForCancel) {
-          void (async () => {
-            // Brief poll on `parsedJobId` (the closure mirror,
-            // see top-of-handler for why it can't be the
-            // registry's `getJobId`): the runner's
-            // `Started job <id>` line may not have been parsed by
-            // the time the user clicked Stop. Most runs hit it
-            // within ~50-200 ms of spawn (cloud createJob
-            // roundtrip), so polling for up to ~500 ms catches
-            // nearly all races. Beyond that we accept the
-            // cloud-side orphan as a documented follow-up: cloud
-            // reaper / TTL is the safety net, and the
-            // alternative (querying cloud-api for matching jobs
-            // at cancel time) is brittle for multi-tab /
-            // multi-spawn cases.
-            if (parsedJobId === null) {
-              const start = Date.now();
-              while (parsedJobId === null && Date.now() - start < 500) {
-                await new Promise((r) => setTimeout(r, 25));
-              }
+        void (async () => {
+          // Brief poll on `parsedJobId` (the closure mirror,
+          // see top-of-handler for why it can't be the
+          // registry's `getJobId`): the runner's
+          // `Started job <id>` line may not have been parsed by
+          // the time the user clicked Stop. Most runs hit it
+          // within ~50-200 ms of spawn (cloud createJob
+          // roundtrip), so polling for up to ~500 ms catches
+          // nearly all races. Beyond that we accept the
+          // cloud-side orphan as a documented follow-up: cloud
+          // reaper / TTL is the safety net, and the
+          // alternative (querying cloud-api for matching jobs
+          // at cancel time) is brittle for multi-tab /
+          // multi-spawn cases.
+          if (parsedJobId === null) {
+            const start = Date.now();
+            while (parsedJobId === null && Date.now() - start < 500) {
+              await new Promise((r) => setTimeout(r, 25));
             }
-            if (parsedJobId === null) return;
+          }
+          if (parsedJobId === null) return;
+          // Resolve the cloud scope: prefer the spawn-time
+          // capture (immutable, snapshot at spawn) and fall back
+          // to reading `.arkor/state.json` only when there was
+          // none. The state file usually exists by now: the
+          // runner doesn't print `Started job <id>` until
+          // `trainer.start()` resolves, and `ensureProjectState`
+          // (which writes the file from inside the child for
+          // first-run anon projects) runs as part of that path.
+          let scopeForCancel = pinnedScope;
+          if (!scopeForCancel) {
             try {
-              const rpc = createRpc();
-              await rpc.v1.jobs[":id"].cancel.$post({
-                param: { id: parsedJobId },
-                query: {
-                  orgSlug: scopeForCancel.orgSlug,
-                  projectSlug: scopeForCancel.projectSlug,
-                },
-              });
+              const late = await readState(trainCwd);
+              if (late) {
+                scopeForCancel = {
+                  orgSlug: late.orgSlug,
+                  projectSlug: late.projectSlug,
+                };
+              }
             } catch {
-              // Best-effort: cloud-api transient failure or scope
-              // drift. Cloud reaper / TTL is the safety net.
+              // best-effort
             }
-          })();
-        }
+          }
+          if (!scopeForCancel) return;
+          try {
+            const rpc = createRpc();
+            await rpc.v1.jobs[":id"].cancel.$post({
+              param: { id: parsedJobId },
+              query: {
+                orgSlug: scopeForCancel.orgSlug,
+                projectSlug: scopeForCancel.projectSlug,
+              },
+            });
+          } catch {
+            // Best-effort: cloud-api transient failure or scope
+            // drift. Cloud reaper / TTL is the safety net.
+          }
+        })();
         // SIGKILL (not the default SIGTERM) for user-initiated
         // aborts. The runner's `installShutdownHandlers` now treats
         // a single SIGTERM as the HMR-driven "graceful early-stop"

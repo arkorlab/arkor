@@ -218,12 +218,15 @@ function isTrainerLike(value: unknown): value is TrainerLike {
 }
 
 /**
- * Walk a freshly-imported user bundle in the same precedence order
- * as `runner.ts`'s `extractTrainer` and return the first
- * trainer-shaped value (anything that has `start`/`wait`/`cancel`
- * functions). Doesn't require the SDK inspection brand: the
- * manifest UI displays the trainer's `name` for hand-rolled trainers
- * too, even when HMR can't compute a `configHash` for them.
+ * Walk the user module in `runner.ts`'s precedence order and return
+ * every *distinct* trainer-shaped value found. The walk is
+ * de-duplicated because the common `createArkor({ trainer })`
+ * default-export shape would otherwise surface the same trainer up
+ * to three times (case 3 pushes `mod.default.trainer`; case 4
+ * pushes the manifest object itself which is filtered out by
+ * `isTrainerLike`; case 5 pushes `mod.default.trainer` a second
+ * time). Callers iterate in precedence order, so this preserves
+ * the "first match wins" contract.
  *
  * The five supported shapes (mirroring `runner.ts`'s `extractTrainer`):
  *   1. `export const arkor = createArkor({ trainer })`
@@ -236,17 +239,6 @@ function isTrainerLike(value: unknown): value is TrainerLike {
  * fine under `arkor start` but show as "no trainer" in Studio's
  * manifest, with `configHash: null` forcing every HMR rebuild down the
  * SIGTERM-restart path instead of the SIGUSR2 hot-swap path.
- */
-/**
- * Walk the user module in `runner.ts`'s precedence order and return
- * every *distinct* trainer-shaped value found. The walk is
- * de-duplicated because the common `createArkor({ trainer })`
- * default-export shape would otherwise surface the same trainer up
- * to three times (case 3 pushes `mod.default.trainer`; case 4
- * pushes the manifest object itself which is filtered out by
- * `isTrainerLike`; case 5 pushes `mod.default.trainer` a second
- * time). Callers iterate in precedence order, so this preserves
- * the "first match wins" contract.
  */
 function findTrainerCandidates(mod: Record<string, unknown>): TrainerLike[] {
   const trainers: TrainerLike[] = [];
@@ -274,6 +266,15 @@ function findTrainerCandidates(mod: Record<string, unknown>): TrainerLike[] {
   return trainers;
 }
 
+/**
+ * Return the first trainer-shaped value (anything with
+ * `start`/`wait`/`cancel`) in `runner.ts`'s precedence order. Doesn't
+ * require the SDK inspection brand: the Studio manifest UI displays
+ * the trainer's `name` for hand-rolled trainers too, even when HMR
+ * can't compute a `configHash` for them. "First match wins" matches
+ * `runner.ts`'s `extractTrainer`, so this is the trainer the runner
+ * will actually execute.
+ */
 export function findTrainerInModule(
   mod: Record<string, unknown>,
 ): TrainerLike | null {
@@ -281,34 +282,25 @@ export function findTrainerInModule(
 }
 
 /**
- * Walk a freshly-imported user bundle and return the first inspection
- * snapshot we can pull off a discovered trainer. Used by both
- * `studio/hmr.ts` (computing the `configHash` for HMR routing) and
- * `core/runnerSignals.ts` (extracting new callbacks for SIGUSR2 hot-
- * swap) so the two paths stay in sync with the runner about which
- * export shapes count as "a trainer is exported here".
+ * Inspection snapshot of the trainer `runTrainer` would execute
+ * (== the first candidate in `runner.ts`'s precedence order).
+ * Used by both `studio/hmr.ts` (computing the `configHash` for HMR
+ * routing) and `core/runnerSignals.ts` (extracting new callbacks for
+ * SIGUSR2 hot-swap).
  *
- * Returns `null` when none of the candidates carry the inspection
- * brand: typically because the bundle has no SDK-built trainer
- * (hand-rolled trainer, fresh scaffold, syntax error, or a
- * third-party shape).
+ * Returns `null` when the first candidate doesn't carry the
+ * inspection brand. We deliberately DO NOT walk past it to find a
+ * branded trainer further down the list: the runner ignores those,
+ * so hashing a deeper branded trainer would compute HMR decisions
+ * for a different instance than the one actually running, e.g.
+ * route to SIGUSR2/hot-swap when the live (unbranded) trainer
+ * cannot be callback-reloaded. A null here correctly forces SIGTERM-
+ * restart, which is the safe fallback when configs can't be diffed.
  */
 export function findInspectableTrainer(
   mod: Record<string, unknown>,
 ): TrainerInspection | null {
-  // Walk EVERY trainer-shaped candidate in precedence order rather
-  // than only inspecting the first. The first trainer-shaped value
-  // wins for `findTrainerInModule` (display name in the Studio
-  // manifest), but for HMR routing we additionally need a
-  // `configHash`, which requires the inspection brand. A user that
-  // re-exports both an unbranded wrapper and a real `createArkor`-
-  // built trainer (e.g. shape #2 + shape #3 in the same file) would
-  // otherwise force HMR onto the SIGTERM-restart path forever
-  // because `findTrainerInModule` picked the unbranded one and we
-  // never looked at the next candidate.
-  for (const trainer of findTrainerCandidates(mod)) {
-    const inspection = getTrainerInspection(trainer);
-    if (inspection) return inspection;
-  }
-  return null;
+  const trainer = findTrainerCandidates(mod)[0];
+  if (!trainer) return null;
+  return getTrainerInspection(trainer);
 }

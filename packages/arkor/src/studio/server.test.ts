@@ -969,6 +969,105 @@ process.exit(0);
       }
     });
 
+    it("/api/train cancel falls back to reading .arkor/state.json when no scope was captured at spawn time (first-run anon)", async () => {
+      // Regression: capturing the cloud scope at spawn time covered
+      // the "user deleted state mid-training" hazard but broke the
+      // common first-run anonymous flow. On a fresh project,
+      // `.arkor/state.json` is created by `ensureProjectState` from
+      // INSIDE the child during `trainer.start()`, i.e. AFTER spawn.
+      // The spawn-time `readState(trainCwd)` therefore returns null,
+      // `pinnedScope` stays null, and the previous code silently
+      // skipped the cancel POST: local SIGKILL torn down the
+      // subprocess but the cloud job orphaned. The fix uses the
+      // pinned spawn-time scope WHEN PRESENT (delete-mid-training
+      // hazard) and falls back to reading at cancel time when it
+      // was null (first-run anon).
+      await writeCredentials(ANON_CREDS);
+      // Deliberately DO NOT seed state at spawn time. The bin will
+      // write it AFTER its `Started job <id>` line lands, simulating
+      // the order `ensureProjectState`/`trainer.start()` produce in
+      // a real anon first-run.
+      const FAKE_JOB_ID = "j-late-scope";
+      const stateDir = join(trainCwd, ".arkor");
+      const statePath = join(stateDir, "state.json");
+      const fakeBin = join(trainCwd, "late-scope-bin.mjs");
+      writeFileSync(
+        fakeBin,
+        `import { mkdirSync, writeFileSync } from "node:fs";
+        const nonce = process.env.ARKOR_JOB_ID_MARKER_NONCE ?? "";
+        // Mirror runner order: state appears AFTER spawn, but BEFORE
+        // the Started job line so the cancel-time read sees it.
+        mkdirSync(${JSON.stringify(stateDir)}, { recursive: true });
+        writeFileSync(${JSON.stringify(statePath)}, JSON.stringify({
+          orgSlug: "late-scope-org",
+          projectSlug: "late-scope-project",
+          projectId: "p-late-scope",
+        }));
+        process.stdout.write(\`[arkor:\${nonce}] Started job ${FAKE_JOB_ID}\\n\`);
+        process.on("SIGTERM", () => {});
+        setInterval(() => {}, 60_000);
+        `,
+      );
+      let cancelHits: Array<{ url: string }> = [];
+      const ORIG_FETCH = globalThis.fetch;
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
+          cancelHits.push({ url });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+
+      try {
+        const app = buildStudioApp({
+          baseUrl: "http://mock-cloud-api",
+          assetsDir,
+          autoAnonymous: false,
+          studioToken: STUDIO_TOKEN,
+          cwd: trainCwd,
+          binPath: fakeBin,
+        });
+        const trainRes = await app.request("/api/train", {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:4000",
+            "x-arkor-studio-token": STUDIO_TOKEN,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        expect(trainRes.status).toBe(200);
+        const reader = trainRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (!buf.includes(`Started job ${FAKE_JOB_ID}`)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+        }
+        await reader.cancel();
+        await new Promise((r) => setTimeout(r, 250));
+
+        // Under the bug there were 0 cancel hits (pinned scope null
+        // → skip). With the fix the cancel-time read recovers the
+        // scope the child just wrote.
+        expect(cancelHits).toHaveLength(1);
+        expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
+        expect(cancelHits[0]?.url).toContain("orgSlug=late-scope-org");
+        expect(cancelHits[0]?.url).toContain("projectSlug=late-scope-project");
+      } finally {
+        globalThis.fetch = ORIG_FETCH;
+      }
+    });
+
     it("/api/train job-id parser ignores stdout lines that lack the per-spawn nonce prefix so user code can't forge a `Started job` marker", async () => {
       // Regression: the parser used to match any `Started job <id>`
       // line in stdout. User code (which runs inside the runner's

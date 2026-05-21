@@ -131,6 +131,43 @@ describe("findInspectableTrainer (brand-required path)", () => {
     expect(findInspectableTrainer({ trainer })).toBeNull();
     expect(getTrainerInspection(trainer)).toBeNull();
   });
+
+  it("does NOT walk past an unbranded first candidate to inspect a later branded one (runTrainer parity)", () => {
+    // Regression: a previous implementation looped every trainer-
+    // shaped candidate and returned the first one carrying the
+    // inspection brand. But `runTrainer`'s `extractTrainer` always
+    // executes the FIRST candidate (precedence: `mod.arkor` →
+    // `mod.trainer` → `mod.default`...), regardless of brand. A module
+    // that exported both an unbranded `trainer` (shape #2) AND a
+    // branded `default = createArkor(...)` (shape #3) would have its
+    // HMR `configHash` computed from the BRANDED trainer while the
+    // runner actually ran the unbranded one. The mismatch could route
+    // a rebuild to SIGUSR2 (hot-swap) even though the live trainer
+    // has no callback-replacer brand to receive the swap, leaving
+    // the running job stuck on stale callbacks.
+    //
+    // The fix anchors `findInspectableTrainer` to the same first-
+    // wins precedence as `runTrainer`: if the first candidate is
+    // unbranded, return `null` (forcing SIGTERM-restart, the safe
+    // fallback) instead of hashing a different instance.
+    const unbranded = unbrandedTrainer("unbranded-first");
+    const branded = brandedTrainer("branded-second");
+    const inspection = findInspectableTrainer({
+      trainer: unbranded,
+      default: createArkor({ trainer: branded }),
+    });
+    // Under the bug this was the branded inspection ("branded-second").
+    // With the fix we get null so HMR conservatively SIGTERM-restarts
+    // rather than hot-swapping callbacks into a trainer that can't
+    // receive them.
+    expect(inspection).toBeNull();
+    // And `findTrainerInModule` confirms the runner would pick the
+    // unbranded one (proving the precedence we're anchoring to).
+    expect(findTrainerInModule({
+      trainer: unbranded,
+      default: createArkor({ trainer: branded }),
+    })).toBe(unbranded);
+  });
 });
 
 describe("requestTrainerEarlyStop / replaceTrainerCallbacks brand-missing fallback", () => {
