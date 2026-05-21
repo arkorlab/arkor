@@ -74,7 +74,7 @@ import {
   nodeModulesChangedSince,
   scaffold,
 } from "@arkor/cli-internal";
-import { run, shellQuoteIfNeeded, shouldRunAsCli } from "./bin";
+import { buildCdAndRun, run, shellQuoteIfNeeded, shouldRunAsCli } from "./bin";
 
 let parentDir: string;
 const ORIG_CWD = process.cwd();
@@ -673,6 +673,86 @@ describe("shellQuoteIfNeeded", () => {
       withPlatform("win32", () => {
         expect(shellQuoteIfNeeded("my-app")).toBe("my-app");
       });
+    });
+  });
+});
+
+// Round 40 follow-up (Copilot, PR #99): `cd "..." && <pm>
+// install` is a copy-paste injection vector on `cmd.exe` when
+// the directory name contains `%`. `cmd.exe` expands `%VAR%`
+// even inside double quotes and there is no transparent escape
+// at an interactive prompt. `buildCdAndRun` falls back to a
+// PowerShell-only form for that edge case; the regular
+// `cd <quoted> && <command>` form survives everywhere else.
+describe("buildCdAndRun", () => {
+  const ORIG_PLATFORM = process.platform;
+  function withPlatform(p: NodeJS.Platform, fn: () => void) {
+    Object.defineProperty(process, "platform", {
+      value: p,
+      configurable: true,
+    });
+    try {
+      fn();
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: ORIG_PLATFORM,
+        configurable: true,
+      });
+    }
+  }
+
+  it("emits cd <single-quoted> && <command> on POSIX for ordinary paths", () => {
+    withPlatform("linux", () => {
+      expect(buildCdAndRun("my-app", "pnpm install")).toBe(
+        "cd my-app && pnpm install",
+      );
+      expect(buildCdAndRun("My App", "pnpm install")).toBe(
+        "cd 'My App' && pnpm install",
+      );
+    });
+  });
+
+  it("emits cd <double-quoted> && <command> on Windows for ordinary paths", () => {
+    withPlatform("win32", () => {
+      expect(buildCdAndRun("my-app", "pnpm install")).toBe(
+        "cd my-app && pnpm install",
+      );
+      expect(buildCdAndRun("My App", "pnpm install")).toBe(
+        'cd "My App" && pnpm install',
+      );
+    });
+  });
+
+  it("falls back to PowerShell-only form on Windows when the path contains `%`", () => {
+    // Avoids the cmd.exe %VAR% expansion hazard. PS treats `%`
+    // literally inside single quotes; `;` is its statement
+    // separator. `cmd.exe` users with %-bearing paths can't safely
+    // `cd` to them under any quoting form, so this is an accepted
+    // narrowing of cross-shell coverage.
+    withPlatform("win32", () => {
+      expect(buildCdAndRun("My%FOO%App", "pnpm install")).toBe(
+        "cd 'My%FOO%App'; pnpm install",
+      );
+    });
+  });
+
+  it("doubles embedded single quotes when falling back to PS form", () => {
+    // PS quoting rule: `''` inside single-quoted string = literal `'`.
+    withPlatform("win32", () => {
+      expect(buildCdAndRun("My%Foo's%App", "pnpm install")).toBe(
+        "cd 'My%Foo''s%App'; pnpm install",
+      );
+    });
+  });
+
+  it("keeps the &&-chain form on POSIX even when the path contains `%`", () => {
+    // POSIX shells don't expand `%`, so the fallback is unnecessary
+    // there. The single-quoting from `shellQuoteIfNeeded` already
+    // makes the path safe.
+    withPlatform("linux", () => {
+      expect(buildCdAndRun("My%FOO%App", "pnpm install")).toBe(
+        "cd 'My%FOO%App' && pnpm install",
+      );
     });
   });
 });

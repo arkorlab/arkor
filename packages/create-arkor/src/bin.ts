@@ -179,6 +179,39 @@ export function shellQuoteIfNeeded(value: string): string {
 }
 
 /**
+ * Build a copy-pasteable `cd <path> && <command>` recovery hint
+ * that survives the user's shell.
+ *
+ * Default form: POSIX single-quoted path, Windows double-quoted
+ * path, joined by `&&` (works in bash/zsh/fish, PowerShell 7+,
+ * and `cmd.exe`).
+ *
+ * Edge case: Windows + a directory whose name contains `%`.
+ * `cmd.exe` expands `%VAR%` even inside double quotes and there
+ * is no transparent escape for that at an interactive prompt
+ * (`^%` works only inside batch files, `%%` only inside batch;
+ * neither helps at the prompt). The previous form left
+ * `cd "My%FOO%App" && pnpm install` exposed to `%FOO%`
+ * substitution and (in a worst case where `%FOO%` is set to a
+ * value containing quotes or `&`) opened a copy-paste injection
+ * vector. Fall back to a PowerShell-only form
+ * (`cd '<path>'; <command>`) for that case: PS treats `%` as a
+ * literal inside single quotes, and `;` is its statement
+ * separator. `cmd.exe` users with a `%`-bearing path can't
+ * `cd` to it safely under any quoting form anyway, so trading
+ * cross-shell coverage for elimination of the expansion hazard
+ * is the conservative choice.
+ */
+export function buildCdAndRun(cdTarget: string, command: string): string {
+  if (process.platform === "win32" && cdTarget.includes("%")) {
+    // PS single-quote escape: doubled single quote `''`.
+    const escaped = cdTarget.replace(/'/g, "''");
+    return `cd '${escaped}'; ${command}`;
+  }
+  return `cd ${shellQuoteIfNeeded(cdTarget)} && ${command}`;
+}
+
+/**
  * Decide whether to run `git init` + initial commit, surfacing the prompt
  * upfront so the user doesn't sit at an interactive question after the long
  * `<pm> install` step finishes. Returns `true` if `runGitInit` should fire
@@ -416,7 +449,7 @@ export async function run(options: RunOptions): Promise<void> {
       // useless. Skip and surface the manual-retry hint instead.
       const retry = inPlace
         ? `${pm} install`
-        : `cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`;
+        : buildCdAndRun(cdTarget, `${pm} install`);
       clack.log.info(
         `Skipping install — fix the advisory above first, then run: ${retry}`,
       );
@@ -518,7 +551,7 @@ export async function run(options: RunOptions): Promise<void> {
     clack.log.info(
       inPlace
         ? `Retry manually: ${pm} install`
-        : `Retry manually: cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install`,
+        : `Retry manually: ${buildCdAndRun(cdTarget, `${pm} install`)}`,
     );
   }
   // Round 40 follow-up (Copilot, PR #99): mirror of arkor init's
@@ -544,7 +577,7 @@ export async function run(options: RunOptions): Promise<void> {
   const reRunIsSafe = options.dir !== undefined;
   const recoverInDir = inPlace
     ? `\`${pm} install\` (then \`git init\` + commit)`
-    : `\`cd ${shellQuoteIfNeeded(cdTarget)} && ${pm} install\` (then \`git init\` + commit)`;
+    : `\`${buildCdAndRun(cdTarget, `${pm} install`)}\` (then \`git init\` + commit)`;
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(
