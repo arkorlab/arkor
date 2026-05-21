@@ -31,6 +31,16 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   # Pulled in by @vitejs/plugin-react -> @babel/core for Studio UI builds.
   - 'semver@6.3.1'
+# Block transitive deps from resolving via exotic sources (git+ssh://...,
+# direct tarball URLs, etc.). Direct deps may still use exotic sources;
+# only transitives are restricted, so the registry/lockfile/release-age
+# guards above remain the trust boundary for everything we pull in
+# indirectly. Kept explicit as policy, not as a temporary pin: pnpm 10.x
+# is opt-in and pnpm 11 makes it the default, but we want the value
+# co-located with the other supply-chain guards so reviewers see the
+# stance in one place, and so the setting stays pinned if a future pnpm
+# release walks the default back.
+blockExoticSubdeps: true
 allowBuilds:
   rolldown: true
   unrs-resolver: true
