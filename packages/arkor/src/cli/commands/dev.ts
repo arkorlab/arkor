@@ -288,7 +288,13 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   const url = `http://localhost:${port}`;
   serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   process.stdout.write(`Arkor Studio running on ${url}\n`);
-  process.stdout.write(`HMR enabled (watching src/arkor)\n`);
+  // "ready (will watch …)" rather than "enabled (watching …)" because
+  // `createHmrCoordinator` is lazy: the rolldown watcher doesn't
+  // actually start until the first `subscribe()` call inside
+  // `buildStudioApp`, and on a fresh scaffold with no
+  // `src/arkor/index.ts` yet the watcher falls into the
+  // entry-wait poll loop rather than actively watching.
+  process.stdout.write(`HMR ready (will watch src/arkor)\n`);
   if (options.open) {
     try {
       await open(url);

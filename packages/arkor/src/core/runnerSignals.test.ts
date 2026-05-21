@@ -128,6 +128,67 @@ describe("installShutdownHandlers", () => {
     }
   });
 
+  it("first-signal exit code is per-signal POSIX 128+signo when the early-stop chain rejects", async () => {
+    // Regression: the first-signal `.finally(() => process.exit(0))`
+    // always exited 0 even when the early-stop chain rejected
+    // (cancel POST hit a cloud-api 5xx, network drop, etc.). Parent
+    // shells running `arkor start || cleanup_on_failure` would then
+    // classify the failed cancel as a clean run and skip cleanup
+    // despite the stderr diagnostic. Fix: non-zero POSIX 128+signo on
+    // rejection so the exit status carries the same signal-shape
+    // semantics as the second-signal emergency path.
+    const cases: Array<["SIGINT" | "SIGTERM" | "SIGHUP", number]> = [
+      ["SIGINT", 130],
+      ["SIGTERM", 143],
+      ["SIGHUP", 129],
+    ];
+    for (const [sig, expectedExit] of cases) {
+      // Build a trainer whose internal early-stop brand REJECTS, so
+      // the runner's `.catch(...).finally(...)` chain goes through
+      // the failure branch.
+      const trainer: Trainer = {
+        name: "n",
+        async start() {
+          return { jobId: "j" };
+        },
+        async wait() {
+          throw new Error("not used");
+        },
+        async cancel() {},
+      };
+      attachTrainerEarlyStopper(trainer, async () => {
+        throw new Error("cloud-api 503");
+      });
+      const exitCodes: number[] = [];
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation(((code?: number) => {
+          exitCodes.push(code ?? 0);
+          return undefined as never;
+        }) as typeof process.exit);
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation((() => true) as typeof process.stderr.write);
+      const dispose = installShutdownHandlers(trainer);
+      try {
+        process.emit(sig, sig);
+        // Wait for the .catch / .finally microtasks to settle.
+        await new Promise((r) => setTimeout(r, 10));
+        // Under the bug this was just `[0]`. With the fix the
+        // first-signal exit code reflects the signal that fired.
+        expect(exitCodes, `signal ${sig}`).toEqual([expectedExit]);
+      } finally {
+        dispose();
+        exitSpy.mockRestore();
+        stdoutSpy.mockRestore();
+        stderrSpy.mockRestore();
+      }
+    }
+  });
+
   it("second SIGTERM exits 143 without re-invoking requestEarlyStop", async () => {
     const trainer = makeTrainer();
     const exitCodes: number[] = [];

@@ -273,11 +273,20 @@ export function RunTraining() {
           hotSwapTimerRef.current = null;
         }, 1500);
       } else {
-        // Nothing pertaining to this tab's child: leave any in-
-        // progress status spans alone but make sure stale "early-
-        // stopping" / "restarting" labels from a prior run don't
-        // linger past the next quiet rebuild.
-        if (!runningRef.current) setHmrStatus("idle");
+        // Nothing pertaining to this tab's child. Don't blanket-
+        // reset `hmrStatus` here: another tab's `early-stopping` /
+        // `restarting` event is irrelevant to us, but so is a
+        // stale "hot-swapped" flash whose 1.5 s timer is still
+        // running. Reset ONLY the timer-driven "hot-swapped" label
+        // (mirroring the inverse predicate in the timer body
+        // below) so it can't get stuck if a sibling rebuild lands
+        // mid-flash; the user-driven "early-stopping" /
+        // "restarting" spans clear themselves via `run()`'s
+        // `finally` / `onSpawn` transitions and shouldn't be
+        // preempted by an out-of-band sibling event.
+        if (!runningRef.current) {
+          setHmrStatus((s) => (s === "hot-swapped" ? "idle" : s));
+        }
       }
     };
     es.addEventListener("ready", onMessage);

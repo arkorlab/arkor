@@ -237,37 +237,47 @@ function isTrainerLike(value: unknown): value is TrainerLike {
  * manifest, with `configHash: null` forcing every HMR rebuild down the
  * SIGTERM-restart path instead of the SIGUSR2 hot-swap path.
  */
+/**
+ * Walk the user module in `runner.ts`'s precedence order and return
+ * every *distinct* trainer-shaped value found. The walk is
+ * de-duplicated because the common `createArkor({ trainer })`
+ * default-export shape would otherwise surface the same trainer up
+ * to three times (case 3 pushes `mod.default.trainer`; case 4
+ * pushes the manifest object itself which is filtered out by
+ * `isTrainerLike`; case 5 pushes `mod.default.trainer` a second
+ * time). Callers iterate in precedence order, so this preserves
+ * the "first match wins" contract.
+ */
+function findTrainerCandidates(mod: Record<string, unknown>): TrainerLike[] {
+  const trainers: TrainerLike[] = [];
+  const seen = new Set<unknown>();
+  const push = (value: unknown): void => {
+    if (value === undefined || value === null) return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (isTrainerLike(value)) trainers.push(value);
+  };
+  // 1: createArkor named export
+  if (isArkor(mod.arkor)) push((mod.arkor as Arkor).trainer);
+  // 2: bare `trainer` named export
+  push(mod.trainer);
+  // 3: default-export holding an Arkor manifest
+  if (isArkor(mod.default)) push((mod.default as Arkor).trainer);
+  // 4: default IS the Trainer itself. `isTrainerLike` filters out
+  // cases 3/5 (an Arkor manifest doesn't have `start`/`wait`/
+  // `cancel`, nor does a plain `{ trainer }` wrapper).
+  push(mod.default);
+  // 5: default.trainer nested
+  if (mod.default && typeof mod.default === "object") {
+    push((mod.default as Record<string, unknown>).trainer);
+  }
+  return trainers;
+}
+
 export function findTrainerInModule(
   mod: Record<string, unknown>,
 ): TrainerLike | null {
-  const candidates: unknown[] = [];
-  // 1: createArkor named export
-  if (isArkor(mod.arkor) && (mod.arkor as Arkor).trainer) {
-    candidates.push((mod.arkor as Arkor).trainer);
-  }
-  // 2: bare `trainer` named export
-  if (mod.trainer) candidates.push(mod.trainer);
-  // 3: default-export holding an Arkor manifest
-  if (isArkor(mod.default) && (mod.default as Arkor).trainer) {
-    candidates.push((mod.default as Arkor).trainer);
-  }
-  // 4: default IS the Trainer itself. The `isTrainerLike` filter
-  // below sorts this out from cases 3/5 (an Arkor manifest doesn't
-  // have `start`/`wait`/`cancel`, nor does a plain `{ trainer }`
-  // wrapper), so pushing `mod.default` unconditionally is safe.
-  if (mod.default !== undefined) candidates.push(mod.default);
-  // 5: default.trainer nested
-  if (
-    mod.default &&
-    typeof mod.default === "object" &&
-    "trainer" in (mod.default as Record<string, unknown>)
-  ) {
-    candidates.push((mod.default as Record<string, unknown>).trainer);
-  }
-  for (const c of candidates) {
-    if (isTrainerLike(c)) return c;
-  }
-  return null;
+  return findTrainerCandidates(mod)[0] ?? null;
 }
 
 /**
@@ -286,6 +296,19 @@ export function findTrainerInModule(
 export function findInspectableTrainer(
   mod: Record<string, unknown>,
 ): TrainerInspection | null {
-  const trainer = findTrainerInModule(mod);
-  return trainer ? getTrainerInspection(trainer) : null;
+  // Walk EVERY trainer-shaped candidate in precedence order rather
+  // than only inspecting the first. The first trainer-shaped value
+  // wins for `findTrainerInModule` (display name in the Studio
+  // manifest), but for HMR routing we additionally need a
+  // `configHash`, which requires the inspection brand. A user that
+  // re-exports both an unbranded wrapper and a real `createArkor`-
+  // built trainer (e.g. shape #2 + shape #3 in the same file) would
+  // otherwise force HMR onto the SIGTERM-restart path forever
+  // because `findTrainerInModule` picked the unbranded one and we
+  // never looked at the next candidate.
+  for (const trainer of findTrainerCandidates(mod)) {
+    const inspection = getTrainerInspection(trainer);
+    if (inspection) return inspection;
+  }
+  return null;
 }

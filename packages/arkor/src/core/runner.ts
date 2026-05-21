@@ -26,6 +26,19 @@ const DEFAULT_ENTRY = "src/arkor/index.ts";
  * `Started job <id>` form for backwards compatibility. The server only
  * uses the nonce-prefixed form because every server spawn sets the
  * env var.
+ *
+ * **Import-order requirement.** The spoof-prevention guarantee relies
+ * on this module reading + deleting `ARKOR_JOB_ID_MARKER_NONCE`
+ * before any user-controlled module gets to touch `process.env`.
+ * That's safe today because the only consumer chain is
+ * `bin.ts → cli/main.ts → cli/commands/start.ts → core/runner.ts`,
+ * all static imports, so this module is fully evaluated before
+ * `runTrainer` performs its `await import(userEntry)`. If a future
+ * refactor introduces a dynamic-import / lazy-load of runner.ts (so
+ * a sibling module runs first and could snapshot `process.env`), the
+ * capture+delete should move into a tiny dedicated module that the
+ * bin imports first, or the env var should be wiped at the server
+ * spawn boundary too.
  */
 const STARTED_JOB_NONCE: string | null =
   process.env.ARKOR_JOB_ID_MARKER_NONCE ?? null;

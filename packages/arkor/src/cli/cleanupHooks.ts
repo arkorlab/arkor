@@ -1,21 +1,14 @@
-const TERMINATING_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+import { SIGNAL_EXIT_CODE } from "../core/signalExit";
 
-/**
- * POSIX-style exit code for a signal-terminated process: `128 + signo`.
- * Parent shells / orchestrators rely on this to distinguish "user
- * interrupted" (nonzero) from "ran to completion" (zero): exiting 0
- * for a SIGINT'd `arkor dev` would make CI / shell loops / `&&`
- * chains misclassify the interruption as success. The numbers below
- * are the canonical signo values from POSIX (1=HUP, 2=INT, 15=TERM).
- */
-const SIGNAL_EXIT_CODE: Record<
-  (typeof TERMINATING_SIGNALS)[number],
-  number
-> = {
-  SIGHUP: 129,
-  SIGINT: 130,
-  SIGTERM: 143,
-};
+// POSIX `128 + signo` exit codes live in `core/signalExit.ts` so the
+// runner's two-stage shutdown handler and this coordinator share a
+// single source of truth. Without the shared map, adding (say)
+// SIGQUIT to one side without the other would produce inconsistent
+// exit statuses for the same signal: the exact parent-shell-
+// classification regression the per-signal code was introduced to
+// prevent.
+
+const TERMINATING_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
 export interface CleanupHookOptions {
   /**

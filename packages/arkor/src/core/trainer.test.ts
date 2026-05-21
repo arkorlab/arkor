@@ -1772,6 +1772,119 @@ describe("createTrainer (early stop)", () => {
     expect((armedError as Error).message).toBe("fetch failed");
   });
 
+  it("early-stop checkpoint branch labels run as `failed` even when cancel throws a falsy value (not `null` discriminant)", async () => {
+    // Regression: the cancel-failure branch used to be discriminated
+    // by `cancelError !== null`, but user-side code can legitimately
+    // `throw null` / `throw 0` / `throw ""`. In those cases the
+    // captured `cancelError` would still read as falsy / `null` and
+    // the run would be silently labelled `"cancelled"` even though
+    // the cancel POST genuinely rejected, lying about cloud-side
+    // state that may still be running. Fix discriminates via a
+    // dedicated boolean flag and additionally wraps non-Error
+    // throws when rejecting the deferred so the SIGTERM handler's
+    // `.catch(err => err.message)` doesn't crash on a missing
+    // property.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const sse = [
+      `id: 1\nevent: training.started\ndata: ${JSON.stringify({
+        type: "training.started",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 0.5,
+      })}\n\n`,
+      `id: 3\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+        type: "checkpoint.saved",
+        jobId: "j-stop",
+        timestamp: "2026-01-01T00:00:03Z",
+        step: 10,
+      })}\n\n`,
+    ];
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return new Response(JSON.stringify({ job: minimalJobRow }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-stop/events/stream")) {
+        return new Response(sseStream(sse), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
+        // Falsy non-Error throw: under the bug, the run would be
+        // labelled "cancelled" because `cancelError !== null` is
+        // false when the catch reassigned `cancelError = null`.
+        // eslint-disable-next-line no-throw-literal
+        throw null;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    let armedPromise: Promise<void> | null = null;
+    let armedResult: "resolved" | "rejected" | "pending" = "pending";
+    let armedError: unknown = null;
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: () => {
+            if (armedPromise === null) {
+              armedPromise = requestTrainerEarlyStop(trainer, {
+                timeoutMs: 60_000,
+              });
+              armedPromise.then(
+                () => {
+                  armedResult = "resolved";
+                },
+                (err: unknown) => {
+                  armedResult = "rejected";
+                  armedError = err;
+                },
+              );
+            }
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    let result: Awaited<ReturnType<typeof trainer.wait>>;
+    try {
+      result = await trainer.wait();
+      await new Promise((r) => setImmediate(r));
+    } finally {
+      globalThis.fetch = original;
+    }
+    // The local job state reflects the cancel FAILURE, not a clean
+    // cancel. Under the bug this was `"cancelled"`.
+    expect(result.job.status).toBe("failed");
+    // The armed deferred rejected, and the rejection value is
+    // wrapped in a real Error so downstream `.catch(err => err.message)`
+    // chains don't crash on `null.message`.
+    expect(armedResult).toBe("rejected");
+    expect(armedError).toBeInstanceOf(Error);
+    expect((armedError as Error).message).toBe("null");
+  });
+
   it("resolves the early-stop latch when the run hits a terminal event before the next checkpoint", async () => {
     // Regression: previously `requestEarlyStop()`'s deferred was
     // only resolved by (a) the checkpoint-triggered cancel branch

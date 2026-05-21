@@ -110,7 +110,23 @@ export async function readManifestSummary(
   opts: ReadManifestOptions = {},
 ): Promise<ManifestSummary> {
   if (opts.prebuiltOutFile && existsSync(opts.prebuiltOutFile)) {
-    return summariseBuiltManifest(opts.prebuiltOutFile);
+    // Race recovery: rolldown's watcher writes
+    // `.arkor/build/index.mjs` non-atomically. `existsSync` flips to
+    // `true` the instant the file is created, but a `/api/manifest`
+    // poll landing during the flush window would then try to
+    // `await import(...)` partial bytes and surface as a 500
+    // SyntaxError in the UI. The legacy `runBuild()` path was
+    // synchronous and self-contained, so this race didn't exist
+    // there. Fall through to a fresh `runBuild()` on import failure
+    // (which produces a coherent artifact under our control). The
+    // fallback is best-effort: if `runBuild()` itself also throws
+    // (real user syntax error), rethrowing IS the right surface for
+    // `/api/manifest` to render the error inline.
+    try {
+      return await summariseBuiltManifest(opts.prebuiltOutFile);
+    } catch {
+      // fall through to runBuild()
+    }
   }
   const { outFile } = await runBuild({ cwd, quiet: true });
   return summariseBuiltManifest(outFile);

@@ -345,10 +345,19 @@ export function createTrainer(
           // (re-arming a fresh latch on a dead run would hang
           // shutdown).
           let cancelError: unknown = null;
+          // Discriminant for the cancel-failure branch. Tracked as a
+          // separate boolean (not `cancelError !== null`) because
+          // user code can legitimately `throw null` / `throw 0` /
+          // `throw ""`; the truthiness of `cancelError` would then
+          // be indistinguishable from the no-error path and the run
+          // would be silently labelled `"cancelled"` even when the
+          // cancel POST genuinely rejected.
+          let cancelFailed = false;
           try {
             await trainer.cancel();
           } catch (err) {
             cancelError = err;
+            cancelFailed = true;
           }
           // Reflect the cancellation locally so `wait()`'s resolved
           // `TrainingResult.job.status` is a terminal status (per the
@@ -369,8 +378,8 @@ export function createTrainer(
           // the SIGTERM handler's `.catch()`.
           startedJob = {
             ...startedJob,
-            status: cancelError !== null ? "failed" : "cancelled",
-            ...(cancelError !== null && {
+            status: cancelFailed ? "failed" : "cancelled",
+            ...(cancelFailed && {
               error: `Early-stop cancel failed: ${
                 cancelError instanceof Error
                   ? cancelError.message
@@ -379,14 +388,23 @@ export function createTrainer(
             }),
             completedAt: event.timestamp,
           };
-          if (cancelError !== null) {
+          if (cancelFailed) {
             // Reject (not resolve) the latch. Mirrors the success
             // path's bookkeeping (clear timer, null out shared
             // slot, drop the request flag) so a follow-up
             // `requestEarlyStop()` won't piggyback on the rejected
             // promise.
             if (earlyStopDeferred.timer) clearTimeout(earlyStopDeferred.timer);
-            earlyStopDeferred.reject(cancelError);
+            // Wrap if user threw a non-Error so the deferred
+            // consumer always receives an Error instance. `throw 0`
+            // would otherwise reject the deferred with `0`, and the
+            // SIGTERM handler's `.catch(err => ...err.message)` would
+            // crash on the missing property.
+            earlyStopDeferred.reject(
+              cancelError instanceof Error
+                ? cancelError
+                : new Error(String(cancelError)),
+            );
             earlyStopDeferred = null;
             earlyStopRequested = false;
           } else {
@@ -670,10 +688,16 @@ export function createTrainer(
       // exact failure mode that a "stop-after-checkpoint" deadline
       // exists to PREVENT from going silent.
       let cancelError: unknown = null;
+      // See the checkpoint-branch comment: tracked separately from
+      // `cancelError` so a user `throw null` / `throw 0` doesn't
+      // silently downgrade the cancel-failure path to "clean
+      // cancel".
+      let cancelFailed = false;
       trainer
         .cancel()
         .catch((err) => {
           cancelError = err;
+          cancelFailed = true;
         })
         .finally(() => {
           // Mirror the checkpoint-triggered early-stop branch: reset
@@ -694,8 +718,8 @@ export function createTrainer(
             // calls still no-op correctly.
             startedJob = {
               ...startedJob,
-              status: cancelError !== null ? "failed" : "cancelled",
-              ...(cancelError !== null && {
+              status: cancelFailed ? "failed" : "cancelled",
+              ...(cancelFailed && {
                 error: `Early-stop cancel failed: ${
                   cancelError instanceof Error
                     ? cancelError.message
@@ -711,8 +735,15 @@ export function createTrainer(
             // stderr and the operator can see that the cloud job
             // may still be live. The latch always settles either
             // way; shutdown won't hang.
-            if (cancelError !== null) active.reject(cancelError);
-            else active.resolve();
+            if (cancelFailed) {
+              active.reject(
+                cancelError instanceof Error
+                  ? cancelError
+                  : new Error(String(cancelError)),
+              );
+            } else {
+              active.resolve();
+            }
           }
           if (earlyStopDeferred === active) earlyStopDeferred = null;
         });

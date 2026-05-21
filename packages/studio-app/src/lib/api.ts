@@ -81,6 +81,53 @@ export function isHmrEnabled(): boolean {
 }
 
 /**
+ * Cap for the error-response body read in `streamTraining` below.
+ * 8 KiB comfortably fits the JSON / text errors Studio actually
+ * returns (`/api/train failed: ...` payloads are short), but
+ * prevents a misconfigured upstream (reverse proxy that interposes
+ * a multi-MB HTML error page, server-side stack trace, etc.) from
+ * making the UI hang on `res.text()` for the user's idle Run
+ * click. The trimmed prefix is enough to display the failure cause
+ * inline in the SPA log pane.
+ */
+const ERROR_BODY_MAX_BYTES = 8 * 1024;
+
+/**
+ * Read `res.body` up to `maxBytes` and return as UTF-8 text. Cancels
+ * the underlying stream once the cap is reached so the network
+ * doesn't keep draining a hostile multi-MB error page in the
+ * background.
+ */
+async function readBodyCapped(res: Response, maxBytes: number): Promise<string> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let out = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const remaining = maxBytes - total;
+      if (remaining <= 0) break;
+      const slice =
+        value.byteLength > remaining ? value.subarray(0, remaining) : value;
+      out += decoder.decode(slice, { stream: true });
+      total += slice.byteLength;
+      if (total >= maxBytes) break;
+    }
+  } finally {
+    // Best-effort cancel: closes the response stream so we don't
+    // keep pulling bytes after the cap. Throw is ignored because
+    // the caller is already throwing the wrapped error.
+    void reader.cancel().catch(() => {});
+  }
+  out += decoder.decode();
+  return out;
+}
+
+/**
  * `fetch` with the per-launch CSRF token attached. The token is read once at
  * module load from the `<meta>` tag the Studio server injects into
  * `index.html`; cross-origin tabs cannot read it (same-origin policy on the
@@ -318,7 +365,7 @@ export async function streamTraining(
   if (!res.ok) {
     let detail = "";
     try {
-      detail = (await res.text()).trim();
+      detail = (await readBodyCapped(res, ERROR_BODY_MAX_BYTES)).trim();
     } catch {
       // Body unreadable (already consumed, network gone, etc.):
       // surface the status alone rather than masking the failure

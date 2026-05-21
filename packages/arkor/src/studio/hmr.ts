@@ -100,6 +100,20 @@ export interface HmrCoordinator {
    * source is still failing to compile.
    */
   getLastEventType(): HmrEventType | null;
+  /**
+   * Close the rolldown watcher and drop all subscribers. **Does not
+   * (and cannot) evict the user-module records that `inspectBundle`
+   * loaded into Node's ESM cache** — Node's loader exposes no
+   * eviction API, so for `arkor dev` sessions that go through many
+   * rebuilds before exit, the cache retains one record per distinct
+   * artefact content hash for the rest of the process lifetime.
+   * The mtime/ctime/size cache-bust key (`moduleCacheBustUrl`)
+   * collapses identical-byte rebuilds onto the same record, bounding
+   * the retention to "one entry per real edit", which is the tightest
+   * we can offer here. Tests that loop `createHmrCoordinator` →
+   * rebuild → `dispose` therefore still accumulate process-wide
+   * ESM-cache entries.
+   */
   dispose(): Promise<void>;
 }
 

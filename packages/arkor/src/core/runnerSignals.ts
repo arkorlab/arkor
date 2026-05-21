@@ -1,4 +1,5 @@
 import { moduleCacheBustUrl } from "./moduleCacheBust";
+import { SIGNAL_EXIT_CODE } from "./signalExit";
 import {
   findInspectableTrainer,
   replaceTrainerCallbacks,
@@ -8,23 +9,6 @@ import type { Trainer, TrainerCallbacks } from "./types";
 
 const SHUTDOWN_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
 const CALLBACK_RELOAD_SIGNAL = "SIGUSR2" as const;
-
-/**
- * POSIX-style exit code for a signal-terminated process: `128 + signo`.
- * Used by the second-signal emergency-exit path so the runner's exit
- * status reflects which signal actually fired (Ctrl-C vs SIGTERM vs
- * SIGHUP), not a single hardcoded 143. Mirrors the SIGNAL_EXIT_CODE
- * map in `cli/cleanupHooks.ts`. Parent shells / orchestrators / CI
- * runners distinguish "user interrupted" by signo on POSIX.
- */
-const SECOND_SIGNAL_EXIT_CODE: Record<
-  (typeof SHUTDOWN_SIGNALS)[number],
-  number
-> = {
-  SIGHUP: 129,
-  SIGINT: 130,
-  SIGTERM: 143,
-};
 
 /**
  * Two-stage shutdown handling so HMR rebuilds (Studio sends SIGTERM)
@@ -57,7 +41,7 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
       // SIGHUP shutdowns as SIGTERM-style exits and breaks
       // signal-aware orchestration. Defaults to 143 for any future
       // signal we forget to map.
-      const code = SECOND_SIGNAL_EXIT_CODE[signal] ?? 143;
+      const code = SIGNAL_EXIT_CODE[signal] ?? 143;
       process.exit(code);
       // Explicit return so test mocks of process.exit (which don't
       // actually terminate the worker) don't fall through into the
@@ -73,12 +57,28 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
     // `{ start, wait, cancel }` trainers; for those the brand is
     // absent and `requestTrainerEarlyStop` transparently falls back
     // to `trainer.cancel()` (best-effort, matches the public contract).
+    //
+    // Track whether the early-stop chain rejected so the final
+    // `process.exit` carries a non-zero status. The previous version
+    // always exited 0, which made `arkor start || cleanup_on_failure`
+    // wrappers classify a cancel-POST rejection (cloud-api transient
+    // failure, network drop) as a clean run despite the stderr
+    // diagnostic. POSIX 128 + signo on failure mirrors the
+    // second-signal exit-code convention so parent shells see a
+    // signal-style nonzero status.
+    let earlyStopFailed = false;
     requestTrainerEarlyStop(trainer)
       .catch((err: unknown) => {
+        earlyStopFailed = true;
         const msg = err instanceof Error ? err.message : String(err);
         process.stderr.write(`requestEarlyStop failed: ${msg}\n`);
       })
-      .finally(() => process.exit(0));
+      .finally(() => {
+        const code = earlyStopFailed
+          ? (SIGNAL_EXIT_CODE[signal] ?? 143)
+          : 0;
+        process.exit(code);
+      });
   };
   // Per-signal closure (vs a single shared listener registered on
   // every signal): the closure captures `sig` at registration time
@@ -177,14 +177,25 @@ export function installCallbackReloadHandler(
   // listener here is the documented contract on those platforms:
   // quietly degrade to a no-op disposer rather than crashing
   // `arkor start` at boot.
+  // Track registration success so the returned disposer never
+  // calls `process.off(...)` for a handler we never attached.
+  // Today this only fires for the early-return-no-op path where
+  // `process.on` threw at registration, but future Node versions
+  // could route `off` through the same libuv signal-wrap that
+  // throws for unsupported signals on Windows, and a symmetric
+  // throw inside the disposer would crash the `runTrainer` finally
+  // block instead of merely being a no-op.
+  let attached = false;
   try {
     process.on(CALLBACK_RELOAD_SIGNAL, handler);
+    attached = true;
   } catch {
     return () => {
       // no-op: handler was never attached
     };
   }
   return () => {
+    if (!attached) return;
     process.off(CALLBACK_RELOAD_SIGNAL, handler);
   };
 }
