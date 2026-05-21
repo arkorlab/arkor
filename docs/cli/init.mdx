@@ -48,7 +48,7 @@ bun arkor init
 | `--use-npm` | Force npm as the package manager. |
 | `--use-pnpm` | Force pnpm as the package manager. |
 | `--use-yarn` | Force yarn as the package manager. |
-| `--use-bun` | Force bun as the package manager. Known limitation on Windows: `arkor init --use-bun` populates `node_modules` but does not produce `bun.lock`, so the initial commit will not include a lockfile. `bun install` run directly, and `create-arkor --use-bun`, are not affected. |
+| `--use-bun` | Force bun as the package manager. Known limitation on Windows: `arkor init --use-bun` populates `node_modules` but does not produce `bun.lock`, so the initial commit will not include a lockfile. Running `bun install` directly and using `create-arkor --use-bun` are not affected. |
 | `--git` | Initialise a git repo and create an initial commit, without asking. |
 | `--skip-git` | Skip git init silently. |
 | `--allow-builds` | Opt esbuild's `postinstall` script into running on `pnpm install`. pnpm-only — yarn / npm / bun ignore the workspace yaml. Default: deny. See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) below. |
