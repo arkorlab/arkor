@@ -62,8 +62,8 @@ my-app/
 ├── package.json        # scripts: dev / build / start
 ├── AGENTS.md           # AI-agent rules (omit with --no-agents-md)
 ├── CLAUDE.md           # @AGENTS.md re-export for Claude Code
-├── .yarnrc.yml         # OPTIONAL — yarn-berry nodeLinker pin (see below)
-└── pnpm-workspace.yaml # OPTIONAL — pnpm 11 allowBuilds (see below)
+├── .yarnrc.yml         # OPTIONAL: yarn-berry nodeLinker pin (see below)
+└── pnpm-workspace.yaml # OPTIONAL: pnpm 11 allowBuilds (see below)
 ```
 
 `src/arkor/`, `arkor.config.ts`, `README.md`, `.gitignore`, and `package.json` are always written. The two yaml files are conditional:
@@ -83,9 +83,9 @@ allowBuilds:
   esbuild: false
 ```
 
-`esbuild: false` is an explicit deny — pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. yarn / npm / bun all ignore the workspace yaml.
+`esbuild: false` is an explicit deny: pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. yarn / npm / bun all ignore the workspace yaml.
 
-If you genuinely need the postinstall to run (rare; typically a broken installer or unusual platform), pass `--allow-builds`. The flag controls only the value the scaffold *writes*: a fresh-scaffold run emits `esbuild: true` instead of `esbuild: false`, and a patch-into-existing-file run that adds a new `esbuild` entry uses `true`. An *existing* explicit `allowBuilds.esbuild` pin (or a global `allowBuilds: <bool>` scalar) is always preserved — the scaffold leaves that decision untouched even when `--allow-builds` is passed. To change a prior explicit deny, edit `pnpm-workspace.yaml` by hand. (Note: an `allowBuilds`-no-op patch run can still backfill a missing top-level `packages: []` for pnpm 9 compatibility, so the file is not always byte-for-byte unchanged; what's preserved is the `allowBuilds.esbuild` decision.)
+If you genuinely need the postinstall to run (rare; typically a broken installer or unusual platform), pass `--allow-builds`. The flag controls only the value the scaffold *writes*: a fresh-scaffold run emits `esbuild: true` instead of `esbuild: false`, and a patch-into-existing-file run that adds a new `esbuild` entry uses `true`. An *existing* explicit `allowBuilds.esbuild` pin (or a global `allowBuilds: <bool>` scalar) is always preserved: the scaffold leaves that decision untouched even when `--allow-builds` is passed. To change a prior explicit deny, edit `pnpm-workspace.yaml` by hand. (Note: an `allowBuilds`-no-op patch run can still backfill a missing top-level `packages: []` for pnpm 9 compatibility, so the file is not always byte-for-byte unchanged; what's preserved is the `allowBuilds.esbuild` decision.)
 
 When `[dir]` is given explicitly, existing files are kept (never overwritten)
 and `package.json` is patched in place — only missing keys are added, so a

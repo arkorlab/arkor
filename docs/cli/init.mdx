@@ -51,7 +51,7 @@ bun arkor init
 | `--use-bun` | Force bun as the package manager. Known limitation on Windows: `arkor init --use-bun` populates `node_modules` but does not produce `bun.lock`, so the initial commit will not include a lockfile. Running `bun install` directly and using `create-arkor --use-bun` are not affected. |
 | `--git` | Initialise a git repo and create an initial commit, without asking. |
 | `--skip-git` | Skip git init silently. |
-| `--allow-builds` | Opt esbuild's `postinstall` script into running on `pnpm install`. pnpm-only — yarn / npm / bun ignore the workspace yaml. Default: deny. See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) below. |
+| `--allow-builds` | Opt esbuild's `postinstall` script into running on `pnpm install`. pnpm-only (yarn / npm / bun ignore the workspace yaml). Default: deny. See [Postinstall scripts (pnpm 11+)](#postinstall-scripts-pnpm-11) below. |
 | `--agents-md` | Write `AGENTS.md` and `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data. Default. |
 | `--no-agents-md` | Skip generating `AGENTS.md` / `CLAUDE.md`. An existing user-authored `AGENTS.md` is always preserved; the arkor-managed block (delimited by `<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->`) is appended on first run and replaced in place on re-scaffold. |
 
@@ -83,7 +83,7 @@ If `pnpm-workspace.yaml` already exists at the target AND pnpm is plausible (the
 
 pnpm 11 changed the default for postinstall scripts to "deny unless explicitly approved", and exits with `ERR_PNPM_IGNORED_BUILDS` (code 1) when an unapproved script is encountered. esbuild ships such a script (`node install.js`, which verifies/downloads the platform-specific binary), so a vanilla `pnpm install` against a freshly scaffolded project would otherwise fail.
 
-The scaffolded `allowBuilds: { esbuild: false }` is an explicit deny — pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works, because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. yarn / npm / bun all ignore `pnpm-workspace.yaml`, so the file is inert under those package managers.
+The scaffolded `allowBuilds: { esbuild: false }` is an explicit deny: pnpm sees a decision and silently skips the script instead of erroring. esbuild itself still works, because pnpm already installs `@esbuild/<platform>` as an `optionalDependency`. yarn / npm / bun all ignore `pnpm-workspace.yaml`, so the file is inert under those package managers.
 
 If you genuinely need esbuild's postinstall to run (rare; usually a broken installer or unusual platform), pass `--allow-builds`:
 
@@ -91,7 +91,7 @@ If you genuinely need esbuild's postinstall to run (rare; usually a broken insta
 pnpm arkor init --yes --use-pnpm --allow-builds
 ```
 
-— or flip the entry to `true` in `pnpm-workspace.yaml` after the fact. The flag is only consulted on runs that actually emit or patch `pnpm-workspace.yaml`, so passing it under `--use-npm` / `--use-yarn` / `--use-bun` is a no-op (those runs don't touch the file at all). Re-run `arkor init --use-pnpm --allow-builds` later if you switch to pnpm.
+Or flip the entry to `true` in `pnpm-workspace.yaml` after the fact. The flag is only consulted on runs that actually emit or patch `pnpm-workspace.yaml`, so passing it under `--use-npm` / `--use-yarn` / `--use-bun` is a no-op (those runs don't touch the file at all). Re-run `arkor init --use-pnpm --allow-builds` later if you switch to pnpm.
 
 ### Templates
 
