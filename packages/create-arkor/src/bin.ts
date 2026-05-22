@@ -111,12 +111,15 @@ function collisionMessage(name: string): string {
  *         escape inside double quotes (the literal text is
  *         what `Set-Location` sees), but `cd "C:\\foo\\bar"`
  *         still resolves to `C:\foo\bar` because NTFS
- *         normalizes adjacent separators. PS-style would be
- *         `` `" `` for embedded `"`; we keep `\"` because cmd
- *         users with literal `"` in a path are no rarer than
- *         PS users with the same, and the cmd msvcrt
- *         convention is what gets the path correctly through
- *         to programs spawned via argv.
+ *         normalizes adjacent separators. The `"` escape is
+ *         defensive-only: NTFS / Win32 path APIs reject `"` as
+ *         a filename character, so a path that round-trips
+ *         through `readdir` / `resolve` can't actually contain
+ *         one. We still emit `\"` so the printed string parses
+ *         correctly as a quoted token if a hypothetical caller
+ *         ever hands us a non-path string with embedded
+ *         quotes; under real `cdTarget` values from
+ *         `options.dir ?? name` the branch is unreachable.
  *       * `%`: NOT escaped — there is no transparent escape for
  *         `%VAR%` inside double quotes in interactive `cmd.exe`
  *         (`^%` only suppresses expansion in batch files, not
@@ -129,12 +132,13 @@ function collisionMessage(name: string): string {
  *         Same level of edge case as the other documented
  *         mismatches; round-39 Copilot flagged it explicitly.
  *     `cmd.exe` users with paths containing `` ` ``, `$`, or
- *     `%` see a slightly mangled but not-injection-vector hint;
- *     PS users with paths containing `"` see a broken-but-not-
- *     injection hint. Paths with these metachars are
- *     vanishingly rare in practice. The single-line cd-recovery
- *     print is a pragmatic compromise — emitting separate cmd
- *     / PS lines would more than double the closing summary
+ *     `%` see a slightly mangled but not-injection-vector hint
+ *     (the `%`-on-cmd case is mitigated separately by
+ *     `buildCdAndRun`, which switches to a PowerShell-only form
+ *     when `%` is present). Paths with these metachars are
+ *     vanishingly rare in practice; the single-line cd-recovery
+ *     print is a pragmatic compromise, since emitting separate
+ *     cmd / PS lines would more than double the closing summary
  *     length for a hazard most users will never hit.
  */
 export function shellQuoteIfNeeded(value: string): string {
@@ -179,6 +183,44 @@ export function shellQuoteIfNeeded(value: string): string {
 }
 
 /**
+ * True when the platform is Windows AND `cdTarget` contains a
+ * `%` that would trigger `cmd.exe`'s `%VAR%` expansion. There
+ * is no transparent escape for `%VAR%` at an interactive cmd
+ * prompt (`^%` works only inside batch files, `%%` only inside
+ * batch; neither helps interactively), so a `cd "<path>"`
+ * emitted into cmd expands the `%`-segments and, worst case,
+ * opens a copy-paste injection vector if the env var contains
+ * quotes or `&`. `buildCdLine` and `buildCdAndRun` both
+ * fall back to a PowerShell-only form for this case.
+ */
+function isWindowsPercentPath(cdTarget: string): boolean {
+  return process.platform === "win32" && cdTarget.includes("%");
+}
+
+/**
+ * Build a copy-pasteable `cd <path>` line. POSIX uses single
+ * quotes, Windows uses double quotes (via `shellQuoteIfNeeded`),
+ * EXCEPT when the path triggers `isWindowsPercentPath`: then
+ * fall back to a PowerShell-only single-quoted form. PS treats
+ * `%` as a literal inside single quotes; `cmd.exe` users with
+ * `%`-bearing paths can't safely `cd` to them under any quoting
+ * form anyway, so trading cross-shell coverage for elimination
+ * of the expansion hazard is the conservative choice.
+ *
+ * Shared by `buildCdAndRun` (for `cd && <pm> install` recovery
+ * hints) and the multi-line outro (which prints `cd` on its own
+ * line). Keeping both paths through this helper means the
+ * `%`-mitigation can't drift between them.
+ */
+export function buildCdLine(cdTarget: string): string {
+  if (isWindowsPercentPath(cdTarget)) {
+    // PS single-quote escape: doubled single quote `''`.
+    return `cd '${cdTarget.replace(/'/g, "''")}'`;
+  }
+  return `cd ${shellQuoteIfNeeded(cdTarget)}`;
+}
+
+/**
  * Build a copy-pasteable `cd <path> && <command>` recovery hint
  * that survives the user's shell.
  *
@@ -186,29 +228,15 @@ export function shellQuoteIfNeeded(value: string): string {
  * path, joined by `&&` (works in bash/zsh/fish, PowerShell 7+,
  * and `cmd.exe`).
  *
- * Edge case: Windows + a directory whose name contains `%`.
- * `cmd.exe` expands `%VAR%` even inside double quotes and there
- * is no transparent escape for that at an interactive prompt
- * (`^%` works only inside batch files, `%%` only inside batch;
- * neither helps at the prompt). The previous form left
- * `cd "My%FOO%App" && pnpm install` exposed to `%FOO%`
- * substitution and (in a worst case where `%FOO%` is set to a
- * value containing quotes or `&`) opened a copy-paste injection
- * vector. Fall back to a PowerShell-only form
- * (`cd '<path>'; <command>`) for that case: PS treats `%` as a
- * literal inside single quotes, and `;` is its statement
- * separator. `cmd.exe` users with a `%`-bearing path can't
- * `cd` to it safely under any quoting form anyway, so trading
- * cross-shell coverage for elimination of the expansion hazard
- * is the conservative choice.
+ * `%`-on-Windows edge case: see `isWindowsPercentPath` for the
+ * rationale. PS's `;` is the statement separator, used in place
+ * of `&&` for the fallback (`&&` only works in PS 7+ but `;`
+ * works everywhere PS).
  */
 export function buildCdAndRun(cdTarget: string, command: string): string {
-  if (process.platform === "win32" && cdTarget.includes("%")) {
-    // PS single-quote escape: doubled single quote `''`.
-    const escaped = cdTarget.replace(/'/g, "''");
-    return `cd '${escaped}'; ${command}`;
-  }
-  return `cd ${shellQuoteIfNeeded(cdTarget)} && ${command}`;
+  const cdPart = buildCdLine(cdTarget);
+  const sep = isWindowsPercentPath(cdTarget) ? ";" : " &&";
+  return `${cdPart}${sep} ${command}`;
 }
 
 /**
@@ -671,7 +699,7 @@ export async function run(options: RunOptions): Promise<void> {
   clack.outro(
     [
       outroIntro,
-      ...(inPlace ? [] : [`  cd ${shellQuoteIfNeeded(cdTarget)}`]),
+      ...(inPlace ? [] : [`  ${buildCdLine(cdTarget)}`]),
       ...(installLine ? [installLine] : []),
       ...(gitLine ? [gitLine] : []),
       devLine,

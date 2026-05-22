@@ -74,7 +74,13 @@ import {
   nodeModulesChangedSince,
   scaffold,
 } from "@arkor/cli-internal";
-import { buildCdAndRun, run, shellQuoteIfNeeded, shouldRunAsCli } from "./bin";
+import {
+  buildCdAndRun,
+  buildCdLine,
+  run,
+  shellQuoteIfNeeded,
+  shouldRunAsCli,
+} from "./bin";
 
 let parentDir: string;
 const ORIG_CWD = process.cwd();
@@ -673,6 +679,56 @@ describe("shellQuoteIfNeeded", () => {
       withPlatform("win32", () => {
         expect(shellQuoteIfNeeded("my-app")).toBe("my-app");
       });
+    });
+  });
+});
+
+// Round 40 follow-up (Copilot, PR #99): the standalone `cd
+// <dir>` line that create-arkor's multi-line outro prints
+// shares the same `%`-on-Windows expansion hazard as
+// `buildCdAndRun`'s `&&` chain. `buildCdLine` is the shared
+// helper both call paths use, so the mitigation can't drift
+// between them. These tests pin the helper directly.
+describe("buildCdLine", () => {
+  const ORIG_PLATFORM = process.platform;
+  function withPlatform(p: NodeJS.Platform, fn: () => void) {
+    Object.defineProperty(process, "platform", {
+      value: p,
+      configurable: true,
+    });
+    try {
+      fn();
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: ORIG_PLATFORM,
+        configurable: true,
+      });
+    }
+  }
+
+  it("emits a POSIX single-quoted cd line for ordinary paths", () => {
+    withPlatform("linux", () => {
+      expect(buildCdLine("my-app")).toBe("cd my-app");
+      expect(buildCdLine("My App")).toBe("cd 'My App'");
+    });
+  });
+
+  it("emits a Windows double-quoted cd line for ordinary paths", () => {
+    withPlatform("win32", () => {
+      expect(buildCdLine("my-app")).toBe("cd my-app");
+      expect(buildCdLine("My App")).toBe('cd "My App"');
+    });
+  });
+
+  it("falls back to a PowerShell single-quoted cd line on Windows when the path contains `%`", () => {
+    withPlatform("win32", () => {
+      expect(buildCdLine("My%FOO%App")).toBe("cd 'My%FOO%App'");
+    });
+  });
+
+  it("keeps POSIX single-quoted form when the path contains `%` (no cmd.exe expansion to mitigate)", () => {
+    withPlatform("linux", () => {
+      expect(buildCdLine("My%FOO%App")).toBe("cd 'My%FOO%App'");
     });
   });
 });
