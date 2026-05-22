@@ -151,7 +151,7 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       // synchronous still exits effectively immediately (one extra
       // microtask round-trip).
       queueMicrotask(() => {
-        void Promise.allSettled([...inFlightCleanups]).then(() =>
+        void Promise.allSettled(inFlightCleanups).then(() =>
           process.exit(exitCode),
         );
       });
@@ -186,7 +186,11 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
  * worker's `process` listener counts flat.
  */
 export function __resetCleanupHooksForTests(): void {
-  for (const detach of [...attachedHandlers]) detach();
+  // `detach()` mutates `attachedHandlers` by removing the current entry.
+  // `Set` iterators safely handle that case (a deleted current item is
+  // not re-visited and remaining items keep their order), so we can
+  // iterate directly without snapshotting via `[...attachedHandlers]`.
+  for (const detach of attachedHandlers) detach();
   attachedHandlers.clear();
   inFlightCleanups.clear();
 }

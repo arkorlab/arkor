@@ -368,109 +368,116 @@ export function RunTraining() {
       );
     } catch (err) {
       // Aborts are expected when the user navigates away mid-stream;
-      // don't surface them as errors in the log.
-      if (ac.signal.aborted) return;
-      setLog((prev) =>
-        appendCapped(
-          prev,
-          `\n[error] ${err instanceof Error ? err.message : String(err)}\n`,
-        ),
-      );
-    } finally {
-      runningRef.current = false;
-      // DO NOT null `currentPidRef` here: the SSE handler needs to
-      // be able to match per-pid during the post-exit grace window
-      // below to catch a `rebuild` event that races behind the
-      // train stream's close on the separate connection. Captured
-      // here so the grace timer can detect "a new run started
-      // during the window" by comparing the current ref against
-      // `pidAtExit` and skipping its cleanup in that case.
-      const pidAtExit = currentPidRef.current;
-      // Drop any pre-spawn buffer entries that survived a failed
-      // run (spawn errored before `onSpawn` could drain). Without
-      // this they'd be carried into the next run and falsely match
-      // the new pid only by luck.
-      pendingPreSpawnEventsRef.current = [];
-      if (trainingAbortRef.current === ac) trainingAbortRef.current = null;
-      // Always release the running flag, including the user-initiated
-      // abort path. setState on an already-unmounted component is a
-      // no-op in React 18+, so the unmount-cleanup case handles itself.
-      setRunning(false);
-
-      if (ac.signal.aborted) {
-        // User Stop wins over any pending or in-flight HMR restart:
-        // clear everything synchronously and skip the grace window
-        // so the tab really settles instead of bouncing back up.
-        restartPendingRef.current = false;
-        currentPidRef.current = null;
-        setHmrStatus("idle");
-        if (restartGraceTimerRef.current !== null) {
-          clearTimeout(restartGraceTimerRef.current);
-          restartGraceTimerRef.current = null;
-        }
-        return;
+      // don't surface them as errors in the log. Non-abort errors
+      // get logged; in both cases the post-handler block below
+      // (formerly a `finally`) runs the same cleanup. Lint's
+      // `no-unsafe-finally` rule disallows `return` inside `finally`
+      // because such returns clobber a re-throw from the surrounding
+      // `catch`; we sidestep the rule by lifting the cleanup into
+      // a normal post-try/catch sequence, which has the same effect
+      // here because the `catch` block above never re-throws.
+      if (!ac.signal.aborted) {
+        setLog((prev) =>
+          appendCapped(
+            prev,
+            `\n[error] ${err instanceof Error ? err.message : String(err)}\n`,
+          ),
+        );
       }
+    }
+    runningRef.current = false;
+    // DO NOT null `currentPidRef` here: the SSE handler needs to
+    // be able to match per-pid during the post-exit grace window
+    // below to catch a `rebuild` event that races behind the
+    // train stream's close on the separate connection. Captured
+    // here so the grace timer can detect "a new run started
+    // during the window" by comparing the current ref against
+    // `pidAtExit` and skipping its cleanup in that case.
+    const pidAtExit = currentPidRef.current;
+    // Drop any pre-spawn buffer entries that survived a failed
+    // run (spawn errored before `onSpawn` could drain). Without
+    // this they'd be carried into the next run and falsely match
+    // the new pid only by luck.
+    pendingPreSpawnEventsRef.current = [];
+    if (trainingAbortRef.current === ac) trainingAbortRef.current = null;
+    // Always release the running flag, including the user-initiated
+    // abort path. setState on an already-unmounted component is a
+    // no-op in React 18+, so the unmount-cleanup case handles itself.
+    setRunning(false);
 
-      if (restartPendingRef.current) {
-        // Fast path: SSE event already landed before exit. Fire the
-        // restart synchronously without waiting for the grace
-        // window so the common case has no perceptible delay.
-        restartPendingRef.current = false;
-        currentPidRef.current = null;
-        setHmrStatus("restarting");
-        const fileForRestart = lastTrainFileRef.current;
-        queueMicrotask(() => {
-          // Don't auto-spawn a fresh /api/train request from an
-          // unmounted view: the user navigated away in the small
-          // window between scheduling and running this microtask, so
-          // their intent was "stop interacting with this view", not
-          // "kick off another cloud job invisibly". The unmount
-          // cleanup also clears `restartPendingRef` defensively.
-          if (!isMountedRef.current) return;
-          void run(fileForRestart);
-        });
-        return;
-      }
-
-      // Slow path: SSE rebuild event might still be in flight on a
-      // separate connection. Defer the "no restart" decision so the
-      // SSE handler has time to land and flip `restartPendingRef`.
-      // `currentPidRef` stays set for the grace window so that
-      // late event can still match per-pid.
-      //
-      // Skip the grace window entirely when HMR isn't enabled:
-      // without an `/api/dev/events` subscription nothing can ever
-      // flip `restartPendingRef`, so the 250 ms timer + closure
-      // would just churn microtasks and delay `setHmrStatus("idle")`
-      // for no benefit. `isHmrEnabled()` reads the same
-      // server-injected meta the SSE effect above gates on, so this
-      // mirrors that condition exactly.
-      if (!isHmrEnabled()) {
-        currentPidRef.current = null;
-        setHmrStatus("idle");
-        return;
-      }
+    if (ac.signal.aborted) {
+      // User Stop wins over any pending or in-flight HMR restart:
+      // clear everything synchronously and skip the grace window
+      // so the tab really settles instead of bouncing back up.
+      restartPendingRef.current = false;
+      currentPidRef.current = null;
+      setHmrStatus("idle");
       if (restartGraceTimerRef.current !== null) {
         clearTimeout(restartGraceTimerRef.current);
-      }
-      restartGraceTimerRef.current = window.setTimeout(() => {
         restartGraceTimerRef.current = null;
-        // A new run started during the window (overwrote the pid).
-        // Leave its lifecycle alone; its own finally will manage
-        // the cleanup eventually.
-        if (currentPidRef.current !== pidAtExit) return;
-        currentPidRef.current = null;
-        if (!isMountedRef.current) return;
-        if (restartPendingRef.current) {
-          restartPendingRef.current = false;
-          setHmrStatus("restarting");
-          const fileForRestart = lastTrainFileRef.current;
-          void run(fileForRestart);
-        } else {
-          setHmrStatus("idle");
-        }
-      }, 250);
+      }
+      return;
     }
+
+    if (restartPendingRef.current) {
+      // Fast path: SSE event already landed before exit. Fire the
+      // restart synchronously without waiting for the grace
+      // window so the common case has no perceptible delay.
+      restartPendingRef.current = false;
+      currentPidRef.current = null;
+      setHmrStatus("restarting");
+      const fileForRestart = lastTrainFileRef.current;
+      queueMicrotask(() => {
+        // Don't auto-spawn a fresh /api/train request from an
+        // unmounted view: the user navigated away in the small
+        // window between scheduling and running this microtask, so
+        // their intent was "stop interacting with this view", not
+        // "kick off another cloud job invisibly". The unmount
+        // cleanup also clears `restartPendingRef` defensively.
+        if (!isMountedRef.current) return;
+        void run(fileForRestart);
+      });
+      return;
+    }
+
+    // Slow path: SSE rebuild event might still be in flight on a
+    // separate connection. Defer the "no restart" decision so the
+    // SSE handler has time to land and flip `restartPendingRef`.
+    // `currentPidRef` stays set for the grace window so that
+    // late event can still match per-pid.
+    //
+    // Skip the grace window entirely when HMR isn't enabled:
+    // without an `/api/dev/events` subscription nothing can ever
+    // flip `restartPendingRef`, so the 250 ms timer + closure
+    // would just churn microtasks and delay `setHmrStatus("idle")`
+    // for no benefit. `isHmrEnabled()` reads the same
+    // server-injected meta the SSE effect above gates on, so this
+    // mirrors that condition exactly.
+    if (!isHmrEnabled()) {
+      currentPidRef.current = null;
+      setHmrStatus("idle");
+      return;
+    }
+    if (restartGraceTimerRef.current !== null) {
+      clearTimeout(restartGraceTimerRef.current);
+    }
+    restartGraceTimerRef.current = window.setTimeout(() => {
+      restartGraceTimerRef.current = null;
+      // A new run started during the window (overwrote the pid).
+      // Leave its lifecycle alone; its own finally will manage
+      // the cleanup eventually.
+      if (currentPidRef.current !== pidAtExit) return;
+      currentPidRef.current = null;
+      if (!isMountedRef.current) return;
+      if (restartPendingRef.current) {
+        restartPendingRef.current = false;
+        setHmrStatus("restarting");
+        const fileForRestart = lastTrainFileRef.current;
+        void run(fileForRestart);
+      } else {
+        setHmrStatus("idle");
+      }
+    }, 250);
   }
 
   function stop() {
