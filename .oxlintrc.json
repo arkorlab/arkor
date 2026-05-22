@@ -1,0 +1,61 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "promise"],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "builtin": true,
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/.arkor/**",
+    "**/coverage/**",
+    "**/playwright-report/**",
+    "**/test-results/**",
+    "**/.turbo/**",
+    "**/node_modules/**",
+    "packages/arkor/docs/**",
+    "packages/*/CONTRIBUTING.md",
+    "**/*.md",
+    "**/*.mdx"
+  ],
+  "overrides": [
+    {
+      "files": ["packages/studio-app/**/*.{ts,tsx,jsx}"],
+      "plugins": [
+        "typescript",
+        "unicorn",
+        "oxc",
+        "import",
+        "promise",
+        "react",
+        "jsx-a11y"
+      ],
+      "env": {
+        "browser": true
+      }
+    },
+    {
+      "files": [
+        "**/*.test.{ts,tsx,js,jsx,mjs}",
+        "**/*.spec.{ts,tsx,js,jsx,mjs}"
+      ],
+      "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "vitest"],
+      "env": {
+        "node": true
+      },
+      "rules": {
+        "vitest/require-mock-type-parameters": "off"
+      }
+    },
+    {
+      "files": ["e2e/studio/**/*.{ts,tsx,js,jsx,mjs}"],
+      "rules": {
+        "eslint/no-empty-pattern": "off"
+      }
+    }
+  ]
+}

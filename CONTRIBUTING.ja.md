@@ -40,6 +40,7 @@ pnpm install
 pnpm build         # turbo run build (全パッケージをカバー)
 pnpm test          # モノレポ全体のユニットテスト
 pnpm typecheck     # モノレポ全体の tsc
+pnpm lint          # モノレポ全体の oxlint (--deny-warnings)
 ```
 
 特定のパッケージで作業するには:

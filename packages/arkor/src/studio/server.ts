@@ -257,7 +257,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     });
   });
 
-  app.get("/api/me", async (c) => {
+  app.get("/api/me", async () => {
     const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
     const rpc = createRpc(credsBaseUrl, token);

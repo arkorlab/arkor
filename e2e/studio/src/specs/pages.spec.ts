@@ -92,7 +92,7 @@ test.describe("Studio pages", () => {
     await expect.poll(() =>
       cloudApi.requests.some(
         (r) =>
-          /^\/v1\/jobs\/job-e2e-1\/events\/stream\?/.test(r.url) &&
+          r.url.startsWith("/v1/jobs/job-e2e-1/events/stream?") &&
           r.url.includes("orgSlug=studio-e2e-org") &&
           r.url.includes("projectSlug=studio-e2e-project"),
       ),
