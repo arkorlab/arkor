@@ -569,11 +569,15 @@ describe("runCli yarn cache plumbing", () => {
         await runCli("/fake/bin", [], cwd);
 
         expect(spawnMock).toHaveBeenCalledTimes(2);
+        // `toHaveBeenCalledTimes(2)` above guarantees both indices
+        // exist; the non-null assertion sidesteps oxlint's
+        // `no-unsafe-optional-chaining` rule (mixing `?.` with a
+        // synchronous cast would throw TypeError on `undefined`).
         const firstEnv = (
-          spawnMock.mock.calls[0]?.[2] as { env: NodeJS.ProcessEnv }
+          spawnMock.mock.calls[0]![2] as { env: NodeJS.ProcessEnv }
         ).env;
         const secondEnv = (
-          spawnMock.mock.calls[1]?.[2] as { env: NodeJS.ProcessEnv }
+          spawnMock.mock.calls[1]![2] as { env: NodeJS.ProcessEnv }
         ).env;
         expect(firstEnv.YARN_CACHE_FOLDER).toBeDefined();
         expect(secondEnv.YARN_CACHE_FOLDER).toBeDefined();
