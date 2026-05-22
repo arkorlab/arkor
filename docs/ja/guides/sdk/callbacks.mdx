@@ -1,11 +1,11 @@
 ---
 title: "コールバック"
-description: "コードから学習ランを観測する。"
+description: "コードから学習を観測する。"
 ---
 
 # コールバック
 
-SDK は学習ランがストリームされる間に 5 つのタイミングでコールバックを発火します: started、log、checkpoint、completed、failed。TypeScript から離れずにメトリックスの転送、途中チェックポイントの評価、独自の通知などができます。
+SDK は学習がストリーミングされる間、5 つのタイミングでコールバックを発火します。started、log、checkpoint、completed、failed の 5 種類です。TypeScript から離れずに、メトリックスの転送、途中チェックポイントの評価、独自の通知などができます。
 
 ```ts
 import { createTrainer } from "arkor";
@@ -35,11 +35,11 @@ await trainer.wait();
 ## よくある用途
 
 - **メトリックスの転送**: `onLog` で `step` と `loss` を自前のパイプライン（PostHog、Datadog など）に送る。
-- **学習中の評価**: `onCheckpoint` で `infer()` を取り置いたプロンプトに対して呼び、サンプルをログに残せば、ランが正しい方向に向かっているか早めに判断できる。
+- **学習中の評価**: `onCheckpoint` で `infer()` を用意したプロンプトに対して呼び、サンプルをログに残せば、学習が正しい方向に向かっているか早めに判断できる。
 - **完了時の通知**: `onCompleted` や `onFailed` から Slack に投稿、メールを送る。
 
-より詳しいレシピは [ミッドラン評価](/ja/cookbook/mid-run-eval)、[Early Stopping](/ja/cookbook/early-stopping)、[通知](/ja/cookbook/notifications) を参照。
+より詳しいレシピは [学習中の評価](/ja/cookbook/mid-run-eval)、[Early Stopping](/ja/cookbook/early-stopping)、[通知](/ja/cookbook/notifications) を参照。
 
 ## リファレンス
 
-完全な型シグネチャー、コールバック内で throw すると通常の reject ではなく SSE 再接続をトリガーするルール、各コールバックのパラメータ一覧は [コールバックリファレンス](/ja/sdk/callbacks) を参照してください。ランの概念的な流れは [実行ライフサイクル](/ja/concepts/lifecycle) にあります。
+完全な型シグネチャー、コールバック内で throw すると通常の reject ではなく SSE 再接続をトリガーするルール、各コールバックのパラメーター一覧は [コールバックリファレンス](/ja/sdk/callbacks) を参照してください。学習の概念的な流れは [実行ライフサイクル](/ja/concepts/lifecycle) にあります。

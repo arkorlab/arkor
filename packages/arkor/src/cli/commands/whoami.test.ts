@@ -207,6 +207,65 @@ describe("runWhoami", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it("targets the URL stamped onto OAuth credentials when ARKOR_CLOUD_API_URL is unset", async () => {
+    // Regression: `runWhoami` previously called `defaultArkorCloudApiUrl()`
+    // without passing creds, so an OAuth user who logged in against
+    // staging would still 401 against production unless they kept
+    // `ARKOR_CLOUD_API_URL` set. Threading the loaded credentials in
+    // makes `defaultArkorCloudApiUrl(creds)` honour the auth-time
+    // `arkorCloudApiUrl`. Drop the env var explicitly so the
+    // credentials-derived branch is the only thing that could be
+    // hitting our staging fake.
+    delete process.env.ARKOR_CLOUD_API_URL;
+    await writeCredentials({
+      mode: "auth0",
+      accessToken: "at-staging",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "tenant.auth0.com",
+      audience: "https://staging-api.arkor.ai",
+      clientId: "cid",
+      arkorCloudApiUrl: "https://staging-api.arkor.ai",
+    });
+    let capturedUrl = "";
+    globalThis.fetch = vi.fn(async (input) => {
+      capturedUrl = String(input);
+      return new Response(JSON.stringify({ user: { id: "u" }, orgs: [] }), {
+        status: 200,
+      });
+    }) as typeof fetch;
+
+    await runWhoami();
+    expect(capturedUrl).toMatch(/^https:\/\/staging-api\.arkor\.ai\/v1\/me/);
+  });
+
+  it("falls back to production for legacy OAuth credentials with no arkorCloudApiUrl", async () => {
+    // Older OAuth tokens persisted before round 67 don't carry the
+    // login-time URL. The graceful fallback there is production —
+    // operators on staging would hit a 401 they can recover from by
+    // re-running `arkor login` (which now stamps the URL).
+    delete process.env.ARKOR_CLOUD_API_URL;
+    await writeCredentials({
+      mode: "auth0",
+      accessToken: "at-legacy",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "tenant.auth0.com",
+      audience: "https://api.arkor.ai",
+      clientId: "cid",
+    });
+    let capturedUrl = "";
+    globalThis.fetch = vi.fn(async (input) => {
+      capturedUrl = String(input);
+      return new Response(JSON.stringify({ user: { id: "u" }, orgs: [] }), {
+        status: 200,
+      });
+    }) as typeof fetch;
+
+    await runWhoami();
+    expect(capturedUrl).toMatch(/^https:\/\/api\.arkor\.ai\/v1\/me/);
+  });
+
   it("uses the Auth0 access token in the bearer header (auth0 mode)", async () => {
     // Branch coverage for `creds.mode === "anon" ? creds.token : creds.accessToken`.
     // The token closure runs lazily on the first request, so the spy must

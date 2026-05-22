@@ -23,6 +23,11 @@ const TABS: NavTab[] = [
     href: "#/playground",
     match: (r) => r.kind === "playground",
   },
+  {
+    label: "Endpoints",
+    href: "#/endpoints",
+    match: (r) => r.kind === "endpoints" || r.kind === "endpoint",
+  },
 ];
 
 export function NavTabs({ route }: { route: Route }) {

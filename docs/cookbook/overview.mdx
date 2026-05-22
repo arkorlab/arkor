@@ -12,6 +12,7 @@ This section collects the patterns that show up first when you try. Each recipe 
 | Recipe | What it shows | Built on |
 | --- | --- | --- |
 | [Mid-run evaluation](/cookbook/mid-run-eval) | Sanity-check the half-trained model against a fixed prompt at every checkpoint, before the run finishes. | [`onCheckpoint({ infer })`](/sdk/callbacks) |
+| [Structured outputs and function calling](/cookbook/structured-outputs) | Constrain a checkpoint's output to a JSON schema, parse it as a typed object, and let the model call functions. | [`infer({ responseFormat, tools })`](/sdk/infer) |
 | [Early stopping on diverging loss](/cookbook/early-stopping) | Abort a run automatically when the loss curve goes the wrong way, and stop the GPU on the backend too. | [`onLog`](/sdk/callbacks), [`AbortSignal`](/sdk/trainer-control), [`trainer.cancel()`](/sdk/trainer-control) |
 | [Slack / Discord notifications](/cookbook/notifications) | Post to a webhook on completion or failure, without leaving the trainer file. | [`onCompleted` / `onFailed`](/sdk/callbacks), `fetch` |
 | [Programmatic runs (no CLI)](/cookbook/programmatic-runs) | Drive training from a Next.js API route, a cron worker, or CI without going through `arkor dev` / `arkor start`. | [`runTrainer`](/sdk/overview), [`Trainer.start / wait`](/sdk/trainer-control) |

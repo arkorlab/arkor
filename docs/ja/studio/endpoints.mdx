@@ -1,0 +1,102 @@
+---
+title: "Endpoints"
+description: "Studio から *.arkor.app 推論 URL を管理: deployment 作成、設定切替、API キー発行。"
+---
+
+# Endpoints
+
+Endpoints ページ (`#/endpoints`) は学習済みアダプタやベースモデルを専用 `*.arkor.app` URL として公開し、その API キーを管理する画面です。SDK の [`CloudApiClient` deployment メソッド群](/ja/sdk/deployments) の上に乗っている UI で、ここで操作できることはすべてプログラム呼び出しでも可能です。
+
+**Deployment** とは `<slug>.arkor.app` URL とターゲット（アダプタまたはベースモデル）+ 認証モードの紐づきです。作成すると URL は OpenAI 互換の chat completions を返すようになり、OpenAI SDK の `baseURL` を向けるだけで使えます:
+
+```bash
+curl https://support-bot.arkor.app/v1/chat/completions \
+  -H "Authorization: Bearer $ARK_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"ignored","messages":[{"role":"user","content":"hi"}]}'
+```
+
+リクエスト body の `model` は無視されます。ターゲットは deployment 側で固定されているためです。
+
+## 一覧
+
+ナビから `#/endpoints` を開きます。各行に表示されるもの:
+
+- slug と `.arkor.app` ホストサフィックス
+- ターゲットのワンライナー要約（`Final adapter (job <8 chars>)` / `Checkpoint step N (job <8 chars>)` / `Base model: <name>`）
+- 現在の `authMode`（`fixed_api_key` または `none`）
+- enabled / disabled バッジ
+
+行をクリックすると詳細ページが開きます。検索／フィルタや自動更新は今のところ無いので、別タブや CLI / SDK での変更を取り込むにはページを再読み込みしてください。
+
+`.arkor/state.json` がディスクに無いときは deployments 一覧そのものは upstream を呼ばずに空のまま表示されます（`orgSlug` / `projectSlug` のスコープが解決できないため）。ただし `~/.arkor/credentials.json` も無い場合は Studio 起動時に `/api/credentials` 経由でクラウド API を 1 回呼び、匿名トークンを発行することがあります（空一覧が表示されるまでに走る唯一の outbound）。state ファイル自体はスコープが必要になった最初の呼び出し（学習の開始、ベースモデル推論、初回 deployment 作成）で遅延的に作られますが、**自動作成されるのは匿名認証情報のときだけ**です。OAuth でサインインしているユーザーは state が無いと代わりに「state が無い」エラーで止まり、`{ orgSlug, projectSlug, projectId }` で `.arkor/state.json` を手動作成する必要があります（ランタイムはどの org / project を使いたいか分からないので auto-bootstrap は走りません）。`arkor dev` 単体では state は書かれないので、Studio 起動直後の空一覧は想定どおりの状態です。
+
+## 作成
+
+一覧右上の **New endpoint** をクリック。インラインフォームの項目:
+
+| フィールド | 説明 |
+| --- | --- |
+| **Slug** | 2-50 文字、`[a-z0-9][a-z0-9-]*[a-z0-9]`。予約ラベル（`www`、`api`、`admin` など）はバックエンドが 400 で拒否します。 |
+| **Target** | 3 つから選択: job の **final adapter**（job UUID を貼り付け）、**特定 checkpoint**（job UUID + step）、**base model** 名（例 `meta-llama/Llama-2-7b-hf`）。 |
+| **Auth mode** | `Fixed API key`（既定）または `No auth (public)`。public は URL を知っている誰でも呼び出せます。デモや真に公開すべきモデル限定で使ってください。 |
+
+送信すると Studio は `POST /api/deployments` を呼び、cloud API に転送します。成功するとフォームが閉じ、一覧が再読み込みされて新しい deployment の行が含まれるようになるので、その行を開いてキー管理に進んでください。409（slug 重複）の場合は upstream のメッセージが赤字で表示され、フォームは開いたまま別の slug を試せます。
+
+job UUID は今のところ平文の入力欄です。[Jobs](/ja/studio/jobs) ページから ID をコピーして貼り付けてください（将来 job ピッカーに置き換える可能性あり）。
+
+## 詳細
+
+詳細ページ (`#/endpoints/<id>`) は 4 つのセクションに分かれています。
+
+### Endpoint URL
+
+`https://<slug>.arkor.app/v1/chat/completions` のフル URL とコピーボタン。これは **per-operation** な URL で、cURL や生の HTTP クライアントにそのまま渡せます。OpenAI SDK は **base URL** (`https://<slug>.arkor.app/v1`) を取るので、フル URL をそのまま SDK に渡すと SDK が自分のルートを append して 404 になります。下の Quick start カードが言語ごとの正しい形を出してくれるので、どちらを選ぶか迷わずに済みます。
+
+### Quick start
+
+コピペで動くコードサンプルを 2 つのドロップダウンで表示します:
+
+- **Language**: cURL、Python (OpenAI SDK)、JavaScript (OpenAI SDK)。
+- **Operation**: 今日は `POST /v1/chat/completions` 一択ですが、将来 OpenAI 形式の他のオペレーション（例: `/v1/embeddings`）を追加できる構造にしてあります。
+
+サンプルは deployment 現在の `authMode` を反映します。`fixed_api_key` なら `Authorization: Bearer YOUR_API_KEY` (cURL) や `apiKey: "YOUR_API_KEY"` (SDK) を含み、`none` なら cURL から auth ヘッダーは外れ、SDK サンプルは `not-required` プレースホルダーになります（OpenAI SDK は空文字 key を許容しないため、サーバ側が強制しない場合でも非空の値が必要）。**Hide** トグルで折りたためます。このカードは upstream を呼びません。
+
+### Settings
+
+- **Enable / Disable** トグル。disabled の deployment は edge サービスから 404 を返します。URL は予約されたまま残るので（他人が同じ slug を取れない）、後で再有効化しても URL は変わりません。
+- **Auth mode** ドロップダウン。`fixed_api_key` から `none` に切り替えると URL は即座にオープンに、戻すと既存キーが再び権威を持ちます。モード切替で既存キーが revoke されることはなく、再び enforce されるだけです。
+
+ターゲットそのもの（job 切り替え、final と checkpoint の入れ替え）は今のところ UI からは編集できません。差し替えたい場合は SDK の [`updateDeployment`](/ja/sdk/deployments) を使ってください。部分更新 body に `target` フィールドを渡します。
+
+### API keys
+
+- 一覧にはラベルと prefix（平文の先頭 ~12 文字、例 `ark_live_abcd1234…`）が並びます。Revoke 済みキーは取り消し線で表示。
+- **Issue key** はラベル（1-80 文字、例 `production`、`staging`）を尋ね、成功すると **平文を 1 度だけ** 黄色のコールアウトとコピーボタンとともに表示します。この場で必ず保存してください。Studio も cloud API も二度と返しません。
+- **Revoke** で `enabled` を false に。edge サービスはその後しばらくしてキーの受け入れを止めますが、具体的な反映時間は公開契約に含めていないので、即時に確実な遮断が必要な用途ではここに依存せずサーバー側のブロックも併用してください。
+
+cloud API はキーごとに `lastUsedAt` タイムスタンプも追跡しています（best-effort）が、Studio はこの一覧では表示しません。必要なら SDK の [`listDeploymentKeys`](/ja/sdk/deployments) を呼んでください。「最近このキーが使われたか?」程度の用途で、精密な監査向きではありません。
+
+## Studio がスタックのどこに居るか
+
+Studio はこれらのルートで cloud API を直接叩きません。`/api/jobs` や `/api/inference/chat` と同じローカル Hono サーバーが:
+
+1. ディスクから credentials とプロジェクト state を読み込み
+2. リクエストごとに [`CloudApiClient`](/ja/sdk/deployments) を構築
+3. SDK メソッドを呼び出し
+4. `CloudApiError` を upstream の HTTP ステータスにマップして SPA 側のエラー envelope を統一
+
+すべての `/api/deployments/*` 呼び出しはローンチごとの [Studio CSRF トークン](/ja/studio/overview#アーキテクチャ) を伴います。クロスオリジンタブは meta タグを読めないため、`evil.com` のタブからこれらのエンドポイントを叩くことは（`arkor dev` が動いていても）できません。
+
+## このページで（まだ）できないこと
+
+- **ターゲット編集。** ターゲット差し替え（例 `final` から `checkpoint:42` へ）は cloud API と SDK では対応済みですが、Studio は toggle / auth / key 管理だけ。SDK を使ってください。
+- **カスタムドメイン。** deployment レコードの `customDomain` カラムは将来用に予約されており、UI は今はそれを公開していません。
+- **Run retention。** deployment レコードは `runRetentionMode` / `runRetentionDays`（今後の保存済み run 機能用）を持ちますが、作成フォームはサーバー既定値を黙って使います。デフォルト以外を設定したい場合は SDK を経由してください。
+- **一括操作。** マルチセレクト / batch revoke / export は UI には無し。[SDK](/ja/sdk/deployments) でスクリプト化してください。
+- **自動更新。** Jobs 一覧と違い Endpoints はポーリングしません。別タブでの変更を反映するには再読み込みを。
+
+## Studio と SDK の使い分け
+
+- **Studio**: 単発の作成、たまのキーローテーション、「同僚にいま URL を渡したい」デモ用途。
+- **SDK** ([Deployments](/ja/sdk/deployments)): CI / IaC のプロビジョニング、スクリプト化された一括操作、独自管理 UI。Studio は同じ `CloudApiClient` の薄いラッパなので、Studio でできることは SDK でも全部できます。さらに今のところ SDK でしかできないこと（ターゲット編集、カスタム retention など）もいくつかあります。

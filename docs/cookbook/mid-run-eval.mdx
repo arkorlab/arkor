@@ -33,8 +33,10 @@ export const trainer = createTrainer({
           stream: false,        // get a single JSON body so this snippet stays short
           maxTokens: 80,
         });
-        const data = (await res.json()) as { content?: string };
-        const sample = data.content ?? "";
+        const data = (await res.json()) as {
+          choices: Array<{ message: { content?: string | null } }>;
+        };
+        const sample = data.choices[0]?.message.content ?? "";
         console.log(`step=${step} sample=${JSON.stringify(sample.slice(0, 80))}`);
       } catch (err) {
         console.error(`step=${step} infer failed:`, err);
@@ -63,8 +65,10 @@ The function returns the raw `Response` from the cloud API, so the streaming and
 ```ts
 async function generate(prompt: typeof GOLDEN_PROMPT, infer: (args: any) => Promise<Response>) {
   const res = await infer({ messages: prompt, stream: false, maxTokens: 80 });
-  const data = (await res.json()) as { content?: string };
-  return data.content ?? "";
+  const data = (await res.json()) as {
+    choices: Array<{ message: { content?: string | null } }>;
+  };
+  return data.choices[0]?.message.content ?? "";
 }
 
 onCheckpoint: async ({ step, infer }) => {
@@ -72,6 +76,8 @@ onCheckpoint: async ({ step, infer }) => {
   await postSampleToReviewQueue({ step, sample });
 },
 ```
+
+**Extract typed fields with a JSON schema.** Replace the freeform parse with `responseFormat: { type: "json_schema", json_schema: { name, schema, strict: true } }` — `data.choices[0].message.content` becomes a JSON string that always satisfies your schema, so a single `JSON.parse` gives you a typed object you can branch on directly (`parsed.urgency === "high"`, `parsed.category in VALID_LABELS`). Full pattern, including how to wire the typed fields into early stopping, in the [Structured outputs and function calling recipe](/cookbook/structured-outputs).
 
 **Trigger early stopping based on the sample.** Pair this with the [Early stopping recipe](/cookbook/early-stopping): if the checkpoint output drifts away from a reference text by more than your tolerance, abort the controller. The next checkpoint will not fire.
 

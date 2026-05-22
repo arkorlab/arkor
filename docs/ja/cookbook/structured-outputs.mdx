@@ -1,0 +1,176 @@
+---
+title: "構造化出力と Function Calling"
+description: "チェックポイントの出力を JSON Schema で型として固定し、型付きオブジェクトとしてパースする。モデルから関数呼び出しもさせる。"
+---
+
+# 構造化出力と Function Calling
+
+ファインチューニング済みのモデルは、本来決まった形を返すように学習します — `triage` なら `{ category, urgency, summary, nextAction }`、`redaction` なら `{ redactedText, redactedCount, tags }`。ただし学習途中のチェックポイントでは出力がブレます。余計な前置きが入る、キーが抜ける、ときにそもそもパースできない文字列が返ってくる。「データセットだけで形を保つ」前提は脆いのです。
+
+`infer({ responseFormat })` を使うと、その形を**ハード制約**にできます。モデルはデコード時点で「渡された JSON Schema に合致する文字列しか出せない」状態に縛られるので、`JSON.parse` は常に成功し、結果のオブジェクトは必ず指定したキーを持ちます。これにより中間チェックは「サンプルを見て目で確認」から「型付きフィールドを抽出して条件分岐する」に変わります。
+
+このレシピでは出番の多い 3 つのフィールド — JSON Schema を強制する `responseFormat`、関数呼び出し用の `tools`、そして JSON Schema では表現できない制約用の `structuredOutputs` — を扱います。
+
+## パターン
+
+```ts
+// src/arkor/trainer.ts
+import { createTrainer } from "arkor";
+
+const TRIAGE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    category: { type: "string" },
+    urgency: { type: "string", enum: ["low", "medium", "high"] },
+    summary: { type: "string" },
+    nextAction: { type: "string" },
+  },
+  required: ["category", "urgency", "summary", "nextAction"],
+  additionalProperties: false,
+};
+
+interface TriageOutput {
+  category: string;
+  urgency: "low" | "medium" | "high";
+  summary: string;
+  nextAction: string;
+}
+
+export const trainer = createTrainer({
+  name: "support-bot-v1",
+  model: "unsloth/gemma-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  lora: { r: 16, alpha: 16 },
+  maxSteps: 100,
+  callbacks: {
+    onCheckpoint: async ({ step, infer }) => {
+      try {
+        const res = await infer({
+          messages: [
+            { role: "user", content: "I can't log in to my account." },
+          ],
+          stream: false,
+          maxTokens: 200,
+          responseFormat: {
+            type: "json_schema",
+            json_schema: {
+              name: "triage",
+              schema: TRIAGE_SCHEMA,
+              strict: true,
+            },
+          },
+        });
+        const data = (await res.json()) as {
+          choices: Array<{ message: { content: string } }>;
+        };
+        const content = data.choices[0]?.message.content;
+        if (content === undefined || content === "") {
+          throw new Error("triage check returned empty content");
+        }
+        const parsed = JSON.parse(content) as TriageOutput;
+        console.log(`step=${step} triage=`, parsed);
+      } catch (err) {
+        console.error(`step=${step} triage check failed:`, err);
+      }
+    },
+  },
+});
+```
+
+`responseFormat: { type: "json_schema", json_schema: { name, schema, strict: true } }` が OpenAI 互換のシェイプです（`strict` はトップレベルではなく `json_schema` の中）。スキーマは推論バックエンドにそのまま転送され、デコード時にレスポンス全体がそれを満たすよう制約されます。`strict: true` を付けると、`properties` に宣言されていないキーは拒否され、`required` が強制されます。
+
+`infer({ stream: false })` は OpenAI chat-completions 形式の単一 JSON ボディを返すので、`data.choices[0].message.content` を `JSON.parse` する標準的な経路でそのまま読めます。
+
+## Early Stopping に繋ぐ
+
+型付きフィールドが取れれば、それで分岐できます。[Early stopping レシピ](/ja/cookbook/early-stopping)と組み合わせて:
+
+```ts
+const VALID_CATEGORIES = new Set([
+  "auth",
+  "billing",
+  "bug",
+  "feature_request",
+  "other",
+]);
+
+onCheckpoint: async ({ step, infer }) => {
+  const parsed = await runTriage(infer);     // 上のコードの呼び出し
+  if (parsed && !VALID_CATEGORIES.has(parsed.category)) {
+    console.warn(
+      `step=${step} category=${parsed.category} not in label set, aborting`,
+    );
+    controller.abort();
+    await trainer.cancel().catch(() => {});
+  }
+},
+```
+
+スキーマが「`category` が必ず存在する文字列であること」を保証してくれるので、あとは「自分のラベル集合にとって正しいか」を判定するだけです。`urgency` も同じ発想で、step 30 のチェックポイントが既に `"high"` ばかり返している場合、モデルは崩れていて以降の学習は無駄です。
+
+## Function Calling
+
+外部ツールを呼ぶ必要があるとき — 注文の状態を引く、天気を取る、社内 API を叩く — `tools` と `toolChoice` を `infer` に渡します。応答は free-form なテキストではなく `tool_calls` を含む形になり、あなたのコードがそのツールを実行し、続けたければ `tool` ロールのメッセージを足して再度 `infer` を呼びます。
+
+```ts
+onCheckpoint: async ({ step, infer }) => {
+  const res = await infer({
+    messages: [
+      { role: "user", content: "What's the status of order #4821?" },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "get_order_status",
+          description: "Look up the current status of a customer order.",
+          parameters: {
+            type: "object",
+            properties: { orderId: { type: "string" } },
+            required: ["orderId"],
+          },
+        },
+      },
+    ],
+    toolChoice: "auto",
+    stream: false,
+  });
+  const data = (await res.json()) as {
+    choices: Array<{ message: { tool_calls?: Array<{ function: { name: string; arguments: string } }> } }>;
+  };
+  const call = data.choices[0]?.message.tool_calls?.[0];
+  if (call) {
+    const args = JSON.parse(call.function.arguments) as { orderId: string };
+    console.log(`step=${step} tool=${call.function.name} args=`, args);
+  }
+};
+```
+
+Function Calling を使うには推論エンドポイント側で auto-tool-extraction が有効になっている必要があります。設定が無いと `400 tool_calling_not_configured` で返ります — これはエンドポイント設定を直すサインで、リトライしても通りません。`toolChoice: "required"` や `toolChoice: { type: "function", function: { name } }` は guided-decoding 経路を通るので parser は不要、parser が要るのは `"auto"` だけです。
+
+## `responseFormat` で表現できない制約
+
+`responseFormat` で 9 割は足ります。残りの 1 割は `structuredOutputs`（vLLM のスーパーセット）で扱います: 正規表現マッチ、固定 choice、独自 EBNF グラマーなどが乗ります。`json` / `regex` / `choice` / `grammar` / `json_object` のうち**ちょうど 1 つ**だけを設定する規約で、型システムがその不変条件を強制するので 2 つ同時には設定できません。
+
+よくあるのは「固定の文字列集合のいずれかしか出さない」というケースで、余計な前置きを許したくない分類タスクのプロンプトに有用です:
+
+```ts
+const res = await infer({
+  messages: [{ role: "user", content: "Classify urgency: I can't log in." }],
+  structuredOutputs: { choice: ["low", "medium", "high"] },
+  stream: false,
+});
+const data = (await res.json()) as {
+  choices: Array<{ message: { content: string } }>;
+};
+const urgency = data.choices[0]?.message.content; // 必ず "low" / "medium" / "high" のいずれか
+```
+
+他の形式も同じパターンです。チケット ID 形式の強制なら `regex: "^[A-Z]{3}-\\d{4}$"`、自前の EBNF なら `grammar: "..."`。フィールド名は snake_case (`json_object`, `disable_any_whitespace`, `whitespace_pattern`) で、vLLM の wire format に合わせてあるためそのままワーカーまで通ります。
+
+## 注意点
+
+- **`strict: true` が事実上の正解。** 付けないとスキーマは「ヒント」扱いで、モデルがブレる余地が残ります。付けると `properties` に無いキーを拒否し、`required` を強制します。
+- **パースするなら `stream: false`。** stream を有効にすると SSE デルタを自分で組み立ててから JSON にパースする必要があります。本レシピのように 1 チェックポイントに 1 推論なら、単一 JSON ボディの方が短く、レイテンシー差は意味を持ちません。
+- **`try / catch` で囲む。** ランタイムは callback 内の throw を捕まえて SSE 再接続ループに乗せます ([SDK § ライフサイクルコールバック](/ja/sdk/callbacks))。挙動を決定的にするには callback 内でエラーを処理し、状態変更には他のレシピと同様に AbortController を使います。
+- **スキーマは検証なしで素通り。** SDK は渡された JSON Schema を検証しません。スキーマ自体のバリデーションは推論バックエンド側で行われ、不正な箇所があれば 4xx で返ります。

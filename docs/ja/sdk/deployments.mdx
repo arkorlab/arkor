@@ -1,0 +1,185 @@
+---
+title: "Deployments"
+description: "CloudApiClient を使って *.arkor.app の推論 URL をプログラムで管理する。"
+---
+
+# Deployments
+
+**Deployment** は学習済みアダプタ（または素のベースモデル）を専用のサブドメイン `https://<slug>.arkor.app/v1/chat/completions` に公開する仕組みです。OpenAI Chat Completions のワイヤーフォーマットで応答するので、OpenAI 互換のクライアント（公式 `openai` SDK、LangChain など）の `baseURL` を向けるだけで使えます。
+
+`CloudApiClient` はこれらの deployment をプログラムで管理（作成、API キーのローテーション、削除）するための型付きエントリポイントです。Node.js スクリプトや自分のサーバーから呼べます。Studio ダッシュボードは作成 / トグル / キー管理といった共通操作をカバーしますが、いくつかの操作は今のところ SDK のみで可能です（既存 deployment の target 差し替え、デフォルト以外の run retention 設定、バルク操作のスクリプト化など）。今日のパリティ境界は [Studio Endpoints ページ](/ja/studio/endpoints) を参照してください。このページは SDK の表面を扱います。
+
+## SDK を使う場面
+
+- **CI / IaC**: 他のインフラと一緒に deployment をプロビジョニング。学習済み job の `final` アダプタが、1 ステップのスクリプトで「保存済みチェックポイント」から「ライブ URL」になります。
+- **独自ダッシュボード**: 自前の管理 UI に deployment 管理を組み込む。
+- **一括操作**: インシデント後に多数の deployment のキーをまとめて revoke + 再発行する、など。
+
+日常の対話的な操作には Studio や今後の `arkor endpoints` CLI が向いています。SDK はそれらが乗っている下層レイヤーです。
+
+## セットアップ
+
+```ts
+import {
+  CloudApiClient,
+  defaultArkorCloudApiUrl,
+  ensureCredentials,
+} from "arkor";
+
+// `ensureCredentials` は既存の `~/.arkor/credentials.json` を読み、
+// 無ければ新規の匿名アイデンティティをブートストラップして保存します。
+const credentials = await ensureCredentials();
+
+const client = new CloudApiClient({
+  // `defaultArkorCloudApiUrl(credentials)` が control plane の URL を
+  // 解決します: 優先順位は `ARKOR_CLOUD_API_URL` 環境変数 → 認証情報に
+  // 保存された URL（匿名は signup 時、OAuth は `arkor login` 時に保存）
+  // → 本番 fallback。
+  baseUrl: defaultArkorCloudApiUrl(credentials),
+  credentials,
+});
+```
+
+`CloudApiClient` は SDK 全体で使う `Credentials` 型をそのまま受け取ります。OAuth のアクセストークン（`arkor login` 後）でも、匿名 CLI トークンでも構いません。両者で API 表面は同一です。渡す `baseUrl` は credentials が発行された control plane と一致している必要があります — staging で発行された OAuth トークンを本番の `CloudApiClient` に渡すとトークン自体は形式的に正しくても 401 になります。`defaultArkorCloudApiUrl(credentials)` は認証時に credentials に押された URL を読むので通常はこれが自動で揃います。古い credentials（URL を保存する前に作成されたもの）は本番 fallback に落ちるので、再 login か `ARKOR_CLOUD_API_URL` の明示設定が必要です。
+
+deployment はすべて `(orgSlug, projectSlug)` スコープに属するので、毎回そのスコープを渡します:
+
+```ts
+const scope = { orgSlug: "my-org", projectSlug: "my-project" };
+```
+
+## Deployment を作成する
+
+```ts
+const { deployment } = await client.createDeployment(scope, {
+  slug: "support-bot",                         // → support-bot.arkor.app
+  target: {
+    kind: "adapter",
+    adapter: { kind: "final", jobId: "<uuid>" },
+  },
+  authMode: "fixed_api_key",                   // 公開する場合は "none"
+});
+```
+
+`target` は判別共用体です:
+
+```ts
+type DeploymentTarget =
+  | { kind: "adapter"; adapter:
+      | { kind: "final"; jobId: string }
+      | { kind: "checkpoint"; jobId: string; step: number };
+    }
+  | { kind: "base_model"; baseModel: string };
+```
+
+`authMode` は `"fixed_api_key"`（クライアントが `Authorization: Bearer …` または `x-api-key` を送る）または `"none"`（URL がオープン。公開デモやモデル限定で使用）です。
+
+`runRetentionMode` と `runRetentionDays` は省略可。省略時はサーバーのデフォルト（`days` / 7 日）を使います。`"unlimited"` で無期限保持、`"disabled"` で永続化スキップ。
+
+slug は `[a-z0-9][a-z0-9-]*[a-z0-9]`（2-50 文字）に一致する必要があります。予約ラベル（`www`、`api`、`admin` など）はサーバーが 400 で拒否します。
+
+## API キーを発行する
+
+```ts
+const { key } = await client.createDeploymentKey(deployment.id, scope, {
+  label: "production",
+});
+
+console.log(key.plaintext); // ← 表示されるのは作成時の **1 度きり**。今すぐ保存
+```
+
+平文は作成時のみ返されます。以降の `listDeploymentKeys()` ではラベルと表示用 prefix（`ark_live_abcd1234…`）だけが返り、フルキーは取得不可。紛失した場合は新規発行 → 旧キー revoke を行ってください。
+
+キーの使い方:
+
+```bash
+curl https://support-bot.arkor.app/v1/chat/completions \
+  -H "Authorization: Bearer $ARK_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"ignored","messages":[{"role":"user","content":"hi"}]}'
+```
+
+リクエスト body の `model` フィールドは無視されます。deployment 側でターゲットが固定されているためです。OpenAI SDK は `baseURL` を `https://<slug>.arkor.app/v1` に向けるだけで動きます。
+
+## 取得・一覧・更新・削除
+
+```ts
+// プロジェクト内の全 deployment を一覧
+const { deployments } = await client.listDeployments(scope);
+
+// 単一取得
+const { deployment } = await client.getDeployment(id, scope);
+
+// URL を変えずにターゲットだけ差し替える。クライアント側は無修正で動く
+await client.updateDeployment(id, scope, {
+  target: { kind: "adapter", adapter: { kind: "final", jobId: newJobId } },
+});
+
+// 一時的に無効化
+await client.updateDeployment(id, scope, { enabled: false });
+
+// 削除（key も cascade、URL は 404 になる）
+await client.deleteDeployment(id, scope);
+```
+
+`updateDeployment` は部分更新です。渡さなかったフィールドはそのまま残ります。URL 自体は `slug` で決まり**変更不可**。slug を変えたい場合は新規作成してください。
+
+## キーの管理
+
+```ts
+const { keys } = await client.listDeploymentKeys(id, scope);
+// keys: [{ id, label, prefix, enabled, createdAt, lastUsedAt }, ...]
+
+// Revoke。行の `enabled` が false に切り替わり、edge サービスはその後
+// キーの受け入れを止めます。具体的な反映時間は公開契約に含めていな
+// いので、即時失効を保証したい用途ではここに依存せず、サーバー側で
+// もブロックを併用してください。
+await client.revokeDeploymentKey(id, keyId, scope);
+```
+
+`lastUsedAt` は edge サービスが best-effort で更新します。トラフィック下で任意に遅延する可能性があり、edge インスタンス再起動を挟むと値が現れないこともあり、タイミング保証の対象には含まれません。あくまで近似値として扱い、「最近このキーが使われたか？」程度の用途に留めてください。
+
+## エラーハンドリング
+
+非 2xx レスポンスは `CloudApiError` として throw されます:
+
+```ts
+import { CloudApiClient, CloudApiError } from "arkor";
+
+try {
+  await client.createDeployment(scope, { slug: "taken", /* … */ });
+} catch (err) {
+  if (err instanceof CloudApiError && err.status === 409) {
+    console.error("Slug already taken; pick another");
+  } else {
+    throw err;
+  }
+}
+```
+
+主なステータス:
+
+| ステータス | 発生条件 | 対処 |
+| --- | --- | --- |
+| `400` | スキーマ検証失敗（不正な slug、target の型違反） | `err.message` をユーザーに表示 |
+| `403` | 呼び出し元が org / project のメンバーでない | スコープを再確認、`arkor whoami` で確認 |
+| `404` | スコープ内に deployment / key / job がない | UUID とスコープの整合を確認 |
+| `409` | 作成時の slug 重複 | 別の slug でリトライ |
+| `426` | SDK が古い | エラー本文の指示通り `arkor` を更新 |
+
+## リファレンス
+
+| メソッド | 戻り値 |
+| --- | --- |
+| `listDeployments(scope)` | `{ deployments: DeploymentDto[] }` |
+| `getDeployment(id, scope)` | `{ deployment: DeploymentDto }` |
+| `createDeployment(scope, input)` | `{ deployment: DeploymentDto }` |
+| `updateDeployment(id, scope, input)` | `{ deployment: DeploymentDto }` |
+| `deleteDeployment(id, scope)` | `void`（HTTP 204） |
+| `listDeploymentKeys(id, scope)` | `{ keys: DeploymentKeyDto[] }` |
+| `createDeploymentKey(id, scope, input)` | `{ key: CreateDeploymentKeyResult }`（平文はここでのみ返る） |
+| `revokeDeploymentKey(id, keyId, scope)` | `void`（HTTP 204） |
+
+ランタイム export（値として import できるクラス）: `CloudApiClient`、`CloudApiError`。
+
+型のみの export（`import type` で import できるもの）: `CloudApiClientOptions`、`DeploymentTarget`、`DeploymentAuthMode`、`DeploymentRunRetentionMode`、`DeploymentDto`、`DeploymentKeyDto`、`DeploymentScope`、`CreateDeploymentInput`、`UpdateDeploymentInput`、`CreateDeploymentKeyInput`、`CreateDeploymentKeyResult`。

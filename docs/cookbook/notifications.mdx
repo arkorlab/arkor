@@ -86,8 +86,11 @@ onCheckpoint: async ({ step, infer }) => {
       stream: false,
       maxTokens: 80,
     });
-    const data = (await res.json()) as { content?: string };
-    await postSlack({ text: `step=${step} → ${data.content ?? "(empty)"}` });
+    const data = (await res.json()) as {
+      choices: Array<{ message: { content?: string | null } }>;
+    };
+    const sample = data.choices[0]?.message.content ?? "(empty)";
+    await postSlack({ text: `step=${step} → ${sample}` });
   } catch (err) {
     console.warn("checkpoint sample failed:", err);
   }

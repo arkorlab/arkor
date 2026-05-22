@@ -13,6 +13,16 @@ export interface Auth0Credentials {
   auth0Domain: string;
   audience: string;
   clientId: string;
+  /**
+   * The cloud API base URL the user authenticated against. Captured at
+   * `arkor login` time so the SDK / Studio can keep targeting the same
+   * staging / self-hosted control plane on subsequent runs without
+   * needing `ARKOR_CLOUD_API_URL` re-set every time. Optional for
+   * backward compatibility with credentials persisted before this
+   * field was introduced — `defaultArkorCloudApiUrl` falls through to
+   * the production endpoint when it's missing.
+   */
+  arkorCloudApiUrl?: string;
 }
 
 export interface AnonymousCredentials {
@@ -89,11 +99,80 @@ export async function getToken(credentials: Credentials): Promise<string> {
     : credentials.accessToken;
 }
 
-export function defaultArkorCloudApiUrl(): string {
-  return (
-    process.env.ARKOR_CLOUD_API_URL?.replace(/\/$/, "") ??
-    "https://api.arkor.ai"
-  );
+/**
+ * Resolve the cloud API base URL the SDK / CLI should target.
+ *
+ * Priority order:
+ *   1. `ARKOR_CLOUD_API_URL` env var (trailing slash stripped). Empty
+ *      string is honoured — an operator who set `=""` intentionally
+ *      (so a config error surfaces at first fetch instead of silently
+ *      hitting production) sees `""` propagated.
+ *   2. `arkorCloudApiUrl` from the loaded credentials. Both
+ *      `AnonymousCredentials` (stamped at signup) and
+ *      `Auth0Credentials` (stamped at `arkor login` time, since
+ *      `Auth0Credentials.arkorCloudApiUrl` was added) carry the URL
+ *      they were issued against, so subsequent runs keep targeting
+ *      the same staging / self-hosted control plane without
+ *      `ARKOR_CLOUD_API_URL` re-set. Empty string is honoured here
+ *      too for the same reason as the env var.
+ *   3. The production endpoint `https://api.arkor.ai`. This branch
+ *      catches missing `arkorCloudApiUrl` only — the legacy case for
+ *      OAuth tokens persisted before the field existed. Those
+ *      credentials need a re-login (or `ARKOR_CLOUD_API_URL` set
+ *      explicitly) to follow a non-production control plane.
+ *
+ * Exposed as a public helper because `CloudApiClient` requires an
+ * explicit `baseUrl` and the SDK doesn't otherwise hand consumers a
+ * supported way to recover the credential-bound URL. Without it,
+ * scripts that reuse `readCredentials()` after `arkor login` would
+ * have no way to target the same staging / self-hosted control plane
+ * the user actually authenticated against.
+ */
+export function defaultArkorCloudApiUrl(
+  credentials?: Credentials | null,
+): string {
+  // `!= null` (not truthy) preserves the original env-handling: an
+  // explicitly empty `ARKOR_CLOUD_API_URL = ""` still propagates so a
+  // misconfigured env triggers the URL-parse error at startup instead
+  // of being silently substituted with the production fallback. Tests
+  // exercise that exact behaviour to surface config bugs early.
+  const fromEnv =
+    process.env.ARKOR_CLOUD_API_URL !== undefined
+      ? stripTrailingSlashes(process.env.ARKOR_CLOUD_API_URL)
+      : undefined;
+  if (fromEnv !== undefined) return fromEnv;
+  // Both shapes carry an optional `arkorCloudApiUrl`: anonymous since
+  // signup, OAuth since login. `!= null` (not truthy) keeps an empty
+  // string round-tripping the same way the env-var branch above
+  // does — an operator who logged in with `ARKOR_CLOUD_API_URL=""`
+  // intentionally to surface config errors should see that
+  // propagated through the persisted credentials, not silently
+  // substituted with production. Falling back to production for
+  // *missing* `arkorCloudApiUrl` (legacy creds, e.g. tokens written
+  // before the field existed) is still safe: the worst outcome
+  // there is a 401 against the wrong control plane, which is what
+  // the operator hits today on those legacy tokens anyway.
+  if (
+    credentials?.arkorCloudApiUrl !== undefined &&
+    credentials?.arkorCloudApiUrl !== null
+  ) {
+    // Same multi-slash strip as the env-var branch above.
+    return stripTrailingSlashes(credentials.arkorCloudApiUrl);
+  }
+  return "https://api.arkor.ai";
+}
+
+/**
+ * Drop every trailing `/` from `s`. Implemented as a hand-rolled loop
+ * rather than `replace(/\/+$/, "")` because CodeQL flags the regex
+ * variant as a polynomial-backtracking ReDoS vector when the input is
+ * uncontrolled (env / persisted credentials, here). The loop is O(n)
+ * with no backtracking and produces the same result.
+ */
+function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 0x2f /* "/" */) end--;
+  return end === s.length ? s : s.slice(0, end);
 }
 
 /**

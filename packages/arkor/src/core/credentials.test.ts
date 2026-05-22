@@ -115,6 +115,120 @@ describe("defaultArkorCloudApiUrl", () => {
     delete process.env.ARKOR_CLOUD_API_URL;
     expect(defaultArkorCloudApiUrl()).toBe("https://api.arkor.ai");
   });
+  it("strips multiple trailing slashes from the env-var value", () => {
+    // Defends against a misconfigured `ARKOR_CLOUD_API_URL` like
+    // `https://host///` collapsing to `https://host/` and producing
+    // double-slash request URLs (`https://host//v1/me`) downstream.
+    process.env.ARKOR_CLOUD_API_URL = "https://api.example.com////";
+    expect(defaultArkorCloudApiUrl()).toBe("https://api.example.com");
+  });
+  it("strips multiple trailing slashes from a credentials-derived URL", () => {
+    // Same hazard as above, but for the URL persisted on a credentials
+    // record (e.g. an anonymous bootstrap that captured a sloppy host).
+    delete process.env.ARKOR_CLOUD_API_URL;
+    expect(
+      defaultArkorCloudApiUrl({
+        mode: "anon",
+        token: "t",
+        anonymousId: "a",
+        arkorCloudApiUrl: "https://staging.arkor.ai///",
+        orgSlug: "anon-x",
+      }),
+    ).toBe("https://staging.arkor.ai");
+  });
+  it("propagates an explicitly-empty ARKOR_CLOUD_API_URL (config-error surface)", () => {
+    // `arkor dev`'s startup test relies on `""` reaching the URL parser
+    // so a misconfigured env throws at startup instead of silently
+    // falling through to the production endpoint. The env wins over
+    // both the production fallback and any credentials-derived URL.
+    process.env.ARKOR_CLOUD_API_URL = "";
+    expect(defaultArkorCloudApiUrl()).toBe("");
+  });
+  it("derives baseUrl from anonymous credentials when env is unset", () => {
+    // `CloudApiClient` requires an explicit `baseUrl`. OAuth
+    // credentials don't carry one; anonymous credentials do, captured
+    // at signup against whatever cloud the token was issued by. This
+    // lets a script reuse `readCredentials()` to talk to the same
+    // staging / self-hosted endpoint the user authenticated against.
+    delete process.env.ARKOR_CLOUD_API_URL;
+    const url = defaultArkorCloudApiUrl({
+      mode: "anon",
+      token: "t",
+      anonymousId: "a",
+      arkorCloudApiUrl: "https://staging.arkor.ai/",
+      orgSlug: "anon-x",
+    });
+    expect(url).toBe("https://staging.arkor.ai");
+  });
+  it("falls back to production for legacy OAuth credentials with no baseUrl", () => {
+    // Credentials persisted before `Auth0Credentials.arkorCloudApiUrl`
+    // was added (round 67). The graceful fallback is production —
+    // operators on staging / self-hosted who hit this would have to
+    // re-run `arkor login` to repopulate the field, or set
+    // `ARKOR_CLOUD_API_URL` to bridge.
+    delete process.env.ARKOR_CLOUD_API_URL;
+    const url = defaultArkorCloudApiUrl({
+      mode: "auth0",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "d",
+      audience: "a",
+      clientId: "c",
+    });
+    expect(url).toBe("https://api.arkor.ai");
+  });
+  it("derives baseUrl from OAuth credentials when arkorCloudApiUrl is present", () => {
+    // `arkor login` writes `arkorCloudApiUrl` into the credentials so
+    // subsequent SDK calls keep targeting the same control plane.
+    delete process.env.ARKOR_CLOUD_API_URL;
+    const url = defaultArkorCloudApiUrl({
+      mode: "auth0",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "d",
+      audience: "a",
+      clientId: "c",
+      arkorCloudApiUrl: "https://staging-api.arkor.ai/",
+    });
+    expect(url).toBe("https://staging-api.arkor.ai");
+  });
+  it("propagates an explicitly-empty arkorCloudApiUrl on credentials (config-error surface)", () => {
+    // Mirror of the env-var case above: an operator who logged in
+    // with `ARKOR_CLOUD_API_URL=""` to make config errors fail
+    // loudly should see that intent round-trip through the persisted
+    // credentials and back out via this helper, *not* be silently
+    // substituted with production. The auth0 login path stamps the
+    // empty string verbatim into `Auth0Credentials.arkorCloudApiUrl`,
+    // and this helper has to honour it.
+    delete process.env.ARKOR_CLOUD_API_URL;
+    const url = defaultArkorCloudApiUrl({
+      mode: "auth0",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "d",
+      audience: "a",
+      clientId: "c",
+      arkorCloudApiUrl: "",
+    });
+    expect(url).toBe("");
+  });
+  it("env wins over credentials-derived URL", () => {
+    // Operator override stays authoritative — useful for pointing a
+    // production-credentials script at a staging mirror for a one-off
+    // debug session without re-issuing the token.
+    process.env.ARKOR_CLOUD_API_URL = "https://override.example.com";
+    const url = defaultArkorCloudApiUrl({
+      mode: "anon",
+      token: "t",
+      anonymousId: "a",
+      arkorCloudApiUrl: "https://staging.arkor.ai",
+      orgSlug: "anon-x",
+    });
+    expect(url).toBe("https://override.example.com");
+  });
 });
 
 describe("requestAnonymousToken", () => {

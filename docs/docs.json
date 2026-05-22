@@ -25,7 +25,7 @@
             "groups": [
               {
                 "group": "Get started",
-                "pages": ["introduction", "quickstart"]
+                "pages": ["introduction", "quickstart", "models"]
               },
               {
                 "group": "Concepts",
@@ -56,7 +56,8 @@
                   "guides/sdk/dataset",
                   "guides/sdk/callbacks",
                   "guides/sdk/infer",
-                  "guides/sdk/trainer-control"
+                  "guides/sdk/trainer-control",
+                  "guides/sdk/deployments"
                 ]
               },
               {
@@ -64,7 +65,8 @@
                 "pages": [
                   "studio/overview",
                   "studio/jobs",
-                  "studio/playground"
+                  "studio/playground",
+                  "studio/endpoints"
                 ]
               },
               {
@@ -72,6 +74,7 @@
                 "pages": [
                   "cookbook/overview",
                   "cookbook/mid-run-eval",
+                  "cookbook/structured-outputs",
                   "cookbook/early-stopping",
                   "cookbook/notifications",
                   "cookbook/programmatic-runs",
@@ -106,7 +109,8 @@
                   "sdk/dataset",
                   "sdk/callbacks",
                   "sdk/infer",
-                  "sdk/trainer-control"
+                  "sdk/trainer-control",
+                  "sdk/deployments"
                 ]
               }
             ]
@@ -134,7 +138,7 @@
             "groups": [
               {
                 "group": "はじめに",
-                "pages": ["ja/introduction", "ja/quickstart"]
+                "pages": ["ja/introduction", "ja/quickstart", "ja/models"]
               },
               {
                 "group": "コンセプト",
@@ -165,7 +169,8 @@
                   "ja/guides/sdk/dataset",
                   "ja/guides/sdk/callbacks",
                   "ja/guides/sdk/infer",
-                  "ja/guides/sdk/trainer-control"
+                  "ja/guides/sdk/trainer-control",
+                  "ja/guides/sdk/deployments"
                 ]
               },
               {
@@ -173,7 +178,8 @@
                 "pages": [
                   "ja/studio/overview",
                   "ja/studio/jobs",
-                  "ja/studio/playground"
+                  "ja/studio/playground",
+                  "ja/studio/endpoints"
                 ]
               },
               {
@@ -181,6 +187,7 @@
                 "pages": [
                   "ja/cookbook/overview",
                   "ja/cookbook/mid-run-eval",
+                  "ja/cookbook/structured-outputs",
                   "ja/cookbook/early-stopping",
                   "ja/cookbook/notifications",
                   "ja/cookbook/programmatic-runs",
@@ -215,7 +222,8 @@
                   "ja/sdk/dataset",
                   "ja/sdk/callbacks",
                   "ja/sdk/infer",
-                  "ja/sdk/trainer-control"
+                  "ja/sdk/trainer-control",
+                  "ja/sdk/deployments"
                 ]
               }
             ]

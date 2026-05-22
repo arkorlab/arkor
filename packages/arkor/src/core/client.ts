@@ -5,14 +5,37 @@ import {
 } from "@arkor/cloud-api-client";
 import type { z } from "zod";
 import type { Credentials } from "./credentials";
+import type {
+  CreateDeploymentInput,
+  CreateDeploymentKeyInput,
+  CreateDeploymentKeyResult,
+  DeploymentDto,
+  DeploymentKeyDto,
+  DeploymentScope,
+  UpdateDeploymentInput,
+} from "./deployments";
 import { recordDeprecation, tapDeprecation } from "./deprecation";
 import {
+  createDeploymentKeyResponseSchema,
+  createDeploymentResponseSchema,
   createJobResponseSchema,
   createProjectResponseSchema,
+  getDeploymentResponseSchema,
   jobDetailResponseSchema,
+  listDeploymentKeysResponseSchema,
+  listDeploymentsResponseSchema,
   listProjectsResponseSchema,
+  updateDeploymentResponseSchema,
 } from "./schemas";
-import type { JobConfig, TrainingJob } from "./types";
+import type {
+  ChatMessage,
+  JobConfig,
+  ResponseFormat,
+  StructuredOutputs,
+  ToolChoice,
+  ToolDefinition,
+  TrainingJob,
+} from "./types";
 import { formatSdkUpgradeError } from "./upgrade-hint";
 import { SDK_VERSION } from "./version";
 
@@ -65,6 +88,15 @@ export interface CloudApiClientOptions {
   baseUrl: string;
   credentials: Credentials;
   fetch?: typeof fetch;
+  /**
+   * Override the per-response deprecation callback. Defaults to the
+   * SDK-global `recordDeprecation`, which the CLI flushes once at the
+   * end of `main()`. Studio overrides this so it can capture the
+   * notice per-request and re-emit it as `Deprecation` / `Warning` /
+   * `Sunset` headers on the proxy response, matching the passthrough
+   * behavior of `/api/jobs` and friends.
+   */
+  onDeprecation?: (notice: import("./deprecation").DeprecationNotice) => void;
 }
 
 export class CloudApiClient {
@@ -82,7 +114,23 @@ export class CloudApiClient {
       token: () => this.token,
       fetch: options.fetch,
       clientVersion: SDK_VERSION,
-      onDeprecation: recordDeprecation,
+      // The wrapper around the deprecation callback works around a bug
+      // in `@arkor/cloud-api-client` (alpha.2): the upstream runtime
+      // probes the handler's return value with
+      // `result !== null && typeof result.then === "function"`, then
+      // wraps `result.catch(...)`. A `void` return makes
+      // `typeof undefined.then` throw inside `try`, and the surrounding
+      // catch logs `[@arkor/cloud-api-client] onDeprecation handler
+      // threw; ignoring:` on every deprecated response — even though
+      // the user handler ran fine. Returning `null` short-circuits the
+      // left side of the `&&`, so the `.then` access never runs and
+      // the spurious log goes away. Same pattern is mirrored in
+      // `studio/server.ts`. Drop this once an alpha ships the
+      // upstream fix.
+      onDeprecation: (notice) => {
+        (options.onDeprecation ?? recordDeprecation)(notice);
+        return null;
+      },
     });
   }
 
@@ -188,6 +236,112 @@ export class CloudApiClient {
     return res;
   }
 
+  // ---------------------------------------------------------------------
+  // Deployments (`/v1/endpoints/*`)
+  //
+  // Routed through the typed Hono RPC client so the cloud API's
+  // discriminated `target` shape, `authMode` enum, and 204 statuses are
+  // checked at compile time. Migrated from raw fetch in
+  // `@arkor/cloud-api-client@0.0.1-alpha.2`, which was the first published
+  // version exposing these routes' types.
+  // ---------------------------------------------------------------------
+
+  async listDeployments(
+    scope: DeploymentScope,
+  ): Promise<{ deployments: DeploymentDto[] }> {
+    const res = await this.rpc.v1.endpoints.$get({ query: scope });
+    const data = await decode(res, listDeploymentsResponseSchema);
+    return data as unknown as { deployments: DeploymentDto[] };
+  }
+
+  async getDeployment(
+    id: string,
+    scope: DeploymentScope,
+  ): Promise<{ deployment: DeploymentDto }> {
+    const res = await this.rpc.v1.endpoints[":id"].$get({
+      param: { id },
+      query: scope,
+    });
+    const data = await decode(res, getDeploymentResponseSchema);
+    return data as unknown as { deployment: DeploymentDto };
+  }
+
+  async createDeployment(
+    scope: DeploymentScope,
+    input: CreateDeploymentInput,
+  ): Promise<{ deployment: DeploymentDto }> {
+    const res = await this.rpc.v1.endpoints.$post({
+      query: scope,
+      json: input,
+    });
+    const data = await decode(res, createDeploymentResponseSchema);
+    return data as unknown as { deployment: DeploymentDto };
+  }
+
+  async updateDeployment(
+    id: string,
+    scope: DeploymentScope,
+    input: UpdateDeploymentInput,
+  ): Promise<{ deployment: DeploymentDto }> {
+    const res = await this.rpc.v1.endpoints[":id"].$patch({
+      param: { id },
+      query: scope,
+      json: input,
+    });
+    const data = await decode(res, updateDeploymentResponseSchema);
+    return data as unknown as { deployment: DeploymentDto };
+  }
+
+  async deleteDeployment(id: string, scope: DeploymentScope): Promise<void> {
+    const res = await this.rpc.v1.endpoints[":id"].$delete({
+      param: { id },
+      query: scope,
+    });
+    if (!res.ok) {
+      throw await buildCloudApiError(res);
+    }
+  }
+
+  async listDeploymentKeys(
+    id: string,
+    scope: DeploymentScope,
+  ): Promise<{ keys: DeploymentKeyDto[] }> {
+    const res = await this.rpc.v1.endpoints[":id"].keys.$get({
+      param: { id },
+      query: scope,
+    });
+    const data = await decode(res, listDeploymentKeysResponseSchema);
+    return data as unknown as { keys: DeploymentKeyDto[] };
+  }
+
+  async createDeploymentKey(
+    id: string,
+    scope: DeploymentScope,
+    input: CreateDeploymentKeyInput,
+  ): Promise<{ key: CreateDeploymentKeyResult }> {
+    const res = await this.rpc.v1.endpoints[":id"].keys.$post({
+      param: { id },
+      query: scope,
+      json: input,
+    });
+    const data = await decode(res, createDeploymentKeyResponseSchema);
+    return data as unknown as { key: CreateDeploymentKeyResult };
+  }
+
+  async revokeDeploymentKey(
+    id: string,
+    keyId: string,
+    scope: DeploymentScope,
+  ): Promise<void> {
+    const res = await this.rpc.v1.endpoints[":id"].keys[":keyId"].$delete({
+      param: { id, keyId },
+      query: scope,
+    });
+    if (!res.ok) {
+      throw await buildCloudApiError(res);
+    }
+  }
+
   /**
    * POST to `/v1/inference/chat`. Returns the raw Response so the caller can
    * stream the SSE body (or `.text()` it when streaming is off).
@@ -195,16 +349,20 @@ export class CloudApiClient {
   async chat(input: {
     scope: { orgSlug: string; projectSlug: string };
     body: {
-      messages: Array<{
-        role: "system" | "user" | "assistant";
-        content: string;
-      }>;
+      messages: ChatMessage[];
       adapter?: { kind: "final" | "checkpoint"; jobId: string; step?: number };
       baseModel?: string;
       temperature?: number;
       topP?: number;
       maxTokens?: number;
       stream?: boolean;
+      // Function calling + structured outputs. Forwarded verbatim — the
+      // cloud-api inference route spreads the body into its proxy, so any
+      // field declared on `chatInferenceRequestSchema` flows through.
+      tools?: ToolDefinition[];
+      toolChoice?: ToolChoice;
+      responseFormat?: ResponseFormat;
+      structuredOutputs?: StructuredOutputs;
     };
     signal?: AbortSignal;
   }): Promise<Response> {

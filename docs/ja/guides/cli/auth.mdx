@@ -5,7 +5,7 @@ description: "arkor login、logout、whoami。"
 
 # Arkor Cloud にサインイン
 
-Arkor は一度もサインインせずに匿名で使えます。`arkor dev` は初回起動時に匿名 identity をブートストラップしてくれます。作業を Arkor Cloud アカウントに紐付けたいときは `arkor login` を使います。
+Arkor は一度もサインインせずに匿名で使えます。`arkor dev` は初回起動時に匿名 ID を初期化してくれます。作業を Arkor Cloud アカウントに紐付けたいときは `arkor login` を使います。
 
 ## サインイン
 
@@ -63,7 +63,7 @@ bun arkor login --oauth
 
 CI では `--anonymous` を使ってください。OAuth はブラウザーが必要です。
 
-## 自分が誰か確認
+## 現在の ID を確認
 
 <CodeGroup>
 
@@ -89,12 +89,12 @@ bun arkor whoami
 
 </CodeGroup>
 
-現在の identity と到達できる org を表示します。
+現在の ID と到達できる org を表示します。
 
 ## サインアウト
 
-`arkor logout` は `~/.arkor/credentials.json` を削除します。次の `arkor dev` は新しい匿名 identity をブートストラップしますし、`arkor login --oauth` で再ログインもできます。
+`arkor logout` は `~/.arkor/credentials.json` を削除します。次の `arkor dev` は新しい匿名 ID を初期化しますし、`arkor login --oauth` で再ログインもできます。
 
 ## リファレンス
 
-全ピッカー / フラグ行列、匿名と OAuth のトレードオフ、トークン期限の挙動、各エラーメッセージは [認証リファレンス](/ja/cli/auth) を参照してください。
+ピッカーとフラグの全組み合わせ、匿名と OAuth のトレードオフ、トークン期限の挙動、各エラーメッセージは [認証リファレンス](/ja/cli/auth) を参照してください。

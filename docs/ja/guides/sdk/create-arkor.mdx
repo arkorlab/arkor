@@ -19,8 +19,8 @@ export const arkor = createArkor({ trainer });
 
 ## なぜマニフェストがあるのか
 
-今のところマニフェストが運ぶのは `Trainer` だけですが、型は `deploy` と `eval` のスロットを予約しているので、将来のピースが学習と並んで座れるようエントリーファイルの形を変えずに済みます。`trainer` だけでなく必ず `arkor` を `src/arkor/index.ts` から export してください。スロットが追加されてもプロジェクトが壊れません。
+今のところマニフェストが含むのは `Trainer` だけですが、型は `deploy` と `eval` のスロットを予約しているので、将来の機能を学習と並べて配置するときも、エントリーファイルの形を変えずに済みます。`trainer` だけでなく必ず `arkor` を `src/arkor/index.ts` から export してください。スロットが追加されてもプロジェクトが壊れません。
 
 ## リファレンス
 
-`ArkorInput` / `Arkor` の完全な型形、ランナーが受け付ける 3 つのエクスポート形（`arkor`、`trainer`、default）、`isArkor` という併設の型ガード、予約フィールドの方向性は [`createArkor` リファレンス](/ja/sdk/create-arkor) を参照してください。
+`ArkorInput` / `Arkor` の完全な型定義、ランナーが受け付ける 3 つのエクスポート形（`arkor`、`trainer`、default）、併設の型ガード `isArkor`、予約フィールドの方向性は [`createArkor` リファレンス](/ja/sdk/create-arkor) を参照してください。

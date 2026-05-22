@@ -14,13 +14,30 @@ description: "生成されたテンプレートを起点として扱う。デー
 import { createTrainer } from "arkor";
 
 export const trainer = createTrainer({
-  name: "support-bot-v1",
+  name: "triage-run",
   model: "unsloth/gemma-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
-  lora: { r: 16, alpha: 16 },
+  datasetFormat: { type: "chatml" },
   maxSteps: 100,
+  evalSteps: 25,
+  lora: { r: 16, alpha: 16, loadIn4bit: false },
+  callbacks: {
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
+    },
+  },
 });
 ```
+
+`evalSteps: 25` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます — Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。各 `field=…` セグメントは `Number.isFinite` でガードされているので、eval-only ステップで `loss=null` が出たり、training-only ステップで `evalLoss=null` が出ることはありません（SDK は欠損値を `null` に正規化し、`evalLoss` の型は `number | null` です）。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 関連も合わせて削ってください。
 
 ## 1. データセットを差し替える
 
@@ -51,7 +68,7 @@ dataset: {
 
 ## 2. ハイパーパラメーターを調整する
 
-`TrainerInput` 上の型付きオプションは安全なツマミです。省略すれば各々クラウド API のデフォルトを取ります:
+`TrainerInput` 上の型付きオプションは安全に調整できるツマミです。省略すれば、それぞれクラウド API のデフォルト値が使われます:
 
 ```ts
 createTrainer({
@@ -70,7 +87,7 @@ createTrainer({
 });
 ```
 
-トレーナーファイル自体を超高速で反復したいときは `dryRun` を立てます:
+トレーナーファイル自体を高速に反復して試したいときは `dryRun` を立てます:
 
 ```ts
 createTrainer({
@@ -97,11 +114,20 @@ export const trainer = createTrainer({
   lora: { r: 16, alpha: 16 },
   maxSteps: 100,
   callbacks: {
-    onLog: ({ step, loss }) => {
-      if (loss !== null) console.log(`step=${step} loss=${loss.toFixed(4)}`);
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCheckpoint: async ({ step, infer }) => {
       // /ja/cookbook/mid-run-eval を参照
+      // 型付きフィールドの抽出は /ja/cookbook/structured-outputs を参照
     },
     onCompleted: async ({ job, artifacts }) => {
       // /ja/cookbook/notifications を参照
@@ -115,21 +141,21 @@ export const trainer = createTrainer({
 
 このセクションのレシピは、最もよくある組み合わせです:
 
-- [学習中の評価](/ja/cookbook/mid-run-eval) は `onCheckpoint` に挿し込みます。
-- [Early Stopping](/ja/cookbook/early-stopping) は `onLog` とトレーナーの `abortSignal` に挿し込みます。
-- [Slack / Discord 通知](/ja/cookbook/notifications) は `onCompleted` と `onFailed` に挿し込みます。
+- [学習中の評価](/ja/cookbook/mid-run-eval) は `onCheckpoint` に組み込みます。
+- [Early Stopping](/ja/cookbook/early-stopping) は `onLog` とトレーナーの `abortSignal` に組み込みます。
+- [Slack / Discord 通知](/ja/cookbook/notifications) は `onCompleted` と `onFailed` に組み込みます。
 
-学習に合うものを選んでください。トレーナーファイルはただの TypeScript なので、自由に合成できます。
+学習に合うものを選んでください。トレーナーファイルはただの TypeScript なので、自由に組み合わせられます。
 
 ## 4. ベースモデルを変える
 
-`model` フィールドはクラウド API に文字列としてそのまま転送されます。今日のキュレートパスは `unsloth/gemma-4-E4B-it`（すべてのスターターテンプレートに同梱）。クラウド API がそれ以外のどの ID を受け付けるかを決めます。サポートされない値を送ると上流から 4xx が返り、`training.failed` イベントにバックエンドのエラーメッセージが乗ります。
+`model` フィールドはクラウド API に文字列としてそのまま転送されます。現在対応しているのは `gemma-4-E4B-it`（すべてのスターターテンプレートに同梱）です。クラウド API がそれ以外のどの ID を受け付けるかを決めます。サポートされない値を送ると上流から 4xx が返り、`training.failed` イベントにバックエンドのエラーメッセージが乗ります。
 
 ```ts
-model: "unsloth/gemma-4-E4B-it",   // キュレート済み。今日サポートされているパス
+model: "unsloth/gemma-4-E4B-it",   // 現在サポートされている値
 ```
 
-別のベースを試すのはロードマップに明示的に挙がっています（プロジェクト README の「What's coming next」を参照）。それが届くまでは、`model` フィールドは開いたメニューではなく、単一のサポート値として扱ってください。
+別のベースを試すことは[ロードマップ](/ja/roadmap) に明示的に挙がっています。それが実現するまでは、`model` フィールドを選択肢のあるメニューではなく、サポートされる単一の値として扱ってください。
 
 ## 全部まとめる
 
@@ -162,10 +188,16 @@ export const trainer = createTrainer({
   maxSteps: 500,
   learningRate: 2e-4,
   callbacks: {
-    onLog: ({ step, loss }) => {
-      if (loss !== null && Number.isFinite(loss)) {
-        console.log(`step=${step} loss=${loss.toFixed(4)}`);
-      }
+    onLog: ({ step, loss, evalLoss }) => {
+      const lossPart =
+        typeof loss === "number" && Number.isFinite(loss)
+          ? ` loss=${loss.toFixed(4)}`
+          : "";
+      const evalPart =
+        typeof evalLoss === "number" && Number.isFinite(evalLoss)
+          ? ` evalLoss=${evalLoss.toFixed(4)}`
+          : "";
+      console.log(`step=${step}${lossPart}${evalPart}`);
     },
     onCompleted: async ({ job, artifacts }) => {
       await postSlack(`✓ ${job.name} done (${artifacts.length} artifact(s))`);
@@ -177,6 +209,6 @@ export const trainer = createTrainer({
 });
 ```
 
-これでもまだ 30 行のファイルで、上から下まで読めます。テンプレートの要点はそれが吐く具体的なコードではなく、実際の学習がすでに配線された状態の形を渡してくれること。上のカスタマイズはエディタセッション 1 つで届く距離です。
+これでもまだ 30 行のファイルで、上から下まで一読できます。テンプレートの要点は、生成される具体的なコードそのものではなく、すでに学習が配線済みの状態を出発点として与えてくれることにあります。上のカスタマイズは、エディターを開いた 1 セッションのうちに到達できます。
 
 Early Stopping を上に重ねるなら、[Early Stopping](/ja/cookbook/early-stopping) を参照してください。Abort された学習がバックエンドの GPU を回し続けないようにする `AbortController` + `trainer.cancel()` のペアを示しています。

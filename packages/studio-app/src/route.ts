@@ -4,15 +4,28 @@ export type Route =
   | { kind: "home" }
   | { kind: "jobs" }
   | { kind: "job"; id: string }
-  | { kind: "playground"; adapterJobId?: string };
+  | { kind: "playground"; adapterJobId?: string }
+  | { kind: "endpoints" }
+  | { kind: "endpoint"; id: string };
 
-export function parseRoute(): Route {
+/**
+ * Parse a hash fragment (e.g. `"#/endpoints/foo"`) into a `Route`. The
+ * argument is optional — when omitted, the function falls back to
+ * `window.location.hash` for the legacy "snapshot the live URL" call
+ * sites (initial mount, callers that don't track their own URL state).
+ * `evaluateHashChange` always passes the `newHash` it received from
+ * the `hashchange` event so the helper stays self-contained: the
+ * returned `Route` reflects the input string, not whatever the live
+ * `window.location.hash` happens to be at the moment `parseRoute`
+ * runs (which may already differ on a fast back-to-back navigation).
+ */
+export function parseRoute(hash: string = window.location.hash): Route {
   // Split into path / query first; trimming trailing slashes from the
   // raw hash up front would leave them on the path when a query is
   // present (e.g. `#/playground/?adapter=foo` → `playground/?adapter=foo`,
   // since the `/` is no longer at the end of the string), and the
   // route would fall through to `home`. Trim the path-only segment.
-  const raw = window.location.hash.replace(/^#\/?/, "");
+  const raw = hash.replace(/^#\/?/, "");
   const queryStart = raw.indexOf("?");
   const rawPath = queryStart === -1 ? raw : raw.slice(0, queryStart);
   const path = rawPath.replace(/\/+$/, "");
@@ -29,15 +42,370 @@ export function parseRoute(): Route {
     const adapterJobId = params.get("adapter")?.trim() || undefined;
     return { kind: "playground", adapterJobId };
   }
+  if (path === "endpoints") return { kind: "endpoints" };
+  if (path.startsWith("endpoints/")) {
+    // The hash segment is URL-encoded — links are constructed via
+    // `#/endpoints/${encodeURIComponent(id)}` to keep slashes / reserved
+    // chars from breaking the path split. Decode once here so the SPA
+    // hands the raw id to `fetchDeployment(id)`, which encodes again on
+    // the way to the network. Without this step a slash-containing id
+    // (`a/b`) would end up double-encoded (`a%252Fb`) and 404.
+    const raw = path.slice("endpoints/".length);
+    if (raw) {
+      try {
+        return { kind: "endpoint", id: decodeURIComponent(raw) };
+      } catch {
+        // Malformed `%`-escapes (e.g. a stray `%` typed into the URL bar)
+        // throw URIError from `decodeURIComponent`. Fall through to home
+        // rather than crashing the app.
+        return { kind: "home" };
+      }
+    }
+  }
   return { kind: "home" };
+}
+
+/**
+ * A guard returns `false` to *block* a pending hash navigation. The
+ * router then rolls the address bar back to the previous hash via
+ * `history.back()` and skips the route update. Used by pages that hold
+ * un-recoverable state — the `EndpointDetail` page registers a guard
+ * while a one-time API key `plaintext` response is in flight (or
+ * displayed but not yet acknowledged), so any nav-tab click / back
+ * button has to confirm before losing the secret.
+ *
+ * Guards run inside the same `hashchange` handler that drives
+ * `useHashRoute`, so they fire *before* the route state updates and
+ * before any per-page `hashchange` listener — that ordering is what
+ * makes the block effective. A per-page listener registered separately
+ * runs after `setRoute()` has already torn its component down.
+ */
+export type NavigationGuard = () => boolean;
+const navigationGuards = new Set<NavigationGuard>();
+
+/** Register a `NavigationGuard`; the returned function unregisters it. */
+export function registerNavigationGuard(
+  guard: NavigationGuard,
+): () => void {
+  navigationGuards.add(guard);
+  return () => {
+    navigationGuards.delete(guard);
+  };
+}
+
+/**
+ * Pure decision logic extracted from `useHashRoute` so unit tests can
+ * exercise the guard / rollback / pass-through branches without a real
+ * DOM. The hook adds the side effects (history rollback, setState).
+ *
+ * Direction matters for the rollback. The router stamps a monotonic
+ * `seq` into `history.state` on every accepted navigation, then compares
+ * the live `currentSeq` against the previously-stored `lastSeq` on the
+ * next `hashchange`:
+ *   - `currentSeq < lastSeq` → user pressed Back / Forward-was-Back →
+ *     undo with `history.forward()`. Calling `history.back()` here would
+ *     step *further* back and could eject the user from Studio.
+ *   - otherwise (forward push from a link click, or a fresh entry whose
+ *     `state.seq` is null) → undo with `history.back()`.
+ */
+export type HashChangeDecision =
+  | { kind: "ignore" }
+  | { kind: "rollback"; direction: "back" | "forward" }
+  | { kind: "navigate"; route: Route; newSeq: number };
+
+export function evaluateHashChange(opts: {
+  newHash: string;
+  lastHash: string;
+  /** `history.state?.seq` at the moment `hashchange` fired, or `null`
+   * if the entry was created without our seq tag (e.g. a link click
+   * pushed a fresh entry). */
+  currentSeq: number | null;
+  /** The seq we last stored as the "current" entry. */
+  lastSeq: number;
+  guards: Iterable<NavigationGuard>;
+}): HashChangeDecision {
+  // The rollback fires another `hashchange`. By the time it lands, the
+  // URL has returned to `lastHash` so this branch resolves to `ignore`
+  // and the handler does nothing — no manual recursion flag needed.
+  if (opts.newHash === opts.lastHash) return { kind: "ignore" };
+  for (const guard of opts.guards) {
+    if (!guard()) {
+      const direction =
+        opts.currentSeq !== null && opts.currentSeq < opts.lastSeq
+          ? "forward"
+          : "back";
+      return { kind: "rollback", direction };
+    }
+  }
+  // Decide what `seq` to record on this entry:
+  //   - `null` → fresh push (new history entry, browser-defaulted state).
+  //     Mint `lastSeq + 1`.
+  //   - `=== lastSeq` → also treat as fresh push. Browsers preserve
+  //     `history.state` across same-document hash navigations after a
+  //     `replaceState`, and our own `navigateReplace` deliberately reuses
+  //     `window.history.state` (so unrelated state survives), so a fresh
+  //     forward navigation can land here with the previous entry's seq
+  //     still attached. Without this branch, `currentSeq === lastSeq`
+  //     would be misclassified as a revisit, no new seq would be
+  //     stamped, and the next Back/Forward would compute the wrong
+  //     direction.
+  //   - otherwise (`< lastSeq` Back, `> lastSeq` Forward) → revisit of a
+  //     previously-stamped entry. Preserve `currentSeq` — re-stamping `B`
+  //     with a higher number than `C` after an A→B→C→Back-to-B sequence
+  //     would corrupt direction detection on the next Forward and turn
+  //     the rollback into another `forward()`, ejecting the user further
+  //     along the stack.
+  //
+  // Pass `opts.newHash` to `parseRoute` so the returned `Route`
+  // reflects *the hash that triggered this `hashchange`*, not whatever
+  // `window.location.hash` happens to be when the parse runs. Without
+  // this thread-through, the helper would silently couple to global
+  // state and a fast back-to-back navigation could feed a route for a
+  // *later* hash to the SPA — exactly the kind of bug this extraction
+  // was meant to remove.
+  const newSeq =
+    opts.currentSeq !== null && opts.currentSeq !== opts.lastSeq
+      ? opts.currentSeq
+      : opts.lastSeq + 1;
+  return {
+    kind: "navigate",
+    route: parseRoute(opts.newHash),
+    newSeq,
+  };
+}
+
+function readSeqFromState(): number | null {
+  // Use `window.history` (rather than the bare `history` global) so
+  // tests that stub `window` see their stubbed history — `vi.stubGlobal`
+  // only redefines the named global, and `history` and `window.history`
+  // resolve to different bindings under that stub.
+  const state = (window.history.state ?? null) as { seq?: unknown } | null;
+  return typeof state?.seq === "number" ? state.seq : null;
+}
+
+/**
+ * Side-effect surface used by the hash router. Extracted into an
+ * interface so the per-`hashchange` handler can be unit-tested with
+ * mocks for `back` / `forward` / `replaceState` / `setRoute` — the
+ * actual integration-level logic that protects one-time API keys.
+ *
+ * The new hash is read off the dispatched `HashChangeEvent` (whose
+ * `newURL` reflects the URL that triggered the event), not from
+ * `window.location.hash`. That keeps the handler deterministic when a
+ * fast back-to-back navigation has already advanced the global URL by
+ * the time the listener runs — see `evaluateHashChange`'s docstring.
+ */
+export interface HashRouterDeps {
+  /** Read `history.state?.seq`, or `null` if absent. */
+  getCurrentSeq: () => number | null;
+  /** The active set of navigation guards. */
+  guards: Iterable<NavigationGuard>;
+  /** Apply the new route to React state. */
+  setRoute: (route: Route) => void;
+  /** Roll back a forward navigation (`history.back()` in production). */
+  goBack: () => void;
+  /** Roll back a backward navigation (`history.forward()` in production). */
+  goForward: () => void;
+  /** Stamp `seq` into the current entry's `history.state`. */
+  stampSeq: (seq: number) => void;
+}
+
+/**
+ * Extract the hash fragment from a fully-qualified URL the way
+ * `HashChangeEvent.newURL` / `event.oldURL` deliver them. `URL` is a
+ * Node + browser global since at least Node 18 / Chromium 80, so we
+ * can lean on it without a polyfill. Falls back to a manual split for
+ * any malformed URL the test stubs might pass — defensive but cheap.
+ */
+function hashFromUrl(url: string): string {
+  try {
+    return new URL(url).hash;
+  } catch {
+    const idx = url.indexOf("#");
+    return idx === -1 ? "" : url.slice(idx);
+  }
+}
+
+/**
+ * Create the per-`hashchange` handler used by `useHashRoute`. Returned
+ * as an object so tests can also inspect `lastHash` / `lastSeq` after
+ * dispatching synthetic events.
+ */
+export function createHashRouter(
+  initialHash: string,
+  initialSeq: number,
+  deps: HashRouterDeps,
+): {
+  onHashChange: (event: HashChangeEvent) => void;
+  getLastHash: () => string;
+  getLastSeq: () => number;
+} {
+  let lastHash = initialHash;
+  let lastSeq = initialSeq;
+  return {
+    onHashChange: (event: HashChangeEvent) => {
+      // Read the new hash off the event itself rather than
+      // `window.location.hash`. The two diverge under fast back-to-back
+      // navigations where the global URL has already moved past the
+      // event's URL by the time the listener fires; coupling to the
+      // global would let the SPA render a route for the *later* hash
+      // while this dispatch was meant for the earlier one. The event
+      // values are always the URLs that triggered *this* dispatch.
+      const newHash = hashFromUrl(event.newURL);
+      const decision = evaluateHashChange({
+        newHash,
+        lastHash,
+        currentSeq: deps.getCurrentSeq(),
+        lastSeq,
+        guards: deps.guards,
+      });
+      if (decision.kind === "ignore") return;
+      if (decision.kind === "rollback") {
+        if (decision.direction === "back") deps.goBack();
+        else deps.goForward();
+        return;
+      }
+      lastHash = newHash;
+      lastSeq = decision.newSeq;
+      // Stamp whenever the entry's stored seq doesn't already match the
+      // value we just decided on. That covers two cases:
+      //   1. The entry has no seq yet (browser-default `null` after a
+      //      fresh push).
+      //   2. The entry inherited the previous entry's seq via a
+      //      `replaceState` (browsers preserve state across same-document
+      //      hash changes; our `navigateReplace` does this on purpose).
+      //      `evaluateHashChange` already minted a new `lastSeq + 1` for
+      //      that case; persist it to history so the next Back/Forward
+      //      reads the right neighbour seq for direction detection.
+      // Revisits (Back/Forward landing on a previously-stamped entry)
+      // resolve `decision.newSeq === currentSeq`, so this guard skips
+      // the redundant write — see the comment in `evaluateHashChange`
+      // for the A→B→C→Back→Forward example that needs that.
+      if (deps.getCurrentSeq() !== decision.newSeq) {
+        deps.stampSeq(decision.newSeq);
+      }
+      deps.setRoute(decision.route);
+    },
+    getLastHash: () => lastHash,
+    getLastSeq: () => lastSeq,
+  };
+}
+
+/**
+ * Replace the current history entry with `hash` and synchronously
+ * notify `useHashRoute` of the change. Use this for "the page I was on
+ * is gone, swap me to a sibling" flows (e.g. post-delete redirect):
+ * `pushState`-style navigation would leave the now-404 detail entry
+ * one Back press behind the user.
+ *
+ * `replaceState` does not fire `hashchange` on its own — the manual
+ * dispatch is what makes the SPA's router pick up the new URL.
+ *
+ * Forwards the existing `history.state` (which carries the router's
+ * `seq` stamp, plus anything else other code may have stored on the
+ * entry) so a replace-style navigation doesn't reset direction
+ * detection or wipe unrelated metadata.
+ */
+export function navigateReplace(hash: string): void {
+  if (window.location.hash === hash) return;
+  // Snapshot the URL *before* the replace so the synthetic
+  // `hashchange` carries an accurate `oldURL` — `useHashRoute`'s
+  // handler reads `event.newURL` (and tests can read `oldURL` for
+  // direction detection), so dispatching a bare `Event("hashchange")`
+  // without those fields would feed the handler a `newURL` of `""`
+  // and miss the new route entirely.
+  const oldURL = window.location.href;
+  window.history.replaceState(window.history.state, "", hash);
+  const newURL = window.location.href;
+  // Browsers expose `HashChangeEvent` as a constructor; the bare-Node
+  // test environment doesn't (`Event` is a global since Node 15, but
+  // `HashChangeEvent` is not). Feature-detect and fall back to a
+  // plain `Event` with the URL fields attached — listeners only read
+  // those properties, and `dispatchEvent` doesn't care about the
+  // exact constructor.
+  const HashChangeEventCtor =
+    typeof HashChangeEvent === "function" ? HashChangeEvent : null;
+  const event = HashChangeEventCtor
+    ? new HashChangeEventCtor("hashchange", { oldURL, newURL })
+    : Object.assign(new Event("hashchange"), { oldURL, newURL });
+  window.dispatchEvent(event);
+}
+
+/**
+ * Roll the user back to the entry they came from; if there isn't one
+ * inside this document, fall back to a `replaceState`-into-`fallbackHash`.
+ *
+ * Use this for "this page I'm on is gone, take me back where I was"
+ * flows. Calling `navigateReplace(fallbackHash)` instead would create
+ * a duplicate entry: a user who arrived via list → detail → delete
+ * would have `[…, list, detail-replaced-with-list]` and the first
+ * browser Back press would land on the same `fallbackHash` URL and
+ * appear to do nothing.
+ *
+ * Predecessor detection uses `history.state.seq` — `useHashRoute`
+ * stamps `seq: 0` onto the SPA's anchor entry on mount and bumps it
+ * by 1 on every accepted in-document navigation. So `seq <= 0` (or
+ * unset) means we're sitting on that anchor and `history.back()`
+ * would leave Studio entirely (or land on an external page); in that
+ * case we skip the back() and replace in place. Otherwise we know
+ * there's at least one earlier Studio entry to roll back to.
+ */
+export function navigateBackOr(fallbackHash: string): void {
+  // Without this guard a direct-linked detail page (no earlier in-
+  // document entry) would call `history.back()` → unload Studio →
+  // the post-back `setTimeout` never gets a chance to run, so the
+  // fallback `navigateReplace` is silently dropped and the user is
+  // pulled out of the SPA on what should be a same-tab redirect.
+  const currentSeq = readSeqFromState();
+  if (currentSeq === null || currentSeq <= 0) {
+    navigateReplace(fallbackHash);
+    return;
+  }
+  const startHash = window.location.hash;
+  window.history.back();
+  // 50 ms is comfortably longer than any browser's `hashchange`
+  // dispatch latency after `history.back()` — long enough to confirm
+  // the navigation actually happened, short enough that the user
+  // doesn't perceive a stutter in the post-delete redirect.
+  setTimeout(() => {
+    if (window.location.hash === startHash) {
+      navigateReplace(fallbackHash);
+    }
+  }, 50);
 }
 
 export function useHashRoute(): Route {
   const [route, setRoute] = useState<Route>(parseRoute);
   useEffect(() => {
-    const handler = () => setRoute(parseRoute());
-    window.addEventListener("hashchange", handler);
-    return () => window.removeEventListener("hashchange", handler);
+    // Anchor the initial entry with `seq: 0` so direction detection
+    // works for the very first navigation. Preserve any pre-existing
+    // state put there by other code (currently none, but cheap to do).
+    //
+    // Use `window.history.*` (not the bare `history` global) for every
+    // read and write so tests that `vi.stubGlobal("window", …)` see
+    // their stubbed history — `vi.stubGlobal` only redefines the
+    // named global, and `history` and `window.history` resolve to
+    // different bindings under the stub. Mixing the two would let
+    // production code drift away from what the tests can observe.
+    const existingState = (window.history.state ?? {}) as Record<string, unknown>;
+    const initialSeq =
+      typeof existingState.seq === "number" ? existingState.seq : 0;
+    if (typeof existingState.seq !== "number") {
+      window.history.replaceState({ ...existingState, seq: 0 }, "");
+    }
+    const router = createHashRouter(window.location.hash, initialSeq, {
+      getCurrentSeq: readSeqFromState,
+      guards: navigationGuards,
+      setRoute,
+      goBack: () => window.history.back(),
+      goForward: () => window.history.forward(),
+      stampSeq: (seq) => {
+        const state = (window.history.state ?? {}) as Record<string, unknown>;
+        window.history.replaceState({ ...state, seq }, "");
+      },
+    });
+    window.addEventListener("hashchange", router.onHashChange);
+    return () => window.removeEventListener("hashchange", router.onHashChange);
   }, []);
   return route;
 }

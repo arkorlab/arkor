@@ -30,6 +30,11 @@ interface RunOptions {
   git?: boolean;
   /** `true` when the user explicitly passed `--skip-git` (no prompt, no init). */
   skipGit?: boolean;
+  /**
+   * Write `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor is
+   * newer than their training data. Defaults to true; `--no-agents-md` opts out.
+   */
+  agentsMd: boolean;
 }
 
 const MANUAL_INSTALL_HINT =
@@ -224,13 +229,21 @@ async function run(options: RunOptions): Promise<void> {
 
   const spin = clack.spinner();
   spin.start(`Scaffolding in ${cwd}`);
-  const { files } = await scaffold({ cwd, name, template });
+  const { files, warnings } = await scaffold({
+    cwd,
+    name,
+    template,
+    agentsMd: options.agentsMd,
+  });
   spin.stop("Done");
 
   clack.note(
     files.map((f) => `${f.action.padEnd(8)} ${f.path}`).join("\n"),
     "Files",
   );
+  for (const w of warnings) {
+    clack.log.warn(w);
+  }
 
   // Resolve the git-init choice before kicking off install so the user can
   // walk away once they've answered every prompt; otherwise they'd sit at an
@@ -306,6 +319,11 @@ program
     "initialise a git repo and create an initial commit (skips the prompt)",
   )
   .option("--skip-git", "skip the git init prompt and do not initialise git")
+  .option(
+    "--agents-md",
+    "include AGENTS.md and CLAUDE.md to guide AI coding agents (default)",
+  )
+  .option("--no-agents-md", "skip generating AGENTS.md and CLAUDE.md")
   .action(
     async (
       dir: string | undefined,
@@ -320,10 +338,35 @@ program
         useBun?: boolean;
         git?: boolean;
         skipGit?: boolean;
+        // Commander v13 leaves this undefined unless one of --agents-md /
+        // --no-agents-md was passed; the action treats undefined as the
+        // default-on value.
+        agentsMd?: boolean;
       },
     ) => {
       if (opts.git && opts.skipGit) {
         throw new Error("Pick one of --git / --skip-git, not both.");
+      }
+      // Commander treats `--agents-md` and `--no-agents-md` as the same
+      // option (last-wins), so it will not surface a conflict on its own.
+      // Mirror the explicit `--git` / `--skip-git` check by inspecting raw
+      // argv: passing both is almost always a mistake — refuse early
+      // instead of silently honouring whichever came last. Stop scanning
+      // at the POSIX `--` end-of-options sentinel so a positional `[dir]`
+      // that happens to start with `--` (e.g. `create-arkor --agents-md
+      // -- --no-agents-md`) is not misclassified as a conflicting flag.
+      const sentinelIdx = process.argv.indexOf("--");
+      const flagsArgv =
+        sentinelIdx === -1
+          ? process.argv
+          : process.argv.slice(0, sentinelIdx);
+      if (
+        flagsArgv.includes("--agents-md") &&
+        flagsArgv.includes("--no-agents-md")
+      ) {
+        throw new Error(
+          "Pick one of --agents-md / --no-agents-md, not both.",
+        );
       }
       // Use `Object.hasOwn` (not `in`) so prototype keys like `toString` /
       // `__proto__` can't pass validation and crash later inside scaffold().
@@ -353,6 +396,10 @@ program
         packageManager,
         git: opts.git,
         skipGit: opts.skipGit,
+        // Commander v13 leaves opts.agentsMd undefined when no flag is
+        // passed (it doesn't auto-default --no-foo to `foo: true`). Default
+        // to on; only explicit `--no-agents-md` (which sets `false`) opts out.
+        agentsMd: opts.agentsMd !== false,
       });
     },
   );

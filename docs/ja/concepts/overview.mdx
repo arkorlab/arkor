@@ -3,15 +3,15 @@ title: "メンタルモデル"
 description: "Arkor の背後にあるメンタルモデル: プロジェクト構成、トレーナー、ライフサイクルコールバック、Studio。"
 ---
 
-このセクションは [SDK リファレンス](/ja/sdk/overview) や [CLI リファレンス](/ja/cli/overview) に飛び込む前に必要なメンタルモデルを与えるためのものです。順番に読んでください。それぞれが前のものの上に積み重なります。
+このセクションは [SDK リファレンス](/ja/sdk/overview) や [CLI リファレンス](/ja/cli/overview) に飛び込む前に必要なメンタルモデルを得るためのものです。順番に読み進めてください。各項目は前の項目を踏まえて書かれています。
 
 ## 読む順番
 
-- [**プロジェクト構成**](/ja/concepts/project-structure)。Arkor がコードを置くべきと考える場所（`src/arkor/index.ts`、`src/arkor/trainer.ts`）、`.arkor/` と `~/.arkor/` の役割、`arkor.config.ts` が今日できること（できないこと）。
+- [**プロジェクト構成**](/ja/concepts/project-structure)。Arkor がコードを置くべきと考える場所（`src/arkor/index.ts`、`src/arkor/trainer.ts`）、`.arkor/` と `~/.arkor/` の役割、`arkor.config.ts` が現状できること（できないこと）。
 - [**トレーナー**](/ja/concepts/trainer)。`createTrainer` の形: 必須フィールド、データセットソース、LoRA 設定、`Trainer.start / wait / cancel` のライフサイクル。
-- [**ライフサイクルコールバック**](/ja/concepts/lifecycle)。5 つのコールバック（`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`）、それぞれの引数の形、いつ発火するか。TypeScript でファインチューニングする価値の大部分はここに集まっています。
-- [**Studio**](/ja/concepts/studio)。ローカル Web UI が何のためにあるのか、なぜループバックで動くのか、開発ループにどう収まるのか。
+- [**ライフサイクルコールバック**](/ja/concepts/lifecycle)。5 つのコールバック（`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`）、それぞれの引数の形、発火するタイミング。TypeScript でファインチューニングする意義の多くはここにあります。
+- [**Studio**](/ja/concepts/studio)。ローカル Web UI が何のためにあり、なぜループバックで動き、開発ループにどう組み込まれるのか。
 
 ## 1 段落で言うと
 
-`src/arkor/trainer.ts` の中で `createTrainer({ name, model, dataset, ... })` を使って `Trainer` を定義し、`src/arkor/index.ts` の `createArkor({ trainer })` で登録します。`arkor dev` でブラウザーにローカル Studio が開き、Studio の **Run training** をクリックすると `arkor start` がスポーンし、`trainer.start()` と `trainer.wait()` が呼び出されます。`wait()` が開いている間、SSE イベントストリームからコールバックがディスパッチされ、Arkor のマネージド GPU から学習がストリームされ、同じビューが Studio に反映されます。
+`src/arkor/trainer.ts` の中で `createTrainer({ name, model, dataset, ... })` を使って `Trainer` を定義し、`src/arkor/index.ts` の `createArkor({ trainer })` で登録します。`arkor dev` でブラウザーにローカル Studio が開き、Studio の **Run training** をクリックすると `arkor start` がサブプロセスとして起動し、`trainer.start()` と `trainer.wait()` が呼び出されます。`wait()` の実行中は SSE イベントストリームからコールバックがディスパッチされ、Arkor のマネージド GPU から学習の進捗がストリーミングされて、同じ内容が Studio にも反映されます。

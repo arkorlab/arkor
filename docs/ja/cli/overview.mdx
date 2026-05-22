@@ -3,7 +3,7 @@ title: "コマンドリファレンス"
 description: "arkor CLI: 全コマンドリファレンス。"
 ---
 
-`arkor` CLI は Arkor プロジェクトを取り巻くコマンド面です。[プロジェクト生成ツール](/ja/quickstart#1-プロジェクトを生成する)が `arkor` をローカル devDependency としてインストールするので、以下のコマンドは生成済みのプロジェクトの中で実行することを想定しています（`arkor` バイナリはあなたのパッケージマネージャー経由で参照できます）。以降のスニペットはタブグループになっており、普段使うパッケージマネージャーを選べばページ全体がそれに揃います。
+`arkor` CLI は Arkor プロジェクトを操作するためのコマンドインターフェイスです。[プロジェクト生成ツール](/ja/quickstart#1-プロジェクトを生成する)が `arkor` をローカル devDependency としてインストールするので、以下のコマンドは生成済みのプロジェクト内で実行することを想定しています（`arkor` バイナリーはお使いのパッケージマネージャー経由で参照できます）。以降のスニペットはタブグループになっており、普段使うパッケージマネージャーを選べばページ全体がそれに揃います。
 
 ## コマンド
 
@@ -15,7 +15,7 @@ description: "arkor CLI: 全コマンドリファレンス。"
 | [`arkor start`](/ja/cli/build-and-start) | ビルド成果物を実行（無いときは自動ビルド）。 |
 | [`arkor login`](/ja/cli/auth) | サインイン。フラグなしでは対話ピッカー（初期選択: `Anonymous`）を表示。`--oauth` でループバック上の Arkor Cloud OAuth（PKCE）フロー、`--anonymous` でピッカーをスキップして使い捨てトークン。 |
 | [`arkor logout`](/ja/cli/auth) | `~/.arkor/credentials.json` を削除。 |
-| [`arkor whoami`](/ja/cli/auth) | 現在の identity と到達できる org を表示。 |
+| [`arkor whoami`](/ja/cli/auth) | 現在の ID と到達できる org を表示。 |
 
 ## コマンド共通の慣例
 
@@ -31,16 +31,16 @@ description: "arkor CLI: 全コマンドリファレンス。"
 | --- | --- |
 | `DO_NOT_TRACK=1` | すべてのコマンドでテレメトリーを無効化。永続テレメトリー ID ファイルは作成も読込もされません。 |
 | `ARKOR_TELEMETRY_DISABLED=1` | `DO_NOT_TRACK` と同じ。`DO_NOT_TRACK` で他ツールをゲートしているがスイッチを分けたい構成のための Arkor 専用エイリアス。 |
-| `ARKOR_TELEMETRY_DEBUG=1` | テレメトリーモジュール内部の冗長ログを有効化（init 失敗、identity ファイルの read/write エラー、capture 失敗、shutdown エラー）。このフラグが ON でも **テレメトリーは送信されます**。診断補助で、dry-run スイッチではありません。送信を止めるには `DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` を使ってください。 |
+| `ARKOR_TELEMETRY_DEBUG=1` | テレメトリーモジュール内部の冗長ログを有効化（init 失敗、ID ファイルの read/write エラー、capture 失敗、shutdown エラー）。このフラグが ON でも **テレメトリーは送信されます**。診断補助で、dry-run スイッチではありません。送信を止めるには `DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` を使ってください。 |
 | `CI=1`（または stdout が非 TTY） | 非対話モードを強制。`arkor init` はプロンプトをスキップしてフラグで渡された値（`--yes` 時は組み込みのデフォルト）を使い、`--git` か `--yes` 指定時は git init が確認なしで走り、それ以外では黙ってスキップされます。[`arkor init` § CI / 非対話シェル](/ja/cli/init#ci--非対話シェル) を参照。 |
 
 ### ロードマップ上
 
-CLI は `ARKOR_CLOUD_API_URL` を読み、設定されていればクラウド API のエンドポイントとして使います（`packages/arkor/src/core/credentials.ts` の `defaultArkorCloudApiUrl`）。ただし、デフォルト以外のエンドポイント（セルフホストやステージング）を指すことは **まだ** 安定したユーザー向けノブではありません: この環境変数は内部用で予告なく変わる可能性があり、別エンドポイントへの互換性保証もありません。セルフホスト／ステージングデプロイへのファーストクラス対応は[ロードマップにあります](/ja/roadmap#self-hosted-deployments)。
+CLI は `ARKOR_CLOUD_API_URL` を読み、設定されていればクラウド API のエンドポイントとして使います（`packages/arkor/src/core/credentials.ts` の `defaultArkorCloudApiUrl`）。ただし、デフォルト以外のエンドポイント（セルフホストやステージング）を指定することは **まだ** 安定したユーザー向け機能ではありません。この環境変数は内部用で予告なく変わる可能性があり、別エンドポイントへの互換性保証もありません。セルフホスト／ステージングデプロイへのファーストクラス対応は[ロードマップにあります](/ja/roadmap#self-hosted-deployments)。
 
 ## プログラムからの呼び出し
 
-`arkor` パッケージは `runTrainer` を再エクスポートしているので、`arkor start` 経由でなく自分の TypeScript コードから学習を駆動できます:
+`arkor` パッケージは `runTrainer` を再エクスポートしているので、`arkor start` 経由でなく自分の TypeScript コードから学習を実行できます。
 
 ```ts
 import { runTrainer } from "arkor";
@@ -48,7 +48,7 @@ import { runTrainer } from "arkor";
 await runTrainer(); // src/arkor/index.ts を解決し trainer.start() + .wait() を呼ぶ
 ```
 
-CLI のコマンドランナー本体（`runBuild`、`runStart`、`runDev` など）は意図的に **公開面ではなく**、予告なく変わる可能性があります。学習を自分のコードに組み込みたいなら `runTrainer` を使うか、`trainer.start()` / `trainer.wait()` を直接呼んでください。
+CLI のコマンドランナー本体（`runBuild`、`runStart`、`runDev` など）は意図的に **公開 API ではなく**、予告なく変わる可能性があります。学習を自分のコードに組み込みたい場合は `runTrainer` を使うか、`trainer.start()` / `trainer.wait()` を直接呼んでください。
 
 ## プロジェクト状態 vs ユーザー状態
 
@@ -62,5 +62,5 @@ CLI が読み書きする場所は 2 つです:
 ## 関連項目
 
 - [プロジェクト構成](/ja/concepts/project-structure): ファイル単位のレイアウト
-- [SDK 概要](/ja/sdk/overview): CLI の周りのプログラム面
+- [SDK 概要](/ja/sdk/overview): CLI に対応するプログラム API
 - [ロードマップ § セルフホストデプロイ](/ja/roadmap#self-hosted-deployments): `ARKOR_CLOUD_API_URL` の方向性

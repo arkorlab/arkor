@@ -5,16 +5,16 @@ description: "Arkor CLI の日々の使い方。"
 
 # CLI 概要
 
-`arkor` CLI は Arkor プロジェクトを取り巻くコマンド面です。`arkor init` 後に日常的に使うのは 4 系統で済みます。
+`arkor` CLI は Arkor プロジェクトを操作するためのコマンドインターフェイスです。`arkor init` 後に日常的に使うのは 4 系統で済みます。
 
 | コマンド | 何をするか |
 | --- | --- |
 | [`arkor init`](/ja/guides/cli/init) | カレントディレクトリーに Arkor を入れる。プロジェクトごとに 1 回。 |
 | [`arkor dev`](/ja/guides/cli/dev) | ブラウザーで Studio を起動。メインの対話ループ。 |
 | [`arkor build` / `arkor start`](/ja/guides/cli/build-and-start) | ヘッドレスでトレーナーを実行: CI、サーバー、スクリプトから。 |
-| [`arkor login` / `logout` / `whoami`](/ja/guides/cli/auth) | Arkor Cloud にサインイン、または現在の identity を確認。 |
+| [`arkor login` / `logout` / `whoami`](/ja/guides/cli/auth) | Arkor Cloud にサインイン、または現在の ID を確認。 |
 
-どのコマンドも `--help` でフラグ一覧が出ます。`package.json` にスクリプトがあるもの（例: `pnpm dev`）は script 形を、無いものは各パッケージマネージャー向けの手順に従って `arkor X` を実行してください。
+どのコマンドも `--help` でフラグ一覧が出ます。`package.json` にスクリプトがあるもの（例: `pnpm dev`）はそのスクリプト形式を、無いものは各パッケージマネージャー向けの手順に従って `arkor X` を実行してください。
 
 ## リファレンス
 
