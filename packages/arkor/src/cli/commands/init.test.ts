@@ -697,7 +697,7 @@ describe("runInit", () => {
       .mocked(clack.outro)
       .mock.calls.map((c) => c[0])
       .join("\n");
-    expect(outroMessages).toMatch(/Next: `git init && git add -A && git commit/);
+    expect(outroMessages).toMatch(/Next: git init && git add -A && git commit/);
     expect(outroMessages).toMatch(/pnpm arkor dev/);
     // The dev command comes AFTER the git command in the outro
     // (manual commit precedes starting the dev server).

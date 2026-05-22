@@ -431,7 +431,21 @@ export async function runInit(options: InitOptions): Promise<void> {
   // inside double quotes (would shell-execute `arkor init`). The
   // auto-commit path (Trainer.gitInitialCommit) keeps the
   // backticked message — that goes via spawn argv, not a shell.
-  const gitCmd = '`git init && git add -A && git commit -m "Initial commit from arkor init"`';
+  //
+  // Round 40 follow-up (Copilot, PR #99): the command itself is
+  // emitted WITHOUT surrounding markdown-style backticks. The
+  // other outro tokens (`<pm> install`, `<pm> arkor dev`) keep
+  // their decorative backticks because they're short identifiers
+  // that users instinctively recognise as code labels and drop
+  // when copying. The git-init chain is long enough that the
+  // outer backticks visually merge with the rest of the prose,
+  // making it likely the user copy-pastes them too. That breaks
+  // in every supported shell: POSIX `\`...\`` triggers command
+  // substitution (the shell tries to run the chain and capture
+  // its output, then exec the empty result), PowerShell treats
+  // \` as an escape character. Emit the command bare so even a
+  // verbatim copy lands cleanly.
+  const gitCmd = 'git init && git add -A && git commit -m "Initial commit from arkor init"';
   // Round 39 (Copilot, PR #99): the install-blocked branch already
   // told the user to fix the yarn-config advisory first; printing
   // the generic `Next: <pm> install` outro after that contradicts
