@@ -437,6 +437,19 @@ export function RunTraining() {
       // SSE handler has time to land and flip `restartPendingRef`.
       // `currentPidRef` stays set for the grace window so that
       // late event can still match per-pid.
+      //
+      // Skip the grace window entirely when HMR isn't enabled:
+      // without an `/api/dev/events` subscription nothing can ever
+      // flip `restartPendingRef`, so the 250 ms timer + closure
+      // would just churn microtasks and delay `setHmrStatus("idle")`
+      // for no benefit. `isHmrEnabled()` reads the same
+      // server-injected meta the SSE effect above gates on, so this
+      // mirrors that condition exactly.
+      if (!isHmrEnabled()) {
+        currentPidRef.current = null;
+        setHmrStatus("idle");
+        return;
+      }
       if (restartGraceTimerRef.current !== null) {
         clearTimeout(restartGraceTimerRef.current);
       }

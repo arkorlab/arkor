@@ -1,5 +1,5 @@
-import { randomBytes } from "node:crypto";
-import { unlinkSync } from "node:fs";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { readFileSync, unlinkSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { serve } from "@hono/node-server";
@@ -172,6 +172,22 @@ async function persistStudioToken(token: string): Promise<string> {
   return path;
 }
 
+/**
+ * Constant-time string comparison for the token-identity check below.
+ * The "is this my token?" gate is not strictly a security-sensitive
+ * comparison (both sides are owned by the user on the local FS), but
+ * the SDK already uses `timingSafeEqual` for every other studio-token
+ * comparison (`buildStudioApp`), and keeping the same primitive here
+ * costs nothing while making the policy "tokens are always compared
+ * constant-time" uniform across the codebase.
+ */
+function tokensEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
 function scheduleStudioTokenCleanup(
   path: string,
   // Read at cleanup time so a `persistStudioToken` call that's still
@@ -180,6 +196,11 @@ function scheduleStudioTokenCleanup(
   // respected. A plain boolean parameter would be captured at hook
   // registration time, well before persist resolves.
   shouldUnlink: () => boolean,
+  // Token THIS process wrote. Compared against the file's current
+  // contents at unlink time so we never delete a token a concurrent
+  // `arkor dev` overwrote in the shared path. See cleanup body for
+  // the full rationale.
+  expectedToken: string,
 ): void {
   registerCleanupHook({
     cleanup: () => {
@@ -191,6 +212,23 @@ function scheduleStudioTokenCleanup(
       // wipe it out from under them, breaking that session's Vite
       // SPA dev workflow with mystery 403s on /api/*.
       if (!shouldUnlink()) return;
+      // Token-identity check: even when this process DID persist a
+      // token, another `arkor dev` launched in the same `$HOME` may
+      // have overwritten the shared `~/.arkor/studio-token` path
+      // BEFORE our shutdown. Unlinking unconditionally would then
+      // delete THEIR valid token, breaking their Vite SPA dev
+      // workflow. Re-read at exit time and only unlink when the
+      // bytes still match what we wrote so the cleanup is a no-op
+      // for foreign tokens. Read failure (ENOENT etc.) means the
+      // file is already gone, which is fine; the unlink would have
+      // been a no-op anyway.
+      let current: string;
+      try {
+        current = readFileSync(path, "utf8").trim();
+      } catch {
+        return;
+      }
+      if (!tokensEqual(current, expectedToken)) return;
       try {
         unlinkSync(path);
       } catch {
@@ -248,15 +286,20 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // dispose and then leave the server idle in the foreground: no exit
   // ever fires.
   //
-  // The cleanup body itself, however, gates `unlinkSync` on
-  // `tokenPersisted` (set only after `persistStudioToken` resolves) so a
-  // failed-persist run doesn't clobber a concurrent `arkor dev` process's
-  // valid token at the shared `~/.arkor/studio-token` path. Both
-  // protections together: hook is always registered (so exits behave),
-  // but only deletes a file *we* wrote.
+  // The cleanup body itself, however, gates `unlinkSync` on TWO checks:
+  //   - `tokenPersisted` (set only after `persistStudioToken` resolves)
+  //     so a failed-persist run never touches the shared file.
+  //   - token-identity match (re-read the file at exit time, compare
+  //     against the bytes WE wrote) so a successful-persist run that
+  //     was later overwritten by a concurrent `arkor dev` in the same
+  //     `$HOME` still leaves THAT instance's token in place. Without
+  //     this second check, the later instance would see mystery 403s
+  //     on /api/* because we'd have wiped its valid token.
+  // All three protections together: hook is always registered (so
+  // exits behave), and only deletes a file we wrote AND still own.
   const tokenPath = studioTokenPath();
   let tokenPersisted = false;
-  scheduleStudioTokenCleanup(tokenPath, () => tokenPersisted);
+  scheduleStudioTokenCleanup(tokenPath, () => tokenPersisted, studioToken);
 
   // Persisting the token to disk is *only* needed for the Vite SPA dev
   // workflow. The bundled `:port` flow injects the meta tag at request time

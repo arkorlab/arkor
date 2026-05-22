@@ -821,6 +821,54 @@ describe("runDev", () => {
     }
   });
 
+  it("does NOT unlink the studio-token when a concurrent arkor dev has overwritten it after our successful persist (token-identity check)", async () => {
+    // Regression: even when this process SUCCESSFULLY persisted the
+    // token, the cleanup hook used to `unlinkSync` unconditionally on
+    // shutdown. If a second `arkor dev` launched in the same `$HOME`
+    // overwrote `~/.arkor/studio-token` with ITS token AFTER our
+    // persist, our cleanup would still wipe the file: the second
+    // session's Vite SPA dev workflow would then see mystery 403s on
+    // /api/* because the meta tag the SPA reads no longer matches
+    // any in-memory token. The fix re-reads the file at exit time
+    // and only unlinks when the bytes match what we wrote.
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4208 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    // Sanity: our persist landed.
+    const path = studioTokenPath();
+    expect(existsSync(path)).toBe(true);
+    const ourToken = readFileSync(path, "utf8").trim();
+    expect(ourToken).toMatch(/^[A-Za-z0-9_-]+$/);
+    // Simulate the concurrent overwrite: a second `arkor dev` wrote
+    // its own token to the same shared path while we were running.
+    const concurrentToken = "concurrent-dev-token-XYZ";
+    writeFileSync(path, concurrentToken, { mode: 0o600 });
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => {
+        return undefined as never;
+      }) as typeof process.exit);
+    try {
+      const sigintListeners = process.listeners("SIGINT");
+      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      handler();
+      await flushMicrotasks();
+      // Under the bug the file would be gone. With the fix the
+      // concurrent token is still in place AND unchanged so the
+      // sibling `arkor dev` keeps working.
+      expect(existsSync(path)).toBe(true);
+      expect(readFileSync(path, "utf8")).toBe(concurrentToken);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
   it("registers a cleanup listener that removes the studio-token file on exit", async () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
