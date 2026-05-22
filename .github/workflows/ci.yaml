@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    name: typecheck · test · build · ${{ matrix.os }} · node ${{ matrix.node }}
+    name: typecheck · lint · test · build · ${{ matrix.os }} · node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     # Force bash on every OS so `run:` steps that use POSIX redirection (e.g.
     # `>> "$GITHUB_STEP_SUMMARY"`) work uniformly. windows-latest defaults to
@@ -111,6 +111,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
 
       # Playwright bundles its own browser binaries (~150 MB). Cache by
       # OS and the lockfile hash so a `@playwright/test` upgrade busts

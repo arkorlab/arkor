@@ -40,6 +40,7 @@ pnpm install
 pnpm build         # turbo run build (covers all packages)
 pnpm test          # unit tests across the monorepo
 pnpm typecheck     # tsc across the monorepo
+pnpm lint          # oxlint across the monorepo (--deny-warnings)
 ```
 
 To work on a specific package:

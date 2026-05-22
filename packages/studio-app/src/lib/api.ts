@@ -234,7 +234,7 @@ export async function streamTraining(
   const res = await apiFetch("/api/train", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...(file ? { file } : {}) }),
+    body: JSON.stringify(file ? { file } : {}),
     signal,
   });
   if (!res.body) return;

@@ -17,8 +17,6 @@ import type {
   TrainingResult,
 } from "./types";
 
-const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
-
 /**
  * Internal runtime context. Not part of the public API surface — exposed only
  * for tests and advanced power-user scenarios that need to inject a mock

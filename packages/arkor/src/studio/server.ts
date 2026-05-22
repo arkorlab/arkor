@@ -257,7 +257,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     });
   });
 
-  app.get("/api/me", async (c) => {
+  app.get("/api/me", async () => {
     const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
     const rpc = createRpc(credsBaseUrl, token);
@@ -435,10 +435,12 @@ export function buildStudioApp(options: StudioServerOptions) {
       },
       body,
     });
+    tapDeprecation(upstream, SDK_VERSION);
     const headers = new Headers();
     const ct = upstream.headers.get("content-type");
     if (ct) headers.set("content-type", ct);
     headers.set("cache-control", "no-cache, no-transform");
+    copyDeprecationHeaders(upstream.headers, headers);
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 

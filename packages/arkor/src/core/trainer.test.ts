@@ -42,7 +42,7 @@ function mockFetch(queue: Expectation[]): typeof fetch {
     }
     const headers = new Headers({
       "content-type": "application/json",
-      ...(next.headers ?? {}),
+      ...next.headers,
     });
     return new Response(next.body as BodyInit, {
       status: next.status ?? 200,

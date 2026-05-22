@@ -1320,6 +1320,58 @@ process.exit(0);
       expect(chat!.url).toContain("projectSlug=existing");
     });
 
+    it("forwards upstream Deprecation / Warning / Sunset headers", async () => {
+      // The chat handler does raw fetch (bypassing the wrapped client), so
+      // deprecation forwarding has to be wired by hand — same pattern as
+      // /api/jobs/:id/events. Without this the SPA silently misses sunset /
+      // upgrade warnings the cloud-api raised on the chat path.
+      clearRecordedDeprecation();
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "existing", projectId: "p-existing" },
+        trainCwd,
+      );
+
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/v1/inference/chat")) {
+          return new Response('data: {"content":"hi"}\n\n', {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream",
+              Deprecation: "true",
+              Warning: '299 - "chat endpoint deprecated"',
+              Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+            },
+          });
+        }
+        throw new Error(`unexpected fetch: ${init?.method ?? "GET"} ${url}`);
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-E4B-it",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Deprecation")).toBe("true");
+      expect(res.headers.get("Warning")).toContain("chat endpoint deprecated");
+      expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
+      expect(getRecordedDeprecation()?.message).toBe("chat endpoint deprecated");
+    });
+
     it("propagates the cloud-api status when project bootstrap fails", async () => {
       await writeCredentials(ANON_CREDS);
       // No state.json — bootstrap will hit cloud-api, which returns 503.
