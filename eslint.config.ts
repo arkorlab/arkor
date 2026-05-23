@@ -60,6 +60,39 @@ export default defineConfig(
   // `extends: string` object).
   nodePlugin.configs["flat/recommended-module"],
 
+  // Project-wide overrides of `unicorn.configs.recommended` defaults.
+  // Apply to all files (no `files:` filter) so they affect both TS and JS.
+  {
+    rules: {
+      // Renames `req`/`res`/`params`/`err`/`fn` etc.; would rewrite SDK
+      // public parameter names. Not worth the churn or the API-surface
+      // risk.
+      "unicorn/prevent-abbreviations": "off",
+      // `null` and `undefined` are not interchangeable here: JSON-serialised
+      // cloud-api payloads and `JSON.stringify` treat them differently.
+      "unicorn/no-null": "off",
+      // TODO: re-enable. The plan is to turn this back on and then add
+      // inline disables only where the negated condition is a deliberate
+      // early-return pattern. Audit existing early-returns before flipping
+      // back on so the inline disables can land in the same pass.
+      "unicorn/no-negated-condition": "off",
+      // `window` / `self` carry stricter DOM-typed signatures than
+      // `globalThis` in the Studio SPA; not worth the churn.
+      "unicorn/prefer-global-this": "off",
+      // TODO: revisit. Possibly re-enable once the codebase agrees on a
+      // single binding name (`error` vs `err`).
+      "unicorn/catch-error-name": "off",
+      // Prefer explicit `return undefined;` for clarity.
+      "unicorn/no-useless-undefined": "off",
+      // unicorn's default is kebab-case only; allow PascalCase too so
+      // React component files (`Component.tsx`) pass.
+      "unicorn/filename-case": [
+        "error",
+        { cases: { kebabCase: true, pascalCase: true } },
+      ],
+    },
+  },
+
   // Type-aware parser options for all TS files. `projectService` lets
   // typescript-eslint discover the nearest tsconfig per file; the
   // `allowDefaultProject` glob covers loose config files that aren't
@@ -93,6 +126,12 @@ export default defineConfig(
       ],
       "@typescript-eslint/consistent-type-exports": "error",
       "@typescript-eslint/no-import-type-side-effects": "error",
+      // TODO (alpha period): re-enable. Auto-fix removes `async` from
+      // functions that never `await`, which changes their return type from
+      // `Promise<T>` to `T`. That is a breaking change for any SDK
+      // consumer typing against the public surface. Land as part of the alpha-period
+      // breaking-change pass, not now.
+      "@typescript-eslint/require-await": "off",
       "import-x/no-cycle": "error",
       // TS source uses bundler-style extensionless imports (tsconfig
       // `moduleResolution: "bundler"` + tsdown bundling). `import-x`'s
@@ -141,7 +180,7 @@ export default defineConfig(
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     rules: {
-      // SPA isn't a Node script — disable node-targeted rules here.
+      // SPA isn't a Node script, so disable node-targeted rules here.
       "n/no-unsupported-features/node-builtins": "off",
     },
   },
@@ -155,6 +194,8 @@ export default defineConfig(
     },
     rules: {
       ...vitest.configs.recommended.rules,
+      // Test stubs and mock callbacks routinely use empty function bodies.
+      "@typescript-eslint/no-empty-function": "off",
     },
   },
 
