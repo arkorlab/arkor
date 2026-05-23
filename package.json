@@ -10,8 +10,22 @@
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/eslint-plugin-jsx-a11y": "^6.10.1",
+    "@types/eslint-plugin-promise": "^7.3.0",
+    "@vitest/eslint-plugin": "^1.6.17",
+    "eslint": "^10.4.0",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import-x": "^4.16.2",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-n": "^18.0.1",
+    "eslint-plugin-promise": "^7.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-unicorn": "^64.0.0",
+    "globals": "^17.6.0",
     "oxlint": "1.66.0",
-    "turbo": "^2.4.0"
+    "turbo": "^2.4.0",
+    "typescript-eslint": "^8.59.4"
   },
   "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8"
 }

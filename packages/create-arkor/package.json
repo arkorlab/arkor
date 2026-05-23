@@ -30,7 +30,7 @@
     "build": "tsc -p tsconfig.build.json --noEmit && tsdown && node scripts/copy-root-files.mjs",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --deny-warnings .",
+    "lint": "oxlint --deny-warnings . && eslint .",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:coverage": "vitest run --passWithNoTests --coverage"
