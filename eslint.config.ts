@@ -147,6 +147,18 @@ export default defineConfig(
       // Revisit once typescript-eslint ships a safer fix mode, or treat
       // genuine redundant assertions as a manual-review item.
       "@typescript-eslint/no-unnecessary-type-assertion": "off",
+      // TODO: revisit. `stylisticTypeChecked` defaults this to "interface",
+      // which would auto-rewrite every `type X = { ... }` in the codebase.
+      // Both forms are legitimate (interfaces merge, type aliases compose
+      // with unions/intersections), so leave the choice to the author for
+      // now and decide a project-wide preference in a separate pass.
+      "@typescript-eslint/consistent-type-definitions": "off",
+      // Off because it fires on the very common event-handler pattern
+      // `onClick={() => trackEvent()}` (the inner call returns `void`, so
+      // the concise arrow "confusingly" returns void). Wrapping every
+      // such handler in braces (`() => { trackEvent(); }`) is pure noise
+      // for the reader.
+      "@typescript-eslint/no-confusing-void-expression": "off",
       "import-x/no-cycle": "error",
       // TS source uses bundler-style extensionless imports (tsconfig
       // `moduleResolution: "bundler"` + tsdown bundling). `import-x`'s
