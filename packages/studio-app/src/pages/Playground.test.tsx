@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Playground } from "./Playground";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import {
   jsonResponse,
   sseResponse,
   sseDeltaFrame,
 } from "../test-utils/responses";
+
+import { Playground } from "./Playground";
+
 
 const ORIG_FETCH = globalThis.fetch;
 // Snapshot scrollTo so we can restore it in afterEach. `vi.restoreAllMocks()`

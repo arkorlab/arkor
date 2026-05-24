@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { buildQuickStartSample } from "./QuickStart";
 
 // `buildQuickStartSample` powers the QuickStart card on the Endpoint

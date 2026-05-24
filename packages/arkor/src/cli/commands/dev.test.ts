@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import * as clack from "@clack/prompts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +22,7 @@ vi.mock("open", () => ({
 
 import { serve } from "@hono/node-server";
 import open from "open";
+
 // Re-import the credentials module as a namespace so individual tests can
 // `vi.spyOn` on `writeCredentials` to inject deterministic fs failures
 // regardless of host OS / filesystem semantics.
@@ -31,6 +33,7 @@ import {
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
+
 import { ensureCredentialsForStudio, runDev } from "./dev";
 
 let fakeHome: string;

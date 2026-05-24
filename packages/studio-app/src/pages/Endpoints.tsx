@@ -5,6 +5,19 @@ import {
   useState,
   type SyntheticEvent,
 } from "react";
+
+import { Inbox } from "../components/icons";
+import { Button } from "../components/ui/Button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/Card";
+import { CopyButton } from "../components/ui/CopyButton";
+import { EmptyState } from "../components/ui/EmptyState";
+import { Skeleton } from "../components/ui/Skeleton";
 import {
   createDeployment,
   createDeploymentKey,
@@ -23,23 +36,12 @@ import {
   type DeploymentTarget,
 } from "../lib/api";
 import { navigateBackOr, registerNavigationGuard } from "../route";
-import { Button } from "../components/ui/Button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../components/ui/Card";
-import { CopyButton } from "../components/ui/CopyButton";
-import { EmptyState } from "../components/ui/EmptyState";
-import { Skeleton } from "../components/ui/Skeleton";
-import { Inbox } from "../components/icons";
-import { QuickStart } from "./QuickStart";
+
 import {
   pollDeploymentsForSlug,
   setupKeyIssueGuards,
 } from "./Endpoints.helpers";
+import { QuickStart } from "./QuickStart";
 
 function describeTarget(target: DeploymentTarget): string {
   if (target.kind === "adapter") {

@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scaffold, templateChoices } from "./scaffold";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   detectPackageManager,
   resolvePackageManager,
 } from "./package-manager";
+import { scaffold, templateChoices } from "./scaffold";
 
 let cwd: string;
 const ORIG_UA = process.env.npm_config_user_agent;

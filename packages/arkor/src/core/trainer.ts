@@ -1,4 +1,5 @@
 import { iterateEvents } from "@arkor/cloud-api-client";
+
 import { CloudApiClient } from "./client";
 import {
   defaultArkorCloudApiUrl,
@@ -6,6 +7,7 @@ import {
   type Credentials,
 } from "./credentials";
 import { ensureProjectState } from "./projectState";
+
 import type {
   CheckpointContext,
   InferArgs,

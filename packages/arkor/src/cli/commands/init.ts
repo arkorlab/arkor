@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+
 import {
   gitInitialCommit,
   install,
@@ -10,6 +11,7 @@ import {
   type PackageManager,
   type TemplateId,
 } from "@arkor/cli-internal";
+
 import {
   isInteractive,
   promptConfirm,

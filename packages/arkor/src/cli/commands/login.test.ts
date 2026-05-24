@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import * as clack from "@clack/prompts";
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import * as clack from "@clack/prompts";
 
 // Mock `open` so the OAuth flow doesn't try to spawn a real browser.
 // The mock also delivers the loopback callback by inspecting the
@@ -13,8 +15,10 @@ vi.mock("open", () => ({
 }));
 
 import open from "open";
-import { runLogin } from "./login";
+
 import { readCredentials } from "../../core/credentials";
+
+import { runLogin } from "./login";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;

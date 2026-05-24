@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { fetchJobs, type Job } from "../lib/api";
+
 import { ArrowRight, BookOpen, Inbox, Sparkles } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
 import { RunTraining } from "../components/RunTraining";
@@ -12,6 +12,7 @@ import {
 } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
+import { fetchJobs, type Job } from "../lib/api";
 
 const RECENT_LIMIT = 5;
 

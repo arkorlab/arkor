@@ -1,13 +1,15 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { PostHog } from "posthog-node";
+
 import { readCredentials, type Credentials } from "./credentials";
 import { SDK_VERSION } from "./version";
 

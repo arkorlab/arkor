@@ -4,8 +4,8 @@
  * the package directory so they end up in the published tarball. Kept as
  * Node (not shell) to stay Windows-friendly.
  */
-import { copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { copyFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 

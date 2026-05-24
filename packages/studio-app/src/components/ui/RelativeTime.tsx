@@ -1,4 +1,5 @@
 import { useEffect, useReducer } from "react";
+
 import { formatRelativeTime } from "../../lib/format";
 
 // Each `RelativeTime` instance used to own a `setInterval(... 30_000)`

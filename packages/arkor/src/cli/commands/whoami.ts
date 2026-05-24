@@ -1,3 +1,5 @@
+import { createClient } from "@arkor/cloud-api-client";
+
 import { CloudApiClient } from "../../core/client";
 import {
   defaultArkorCloudApiUrl,
@@ -6,7 +8,6 @@ import {
 import { recordDeprecation } from "../../core/deprecation";
 import { formatSdkUpgradeError } from "../../core/upgrade-hint";
 import { SDK_VERSION } from "../../core/version";
-import { createClient } from "@arkor/cloud-api-client";
 
 export async function runWhoami(): Promise<void> {
   const creds = await readCredentials();

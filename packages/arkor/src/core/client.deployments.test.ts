@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+
 import { CloudApiClient, CloudApiError } from "./client";
+
 import type { Credentials } from "./credentials";
 import type { CreateDeploymentInput, DeploymentDto } from "./deployments";
 

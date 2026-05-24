@@ -10,8 +10,8 @@
  *
  * Kept as Node (not shell) to stay Windows-friendly.
  */
-import { cp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { cp, rm } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 

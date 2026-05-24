@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchJobs, type Job } from "../lib/api";
+
 import { Inbox, Refresh, Search } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
 import { Card, CardHeader, CardTitle, CardDescription } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { IconButton } from "../components/ui/IconButton";
 import { Skeleton } from "../components/ui/Skeleton";
+import { fetchJobs, type Job } from "../lib/api";
 
 type StatusFilter = "all" | Job["status"];
 

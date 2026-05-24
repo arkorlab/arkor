@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+
 import { createArkor, isArkor } from "./arkor";
+
 import type { Trainer } from "./types";
 
 function fakeTrainer(name = "run"): Trainer {

@@ -1,5 +1,6 @@
-import type { Job } from "../../lib/api";
 import { cn } from "./cn";
+
+import type { Job } from "../../lib/api";
 
 type Status = Job["status"];
 

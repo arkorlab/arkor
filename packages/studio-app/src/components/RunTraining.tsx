@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+
 import {
   fetchManifest,
   streamTraining,
   type ManifestResult,
 } from "../lib/api";
+
 import { Play, StopCircle } from "./icons";
 import { Button } from "./ui/Button";
 

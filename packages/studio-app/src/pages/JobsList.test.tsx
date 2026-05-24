@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { JobsList } from "./JobsList";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { jsonResponse } from "../test-utils/responses";
+
+import { JobsList } from "./JobsList";
+
+
 import type { Job } from "../lib/api";
 
 function makeJob(overrides: Partial<Job>): Job {

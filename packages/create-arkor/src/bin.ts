@@ -3,8 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
-import * as clack from "@clack/prompts";
-import { Command } from "commander";
+
 import {
   gitInitialCommit,
   install,
@@ -17,6 +16,8 @@ import {
   type PackageManager,
   type TemplateId,
 } from "@arkor/cli-internal";
+import * as clack from "@clack/prompts";
+import { Command } from "commander";
 
 interface RunOptions {
   dir?: string;

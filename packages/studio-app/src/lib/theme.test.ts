@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { getCurrentTheme, getInitialTheme, setTheme } from "./theme";
 
 // theme.ts inspects `window` / `document` at call time, so we stub

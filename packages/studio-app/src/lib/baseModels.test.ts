@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { DEFAULT_BASE_MODEL, SUPPORTED_BASE_MODELS } from "./baseModels";
 
 describe("baseModels", () => {

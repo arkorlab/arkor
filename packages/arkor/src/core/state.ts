@@ -1,6 +1,7 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
+
 import type { ArkorProjectState } from "./types";
 
 const STATE_DIR = ".arkor";

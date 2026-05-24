@@ -1,4 +1,5 @@
 import { test as base } from "@playwright/test";
+
 import { startFakeCloudApi, type CloudApiMock } from "./cloudApiMock";
 import { cleanup, createFixture, type FixturePaths } from "./seedFixture";
 import { startStudio, type StudioHandle } from "./studioServer";

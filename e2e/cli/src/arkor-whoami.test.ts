@@ -7,15 +7,17 @@
 // **user-agent** branch by setting `npm_config_user_agent` on the spawn,
 // since `argv[1]` for the spawned child is always the dist bin and never a
 // pnpm/bun/yarn-shaped global path.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from "node:http";
-import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { ARKOR_BIN } from "./bins";
 import { cleanup, makeTempDir, runCli } from "./spawn-cli";
 

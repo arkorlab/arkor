@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { type DeploymentAuthMode } from "../lib/api";
+
+import { BookOpen, ExternalLink, Sparkles } from "../components/icons";
 import { Button } from "../components/ui/Button";
 import {
   Card,
@@ -9,7 +10,7 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { CopyButton } from "../components/ui/CopyButton";
-import { BookOpen, ExternalLink, Sparkles } from "../components/icons";
+import { type DeploymentAuthMode } from "../lib/api";
 
 // ---------------------------------------------------------------------------
 // Quick start: language- and operation-keyed code samples.

@@ -1,7 +1,9 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
 import { CREATE_ARKOR_BIN } from "./bins";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
 

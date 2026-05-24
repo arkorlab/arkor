@@ -1,6 +1,7 @@
 import { CloudApiClient, CloudApiError } from "./client";
-import type { Credentials } from "./credentials";
 import { readState, writeState } from "./state";
+
+import type { Credentials } from "./credentials";
 import type { ArkorProjectState } from "./types";
 
 export interface EnsureProjectStateOptions {

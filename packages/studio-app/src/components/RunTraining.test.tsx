@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { RunTraining } from "./RunTraining";
+import { describe, it, expect, afterEach, vi } from "vitest";
+
 import { jsonResponse, textStreamResponse } from "../test-utils/responses";
+
+import { RunTraining } from "./RunTraining";
+
 
 const ORIG_FETCH = globalThis.fetch;
 

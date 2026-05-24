@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { CloudApiClient, CloudApiError } from "./client";
-import type { AnonymousCredentials } from "./credentials";
-import type { ChatMessage } from "./types";
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
 } from "./deprecation";
+
+import type { AnonymousCredentials } from "./credentials";
+import type { ChatMessage } from "./types";
 
 const anonCreds: AnonymousCredentials = {
   mode: "anon",

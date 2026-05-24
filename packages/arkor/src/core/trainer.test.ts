@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTrainer } from "./trainer";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { writeState } from "./state";
+import { createTrainer } from "./trainer";
+
 import type { AnonymousCredentials } from "./credentials";
 
 interface Expectation {

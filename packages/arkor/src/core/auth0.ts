@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+
 import type { Auth0Credentials } from "./credentials";
+import type { AddressInfo } from "node:net";
 
 export interface CliConfig {
   auth0Domain: string | null;

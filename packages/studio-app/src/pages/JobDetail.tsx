@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
-import { fetchJobs, openJobEvents, type Job } from "../lib/api";
+
 import { ArrowLeft, Sparkles } from "../components/icons";
 import {
   EventsStream,
   type EventEntry,
 } from "../components/jobs/EventsStream";
-import { LossChart, type LossPoint } from "../components/jobs/LossChart";
 import {
   JobMetaSidebar,
   type JobMetaItem,
 } from "../components/jobs/JobMetaSidebar";
+import { LossChart, type LossPoint } from "../components/jobs/LossChart";
 import { Breadcrumb } from "../components/ui/Breadcrumb";
 import { Button } from "../components/ui/Button";
 import {
@@ -20,6 +20,7 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { fetchJobs, openJobEvents, type Job } from "../lib/api";
 import { formatDuration, truncateMiddle } from "../lib/format";
 
 const MAX_LOSS_POINTS = 2000;

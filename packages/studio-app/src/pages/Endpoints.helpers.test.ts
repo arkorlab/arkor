@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+
 import {
   KEY_ISSUE_DISPLAYED_MESSAGE,
   KEY_ISSUE_INFLIGHT_MESSAGE,
   pollDeploymentsForSlug,
   setupKeyIssueGuards,
 } from "./Endpoints.helpers";
+
 import type { Deployment } from "../lib/api";
 import type { NavigationGuard } from "../route";
 

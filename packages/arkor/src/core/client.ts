@@ -3,17 +3,7 @@ import {
   parseErrorBody,
   type ArkorClient,
 } from "@arkor/cloud-api-client";
-import type { z } from "zod";
-import type { Credentials } from "./credentials";
-import type {
-  CreateDeploymentInput,
-  CreateDeploymentKeyInput,
-  CreateDeploymentKeyResult,
-  DeploymentDto,
-  DeploymentKeyDto,
-  DeploymentScope,
-  UpdateDeploymentInput,
-} from "./deployments";
+
 import { recordDeprecation, tapDeprecation } from "./deprecation";
 import {
   createDeploymentKeyResponseSchema,
@@ -27,6 +17,19 @@ import {
   listProjectsResponseSchema,
   updateDeploymentResponseSchema,
 } from "./schemas";
+import { formatSdkUpgradeError } from "./upgrade-hint";
+import { SDK_VERSION } from "./version";
+
+import type { Credentials } from "./credentials";
+import type {
+  CreateDeploymentInput,
+  CreateDeploymentKeyInput,
+  CreateDeploymentKeyResult,
+  DeploymentDto,
+  DeploymentKeyDto,
+  DeploymentScope,
+  UpdateDeploymentInput,
+} from "./deployments";
 import type {
   ChatMessage,
   JobConfig,
@@ -36,8 +39,7 @@ import type {
   ToolDefinition,
   TrainingJob,
 } from "./types";
-import { formatSdkUpgradeError } from "./upgrade-hint";
-import { SDK_VERSION } from "./version";
+import type { z } from "zod";
 
 export class CloudApiError extends Error {
   status: number;

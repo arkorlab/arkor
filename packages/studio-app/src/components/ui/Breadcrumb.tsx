@@ -1,5 +1,7 @@
 import { Fragment, type ReactNode } from "react";
+
 import { ChevronRight } from "../icons";
+
 import { cn } from "./cn";
 
 export interface BreadcrumbItem {

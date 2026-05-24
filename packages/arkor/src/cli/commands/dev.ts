@@ -2,8 +2,10 @@ import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+
 import { serve } from "@hono/node-server";
 import open from "open";
+
 import { fetchCliConfig } from "../../core/auth0";
 import {
   AnonymousTokenRejectedError,

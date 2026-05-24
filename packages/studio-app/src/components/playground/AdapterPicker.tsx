@@ -1,6 +1,7 @@
-import type { Job } from "../../lib/api";
-import { ChevronDown } from "../icons";
 import { truncateMiddle } from "../../lib/format";
+import { ChevronDown } from "../icons";
+
+import type { Job } from "../../lib/api";
 
 export function AdapterPicker({
   jobs,

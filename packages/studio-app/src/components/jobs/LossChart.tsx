@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+
 import { summarize, type LossStats } from "../../lib/stats";
 
 export interface LossPoint {

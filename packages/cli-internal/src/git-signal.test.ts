@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Module-scoped mock for node:child_process so we can simulate `git`
@@ -12,6 +13,7 @@ vi.mock("node:child_process", () => {
 });
 
 import { spawn } from "node:child_process";
+
 import { gitInitialCommit } from "./git";
 
 interface FakeChild extends EventEmitter {

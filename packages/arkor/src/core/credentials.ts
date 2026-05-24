@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
 import { anonymousTokenResponseSchema } from "./schemas";
 import { SDK_VERSION } from "./version";
 

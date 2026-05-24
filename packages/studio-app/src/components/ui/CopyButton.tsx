@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+
 import { Check, Copy } from "../icons";
+
 import { IconButton } from "./IconButton";
 
 export function CopyButton({

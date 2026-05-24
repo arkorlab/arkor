@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   existsSync,
   mkdtempSync,
@@ -10,13 +9,18 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { buildStudioApp } from "./server";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+
 import { writeCredentials } from "../core/credentials";
-import { readState, writeState } from "../core/state";
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
 } from "../core/deprecation";
+import { readState, writeState } from "../core/state";
+
+import { buildStudioApp } from "./server";
 
 const ANON_CREDS = {
   mode: "anon" as const,

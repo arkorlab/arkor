@@ -1,6 +1,7 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Stub @clack/prompts so the interactive-prompt branch in decideGitInit
@@ -56,6 +57,7 @@ import {
   isInGitRepo,
   scaffold,
 } from "@arkor/cli-internal";
+
 import { runInit } from "./init";
 
 let cwd: string;

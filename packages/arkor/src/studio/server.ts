@@ -1,8 +1,12 @@
 import { spawn } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
-import { Hono } from "hono";
+import { readFile, realpath } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { createClient } from "@arkor/cloud-api-client";
+import { Hono } from "hono";
+
 import { CloudApiClient, CloudApiError } from "../core/client";
 import {
   defaultArkorCloudApiUrl,
@@ -12,7 +16,6 @@ import {
   type Credentials,
 } from "../core/credentials";
 import { recordDeprecation, tapDeprecation } from "../core/deprecation";
-import { SDK_VERSION } from "../core/version";
 import {
   AUTH0_MISSING_STATE_MESSAGE,
   ensureProjectState,
@@ -22,6 +25,8 @@ import {
   createDeploymentRequestSchema,
 } from "../core/schemas";
 import { readState } from "../core/state";
+import { SDK_VERSION } from "../core/version";
+
 import { readManifestSummary } from "./manifest";
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
@@ -31,8 +36,6 @@ function copyDeprecationHeaders(from: Headers, to: Headers): void {
     if (value !== null) to.set(name, value);
   }
 }
-import { fileURLToPath } from "node:url";
-import { dirname, join, resolve, sep } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -580,7 +583,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         // (replacement keeps word boundaries readable) and backslash-
         // escape the two reserved chars per the quoted-pair rule.
         const safeMessage = deprecationNotice.message
-          // eslint-disable-next-line no-control-regex
+           
           .replace(/[\x00-\x1F\x7F]/g, " ")
           .replace(/\\/g, "\\\\")
           .replace(/"/g, '\\"');
