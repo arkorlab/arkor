@@ -45,3 +45,12 @@ allowBuilds:
   rolldown: true
   unrs-resolver: true
   esbuild: true
+# Bump `unrun` past 0.2.x so its transitive `rolldown` resolves to the
+# GA series (^1.0.0) instead of the legacy `1.0.0-rc.17` pin in
+# `unrun@0.2.37`. `unrun` lands in the tree only as an optional peer of
+# `tsdown`; we don't import it ourselves. Without this override the
+# lockfile would carry two rolldown copies (GA from our direct dep +
+# rc.17 from unrun) for no functional gain. Drop this override once
+# every published `tsdown` resolves `unrun` to ^0.3.0 by itself.
+overrides:
+  unrun: ^0.3.0
