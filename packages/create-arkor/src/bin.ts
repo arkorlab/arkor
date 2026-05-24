@@ -6,9 +6,13 @@ import process from "node:process";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
 import {
+  ClaudeCodeStrictExit,
+  formatClaudeCodeMissingMessage,
   gitInitialCommit,
   install,
+  isClaudeCode,
   isInGitRepo,
+  missingClaudeCodeFlags,
   resolvePackageManager,
   sanitise,
   scaffold,
@@ -150,7 +154,13 @@ async function run(options: RunOptions): Promise<void> {
   let name = sanitise(options.name ?? defaultName);
   let template: TemplateId = options.template ?? "triage";
 
-  if (!options.yes && isInteractive()) {
+  // Under CLAUDECODE=1 the action handler below has already gated strict
+  // mode: by the time we get here either every flag is present or `--yes`
+  // was passed. Treat CLAUDECODE as an implicit "skip prompts" so a Claude
+  // Code TTY (which can't answer clack) never opens a real prompt; other
+  // CLIs keep their pre-existing interactive semantics because
+  // `isInteractive()` is no longer overridden globally.
+  if (!options.yes && !isClaudeCode() && isInteractive()) {
     // Re-prompt loop: when the project name is auto-derived into a fresh
     // `./<name>/` subdirectory, refuse to merge into an existing non-empty
     // directory (likely a typo or a forgotten earlier scaffold). Explicit
@@ -368,6 +378,42 @@ program
           "Pick one of --agents-md / --no-agents-md, not both.",
         );
       }
+      // Under CLAUDECODE=1, refuse to fall through to interactive prompts
+      // (they'd hang) or to silent defaults (they'd hide decisions the
+      // agent should be making). Print the suggested re-invocation and
+      // exit 1 so the agent can re-run with explicit flags. `agentsMd`
+      // is checked from raw argv so default-on doesn't satisfy the
+      // requirement: the agent should opt in or out deliberately.
+      if (isClaudeCode()) {
+        const agentsMdSpecified =
+          flagsArgv.includes("--agents-md") ||
+          flagsArgv.includes("--no-agents-md");
+        const missing = missingClaudeCodeFlags({
+          yes: opts.yes,
+          template: opts.template,
+          git: opts.git,
+          skipGit: opts.skipGit,
+          skipInstall: opts.skipInstall,
+          useNpm: opts.useNpm,
+          usePnpm: opts.usePnpm,
+          useYarn: opts.useYarn,
+          useBun: opts.useBun,
+          name: opts.name,
+          dir,
+          agentsMd: agentsMdSpecified ? opts.agentsMd ?? true : undefined,
+          requireProjectName: true,
+        });
+        if (missing.length > 0) {
+          process.stderr.write(
+            formatClaudeCodeMissingMessage("create-arkor", missing),
+          );
+          // Throw (don't `process.exit`) so the outer `program.parseAsync`
+          // catch block recognises this sentinel and exits silently. The
+          // "create-arkor failed:" prefix it normally adds would double up
+          // on our already-printed missing-flags block.
+          throw new ClaudeCodeStrictExit();
+        }
+      }
       // Use `Object.hasOwn` (not `in`) so prototype keys like `toString` /
       // `__proto__` can't pass validation and crash later inside scaffold().
       // Reject typos with an explicit error rather than silently coercing them
@@ -405,6 +451,22 @@ program
   );
 
 program.parseAsync(process.argv).catch((err) => {
+  // The strict-mode validator throws this sentinel after writing the
+  // missing-flags block; exit silently so the `create-arkor failed:`
+  // prefix below doesn't double up on the already-printed message.
+  //
+  // Use `process.exitCode` for the strict path (not `process.exit`):
+  // Node then lets the event loop drain naturally so the multi-line
+  // stderr block flushes on piped stdio. Generic failures still go
+  // through `process.exit(1)` because `run()` may have started a
+  // `clack.spinner()` whose internal interval would otherwise keep
+  // the event loop alive past the catch and stall the exit; a forced
+  // exit is safer there than waiting for unknown UI resources to
+  // tidy up (PR #141 review).
+  if (err instanceof ClaudeCodeStrictExit) {
+    process.exitCode = 1;
+    return;
+  }
   process.stderr.write(
     `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,
   );

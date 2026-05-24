@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import {
   gitInitialCommit,
   install,
+  isClaudeCode,
   isInGitRepo,
   sanitise,
   scaffold,
@@ -128,17 +129,24 @@ export async function runInit(options: InitOptions): Promise<void> {
   }
 
   ui.intro("arkor init");
+  // Under CLAUDECODE=1 the action handler in `main.ts` has already gated
+  // strict mode: if we reach `runInit`, either every flag is present or
+  // `--yes` was passed. Force `skipWith` so the helpers never try to open
+  // a clack prompt under a Claude Code TTY (which can't answer); the
+  // other commands keep their pre-existing interactive semantics because
+  // `isInteractive()` is no longer overridden globally.
+  const bypassPrompts = options.yes || isClaudeCode();
   const projectName = await promptText({
     message: "Project name?",
     initialValue: options.name ?? defaultName,
-    skipWith: options.yes ? options.name ?? defaultName : undefined,
+    skipWith: bypassPrompts ? options.name ?? defaultName : undefined,
   });
   // An explicit `--template <id>` is authoritative: skip the prompt and use it as-is.
   const template = await promptSelect<TemplateId>({
     message: "Starter template?",
     initialValue: options.template ?? "triage",
     options: templateChoices(),
-    skipWith: options.template ?? (options.yes ? "triage" : undefined),
+    skipWith: options.template ?? (bypassPrompts ? "triage" : undefined),
   });
 
   // Sanitise here so `--name "Foo Bar"` (which bypasses prompts under
