@@ -84,6 +84,11 @@ export default defineConfig(
       "unicorn/catch-error-name": "off",
       // Prefer explicit `return undefined;` for clarity.
       "unicorn/no-useless-undefined": "off",
+      // Forces `{}` around every `case` body, so `case "x": return foo;`
+      // must become `case "x": { return foo; }`. Off so concise
+      // expression-style cases stay legal; braces only when actually
+      // needed (declarations etc.).
+      "unicorn/switch-case-braces": "off",
       // unicorn's default is kebab-case only; allow PascalCase too so
       // React component files (`Component.tsx`) pass.
       "unicorn/filename-case": [
