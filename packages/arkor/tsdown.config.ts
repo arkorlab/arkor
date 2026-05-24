@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { defineConfig } from "tsdown";
 import pkg from "./package.json" with { type: "json" };
 
