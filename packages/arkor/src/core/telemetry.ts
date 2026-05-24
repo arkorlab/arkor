@@ -11,15 +11,26 @@ import { PostHog } from "posthog-node";
 import { readCredentials, type Credentials } from "./credentials";
 import { SDK_VERSION } from "./version";
 
-declare const __ARKOR_POSTHOG_KEY__: string;
-declare const __ARKOR_POSTHOG_HOST__: string;
+// Why `globalThis.__ARKOR_POSTHOG_*__` and not a bare identifier:
+//   1. Safety. A bare `__ARKOR_POSTHOG_KEY__` would throw `ReferenceError`
+//      under vitest (where tsdown's `define` never runs). A property access
+//      on `globalThis` is a missing-property lookup, so it returns
+//      `undefined` and the `?? fallback` fires.
+//   2. Lint compatibility. The previous `typeof X !== "undefined"` probe
+//      tripped `unicorn/no-typeof-undefined`, whose auto-fix rewrites it
+//      to `X !== undefined` and re-introduces the ReferenceError above.
+//      `globalThis.X ?? fallback` is rewrite-resistant.
+// tsdown's `define` is keyed against the literal text
+// `"globalThis.__ARKOR_POSTHOG_KEY__"` / `"globalThis.__ARKOR_POSTHOG_HOST__"`,
+// so the whole member access is the replacement target at build time.
+declare global {
+  var __ARKOR_POSTHOG_KEY__: string | undefined;
+  var __ARKOR_POSTHOG_HOST__: string | undefined;
+}
 
-const POSTHOG_KEY: string =
-  typeof __ARKOR_POSTHOG_KEY__ !== "undefined" ? __ARKOR_POSTHOG_KEY__ : "";
+const POSTHOG_KEY: string = globalThis.__ARKOR_POSTHOG_KEY__ ?? "";
 const POSTHOG_HOST: string =
-  typeof __ARKOR_POSTHOG_HOST__ !== "undefined"
-    ? __ARKOR_POSTHOG_HOST__
-    : "https://us.i.posthog.com";
+  globalThis.__ARKOR_POSTHOG_HOST__ ?? "https://us.i.posthog.com";
 
 function envFlag(name: string): boolean {
   const v = process.env[name];
