@@ -8,6 +8,7 @@
     "broken-links": "mint broken-links"
   },
   "devDependencies": {
+    "@types/node": "^24",
     "mint": "4.2.577"
   }
 }
