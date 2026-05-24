@@ -72,7 +72,7 @@ describe("credentials roundtrip", () => {
       mode: "auth0",
       accessToken: "at",
       refreshToken: "rt",
-      expiresAt: 1735000000,
+      expiresAt: 1_735_000_000,
       auth0Domain: "example.auth0.com",
       audience: "https://api.arkor.ai",
       clientId: "cid",
@@ -244,13 +244,13 @@ describe("requestAnonymousToken", () => {
       init?: RequestInit,
     ) => {
       captured = { url: String(input), init };
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           token: "anon-tok",
           anonymousId: "anon-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -267,13 +267,13 @@ describe("requestAnonymousToken", () => {
 
   it("returns the parsed token shape", async () => {
     globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           token: "anon-tok",
           anonymousId: "anon-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       )) as typeof fetch;
 
@@ -310,8 +310,8 @@ describe("requestAnonymousToken", () => {
 
   it("throws with status and body snippet on non-2xx", async () => {
     globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({ error: "sdk_version_unsupported", reason: "missing" }),
+      Response.json(
+        { error: "sdk_version_unsupported", reason: "missing" },
         { status: 426 },
       )) as typeof fetch;
 
@@ -356,13 +356,13 @@ describe("ensureCredentials", () => {
       input: Parameters<typeof fetch>[0],
     ) => {
       seenUrls.push(String(input));
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           token: "fresh-tok",
           anonymousId: "fresh-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "fresh-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -388,7 +388,7 @@ describe("ensureCredentials", () => {
 
   it("rethrows when the anonymous endpoint refuses to issue a token", async () => {
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ error: "anonymous disabled" }), {
+      Response.json({ error: "anonymous disabled" }, {
         status: 403,
       })) as typeof fetch;
     await expect(ensureCredentials()).rejects.toThrow(/403/);

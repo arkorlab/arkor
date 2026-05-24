@@ -11,9 +11,9 @@ export function sanitise(name: string): string {
   return (
     name
       .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-+|-+$/g, "")
+      .replaceAll(/[^a-z0-9-]/g, "-")
+      .replaceAll(/-+/g, "-")
+      .replaceAll(/^-+|-+$/g, "")
       .slice(0, 60) || "arkor-project"
   );
 }

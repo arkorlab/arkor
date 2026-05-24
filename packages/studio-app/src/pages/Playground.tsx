@@ -270,14 +270,14 @@ export function Playground({
               }}
               disabled={streaming}
             />
-          ) : jobs && jobs.length > 0 ? (
+          ) : (jobs && jobs.length > 0 ? (
             <AdapterPicker
               jobs={jobs}
               selectedId={selectedJob}
               onSelect={selectAdapter}
               disabled={streaming}
             />
-          ) : null}
+          ) : null)}
         </div>
       </div>
 

@@ -101,14 +101,14 @@ describe("runWhoami", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/me")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             user: { id: "u1", email: "a@b.test" },
             orgs: [
               { id: "o1", slug: "anon-abc", name: "Anon" },
               { id: "o2", slug: "team", name: "Team" },
             ],
-          }),
+          },
           {
             status: 200,
             headers: { "content-type": "application/json" },
@@ -138,7 +138,7 @@ describe("runWhoami", () => {
     });
     globalThis.fetch = vi.fn(
       async () =>
-        new Response(JSON.stringify({ user: { id: "u" }, orgs: [] }), {
+        Response.json({ user: { id: "u" }, orgs: [] }, {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -160,13 +160,13 @@ describe("runWhoami", () => {
     });
     globalThis.fetch = vi.fn(
       async () =>
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             error: "sdk_version_unsupported",
             currentVersion: "1.3.5",
             supportedRange: "^1.4.0 || >=2.1.0",
             upgrade: "npm install -g arkor@latest",
-          }),
+          },
           {
             status: 426,
             headers: { "content-type": "application/json" },
@@ -233,7 +233,7 @@ describe("runWhoami", () => {
     let capturedUrl = "";
     globalThis.fetch = vi.fn(async (input) => {
       capturedUrl = String(input);
-      return new Response(JSON.stringify({ user: { id: "u" }, orgs: [] }), {
+      return Response.json({ user: { id: "u" }, orgs: [] }, {
         status: 200,
       });
     }) as typeof fetch;
@@ -260,7 +260,7 @@ describe("runWhoami", () => {
     let capturedUrl = "";
     globalThis.fetch = vi.fn(async (input) => {
       capturedUrl = String(input);
-      return new Response(JSON.stringify({ user: { id: "u" }, orgs: [] }), {
+      return Response.json({ user: { id: "u" }, orgs: [] }, {
         status: 200,
       });
     }) as typeof fetch;
@@ -287,8 +287,8 @@ describe("runWhoami", () => {
       const url = String(input);
       if (url.endsWith("/v1/me")) {
         capturedAuth = new Headers(init?.headers).get("authorization") ?? "";
-        return new Response(
-          JSON.stringify({ user: { id: "u-auth0" }, orgs: [] }),
+        return Response.json(
+          { user: { id: "u-auth0" }, orgs: [] },
           { status: 200 },
         );
       }
@@ -312,11 +312,11 @@ describe("runWhoami", () => {
     });
     globalThis.fetch = vi.fn(
       async () =>
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             user: { id: "u" },
             orgs: [{ id: "o-without-slug" }, { slug: "named", id: "x" }],
-          }),
+          },
           { status: 200 },
         ),
     ) as typeof fetch;

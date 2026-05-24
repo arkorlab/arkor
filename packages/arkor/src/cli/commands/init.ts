@@ -189,8 +189,8 @@ export async function runInit(options: InitOptions): Promise<void> {
   ui.outro(
     installed
       ? `Next: \`${devCmd}\``
-      : pm
+      : (pm
         ? `Next: \`${pm} install\`, then \`${devCmd}\``
-        : `Next: ${MANUAL_INSTALL_HINT}, then \`${devCmd}\``,
+        : `Next: ${MANUAL_INSTALL_HINT}, then \`${devCmd}\``),
   );
 }

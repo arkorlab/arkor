@@ -178,9 +178,7 @@ export type ResponseFormat =
  * type encode vLLM's "must specify exactly one constraint" invariant.
  */
 type ExactlyOne<T> = {
-  [K in keyof T]: { [P in K]: T[K] } & {
-    [P in Exclude<keyof T, K>]?: never;
-  };
+  [K in keyof T]: Record<K, T[K]> & Partial<Record<Exclude<keyof T, K>, never>>;
 }[keyof T];
 
 /** Backend-tuning knobs that can be combined with any constraint. */

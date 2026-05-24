@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
@@ -276,9 +275,9 @@ async function run(options: RunOptions): Promise<void> {
 
   const installLine = installed
     ? null
-    : pm
+    : (pm
       ? `  ${pm} install`
-      : `  ${MANUAL_INSTALL_HINT}`;
+      : `  ${MANUAL_INSTALL_HINT}`);
   const devLine =
     pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
 

@@ -145,10 +145,10 @@ describe("fetchCliConfig", () => {
       auth0Domain: "tenant.auth0.com",
       clientId: "abc",
       audience: "https://api.arkor.ai",
-      callbackPorts: [52521, 52522],
+      callbackPorts: [52_521, 52_522],
     };
     const fetchImpl = (async () =>
-      new Response(JSON.stringify(payload), {
+      Response.json(payload, {
         status: 200,
         headers: { "content-type": "application/json" },
       })) as typeof fetch;
@@ -168,13 +168,13 @@ describe("fetchCliConfig", () => {
     let captured = "";
     const fetchImpl = (async (input: RequestInfo | URL) => {
       captured = String(input);
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           auth0Domain: null,
           clientId: null,
           audience: null,
           callbackPorts: [],
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -194,13 +194,13 @@ describe("exchangeCode", () => {
         url: String(input),
         body: typeof init?.body === "string" ? init.body : "",
       };
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           access_token: "at-token",
           refresh_token: "rt-token",
           id_token: "id-token",
           expires_in: 7200,
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -253,11 +253,11 @@ describe("exchangeCode", () => {
     // setup mistake — surface the actionable hint loudly rather than
     // limping along with no refresh capability.
     const fetchImpl = (async () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           access_token: "at",
           expires_in: 3600,
-        }),
+        },
         { status: 200 },
       )) as typeof fetch;
     await expect(

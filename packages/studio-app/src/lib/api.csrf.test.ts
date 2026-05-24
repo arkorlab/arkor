@@ -21,7 +21,7 @@ describe("api CSRF token wiring", () => {
     seenHeaders = null;
     globalThis.fetch = vi.fn(async (_input, init?: RequestInit) => {
       seenHeaders = new Headers(init?.headers);
-      return new Response(JSON.stringify({ jobs: [] }), {
+      return Response.json({ jobs: [] }, {
         status: 200,
         headers: { "content-type": "application/json" },
       });

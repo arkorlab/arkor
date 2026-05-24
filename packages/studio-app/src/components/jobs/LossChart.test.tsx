@@ -20,7 +20,7 @@ describe("<LossChart />", () => {
   it("renders only the training-loss path when no eval data is present", () => {
     const points: LossPoint[] = [
       { step: 0, loss: 1.2 },
-      { step: 1, loss: 1.0 },
+      { step: 1, loss: 1 },
       { step: 2, loss: 0.9 },
     ];
     const { container } = render(<LossChart points={points} />);
@@ -35,7 +35,7 @@ describe("<LossChart />", () => {
   it("renders the eval-loss path when at least one point has a numeric evalLoss", () => {
     const points: LossPoint[] = [
       { step: 0, loss: 1.2, evalLoss: 1.3 },
-      { step: 1, loss: 1.0, evalLoss: null },
+      { step: 1, loss: 1, evalLoss: null },
       { step: 2, loss: 0.9, evalLoss: 0.95 },
     ];
     const { container } = render(<LossChart points={points} />);
@@ -51,7 +51,7 @@ describe("<LossChart />", () => {
 
   it("hides the advanced stats panel by default", () => {
     const points: LossPoint[] = [
-      { step: 0, loss: 1.0 },
+      { step: 0, loss: 1 },
       { step: 1, loss: 0.9 },
     ];
     render(<LossChart points={points} />);
@@ -82,7 +82,7 @@ describe("<LossChart />", () => {
 
   it("notes that eval stats are pending when no point carries evalLoss", () => {
     const points: LossPoint[] = [
-      { step: 0, loss: 1.0 },
+      { step: 0, loss: 1 },
       { step: 1, loss: 0.9 },
     ];
     render(<LossChart points={points} advanced />);
@@ -93,7 +93,7 @@ describe("<LossChart />", () => {
 
   it("computes eval stats independently when eval points are present", () => {
     const points: LossPoint[] = [
-      { step: 0, loss: 1.0, evalLoss: 2.0 },
+      { step: 0, loss: 1, evalLoss: 2 },
       { step: 1, loss: 0.9, evalLoss: 1.8 },
       { step: 2, loss: 0.8, evalLoss: 1.6 },
     ];
@@ -149,9 +149,9 @@ describe("<LossChart />", () => {
     // path. The chart should treat them like nulls — the surrounding
     // finite points still render as a normal series.
     const points: LossPoint[] = [
-      { step: 0, loss: 1.0 },
+      { step: 0, loss: 1 },
       { step: 1, loss: Infinity },
-      { step: 2, loss: NaN, evalLoss: Infinity },
+      { step: 2, loss: Number.NaN, evalLoss: Infinity },
       { step: 3, loss: 0.9, evalLoss: 1.1 },
     ];
     const { container } = render(<LossChart points={points} advanced />);

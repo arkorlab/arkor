@@ -32,7 +32,7 @@ const PORT_POLL_TIMEOUT_MS = 10_000;
  * failure, while preventing the buffer from growing unboundedly under
  * `STUDIO_E2E_DEBUG` runs (where the child can emit lots of output).
  */
-const STDIO_BUFFER_CAP = 4_096;
+const STDIO_BUFFER_CAP = 4096;
 
 /**
  * Rolling string buffer with a bounded memory footprint. Memory is
@@ -167,7 +167,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
         if (child.exitCode === null && child.signalCode === null) {
           child.kill("SIGKILL");
         }
-      }, 5_000);
+      }, 5000);
       child.kill("SIGINT");
     });
   };
@@ -273,14 +273,14 @@ async function spawnStudio(
   // both via `tail()` is O(cap), not O(total bytes), so this stays
   // cheap regardless of how chatty the child has been.
   const errorTail = (): string =>
-    `${stderr.tail(1_000)}${stdout.tail(1_000)}`;
+    `${stderr.tail(1000)}${stdout.tail(1000)}`;
   try {
     await new Promise<void>((resolve, reject) => {
       const onData = (chunk: string) => {
         // Test the chunk first (handles the line landing in one read)
         // and fall back to the rolling buffer (handles the rare split
         // where "Arkor Studio" and "running on" arrive in two chunks).
-        if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.toString())) {
+        if (chunk.includes('Arkor Studio running on') || stdout.toString().includes('Arkor Studio running on')) {
           settle(resolve);
         }
       };
@@ -340,7 +340,7 @@ async function spawnStudio(
       // `onData` would never fire and we'd hang until
       // `READY_TIMEOUT_MS`. Probe the rolling buffer once after
       // attaching listeners to catch that pre-buffered line.
-      if (READY_LINE_PATTERN.test(stdout.toString())) {
+      if (stdout.toString().includes('Arkor Studio running on')) {
         settle(resolve);
       }
     });
@@ -366,9 +366,7 @@ async function readMetaToken(url: string): Promise<string> {
     throw new Error(`Studio root returned ${res.status} ${res.statusText}`);
   }
   const html = await res.text();
-  const match = html.match(
-    /<meta\s+name=["']arkor-studio-token["']\s+content=["']([^"']+)["']/,
-  );
+  const match = /<meta\s+name=["']arkor-studio-token["']\s+content=["']([^"']+)["']/.exec(html);
   if (!match) {
     throw new Error(
       `Could not find <meta name="arkor-studio-token"> in served HTML`,

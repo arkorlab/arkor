@@ -31,8 +31,8 @@ vi.mock("@arkor/cli-internal", () => {
     sanitise: (s: string) =>
       s
         .toLowerCase()
-        .replace(/[^a-z0-9-]/g, "-")
-        .replace(/^-+|-+$/g, "")
+        .replaceAll(/[^a-z0-9-]/g, "-")
+        .replaceAll(/^-+|-+$/g, "")
         .slice(0, 60) || "arkor-project",
     scaffold: vi.fn(async () => ({
       files: [{ action: "created", path: "package.json" }],
@@ -267,7 +267,7 @@ describe("runInit", () => {
     // Branch coverage for `err instanceof Error ? err.message : String(err)`
     // around install. The CLI's warn line must still render even when a
     // dependency throws a plain string/object.
-    // eslint-disable-next-line @typescript-eslint/only-throw-error
+     
     vi.mocked(install).mockRejectedValueOnce("rate-limited" as unknown as Error);
     await expect(
       runInit({

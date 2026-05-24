@@ -1,4 +1,4 @@
-import { CloudApiClient, CloudApiError } from "./client";
+import { type CloudApiClient, CloudApiError } from "./client";
 import { readState, writeState } from "./state";
 
 import type { Credentials } from "./credentials";
@@ -64,12 +64,12 @@ export async function ensureProjectState(
   }
   const orgSlug = credentials.orgSlug;
 
-  const baseName = cwd.split(/[/\\]/).filter(Boolean).pop() ?? "project";
+  const baseName = cwd.split(/[/\\]/).findLast(Boolean) ?? "project";
   const projectSlug =
     baseName
       .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "")
+      .replaceAll(/[^a-z0-9-]/g, "-")
+      .replaceAll(/^-+|-+$/g, "")
       .slice(0, 40) || "project";
 
   let project: { id: string; slug: string };

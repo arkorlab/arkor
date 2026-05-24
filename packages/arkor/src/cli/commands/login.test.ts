@@ -89,13 +89,13 @@ describe("runLogin", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -115,13 +115,13 @@ describe("runLogin", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -144,13 +144,13 @@ describe("runLogin", () => {
       const url = String(input);
       seenUrls.push(url);
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -172,24 +172,24 @@ describe("runLogin", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -211,24 +211,24 @@ describe("runLogin", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -250,33 +250,33 @@ describe("runLogin", () => {
   // anon-issuance paths through `runAnonymousLogin`.
   describe("anon-issuance output (ANON_PERSISTENCE_NUDGE gating)", () => {
     const okConfigResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           auth0Domain: "tenant.auth0.com",
           clientId: "client-id",
           audience: "https://api.arkor.ai",
           callbackPorts: [4000],
-        }),
+        },
         { status: 200 },
       );
     const noOauthConfigResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           auth0Domain: null,
           clientId: null,
           audience: null,
           callbackPorts: [],
-        }),
+        },
         { status: 200 },
       );
     const okAnonResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           token: "anon-tok",
           anonymousId: "anon-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       );
 
@@ -379,14 +379,14 @@ describe("runLogin", () => {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             // 0 → bind on any free port (real loopback server in the SDK).
             callbackPorts: [0],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -400,13 +400,13 @@ describe("runLogin", () => {
         );
       }
       if (url === "https://tenant.auth0.com/oauth/token") {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             access_token: "auth0-at",
             refresh_token: "auth0-rt",
             id_token: "auth0-id",
             expires_in: 7200,
-          }),
+          },
           { status: 200 },
         );
       }
@@ -438,23 +438,23 @@ describe("runLogin", () => {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [0],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url === "https://tenant.auth0.com/oauth/token") {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             access_token: "no-browser-at",
             refresh_token: "no-browser-rt",
             expires_in: 60,
-          }),
+          },
           { status: 200 },
         );
       }
@@ -473,7 +473,7 @@ describe("runLogin", () => {
       .mockImplementation(((c: unknown) => {
         writes.push(String(c));
         const buf = writes.join("");
-        const m = buf.match(/Browser: (https:\/\/[^\s]+)/);
+        const m = /Browser: (https:\/\/[^\s]+)/.exec(buf);
         if (m && !firedCallback) {
           firedCallback = true;
           const parsed = new URL(m[1] as string);
@@ -514,13 +514,13 @@ describe("runLogin", () => {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [0],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -551,23 +551,23 @@ describe("runLogin", () => {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [0],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url === "https://tenant.auth0.com/oauth/token") {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             access_token: "still-at",
             refresh_token: "still-rt",
             expires_in: 60,
-          }),
+          },
           { status: 200 },
         );
       }

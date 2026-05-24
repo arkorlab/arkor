@@ -105,7 +105,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
       let message = data;
       if (parsed && typeof parsed === "object") {
         const p = parsed as Record<string, unknown>;
-        if (event === "training.log") {
+        switch (event) {
+        case "training.log": {
           // Omit each `key=…` segment when the corresponding field is
           // missing/non-numeric so eval-only frames render cleanly as
           // `step=<n> evalLoss=…` instead of being padded with a noisy
@@ -128,13 +129,26 @@ export function JobDetail({ jobId }: { jobId: string }) {
               ? ` evalLoss=${p.evalLoss.toFixed(4)}`
               : "";
           message = `step=${p.step ?? "—"}${lossPart}${evalPart}`;
-        } else if (event === "training.failed") {
+        
+        break;
+        }
+        case "training.failed": {
           message = String(p.error ?? "failed");
-        } else if (event === "training.completed") {
+        
+        break;
+        }
+        case "training.completed": {
           const n = Array.isArray(p.artifacts) ? p.artifacts.length : 0;
           message = `${n} artifact${n === 1 ? "" : "s"}`;
-        } else if (event === "checkpoint.saved") {
+        
+        break;
+        }
+        case "checkpoint.saved": {
           message = `step=${p.step ?? "—"}`;
+        
+        break;
+        }
+        // No default
         }
       }
       setEvents((prev) => [

@@ -79,7 +79,7 @@ function tokensMatch(provided: string, expected: string): boolean {
 }
 
 function htmlAttrEscape(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) =>
+  return s.replaceAll(/[&<>"']/g, (ch) =>
     ch === "&"
       ? "&amp;"
       : ch === "<"
@@ -110,7 +110,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   // The bin therefore sits *next* to this code at runtime, not one
   // directory up — `../bin.mjs` would resolve to the package root.
   const trainBinPath =
-    options.binPath ?? fileURLToPath(new URL("./bin.mjs", import.meta.url));
+    options.binPath ?? fileURLToPath(new URL("bin.mjs", import.meta.url));
 
   if (!studioToken || studioToken.length < 16) {
     throw new Error(
@@ -318,7 +318,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         "X-Arkor-Client": `arkor/${SDK_VERSION}`,
         Accept: "text/event-stream",
         ...(c.req.header("Last-Event-ID")
-          ? { "Last-Event-ID": c.req.header("Last-Event-ID") as string }
+          ? { "Last-Event-ID": c.req.header("Last-Event-ID")! }
           : {}),
       },
     });
@@ -415,7 +415,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       // (local writeState failures, missing-credentials guard) is treated as
       // a server-side error.
       if (err instanceof CloudApiError) {
-        return new Response(JSON.stringify({ error: err.message }), {
+        return Response.json({ error: err.message }, {
           status: err.status,
           headers: { "content-type": "application/json" },
         });
@@ -539,11 +539,11 @@ export function buildStudioApp(options: StudioServerOptions) {
       // copy below covers all three so an operator with a corrupt
       // `state.json` doesn't read "missing" and assume the file is
       // already gone.
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           error:
             "No usable .arkor/state.json for this workspace (missing or invalid). Create your first deployment to bootstrap one (anonymous), restore the file by hand (OAuth), or regenerate it with the correct { orgSlug, projectSlug, projectId } if it's currently corrupt.",
-        }),
+        },
         { status: 404, headers: { "content-type": "application/json" } },
       );
     }
@@ -584,15 +584,15 @@ export function buildStudioApp(options: StudioServerOptions) {
         // escape the two reserved chars per the quoted-pair rule.
         const safeMessage = deprecationNotice.message
            
-          .replace(/[\x00-\x1F\x7F]/g, " ")
-          .replace(/\\/g, "\\\\")
-          .replace(/"/g, '\\"');
+          .replaceAll(/[\u0000-\u001F\u007F]/g, " ")
+          .replaceAll('\\', "\\\\")
+          .replaceAll('"', String.raw`\"`);
         headers.set("Warning", `299 - "${safeMessage}"`);
         if (deprecationNotice.sunset) {
           headers.set("Sunset", deprecationNotice.sunset);
         }
       }
-      return new Response(JSON.stringify(body), { status, headers });
+      return Response.json(body, { status, headers });
     }
     try {
       credentials = await getCredentials();
@@ -648,8 +648,8 @@ export function buildStudioApp(options: StudioServerOptions) {
           // the single source-of-truth string from `core/projectState`
           // so this surface and the trainer / Playground throw exactly
           // the same instruction.
-          return new Response(
-            JSON.stringify({ error: AUTH0_MISSING_STATE_MESSAGE }),
+          return Response.json(
+            { error: AUTH0_MISSING_STATE_MESSAGE },
             { status: 400, headers: { "content-type": "application/json" } },
           );
         }
@@ -723,8 +723,8 @@ export function buildStudioApp(options: StudioServerOptions) {
     // .arkor/state.json" for Auth0).
     const scope = await readScopeFromState();
     if (!scope) {
-      return new Response(
-        JSON.stringify({ deployments: [], scopeMissing: true }),
+      return Response.json(
+        { deployments: [], scopeMissing: true },
         {
           status: 200,
           headers: { "content-type": "application/json" },

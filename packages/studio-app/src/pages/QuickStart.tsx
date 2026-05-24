@@ -10,7 +10,8 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { CopyButton } from "../components/ui/CopyButton";
-import { type DeploymentAuthMode } from "../lib/api";
+
+import type { DeploymentAuthMode } from "../lib/api";
 
 // ---------------------------------------------------------------------------
 // Quick start: language- and operation-keyed code samples.

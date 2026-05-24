@@ -28,7 +28,7 @@ function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
 }
 
 function mockFetch(queue: Expectation[]): typeof fetch {
-  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const calls: { url: string; init?: RequestInit }[] = [];
   const impl: typeof fetch = (async (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -108,7 +108,7 @@ describe("createTrainer (config builder branches)", () => {
           config: Record<string, unknown>;
         };
         postedConfig = body.config;
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -648,7 +648,7 @@ describe("createTrainer (SSE event stream)", () => {
       globalThis.fetch = originalFetch;
     }
     const calls = (fetcher as unknown as {
-      calls: Array<{ url: string; init?: RequestInit }>;
+      calls: { url: string; init?: RequestInit }[];
     }).calls;
     const chatCall = calls.find((c) => c.url.includes("/v1/inference/chat"));
     expect(chatCall).toBeDefined();
@@ -691,10 +691,8 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   };
 
   function streamFetcher(
-    handlers: Array<
-      | { kind: "throw"; error: Error }
-      | { kind: "stream"; chunks: string[] }
-    >,
+    handlers: (| { kind: "throw"; error: Error }
+      | { kind: "stream"; chunks: string[] })[],
   ): { fetch: typeof fetch; streamCalls: () => number } {
     let streamCalls = 0;
     const impl: typeof fetch = (async (
@@ -704,7 +702,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -974,7 +972,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -990,7 +988,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
         url.includes("/v1/jobs/j-cancel/cancel")
       ) {
         cancelCallSeen = true;
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -1188,7 +1186,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1310,7 +1308,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1355,7 +1353,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       await expect(trainer.wait()).rejects.toThrow();
       const elapsed = Date.now() - start;
       // Aborted long before the 60 s retry budget would have allowed.
-      expect(elapsed).toBeLessThan(5_000);
+      expect(elapsed).toBeLessThan(5000);
       expect(streamCount).toBeGreaterThanOrEqual(1);
     } finally {
       globalThis.fetch = original;

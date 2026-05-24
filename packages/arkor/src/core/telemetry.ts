@@ -83,7 +83,7 @@ function decodeJwtSub(accessToken: string): string | null {
   if (parts.length !== 3) return null;
   try {
     const payload = parts[1];
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const normalized = payload.replaceAll('-', "+").replaceAll('_', "/");
     const padded = normalized.padEnd(
       normalized.length + ((4 - (normalized.length % 4)) % 4),
       "=",

@@ -28,7 +28,7 @@ interface FakeServer {
     handler: (req: IncomingMessage, res: ServerResponse) => void,
   ) => void;
   /** All requests received during this server's lifetime. */
-  requests: Array<{ method: string; url: string; headers: IncomingMessage["headers"] }>;
+  requests: { method: string; url: string; headers: IncomingMessage["headers"] }[];
 }
 
 async function startFakeCloudApi(): Promise<FakeServer> {

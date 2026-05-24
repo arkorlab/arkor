@@ -42,7 +42,7 @@ export interface ScaffoldOptions {
 }
 
 export interface ScaffoldResult {
-  files: Array<{ path: string; action: FileAction }>;
+  files: { path: string; action: FileAction }[];
   cwd: string;
   /**
    * Non-fatal advisories the scaffolder couldn't fix on its own. Empty
@@ -168,11 +168,11 @@ function detectEol(s: string): "\r\n" | "\n" {
 function withEol(content: string, eol: "\r\n" | "\n"): string {
   // Author content always uses LF; re-target only when patching CRLF hosts.
   if (eol === "\n") return content;
-  return content.replace(/\r?\n/g, "\r\n");
+  return content.replaceAll(/\r?\n/g, "\r\n");
 }
 
 function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 type ManagedBlockLookup =
@@ -219,11 +219,11 @@ function findManagedBlock(s: string): ManagedBlockLookup {
   // skips an optional UTF-8 BOM (U+FEFF) at the file start so AGENTS.md
   // saved by editors that prepend a BOM (Windows Notepad's pre-2019
   // default, etc.) still detect the existing block on re-scaffold.
-  const NL = "(?:\\r\\n|\\n)";
+  const NL = String.raw`(?:\r\n|\n)`;
   const re = new RegExp(
-    `(?:^\\uFEFF?|${NL})${escapeRegExp(AGENTS_BLOCK_BEGIN)}${NL}${escapeRegExp(
+    String.raw`(?:^\uFEFF?|${NL})${escapeRegExp(AGENTS_BLOCK_BEGIN)}${NL}${escapeRegExp(
       AGENTS_BLOCK_SIGNATURE_LINE,
-    )}${NL}[\\s\\S]*?${NL}${escapeRegExp(AGENTS_BLOCK_END)}`,
+    )}${NL}[\s\S]*?${NL}${escapeRegExp(AGENTS_BLOCK_END)}`,
     "gm",
   );
   const matches = [...s.matchAll(re)];
@@ -456,11 +456,11 @@ export async function scaffold(
   return { files, cwd, warnings };
 }
 
-export function templateChoices(): Array<{
+export function templateChoices(): {
   value: TemplateId;
   label: string;
   hint: string;
-}> {
+}[] {
   return (Object.keys(TEMPLATES) as TemplateId[]).map((key) => ({
     value: key,
     label: TEMPLATES[key].label,

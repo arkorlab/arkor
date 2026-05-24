@@ -164,7 +164,7 @@ export function LossChart({
   // the line's first vertex and tick labels at the left edge would
   // disagree with where the line actually starts.
   const firstStep = unified[0]!.step;
-  const lastStep = Math.max(firstStep + 1, unified[unified.length - 1]!.step);
+  const lastStep = Math.max(firstStep + 1, unified.at(-1)!.step);
   const xSpan = lastStep - firstStep;
   const innerW = Math.max(50, width - PADDING.left - PADDING.right);
   const innerH = HEIGHT - PADDING.top - PADDING.bottom;
@@ -184,7 +184,7 @@ export function LossChart({
     .join(" ");
   const areaPath =
     trainSeries.length > 0
-      ? `${linePath} L${xFor(trainSeries[trainSeries.length - 1]!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0]!.step).toFixed(2)},${PADDING.top + innerH} Z`
+      ? `${linePath} L${xFor(trainSeries.at(-1)!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0]!.step).toFixed(2)},${PADDING.top + innerH} Z`
       : "";
 
   const evalPath =
@@ -206,14 +206,12 @@ export function LossChart({
   // De-dupe via Set so a small span (e.g. lastStep === 3 with
   // xTickCount === 6) doesn't render the same step number twice.
   const xTickCount = Math.min(6, unified.length);
-  const xTicks = Array.from(
-    new Set(
+  const xTicks = [...new Set(
       Array.from({ length: xTickCount }).map((_, i) => {
         const t = xTickCount === 1 ? 0 : i / (xTickCount - 1);
         return Math.round(firstStep + t * xSpan);
       }),
-    ),
-  );
+    )];
 
   function onMouseMove(e: MouseEvent<SVGRectElement>) {
     // The `<rect>` is already positioned at `x={PADDING.left}`, so its
@@ -254,9 +252,9 @@ export function LossChart({
   const hoverAnchorLoss =
     hover === null
       ? 0
-      : hover.loss !== null
+      : (hover.loss !== null
         ? hover.loss
-        : (hover.evalLoss as number);
+        : (hover.evalLoss!));
 
   return (
     <div ref={wrapperRef} className="relative w-full">

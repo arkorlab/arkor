@@ -12,7 +12,7 @@ import { defineConfig, type Plugin } from "vite";
 const STUDIO_TOKEN_PATH = join(homedir(), ".arkor", "studio-token");
 
 function htmlAttrEscape(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) =>
+  return s.replaceAll(/[&<>"']/g, (ch) =>
     ch === "&"
       ? "&amp;"
       : ch === "<"

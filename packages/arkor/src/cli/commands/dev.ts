@@ -151,7 +151,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     `Anonymous id: ${anon.anonymousId} — Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
   );
   // see ../anonymous.ts for wording rationale and gating contract.
-  if (oauthAvailable === true) {
+  if (oauthAvailable) {
     ui.log.warn(ANON_PERSISTENCE_NUDGE);
   }
   ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);

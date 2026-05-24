@@ -18,7 +18,7 @@ export interface CloudApiMock {
   /** Override a single route (`GET /v1/jobs`, `POST /v1/inference/chat`, …). */
   setRoute: (method: string, path: string, handler: CloudApiHandler) => void;
   /** Every request the server saw so far (latest last). */
-  requests: ReadonlyArray<RecordedRequest>;
+  requests: readonly RecordedRequest[];
   close: () => Promise<void>;
 }
 

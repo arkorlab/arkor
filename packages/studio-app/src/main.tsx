@@ -5,7 +5,7 @@ import { App } from "./App";
 import "./lib/fonts";
 import "./styles.css";
 
-const root = createRoot(document.getElementById("root")!);
+const root = createRoot(document.querySelector("#root")!);
 root.render(
   <StrictMode>
     <App />

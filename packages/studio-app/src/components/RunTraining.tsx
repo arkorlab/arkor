@@ -169,9 +169,9 @@ export function RunTraining() {
         >
           {running
             ? "Stop training"
-            : trainer
+            : (trainer
               ? `Run training: ${trainer.name}`
-              : "Run training"}
+              : "Run training")}
         </Button>
       </div>
 

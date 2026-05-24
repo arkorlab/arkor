@@ -216,12 +216,12 @@ export function JobsList() {
           <EmptyState
             icon={<Inbox />}
             title={
-              jobs && jobs.length === 0
+              jobs?.length === 0
                 ? "No jobs yet"
                 : "No matches"
             }
             description={
-              jobs && jobs.length === 0
+              jobs?.length === 0
                 ? "Run training from Overview to create your first job."
                 : "Try adjusting the filter or clearing the search."
             }

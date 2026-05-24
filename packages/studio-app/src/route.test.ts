@@ -697,7 +697,7 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
         oldURL: `http://localhost/${oldHash}`,
         newURL: `http://localhost/${newHash}`,
       } as unknown as Event;
-      for (const l of listeners["hashchange"] ?? []) l(event);
+      for (const l of listeners.hashchange ?? []) l(event);
     }
     const fakeWindow: FakeWindow = {
       location: {

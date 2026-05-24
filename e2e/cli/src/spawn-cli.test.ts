@@ -216,7 +216,7 @@ describe("runCli orchestration", () => {
     // output and so we can assert it fired.
     stderrSpy = vi
       .spyOn(process.stderr, "write")
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
+       
       .mockImplementation(() => true);
   });
 

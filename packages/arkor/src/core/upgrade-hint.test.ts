@@ -53,7 +53,7 @@ describe("detectPackageManagerFrom (path fallback)", () => {
     expect(
       detectPackageManagerFrom({
         execPath:
-          "C:\\Users\\u\\AppData\\Local\\pnpm\\global\\5\\node_modules\\arkor\\dist\\bin.mjs",
+          String.raw`C:\Users\u\AppData\Local\pnpm\global\5\node_modules\arkor\dist\bin.mjs`,
       }),
     ).toBe("pnpm");
   });

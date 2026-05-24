@@ -107,10 +107,10 @@ export function openJobEvents(jobId: string): EventSource {
 }
 
 export interface ChatRequestBody {
-  messages: Array<{
+  messages: {
     role: "system" | "user" | "assistant";
     content: string;
-  }>;
+  }[];
   adapter?: { kind: "final" | "checkpoint"; jobId: string; step?: number };
   baseModel?: string;
   temperature?: number;

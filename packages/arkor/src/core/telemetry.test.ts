@@ -148,13 +148,13 @@ describe("getIdentity", () => {
     const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" }))
       .toString("base64")
       .replace(/=+$/, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
+      .replaceAll('+', "-")
+      .replaceAll('/', "_");
     const payload = Buffer.from(JSON.stringify({ sub: "auth0|user-123" }))
       .toString("base64")
       .replace(/=+$/, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
+      .replaceAll('+', "-")
+      .replaceAll('/', "_");
     const accessToken = `${header}.${payload}.signature`;
     writeCreds({
       mode: "auth0",
@@ -341,7 +341,7 @@ describe("withTelemetry", () => {
     const errSpy = vi
       .spyOn(console, "error")
       .mockImplementation((...args) => {
-        errorChunks.push(args.map((a) => String(a)).join(" "));
+        errorChunks.push(args.map(String).join(" "));
       });
     try {
       const mod = await loadTelemetry({ key: "phc_test" });
