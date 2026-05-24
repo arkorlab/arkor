@@ -134,17 +134,13 @@ export default defineConfig(
       "@typescript-eslint/require-await": "off",
       // Off because its auto-fix is unsafe in this codebase. Observed
       // breakages during the initial `--fix` sweep:
-      //   1. `typeof __SDK_VERSION__ !== "undefined"` (build-time-define
-      //      guard in `core/version.ts` / `core/telemetry.ts`) rewritten
-      //      to `__SDK_VERSION__ !== undefined`, throwing `ReferenceError`
-      //      under vitest where tsdown's `define` transform never runs.
-      //   2. `(await screen.findByRole(...)) as HTMLSelectElement`
+      //   1. `(await screen.findByRole(...)) as HTMLSelectElement`
       //      narrowings stripped, leaving the value typed as `HTMLElement`
       //      with no `.value` property.
-      //   3. `value: null as unknown` widenings stripped, locking the
+      //   2. `value: null as unknown` widenings stripped, locking the
       //      property type to `null` and breaking later mutating
       //      assignments.
-      //   4. Vitest mock helper narrowings (`as typeof fetch`,
+      //   3. Vitest mock helper narrowings (`as typeof fetch`,
       //      `as typeof process.stdout.write`, `as never` on clack
       //      mocks) stripped, since the rule's type-aware check
       //      misreads vitest's polymorphic return types.
