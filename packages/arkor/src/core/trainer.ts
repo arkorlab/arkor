@@ -148,14 +148,12 @@ export function createTrainer(
   let clientPromise: Promise<CloudApiClient> | null = null;
 
   async function getClient(): Promise<CloudApiClient> {
-    if (!clientPromise) {
-      clientPromise = (async () => {
-        const credentials = context.credentials ?? (await ensureCredentials());
-        const baseUrl =
-          context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
-        return new CloudApiClient({ baseUrl, credentials });
-      })();
-    }
+    clientPromise ??= (async () => {
+      const credentials = context.credentials ?? (await ensureCredentials());
+      const baseUrl =
+        context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
+      return new CloudApiClient({ baseUrl, credentials });
+    })();
     return clientPromise;
   }
 

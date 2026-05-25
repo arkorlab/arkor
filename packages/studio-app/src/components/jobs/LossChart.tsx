@@ -258,10 +258,8 @@ export function LossChart({
   const hoverAnchorLoss =
     hover === null
       ? 0
-      : (hover.loss !== null
-        ? hover.loss
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        : hover.evalLoss!);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      : (hover.loss ?? hover.evalLoss!);
 
   return (
     <div ref={wrapperRef} className="relative w-full">

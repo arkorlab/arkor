@@ -385,6 +385,10 @@ async function deploymentJson<T>(res: Response): Promise<T> {
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   throw new DeploymentApiError(
     res.status,
+    // `||` (not `??`) so an empty-string `error` field falls through to
+    // the generic `<status> <statusText>` rather than surfacing as a
+    // blank message.
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     body.error || `${res.status} ${res.statusText}`,
   );
 }

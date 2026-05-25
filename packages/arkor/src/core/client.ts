@@ -93,6 +93,7 @@ async function buildCloudApiError(res: Response): Promise<CloudApiError> {
   const fields = parseErrorBody(parsed);
   // Use `||` (not `??`) so an empty-string body falls through to the
   // generic `cloud-api <status>` instead of becoming an empty message.
+  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
   const message = fields.error || text || `cloud-api ${res.status}`;
   return new CloudApiError(res.status, message);
 }
