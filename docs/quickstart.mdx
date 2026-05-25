@@ -71,6 +71,38 @@ bun create arkor my-arkor-app --template triage
 
 </CodeGroup>
 
+### Running under Claude Code (`CLAUDECODE=1`)
+
+Claude Code spawns child processes with `CLAUDECODE=1`, and it cannot answer interactive prompts. To prevent the agent from silently scaffolding with hidden defaults, `create-arkor` flips into a strict mode under this env var: a curated set of flags becomes required (see the list below), and a missing one produces a stderr message listing the suggested re-invocation rather than running. The same rule applies to [`arkor init`](/cli/init#claude-code-claudecode=1-strict-mode), with one extra requirement here: `[dir]` (or `--name`) is also mandatory, since `create-arkor`'s default fallback for a missing positional is the generic `arkor-project/` subdirectory, almost always an oversight rather than an intentional choice. Inputs that contain no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!`) are rejected as well, because `sanitise()` would collapse them back to that same generic fallback. Deliberate names whose final slug *happens* to be `arkor-project` (for example `Arkor Project`, `arkor_project`, `Arkor.Project`, or anything else where a separator gets rewritten to `-`) are accepted: the alphanumeric content shows the agent typed a real name.
+
+Required flags (or pass `-y`/`--yes` to opt back into "accept all defaults"):
+
+- `[dir]` (e.g. `my-arkor-app`) or `--name <name>`: explicit project name. Values with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!`) are rejected because they would collapse to the generic `arkor-project` fallback; deliberate inputs that *happen* to sanitise to `arkor-project` (`Arkor Project`, `arkor_project`, …) are accepted.
+- `--template <triage|translate|redaction>`
+- `--git` (recommended; matches the interactive default) or `--skip-git`
+- A package-manager flag: `--use-npm` / `--use-pnpm` / `--use-yarn` / `--use-bun`, or `--skip-install`
+- `--agents-md` (recommended, especially under CLAUDECODE) or `--no-agents-md`
+
+Sample stderr when a flag is missing:
+
+```text
+create-arkor: CLAUDECODE=1 detected. Interactive prompts are disabled.
+Re-run with explicit flags:
+  [dir] (e.g. `my-arkor-app`) or --name <name>
+      Project directory (positional) and the `package.json` name. Without `--name`, the basename of `[dir]` is used. Inputs with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!` / `***`) are rejected because they would collapse to the generic `arkor-project` fallback inside `sanitise()`.
+  --template <triage|translate|redaction>
+      Starter template: `triage` (support routing), `translate` (9-language translation), or `redaction` (PII removal).
+  --git (recommended) or --skip-git
+      `--git` runs `git init` and creates an initial commit (matches the interactive default); `--skip-git` leaves git setup to the user.
+  --use-pnpm (or --use-npm / --use-yarn / --use-bun, or --skip-install)
+      Which package manager to run `install` with after scaffolding. `--skip-install` leaves the install step to the user.
+  --agents-md (recommended) or --no-agents-md
+      `--agents-md` writes `AGENTS.md` + `CLAUDE.md` to brief AI coding agents that arkor post-dates their training data (recommended, especially under CLAUDECODE); `--no-agents-md` skips them.
+Or pass -y/--yes to accept all defaults.
+```
+
+The exit code is `1` and no scaffold work happens before the early exit, so the parent directory stays pristine.
+
 ## 2. Look at what was generated
 
 ```
