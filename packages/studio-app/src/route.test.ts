@@ -697,6 +697,10 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
         oldURL: `http://localhost/${oldHash}`,
         newURL: `http://localhost/${newHash}`,
       } as unknown as Event;
+      // `Record<string, Set<...>>` reads as `Set<...>` per type system
+      // (no `noUncheckedIndexedAccess`), but the key only gets a value
+      // after the first `addEventListener`. Keep the `?? []` defence.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       for (const l of listeners.hashchange ?? []) l(event);
     }
     const fakeWindow: FakeWindow = {
@@ -739,6 +743,8 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
         (listeners[type] ??= new Set()).add(l);
       },
       removeEventListener(type: string, l: (e: Event) => void) {
+        // Same Record-access narrowing caveat as `fireHashChange` above.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         listeners[type]?.delete(l);
       },
       dispatchEvent(e: Event) {

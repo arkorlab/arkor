@@ -235,7 +235,7 @@ export async function startFakeCloudApi(): Promise<CloudApiMock> {
         // socket from `/v1/jobs/:id/events/stream` open by design;
         // without it `server.close()` waits forever for the client to
         // hang up.
-        server.closeAllConnections?.();
+        server.closeAllConnections();
         server.close((err) => (err ? reject(err) : resolve()));
       }),
   };

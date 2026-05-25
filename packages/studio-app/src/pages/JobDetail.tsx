@@ -288,7 +288,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
     job?.status === "cancelled";
   const status: Job["status"] =
     terminal?.status ??
-    (polledIsTerminal && job
+    (polledIsTerminal
       ? job.status
       : (liveStatus ?? job?.status ?? "queued"));
 

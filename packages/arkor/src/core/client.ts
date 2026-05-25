@@ -62,6 +62,17 @@ async function decode<T>(res: Response, schema: z.ZodType<T>): Promise<T> {
   return schema.parse(await res.json());
 }
 
+// Hono's typed RPC client narrows successful Responses to `ok: true` based
+// on the endpoint's declared status codes. Defensive `if (!res.ok)` at the
+// call site is then dead code per TypeScript but essential at runtime
+// (network failures, 5xx). Widen through this `Response`-typed helper so
+// the check is honest and the rule stops flagging it.
+async function throwIfNotOk(res: Response): Promise<void> {
+  if (!res.ok) {
+    throw await buildCloudApiError(res);
+  }
+}
+
 /**
  * Build a `CloudApiError` from a non-ok Response, inlining the cloud-api
  * gate's upgrade hint when the status is 426.
@@ -200,9 +211,7 @@ export class CloudApiClient {
       param: { id: jobId },
       query: scope,
     });
-    if (!res.ok) {
-      throw await buildCloudApiError(res);
-    }
+    await throwIfNotOk(res);
   }
 
   /**
@@ -299,9 +308,7 @@ export class CloudApiClient {
       param: { id },
       query: scope,
     });
-    if (!res.ok) {
-      throw await buildCloudApiError(res);
-    }
+    await throwIfNotOk(res);
   }
 
   async listDeploymentKeys(
@@ -339,9 +346,7 @@ export class CloudApiClient {
       param: { id, keyId },
       query: scope,
     });
-    if (!res.ok) {
-      throw await buildCloudApiError(res);
-    }
+    await throwIfNotOk(res);
   }
 
   /**

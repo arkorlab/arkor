@@ -44,6 +44,11 @@ export async function runWhoami(): Promise<void> {
     },
   });
   const res = await rpc.v1.me.$get();
+  // Hono RPC narrows `res.ok` to `true` based on the OpenAPI schema (only
+  // 200 declared), so this check looks unreachable to TypeScript, but
+  // network failures and undeclared statuses (426 below, 5xx) reach this
+  // branch at runtime.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (!res.ok) {
     // Hono RPC narrows `status` to the success codes declared in the OpenAPI
     // schema (200 here), so widen for the 426 check below.

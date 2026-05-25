@@ -177,8 +177,8 @@ describe("runInit", () => {
       packageManager: "npm",
     });
     // basename of the temp dir starts with "arkor-init-test-".
-    const callArg = vi.mocked(scaffold).mock.calls[0]?.[0];
-    expect(callArg?.name).toMatch(/^arkor-init-test-/);
+    const callArg = vi.mocked(scaffold).mock.calls[0][0];
+    expect(callArg.name).toMatch(/^arkor-init-test-/);
   });
 
   it("falls back to 'arkor-project' as the default name when basename(cwd) is empty", async () => {
@@ -196,8 +196,8 @@ describe("runInit", () => {
       template: "triage",
       packageManager: "npm",
     });
-    const callArg = vi.mocked(scaffold).mock.calls[0]?.[0];
-    expect(callArg?.name).toBe("arkor-project");
+    const callArg = vi.mocked(scaffold).mock.calls[0][0];
+    expect(callArg.name).toBe("arkor-project");
   });
 
   it("uses 'triage' as the implicit template skipWith with --yes alone (no --template)", async () => {

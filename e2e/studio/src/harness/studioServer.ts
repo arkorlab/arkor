@@ -236,15 +236,15 @@ async function spawnStudio(
   // logs quiet by default — set the env var while iterating on the
   // harness or chasing a flake; turbo.json declares it so toggling
   // busts the task cache.
-  child.stderr?.setEncoding("utf8");
-  child.stdout?.setEncoding("utf8");
-  child.stderr?.on("data", (d: string) => {
+  child.stderr.setEncoding("utf8");
+  child.stdout.setEncoding("utf8");
+  child.stderr.on("data", (d: string) => {
     stderr.append(d);
     if (process.env.STUDIO_E2E_DEBUG) {
       process.stderr.write(`[arkor dev:err pid=${String(child.pid)}] ${d}`);
     }
   });
-  child.stdout?.on("data", (d: string) => {
+  child.stdout.on("data", (d: string) => {
     stdout.append(d);
     if (process.env.STUDIO_E2E_DEBUG) {
       process.stderr.write(`[arkor dev:out pid=${String(child.pid)}] ${d}`);
@@ -325,12 +325,12 @@ async function spawnStudio(
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        child.stdout?.off("data", onData);
+        child.stdout.off("data", onData);
         child.off("exit", onExit);
         child.off("error", onError);
         action();
       }
-      child.stdout?.on("data", onData);
+      child.stdout.on("data", onData);
       child.on("exit", onExit);
       child.on("error", onError);
       // The buffering `child.stdout.on("data", …)` listener attached

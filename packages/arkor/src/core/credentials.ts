@@ -153,10 +153,7 @@ export function defaultArkorCloudApiUrl(
   // before the field existed) is still safe: the worst outcome
   // there is a 401 against the wrong control plane, which is what
   // the operator hits today on those legacy tokens anyway.
-  if (
-    credentials?.arkorCloudApiUrl !== undefined &&
-    credentials?.arkorCloudApiUrl !== null
-  ) {
+  if (credentials?.arkorCloudApiUrl !== undefined) {
     // Same multi-slash strip as the env-var branch above.
     return stripTrailingSlashes(credentials.arkorCloudApiUrl);
   }

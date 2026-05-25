@@ -194,6 +194,11 @@ export function QuickStart({
     endpointUrl,
     authMode,
   });
+  // Future-proof: `SampleOperation` currently has a single literal
+  // (`"chat"`), so this lookup looks trivially-true to the type system.
+  // When the dropdown gains another operation, the `find` will start
+  // discriminating naturally.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   const opMeta = SAMPLE_OPERATIONS.find((o) => o.value === operation);
 
   return (

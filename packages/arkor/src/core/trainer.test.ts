@@ -709,6 +709,9 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       }
       if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
         const handler = handlers[streamCalls++];
+        // Defensive runtime check; TS thinks out-of-bounds returns `T`
+        // (we don't run with `noUncheckedIndexedAccess`).
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         if (!handler) {
           throw new Error(`unexpected stream open #${streamCalls}`);
         }

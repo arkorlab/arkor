@@ -160,7 +160,7 @@ export function Playground({
   const canSend =
     !streaming &&
     input.trim().length > 0 &&
-    (mode === "base" || (mode === "adapter" && selectedJob !== null));
+    (mode === "base" || selectedJob !== null);
 
   async function send() {
     if (sendingRef.current) return;
