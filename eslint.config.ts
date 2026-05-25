@@ -283,6 +283,12 @@ export default defineConfig(
     rules: {
       // SPA isn't a Node script, so disable node-targeted rules here.
       "n/no-unsupported-features/node-builtins": "off",
+      // The 3-way render ladder `loading ? <Spinner /> : empty ? <Empty
+      // /> : <List />` is the React idiom for multi-state UI; extracting
+      // each variant to a named helper just to satisfy the rule scatters
+      // the render around. Lookup-table / early-return refactors only
+      // win in non-JSX code.
+      "unicorn/no-nested-ternary": "off",
     },
   },
 
