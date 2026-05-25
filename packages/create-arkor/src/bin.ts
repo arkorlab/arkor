@@ -667,17 +667,28 @@ export async function run(options: RunOptions): Promise<void> {
   // succeeds. Without this step, a `--git` user following the
   // outro verbatim ends up with the install fixed but no repo.
   // Round 40 (Codex P2, PR #99): the recovery hint must survive
-  // copy-paste into ANY shell — POSIX (bash/zsh), cmd.exe, and
-  // PowerShell. Single quotes are POSIX-only: cmd.exe treats
+  // copy-paste into ANY shell (POSIX bash/zsh, cmd.exe, and
+  // PowerShell). Single quotes are POSIX-only: cmd.exe treats
   // them as literal characters, so the previous
   // `git commit -m 'Initial commit from Create Arkor'` form
   // tokenized on whitespace on Windows and produced `pathspec`
   // errors. Double quotes are universally honored as quote
   // delimiters. The current message has no metachars (no `$`,
   // no backticks), so POSIX shells won't expand anything inside
-  // them either — safe everywhere.
+  // them either, so it's safe everywhere.
+  //
+  // Round 40 follow-up #2 (Copilot, PR #99): use `;` as the
+  // statement separator instead of `&&`. PowerShell 5.1 (the
+  // Windows default until Windows 11 ships PS 7+ in-box) does
+  // NOT support `&&` as a pipeline-chain operator (added in PS
+  // 7), so a copy-paste into PS 5.1 errors with `The token
+  // '&&' is not a valid statement separator`. `;` is a
+  // statement separator in POSIX shells, cmd.exe, and every
+  // PowerShell version. Mirror of `arkor init`'s identical
+  // gitCmd rewrite; see init.ts for the short-circuit
+  // trade-off note.
   const gitLine = gitInitSkipped
-    ? `  git init && git add -A && git commit -m "Initial commit from Create Arkor"`
+    ? `  git init; git add -A; git commit -m "Initial commit from Create Arkor"`
     : null;
   // Round 39 (Copilot, PR #99): the install-blocked branch told
   // the user to fix the yarn-config advisory before running

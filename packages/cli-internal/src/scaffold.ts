@@ -370,6 +370,24 @@ async function patchGitignore(
 }
 
 /**
+ * Strip a leading UTF-8 BOM (U+FEFF) so subsequent regex anchors that
+ * use `^` see the actual first content line. `.yarnrc.yml` and
+ * `pnpm-workspace.yaml` written by Windows editors (Notepad's
+ * pre-2019 default, some Visual Studio templates, PowerShell's
+ * `Set-Content` without `-Encoding UTF8NoBOM`) carry a BOM that
+ * makes the first line look like `﻿packages: []` to a literal
+ * matcher: every patcher / reader then misclassifies the file as
+ * "no top-level key found" and either appends a duplicate or fails
+ * to detect a user pin. `findManagedBlock` (AGENTS.md) handles the
+ * BOM inline via `^﻿?` in its regex; the YAML readers below
+ * use `String#split` / multi-regex matching instead, so they need
+ * an upfront strip.
+ */
+function stripBom(s: string): string {
+  return s.startsWith("﻿") ? s.slice(1) : s;
+}
+
+/**
  * Pull the value of the top-level `nodeLinker:` key out of a
  * `.yarnrc.yml`-shaped string, normalised to what yarn would actually
  * see at runtime. Returns `undefined` when no such key is set at the
@@ -397,6 +415,7 @@ async function patchGitignore(
  * then strip a single matched pair of surrounding quotes.
  */
 function readNodeLinkerValue(yarnrc: string): string | undefined {
+  yarnrc = stripBom(yarnrc);
   let rootIndent: number | undefined;
   for (const line of yarnrc.split(/\r?\n/)) {
     if (!line.trim() || /^\s*#/.test(line)) continue;
@@ -1171,6 +1190,7 @@ function readAllowBuildsValue(
   contents: string,
   pkg: string,
 ): boolean | undefined {
+  contents = stripBom(contents);
   const root = detectYamlRootIndent(contents);
   const escaped = pkg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Inline mapping at the document root: `allowBuilds: { esbuild: false, ... }`.
@@ -1236,6 +1256,7 @@ function readAllowBuildsValue(
 // Tolerates CRLF + trailing comments (round-38 reviewer feedback)
 // and indented document roots (round-39 Copilot review).
 function hasTopLevelAllowBuildsScalar(contents: string): boolean {
+  contents = stripBom(contents);
   const root = detectYamlRootIndent(contents);
   return new RegExp(
     `^${root}allowBuilds:[ \\t]+(?:true|false)${TRAILING_COMMENT_AND_EOL}`,
@@ -1252,6 +1273,7 @@ function hasTopLevelAllowBuildsScalar(contents: string): boolean {
 // so a nested `packages:` key (e.g. inside a tool-specific
 // section) isn't mistaken for the pnpm-level one.
 function hasTopLevelPackagesKey(contents: string): boolean {
+  contents = stripBom(contents);
   const root = detectYamlRootIndent(contents);
   return new RegExp(`^${root}packages:`, "m").test(contents);
 }
@@ -1394,11 +1416,48 @@ function appendEsbuildToAllowBuilds(
       `${root}allowBuilds:${headerTrailing}${eol}${body}${entryIndent}esbuild: ${value}${eol}`;
     return contents.replace(blockRe, replacement);
   }
-  // No allowBuilds at all — append a fresh block at the document
+  // No allowBuilds at all. Append a fresh block at the document
   // root, in the file's EOL. The trailing-newline normalization
   // at the top of the function guarantees `contents` already
   // ends with one, so we don't need to insert a separator.
-  return `${contents}${root}allowBuilds:${eol}${root}  esbuild: ${value}${eol}`;
+  //
+  // Round 40 follow-up (Copilot, PR #99): if the file ends with
+  // (or contains a trailing) YAML end-of-document marker `...`
+  // (optionally with a `# comment`), naive append-at-end puts
+  // the new `allowBuilds:` block AFTER the marker, which YAML
+  // parses as a SECOND document. pnpm then rejects the file
+  // with "expected a single document in the stream". Find the
+  // last document-end marker on the trailing lines and insert
+  // BEFORE it so the new block lives inside the same document
+  // as the user's existing keys. A leading `---` start-marker
+  // doesn't need handling here (the new block stays inside the
+  // single document that opens at `---`).
+  const newBlock = `${root}allowBuilds:${eol}${root}  esbuild: ${value}${eol}`;
+  const lines = contents.split(/\r?\n/);
+  // Walk backwards from the file end (skipping trailing blank
+  // lines and comment-only lines) to find the last actual
+  // content line. If that line is `...` (the explicit end-of-
+  // document marker), splice before it.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const trimmed = lines[i].trim();
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+    if (isYamlDocumentMarker(trimmed) && trimmed.startsWith("...")) {
+      // Build the prefix (lines 0..i-1) and suffix (line i + after).
+      // The split lost the trailing newline of line `i-1`, but
+      // contents itself ended with `eol` per the normalization
+      // above; preserve every original newline by reconstructing
+      // with `eol`.
+      const before = lines.slice(0, i).join(eol);
+      const after = lines.slice(i).join(eol);
+      const beforeSep = before.length > 0 && !before.endsWith(eol) ? eol : "";
+      return `${before}${beforeSep}${newBlock}${after}`;
+    }
+    // First non-blank-non-comment line from the end is NOT a
+    // marker; treat the file as a single document and use the
+    // normal append-at-end path.
+    break;
+  }
+  return `${contents}${newBlock}`;
 }
 
 export async function scaffold(

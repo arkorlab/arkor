@@ -70,7 +70,22 @@ export function makeTempDir(prefix: string): string {
 }
 
 export function cleanup(dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
+  // Best-effort: tests call `cleanup(parentDir)` from `afterEach`, and
+  // on Windows the spawned CLI's child processes can briefly hold a
+  // handle on the tree (antivirus scanners attaching to the just-
+  // closed `node_modules/`, the `.git` index lock not yet released)
+  // even after `await runCli` resolves. `rmSync` with `force: true`
+  // still throws on `EPERM` / `EBUSY` in those windows, which would
+  // turn `afterEach` into a fatal hook failure and abort the whole
+  // suite. Swallow the failure here so test outcomes track the test
+  // body, not the OS's tmpdir-cleanup timing. The OS tmp reaper
+  // collects any leftover dir later; the next CI job starts with a
+  // clean runner anyway.
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // best-effort
+  }
 }
 
 /**

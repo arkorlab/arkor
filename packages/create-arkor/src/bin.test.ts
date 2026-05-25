@@ -363,7 +363,7 @@ describe("create-arkor run()", () => {
     // Manual git command appears before the dev command (order
     // matters for the natural "init repo, then start dev"
     // sequence).
-    const gitIdx = outroMessages.indexOf("git init &&");
+    const gitIdx = outroMessages.indexOf("git init;");
     const devIdx = outroMessages.indexOf("pnpm arkor dev");
     expect(gitIdx).toBeGreaterThanOrEqual(0);
     expect(devIdx).toBeGreaterThan(gitIdx);

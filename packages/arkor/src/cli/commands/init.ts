@@ -430,15 +430,15 @@ export async function runInit(options: InitOptions): Promise<void> {
   // but no repository.
   //
   // Round 40 (Codex P2, PR #99): the recovery hint must work when
-  // copy-pasted into ANY shell — POSIX (bash/zsh), cmd.exe, and
-  // PowerShell. Single quotes are POSIX-only: cmd.exe treats them
+  // copy-pasted into ANY shell (POSIX bash/zsh, cmd.exe, and
+  // PowerShell). Single quotes are POSIX-only: cmd.exe treats them
   // as literal characters, so `git commit -m 'Initial commit ...'`
   // tokenizes on whitespace and fails with `pathspec` errors. Use
   // double quotes (universally honored) and drop the inner
   // `\`arkor init\`` backticks, since POSIX expands backticks
   // inside double quotes (would shell-execute `arkor init`). The
   // auto-commit path (Trainer.gitInitialCommit) keeps the
-  // backticked message — that goes via spawn argv, not a shell.
+  // backticked message: that goes via spawn argv, not a shell.
   //
   // Round 40 follow-up (Copilot, PR #99): the command itself is
   // emitted WITHOUT surrounding markdown-style backticks. The
@@ -453,7 +453,25 @@ export async function runInit(options: InitOptions): Promise<void> {
   // its output, then exec the empty result), PowerShell treats
   // \` as an escape character. Emit the command bare so even a
   // verbatim copy lands cleanly.
-  const gitCmd = 'git init && git add -A && git commit -m "Initial commit from arkor init"';
+  //
+  // Round 40 follow-up #2 (Copilot, PR #99): use `;` as the
+  // statement separator instead of `&&`. PowerShell 5.1 (the
+  // Windows default until Windows 11 ships PS 7+ in-box) does
+  // NOT support `&&` as a pipeline-chain operator (added in PS
+  // 7), so a copy-paste of `git init && git add -A && git
+  // commit ...` into PS 5.1 errors with `The token '&&' is not
+  // a valid statement separator`. `;` is a statement separator
+  // in POSIX shells, cmd.exe, and every PowerShell version.
+  // Semantic difference: `;` runs the next command regardless
+  // of the previous one's exit code, whereas `&&` short-
+  // circuits on failure. For this specific chain that's
+  // acceptable: `git init` only fails if the directory is
+  // unwritable (in which case `git add` / `git commit` fail
+  // too with their own clear errors), `git add -A` is a no-op
+  // on an empty tree (still exit 0 anyway), and the worst case
+  // is the user sees two extra error lines, not a corrupted
+  // commit.
+  const gitCmd = 'git init; git add -A; git commit -m "Initial commit from arkor init"';
   // Round 39 (Copilot, PR #99): the install-blocked branch already
   // told the user to fix the yarn-config advisory first; printing
   // the generic `Next: <pm> install` outro after that contradicts
