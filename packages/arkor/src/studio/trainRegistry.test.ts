@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ChildProcess } from "node:child_process";
 import { TrainRegistry } from "./trainRegistry";
 
@@ -14,6 +14,30 @@ function fakeChild(pid: number): FakeChild {
 }
 
 describe("TrainRegistry", () => {
+  // Pin `process.platform` to "linux" for every test in this file so the
+  // POSIX/SIGUSR2 dispatch path is exercised regardless of the host CI
+  // runner. `dispatchRebuild` gates the SIGUSR2 hot-swap attempt on
+  // `process.platform !== "win32"` (Codex P1 fix: win32 maps unknown
+  // signals to SIGKILL-equivalent and would silently misreport hot-swap
+  // success), so on the Windows CI matrix the SIGUSR2 path would never
+  // fire and tests asserting on it would all fail. The single
+  // win32-specific test below (`dispatchRebuild on win32 routes hash-
+  // matches directly to SIGTERM-restart`) overrides this pin inside its
+  // own try/finally to exercise the win32 branch.
+  let originalPlatform: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", {
+      value: "linux",
+      configurable: true,
+    });
+  });
+  afterEach(() => {
+    if (originalPlatform) {
+      Object.defineProperty(process, "platform", originalPlatform);
+    }
+  });
+
   it("ignores children without a pid (already-exited spawns)", () => {
     const reg = new TrainRegistry();
     reg.register({ pid: undefined } as unknown as ChildProcess, {
