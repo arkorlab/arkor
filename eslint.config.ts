@@ -350,6 +350,24 @@ export default defineConfig(
     rules: {
       "n/hashbang": "off",
       "unicorn/no-process-exit": "off",
+      "n/no-process-exit": "off",
+    },
+  },
+
+  // CLI entry points and command handlers: `process.exit()` is the
+  // standard way to set the shell exit code at the process root, kill
+  // the loop in a SIGINT/SIGTERM handler, or bail out of an interactive
+  // clack prompt that the user cancelled. The rule's "throw and let the
+  // caller handle it" advice doesn't apply when *we are the caller*.
+  {
+    files: [
+      "**/bin.ts",
+      "**/bin.mjs",
+      "packages/arkor/src/cli/commands/**/*.ts",
+    ],
+    rules: {
+      "n/no-process-exit": "off",
+      "unicorn/no-process-exit": "off",
     },
   },
 );
