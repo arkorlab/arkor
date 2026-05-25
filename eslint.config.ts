@@ -242,6 +242,13 @@ export default defineConfig(
       // itself just established. Catching genuine "unexpected null" bugs
       // is valuable in production code; in tests it's noise.
       "@typescript-eslint/no-non-null-assertion": "off",
+      // Mock fetch implementations universally take `RequestInfo | URL`
+      // and tests always invoke them with bare strings, so the rule's
+      // theoretical concern (`String(req)` producing "[object Request]")
+      // doesn't materialise. Same for assertions that interpolate
+      // `Response`-shaped mocks. Keep the rule on for production code,
+      // where the concern is real.
+      "@typescript-eslint/no-base-to-string": "off",
     },
   },
 
