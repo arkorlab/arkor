@@ -306,6 +306,15 @@ export default defineConfig(
       // to module scope, scattering setup-adjacent helpers far from
       // the assertions they support.
       "unicorn/consistent-function-scoping": "off",
+      // Tests follow the vitest convention `import { vi } from "vitest"`
+      // -> `vi.mock(...)` -> import the mocked module so the mock is set
+      // up before the SUT pulls it in. That fragments the file into two
+      // import blocks separated by `vi.mock` statements, which trips
+      // both the "no blank line within a group" and the cross-group
+      // alphabetisation checks. The convention is intentional and rule
+      // gymnastics (inline disables on every mock) would read worse
+      // than just exempting tests.
+      "import-x/order": "off",
     },
   },
 
