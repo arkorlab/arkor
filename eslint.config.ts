@@ -95,6 +95,21 @@ export default defineConfig(
         "error",
         { cases: { kebabCase: true, pascalCase: true } },
       ],
+      // unicorn's default insists on `import path from "node:path"` (the
+      // `path.join` / `path.dirname` form). The repo has unanimously
+      // chosen named imports (40+ sites, 0 default) so the call sites
+      // read `join()` / `dirname()` directly. Carve out `node:path`
+      // here; keep the rest of the rule's per-module preferences
+      // (react named, react-dom named, etc.).
+      "unicorn/import-style": [
+        "error",
+        {
+          extendDefaultStyles: true,
+          styles: {
+            "node:path": { named: true },
+          },
+        },
+      ],
     },
   },
 
