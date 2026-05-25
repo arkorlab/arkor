@@ -237,6 +237,11 @@ export default defineConfig(
       ...vitest.configs.recommended.rules,
       // Test stubs and mock callbacks routinely use empty function bodies.
       "@typescript-eslint/no-empty-function": "off",
+      // Tests set up the data they assert on, so `!` after `find()` /
+      // `match()` / array access typically encodes an invariant the test
+      // itself just established. Catching genuine "unexpected null" bugs
+      // is valuable in production code; in tests it's noise.
+      "@typescript-eslint/no-non-null-assertion": "off",
     },
   },
 
