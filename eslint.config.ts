@@ -328,6 +328,14 @@ export default defineConfig(
     },
     rules: {
       ...vitest.configs.recommended.rules,
+      // Teach the rule about codebase-local aliases of `it` so calls
+      // like `onPosix("...", () => { expect(...) })` aren't mistaken for
+      // standalone `expect()` outside a test body. Add new aliases here
+      // as they appear.
+      "vitest/no-standalone-expect": [
+        "error",
+        { additionalTestBlockFunctions: ["onPosix"] },
+      ],
       // Test stubs and mock callbacks routinely use empty function bodies.
       "@typescript-eslint/no-empty-function": "off",
       // Tests set up the data they assert on, so `!` after `find()` /
