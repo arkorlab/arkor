@@ -374,7 +374,7 @@ async function readMetaToken(url: string): Promise<string> {
       `Could not find <meta name="arkor-studio-token"> in served HTML`,
     );
   }
-  return match[1]!;
+  return match[1];
 }
 
 export async function startStudio(

@@ -192,7 +192,10 @@ export function createTrainer(
       }, ms);
       const onAbort = () => {
         clearTimeout(timer);
-        reject(signal!.reason);
+        // `onAbort` only ever runs as a listener attached below, so
+        // `signal` is non-undefined here. Bind locally to surface that.
+        const s = signal;
+        if (s) reject(s.reason);
       };
       signal?.addEventListener("abort", onAbort, { once: true });
     });
@@ -233,9 +236,14 @@ export function createTrainer(
           jobId: startedJob.id,
           step: event.step,
         };
-        const infer = (args: InferArgs): Promise<Response> =>
-          client.chat({
-            scope: scope!,
+        const infer = (args: InferArgs): Promise<Response> => {
+          if (!scope) {
+            throw new Error(
+              "Trainer scope is not initialized at checkpoint dispatch time",
+            );
+          }
+          return client.chat({
+            scope,
             body: {
               messages: args.messages,
               adapter,
@@ -250,6 +258,7 @@ export function createTrainer(
             },
             signal: args.signal,
           });
+        };
         const ctx: CheckpointContext = {
           step: event.step,
           adapter,

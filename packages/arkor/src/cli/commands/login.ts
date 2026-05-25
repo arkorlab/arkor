@@ -110,11 +110,22 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
     return;
   }
 
+  // The `oauthAvailable` Boolean check above already proved these three
+  // fields are set, but the narrowing doesn't propagate across the
+  // intermediate variable assignment. Re-validate explicitly so the
+  // types line up at the call site without `!`.
+  if (
+    cfg.auth0Domain === null ||
+    cfg.clientId === null ||
+    cfg.audience === null
+  ) {
+    throw new Error("Cloud-API CLI config is missing OAuth fields");
+  }
   await runAuth0Login(
     {
-      auth0Domain: cfg.auth0Domain!,
-      clientId: cfg.clientId!,
-      audience: cfg.audience!,
+      auth0Domain: cfg.auth0Domain,
+      clientId: cfg.clientId,
+      audience: cfg.audience,
       callbackPorts: cfg.callbackPorts,
     },
     options,

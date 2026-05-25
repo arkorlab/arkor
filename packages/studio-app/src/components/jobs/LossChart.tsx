@@ -163,8 +163,8 @@ export function LossChart({
   // training.log at step 1 leaves an empty gap from PADDING.left to
   // the line's first vertex and tick labels at the left edge would
   // disagree with where the line actually starts.
-  const firstStep = unified[0]!.step;
-  const lastStep = Math.max(firstStep + 1, unified.at(-1)!.step);
+  const firstStep = unified[0].step;
+  const lastStep = Math.max(firstStep + 1, unified[unified.length - 1].step);
   const xSpan = lastStep - firstStep;
   const innerW = Math.max(50, width - PADDING.left - PADDING.right);
   const innerH = HEIGHT - PADDING.top - PADDING.bottom;
@@ -184,7 +184,7 @@ export function LossChart({
     .join(" ");
   const areaPath =
     trainSeries.length > 0
-      ? `${linePath} L${xFor(trainSeries.at(-1)!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0]!.step).toFixed(2)},${PADDING.top + innerH} Z`
+      ? `${linePath} L${xFor(trainSeries[trainSeries.length - 1].step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0].step).toFixed(2)},${PADDING.top + innerH} Z`
       : "";
 
   const evalPath =
@@ -234,11 +234,11 @@ export function LossChart({
     let hi = unified.length - 1;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (unified[mid]!.step < targetStep) lo = mid + 1;
+      if (unified[mid].step < targetStep) lo = mid + 1;
       else hi = mid;
     }
-    const candidate = unified[lo]!;
-    const before = lo > 0 ? unified[lo - 1]! : candidate;
+    const candidate = unified[lo];
+    const before = lo > 0 ? unified[lo - 1] : candidate;
     const nearest =
       Math.abs(before.step - targetStep) <= Math.abs(candidate.step - targetStep)
         ? before
@@ -249,12 +249,19 @@ export function LossChart({
   // Tooltip y-anchor: prefer the training-loss vertex when present,
   // otherwise pin to the eval-loss vertex so eval-only steps still
   // get a sensibly-placed tooltip.
+  // Every unified log point has at least one of `loss` / `evalLoss` set
+  // (a frame with neither is filtered upstream), so reaching the
+  // `evalLoss` branch with both null would be a data invariant
+  // violation. Use `!` to surface that as a throw rather than silently
+  // anchoring at y=0, which is itself a meaningful loss value
+  // (converged runs do log loss=0).
   const hoverAnchorLoss =
     hover === null
       ? 0
       : (hover.loss !== null
         ? hover.loss
-        : (hover.evalLoss!));
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        : hover.evalLoss!);
 
   return (
     <div ref={wrapperRef} className="relative w-full">

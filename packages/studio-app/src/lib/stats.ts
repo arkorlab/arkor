@@ -52,14 +52,14 @@ export function stddev(values: number[]): number {
 function percentileFromSorted(sorted: number[], q: number): number {
   const n = sorted.length;
   if (n === 0) return Number.NaN;
-  if (n === 1) return sorted[0]!;
+  if (n === 1) return sorted[0];
   const clamped = Math.min(1, Math.max(0, q));
   const rank = clamped * (n - 1);
   const lo = Math.floor(rank);
   const hi = Math.ceil(rank);
-  if (lo === hi) return sorted[lo]!;
+  if (lo === hi) return sorted[lo];
   const frac = rank - lo;
-  return sorted[lo]! * (1 - frac) + sorted[hi]! * frac;
+  return sorted[lo] * (1 - frac) + sorted[hi] * frac;
 }
 
 // Linear-interpolated percentile — same convention as numpy's default
@@ -85,7 +85,7 @@ const T_95: readonly number[] = [
 
 function tCritical95(df: number): number {
   if (df < 1) return Number.NaN;
-  if (df <= 30) return T_95[df - 1]!;
+  if (df <= 30) return T_95[df - 1];
   return 1.96;
 }
 

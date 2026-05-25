@@ -231,7 +231,7 @@ function findManagedBlock(s: string): ManagedBlockLookup {
   if (matches.length > 1) {
     return { kind: "ambiguous", count: matches.length };
   }
-  const m = matches[0]!;
+  const m = matches[0];
   // Strip the leading-newline (or BOM) anchor so we replace the marker
   // itself, not the newline / BOM ahead of it. Possible prefixes:
   //   - "\r\n" (2 chars)

@@ -312,14 +312,13 @@ export function buildStudioApp(options: StudioServerOptions) {
     const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
     const url = `${credsBaseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
+    const lastEventId = c.req.header("Last-Event-ID");
     const upstream = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-Arkor-Client": `arkor/${SDK_VERSION}`,
         Accept: "text/event-stream",
-        ...(c.req.header("Last-Event-ID")
-          ? { "Last-Event-ID": c.req.header("Last-Event-ID")! }
-          : {}),
+        ...(lastEventId !== undefined ? { "Last-Event-ID": lastEventId } : {}),
       },
     });
     // This route bypasses `createRpc()` (the SSE body has to be streamed
@@ -903,7 +902,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         const html = injectStudioToken(file.toString("utf8"), studioToken);
         return new Response(html, {
           status: 200,
-          headers: { "content-type": CONTENT_TYPES.html! },
+          headers: { "content-type": CONTENT_TYPES.html },
         });
       }
       return new Response(file, {

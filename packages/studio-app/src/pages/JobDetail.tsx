@@ -171,7 +171,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
       setLiveStatus("running");
       if (parsed && typeof parsed === "object") {
         const d = parsed as { timestamp?: string };
-        if (d.timestamp) setLiveStartedAt((prev) => prev ?? d.timestamp!);
+        const ts = d.timestamp;
+        if (ts) setLiveStartedAt((prev) => prev ?? ts);
       }
     });
     es.addEventListener("training.log", (ev: MessageEvent) => {
@@ -287,7 +288,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
     job?.status === "cancelled";
   const status: Job["status"] =
     terminal?.status ??
-    (polledIsTerminal ? job!.status : (liveStatus ?? job?.status ?? "queued"));
+    (polledIsTerminal && job
+      ? job.status
+      : (liveStatus ?? job?.status ?? "queued"));
 
   // Live duration ticker while the job is running.
   const isRunning = status === "running" && !terminal;

@@ -197,9 +197,9 @@ export function Playground({
     try {
       const stream = streamInferenceContent(
         {
-          ...(mode === "base"
+          ...(mode === "base" || !selectedJob
             ? { baseModel }
-            : { adapter: { kind: "final", jobId: selectedJob! } }),
+            : { adapter: { kind: "final" as const, jobId: selectedJob } }),
           messages: [...messages, userMsg],
           stream: true,
         },
