@@ -97,7 +97,7 @@ export function LossChart({
         });
       }
     }
-    return [...byStep.values()].sort((a, b) => a.step - b.step);
+    return [...byStep.values()].toSorted((a, b) => a.step - b.step);
   }, [points]);
 
   const trainSeries = useMemo(

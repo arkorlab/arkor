@@ -364,7 +364,7 @@ describe("create-arkor (E2E)", () => {
     expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
 
     // Nothing should land directly in parentDir except the new subdir.
-    expect(readdirSync(parentDir).sort()).toEqual(["arkor-project"]);
+    expect(readdirSync(parentDir).toSorted()).toEqual(["arkor-project"]);
 
     // Outro should tell the user to `cd arkor-project`.
     expect(result.stdout).toContain("cd arkor-project");
@@ -400,7 +400,7 @@ describe("create-arkor (E2E)", () => {
       readFileSync(join(targetDir, "package.json"), "utf8"),
     ) as { name?: string };
     expect(pkg.name).toBe("named-app");
-    expect(readdirSync(parentDir).sort()).toEqual(["named-app"]);
+    expect(readdirSync(parentDir).toSorted()).toEqual(["named-app"]);
   });
 
   // Collision guards for the auto-derived `./<name>/` path. When the user

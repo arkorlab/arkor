@@ -827,7 +827,7 @@ describe("resolvePackageManager", () => {
 describe("templateChoices", () => {
   it("exposes every registered template with a hint", () => {
     const list = templateChoices();
-    expect(list.map((t) => t.value).sort()).toEqual([
+    expect(list.map((t) => t.value).toSorted()).toEqual([
       "redaction",
       "translate",
       "triage",

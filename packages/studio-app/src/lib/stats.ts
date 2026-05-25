@@ -68,7 +68,7 @@ function percentileFromSorted(sorted: number[], q: number): number {
 // non-null assertions below.
 export function percentile(values: number[], q: number): number {
   if (values.length === 0) return Number.NaN;
-  return percentileFromSorted([...values].sort((a, b) => a - b), q);
+  return percentileFromSorted(values.toSorted((a, b) => a - b), q);
 }
 
 // Two-tailed 95% Student's t critical values for df 1..30. For df > 30
@@ -142,7 +142,7 @@ export function summarize(values: number[]): LossStats {
   const sd = Math.sqrt(varv);
   const ciHalf = n <= 1 ? 0 : tCritical95(n - 1) * (sd / Math.sqrt(n));
 
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = values.toSorted((a, b) => a - b);
 
   return {
     count: n,
