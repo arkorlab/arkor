@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "scripts": {
     "docs:dev": "mint dev",
-    "docs:build": "mint validate",
+    "docs:validate": "mint validate",
     "broken-links": "mint broken-links"
   },
   "devDependencies": {
