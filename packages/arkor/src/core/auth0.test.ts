@@ -395,7 +395,7 @@ describe("startLoopbackServer", () => {
       const sentinel = Symbol("pending");
       const winner = await Promise.race([
         result.waitForCallback,
-        new Promise((r) => setTimeout(() => r(sentinel), 30)),
+        new Promise((resolve) => setTimeout(() => resolve(sentinel), 30)),
       ]);
       expect(winner).toBe(sentinel);
     } finally {

@@ -99,7 +99,7 @@ async function waitForPort(port: number): Promise<void> {
       });
     });
     if (ok) return;
-    await new Promise((r) => setTimeout(r, PORT_POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, PORT_POLL_INTERVAL_MS));
   }
   throw new Error(
     `Port ${String(port)} did not become ready within ${String(PORT_POLL_TIMEOUT_MS)}ms`,

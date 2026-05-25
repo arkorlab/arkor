@@ -92,9 +92,9 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
     let resolveCallback: (v: { code: string; state: string }) => void;
     let rejectCallback: (err: Error) => void;
     const waitForCallback = new Promise<{ code: string; state: string }>(
-      (res, rej) => {
-        resolveCallback = res;
-        rejectCallback = rej;
+      (resolve, reject) => {
+        resolveCallback = resolve;
+        rejectCallback = reject;
       },
     );
 
