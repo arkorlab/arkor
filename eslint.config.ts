@@ -107,11 +107,22 @@ export default defineConfig(
       // expression-style cases stay legal; braces only when actually
       // needed (declarations etc.).
       "unicorn/switch-case-braces": "off",
-      // unicorn's default is kebab-case only; allow PascalCase too so
-      // React component files (`Component.tsx`) pass.
+      // unicorn's default is kebab-case only. Allow PascalCase for
+      // React components (`Component.tsx`).
+      //
+      // TODO: drop `camelCase` once the inconsistent files are renamed
+      // to kebab-case. Currently kept on so 7 holdouts compile:
+      //   - packages/arkor/src/core/projectState{,.test}.ts
+      //                                  -> project-state{,.test}.ts
+      //   - packages/studio-app/src/lib/baseModels{,.test}.ts
+      //                                  -> base-models{,.test}.ts
+      //   - e2e/studio/src/harness/{cloudApiMock,seedFixture,studioServer}.ts
+      //                                  -> kebab-case equivalents
+      // Each rename also needs an import-reference sweep, which is why
+      // it's staged separately from the lint integration.
       "unicorn/filename-case": [
         "error",
-        { cases: { kebabCase: true, pascalCase: true } },
+        { cases: { kebabCase: true, camelCase: true, pascalCase: true } },
       ],
       // unicorn's default insists on `import path from "node:path"` (the
       // `path.join` / `path.dirname` form). The repo has unanimously
