@@ -378,21 +378,23 @@ export async function scaffold(
   await ensureEmptyEnough(cwd);
 
   const files: ScaffoldResult["files"] = [];
-  files.push({
-    path: INDEX_PATH,
-    action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),
-  });
-  files.push({
-    path: TRAINER_PATH,
-    action: await ensureFile(
-      join(cwd, TRAINER_PATH),
-      TEMPLATES[options.template].trainer,
-    ),
-  });
-  files.push({
-    path: CONFIG_PATH,
-    action: await ensureFile(join(cwd, CONFIG_PATH), STARTER_CONFIG),
-  });
+  files.push(
+    {
+      path: INDEX_PATH,
+      action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),
+    },
+    {
+      path: TRAINER_PATH,
+      action: await ensureFile(
+        join(cwd, TRAINER_PATH),
+        TEMPLATES[options.template].trainer,
+      ),
+    },
+    {
+      path: CONFIG_PATH,
+      action: await ensureFile(join(cwd, CONFIG_PATH), STARTER_CONFIG),
+    },
+  );
   // Determine the AGENTS.md / CLAUDE.md outcome *before* writing README.
   // STARTER_README documents whichever agent files actually land on
   // disk, so generating the README earlier locks in the wrong content
@@ -431,28 +433,30 @@ export async function scaffold(
     }
   }
 
-  files.push({
-    path: README_PATH,
-    action: await ensureFile(
-      join(cwd, README_PATH),
-      // Document the AGENTS.md / CLAUDE.md bullet only when both files
-      // are present on disk after this run. Skipped CLAUDE.md (duplicate
-      // AGENTS.md case) means the README would describe a file that
-      // isn't there; the bullet is suppressed to keep the README
-      // truthful.
-      STARTER_README(options.name, {
-        agentsMd: options.agentsMd === true && claudeWritten,
-      }),
-    ),
-  });
-  files.push({
-    path: GITIGNORE_PATH,
-    action: await patchGitignore(cwd),
-  });
-  files.push({
-    path: PACKAGE_JSON_PATH,
-    action: await patchPackageJson(cwd, options.name),
-  });
+  files.push(
+    {
+      path: README_PATH,
+      action: await ensureFile(
+        join(cwd, README_PATH),
+        // Document the AGENTS.md / CLAUDE.md bullet only when both
+        // files are present on disk after this run. Skipped CLAUDE.md
+        // (duplicate AGENTS.md case) means the README would describe a
+        // file that isn't there; the bullet is suppressed to keep the
+        // README truthful.
+        STARTER_README(options.name, {
+          agentsMd: options.agentsMd === true && claudeWritten,
+        }),
+      ),
+    },
+    {
+      path: GITIGNORE_PATH,
+      action: await patchGitignore(cwd),
+    },
+    {
+      path: PACKAGE_JSON_PATH,
+      action: await patchPackageJson(cwd, options.name),
+    },
+  );
   for (const entry of agentEntries) files.push(entry);
   return { files, cwd, warnings };
 }
