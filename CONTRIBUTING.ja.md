@@ -40,7 +40,7 @@ pnpm install
 pnpm build         # turbo run build (全パッケージをカバー)
 pnpm test          # モノレポ全体のユニットテスト
 pnpm typecheck     # モノレポ全体の tsc
-pnpm lint          # モノレポ全体の oxlint (--deny-warnings)
+pnpm lint          # oxlint --deny-warnings の後、型情報ベースの strict ESLint 10 をモノレポ全体に
 ```
 
 特定のパッケージで作業するには:
