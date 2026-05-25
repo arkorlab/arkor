@@ -167,6 +167,13 @@ export default defineConfig(
       // Revisit once typescript-eslint ships a safer fix mode, or treat
       // genuine redundant assertions as a manual-review item.
       "@typescript-eslint/no-unnecessary-type-assertion": "off",
+      // `while (true)` is the idiomatic infinite-loop spelling for SSE
+      // readers and retry loops; the rule would otherwise force `for (;;)`
+      // or constant-literal contortions.
+      "@typescript-eslint/no-unnecessary-condition": [
+        "error",
+        { allowConstantLoopConditions: true },
+      ],
       // TODO: revisit. `stylisticTypeChecked` defaults this to "interface",
       // which would auto-rewrite every `type X = { ... }` in the codebase.
       // Both forms are legitimate (interfaces merge, type aliases compose
