@@ -321,7 +321,7 @@ export function Playground({
           <Composer
             value={input}
             onChange={setInput}
-            onSubmit={send}
+            onSubmit={() => void send()}
             disabled={streaming}
           />
         </div>
@@ -331,7 +331,7 @@ export function Playground({
           <Composer
             value={input}
             onChange={setInput}
-            onSubmit={send}
+            onSubmit={() => void send()}
             disabled={streaming}
           />
         </div>

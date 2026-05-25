@@ -36,7 +36,7 @@ export function Overview() {
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (!cancelled) timer = setTimeout(tick, 5000);
+        if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
     tick();

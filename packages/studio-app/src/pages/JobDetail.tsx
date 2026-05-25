@@ -61,7 +61,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       } catch {
         // ignore — events stream is the source of truth for live status
       } finally {
-        if (!cancelled) timer = setTimeout(tick, 5000);
+        if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
     tick();

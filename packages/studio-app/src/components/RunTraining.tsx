@@ -52,7 +52,7 @@ export function RunTraining() {
           });
         }
       } finally {
-        if (!cancelled) timer = setTimeout(tick, 5000);
+        if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
     tick();

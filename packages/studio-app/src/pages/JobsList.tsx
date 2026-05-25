@@ -104,7 +104,7 @@ export function JobsList() {
     async function schedule() {
       await load();
       if (cancelled) return;
-      timer = setTimeout(schedule, 5000);
+      timer = setTimeout(() => void schedule(), 5000);
     }
     schedule();
     return () => {

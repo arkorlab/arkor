@@ -401,7 +401,7 @@ function NewEndpointForm({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
           <label className="block">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Slug
@@ -1007,7 +1007,7 @@ export function EndpointDetail({ id }: { id: string }) {
             {describeTarget(deployment.target)}
           </p>
         </div>
-        <Button variant="danger" onClick={onDelete} disabled={busy}>
+        <Button variant="danger" onClick={() => void onDelete()} disabled={busy}>
           Delete
         </Button>
       </div>
@@ -1040,7 +1040,7 @@ export function EndpointDetail({ id }: { id: string }) {
             <Button
               size="sm"
               variant="secondary"
-              onClick={toggleEnabled}
+              onClick={() => void toggleEnabled()}
               disabled={busy}
             >
               {deployment.enabled ? "Disable" : "Enable"}
@@ -1079,7 +1079,7 @@ export function EndpointDetail({ id }: { id: string }) {
           )}
         </CardHeader>
         <CardContent>
-          <form onSubmit={onCreateKey} className="mb-4 flex items-center gap-2">
+          <form onSubmit={(e) => void onCreateKey(e)} className="mb-4 flex items-center gap-2">
             <input
               type="text"
               aria-label="API key label"
