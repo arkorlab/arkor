@@ -164,7 +164,10 @@ export function LossChart({
   // the line's first vertex and tick labels at the left edge would
   // disagree with where the line actually starts.
   const firstStep = unified[0].step;
-  const lastStep = Math.max(firstStep + 1, unified[unified.length - 1].step);
+  // `.at(-1)` is the rule-preferred form; the `!` rides along because
+  // `unified.length > 0` is already established above.
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const lastStep = Math.max(firstStep + 1, unified.at(-1)!.step);
   const xSpan = lastStep - firstStep;
   const innerW = Math.max(50, width - PADDING.left - PADDING.right);
   const innerH = HEIGHT - PADDING.top - PADDING.bottom;
@@ -184,7 +187,9 @@ export function LossChart({
     .join(" ");
   const areaPath =
     trainSeries.length > 0
-      ? `${linePath} L${xFor(trainSeries[trainSeries.length - 1].step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0].step).toFixed(2)},${PADDING.top + innerH} Z`
+      // `trainSeries.length > 0` proved above; `at(-1)!` is safe.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      ? `${linePath} L${xFor(trainSeries.at(-1)!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0].step).toFixed(2)},${PADDING.top + innerH} Z`
       : "";
 
   const evalPath =

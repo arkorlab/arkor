@@ -237,9 +237,9 @@ function findManagedBlock(s: string): ManagedBlockLookup {
   // itself, not the newline / BOM ahead of it. Possible prefixes:
   //   - "\r\n" (2 chars)
   //   - "\n"   (1 char)
-  //   - "﻿" (1 char — UTF-16 code unit; both String#slice and the
-  //     scaffolder's downstream `string.slice(start, end)` are UTF-16
-  //     code-unit-indexed, matching `m.index` semantics)
+  //   - U+FEFF (1 char, BOM; both String#slice and the scaffolder's
+  //     downstream `string.slice(start, end)` are UTF-16 code-unit-
+  //     indexed, matching `m.index` semantics)
   //   - "" when the marker sits at byte 0 of an unBOM'd file
   let leading = 0;
   if (m[0].startsWith("\r\n")) leading = 2;
@@ -378,6 +378,11 @@ export async function scaffold(
   await ensureEmptyEnough(cwd);
 
   const files: ScaffoldResult["files"] = [];
+  // Pre-create the array and push in waves so each entry's `await`
+  // completes in source order. Initialising in a single literal would
+  // need a wrapping IIFE for the awaits, which obscures the simple
+  // append flow.
+  // eslint-disable-next-line unicorn/no-immediate-mutation
   files.push(
     {
       path: INDEX_PATH,

@@ -25,7 +25,6 @@ vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 
 // Imports come after the `vi.mock` for clarity; vitest hoists both above
 // the imports at runtime so the mocked binding is in place either way.
-// eslint-disable-next-line import/first
 import { runCli, shouldRetryAfterSigkill, type RunResult } from "./spawn-cli";
 
 // Pure-function tests for the ENG-632 retry gate. They cover the decision

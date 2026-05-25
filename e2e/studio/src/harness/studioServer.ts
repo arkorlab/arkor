@@ -131,8 +131,11 @@ function makeKill(child: ChildProcess): () => Promise<void> {
     await new Promise<void>((resolve) => {
       // Pre-declared with `undefined` rather than `null` so
       // `clearTimeout(fallback)` is always type-correct (Node's
-      // `clearTimeout` accepts `undefined` as a no-op) — no null
-      // guard needed in `onClose` below.
+      // `clearTimeout` accepts `undefined` as a no-op); no null
+      // guard needed in `onClose` below. The closure captures
+      // `fallback` before the assignment on line 168, so `const`
+      // wouldn't work here.
+      // eslint-disable-next-line prefer-const
       let fallback: ReturnType<typeof setTimeout> | undefined;
       // Wait on `close`, not `exit`: Node skips `exit` when the
       // process fails to spawn (it emits `error` then `close`) and

@@ -169,7 +169,7 @@ export function defaultArkorCloudApiUrl(
  */
 function stripTrailingSlashes(s: string): string {
   let end = s.length;
-  while (end > 0 && s.charCodeAt(end - 1) === 0x2F /* "/" */) end--;
+  while (end > 0 && s.codePointAt(end - 1) === 0x2F /* "/" */) end--;
   return end === s.length ? s : s.slice(0, end);
 }
 

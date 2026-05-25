@@ -300,7 +300,12 @@ function NewEndpointForm({
   const inFlightRef = useRef(false);
   const inFlightSlugRef = useRef<string>("");
   const onMaybeCreatedRef = useRef(onMaybeCreated);
-  onMaybeCreatedRef.current = onMaybeCreated;
+  // Refresh the captured callback in an effect rather than during
+  // render. Reads of `.current` only happen in async handlers / effects
+  // below, so this still picks up the latest closure each commit.
+  useEffect(() => {
+    onMaybeCreatedRef.current = onMaybeCreated;
+  });
   useEffect(() => {
     return () => {
       if (inFlightRef.current) {

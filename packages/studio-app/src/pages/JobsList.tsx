@@ -54,6 +54,10 @@ export function JobsList() {
   // `manual` flips the visible spinner; the silent 5s polling tick
   // calls load() without it so the refresh icon doesn't pulse every
   // five seconds and look like the user just clicked it.
+  // React Compiler isn't enabled in this project; the rule's "skipped
+  // optimization" warning is informational and the manual `useCallback`
+  // is still what we want for stable identity across renders.
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const load = useCallback(async (manual = false) => {
     if (inFlightRef.current) {
       // Don't drop a user click — flip the spinner so they get

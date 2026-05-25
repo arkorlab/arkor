@@ -15,7 +15,11 @@ import {
   requestAnonymousToken,
   type Credentials,
 } from "../core/credentials";
-import { recordDeprecation, tapDeprecation } from "../core/deprecation";
+import {
+  recordDeprecation,
+  tapDeprecation,
+  type DeprecationNotice,
+} from "../core/deprecation";
 import {
   AUTH0_MISSING_STATE_MESSAGE,
   ensureProjectState,
@@ -555,7 +559,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     // signals — `/api/jobs` and `/api/inference/chat` stream the
     // headers through verbatim, and we want browser callers to see
     // the same warnings here.
-    let deprecationNotice: import("../core/deprecation").DeprecationNotice | null = null;
+    let deprecationNotice: DeprecationNotice | null = null;
 
     /**
      * Build a JSON Response with the upstream deprecation headers
@@ -581,6 +585,9 @@ export function buildStudioApp(options: StudioServerOptions) {
         // escape the two reserved chars per the quoted-pair rule.
         const safeMessage = deprecationNotice.message
            
+          // Control chars are exactly what we strip; the intent is
+          // to deny CR / LF / NUL / etc. from leaking into the header.
+          // eslint-disable-next-line no-control-regex
           .replaceAll(/[\u0000-\u001F\u007F]/g, " ")
           .replaceAll('\\', "\\\\")
           .replaceAll('"', String.raw`\"`);

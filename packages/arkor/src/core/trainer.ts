@@ -183,6 +183,12 @@ export function createTrainer(
 
   async function delay(ms: number, signal?: AbortSignal): Promise<void> {
     await new Promise<void>((resolve, reject) => {
+      // `AbortSignal.reason` is the convention-set rejection value for
+      // the signal (default `DOMException`, or whatever the caller
+      // passed to `controller.abort(...)`). Forwarding it verbatim
+      // matches `AbortSignal.throwIfAborted()` semantics; coercing to a
+      // fresh Error would lose the caller's intent.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
       if (signal?.aborted) return reject(signal.reason);
       const timer = setTimeout(() => {
         signal?.removeEventListener("abort", onAbort);
@@ -193,6 +199,7 @@ export function createTrainer(
         // `onAbort` only ever runs as a listener attached below, so
         // `signal` is non-undefined here. Bind locally to surface that.
         const s = signal;
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
         if (s) reject(s.reason);
       };
       signal?.addEventListener("abort", onAbort, { once: true });
@@ -386,8 +393,12 @@ export function createTrainer(
 
         if (terminal) break;
 
+        // Two distinct semantics (clean reconnect vs failure accounting)
+        // that share an `await` shape but warrant the documented split.
+        // A ternary would force a single comment above both branches.
+        // eslint-disable-next-line unicorn/prefer-ternary
         if (receivedAny) {
-          // Stream had real activity then closed cleanly. Not a failure —
+          // Stream had real activity then closed cleanly. Not a failure;
           // reconnect with Last-Event-ID at the base delay (no exponential
           // backoff, no counter increment).
           await delay(initialReconnectDelayMs, abortSignal);

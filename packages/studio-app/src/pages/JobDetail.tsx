@@ -267,7 +267,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("end", () => es.close());
-    es.onerror = () => setEventErr("Event stream interrupted.");
+    es.addEventListener("error", () => setEventErr("Event stream interrupted."));
     return () => es.close();
   }, [jobId]);
 

@@ -41,7 +41,7 @@ const MANUAL_INSTALL_HINT =
   "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 function isInteractive(): boolean {
-  return Boolean(process.stdout.isTTY) && !process.env.CI;
+  return process.stdout.isTTY && !process.env.CI;
 }
 
 /**
@@ -405,9 +405,11 @@ program
     },
   );
 
-program.parseAsync(process.argv).catch((err) => {
+try {
+  await program.parseAsync(process.argv);
+} catch (err: unknown) {
   process.stderr.write(
     `create-arkor failed: ${err instanceof Error ? err.message : String(err)}\n`,
   );
   process.exit(1);
-});
+}

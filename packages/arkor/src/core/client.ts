@@ -4,7 +4,11 @@ import {
   type ArkorClient,
 } from "@arkor/cloud-api-client";
 
-import { recordDeprecation, tapDeprecation } from "./deprecation";
+import {
+  recordDeprecation,
+  tapDeprecation,
+  type DeprecationNotice,
+} from "./deprecation";
 import {
   createDeploymentKeyResponseSchema,
   createDeploymentResponseSchema,
@@ -110,7 +114,7 @@ export interface CloudApiClientOptions {
    * `Sunset` headers on the proxy response, matching the passthrough
    * behavior of `/api/jobs` and friends.
    */
-  onDeprecation?: (notice: import("./deprecation").DeprecationNotice) => void;
+  onDeprecation?: (notice: DeprecationNotice) => void;
 }
 
 export class CloudApiClient {
