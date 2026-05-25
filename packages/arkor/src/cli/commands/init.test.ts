@@ -713,17 +713,22 @@ describe("runInit", () => {
     expect(infoMessages).toMatch(/look populated/);
     expect(infoMessages).toMatch(/inspect the tree/);
     // Outro uses the lenient signal so the user is pointed at
-    // `dev`, with the manual `git init && commit` BEFORE `dev`
-    // (round-40 ordering fix).
+    // `dev`, with the manual git steps BEFORE `dev` (round-40
+    // ordering fix). The three git commands are emitted on
+    // separate indented lines (round-40 follow-up #3) so neither
+    // `&&` (PS 5.1 breaks) nor `;` (cmd.exe breaks) is needed as
+    // a chain separator.
     const outroMessages = vi
       .mocked(clack.outro)
       .mock.calls.map((c) => c[0])
       .join("\n");
-    expect(outroMessages).toMatch(/Next: git init; git add -A; git commit/);
+    expect(outroMessages).toMatch(/Next:\n[\s\S]*git init/);
+    expect(outroMessages).toMatch(/git add -A/);
+    expect(outroMessages).toMatch(/git commit -m "Initial commit from arkor init"/);
     expect(outroMessages).toMatch(/pnpm arkor dev/);
-    // The dev command comes AFTER the git command in the outro
+    // The dev command comes AFTER the git steps in the outro
     // (manual commit precedes starting the dev server).
-    const gitIdx = outroMessages.indexOf("git init;");
+    const gitIdx = outroMessages.indexOf("git init");
     const devIdx = outroMessages.indexOf("pnpm arkor dev");
     expect(gitIdx).toBeGreaterThanOrEqual(0);
     expect(devIdx).toBeGreaterThan(gitIdx);

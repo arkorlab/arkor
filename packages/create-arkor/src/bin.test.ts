@@ -360,10 +360,16 @@ describe("create-arkor run()", () => {
     // Outro is multi-line for create-arkor; treeIsReady=true
     // means the install line is OMITTED (no `<pm> install`).
     expect(outroMessages).not.toMatch(/^ {2}pnpm install/m);
-    // Manual git command appears before the dev command (order
+    // The three git commands are on separate lines (round-40
+    // follow-up #3: no single chain separator works in cmd.exe
+    // and PS 5.1 simultaneously).
+    expect(outroMessages).toMatch(/^ {2}git init$/m);
+    expect(outroMessages).toMatch(/^ {2}git add -A$/m);
+    expect(outroMessages).toMatch(/^ {2}git commit -m "Initial commit from Create Arkor"$/m);
+    // Manual git commands appear before the dev command (order
     // matters for the natural "init repo, then start dev"
     // sequence).
-    const gitIdx = outroMessages.indexOf("git init;");
+    const gitIdx = outroMessages.indexOf("git init");
     const devIdx = outroMessages.indexOf("pnpm arkor dev");
     expect(gitIdx).toBeGreaterThanOrEqual(0);
     expect(devIdx).toBeGreaterThan(gitIdx);

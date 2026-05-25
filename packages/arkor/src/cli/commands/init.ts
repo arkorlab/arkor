@@ -454,24 +454,23 @@ export async function runInit(options: InitOptions): Promise<void> {
   // \` as an escape character. Emit the command bare so even a
   // verbatim copy lands cleanly.
   //
-  // Round 40 follow-up #2 (Copilot, PR #99): use `;` as the
-  // statement separator instead of `&&`. PowerShell 5.1 (the
-  // Windows default until Windows 11 ships PS 7+ in-box) does
-  // NOT support `&&` as a pipeline-chain operator (added in PS
-  // 7), so a copy-paste of `git init && git add -A && git
-  // commit ...` into PS 5.1 errors with `The token '&&' is not
-  // a valid statement separator`. `;` is a statement separator
-  // in POSIX shells, cmd.exe, and every PowerShell version.
-  // Semantic difference: `;` runs the next command regardless
-  // of the previous one's exit code, whereas `&&` short-
-  // circuits on failure. For this specific chain that's
-  // acceptable: `git init` only fails if the directory is
-  // unwritable (in which case `git add` / `git commit` fail
-  // too with their own clear errors), `git add -A` is a no-op
-  // on an empty tree (still exit 0 anyway), and the worst case
-  // is the user sees two extra error lines, not a corrupted
-  // commit.
-  const gitCmd = 'git init; git add -A; git commit -m "Initial commit from arkor init"';
+  // Round 40 follow-up #3 (Codex P2, PR #99): no single
+  // statement separator works across all four supported shells.
+  // `&&` (chain-on-success) works in POSIX, cmd.exe, and PS 7+
+  // but errors on PowerShell 5.1 (the Windows-default until
+  // Win11 ships PS 7+ in-box). `;` works in POSIX, PS 5.1, and
+  // PS 7+ but is a literal in cmd.exe (chain-on-success is
+  // `&&`, sequential is `&`; `;` is treated as ordinary text).
+  // Cycling between `&&` and `;` would break one of cmd.exe vs
+  // PS 5.1 every time. Emit the three git commands on SEPARATE
+  // LINES instead so the user copy-pastes each one
+  // individually; every supported shell handles
+  // newline-as-separator natively.
+  const gitCmdLines: readonly string[] = [
+    "git init",
+    "git add -A",
+    'git commit -m "Initial commit from arkor init"',
+  ];
   // Round 39 (Copilot, PR #99): the install-blocked branch already
   // told the user to fix the yarn-config advisory first; printing
   // the generic `Next: <pm> install` outro after that contradicts
@@ -481,9 +480,23 @@ export async function runInit(options: InitOptions): Promise<void> {
     const fixRetry = pm
       ? `\`${pm} install\``
       : MANUAL_INSTALL_HINT;
-    const gitTail = gitInitSkipped ? `, then ${gitCmd}` : "";
+    if (gitInitSkipped) {
+      // Multi-line outro: each git step on its own line so users
+      // copy-paste them individually. See `gitCmdLines` above for
+      // why no single chain separator works across the supported
+      // shells.
+      ui.outro(
+        [
+          `After fixing the advisory above, run:`,
+          `  ${pm ? `${pm} install` : MANUAL_INSTALL_HINT}`,
+          ...gitCmdLines.map((line) => `  ${line}`),
+          `  ${devCmd}`,
+        ].join("\n"),
+      );
+      return;
+    }
     ui.outro(
-      `Next: fix the advisory above, then ${fixRetry}${gitTail}, then \`${devCmd}\``,
+      `Next: fix the advisory above, then ${fixRetry}, then \`${devCmd}\``,
     );
     return;
   }
@@ -507,9 +520,20 @@ export async function runInit(options: InitOptions): Promise<void> {
   const treeIsReady =
     (installAttemptCompleted || installArtifactsLanded) && wouldHaveInstalled;
   const installCmd = pm ? `\`${pm} install\`` : MANUAL_INSTALL_HINT;
+  if (gitInitSkipped) {
+    // Multi-line outro when git was skipped: each git step on its
+    // own line, plus install (if needed) and dev. See
+    // `gitCmdLines` above for why no single chain separator
+    // works across the supported shells.
+    const lines: string[] = ["Next:"];
+    if (!treeIsReady) lines.push(`  ${pm ? `${pm} install` : MANUAL_INSTALL_HINT}`);
+    for (const line of gitCmdLines) lines.push(`  ${line}`);
+    lines.push(`  ${devCmd}`);
+    ui.outro(lines.join("\n"));
+    return;
+  }
   const steps: string[] = [];
   if (!treeIsReady) steps.push(installCmd);
-  if (gitInitSkipped) steps.push(gitCmd);
   steps.push(`\`${devCmd}\``);
   ui.outro(`Next: ${steps.join(", then ")}`);
 }

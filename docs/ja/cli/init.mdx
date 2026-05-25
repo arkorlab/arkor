@@ -51,7 +51,7 @@ bun arkor init
 | `--use-bun` | パッケージマネージャーに bun を強制。Windows 既知の制約: `arkor init --use-bun` は `node_modules` までは作成されるものの `bun.lock` が生成されないため、初回コミットに lockfile が含まれません。`bun install` 直接実行および `create-arkor --use-bun` はこの影響を受けません。 |
 | `--git` | 確認なしで git リポジトリを初期化し、初回コミットを作成。 |
 | `--skip-git` | git init を黙ってスキップ。 |
-| `--allow-builds` | esbuild の `postinstall` スクリプトを `pnpm install` で実行することを許可（pnpm 専用。yarn / npm / bun はワークスペース yaml を無視）。デフォルトは deny。下記 [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプトpnpm-11) を参照。 |
+| `--allow-builds` | esbuild の `postinstall` スクリプトを `pnpm install` で実行することを許可（pnpm 専用。yarn / npm / bun はワークスペース yaml を無視）。デフォルトは deny。下記 [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプト（pnpm-11）) を参照。 |
 | `--agents-md` | AI コーディングエージェントに「arkor は学習データより新しい」ことを伝える `AGENTS.md` と `CLAUDE.md` を書き出す。デフォルト。 |
 | `--no-agents-md` | `AGENTS.md` / `CLAUDE.md` の生成をスキップ。既存のユーザー記述の `AGENTS.md` は常に保持され、arkor 管理の block（`<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->` で区切られる）は初回は末尾追記、再 scaffold 時はその場で置換されます。 |
 
@@ -284,7 +284,7 @@ bun arkor init --template translate --use-bun
 | `package.json` | 無ければ name / `private` / `type: "module"` / `dev`+`build`+`start` のスターター scripts / `devDependencies.arkor` で **作成**。不足している script があれば追加し、`devDependencies.arkor` がなければ追加する **パッチ**。既存の値（カスタム `dev` script など）は **上書きしません**。すべて揃っていれば変更なし（**Ok**）。 |
 | `AGENTS.md` | 無ければ arkor 管理の block を含めて **作成**（デフォルト。`--no-agents-md` でスキップ可）。既存ファイルがあれば、arkor 管理 block（`<!-- BEGIN:arkor-agent-rules -->` / `<!-- END:arkor-agent-rules -->` で区切り）を **パッチ** — 初回は末尾に追記、再 scaffold ではその場で置換。marker 外のユーザー記述はすべて保持されます。canonical block が既に最新なら変更なし（**Ok**）。canonical 管理 block が複数含まれている場合、どちらを更新するかを推測すると壊れる可能性があるため、ファイルは **そのまま**にして警告を出します — ユーザーが重複を解消すれば次回の再 scaffold でその場でパッチされます。 |
 | `CLAUDE.md` | 無ければ Claude Code の import ディレクティブ `@AGENTS.md` で **作成**（デフォルト。`--no-agents-md` でスキップ可）。既にファイルがあれば **そのまま**で、プロジェクト固有の `CLAUDE.md` を上書きしません。`AGENTS.md` が canonical 管理 block 複数のため kept された場合は警告つきで **スキップ** されます — その状態で `@AGENTS.md` shim を作ると、未解決の重複ルールを Claude Code の context に auto-import してしまうためです。`AGENTS.md` を dedupe したあとの再 scaffold で作成されます。 |
-| `pnpm-workspace.yaml` | _条件付き。_ 詳細は [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプトpnpm-11) を参照。pnpm があり得て、かつ祖先に `pnpm-workspace.yaml` が無い場合に `packages: []` + `allowBuilds.esbuild: false`（`--allow-builds` 指定時は `: true`）で **作成**。ファイルが既にあって pnpm があり得る場合は **パッチ**: esbuild が未ピンならば `esbuild: <bool>` を `allowBuilds:` に追記。`--use-npm` / `--use-yarn` / `--use-bun` と pnpm モノレポのサブディレクトリ内では **スキップ**。 |
+| `pnpm-workspace.yaml` | _条件付き。_ 詳細は [postinstall スクリプト（pnpm 11+）](#postinstall-スクリプト（pnpm-11）) を参照。pnpm があり得て、かつ祖先に `pnpm-workspace.yaml` が無い場合に `packages: []` + `allowBuilds.esbuild: false`（`--allow-builds` 指定時は `: true`）で **作成**。ファイルが既にあって pnpm があり得る場合は **パッチ**: esbuild が未ピンならば `esbuild: <bool>` を `allowBuilds:` に追記。`--use-npm` / `--use-yarn` / `--use-bun` と pnpm モノレポのサブディレクトリ内では **スキップ**。 |
 | `.yarnrc.yml` | _条件付き。_ レイヤード判定の全文は `packages/cli-internal/src/scaffold.ts` を参照。yarn があり得る新規 scaffold（`--use-yarn`、UA 検出が yarn、または `--use-*` なしで UA 検出失敗）でのみ `nodeLinker: node-modules` で **作成**。あれば **そのまま**（デフォルト以外の `nodeLinker:` は競合警告、`nodeLinker:` キー欠落は yarn-berry caveat）。明示的な非 yarn pm、および positive yarn-berry signal がない既存非空ディレクトリでの `--use-yarn` では **スキップ**。 |
 
 CLI は install 前に "Files" ノートとしてファイル一覧を表示し、各パスの `action`（`created` / `kept` / `patched` / `ok` / `skipped`）を出すので、何が変わったか正確に確認できます。

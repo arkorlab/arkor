@@ -677,19 +677,19 @@ export async function run(options: RunOptions): Promise<void> {
   // no backticks), so POSIX shells won't expand anything inside
   // them either, so it's safe everywhere.
   //
-  // Round 40 follow-up #2 (Copilot, PR #99): use `;` as the
-  // statement separator instead of `&&`. PowerShell 5.1 (the
-  // Windows default until Windows 11 ships PS 7+ in-box) does
-  // NOT support `&&` as a pipeline-chain operator (added in PS
-  // 7), so a copy-paste into PS 5.1 errors with `The token
-  // '&&' is not a valid statement separator`. `;` is a
-  // statement separator in POSIX shells, cmd.exe, and every
-  // PowerShell version. Mirror of `arkor init`'s identical
-  // gitCmd rewrite; see init.ts for the short-circuit
-  // trade-off note.
-  const gitLine = gitInitSkipped
-    ? `  git init; git add -A; git commit -m "Initial commit from Create Arkor"`
-    : null;
+  // Round 40 follow-up #3 (Codex P2, PR #99): no single
+  // statement separator works across all four supported shells
+  // (`&&` chokes PowerShell 5.1; `;` is literal in cmd.exe).
+  // Emit the three git commands on SEPARATE LINES so each one
+  // copy-pastes cleanly under any shell. Mirror of `arkor
+  // init`'s identical fix; see init.ts for the full rationale.
+  const gitLines: readonly string[] = gitInitSkipped
+    ? [
+        `  git init`,
+        `  git add -A`,
+        `  git commit -m "Initial commit from Create Arkor"`,
+      ]
+    : [];
   // Round 39 (Copilot, PR #99): the install-blocked branch told
   // the user to fix the yarn-config advisory before running
   // install. Printing the generic `<pm> install` line in the
@@ -722,7 +722,7 @@ export async function run(options: RunOptions): Promise<void> {
       outroIntro,
       ...(inPlace ? [] : [`  ${buildCdLine(cdTarget)}`]),
       ...(installLine ? [installLine] : []),
-      ...(gitLine ? [gitLine] : []),
+      ...gitLines,
       devLine,
     ].join("\n"),
   );
