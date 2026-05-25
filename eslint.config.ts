@@ -203,6 +203,14 @@ export default defineConfig(
         "error",
         { allowConstantLoopConditions: true },
       ],
+      // Don't require a `return` from the *last* `.then` in a chain.
+      // The rule's intent is to catch `.then(() => doSideEffect())`
+      // that silently drops the return value before more `.then`s
+      // downstream; the terminal callback (typically followed only by
+      // `.catch`) has no consumer that needs a value. Without this
+      // option, every `fetchX().then(setState).catch(setError)` would
+      // need a noisy `return undefined;`.
+      "promise/always-return": ["error", { ignoreLastCallback: true }],
       // Honor the universal `_`-prefix convention for "intentionally
       // unused" parameters and bindings (callbacks that ignore the
       // first arg, destructured tuples where only some are used, etc.).
