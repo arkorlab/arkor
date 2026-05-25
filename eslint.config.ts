@@ -60,6 +60,24 @@ export default defineConfig(
   // `extends: string` object).
   nodePlugin.configs["flat/recommended-module"],
 
+  // Pin `n`'s view of the target Node.js to a single concrete version
+  // (the lowest we support at runtime) instead of letting it read each
+  // package's `engines.node` range. The plugin's `no-unsupported-*`
+  // rules check the *entire* configured range; an unbounded `>=22.22.0`
+  // would include early 23.x releases where APIs like `ReadableStream`
+  // (backport range `^22.15`) aren't yet stable, producing false
+  // positives. Pinning to "22.22.0" tells the plugin to test against
+  // that one version (which IS in every relevant backport range) —
+  // future Node API adoption still gets flagged correctly because the
+  // minimum-version check is the part we actually care about.
+  {
+    settings: {
+      n: {
+        version: "22.22.0",
+      },
+    },
+  },
+
   // Project-wide overrides of `unicorn.configs.recommended` defaults.
   // Apply to all files (no `files:` filter) so they affect both TS and JS.
   {
