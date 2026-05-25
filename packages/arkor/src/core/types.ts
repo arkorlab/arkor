@@ -260,18 +260,26 @@ export interface CheckpointContext {
   artifacts?: unknown[];
 }
 
+/**
+ * Trainer callbacks may be sync or async; the runtime `await`s whatever
+ * the user returns. `unknown | Promise<unknown>` would collapse to
+ * `unknown` from the type checker's perspective (and trip
+ * `no-redundant-type-constituents`), so we name the intent explicitly.
+ */
+type MaybePromise<T> = T | Promise<T>;
+
 export interface TrainerCallbacks {
-  onStarted: (ctx: { job: TrainingJob }) => unknown | Promise<unknown>;
-  onLog: (ctx: TrainingLogContext) => unknown | Promise<unknown>;
-  onCheckpoint: (ctx: CheckpointContext) => unknown | Promise<unknown>;
+  onStarted: (ctx: { job: TrainingJob }) => MaybePromise<unknown>;
+  onLog: (ctx: TrainingLogContext) => MaybePromise<unknown>;
+  onCheckpoint: (ctx: CheckpointContext) => MaybePromise<unknown>;
   onCompleted: (ctx: {
     job: TrainingJob;
     artifacts: unknown[];
-  }) => unknown | Promise<unknown>;
+  }) => MaybePromise<unknown>;
   onFailed: (ctx: {
     job: TrainingJob;
     error: string;
-  }) => unknown | Promise<unknown>;
+  }) => MaybePromise<unknown>;
 }
 
 /**

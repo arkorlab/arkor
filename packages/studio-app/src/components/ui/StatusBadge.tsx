@@ -5,7 +5,12 @@ import type { Job } from "../../lib/api";
 type Status = Job["status"];
 
 interface StatusBadgeProps {
-  status: Status | string;
+  // `string & {}` is the TS-known trick that keeps autocomplete for the
+  // five `Status` literals while still accepting any string at runtime
+  // (the component renders unknown values via the fallback path below).
+  // Plain `Status | string` would collapse to `string` and lose the
+  // hints.
+  status: Status | (string & {});
   size?: "sm" | "md";
   className?: string;
 }
