@@ -161,7 +161,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
     }
 
     const es = openJobEvents(jobId);
-    es.addEventListener("training.started", (ev: MessageEvent) => {
+    es.addEventListener("training.started", (ev: MessageEvent<string>) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.started", ev.data, parsed);
       // SSE is the source of truth for live status. Drive `liveStatus`
@@ -175,7 +175,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
         if (ts) setLiveStartedAt((prev) => prev ?? ts);
       }
     });
-    es.addEventListener("training.log", (ev: MessageEvent) => {
+    es.addEventListener("training.log", (ev: MessageEvent<string>) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.log", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
@@ -231,10 +231,10 @@ export function JobDetail({ jobId }: { jobId: string }) {
         });
       }
     });
-    es.addEventListener("checkpoint.saved", (ev: MessageEvent) => {
+    es.addEventListener("checkpoint.saved", (ev: MessageEvent<string>) => {
       pushEvent("checkpoint.saved", ev.data, safeParse(ev.data));
     });
-    es.addEventListener("training.completed", (ev: MessageEvent) => {
+    es.addEventListener("training.completed", (ev: MessageEvent<string>) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.completed", ev.data, parsed);
       // SSE payload carries the trainer-side completion timestamp; use
@@ -251,7 +251,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
         setTerminal({ status: "completed", artifacts: 0 });
       }
     });
-    es.addEventListener("training.failed", (ev: MessageEvent) => {
+    es.addEventListener("training.failed", (ev: MessageEvent<string>) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.failed", ev.data, parsed);
       if (parsed && typeof parsed === "object") {

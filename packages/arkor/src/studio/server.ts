@@ -373,8 +373,8 @@ export function buildStudioApp(options: StudioServerOptions) {
     const stream = new ReadableStream({
       start(controller) {
         const enc = new TextEncoder();
-        child.stdout.on("data", (d) => controller.enqueue(enc.encode(d)));
-        child.stderr.on("data", (d) => controller.enqueue(enc.encode(d)));
+        child.stdout.on("data", (d: Buffer) => controller.enqueue(enc.encode(d.toString("utf8"))));
+        child.stderr.on("data", (d: Buffer) => controller.enqueue(enc.encode(d.toString("utf8"))));
         child.on("close", (code) => {
           controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
           controller.close();
@@ -751,7 +751,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     typeof value === "object" && value !== null && !Array.isArray(value);
 
   app.post("/api/deployments", async (c) => {
-    const raw = await c.req
+    const raw: unknown = await c.req
       .json()
       .catch((): ParseFailed => PARSE_FAILED);
     if (raw === PARSE_FAILED) {
@@ -794,7 +794,7 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.patch("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    const raw = await c.req
+    const raw: unknown = await c.req
       .json()
       .catch((): ParseFailed => PARSE_FAILED);
     if (raw === PARSE_FAILED) {
@@ -839,7 +839,7 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.post("/api/deployments/:id/keys", async (c) => {
     const id = c.req.param("id");
-    const raw = await c.req
+    const raw: unknown = await c.req
       .json()
       .catch((): ParseFailed => PARSE_FAILED);
     if (raw === PARSE_FAILED) {
