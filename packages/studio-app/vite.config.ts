@@ -11,18 +11,16 @@ import { defineConfig, type Plugin } from "vite";
 // so we mirror the constant here; if it ever changes, update both sides.
 const STUDIO_TOKEN_PATH = join(homedir(), ".arkor", "studio-token");
 
+const HTML_ATTR_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
 function htmlAttrEscape(s: string): string {
-  return s.replaceAll(/[&<>"']/g, (ch) =>
-    ch === "&"
-      ? "&amp;"
-      : ch === "<"
-        ? "&lt;"
-        : ch === ">"
-          ? "&gt;"
-          : ch === '"'
-            ? "&quot;"
-            : "&#39;",
-  );
+  return s.replaceAll(/[&<>"']/g, (ch) => HTML_ATTR_ESCAPES[ch] ?? ch);
 }
 
 /**
