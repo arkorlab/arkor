@@ -1,3 +1,6 @@
+// `EventEmitter` is correct here: this file mocks Node's `ChildProcess`
+// shape, which extends `EventEmitter` (not `EventTarget`).
+/* eslint-disable unicorn/prefer-event-target */
 import { EventEmitter } from "node:events";
 import {
   existsSync,
