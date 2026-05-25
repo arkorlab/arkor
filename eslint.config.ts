@@ -249,6 +249,17 @@ export default defineConfig(
       // `Response`-shaped mocks. Keep the rule on for production code,
       // where the concern is real.
       "@typescript-eslint/no-base-to-string": "off",
+      // The `no-unsafe-*` family fires whenever a value is typed `any`,
+      // which is endemic in tests: `JSON.parse(stdout)`, spy/mock
+      // returns, intercepted call args from `vi.mocked(fn).mock.calls`,
+      // etc. all surface as `any`. Asserting the right shape at each
+      // probe is real production work but it crushes test readability.
+      // Keep on in production where it catches actual untyped paths.
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
     },
   },
 
