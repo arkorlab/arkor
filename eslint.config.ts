@@ -203,6 +203,19 @@ export default defineConfig(
         "error",
         { allowConstantLoopConditions: true },
       ],
+      // Honor the universal `_`-prefix convention for "intentionally
+      // unused" parameters and bindings (callbacks that ignore the
+      // first arg, destructured tuples where only some are used, etc.).
+      // typescript-eslint's strict preset doesn't ship this by default.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
       // Skip `||` on boolean primitives. `disabled || isEmpty` reads as
       // "either of these is true" — semantically *boolean OR*. Rewriting
       // to `??` would change behaviour (`false ?? true === false`), so
