@@ -1785,7 +1785,8 @@ process.exit(0);
         body: "{not json",
       });
       expect(malformedRes.status).toBe(400);
-      expect((await malformedRes.json()).error).toBe("Invalid JSON body");
+      const malformedBody = await malformedRes.json();
+      expect(malformedBody.error).toBe("Invalid JSON body");
 
       // 2-4. Valid JSON, valid-but-falsy → schema rejects with the
       // structured `Invalid deployment create body` envelope, NOT
@@ -1833,7 +1834,8 @@ process.exit(0);
           body,
         });
         expect(patchRes.status).toBe(400);
-        expect((await patchRes.json()).error).toMatch(/must be a JSON object/);
+        const patchBody = await patchRes.json();
+        expect(patchBody.error).toMatch(/must be a JSON object/);
 
         const keyRes = await app.request("/api/deployments/dep-1/keys", {
           method: "POST",
@@ -1844,7 +1846,8 @@ process.exit(0);
         // Key-create runs the schema validator, so the message
         // mentions the missing `label` rather than the generic "must
         // be a JSON object" copy used for PATCH.
-        expect((await keyRes.json()).error).toMatch(/`label`/);
+        const keyBody = await keyRes.json();
+        expect(keyBody.error).toMatch(/`label`/);
       }
       expect(upstreamCalls).toBe(0);
     });
@@ -1881,7 +1884,8 @@ process.exit(0);
           body: JSON.stringify(body),
         });
         expect(res.status).toBe(400);
-        expect((await res.json()).error).toMatch(/`label`/);
+        const errBody = await res.json();
+        expect(errBody.error).toMatch(/`label`/);
       }
       expect(upstreamCalls).toBe(0);
     });
@@ -1920,7 +1924,8 @@ process.exit(0);
         body: "{not json",
       });
       expect(malformedPatch.status).toBe(400);
-      expect((await malformedPatch.json()).error).toBe("Invalid JSON body");
+      const malformedPatchBody = await malformedPatch.json();
+      expect(malformedPatchBody.error).toBe("Invalid JSON body");
     });
 
     it("rejects malformed POST bodies BEFORE bootstrapping scope (no orphan project)", async () => {

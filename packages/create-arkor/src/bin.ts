@@ -53,7 +53,8 @@ function isInteractive(): boolean {
 async function isOccupied(path: string): Promise<boolean> {
   if (!existsSync(path)) return false;
   try {
-    return (await readdir(path)).length > 0;
+    const entries = await readdir(path);
+    return entries.length > 0;
   } catch {
     return true;
   }

@@ -61,7 +61,8 @@ describe("install", () => {
 
       await install("npm", cwd);
 
-      const log = (await import("node:fs")).readFileSync(marker, "utf8");
+      const fs = await import("node:fs");
+      const log = fs.readFileSync(marker, "utf8");
       // First line: the args we passed.
       expect(log).toContain("fake install");
       // Env was forwarded to the child — these are the two flags that

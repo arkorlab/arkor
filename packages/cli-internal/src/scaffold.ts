@@ -123,7 +123,8 @@ async function ensureDirExists(cwd: string): Promise<void> {
 }
 
 async function ensureEmptyEnough(cwd: string): Promise<void> {
-  const entries = (await readdir(cwd)).filter((f) => f !== "." && f !== "..");
+  const allEntries = await readdir(cwd);
+  const entries = allEntries.filter((f) => f !== "." && f !== "..");
   if (entries.length === 0) return;
   // Allow scaffolding into an existing project — but prevent overwriting if
   // any target files already exist. `ensureFile` below keeps existing files.

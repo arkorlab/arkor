@@ -98,15 +98,13 @@ describe("gitInitialCommit", () => {
       const result = await gitInitialCommit(cwd, "Initial commit from test");
       expect(result.signingFallback).toBe(false);
 
-      const subject = (
-        await runGit(["log", "-1", "--pretty=%s"], { cwd })
-      ).trim();
+      const subjectOut = await runGit(["log", "-1", "--pretty=%s"], { cwd });
+      const subject = subjectOut.trim();
       expect(subject).toBe("Initial commit from test");
 
       // The README was staged via `git add -A`.
-      const tracked = (
-        await runGit(["ls-files"], { cwd })
-      ).trim().split("\n");
+      const trackedOut = await runGit(["ls-files"], { cwd });
+      const tracked = trackedOut.trim().split("\n");
       expect(tracked).toContain("README.md");
     },
     // Vitest's 5s default is too tight for GitHub Windows runners — git
@@ -122,9 +120,8 @@ describe("gitInitialCommit", () => {
     // implementations; spawn() avoids the shell so this should pass through.
     const message = "Initial commit from `arkor init`";
     await gitInitialCommit(cwd, message);
-    const subject = (
-      await runGit(["log", "-1", "--pretty=%s"], { cwd })
-    ).trim();
+    const subjectOut = await runGit(["log", "-1", "--pretty=%s"], { cwd });
+    const subject = subjectOut.trim();
     expect(subject).toBe(message);
   });
 
@@ -145,9 +142,8 @@ describe("gitInitialCommit", () => {
     expect(result.signingFallback).toBe(true);
 
     // Commit landed despite the broken signing config.
-    const subject = (
-      await runGit(["log", "-1", "--pretty=%s"], { cwd })
-    ).trim();
+    const subjectOut = await runGit(["log", "-1", "--pretty=%s"], { cwd });
+    const subject = subjectOut.trim();
     expect(subject).toBe("Initial commit from test");
   });
 
