@@ -192,6 +192,15 @@ export default defineConfig(
         "error",
         { allowConstantLoopConditions: true },
       ],
+      // Skip `||` on boolean primitives. `disabled || isEmpty` reads as
+      // "either of these is true" — semantically *boolean OR*. Rewriting
+      // to `??` would change behaviour (`false ?? true === false`), so
+      // the rule's suggestion would actively break the logic. Keep the
+      // rule on for nullable non-booleans where `??` really is safer.
+      "@typescript-eslint/prefer-nullish-coalescing": [
+        "error",
+        { ignorePrimitives: { boolean: true } },
+      ],
       // TODO: revisit. `stylisticTypeChecked` defaults this to "interface",
       // which would auto-rewrite every `type X = { ... }` in the codebase.
       // Both forms are legitimate (interfaces merge, type aliases compose
