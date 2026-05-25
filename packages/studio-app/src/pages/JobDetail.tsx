@@ -64,7 +64,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
         if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
-    tick();
+    void tick();
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);

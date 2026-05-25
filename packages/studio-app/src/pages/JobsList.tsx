@@ -106,7 +106,7 @@ export function JobsList() {
       if (cancelled) return;
       timer = setTimeout(() => void schedule(), 5000);
     }
-    schedule();
+    void schedule();
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
