@@ -282,6 +282,12 @@ export default defineConfig(
       "@typescript-eslint/no-unsafe-member-access": "off",
       "@typescript-eslint/no-unsafe-argument": "off",
       "@typescript-eslint/no-unsafe-return": "off",
+      // Test files routinely declare helper closures inside `describe` /
+      // `it` blocks for narrative locality even when those closures
+      // don't capture outer state. The rule would force hoisting them
+      // to module scope, scattering setup-adjacent helpers far from
+      // the assertions they support.
+      "unicorn/consistent-function-scoping": "off",
     },
   },
 
