@@ -302,6 +302,20 @@ export default defineConfig(
       // the render around. Lookup-table / early-return refactors only
       // win in non-JSX code.
       "unicorn/no-nested-ternary": "off",
+      // TODO: revisit during the React 19 refactor pass. The rule
+      // flags every `setState` inside `useEffect`, including patterns
+      // React itself acknowledges as valid:
+      //   - initial sync from external state on mount
+      //     (ThemeToggle reading localStorage)
+      //   - resetting derived state when a key prop changes
+      //     (Endpoints / JobDetail page-level effects)
+      //   - syncing an `initial*` prop into local state when the prop
+      //     changes (Playground adapter)
+      // The rule's preferred alternatives (`useSyncExternalStore`,
+      // `key`-based remount, lifting to parent) are real refactors per
+      // site. Keep the rule off here until that pass; the React 19
+      // upgrade is the right moment to revisit them all together.
+      "react-hooks/set-state-in-effect": "off",
     },
   },
 
