@@ -384,6 +384,13 @@ export default defineConfig(
       // gymnastics (inline disables on every mock) would read worse
       // than just exempting tests.
       "import-x/order": "off",
+      // Tests routinely destructure built-in module methods (`const
+      // { parse } = await import("node:path")`) or snapshot DOM
+      // prototypes for restoration (`const orig = Element.prototype
+      // .scrollTo`). Both are safe `this`-free uses but the rule
+      // can't see that without a `this: void` annotation it doesn't
+      // control.
+      "@typescript-eslint/unbound-method": "off",
     },
   },
 
