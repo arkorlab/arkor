@@ -128,23 +128,23 @@ export function JobDetail({ jobId }: { jobId: string }) {
             typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss)
               ? ` evalLoss=${p.evalLoss.toFixed(4)}`
               : "";
-          message = `step=${String(p.step ?? "—")}${lossPart}${evalPart}`;
-        
+          message = `step=${typeof p.step === "number" ? p.step : "—"}${lossPart}${evalPart}`;
+
         break;
         }
         case "training.failed": {
-          message = String(p.error ?? "failed");
-        
+          message = typeof p.error === "string" ? p.error : "failed";
+
         break;
         }
         case "training.completed": {
           const n = Array.isArray(p.artifacts) ? p.artifacts.length : 0;
           message = `${n} artifact${n === 1 ? "" : "s"}`;
-        
+
         break;
         }
         case "checkpoint.saved": {
-          message = `step=${String(p.step ?? "—")}`;
+          message = `step=${typeof p.step === "number" ? p.step : "—"}`;
         
         break;
         }
