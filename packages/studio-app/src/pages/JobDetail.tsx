@@ -128,7 +128,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
             typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss)
               ? ` evalLoss=${p.evalLoss.toFixed(4)}`
               : "";
-          message = `step=${p.step ?? "—"}${lossPart}${evalPart}`;
+          message = `step=${String(p.step ?? "—")}${lossPart}${evalPart}`;
         
         break;
         }
@@ -144,7 +144,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
         break;
         }
         case "checkpoint.saved": {
-          message = `step=${p.step ?? "—"}`;
+          message = `step=${String(p.step ?? "—")}`;
         
         break;
         }

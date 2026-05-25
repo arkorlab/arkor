@@ -73,7 +73,7 @@ export async function startLoopbackServer(
   throw new Error(
     `Unable to bind any of the loopback ports ${ports.join(
       ", ",
-    )}. The Auth0 Application must list at least one of these as an Allowed Callback URL: ${lastError}`,
+    )}. The Auth0 Application must list at least one of these as an Allowed Callback URL: ${String(lastError)}`,
   );
 }
 

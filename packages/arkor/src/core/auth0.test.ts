@@ -286,7 +286,7 @@ describe("startLoopbackServer", () => {
     const callback = result.waitForCallback;
     try {
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?code=auth-code&state=state-val`,
+        `http://127.0.0.1:${String(result.port)}/callback?code=auth-code&state=state-val`,
       );
       expect(res.status).toBe(200);
       expect(await callback).toEqual({ code: "auth-code", state: "state-val" });
@@ -303,7 +303,7 @@ describe("startLoopbackServer", () => {
     const callback = result.waitForCallback.catch((e: unknown) => e);
     try {
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?error=access_denied&error_description=user%20cancelled`,
+        `http://127.0.0.1:${String(result.port)}/callback?error=access_denied&error_description=user%20cancelled`,
       );
       expect(res.status).toBe(400);
       const err = await callback;
@@ -322,7 +322,7 @@ describe("startLoopbackServer", () => {
     const callback = result.waitForCallback.catch((e: unknown) => e);
     try {
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?error=server_error`,
+        `http://127.0.0.1:${String(result.port)}/callback?error=server_error`,
       );
       expect(res.status).toBe(400);
       const body = await res.text();
@@ -349,7 +349,7 @@ describe("startLoopbackServer", () => {
     try {
       const payload = "<script>alert(1)</script>";
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?error=server_error&error_description=${encodeURIComponent(payload)}`,
+        `http://127.0.0.1:${String(result.port)}/callback?error=server_error&error_description=${encodeURIComponent(payload)}`,
       );
       expect(res.status).toBe(400);
       expect(res.headers.get("content-type")).toMatch(
@@ -371,7 +371,7 @@ describe("startLoopbackServer", () => {
     const callback = result.waitForCallback.catch((e: unknown) => e);
     try {
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?code=only`,
+        `http://127.0.0.1:${String(result.port)}/callback?code=only`,
       );
       expect(res.status).toBe(400);
       const err = await callback;
@@ -387,7 +387,7 @@ describe("startLoopbackServer", () => {
     // turn into a stray unhandled rejection on test shutdown.
     result.waitForCallback.catch(() => undefined);
     try {
-      const res = await fetch(`http://127.0.0.1:${result.port}/`);
+      const res = await fetch(`http://127.0.0.1:${String(result.port)}/`);
       expect(res.status).toBe(404);
 
       // The callback promise is still pending — `waitForCallback` only
@@ -433,7 +433,7 @@ describe("startLoopbackServer", () => {
     try {
       await expect(startLoopbackServer([busy.port])).rejects.toThrow(
         new RegExp(
-          `Unable to bind any of the loopback ports ${busy.port}`,
+          `Unable to bind any of the loopback ports ${String(busy.port)}`,
         ),
       );
     } finally {

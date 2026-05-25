@@ -371,7 +371,7 @@ describe("runLogin", () => {
       // actually reaches the real TCP socket instead of being intercepted
       // by the test's mock fetch.
       setTimeout(() => {
-        void ORIG_FETCH(`${redirect}?code=auth-code&state=${state}`);
+        void ORIG_FETCH(`${String(redirect)}?code=auth-code&state=${String(state)}`);
       }, 0);
       return undefined;
     }) as never);
@@ -480,7 +480,7 @@ describe("runLogin", () => {
           const state = parsed.searchParams.get("state");
           const redirect = parsed.searchParams.get("redirect_uri");
           setTimeout(() => {
-            void ORIG_FETCH(`${redirect}?code=c&state=${state}`);
+            void ORIG_FETCH(`${String(redirect)}?code=c&state=${String(state)}`);
           }, 0);
         }
         return true;
@@ -506,7 +506,7 @@ describe("runLogin", () => {
       const redirect = parsed.searchParams.get("redirect_uri");
       // Deliberately wrong state value to trigger the CSRF guard.
       setTimeout(() => {
-        void ORIG_FETCH(`${redirect}?code=c&state=mismatched-state`);
+        void ORIG_FETCH(`${String(redirect)}?code=c&state=mismatched-state`);
       }, 0);
       return undefined;
     }) as never);
@@ -543,7 +543,7 @@ describe("runLogin", () => {
       const state = parsed.searchParams.get("state");
       const redirect = parsed.searchParams.get("redirect_uri");
       setTimeout(() => {
-        void ORIG_FETCH(`${redirect}?code=c&state=${state}`);
+        void ORIG_FETCH(`${String(redirect)}?code=c&state=${String(state)}`);
       }, 0);
       throw new Error("xdg-open not found");
     }) as never);

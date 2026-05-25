@@ -101,7 +101,9 @@ async function waitForPort(port: number): Promise<void> {
     if (ok) return;
     await new Promise((r) => setTimeout(r, PORT_POLL_INTERVAL_MS));
   }
-  throw new Error(`Port ${port} did not become ready within ${PORT_POLL_TIMEOUT_MS}ms`);
+  throw new Error(
+    `Port ${String(port)} did not become ready within ${String(PORT_POLL_TIMEOUT_MS)}ms`,
+  );
 }
 
 /**
@@ -239,24 +241,24 @@ async function spawnStudio(
   child.stderr?.on("data", (d: string) => {
     stderr.append(d);
     if (process.env.STUDIO_E2E_DEBUG) {
-      process.stderr.write(`[arkor dev:err pid=${child.pid}] ${d}`);
+      process.stderr.write(`[arkor dev:err pid=${String(child.pid)}] ${d}`);
     }
   });
   child.stdout?.on("data", (d: string) => {
     stdout.append(d);
     if (process.env.STUDIO_E2E_DEBUG) {
-      process.stderr.write(`[arkor dev:out pid=${child.pid}] ${d}`);
+      process.stderr.write(`[arkor dev:out pid=${String(child.pid)}] ${d}`);
     }
   });
   if (process.env.STUDIO_E2E_DEBUG) {
     child.on("exit", (code, signal) => {
       process.stderr.write(
-        `[arkor dev:exit pid=${child.pid}] code=${code} signal=${signal}\n`,
+        `[arkor dev:exit pid=${String(child.pid)}] code=${String(code)} signal=${String(signal)}\n`,
       );
     });
   }
 
-  const url = `http://127.0.0.1:${port}`;
+  const url = `http://127.0.0.1:${String(port)}`;
 
   // Wait for the ready line on stdout; surface stderr on hang so a
   // failed launch (missing assets, port collision after the eph-port
@@ -288,7 +290,7 @@ async function spawnStudio(
         settle(() =>
           reject(
             new Error(
-              `arkor dev exited before signalling ready (code=${code}, signal=${signal}).\n--- last output ---\n${errorTail()}`,
+              `arkor dev exited before signalling ready (code=${String(code)}, signal=${String(signal)}).\n--- last output ---\n${errorTail()}`,
             ),
           ),
         );
@@ -313,7 +315,7 @@ async function spawnStudio(
         settle(() =>
           reject(
             new Error(
-              `Timed out waiting for "${READY_LINE_PATTERN}" on stdout from arkor dev.\n--- last output ---\n${errorTail()}`,
+              `Timed out waiting for "${READY_LINE_PATTERN.source}" on stdout from arkor dev.\n--- last output ---\n${errorTail()}`,
             ),
           ),
         );
@@ -363,7 +365,7 @@ async function spawnStudio(
 async function readMetaToken(url: string): Promise<string> {
   const res = await fetch(`${url}/`);
   if (!res.ok) {
-    throw new Error(`Studio root returned ${res.status} ${res.statusText}`);
+    throw new Error(`Studio root returned ${String(res.status)} ${res.statusText}`);
   }
   const html = await res.text();
   const match = /<meta\s+name=["']arkor-studio-token["']\s+content=["']([^"']+)["']/.exec(html);
