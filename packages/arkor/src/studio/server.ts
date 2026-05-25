@@ -99,6 +99,35 @@ function injectStudioToken(html: string, token: string): string {
   return `${html.slice(0, idx)}${meta}${html.slice(idx)}`;
 }
 
+function tokenFromCredentials(c: Credentials): string {
+  return c.mode === "anon" ? c.token : c.accessToken;
+}
+
+function createRpc(rpcBaseUrl: string, rpcToken: string) {
+  return createClient({
+    baseUrl: rpcBaseUrl,
+    // `createClient` expects a token-getter (the SDK supports
+    // refreshable tokens). The whole point of taking `rpcToken` here
+    // is to avoid the per-request second credentials read that the
+    // previous closure-based getter caused, so resolve the in-memory
+    // value synchronously instead of re-deriving it.
+    token: () => rpcToken,
+    clientVersion: SDK_VERSION,
+    // The wrapper around `recordDeprecation` works around the same
+    // alpha.2 bug documented in `core/client.ts`: upstream guards
+    // `.then(...)` with `result !== null && typeof result.then ===
+    // "function"`, but the inner `.then` probe still throws on a
+    // `void` return and the surrounding try/catch logs every
+    // deprecated response as a "handler threw" entry. Returning
+    // `null` short-circuits the left side of the `&&` so the probe
+    // never runs and the spurious log goes away.
+    onDeprecation: (notice) => {
+      recordDeprecation(notice);
+      return null;
+    },
+  });
+}
+
 export function buildStudioApp(options: StudioServerOptions) {
   const baseUrl = options.baseUrl ?? defaultArkorCloudApiUrl();
   const assetsDir = options.assetsDir ?? join(__dirname, "assets");
@@ -177,10 +206,6 @@ export function buildStudioApp(options: StudioServerOptions) {
     return creds;
   }
 
-  function tokenFromCredentials(c: Credentials): string {
-    return c.mode === "anon" ? c.token : c.accessToken;
-  }
-
   /**
    * Load credentials and resolve the cloud API base URL from them.
    * `defaultArkorCloudApiUrl(credentials)` picks `ARKOR_CLOUD_API_URL`
@@ -211,31 +236,6 @@ export function buildStudioApp(options: StudioServerOptions) {
       token: tokenFromCredentials(credentials),
       baseUrl: defaultArkorCloudApiUrl(credentials),
     };
-  }
-
-  function createRpc(rpcBaseUrl: string, rpcToken: string) {
-    return createClient({
-      baseUrl: rpcBaseUrl,
-      // `createClient` expects a token-getter (the SDK supports
-      // refreshable tokens). The whole point of taking `rpcToken` here
-      // is to avoid the per-request second credentials read that the
-      // previous closure-based getter caused, so resolve the in-memory
-      // value synchronously instead of re-deriving it.
-      token: () => rpcToken,
-      clientVersion: SDK_VERSION,
-      // The wrapper around `recordDeprecation` works around the same
-      // alpha.2 bug documented in `core/client.ts`: upstream guards
-      // `.then(...)` with `result !== null && typeof result.then ===
-      // "function"`, but the inner `.then` probe still throws on a
-      // `void` return and the surrounding try/catch logs every
-      // deprecated response as a "handler threw" entry. Returning
-      // `null` short-circuits the left side of the `&&` so the probe
-      // never runs and the spurious log goes away.
-      onDeprecation: (notice) => {
-        recordDeprecation(notice);
-        return null;
-      },
-    });
   }
 
   // ---- API routes ---------------------------------------------------------

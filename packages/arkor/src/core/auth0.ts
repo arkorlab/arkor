@@ -77,6 +77,16 @@ export async function startLoopbackServer(
   );
 }
 
+// text/plain + nosniff: the error path reflects user-controlled
+// `error` / `error_description` query params, so we must defeat
+// browser MIME sniffing to prevent reflected XSS on the loopback origin.
+function sendPlain(res: ServerResponse, status: number, body: string): void {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.end(body);
+}
+
 function bindOnPort(port: number): Promise<LoopbackServerResult> {
   return new Promise((resolve, reject) => {
     let resolveCallback: (v: { code: string; state: string }) => void;
@@ -87,20 +97,6 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
         rejectCallback = rej;
       },
     );
-
-    const sendPlain = (
-      res: ServerResponse,
-      status: number,
-      body: string,
-    ) => {
-      res.statusCode = status;
-      // text/plain + nosniff: the error path reflects user-controlled
-      // `error` / `error_description` query params, so we must defeat
-      // browser MIME sniffing to prevent reflected XSS on the loopback origin.
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      res.end(body);
-    };
 
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
