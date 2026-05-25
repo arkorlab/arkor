@@ -138,7 +138,7 @@ function collisionMessage(name: string): string {
  *     `cmd.exe` users with paths containing `` ` ``, `$`, or
  *     `%` see a slightly mangled but not-injection-vector hint
  *     (the `%`-on-cmd case is mitigated separately by
- *     `buildCdAndRun`, which switches to a PowerShell-only form
+ *     `buildCdLine`, which switches to a PowerShell-only form
  *     when `%` is present). Paths with these metachars are
  *     vanishingly rare in practice; the single-line cd-recovery
  *     print is a pragmatic compromise, since emitting separate
@@ -194,8 +194,8 @@ export function shellQuoteIfNeeded(value: string): string {
  * batch; neither helps interactively), so a `cd "<path>"`
  * emitted into cmd expands the `%`-segments and, worst case,
  * opens a copy-paste injection vector if the env var contains
- * quotes or `&`. `buildCdLine` and `buildCdAndRun` both
- * fall back to a PowerShell-only form for this case.
+ * quotes or `&`. `buildCdLine` falls back to a PowerShell-only
+ * single-quoted form for this case.
  */
 function isWindowsPercentPath(cdTarget: string): boolean {
   return process.platform === "win32" && cdTarget.includes("%");
@@ -211,10 +211,13 @@ function isWindowsPercentPath(cdTarget: string): boolean {
  * form anyway, so trading cross-shell coverage for elimination
  * of the expansion hazard is the conservative choice.
  *
- * Shared by `buildCdAndRun` (for `cd && <pm> install` recovery
- * hints) and the multi-line outro (which prints `cd` on its own
- * line). Keeping both paths through this helper means the
- * `%`-mitigation can't drift between them.
+ * Used by the multi-line outro (which prints `cd` on its own
+ * line). Recovery hints that previously chained `cd && <pm>
+ * install` were reworded to prose `<pm> install in <path>` in
+ * round-40 follow-up #4 (no chain separator survives PS 5.1 +
+ * cmd.exe simultaneously), so this helper is no longer used by
+ * a chain builder; it stays single-purpose for the outro `cd`
+ * line.
  */
 export function buildCdLine(cdTarget: string): string {
   if (isWindowsPercentPath(cdTarget)) {
@@ -222,25 +225,6 @@ export function buildCdLine(cdTarget: string): string {
     return `cd '${cdTarget.replace(/'/g, "''")}'`;
   }
   return `cd ${shellQuoteIfNeeded(cdTarget)}`;
-}
-
-/**
- * Build a copy-pasteable `cd <path> && <command>` recovery hint
- * that survives the user's shell.
- *
- * Default form: POSIX single-quoted path, Windows double-quoted
- * path, joined by `&&` (works in bash/zsh/fish, PowerShell 7+,
- * and `cmd.exe`).
- *
- * `%`-on-Windows edge case: see `isWindowsPercentPath` for the
- * rationale. PS's `;` is the statement separator, used in place
- * of `&&` for the fallback (`&&` only works in PS 7+ but `;`
- * works everywhere PS).
- */
-export function buildCdAndRun(cdTarget: string, command: string): string {
-  const cdPart = buildCdLine(cdTarget);
-  const sep = isWindowsPercentPath(cdTarget) ? ";" : " &&";
-  return `${cdPart}${sep} ${command}`;
 }
 
 /**
@@ -464,19 +448,14 @@ export async function run(options: RunOptions): Promise<void> {
   // inline from the catch directly contradicted that recovered
   // branch's outcome.
   let installThrewError: string | undefined;
-  // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
-  // lockfile BEFORE install so the post-install gate can prove
-  // install actually changed something on disk. See `arkor init`
-  // for the full rationale.
-  const lockfileBefore = snapshotLockfile(cwd, pm);
-  // Round 39 follow-up #2 (Codex P1, PR #99): mirror of
-  // `arkor init`'s `node_modules` snapshot. The earlier
-  // `hasEnclosingNodeModules` static check false-positived on
-  // ambient ancestor `node_modules` from a prior root install
-  // — snapshot at cwd before install so the post-install diff
-  // proves THIS install touched the project's deps, not the
-  // monorepo's hoisted node_modules.
-  const nodeModulesBefore = snapshotNodeModules(cwd);
+  // Round 40 follow-up #5 (Copilot, PR #99): defer the lockfile +
+  // node_modules pre-install snapshots until we know install will
+  // actually fire (see `arkor init` for the same fix and the full
+  // rationale). Captured inside the install-attempted branch only,
+  // just before `install()`, so the after-install diff still
+  // anchors on the right pre-state.
+  let lockfileBefore: ReturnType<typeof snapshotLockfile> | undefined;
+  let nodeModulesBefore: ReturnType<typeof snapshotNodeModules> | undefined;
   if (!options.skipInstall && pm) {
     if (blockInstall) {
       // Round 17 (Copilot, PR #99): the yarn-config advisories above
@@ -485,13 +464,29 @@ export async function run(options: RunOptions): Promise<void> {
       // empty `node_modules` (yarn 4 PnP) and leave `arkor dev` /
       // `arkor train` broken — the install becomes worse than
       // useless. Skip and surface the manual-retry hint instead.
+      // Round 40 follow-up #4 (Codex P2, PR #99): no shell-chain
+      // separator works across all four supported shells (`&&`
+      // breaks PS 5.1; `;` is literal in cmd.exe). Sidestep the
+      // chain entirely by describing the cd as prose: the user
+      // can `cd` to the path with whatever syntax their shell
+      // uses, then run the single command separately. Path is
+      // wrapped in backticks for code styling so the prose stays
+      // readable.
       const retry = inPlace
-        ? `${pm} install`
-        : buildCdAndRun(cdTarget, `${pm} install`);
+        ? `\`${pm} install\``
+        : `\`${pm} install\` in \`${cdTarget}\``;
       clack.log.info(
-        `Skipping install — fix the advisory above first, then run: ${retry}`,
+        `Skipping install — fix the advisory above first, then run ${retry}.`,
       );
     } else {
+      // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
+      // lockfile + cwd `node_modules` BEFORE install so the post-
+      // install recovery gate can prove install actually changed
+      // something on disk. See `arkor init` for the full rationale
+      // and the round-40 follow-up #5 timing fix (capture at the
+      // LAST safe moment, just before `install()`).
+      lockfileBefore = snapshotLockfile(cwd, pm);
+      nodeModulesBefore = snapshotNodeModules(cwd);
       clack.log.step(`Installing dependencies with ${pm}`);
       try {
         await install(pm, cwd);
@@ -579,6 +574,12 @@ export async function run(options: RunOptions): Promise<void> {
     installThrewError !== undefined &&
     pm !== undefined &&
     RECOVERY_ELIGIBLE_PMS.includes(pm) &&
+    // The snapshots are taken at the same point install() is
+    // about to fire, so if install threw they're necessarily
+    // defined. The explicit !== undefined check narrows TS's
+    // type to the non-undefined alias for the helpers below.
+    lockfileBefore !== undefined &&
+    nodeModulesBefore !== undefined &&
     lockfileChangedSince(cwd, pm, lockfileBefore) &&
     nodeModulesChangedSince(cwd, nodeModulesBefore);
   if (
@@ -588,8 +589,8 @@ export async function run(options: RunOptions): Promise<void> {
   ) {
     clack.log.info(
       inPlace
-        ? `Retry manually: ${pm} install`
-        : `Retry manually: ${buildCdAndRun(cdTarget, `${pm} install`)}`,
+        ? `Retry manually: \`${pm} install\`.`
+        : `Retry manually: run \`${pm} install\` in \`${cdTarget}\`.`,
     );
   }
   // Round 40 follow-up (Copilot, PR #99): mirror of arkor init's
@@ -615,7 +616,7 @@ export async function run(options: RunOptions): Promise<void> {
   const reRunIsSafe = options.dir !== undefined;
   const recoverInDir = inPlace
     ? `\`${pm} install\` (then \`git init\` + commit)`
-    : `\`${buildCdAndRun(cdTarget, `${pm} install`)}\` (then \`git init\` + commit)`;
+    : `\`${pm} install\` in \`${cdTarget}\` (then \`git init\` + commit)`;
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(

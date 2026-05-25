@@ -217,23 +217,17 @@ export async function runInit(options: InitOptions): Promise<void> {
   // inline from the catch directly contradicted that recovered
   // branch's outcome.
   let installThrewError: string | undefined;
-  // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
-  // lockfile BEFORE install so the post-install gate can prove
-  // install actually changed something on disk. Without the
-  // pre-snapshot, a workspace-subdir scaffold with a stale
-  // ancestor lockfile would treat any failed install as
-  // "lockfile landed" via existsSync alone — letting the CLI
-  // run git init over an untouched tree.
-  const lockfileBefore = snapshotLockfile(cwd, pm);
-  // Round 39 follow-up #2 (Codex P1, PR #99): pair the
-  // lockfile-changed signal with `node_modules` change. The
-  // earlier `hasEnclosingNodeModules` static-existence check
-  // false-positived against pre-existing parent `node_modules`
-  // (monorepo subdir scaffolds), so a failed install that
-  // never populated the project's deps still passed the gate.
-  // Snapshot at cwd specifically so the after-install diff
-  // proves THIS install did the work.
-  const nodeModulesBefore = snapshotNodeModules(cwd);
+  // Round 40 follow-up #5 (Copilot, PR #99): defer the lockfile +
+  // node_modules pre-install snapshots until we know an install
+  // will actually fire. Both helpers walk ancestors and stat
+  // files; running them under `--skip-install`, `pm === undefined`,
+  // or `blockInstall=true` is wasted I/O whose result is never
+  // consulted (the recovery gate only fires when install itself
+  // threw). Snapshots are captured INSIDE the try-block, just
+  // before `install()`, so the after-install diff still anchors
+  // on the right pre-state.
+  let lockfileBefore: ReturnType<typeof snapshotLockfile> | undefined;
+  let nodeModulesBefore: ReturnType<typeof snapshotNodeModules> | undefined;
   if (!options.skipInstall && pm) {
     if (blockInstall) {
       // Round 17 (Copilot, PR #99): the yarn-config advisories above
@@ -247,6 +241,18 @@ export async function runInit(options: InitOptions): Promise<void> {
         `Skipping install — fix the advisory above first, then run: ${pm} install`,
       );
     } else {
+      // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
+      // lockfile + cwd `node_modules` BEFORE install so the
+      // post-install gate can prove install actually changed
+      // something on disk. Without the pre-snapshot, a workspace-
+      // subdir scaffold with a stale ancestor lockfile would treat
+      // any failed install as "lockfile landed" via `existsSync`
+      // alone — letting the CLI run git init over an untouched
+      // tree. Captured at the LAST safe moment (just before
+      // `install()`) so unrelated branches don't pay the walk +
+      // stat cost (round-40 follow-up #5).
+      lockfileBefore = snapshotLockfile(cwd, pm);
+      nodeModulesBefore = snapshotNodeModules(cwd);
       ui.log.step(`Installing dependencies with ${pm}`);
       try {
         await install(pm, cwd);
@@ -373,6 +379,12 @@ export async function runInit(options: InitOptions): Promise<void> {
     installThrewError !== undefined &&
     pm !== undefined &&
     RECOVERY_ELIGIBLE_PMS.includes(pm) &&
+    // The snapshots are taken at the same point install() is
+    // about to fire, so if install threw they're necessarily
+    // defined. The explicit !== undefined check narrows TS's
+    // type to the non-undefined alias for the helpers below.
+    lockfileBefore !== undefined &&
+    nodeModulesBefore !== undefined &&
     lockfileChangedSince(cwd, pm, lockfileBefore) &&
     nodeModulesChangedSince(cwd, nodeModulesBefore);
   if (
