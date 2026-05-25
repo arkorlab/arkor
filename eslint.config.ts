@@ -164,6 +164,15 @@ export default defineConfig(
       // such handler in braces (`() => { trackEvent(); }`) is pure noise
       // for the reader.
       "@typescript-eslint/no-confusing-void-expression": "off",
+      // `strict-type-checked` flips every `allow*` off, but `number` is
+      // safe to interpolate (toString is unambiguous) and pervasive in
+      // SVG attribute strings, React `key`s, URLs, log lines, etc.
+      // Keep the rest of the rule's defaults — `null` / `undefined` /
+      // `object` / `RegExp` interpolation stays an error.
+      "@typescript-eslint/restrict-template-expressions": [
+        "error",
+        { allowNumber: true },
+      ],
       "import-x/no-cycle": "error",
       // TS source uses bundler-style extensionless imports (tsconfig
       // `moduleResolution: "bundler"` + tsdown bundling). `import-x`'s
