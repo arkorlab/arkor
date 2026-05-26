@@ -221,8 +221,18 @@ function isWindowsPercentPath(cdTarget: string): boolean {
  */
 export function buildCdLine(cdTarget: string): string {
   if (isWindowsPercentPath(cdTarget)) {
+    // Round 40 follow-up (Copilot, PR #99): apply the same
+    // leading-dash disambiguation that `shellQuoteIfNeeded` uses
+    // (prefix `./` POSIX or `.\` Windows) BEFORE wrapping in PS
+    // single quotes. Without it, a directory named `-foo%bar%`
+    // would emit `cd '-foo%bar%'`, and PowerShell parses `-foo`
+    // as an option/switch to `Set-Location` even inside the
+    // single quotes (the quotes are stripped before option
+    // parsing). The `%` branch already pins us to Windows, so
+    // the prefix is `.\` unconditionally here.
+    const prefixed = cdTarget.startsWith("-") ? `.\\${cdTarget}` : cdTarget;
     // PS single-quote escape: doubled single quote `''`.
-    return `cd '${cdTarget.replace(/'/g, "''")}'`;
+    return `cd '${prefixed.replace(/'/g, "''")}'`;
   }
   return `cd ${shellQuoteIfNeeded(cdTarget)}`;
 }
