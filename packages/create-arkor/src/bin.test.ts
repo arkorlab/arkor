@@ -736,6 +736,25 @@ describe("buildCdLine", () => {
       expect(buildCdLine("My%FOO%App")).toBe("cd 'My%FOO%App'");
     });
   });
+
+  // Round 40 follow-up (Copilot, PR #99): the `%`-path PS
+  // fallback used to bypass `shellQuoteIfNeeded`'s leading-dash
+  // disambiguation, so a directory named `-foo%bar%` emitted
+  // `cd '-foo%bar%'` and PowerShell parsed `-foo` as an option
+  // to `Set-Location` (PS strips quotes before option parsing).
+  // The fallback now prefixes leading-dash paths with `.\` so
+  // the path is unambiguous to `Set-Location`.
+  it("prefixes leading-dash paths with .\\ in the `%`/PS fallback (Windows)", () => {
+    withPlatform("win32", () => {
+      expect(buildCdLine("-foo%bar%")).toBe("cd '.\\-foo%bar%'");
+    });
+  });
+
+  it("leaves non-leading-dash `%`-paths unchanged in the PS fallback", () => {
+    withPlatform("win32", () => {
+      expect(buildCdLine("My-%FOO%-App")).toBe("cd 'My-%FOO%-App'");
+    });
+  });
 });
 
 // `buildCdAndRun` was removed in round-40 follow-up #4 (Codex

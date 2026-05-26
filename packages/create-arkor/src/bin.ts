@@ -80,6 +80,52 @@ function collisionMessage(name: string): string {
 }
 
 /**
+ * Disambiguate a relative path that starts with `-` so it doesn't
+ * look like an option/switch to `cd` (POSIX shells, PowerShell)
+ * or any other CLI the path is forwarded to.
+ *
+ * Round 40 follow-up (Copilot, PR #99): a leading dash makes
+ * POSIX `cd` and PowerShell's `Set-Location` (aliased as `cd`)
+ * treat the argument as an option/switch even when QUOTED.
+ * `cd '-foo'` and `cd "-foo"` both still fail with
+ * "invalid option" in bash, because the shell strips the quotes
+ * before `cd` sees the argument. PowerShell's `Set-Location`
+ * has the same problem: it parses positional / parameter
+ * arguments before honouring the quote layer, so `cd '-foo'`
+ * becomes `Set-Location -foo` and `-f` is interpreted as
+ * `-Filter`. cmd.exe's `cd` is different: it takes a single
+ * positional and only knows the `/D`-style switch family, so
+ * a leading-dash directory is actually safe in cmd. The
+ * disambiguation is still applied uniformly (including for
+ * cmd users) so the rule stays simple and so the same
+ * recovery hint reads correctly in whichever shell the user
+ * actually pastes into. The portable fix is
+ * path-disambiguation: prefix a relative `-`-starting path
+ * with `./` (or `.\\` on Windows). `./-foo` and `.\-foo` are
+ * unambiguous filesystem paths the shell hands to `cd`
+ * verbatim, sidestepping the option parser entirely.
+ * Absolute paths never start with `-`, so this is a no-op
+ * for them.
+ *
+ * Round 40 follow-up #5 (Copilot, PR #149): factored out of
+ * `shellQuoteIfNeeded` so `buildCdLine`'s `%`-on-Windows PS
+ * fallback path can share the exact same disambiguation rule
+ * instead of re-implementing it (where the two could drift).
+ * Platform is passed in (not read from `process.platform`)
+ * because the `%`-fallback call site is already gated on
+ * `isWindowsPercentPath` and the test suite drives the helper
+ * across both platforms via `withPlatform`.
+ */
+function disambiguateLeadingDashPath(
+  value: string,
+  platform: NodeJS.Platform,
+): string {
+  if (!value.startsWith("-")) return value;
+  const prefix = platform === "win32" ? ".\\" : "./";
+  return `${prefix}${value}`;
+}
+
+/**
  * Shell-quote a path so the `cd ${path}` recovery hints survive
  * paths with spaces or metacharacters. Round-39 Copilot review:
  * `create-arkor "My App"` would otherwise emit a copy-paste-
@@ -146,24 +192,7 @@ function collisionMessage(name: string): string {
  *     length for a hazard most users will never hit.
  */
 export function shellQuoteIfNeeded(value: string): string {
-  // Round 40 follow-up (Copilot, PR #99): a leading dash makes
-  // POSIX shells, PowerShell, AND cmd.exe treat the argument as
-  // an option/switch even when QUOTED. `cd '-foo'` and
-  // `cd "-foo"` both still fail with "invalid option" in bash,
-  // because the shell strips the quotes before `cd` sees the
-  // argument. The portable fix is path-disambiguation: prefix
-  // a relative `-`-starting path with `./` (or `.\\` on
-  // Windows). `./-foo` and `.\-foo` are unambiguous filesystem
-  // paths the shell hands to `cd` verbatim, sidestepping the
-  // option parser entirely. Absolute paths never start with `-`,
-  // so this is a no-op for them. Apply BEFORE the safe-unquote
-  // and quoting paths below so a quoted `-`-prefixed name also
-  // gets the prefix (e.g. a path with both leading dash and a
-  // space).
-  if (value.startsWith("-")) {
-    const prefix = process.platform === "win32" ? ".\\" : "./";
-    value = `${prefix}${value}`;
-  }
+  value = disambiguateLeadingDashPath(value, process.platform);
   // Safe-unquote criteria: only alphanumerics + a small set of
   // unambiguous extras (`-_./+@:,`). After the leading-dash
   // disambiguation above, `value` no longer starts with `-`
@@ -221,8 +250,19 @@ function isWindowsPercentPath(cdTarget: string): boolean {
  */
 export function buildCdLine(cdTarget: string): string {
   if (isWindowsPercentPath(cdTarget)) {
+    // Apply the SAME leading-dash disambiguation that
+    // `shellQuoteIfNeeded` uses (prefix `./` POSIX or `.\`
+    // Windows) BEFORE wrapping in PS single quotes. Without
+    // it, a directory named `-foo%bar%` would emit
+    // `cd '-foo%bar%'` and PowerShell would parse `-foo` as an
+    // option/switch to `Set-Location` even inside the single
+    // quotes (the quotes are stripped before option parsing).
+    // Shared via `disambiguateLeadingDashPath` so the two
+    // call paths can't drift (round 40 follow-up #5, Copilot
+    // PR #149). The `%` branch already pins us to Windows.
+    const prefixed = disambiguateLeadingDashPath(cdTarget, "win32");
     // PS single-quote escape: doubled single quote `''`.
-    return `cd '${cdTarget.replace(/'/g, "''")}'`;
+    return `cd '${prefixed.replace(/'/g, "''")}'`;
   }
   return `cd ${shellQuoteIfNeeded(cdTarget)}`;
 }
