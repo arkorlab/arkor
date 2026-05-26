@@ -399,14 +399,23 @@ describe("TrainRegistry", () => {
     }
   });
 
-  it("dispatchRebuild degrades to SIGTERM-restart when SIGUSR2 is unsupported (Windows)", () => {
-    // Regression: Node's win32 build doesn't deliver SIGUSR2 (it
-    // throws "ENOSYS" inside `child.kill('SIGUSR2')`). The previous
-    // implementation silently swallowed that throw, so on Windows a
-    // hash-match rebuild produced neither hot-swap nor restart and
-    // callback edits never landed. Now we degrade to a SIGTERM-driven
-    // restart so the new code does take effect, at the cost of a
-    // brief gap rather than an in-place swap.
+  it("dispatchRebuild degrades to SIGTERM-restart when SIGUSR2 throws `unsupported` on a non-win32 platform", () => {
+    // Cross-platform safety net for the SIGUSR2 hot-swap path. On the
+    // standard win32 build the previous test ("dispatchRebuild on
+    // win32 routes hash-matches directly to SIGTERM-restart") already
+    // covers the *up-front* `process.platform === "win32"` skip;
+    // dispatch never even *attempts* SIGUSR2 there. This case covers
+    // the OTHER way SIGUSR2 can come back unusable: an exotic non-
+    // win32 Node build (libuv signal-wrap raising `ENOSYS`, future
+    // Node version removing the signal, lost-rights `EPERM` on a
+    // re-parented child) where `safeKill` returns `"unsupported"`.
+    // Because the `beforeEach` in this suite pins `process.platform`
+    // to `"linux"`, the up-front skip is bypassed and we exercise
+    // the SIGUSR2-throws fallback inside `safeKill`. Without the
+    // fallback the child would land in NEITHER bucket and callback
+    // edits would silently disappear; with the fallback we route to
+    // SIGTERM-restart so the new code at least takes effect via a
+    // brief gap instead of an in-place swap.
     const reg = new TrainRegistry();
     const a = fakeChild(901);
     a.kill.mockImplementation((sig?: string) => {

@@ -774,8 +774,14 @@ describe("runDev", () => {
     // valid token to the shared path, this run's cleanup would wipe
     // it out from under them, breaking that session's Vite SPA dev
     // workflow with mystery 403s on /api/*. The fix gates the unlink
-    // on `tokenPersisted` so a failed-persist run is a no-op at
-    // shutdown.
+    // on a token-identity check: the cleanup hook re-reads the file
+    // at exit time and only deletes when the bytes still match the
+    // per-launch token THIS process wrote. A failed-persist run never
+    // writes, so the read returns either ENOENT or someone else's
+    // bytes (foreign token), and in both cases the unlink is skipped.
+    // An earlier design also tracked a `tokenPersisted` boolean, but
+    // it had a race window between `writeFile` completing and the
+    // boolean flipping; the byte-identity check is the sole gate now.
     if (typeof process.getuid === "function" && process.getuid() === 0) {
       // Root bypasses chmod permission checks: skip on root containers.
       return;
