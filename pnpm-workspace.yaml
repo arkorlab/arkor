@@ -87,7 +87,19 @@ trustPolicyExclude:
 # stance in one place, and so the setting stays pinned if a future pnpm
 # release walks the default back.
 blockExoticSubdeps: true
+# Transitive deps under `mint` (in `docs/`): each ships a postinstall
+# (keytar's native binding, puppeteer's Chromium download, sharp's
+# libvips binary). `false` is the deny choice: it suppresses pnpm
+# 11's `ERR_PNPM_IGNORED_BUILDS` without granting any of them the
+# right to run install-time code. The docs workflow has been running
+# under pnpm 10's "warn-and-skip" behaviour without these
+# postinstalls; pnpm 11 surfaces the same skip explicitly, and `false`
+# preserves that posture. Flip an entry to `true` only if a concrete
+# docs task starts failing because its native binary isn't there.
 allowBuilds:
   rolldown: true
   unrs-resolver: true
   esbuild: true
+  keytar: false
+  puppeteer: false
+  sharp: false

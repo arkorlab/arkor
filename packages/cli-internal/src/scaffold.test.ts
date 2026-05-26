@@ -1736,7 +1736,7 @@ describe("scaffold", () => {
       pkg: {
         name: "existing",
         private: true,
-        packageManager: "pnpm@10.33.2",
+        packageManager: "pnpm@11.3.0",
       },
     },
     {
