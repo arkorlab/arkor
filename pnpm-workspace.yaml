@@ -2,17 +2,26 @@ packages:
   - "packages/*"
   - "e2e/*"
   - "docs"
-# Single source of truth for third-party dependency versions across the
-# workspace. Every package.json that depends on these references them as
-# `"<name>": "catalog:"` so a bump touches one line here instead of N
-# package.json files (which previously had to be hand-kept in sync). Only
-# external (registry) deps belong here; `workspace:*` links stay inline.
+# Single source of truth for direct third-party dependency versions
+# declared in workspace `package.json` files. Each such `package.json`
+# references entries here as `"<name>": "catalog:"` so a bump is one
+# line here instead of N parallel `package.json` edits prone to drift.
+# Scope (intentional): only direct deps that stay inside the
+# workspace — transitive deps fall back to the lockfile and the
+# supply-chain guards above. Workspace-internal links (`workspace:*`)
+# stay inline.
+#
+# Excluded: the published packages' runtime `dependencies`
+# (`packages/arkor` and `packages/create-arkor`). Those keep literal
+# semver because the release workflow publishes via `npm publish`
+# (chosen so the npm CLI embeds `README.md` into the registry
+# packument's `readme` field — see `.github/workflows/build.yaml`),
+# and `npm publish` does not rewrite the pnpm-specific `catalog:`
+# protocol. Their `devDependencies` are unaffected since `npm pack`
+# does not ship them in the tarball.
 catalog:
-  "@arkor/cloud-api-client": "^0.0.1-alpha.2"
-  "@clack/prompts": "^0.8.0"
   "@fontsource-variable/geist": "^5.1.0"
   "@fontsource-variable/geist-mono": "^5.1.0"
-  "@hono/node-server": "^1.14.0"
   "@playwright/test": "^1.50.0"
   "@tailwindcss/vite": "^4.0.0"
   "@testing-library/jest-dom": "6.9.1"
@@ -24,15 +33,10 @@ catalog:
   "@vitejs/plugin-react": "^4.3.0"
   "@vitest/coverage-v8": "^4.1.5"
   c8: "^10.1.3"
-  commander: "^13.0.0"
-  esbuild: "^0.28.0"
   eventsource-parser: "^3.0.0"
-  hono: "^4.12.23"
   jsdom: 29.1.1
   mint: 4.2.577
-  open: "^10.0.0"
   oxlint: 1.66.0
-  posthog-node: "^5.30.6"
   react: "^19.0.0"
   react-dom: "^19.0.0"
   tailwindcss: "^4.0.0"
@@ -41,7 +45,6 @@ catalog:
   typescript: "^5"
   vite: "^6.0.0"
   vitest: "^4.1.5"
-  zod: "^4.3.6"
 minimumReleaseAge: 1440
 # Narrow exemption from the 24h release-age gate. Scope is intentionally
 # this single package, and the entry should NOT grow without thinking

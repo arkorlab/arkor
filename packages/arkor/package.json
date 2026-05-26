@@ -51,15 +51,15 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@arkor/cloud-api-client": "catalog:",
-    "@clack/prompts": "catalog:",
-    "@hono/node-server": "catalog:",
-    "commander": "catalog:",
-    "esbuild": "catalog:",
-    "hono": "catalog:",
-    "open": "catalog:",
-    "posthog-node": "catalog:",
-    "zod": "catalog:"
+    "@arkor/cloud-api-client": "^0.0.1-alpha.2",
+    "@clack/prompts": "^0.8.0",
+    "@hono/node-server": "^1.14.0",
+    "commander": "^13.0.0",
+    "esbuild": "^0.28.0",
+    "hono": "^4.12.23",
+    "open": "^10.0.0",
+    "posthog-node": "^5.30.6",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@arkor/cli-internal": "workspace:*",

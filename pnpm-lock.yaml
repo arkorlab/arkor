@@ -6,21 +6,12 @@ settings:
 
 catalogs:
   default:
-    '@arkor/cloud-api-client':
-      specifier: ^0.0.1-alpha.2
-      version: 0.0.1-alpha.2
-    '@clack/prompts':
-      specifier: ^0.8.0
-      version: 0.8.2
     '@fontsource-variable/geist':
       specifier: ^5.1.0
       version: 5.2.8
     '@fontsource-variable/geist-mono':
       specifier: ^5.1.0
       version: 5.2.7
-    '@hono/node-server':
-      specifier: ^1.14.0
-      version: 1.19.14
     '@playwright/test':
       specifier: ^1.50.0
       version: 1.59.1
@@ -54,33 +45,18 @@ catalogs:
     c8:
       specifier: ^10.1.3
       version: 10.1.3
-    commander:
-      specifier: ^13.0.0
-      version: 13.1.0
-    esbuild:
-      specifier: ^0.28.0
-      version: 0.28.0
     eventsource-parser:
       specifier: ^3.0.0
       version: 3.0.8
-    hono:
-      specifier: ^4.12.23
-      version: 4.12.23
     jsdom:
       specifier: 29.1.1
       version: 29.1.1
     mint:
       specifier: 4.2.577
       version: 4.2.577
-    open:
-      specifier: ^10.0.0
-      version: 10.2.0
     oxlint:
       specifier: 1.66.0
       version: 1.66.0
-    posthog-node:
-      specifier: ^5.30.6
-      version: 5.30.6
     react:
       specifier: ^19.0.0
       version: 19.2.5
@@ -105,9 +81,6 @@ catalogs:
     vitest:
       specifier: ^4.1.5
       version: 4.1.5
-    zod:
-      specifier: ^4.3.6
-      version: 4.3.6
 
 importers:
 
@@ -168,31 +141,31 @@ importers:
   packages/arkor:
     dependencies:
       '@arkor/cloud-api-client':
-        specifier: 'catalog:'
+        specifier: ^0.0.1-alpha.2
         version: 0.0.1-alpha.2
       '@clack/prompts':
-        specifier: 'catalog:'
+        specifier: ^0.8.0
         version: 0.8.2
       '@hono/node-server':
-        specifier: 'catalog:'
+        specifier: ^1.14.0
         version: 1.19.14(hono@4.12.23)
       commander:
-        specifier: 'catalog:'
+        specifier: ^13.0.0
         version: 13.1.0
       esbuild:
-        specifier: 'catalog:'
+        specifier: ^0.28.0
         version: 0.28.0
       hono:
-        specifier: 'catalog:'
+        specifier: ^4.12.23
         version: 4.12.23
       open:
-        specifier: 'catalog:'
+        specifier: ^10.0.0
         version: 10.2.0
       posthog-node:
-        specifier: 'catalog:'
+        specifier: ^5.30.6
         version: 5.30.6(rxjs@7.8.2)
       zod:
-        specifier: 'catalog:'
+        specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
       '@arkor/cli-internal':
@@ -232,10 +205,10 @@ importers:
   packages/create-arkor:
     dependencies:
       '@clack/prompts':
-        specifier: 'catalog:'
+        specifier: ^0.8.0
         version: 0.8.2
       commander:
-        specifier: 'catalog:'
+        specifier: ^13.0.0
         version: 13.1.0
     devDependencies:
       '@arkor/cli-internal':

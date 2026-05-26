@@ -36,8 +36,8 @@
     "test:coverage": "vitest run --passWithNoTests --coverage"
   },
   "dependencies": {
-    "@clack/prompts": "catalog:",
-    "commander": "catalog:"
+    "@clack/prompts": "^0.8.0",
+    "commander": "^13.0.0"
   },
   "devDependencies": {
     "@arkor/cli-internal": "workspace:*",
