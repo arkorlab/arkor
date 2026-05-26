@@ -175,8 +175,11 @@ jobs:
         # invoke Playwright's browser-download script today. Setting
         # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` keeps that contract
         # explicit so a future `allowBuilds` change can't silently
-        # re-enable a 150 MB postinstall download that the following
-        # `playwright install` step is meant to satisfy.
+        # re-enable a 150 MB postinstall download that would duplicate
+        # (and obscure) the explicit `playwright install` step below.
+        # That explicit step is the only place we want browser
+        # installation to happen, and the dry-run path runs it
+        # without restoring from a Playwright cache.
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
