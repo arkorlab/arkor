@@ -34,6 +34,9 @@ export default defineConfig(
       "**/test-results/**",
       "**/.turbo/**",
       "**/node_modules/**",
+      // Local Claude Code worktrees (other branches checked out as
+      // siblings via `git worktree`); never our source.
+      ".claude/**",
       "packages/arkor/docs/**",
       "packages/*/CONTRIBUTING.md",
       "**/*.md",
