@@ -56,15 +56,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-      # No `cache: pnpm`. The release path policy is uniform: no pnpm
-      # store restored from a prior run's cache anywhere in the chain.
-      # This preflight job only reads package.json and probes npm, so
-      # the rule is defensive rather than load-bearing here, but
-      # keeping it uniform prevents drift where a future preflight
-      # step (e.g. adding a `pnpm install`-backed lint or typecheck
-      # gate) would silently start consuming a restored cache.
+      # No pnpm tooling on preflight. This job only validates the tag,
+      # reconciles versions via `node -p`, and probes npm, so
+      # `pnpm/action-setup` (and any `cache: pnpm` question that comes
+      # with it) is dead weight here. Keeping the release-path trust
+      # surface minimal. If a future preflight step needs pnpm, add
+      # the setup step alongside it and consciously decide on the
+      # cache stance at that point; the test/build jobs below are the
+      # reference for the no-restored-cache rule the rest of the
+      # chain follows.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"

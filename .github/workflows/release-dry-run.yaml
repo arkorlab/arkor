@@ -50,15 +50,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-      # No `cache: pnpm`. Mirrors release.yaml's preflight stance: this
-      # job only validates tag shape, reconciles versions against
-      # package.json, and probes npm for prior publishes, so the
-      # no-restored-cache rule is defensive rather than load-bearing
-      # here. We keep it uniform across the dry-run path so future
-      # preflight additions that do touch the store can't silently
-      # drift back into cache reuse.
+      # No pnpm tooling on preflight. Mirrors release.yaml's preflight:
+      # this job only validates tag shape, reconciles versions via
+      # `node -p`, and probes npm for prior publishes, so
+      # `pnpm/action-setup` (and any `cache: pnpm` question that comes
+      # with it) is dead weight. Keeping the dry-run preflight
+      # minimal. If a future preflight step needs pnpm, add the setup
+      # step alongside it and consciously decide on the cache stance
+      # at that point; the test job below mirrors release.yaml's
+      # no-restored-cache rule.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
