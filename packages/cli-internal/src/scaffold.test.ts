@@ -374,7 +374,15 @@ describe("scaffold", () => {
     // mentions inside prose / backticks are just text that must be
     // preserved verbatim.
     const countAnchored = (s: string, marker: string): number => {
-      const re = new RegExp(String.raw`(?:^|\n)${marker.replaceAll(/[.*+?^${}()|[\\]\\\\\]/g, String.raw`\\$&`)}`, "g");
+      // Standard regex-escape: the character class must include `]`
+      // (escaped) and `\` (escaped as `\\`), and the replacement is a
+      // single backslash + the match. The previous form was missing
+      // `]` from the class and used a doubled backslash in the
+      // replacement, so it never actually escaped anything; the test
+      // happened to pass because the canonical marker strings don't
+      // contain any regex metacharacters.
+      const escaped = marker.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+      const re = new RegExp(String.raw`(?:^|\n)${escaped}`, "g");
       return (s.match(re) ?? []).length;
     };
 
