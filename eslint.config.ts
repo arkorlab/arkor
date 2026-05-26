@@ -1,4 +1,5 @@
 import js from "@eslint/js";
+import stylistic from "@stylistic/eslint-plugin";
 import vitest from "@vitest/eslint-plugin";
 import { defineConfig } from "eslint/config";
 import { flatConfigs as importXConfigs } from "eslint-plugin-import-x";
@@ -6,6 +7,7 @@ import jsxA11y from "eslint-plugin-jsx-a11y";
 import nodePlugin from "eslint-plugin-n";
 import promise from "eslint-plugin-promise";
 import reactHooks from "eslint-plugin-react-hooks";
+import * as regexp from "eslint-plugin-regexp";
 import unicorn from "eslint-plugin-unicorn";
 import globals from "globals";
 import tseslint from "typescript-eslint";
@@ -62,6 +64,22 @@ export default defineConfig(
   // flat-config shaped (the unprefixed name still returns a legacy
   // `extends: string` object).
   nodePlugin.configs["flat/recommended-module"],
+  // RegExp safety: catches polynomial-backtracking shapes (the same
+  // class of issue CodeQL flags as "Polynomial regular expression used
+  // on uncontrolled data"), bad assertions, useless escapes, etc.
+  regexp.configs["flat/recommended"],
+  // Targeted stylistic rules. Avoid the full `recommended` preset so
+  // formatting concerns stay narrow: we only want the rules that
+  // catch reviewer-visible issues (`no-trailing-spaces`, brace/keyword
+  // spacing) without inheriting the whole opinion stack.
+  {
+    plugins: { "@stylistic": stylistic },
+    rules: {
+      "@stylistic/no-trailing-spaces": "error",
+      "@stylistic/object-curly-spacing": ["error", "always"],
+      "@stylistic/keyword-spacing": "error",
+    },
+  },
 
   // Pin `n`'s view of the target Node.js to a single concrete version
   // (the lowest we support at runtime) instead of letting it read each
