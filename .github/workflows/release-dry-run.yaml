@@ -52,11 +52,13 @@ jobs:
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
-      # No `cache: pnpm`. Dry-run mirrors release.yaml's no-cache stance
-      # end-to-end: this job pre-flights the exact source-level shape
-      # build.yaml would publish, so the cache-poisoning surface we
-      # close in release.yaml has to be closed here too or the dry-run
-      # signal stops representing the real release path.
+      # No `cache: pnpm`. Mirrors release.yaml's preflight stance: this
+      # job only validates tag shape, reconciles versions against
+      # package.json, and probes npm for prior publishes, so the
+      # no-restored-cache rule is defensive rather than load-bearing
+      # here. We keep it uniform across the dry-run path so future
+      # preflight additions that do touch the store can't silently
+      # drift back into cache reuse.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"

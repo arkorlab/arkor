@@ -58,13 +58,13 @@ jobs:
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
-      # No `cache: pnpm`. Same stance as the no-Playwright-cache rule on
-      # the test job below and the trusted builder in build.yaml: any
-      # restored cache entry is an unauthenticated input from a prior
-      # run, and the release path must not allow that to influence the
-      # version-reconciliation and registry-conflict checks that gate
-      # whether build.yaml runs at all. The ~10s install delta on
-      # preflight is not worth the supply-chain risk.
+      # No `cache: pnpm`. The release path policy is uniform: no
+      # actions/cache-restored pnpm store anywhere in the chain. This
+      # preflight job only reads package.json and probes npm, so the
+      # rule is defensive rather than load-bearing here, but keeping
+      # it uniform prevents drift where a future preflight step (e.g.
+      # adding a `pnpm install`-backed lint or typecheck gate) would
+      # silently start consuming a restored cache.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -163,11 +163,14 @@ jobs:
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
       # No `cache: pnpm`. Same reasoning as the no-Playwright-cache step
-      # further down: a poisoned pnpm store entry restored here would
-      # feed straight into the build that the trusted builder
-      # (build.yaml) is about to re-produce and sign, and into the e2e
-      # tests that exercise it. The marginal install-time savings are
-      # not worth that supply-chain risk.
+      # further down: a pnpm store restored from a prior run's
+      # actions/cache entry is an unauthenticated input. This test
+      # job is the gate that decides whether build.yaml runs at all
+      # (build.yaml does its own clean install on a separate runner,
+      # so no on-disk state is shared with it directly), so a
+      # poisoned cache here is dangerous because it can produce a
+      # misleading-green test signal that lets a bad release through.
+      # The marginal install-time savings are not worth that.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
