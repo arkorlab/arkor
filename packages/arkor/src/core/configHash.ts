@@ -28,7 +28,18 @@ import type { JobConfig } from "./types";
  * `undefined` (the spec-defined "skip me" signal). That divergence
  * forces unnecessary SIGTERM restarts on every rebuild.
  */
-function stableStringify(value: unknown, key: string = ""): string | undefined {
+function stableStringifyRec(
+  value: unknown,
+  key: string,
+  // Tracks every object/array currently on the recursion stack so a
+  // user-supplied circular `JobConfig` field surfaces as a clear
+  // `TypeError` ("Converting circular structure to JSON") instead of
+  // recursing until the call stack overflows and takes the HMR path
+  // down with it. Mirrors what `JSON.stringify` would do for the same
+  // input. Primitives can never form cycles, so we only insert and
+  // check inside the object/array branches below.
+  seen: WeakSet<object>,
+): string | undefined {
   if (value === null) return "null";
   // Non-representable values: omit (undefined return) so each caller's
   // boundary handler chooses the right substitution per its position.
@@ -47,32 +58,51 @@ function stableStringify(value: unknown, key: string = ""): string | undefined {
   // sentinel: the spec-defined "skip me" path.
   const maybeToJSON = (value as { toJSON?: unknown }).toJSON;
   if (typeof maybeToJSON === "function") {
-    return stableStringify(
+    return stableStringifyRec(
       (maybeToJSON as (key: string) => unknown).call(value, key),
       key,
+      seen,
     );
   }
-  if (Array.isArray(value)) {
-    // Array slots: non-representable → "null" (matches JSON spec).
-    // Index-as-string keys mirror `JSON.stringify`'s behaviour for
-    // array elements (per the ECMAScript spec, `SerializeJSONArray`
-    // calls `SerializeJSONProperty` with the index converted to a
-    // string).
-    const items = value.map((v, i) => stableStringify(v, String(i)) ?? "null");
-    return `[${items.join(",")}]`;
+  if (seen.has(value)) {
+    throw new TypeError("Converting circular structure to JSON");
   }
-  // Object slots: skip keys whose serialised value is `undefined`
-  // (matches `JSON.stringify({a: undefined}) === "{}"`). Property
-  // names are passed as the recursion key so a nested `toJSON(key)`
-  // sees the hosting field name.
-  const obj = value as Record<string, unknown>;
-  const parts: string[] = [];
-  for (const k of Object.keys(obj).sort()) {
-    const serialised = stableStringify(obj[k], k);
-    if (serialised === undefined) continue;
-    parts.push(`${JSON.stringify(k)}:${serialised}`);
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      // Array slots: non-representable → "null" (matches JSON spec).
+      // Index-as-string keys mirror `JSON.stringify`'s behaviour for
+      // array elements (per the ECMAScript spec, `SerializeJSONArray`
+      // calls `SerializeJSONProperty` with the index converted to a
+      // string).
+      const items = value.map(
+        (v, i) => stableStringifyRec(v, String(i), seen) ?? "null",
+      );
+      return `[${items.join(",")}]`;
+    }
+    // Object slots: skip keys whose serialised value is `undefined`
+    // (matches `JSON.stringify({a: undefined}) === "{}"`). Property
+    // names are passed as the recursion key so a nested `toJSON(key)`
+    // sees the hosting field name.
+    const obj = value as Record<string, unknown>;
+    const parts: string[] = [];
+    for (const k of Object.keys(obj).sort()) {
+      const serialised = stableStringifyRec(obj[k], k, seen);
+      if (serialised === undefined) continue;
+      parts.push(`${JSON.stringify(k)}:${serialised}`);
+    }
+    return `{${parts.join(",")}}`;
+  } finally {
+    // Drop the marker once we return from this node so a value
+    // legitimately referenced from sibling positions (e.g. a shared
+    // `dataset` object reused across two array slots) doesn't
+    // false-positive as a cycle.
+    seen.delete(value);
   }
-  return `{${parts.join(",")}}`;
+}
+
+function stableStringify(value: unknown, key: string = ""): string | undefined {
+  return stableStringifyRec(value, key, new WeakSet());
 }
 
 /**

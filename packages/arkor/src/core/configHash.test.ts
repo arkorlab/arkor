@@ -191,6 +191,56 @@ describe("hashJobConfig", () => {
     expect(hashJobConfig(a)).toBe(hashJobConfig(b));
   });
 
+  it("throws a clear TypeError on circular structures (JSON parity, no stack overflow)", () => {
+    // Regression: the recursive `stableStringify` previously had no
+    // cycle detection. A `JobConfig` with a circular reference inside
+    // any `unknown` field (easy to do accidentally, e.g. a logger
+    // helper that back-references its own context) would recurse
+    // until the call stack overflowed and took the HMR / build path
+    // down with it. `JSON.stringify` itself throws a `TypeError`
+    // ("Converting circular structure to JSON") for the same input;
+    // mirror that shape so callers get a useful error message instead
+    // of a fatal `RangeError: Maximum call stack size exceeded`.
+    const self: Record<string, unknown> = {};
+    self.self = self; // direct cycle
+    const config: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: self as unknown,
+    };
+    expect(() => hashJobConfig(config)).toThrow(TypeError);
+    expect(() => hashJobConfig(config)).toThrow(/circular/i);
+
+    // Indirect cycle (A → B → A) is rejected too: the WeakSet tracks
+    // every object currently on the recursion stack, not just direct
+    // self-references.
+    const a: Record<string, unknown> = {};
+    const b: Record<string, unknown> = { a };
+    a.b = b;
+    const indirect: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: a as unknown,
+    };
+    expect(() => hashJobConfig(indirect)).toThrow(TypeError);
+  });
+
+  it("permits a shared (non-cyclic) reference reused across sibling slots", () => {
+    // Defensive companion to the cycle test: a value appearing twice
+    // as a *sibling* (not as an ancestor) is legitimate JSON, not a
+    // cycle. The recursion drops each node from `seen` on the way out
+    // via the `finally` block so sibling re-use doesn't false-positive
+    // as a cycle.
+    const shared = { kind: "openai", name: "gpt-4o-mini" };
+    const config: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      // Array with the same object reference in two positions.
+      datasetFormat: [shared, shared] as unknown,
+    };
+    expect(() => hashJobConfig(config)).not.toThrow();
+  });
+
   it("ignores function / symbol properties (JSON parity)", () => {
     // `JSON.stringify` drops these too. The hash should be insensitive
     // to "transparent" callbacks accidentally landing in a forwarded

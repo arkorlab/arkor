@@ -1068,6 +1068,106 @@ process.exit(0);
       }
     });
 
+    it("/api/train job-id parser matches the runner marker even when user code wrote unterminated stdout before it", async () => {
+      // Regression (Codex P2): the marker regex used to anchor on
+      // `^\[arkor:<nonce>\]`. User code that wrote to stdout WITHOUT a
+      // trailing newline before `trainer.start()` resolved
+      // (`process.stdout.write("loading...")`, carriage-return
+      // progress bars, etc.) would land in the same line buffer as the
+      // runner's `[arkor:<nonce>] Started job <id>` write. The
+      // line-start anchor then rejected the merged line as not
+      // starting with the marker, `parsedJobId` stayed null, and a
+      // manual Stop would SIGKILL the child without firing the cloud
+      // cancel POST (orphaned remote job).
+      //
+      // The fix drops the `^` anchor while keeping the nonce prefix
+      // as the trust boundary (user code can't read the env-var
+      // nonce; see runner.ts). Now the parser captures the id from
+      // whatever line the marker eventually ends in.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        {
+          orgSlug: "unterminated-org",
+          projectSlug: "unterminated-project",
+          projectId: "p-unterminated",
+        },
+        trainCwd,
+      );
+      const FAKE_JOB_ID = "j-unterminated-prefix";
+      const fakeBin = join(trainCwd, "unterminated-prefix-bin.mjs");
+      // Bin first writes a chunk WITHOUT a trailing newline
+      // (mimicking user `process.stdout.write("loading…")` from inside
+      // `await import(userEntry)`), then writes the nonce-prefixed
+      // marker. The two writes coalesce in our line buffer so the
+      // marker no longer starts the line.
+      writeFileSync(
+        fakeBin,
+        `const nonce = process.env.ARKOR_JOB_ID_MARKER_NONCE ?? "";
+        process.stdout.write("loading dataset… ");
+        process.stdout.write(\`[arkor:\${nonce}] Started job ${FAKE_JOB_ID}\\n\`);
+        process.on("SIGTERM", () => {});
+        setInterval(() => {}, 60_000);
+        `,
+      );
+      let cancelHits: { url: string }[] = [];
+      const ORIG_FETCH = globalThis.fetch;
+      globalThis.fetch = (async (
+        input: Parameters<typeof fetch>[0],
+        init?: Parameters<typeof fetch>[1],
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
+          cancelHits.push({ url });
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+
+      try {
+        const app = buildStudioApp({
+          baseUrl: "http://mock-cloud-api",
+          assetsDir,
+          autoAnonymous: false,
+          studioToken: STUDIO_TOKEN,
+          cwd: trainCwd,
+          binPath: fakeBin,
+        });
+        const trainRes = await app.request("/api/train", {
+          method: "POST",
+          headers: {
+            host: "127.0.0.1:4000",
+            "x-arkor-studio-token": STUDIO_TOKEN,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        expect(trainRes.status).toBe(200);
+        const reader = trainRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (!buf.includes(`Started job ${FAKE_JOB_ID}`)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+        }
+        await reader.cancel();
+        await new Promise((r) => setTimeout(r, 200));
+
+        // Under the bug: 0 hits (the merged `"loading dataset… [arkor:n] Started job <id>"`
+        // line failed the `^\[arkor:` anchor, so parsedJobId stayed
+        // null and the cancel POST was skipped). With the fix: 1 hit
+        // against the captured id.
+        expect(cancelHits).toHaveLength(1);
+        expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
+      } finally {
+        globalThis.fetch = ORIG_FETCH;
+      }
+    });
+
     it("/api/train job-id parser ignores stdout lines that lack the per-spawn nonce prefix so user code can't forge a `Started job` marker", async () => {
       // Regression: the parser used to match any `Started job <id>`
       // line in stdout. User code (which runs inside the runner's

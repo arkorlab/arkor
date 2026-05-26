@@ -120,8 +120,12 @@ async function readBodyCapped(res: Response, maxBytes: number): Promise<string> 
   } finally {
     // Best-effort cancel: closes the response stream so we don't
     // keep pulling bytes after the cap. Throw is ignored because
-    // the caller is already throwing the wrapped error.
+    // the caller is already throwing the wrapped error. `releaseLock`
+    // runs after to drop the reader's claim on the underlying body
+    // so any later consumer (or GC) is unblocked; calling `releaseLock`
+    // before `cancel` would throw because the reader is still active.
     void reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
   out += decoder.decode();
   return out;

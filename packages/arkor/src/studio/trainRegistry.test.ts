@@ -163,11 +163,14 @@ describe("TrainRegistry", () => {
 
   it("dispatchRebuild SIGTERM-restarts a pre-ready spawn when no artefact existed at spawn time", () => {
     // Companion to the "artefact has changed" test: a fresh project
-    // never built before spawn means `coordinator.getCurrentArtifactHash()`
-    // returned `null`. The child's `await import` likely failed; we
-    // can't prove its config matches anything. Conservative
-    // SIGTERM-restart so the SPA re-spawns once the new bundle is
-    // on disk.
+    // never built before spawn means `coordinator.getCurrentArtifactContentHash()`
+    // returned `null` (no on-disk artefact to read bytes from), so
+    // `spawnArtifactContentHash` was registered as `null`. The pre-
+    // ready-spawn backfill gate compares `entry.spawnArtifactContentHash`
+    // against the rebuild's `nextArtifactContentHash`, and a null on
+    // either side falls through to SIGTERM-restart since we can't
+    // prove the child's loaded bytes match the new hash. Conservative
+    // restart so the SPA re-spawns once the new bundle is on disk.
     const reg = new TrainRegistry();
     const c = fakeChild(421);
     reg.register(c as unknown as ChildProcess, {

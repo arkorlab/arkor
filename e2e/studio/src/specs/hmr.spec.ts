@@ -42,10 +42,33 @@ function rewriteManifest(projectDir: string, name: string): void {
     path,
     [
       'const TRAINER_INSPECT_KEY = Symbol.for("arkor.trainer.inspect");',
+      // Stub trainer whose `start()` / `wait()` return shapes match
+      // the real `Trainer` contract (`{ jobId }` and
+      // `{ job: TrainingJob, artifacts: unknown[] }` respectively).
+      // The HMR / manifest specs below don't actually invoke either,
+      // but keeping the fixture API-correct lets future specs (e.g.
+      // a Run-Training click test) reuse it without confusing
+      // "destructuring undefined" runner failures.
       "const trainer = {",
       `  name: ${JSON.stringify(name)},`,
-      "  start: async () => ({ id: 'e2e-job', url: '' }),",
-      "  wait: async () => ({ status: 'completed' as const }),",
+      "  start: async () => ({ jobId: 'e2e-job' }),",
+      "  wait: async () => ({",
+      "    job: {",
+      "      id: 'e2e-job',",
+      "      orgId: 'e2e-org',",
+      "      projectId: 'e2e-project',",
+      `      name: ${JSON.stringify(name)},`,
+      "      status: 'completed' as const,",
+      "      config: {",
+      '        model: "studio-e2e-model",',
+      '        datasetSource: { type: "huggingface" as const, name: "studio-e2e-dataset" },',
+      "      },",
+      "      createdAt: '2026-01-01T00:00:00Z',",
+      "      startedAt: '2026-01-01T00:00:01Z',",
+      "      completedAt: '2026-01-01T00:01:00Z',",
+      "    },",
+      "    artifacts: [] as unknown[],",
+      "  }),",
       "  cancel: async () => {},",
       "};",
       "Object.defineProperty(trainer, TRAINER_INSPECT_KEY, {",

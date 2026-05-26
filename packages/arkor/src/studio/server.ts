@@ -34,7 +34,7 @@ import { TrainRegistry, type RestartTarget } from "./trainRegistry";
  *  `restart` events to the run *this* tab actually started. */
 const TRAIN_PID_HEADER = "x-arkor-train-pid";
 /**
- * Build the strict full-line match for the runner's `[arkor:<nonce>] Started job <id>` line.
+ * Build the per-spawn match for the runner's `[arkor:<nonce>] Started job <id>` marker.
  *
  * `core/runner.ts` prefixes that text with the per-spawn nonce we
  * inject via `ARKOR_JOB_ID_MARKER_NONCE`; without the prefix, a
@@ -49,15 +49,22 @@ const TRAIN_PID_HEADER = "x-arkor-train-pid";
  *
  * Pattern is per-spawn because the nonce is per-spawn.
  *
- * Anchors `^…$` and `(\S+)` job-id capture mirror the runner's
- * exact write shape (cloud-api job ids never contain whitespace),
- * so a chatty bin that wraps the line in other content cannot
- * collide either.
+ * The match is intentionally NOT anchored at line start (`^`): user
+ * or runtime code that writes to stdout WITHOUT a trailing newline
+ * before `trainer.start()` resolves (`process.stdout.write(...)`
+ * progress, carriage-return rewrites) gets concatenated onto the
+ * same line as the runner's marker. A line-start anchor would then
+ * skip the marker entirely, leave `parsedJobId` null, and let
+ * manual Stop SIGKILL the child without firing the cloud cancel
+ * POST (orphaned remote job). The nonce prefix is the real trust
+ * anchor; the `$` end-anchor still pins the captured id to the
+ * line's tail and the `(\S+)` capture mirrors the runner's exact
+ * write shape (cloud-api job ids never contain whitespace).
  */
 function buildStartedJobPattern(nonce: string): RegExp {
   // Nonce is a 32-char hex string from `randomBytes(16).toString("hex")`,
   // i.e. only `[0-9a-f]` (safe to interpolate into the regex literal).
-  return new RegExp(`^\\[arkor:${nonce}\\] Started job (\\S+)$`);
+  return new RegExp(`\\[arkor:${nonce}\\] Started job (\\S+)$`);
 }
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;

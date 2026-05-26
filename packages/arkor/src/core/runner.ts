@@ -40,8 +40,17 @@ const DEFAULT_ENTRY = "src/arkor/index.ts";
  * bin imports first, or the env var should be wiped at the server
  * spawn boundary too.
  */
+// Normalise empty/whitespace-only env values to null so we don't emit a
+// spoofable `[arkor:] Started job ...` prefix (zero-length nonce) when
+// the server happens to pass an empty string. The server always writes
+// 32 hex chars, but a future caller / mis-launch shouldn't be able to
+// accidentally turn the nonce-prefixed marker into a forgeable form by
+// supplying `""`.
+const RAW_STARTED_JOB_NONCE = process.env.ARKOR_JOB_ID_MARKER_NONCE;
 const STARTED_JOB_NONCE: string | null =
-  process.env.ARKOR_JOB_ID_MARKER_NONCE ?? null;
+  typeof RAW_STARTED_JOB_NONCE === "string" && RAW_STARTED_JOB_NONCE.trim() !== ""
+    ? RAW_STARTED_JOB_NONCE
+    : null;
 delete process.env.ARKOR_JOB_ID_MARKER_NONCE;
 
 function isTrainer(value: unknown): value is Trainer {
