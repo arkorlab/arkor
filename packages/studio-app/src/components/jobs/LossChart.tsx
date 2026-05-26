@@ -97,7 +97,11 @@ export function LossChart({
         });
       }
     }
-    return [...byStep.values()].toSorted((a, b) => a.step - b.step);
+    // `.sort()` (not `.toSorted()`) because the SPA's tsconfig pins
+    // `target: ES2022` and `toSorted` is ES2023; Vite / esbuild does
+    // not polyfill it, so older evergreen browsers would throw.
+    // eslint-disable-next-line unicorn/no-array-sort
+    return [...byStep.values()].sort((a, b) => a.step - b.step);
   }, [points]);
 
   const trainSeries = useMemo(

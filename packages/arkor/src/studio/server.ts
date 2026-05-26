@@ -314,13 +314,18 @@ export function buildStudioApp(options: StudioServerOptions) {
     const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
     const url = `${credsBaseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
+    // Read once and forward only when truthy: an empty
+    // `Last-Event-ID: ` header is semantically ambiguous upstream and
+    // historically the proxy treated empty as "header absent", so a
+    // bare `!== undefined` check would silently change behaviour for
+    // clients that ship the header with an empty value.
     const lastEventId = c.req.header("Last-Event-ID");
     const upstream = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-Arkor-Client": `arkor/${SDK_VERSION}`,
         Accept: "text/event-stream",
-        ...(lastEventId !== undefined ? { "Last-Event-ID": lastEventId } : {}),
+        ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
       },
     });
     // This route bypasses `createRpc()` (the SSE body has to be streamed

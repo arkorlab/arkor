@@ -691,8 +691,10 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   };
 
   function streamFetcher(
-    handlers: (| { kind: "throw"; error: Error }
-      | { kind: "stream"; chunks: string[] })[],
+    handlers: (
+      | { kind: "throw"; error: Error }
+      | { kind: "stream"; chunks: string[] }
+    )[],
   ): { fetch: typeof fetch; streamCalls: () => number } {
     let streamCalls = 0;
     const impl: typeof fetch = (async (

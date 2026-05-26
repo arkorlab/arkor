@@ -68,7 +68,12 @@ function percentileFromSorted(sorted: number[], q: number): number {
 // non-null assertions below.
 export function percentile(values: number[], q: number): number {
   if (values.length === 0) return Number.NaN;
-  return percentileFromSorted(values.toSorted((a, b) => a - b), q);
+  // `[...values].sort(...)` (not `.toSorted()`) because the Studio
+  // SPA's tsconfig pins `target: ES2022` and `Array.prototype.toSorted`
+  // is ES2023 — Vite/esbuild won't polyfill it, so older evergreen
+  // browsers would throw at runtime.
+  // eslint-disable-next-line unicorn/no-array-sort
+  return percentileFromSorted([...values].sort((a, b) => a - b), q);
 }
 
 // Two-tailed 95% Student's t critical values for df 1..30. For df > 30
@@ -142,7 +147,9 @@ export function summarize(values: number[]): LossStats {
   const sd = Math.sqrt(varv);
   const ciHalf = n <= 1 ? 0 : tCritical95(n - 1) * (sd / Math.sqrt(n));
 
-  const sorted = values.toSorted((a, b) => a - b);
+  // ES2022 target — see `percentile()` above for the toSorted rationale.
+  // eslint-disable-next-line unicorn/no-array-sort
+  const sorted = [...values].sort((a, b) => a - b);
 
   return {
     count: n,
