@@ -7,7 +7,7 @@ packages:
 # references entries here as `"<name>": "catalog:"` so a bump is one
 # line here instead of N parallel `package.json` edits prone to drift.
 # Scope (intentional): only direct deps that stay inside the
-# workspace — transitive deps fall back to the lockfile and the
+# workspace; transitive deps fall back to the lockfile and the
 # supply-chain guards above. Workspace-internal links (`workspace:*`)
 # stay inline.
 #
@@ -15,10 +15,13 @@ packages:
 # (`packages/arkor` and `packages/create-arkor`). Those keep literal
 # semver because the release workflow publishes via `npm publish`
 # (chosen so the npm CLI embeds `README.md` into the registry
-# packument's `readme` field — see `.github/workflows/build.yaml`),
+# packument's `readme` field; see `.github/workflows/build.yaml`),
 # and `npm publish` does not rewrite the pnpm-specific `catalog:`
-# protocol. Their `devDependencies` are unaffected since `npm pack`
-# does not ship them in the tarball.
+# protocol, so consumers would see `EUNSUPPORTEDPROTOCOL`. Their
+# `devDependencies` are unaffected: the field still ships in the
+# published `package.json`, but consumer-side `npm install <pkg>`
+# never installs a dependency's devDependencies, so `catalog:` there
+# is never resolved at install time.
 catalog:
   "@fontsource-variable/geist": "^5.1.0"
   "@fontsource-variable/geist-mono": "^5.1.0"
