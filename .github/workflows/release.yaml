@@ -58,11 +58,17 @@ jobs:
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+      # No `cache: pnpm`. Same stance as the no-Playwright-cache rule on
+      # the test job below and the trusted builder in build.yaml: any
+      # restored cache entry is an unauthenticated input from a prior
+      # run, and the release path must not allow that to influence the
+      # version-reconciliation and registry-conflict checks that gate
+      # whether build.yaml runs at all. The ~10s install delta on
+      # preflight is not worth the supply-chain risk.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: pnpm
 
       - name: Resolve release metadata
         id: meta
@@ -156,10 +162,15 @@ jobs:
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+      # No `cache: pnpm`. Same reasoning as the no-Playwright-cache step
+      # further down: a poisoned pnpm store entry restored here would
+      # feed straight into the build that the trusted builder
+      # (build.yaml) is about to re-produce and sign, and into the e2e
+      # tests that exercise it. The marginal install-time savings are
+      # not worth that supply-chain risk.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: pnpm
 
       - name: Install
         # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
@@ -169,7 +180,7 @@ jobs:
         # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` keeps that contract
         # explicit so a future `allowBuilds` change can't silently
         # re-enable a 150 MB postinstall download that the following
-        # cache + `playwright install` steps are meant to satisfy.
+        # `playwright install` step is meant to satisfy.
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile

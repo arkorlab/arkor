@@ -43,11 +43,18 @@ jobs:
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+      # No `cache: pnpm`. This is the SLSA L3 trusted builder: any
+      # restored cache entry is an unauthenticated input from a prior
+      # run that would feed straight into the dist/ shape we then pack,
+      # attest, and `npm publish --provenance`. The provenance signed
+      # under this workflow's OIDC identity must only reflect inputs
+      # the caller's source-level checks have actually validated, so
+      # the install step has to run from the lockfile against the npm
+      # registry with no on-disk cache layer in between.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: pnpm
 
       - name: Install
         run: pnpm install --frozen-lockfile
