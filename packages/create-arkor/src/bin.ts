@@ -171,7 +171,7 @@ function collisionMessage(name: string): string {
  * `isWindowsPercentPath` and the test suite drives the helper
  * across both platforms via `withPlatform`.
  */
-export function disambiguateLeadingDashPath(
+function disambiguateLeadingDashPath(
   value: string,
   platform: NodeJS.Platform,
 ): string {
