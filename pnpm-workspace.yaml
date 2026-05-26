@@ -27,7 +27,7 @@ catalog:
   commander: "^13.0.0"
   esbuild: "^0.28.0"
   eventsource-parser: "^3.0.0"
-  hono: "^4.7.0"
+  hono: "^4.12.23"
   jsdom: 29.1.1
   mint: 4.2.577
   open: "^10.0.0"
@@ -37,7 +37,7 @@ catalog:
   react-dom: "^19.0.0"
   tailwindcss: "^4.0.0"
   tsdown: "^0.21.9"
-  turbo: "^2.4.0"
+  turbo: "^2.9.14"
   typescript: "^5"
   vite: "^6.0.0"
   vitest: "^4.1.5"
