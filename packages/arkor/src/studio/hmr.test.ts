@@ -160,11 +160,28 @@ describe("createHmrCoordinator", () => {
     hmr.subscribe((e) => firstEvents.push(e));
     try {
       await nextEvent(firstEvents, (e) => e.type === "ready");
-      // A new subscriber should receive the cached `ready` state
-      // synchronously, before any new build is triggered.
+      // A new subscriber should receive the cached state synchronously
+      // before any new build is triggered.
+      //
+      // We assert "the late subscriber sees the same event the prior one
+      // saw last" rather than literally "ready" because rolldown's macOS
+      // watcher occasionally fires a spurious second BUNDLE_END (FSEvents
+      // coalescing inside the watcher): there, `firstEvents` already
+      // contains the spurious `rebuild` by the time we late-subscribe, and
+      // the contract under test (replay of the cached state) holds either
+      // way.
+      //
+      // Confirmed still present in rolldown@1.0.2 (the first GA after the
+      // 1.0.0-rc.17 series). Re-check on the next rolldown release: if
+      // the spurious BUNDLE_END is gone on macOS, tighten this back to
+      //   expect(lateEvents[0]?.type).toBe("ready");
+      // See PR #101 CI run 26403769331 (macos-latest) for the assertion
+      // diff that surfaced the macOS-only mismatch when this was
+      // tightened during the rolldown GA upgrade.
       const lateEvents: HmrEvent[] = [];
       hmr.subscribe((e) => lateEvents.push(e));
-      expect(lateEvents[0]?.type).toBe("ready");
+      expect(lateEvents.length).toBeGreaterThanOrEqual(1);
+      expect(lateEvents[0]).toEqual(firstEvents[firstEvents.length - 1]);
     } finally {
       await hmr.dispose();
     }
