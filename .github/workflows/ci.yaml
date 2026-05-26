@@ -469,8 +469,19 @@ jobs:
     # required for the runner to mint the OIDC JWT that codecov-action
     # exchanges for an upload token. See
     # https://docs.codecov.com/docs/github-tokenless-uploads.
+    #
+    # `code-quality: write` is required by GitHub's native code-coverage
+    # public preview (announced 2026-05-26): `actions/upload-code-coverage`
+    # POSTs the Cobertura XML through the GitHub API using the workflow's
+    # default GITHUB_TOKEN, and the token needs that scope to write to
+    # the code-quality API. Coverage uploads to GitHub run in parallel
+    # with the Codecov uploads below — Codecov stays authoritative while
+    # the GitHub feature is in preview, so both signals are available
+    # side-by-side. See
+    # https://github.blog/changelog/2026-05-26-code-coverage-in-pull-requests-is-now-in-public-preview/.
     permissions:
       id-token: write
+      code-quality: write
     steps:
       - uses: actions/checkout@v6
 
@@ -592,6 +603,61 @@ jobs:
           files: ./e2e/cli/coverage/lcov.info
           flags: e2e-cli
           fail_ci_if_error: false
+
+      # GitHub native code coverage (public preview, announced 2026-05-26).
+      # Uploads the Cobertura XML produced alongside lcov.info by each
+      # package's vitest v8 coverage reporter (and by c8 for e2e/cli) so
+      # GitHub can display per-PR coverage % directly on pull requests.
+      # Codecov stays authoritative while the feature is in preview; once
+      # GitHub Coverage reaches GA we can decide whether to drop one path.
+      # `fail-on-error: false` mirrors the Codecov uploads' philosophy —
+      # an upload glitch must not turn a green test run red. The action
+      # itself already no-ops on `merge_group` events and fork PRs, so no
+      # extra `if:` gating is needed for those cases.
+      - name: Upload arkor coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./packages/arkor/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/arkor
+          fail-on-error: false
+
+      - name: Upload create-arkor coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./packages/create-arkor/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/create-arkor
+          fail-on-error: false
+
+      - name: Upload cli-internal coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./packages/cli-internal/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/cli-internal
+          fail-on-error: false
+
+      - name: Upload studio-app coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./packages/studio-app/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/studio-app
+          fail-on-error: false
+
+      - name: Upload e2e-cli coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./e2e/cli/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/e2e-cli
+          fail-on-error: false
 
       # Codecov Test Analytics — uploads JUnit XML produced by the vitest
       # `junit` reporter. Tracks pass/fail history per test, surfaces flaky
