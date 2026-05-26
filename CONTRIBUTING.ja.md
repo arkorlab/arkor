@@ -31,7 +31,7 @@ arkor/
 
 ## 開発セットアップ
 
-**Node.js 24 (できれば最新版)** と **pnpm 10.21+** を使用してください。
+**Node.js 24 (できれば最新版)** と **pnpm 11.0+** を使用してください。
 
 ```bash
 git clone https://github.com/arkorlab/arkor.git

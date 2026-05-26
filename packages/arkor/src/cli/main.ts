@@ -1,4 +1,11 @@
-import { resolvePackageManager, type TemplateId } from "@arkor/cli-internal";
+import {
+  ClaudeCodeStrictExit,
+  formatClaudeCodeMissingMessage,
+  isClaudeCode,
+  missingClaudeCodeFlags,
+  resolvePackageManager,
+  type TemplateId,
+} from "@arkor/cli-internal";
 import { Command } from "commander";
 
 import { getRecordedDeprecation } from "../core/deprecation";
@@ -38,6 +45,10 @@ export async function main(argv: string[]): Promise<void> {
     )
     .option("--skip-git", "Skip the git init prompt and do not initialise git")
     .option(
+      "--allow-builds",
+      "Opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
+    )
+    .option(
       "--agents-md",
       "Include AGENTS.md and CLAUDE.md to guide AI coding agents (default)",
     )
@@ -54,6 +65,7 @@ export async function main(argv: string[]): Promise<void> {
         useBun?: boolean;
         git?: boolean;
         skipGit?: boolean;
+        allowBuilds?: boolean;
         // Commander v13 leaves this undefined unless one of --agents-md /
         // --no-agents-md was passed; the action treats undefined as the
         // default-on value.
@@ -82,6 +94,49 @@ export async function main(argv: string[]): Promise<void> {
             "Pick one of --agents-md / --no-agents-md, not both.",
           );
         }
+        // Under CLAUDECODE=1, refuse to fall through to interactive prompts
+        // (they'd hang) or to silent defaults (they'd hide decisions the
+        // agent should be making). Print the suggested re-invocation and
+        // exit 1 so the agent can re-run with explicit flags. `agentsMd`
+        // is checked from raw argv so default-on doesn't satisfy the
+        // requirement: the agent should opt in or out deliberately.
+        if (isClaudeCode()) {
+          const agentsMdSpecified =
+            flagsArgv.includes("--agents-md") ||
+            flagsArgv.includes("--no-agents-md");
+          const missing = missingClaudeCodeFlags({
+            yes: opts.yes,
+            template: opts.template,
+            git: opts.git,
+            skipGit: opts.skipGit,
+            skipInstall: opts.skipInstall,
+            useNpm: opts.useNpm,
+            usePnpm: opts.usePnpm,
+            useYarn: opts.useYarn,
+            useBun: opts.useBun,
+            name: opts.name,
+            agentsMd: agentsMdSpecified ? opts.agentsMd ?? true : undefined,
+            // arkor init operates on `process.cwd()`; basename(cwd) is
+            // the runtime default for the project name, so strict mode
+            // doesn't require an explicit `--name`. Passing `initCwd`
+            // lets the validator reject the pathological case where
+            // the cwd basename itself has no alphanumerics (e.g.
+            // `/tmp/!!!/`), which would otherwise sanitise to the
+            // generic `arkor-project` fallback.
+            requireProjectName: false,
+            initCwd: process.cwd(),
+          });
+          if (missing.length > 0) {
+            process.stderr.write(
+              formatClaudeCodeMissingMessage("arkor init", missing),
+            );
+            // Throw (don't `process.exit`) so the `finally` at the bottom of
+            // main() still runs telemetry shutdown / the deprecation notice.
+            // bin.ts recognises this sentinel and exits without re-printing
+            // the message.
+            throw new ClaudeCodeStrictExit();
+          }
+        }
         const packageManager = resolvePackageManager({
           useNpm: opts.useNpm,
           usePnpm: opts.usePnpm,
@@ -96,6 +151,7 @@ export async function main(argv: string[]): Promise<void> {
           packageManager,
           git: opts.git,
           skipGit: opts.skipGit,
+          allowBuilds: opts.allowBuilds,
           // Commander v13 leaves opts.agentsMd undefined when no flag is
           // passed; default to on so `arkor init` matches `create-arkor`.
           // Only explicit `--no-agents-md` (which sets `false`) opts out.

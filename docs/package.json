@@ -4,10 +4,11 @@
   "version": "0.0.0",
   "scripts": {
     "docs:dev": "mint dev",
-    "docs:build": "mint build",
+    "docs:validate": "mint validate",
     "broken-links": "mint broken-links"
   },
   "devDependencies": {
-    "mint": "4.2.536"
+    "@types/node": "catalog:",
+    "mint": "catalog:"
   }
 }

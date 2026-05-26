@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { CREATE_ARKOR_BIN } from "./bins";
+import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
 
 let parentDir: string;
@@ -77,6 +78,7 @@ beforeAll(() => {
 afterAll(() => {
   if (arkorPackDir) cleanup(arkorPackDir);
 });
+
 
 describe("create-arkor (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -178,6 +180,32 @@ describe("create-arkor (E2E)", () => {
     const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
     expect(log.code).toBe(0);
     expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
+  });
+
+  it("writes pnpm-workspace.yaml with allowBuilds esbuild=false by default (deny)", async () => {
+    const { result, targetDir } = await runCreateArkor([
+      "-y",
+      "--skip-install",
+      "--skip-git",
+      "--use-pnpm",
+    ]);
+    expect(result.code).toBe(0);
+    const yaml = readFileSync(join(targetDir, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+false/);
+  });
+
+  it("flips allowBuilds esbuild=true when --allow-builds is set", async () => {
+    const { result, targetDir } = await runCreateArkor([
+      "-y",
+      "--skip-install",
+      "--skip-git",
+      "--use-pnpm",
+      "--allow-builds",
+    ]);
+    expect(result.code).toBe(0);
+    const yaml = readFileSync(join(targetDir, "pnpm-workspace.yaml"), "utf8");
+    expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+true/);
+    expect(yaml).not.toMatch(/esbuild:[ \t]+false/);
   });
 
   it("skips AGENTS.md and CLAUDE.md when --no-agents-md is passed", async () => {
@@ -479,38 +507,271 @@ describe("create-arkor (E2E)", () => {
     expect(existsSync(join(target, "package.json"))).toBe(true);
   });
 
-  it.skipIf(SKIP_INSTALL).each([
-    { pm: "npm", lockfile: "package-lock.json" },
-    { pm: "pnpm", lockfile: "pnpm-lock.yaml" },
-  ])(
-    "runs real $pm install + git commit (gated by SKIP_E2E_INSTALL)",
-    async ({ pm, lockfile }) => {
-      if (!arkorTarball) throw new Error("arkor tarball wasn't packed in beforeAll");
-      // Copy the pre-packed tarball into parentDir so the scaffolded
-      // project (target/) can resolve it via a relative `file:../<tgz>`
-      // path. See the beforeAll comment for why we can't pass an
-      // absolute Windows path through pnpm 10's URL parser.
-      const tarballName = basename(arkorTarball);
-      copyFileSync(arkorTarball, join(parentDir, tarballName));
+  // Mirror of the install-matrix in arkor-init.test.ts. See
+  // ./install-matrix.ts for the case list and gating rules — both
+  // test files share that source so the matrix can't drift.
+  //
+  // Per-case the test stages a pre-packed `arkor-*.tgz` under
+  // parentDir and points the scaffold spec at the relative path —
+  // see the top-of-file beforeAll for why pnpm 10 can't parse an
+  // absolute Windows `file:` URI directly. Lockfile-by-flag drives
+  // the post-install assertion that verifies git init runs *after*
+  // install (so the bootstrap commit is reproducible).
+  const LOCKFILE_BY_FLAG: Record<"npm" | "pnpm" | "yarn" | "bun", string> = {
+    npm: "package-lock.json",
+    pnpm: "pnpm-lock.yaml",
+    yarn: "yarn.lock",
+    bun: "bun.lock",
+  };
+  for (const { label, flag } of INSTALL_CASES) {
+    it.skipIf(shouldSkipInstallCase(label))(
+      `runs real ${label} install + git commit (gated by SKIP_E2E_INSTALL)`,
+      async () => {
+        if (!arkorTarball) {
+          throw new Error("arkor tarball wasn't packed in beforeAll");
+        }
+        const tarballName = basename(arkorTarball);
+        copyFileSync(arkorTarball, join(parentDir, tarballName));
 
-      const { result, targetDir } = await runCreateArkor(
-        ["-y", `--use-${pm}`, "--git"],
-        { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
+        const { result, targetDir } = await runCreateArkor(
+          ["-y", `--use-${flag}`, "--git"],
+          { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
+        );
+        // create-arkor swallows `<pm> install` failures into a warning
+        // (so the user can retry manually) — same gotcha as
+        // arkor-init.test.ts. Surface the captured output eagerly when
+        // the install-matrix run is about to fail an assertion, so the
+        // CI logs aren't bare `expected false to be true` lines.
+        //
+        // Round 35 (PR #99) added a follow-up failure mode: install
+        // can throw AFTER writing node_modules, create-arkor's catch
+        // fires, and git is now also skipped — leaving result.code===0
+        // + node_modules present + .git/HEAD missing. Trigger the
+        // diagnostic dump for that combination too.
+        const expectedGit = existsSync(join(targetDir, ".git/HEAD"));
+        if (
+          result.code !== 0 ||
+          !existsSync(join(targetDir, "node_modules")) ||
+          !expectedGit
+        ) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[install-matrix:${label}] create-arkor missing expected artefact:\n` +
+              `  exit: ${result.code}\n` +
+              `  node_modules: ${existsSync(join(targetDir, "node_modules"))}\n` +
+              `  .git/HEAD: ${expectedGit}\n` +
+              `  --- stdout ---\n${result.stdout}\n` +
+              `  --- stderr ---\n${result.stderr}`,
+          );
+        }
+        expect(result.code).toBe(0);
+        // See arkor-init.test.ts for the node_modules invariant — the
+        // scaffold pins `nodeLinker: node-modules` for yarn so PnP can't
+        // hide deps from the arkor runtime.
+        expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
+        expect(existsSync(join(targetDir, ".git/HEAD"))).toBe(true);
+
+        const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
+        expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
+
+        // Lockfile-in-initial-commit invariant: the git-init prompt
+        // is surfaced *before* install so the user can walk away, but
+        // git init execution still happens *after* install — otherwise
+        // the lockfile wouldn't be tracked and the bootstrap commit
+        // wouldn't be reproducible.
+        const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
+        expect(tracked.stdout).toContain(LOCKFILE_BY_FLAG[flag]);
+      },
+      180_000,
+    );
+  }
+
+  describe("CLAUDECODE=1 strict mode", () => {
+    // Claude Code (the Anthropic agent CLI) spawns child processes with
+    // `CLAUDECODE=1` and cannot answer interactive prompts. Falling through
+    // to silent defaults would hide decisions the agent should be making, so
+    // `create-arkor` refuses to run unless every interactive-equivalent flag
+    // is supplied (or `--yes` opts back into the legacy "accept defaults"
+    // path). Unlike `arkor init`, this includes `[dir]` / `--name` because
+    // the otherwise-default project name (`arkor-project`) is generic enough
+    // that it almost always reflects an oversight rather than intent.
+    it("exits 1 with a flag list (and per-flag description) when no options are given (missing [dir])", async () => {
+      // Bypass `runCreateArkor` because that helper always injects
+      // `target` as the positional; to exercise the missing-[dir]
+      // branch we need an argv with no positional at all.
+      const result = await runCli(CREATE_ARKOR_BIN, [], parentDir, {
+        CLAUDECODE: "1",
+      });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        "create-arkor: CLAUDECODE=1 detected",
+      );
+      expect(result.stderr).toContain("[dir]");
+      expect(result.stderr).toContain("--template <triage|translate|redaction>");
+      expect(result.stderr).toContain("--git (recommended) or --skip-git");
+      expect(result.stderr).toContain("--use-pnpm");
+      expect(result.stderr).toContain(
+        "--agents-md (recommended) or --no-agents-md",
+      );
+      // Each flag is paired with a description so the agent can pick a
+      // value without round-tripping to the docs.
+      expect(result.stderr).toContain("Project directory");
+      expect(result.stderr).toContain("Starter template");
+      expect(result.stderr).toContain("git init");
+      expect(result.stderr).toContain("package manager");
+      expect(result.stderr).toContain("AGENTS.md");
+      // Sanity: exit happened before any scaffold work. Without [dir],
+      // a non-strict create-arkor run would have created
+      // `./arkor-project/` (its auto-derived default subdirectory) and
+      // a `package.json` inside it — not in parentDir itself — so
+      // asserting `parentDir/package.json` alone wouldn't catch a
+      // regression where strict mode failed and the scaffolder still
+      // ran. Assert that `parentDir` is byte-for-byte unchanged
+      // instead (it was empty going in via `makeTempDir`).
+      expect(existsSync(join(parentDir, "package.json"))).toBe(false);
+      expect(existsSync(join(parentDir, "arkor-project"))).toBe(false);
+      expect(readdirSync(parentDir)).toEqual([]);
+    });
+
+    it("still exits 1 when [dir] is given but other prompts are missing", async () => {
+      // Mirror an agent invocation that knows the project name but hasn't
+      // yet committed to template / git / pm / agents-md; the [dir]
+      // alone is not enough to bypass the strict check.
+      const { result } = await runCreateArkor([], { CLAUDECODE: "1" });
+      expect(result.code).toBe(1);
+      // `[dir]` is satisfied (runCreateArkor passes "target"), so the
+      // missing list must omit it.
+      expect(result.stderr).not.toContain("[dir]");
+      expect(result.stderr).toContain("--template");
+      expect(result.stderr).toContain("--git (recommended) or --skip-git");
+      expect(result.stderr).toContain(
+        "--agents-md (recommended) or --no-agents-md",
+      );
+    });
+
+    it.each([
+      ["empty string", ""],
+      ["whitespace only", "   "],
+      ["punctuation only", "!!!"],
+    ])(
+      "rejects --name %s because sanitise() would collapse it to the generic arkor-project fallback",
+      async (_label, name) => {
+        // ENG-736 PR review (#141): the previous check only looked at
+        // whether `--name` was defined, so empty strings and inputs that
+        // sanitise away to nothing both satisfied strict mode and then
+        // silently became `package.json: { name: "arkor-project" }`,
+        // exactly the silent-default outcome strict mode is meant to
+        // surface.
+        const result = await runCli(
+          CREATE_ARKOR_BIN,
+          [
+            "--name",
+            name,
+            "--template",
+            "triage",
+            "--skip-git",
+            "--skip-install",
+            "--no-agents-md",
+          ],
+          parentDir,
+          { CLAUDECODE: "1" },
+        );
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("[dir]");
+        // Even though `--name <something>` was passed, the requirement
+        // is reported as missing because the value would have collapsed
+        // to the fallback. The description hints at that subtlety.
+        expect(result.stderr).toContain("arkor-project");
+      },
+    );
+
+    it.each([
+      ["empty positional", ""],
+      ["whitespace-only positional", "   "],
+    ])(
+      "rejects %s under strict mode",
+      async (_label, dir) => {
+        // PR #141 review (Copilot): the motivating case is the empty
+        // string. `path.resolve("")` returns `process.cwd()` and
+        // would scaffold against the parent's alphanumeric basename
+        // without the early trim guard. Whitespace inputs would also
+        // fail strict mode via the downstream alphanumeric check on
+        // their own (since `resolve("   ")` resolves to a whitespace-
+        // basename path), but pinning both shapes here keeps the
+        // contract that empty-shaped positionals get the same
+        // rejection as `--name ""`.
+        const result = await runCli(
+          CREATE_ARKOR_BIN,
+          [
+            dir,
+            "--template",
+            "triage",
+            "--skip-git",
+            "--skip-install",
+            "--no-agents-md",
+          ],
+          parentDir,
+          { CLAUDECODE: "1" },
+        );
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("[dir]");
+        // Sanity: parent dir stays empty.
+        expect(readdirSync(parentDir)).toEqual([]);
+      },
+    );
+
+    it("accepts `create-arkor .` (resolves to the parent dir basename, not the literal `.`)", async () => {
+      // Regression for PR #141 review (codex + Copilot): the strict
+      // check used to compute the project name as `basename(opts.dir)`
+      // which is `"."` for `create-arkor .`, then sanitise() collapsed
+      // it to the `arkor-project` fallback and strict mode falsely
+      // refused the run. The check now mirrors `create-arkor`'s own
+      // default-name derivation (`basename(resolve(opts.dir))`), so
+      // `.` resolves to the parent dir's basename: a meaningful name.
+      const result = await runCli(
+        CREATE_ARKOR_BIN,
+        [
+          ".",
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        parentDir,
+        { CLAUDECODE: "1" },
       );
       expect(result.code).toBe(0);
-      expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
-      expect(existsSync(join(targetDir, ".git/HEAD"))).toBe(true);
+      // Sanity: the run reached scaffold (package.json is present in
+      // the parent dir because `.` was the target).
+      expect(existsSync(join(parentDir, "package.json"))).toBe(true);
+    });
 
-      const log = await runGit(targetDir, ["log", "-1", "--format=%s"]);
-      expect(log.stdout.trim()).toBe("Initial commit from Create Arkor");
+    it("runs to completion when every required flag is set", async () => {
+      const { result, targetDir } = await runCreateArkor(
+        [
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(0);
+      expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
+      expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(false);
+    });
 
-      // Lockfile-in-initial-commit invariant: the git-init prompt is
-      // surfaced *before* install so the user can walk away, but git init
-      // execution still happens *after* install — otherwise the lockfile
-      // wouldn't be tracked and the bootstrap commit wouldn't be reproducible.
-      const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
-      expect(tracked.stdout).toContain(lockfile);
-    },
-    180_000,
-  );
+    it("accepts --yes as a wholesale opt-out of the strict check", async () => {
+      // `-y` keeps the legacy "use defaults for everything" semantics for
+      // callers who have explicitly delegated those decisions.
+      const { result, targetDir } = await runCreateArkor(
+        ["-y", "--skip-install", "--skip-git"],
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(0);
+      expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
+    });
+  });
 });

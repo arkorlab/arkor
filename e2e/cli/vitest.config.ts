@@ -5,6 +5,15 @@ export default defineConfig({
     // Spawning Node + the bundled CLI bin takes ~600–1200 ms locally; the
     // default 5 s timeout is too tight for assertions that wait for `close`.
     testTimeout: 15_000,
+    // `beforeAll` in `arkor-init.test.ts` / `create-arkor.test.ts` runs
+    // `pnpm --filter arkor pack` to produce the tarball each test points
+    // at via `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:../<tgz>`. The
+    // default 10 s `hookTimeout` is enough on Linux/macOS but Windows CI
+    // runners have been observed taking 15–25 s for the same pack step
+    // (slower IO + setup-pnpm path resolution overhead), tripping flaky
+    // `Test timed out in beforeAll` failures. Bump to 30 s so the
+    // worst-case Windows pack still fits inside the hook.
+    hookTimeout: 30_000,
     // ENG-632 retry lives in `spawn-cli.ts` — see `runCli` and the pure
     // gate `shouldRetryAfterSigkill`. A vitest-level `retry` would rerun
     // on every assertion failure on every platform — too broad. The
