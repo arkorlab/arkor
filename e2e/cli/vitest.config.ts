@@ -5,17 +5,19 @@ export default defineConfig({
     // Spawning Node + the bundled CLI bin takes ~600–1200 ms locally; the
     // default 5 s timeout is too tight for assertions that wait for `close`.
     testTimeout: 15_000,
-    // `arkor-init.test.ts` and `create-arkor.test.ts` both have a `beforeAll`
-    // that runs `pnpm --filter arkor pack` to materialise a workspace
-    // tarball. On Linux that takes ~0.4 s, but on the Windows CI matrix the
-    // `pnpm` `.cmd` shim + cold workspace metadata reads routinely push past
-    // vitest's default 10 s `hookTimeout`, surfacing as a confusing
-    // "Hook timed out in 10000ms" failure that points at the `beforeAll`
-    // line rather than the actual `execFileSync` blocker. Bumping the cap
-    // to 30 s keeps Linux fast (the timeout is a ceiling, not a wait) and
-    // gives Windows enough headroom that intermittent shim slowness no
-    // longer trips the suite. `testTimeout` does NOT cover hooks, so it
-    // has to be set separately even though the value is similar in spirit.
+    // `beforeAll` in `arkor-init.test.ts` / `create-arkor.test.ts` runs
+    // `pnpm --filter arkor pack` to produce the tarball each test points
+    // at via `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:../<tgz>`. On Linux
+    // that takes ~0.4 s, but Windows CI runners have been observed taking
+    // 15–25 s for the same step (`pnpm` `.cmd` shim resolution overhead +
+    // cold workspace metadata reads + slower IO), tripping a confusing
+    // "Test timed out in beforeAll" / "Hook timed out in 10000ms" failure
+    // that points at the `beforeAll` line rather than the real blocker
+    // inside `execFileSync`. Bumping the cap to 30 s keeps Linux fast
+    // (the timeout is a ceiling, not a wait) and gives Windows enough
+    // headroom that intermittent shim slowness no longer trips the suite.
+    // `testTimeout` does NOT cover hooks, so it has to be set separately
+    // even though the value is similar in spirit.
     hookTimeout: 30_000,
     // ENG-632 retry lives in `spawn-cli.ts` — see `runCli` and the pure
     // gate `shouldRetryAfterSigkill`. A vitest-level `retry` would rerun

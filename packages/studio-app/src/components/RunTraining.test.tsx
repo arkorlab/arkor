@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RunTraining } from "./RunTraining";
 import { jsonResponse, textStreamResponse } from "../test-utils/responses";
@@ -125,13 +125,26 @@ describe("<RunTraining />", () => {
       }) as typeof fetch;
 
       render(<RunTraining />);
-      await vi.advanceTimersByTimeAsync(0);
+      // React 19 schedules commits through MessageChannel, which
+      // vi.useFakeTimers does not control. Without an act() boundary
+      // the commit can lag the microtask drain of
+      // advanceTimersByTimeAsync, leaving the DOM stale when a
+      // synchronous getByRole runs immediately after. Wrap each timer
+      // advance in act() so React flushes the commit before the
+      // following assertions. Observed flaking only on Windows CI; the
+      // microtask ordering on other platforms happened to land the
+      // commit before getByRole by coincidence.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
       expect(manifestCalls).toBe(1);
       expect(
         screen.getByRole("button", { name: /run training/i }),
       ).toBeDisabled();
 
-      await vi.advanceTimersByTimeAsync(5000);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
       expect(manifestCalls).toBe(2);
 
       const enabled = screen.getByRole("button", {
