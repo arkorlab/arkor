@@ -58,13 +58,13 @@ jobs:
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
-      # No `cache: pnpm`. The release path policy is uniform: no
-      # actions/cache-restored pnpm store anywhere in the chain. This
-      # preflight job only reads package.json and probes npm, so the
-      # rule is defensive rather than load-bearing here, but keeping
-      # it uniform prevents drift where a future preflight step (e.g.
-      # adding a `pnpm install`-backed lint or typecheck gate) would
-      # silently start consuming a restored cache.
+      # No `cache: pnpm`. The release path policy is uniform: no pnpm
+      # store restored from a prior run's cache anywhere in the chain.
+      # This preflight job only reads package.json and probes npm, so
+      # the rule is defensive rather than load-bearing here, but
+      # keeping it uniform prevents drift where a future preflight
+      # step (e.g. adding a `pnpm install`-backed lint or typecheck
+      # gate) would silently start consuming a restored cache.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -163,14 +163,14 @@ jobs:
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
       # No `cache: pnpm`. Same reasoning as the no-Playwright-cache step
-      # further down: a pnpm store restored from a prior run's
-      # actions/cache entry is an unauthenticated input. This test
-      # job is the gate that decides whether build.yaml runs at all
-      # (build.yaml does its own clean install on a separate runner,
-      # so no on-disk state is shared with it directly), so a
-      # poisoned cache here is dangerous because it can produce a
-      # misleading-green test signal that lets a bad release through.
-      # The marginal install-time savings are not worth that.
+      # further down: a pnpm store restored from a prior run's cache
+      # is an unauthenticated input. This test job is the gate that
+      # decides whether build.yaml runs at all (build.yaml does its
+      # own clean install on a separate runner, so no on-disk state
+      # is shared with it directly), so a poisoned cache here is
+      # dangerous because it can produce a misleading-green test
+      # signal that lets a bad release through. The marginal
+      # install-time savings are not worth that.
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
