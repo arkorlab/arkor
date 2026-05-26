@@ -143,28 +143,20 @@ export function defaultArkorCloudApiUrl(
       : undefined;
   if (fromEnv !== undefined) return fromEnv;
   // Both shapes carry an optional `arkorCloudApiUrl`: anonymous since
-  // signup, OAuth since login. `!= null` (not truthy) keeps an empty
-  // string round-tripping the same way the env-var branch above
-  // does — an operator who logged in with `ARKOR_CLOUD_API_URL=""`
-  // intentionally to surface config errors should see that
-  // propagated through the persisted credentials, not silently
-  // substituted with production. Falling back to production for
-  // *missing* `arkorCloudApiUrl` (legacy creds, e.g. tokens written
-  // before the field existed) is still safe: the worst outcome
-  // there is a 401 against the wrong control plane, which is what
-  // the operator hits today on those legacy tokens anyway.
-  // `readCredentials()` is a raw `JSON.parse` cast without schema
-  // validation, so a hand-edited or partially-written credentials file
-  // can leave `arkorCloudApiUrl` as `null`. Compare against `null`
-  // explicitly (instead of `!== undefined`) so the URL falls through
-  // to the production default in that case rather than reaching
-  // `stripTrailingSlashes(null)`.
-  // `readCredentials()` is a raw `JSON.parse` cast without schema
-  // validation, so a hand-edited or partially-written credentials file
-  // can leave `arkorCloudApiUrl` as `null` at runtime even though the
-  // type says `string | undefined`. A `typeof === "string"` check
-  // accepts only real strings, so null / undefined both fall through
-  // to the production default rather than reaching
+  // signup, OAuth since login. An empty string round-trips the same
+  // way the env-var branch above does, so an operator who logged in
+  // with `ARKOR_CLOUD_API_URL=""` intentionally to surface config
+  // errors sees that propagated rather than silently substituted with
+  // production. Falling back to production for *missing*
+  // `arkorCloudApiUrl` (legacy creds, e.g. tokens written before the
+  // field existed) is still safe: the worst outcome there is a 401
+  // against the wrong control plane, which is what the operator hits
+  // today on those legacy tokens anyway. `typeof === "string"` is the
+  // narrowing check — `readCredentials()` is a raw `JSON.parse` cast
+  // without schema validation, so a hand-edited or partially-written
+  // credentials file can leave the field as `null` at runtime even
+  // though the type says `string | undefined`; the typeof guard
+  // rejects both `null` and `undefined` so neither reaches
   // `stripTrailingSlashes(null)`.
   const url = credentials?.arkorCloudApiUrl;
   if (typeof url === "string") {

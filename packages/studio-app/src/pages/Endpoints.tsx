@@ -301,11 +301,12 @@ function NewEndpointForm({
   const inFlightSlugRef = useRef<string>("");
   const onMaybeCreatedRef = useRef(onMaybeCreated);
   // Refresh the captured callback in an effect rather than during
-  // render. Reads of `.current` only happen in async handlers / effects
-  // below, so this still picks up the latest closure each commit.
+  // render. The `[onMaybeCreated]` dep array skips the effect on
+  // renders where the prop reference is stable (parents that wrap
+  // it in `useCallback`), while still picking up every real change.
   useEffect(() => {
     onMaybeCreatedRef.current = onMaybeCreated;
-  });
+  }, [onMaybeCreated]);
   useEffect(() => {
     return () => {
       if (inFlightRef.current) {
