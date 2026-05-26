@@ -80,6 +80,41 @@ function collisionMessage(name: string): string {
 }
 
 /**
+ * Disambiguate a relative path that starts with `-` so it doesn't
+ * look like an option/switch to `cd` (POSIX shells, PowerShell)
+ * or any other CLI the path is forwarded to.
+ *
+ * Round 40 follow-up (Copilot, PR #99): a leading dash makes
+ * POSIX shells, PowerShell, AND `cmd.exe` treat the argument as
+ * an option/switch even when QUOTED. `cd '-foo'` and
+ * `cd "-foo"` both still fail with "invalid option" in bash,
+ * because the shell strips the quotes before `cd` sees the
+ * argument. The portable fix is path-disambiguation: prefix a
+ * relative `-`-starting path with `./` (or `.\\` on Windows).
+ * `./-foo` and `.\-foo` are unambiguous filesystem paths the
+ * shell hands to `cd` verbatim, sidestepping the option parser
+ * entirely. Absolute paths never start with `-`, so this is a
+ * no-op for them.
+ *
+ * Round 40 follow-up #5 (Copilot, PR #149): factored out of
+ * `shellQuoteIfNeeded` so `buildCdLine`'s `%`-on-Windows PS
+ * fallback path can share the exact same disambiguation rule
+ * instead of re-implementing it (where the two could drift).
+ * Platform is passed in (not read from `process.platform`)
+ * because the `%`-fallback call site is already gated on
+ * `isWindowsPercentPath` and the test suite drives the helper
+ * across both platforms via `withPlatform`.
+ */
+function disambiguateLeadingDashPath(
+  value: string,
+  platform: NodeJS.Platform,
+): string {
+  if (!value.startsWith("-")) return value;
+  const prefix = platform === "win32" ? ".\\" : "./";
+  return `${prefix}${value}`;
+}
+
+/**
  * Shell-quote a path so the `cd ${path}` recovery hints survive
  * paths with spaces or metacharacters. Round-39 Copilot review:
  * `create-arkor "My App"` would otherwise emit a copy-paste-
@@ -145,41 +180,6 @@ function collisionMessage(name: string): string {
  *     cmd / PS lines would more than double the closing summary
  *     length for a hazard most users will never hit.
  */
-/**
- * Disambiguate a relative path that starts with `-` so it doesn't
- * look like an option/switch to `cd` (POSIX shells, PowerShell)
- * or any other CLI the path is forwarded to.
- *
- * Round 40 follow-up (Copilot, PR #99): a leading dash makes
- * POSIX shells, PowerShell, AND `cmd.exe` treat the argument as
- * an option/switch even when QUOTED. `cd '-foo'` and
- * `cd "-foo"` both still fail with "invalid option" in bash,
- * because the shell strips the quotes before `cd` sees the
- * argument. The portable fix is path-disambiguation: prefix a
- * relative `-`-starting path with `./` (or `.\\` on Windows).
- * `./-foo` and `.\-foo` are unambiguous filesystem paths the
- * shell hands to `cd` verbatim, sidestepping the option parser
- * entirely. Absolute paths never start with `-`, so this is a
- * no-op for them.
- *
- * Round 40 follow-up #5 (Copilot, PR #149): factored out of
- * `shellQuoteIfNeeded` so `buildCdLine`'s `%`-on-Windows PS
- * fallback path can share the exact same disambiguation rule
- * instead of re-implementing it (where the two could drift).
- * Platform is passed in (not read from `process.platform`)
- * because the `%`-fallback call site is already gated on
- * `isWindowsPercentPath` and the test suite drives the helper
- * across both platforms via `withPlatform`.
- */
-function disambiguateLeadingDashPath(
-  value: string,
-  platform: NodeJS.Platform,
-): string {
-  if (!value.startsWith("-")) return value;
-  const prefix = platform === "win32" ? ".\\" : "./";
-  return `${prefix}${value}`;
-}
-
 export function shellQuoteIfNeeded(value: string): string {
   value = disambiguateLeadingDashPath(value, process.platform);
   // Safe-unquote criteria: only alphanumerics + a small set of
