@@ -13,7 +13,14 @@ export function sanitise(name: string): string {
       .toLowerCase()
       .replaceAll(/[^a-z0-9-]/g, "-")
       .replaceAll(/-+/g, "-")
-      .replaceAll(/^-+|-+$/g, "")
+      // Split into two passes instead of `/^-+|-+$/g`: the alternation
+      // with two greedy `-+` branches is a CodeQL polynomial-ReDoS
+      // shape on strings made entirely of `-`. After the collapse
+      // above the input has at most a single leading / trailing run,
+      // and anchored regexes only match once, so `replace` (not
+      // `replaceAll`, which requires the `g` flag) is the right shape.
+      .replace(/^-+/, "")
+      .replace(/-+$/, "")
       .slice(0, 60) || "arkor-project"
   );
 }

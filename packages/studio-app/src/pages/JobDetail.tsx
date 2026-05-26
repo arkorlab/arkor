@@ -145,7 +145,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
         }
         case "checkpoint.saved": {
           message = `step=${typeof p.step === "number" ? p.step : "—"}`;
-        
+
         break;
         }
         // No default

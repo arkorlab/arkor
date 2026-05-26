@@ -25,14 +25,26 @@ import { SDK_VERSION } from "./version";
 // tsdown's `define` is keyed against the literal text
 // `"globalThis.__ARKOR_POSTHOG_KEY__"` / `"globalThis.__ARKOR_POSTHOG_HOST__"`,
 // so the whole member access is the replacement target at build time.
-declare global {
-  var __ARKOR_POSTHOG_KEY__: string | undefined;
-  var __ARKOR_POSTHOG_HOST__: string | undefined;
-}
-
-const POSTHOG_KEY: string = globalThis.__ARKOR_POSTHOG_KEY__ ?? "";
-const POSTHOG_HOST: string =
-  globalThis.__ARKOR_POSTHOG_HOST__ ?? "https://us.i.posthog.com";
+//
+// `declare global { var ... }` would add these symbols to the bare-
+// identifier namespace of every SDK consumer. A cast wrapper around
+// `globalThis` breaks rolldown's member-expression match for `define`
+// (the version stops getting inlined). Suppress the type error at the
+// read sites instead so the literal `globalThis.X` stays intact.
+// Assign through explicitly-typed locals so the values aren't `any`
+// after the `@ts-expect-error` suppression. The unsafe-assignment
+// disables follow because the suppressed read is typed `any`; the
+// local annotations re-establish `string | undefined`.
+// @ts-expect-error: tsdown `define` constant supplied at build time;
+// intentionally not declared on `globalThis` for consumers.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+const inlinedPosthogKey: string | undefined = globalThis.__ARKOR_POSTHOG_KEY__;
+// @ts-expect-error: tsdown `define` constant supplied at build time;
+// intentionally not declared on `globalThis` for consumers.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+const inlinedPosthogHost: string | undefined = globalThis.__ARKOR_POSTHOG_HOST__;
+const POSTHOG_KEY: string = inlinedPosthogKey ?? "";
+const POSTHOG_HOST: string = inlinedPosthogHost ?? "https://us.i.posthog.com";
 
 function envFlag(name: string): boolean {
   const v = process.env[name];

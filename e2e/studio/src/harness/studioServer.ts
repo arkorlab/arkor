@@ -285,7 +285,10 @@ async function spawnStudio(
         // Test the chunk first (handles the line landing in one read)
         // and fall back to the rolling buffer (handles the rare split
         // where "Arkor Studio" and "running on" arrive in two chunks).
-        if (chunk.includes('Arkor Studio running on') || stdout.toString().includes('Arkor Studio running on')) {
+        // Use the shared regex constant so the substring doesn't drift;
+        // `prefer-includes` would push us back to a hardcoded literal.
+        // eslint-disable-next-line @typescript-eslint/prefer-includes
+        if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.toString())) {
           settle(resolve);
         }
       };
@@ -345,7 +348,9 @@ async function spawnStudio(
       // `onData` would never fire and we'd hang until
       // `READY_TIMEOUT_MS`. Probe the rolling buffer once after
       // attaching listeners to catch that pre-buffered line.
-      if (stdout.toString().includes('Arkor Studio running on')) {
+      // Same shared-constant rationale as the `onData` callback above.
+      // eslint-disable-next-line @typescript-eslint/prefer-includes
+      if (READY_LINE_PATTERN.test(stdout.toString())) {
         settle(resolve);
       }
     });

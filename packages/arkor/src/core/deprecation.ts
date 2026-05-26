@@ -40,4 +40,4 @@ export function tapDeprecation(res: Response, sdkVersion: string): void {
   });
 }
 
-export {type DeprecationNotice} from "@arkor/cloud-api-client";
+export type { DeprecationNotice } from "@arkor/cloud-api-client";

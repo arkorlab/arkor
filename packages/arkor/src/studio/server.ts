@@ -374,9 +374,14 @@ export function buildStudioApp(options: StudioServerOptions) {
     });
     const stream = new ReadableStream({
       start(controller) {
+        // `Buffer` extends `Uint8Array`, so enqueue the raw chunk
+        // directly: decoding each `Buffer` to a UTF-8 string and re-
+        // encoding would corrupt multi-byte sequences that the kernel
+        // happens to split across reads. The terminator line still
+        // needs encoding since it originates as a JS string.
         const enc = new TextEncoder();
-        child.stdout.on("data", (d: Buffer) => controller.enqueue(enc.encode(d.toString("utf8"))));
-        child.stderr.on("data", (d: Buffer) => controller.enqueue(enc.encode(d.toString("utf8"))));
+        child.stdout.on("data", (d: Buffer) => controller.enqueue(d));
+        child.stderr.on("data", (d: Buffer) => controller.enqueue(d));
         child.on("close", (code) => {
           controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
           controller.close();
@@ -584,7 +589,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         // (replacement keeps word boundaries readable) and backslash-
         // escape the two reserved chars per the quoted-pair rule.
         const safeMessage = deprecationNotice.message
-           
+
           // Control chars are exactly what we strip; the intent is
           // to deny CR / LF / NUL / etc. from leaking into the header.
           // eslint-disable-next-line no-control-regex

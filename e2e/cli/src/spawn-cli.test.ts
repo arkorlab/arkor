@@ -218,7 +218,7 @@ describe("runCli orchestration", () => {
     // output and so we can assert it fired.
     stderrSpy = vi
       .spyOn(process.stderr, "write")
-       
+
       .mockImplementation(() => true);
   });
 

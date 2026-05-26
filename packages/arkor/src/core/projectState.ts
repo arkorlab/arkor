@@ -69,7 +69,13 @@ export async function ensureProjectState(
     baseName
       .toLowerCase()
       .replaceAll(/[^a-z0-9-]/g, "-")
-      .replaceAll(/^-+|-+$/g, "")
+      // Split into two passes instead of `/^-+|-+$/g`: the alternation
+      // with two greedy `-+` branches is a CodeQL polynomial-ReDoS
+      // shape on strings made entirely of `-`. Anchored regexes only
+      // match once, so `replace` (not `replaceAll`, which requires the
+      // `g` flag) is the right shape.
+      .replace(/^-+/, "")
+      .replace(/-+$/, "")
       .slice(0, 40) || "project";
 
   let project: { id: string; slug: string };

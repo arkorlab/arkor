@@ -153,9 +153,23 @@ export function defaultArkorCloudApiUrl(
   // before the field existed) is still safe: the worst outcome
   // there is a 401 against the wrong control plane, which is what
   // the operator hits today on those legacy tokens anyway.
-  if (credentials?.arkorCloudApiUrl !== undefined) {
+  // `readCredentials()` is a raw `JSON.parse` cast without schema
+  // validation, so a hand-edited or partially-written credentials file
+  // can leave `arkorCloudApiUrl` as `null`. Compare against `null`
+  // explicitly (instead of `!== undefined`) so the URL falls through
+  // to the production default in that case rather than reaching
+  // `stripTrailingSlashes(null)`.
+  // `readCredentials()` is a raw `JSON.parse` cast without schema
+  // validation, so a hand-edited or partially-written credentials file
+  // can leave `arkorCloudApiUrl` as `null` at runtime even though the
+  // type says `string | undefined`. A `typeof === "string"` check
+  // accepts only real strings, so null / undefined both fall through
+  // to the production default rather than reaching
+  // `stripTrailingSlashes(null)`.
+  const url = credentials?.arkorCloudApiUrl;
+  if (typeof url === "string") {
     // Same multi-slash strip as the env-var branch above.
-    return stripTrailingSlashes(credentials.arkorCloudApiUrl);
+    return stripTrailingSlashes(url);
   }
   return "https://api.arkor.ai";
 }

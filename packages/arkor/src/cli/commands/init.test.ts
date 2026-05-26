@@ -267,7 +267,7 @@ describe("runInit", () => {
     // Branch coverage for `err instanceof Error ? err.message : String(err)`
     // around install. The CLI's warn line must still render even when a
     // dependency throws a plain string/object.
-     
+
     vi.mocked(install).mockRejectedValueOnce("rate-limited" as unknown as Error);
     await expect(
       runInit({
