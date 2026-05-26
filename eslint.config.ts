@@ -455,4 +455,17 @@ export default defineConfig(
       "unicorn/no-process-exit": "off",
     },
   },
+
+  // Source-side CLI entries (`**/src/bin.ts`) need to keep a `#!/usr/bin
+  // /env node` shebang because tsdown carries it through to `dist/bin.mjs`,
+  // and `package.json#bin` points at the built file. `n/hashbang` checks
+  // shebangs against `package.json#bin`'s declared paths and only matches
+  // the BUILT file, so it tries to strip the shebang from the source.
+  // Disable here so the source can keep it.
+  {
+    files: ["**/src/bin.ts"],
+    rules: {
+      "n/hashbang": "off",
+    },
+  },
 );
