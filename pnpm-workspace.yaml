@@ -11,17 +11,21 @@ packages:
 # supply-chain guards above. Workspace-internal links (`workspace:*`)
 # stay inline.
 #
-# Excluded: the published packages' runtime `dependencies`
-# (`packages/arkor` and `packages/create-arkor`). Those keep literal
-# semver because the release workflow publishes via `npm publish`
-# (chosen so the npm CLI embeds `README.md` into the registry
-# packument's `readme` field; see `.github/workflows/build.yaml`),
+# Excluded: BOTH the runtime `dependencies` AND the `devDependencies`
+# of the published packages (`packages/arkor` and `packages/create-arkor`).
+# Both fields keep literal semver because the release workflow publishes
+# via `npm publish` (chosen so the npm CLI embeds `README.md` into the
+# registry packument's `readme` field; see `.github/workflows/build.yaml`),
 # and `npm publish` does not rewrite the pnpm-specific `catalog:`
-# protocol, so consumers would see `EUNSUPPORTEDPROTOCOL`. Their
-# `devDependencies` are unaffected: the field still ships in the
-# published `package.json`, but consumer-side `npm install <pkg>`
-# never installs a dependency's devDependencies, so `catalog:` there
-# is never resolved at install time.
+# protocol on any deps field. A published `package.json` carrying
+# `"<dep>": "catalog:"` anywhere would surface as `EUNSUPPORTEDPROTOCOL`
+# the moment a consumer (or any tool / scanner / CI flow) tries to
+# resolve the spec via npm/yarn/bun. `devDependencies` are technically
+# not auto-installed by `npm install <pkg>`, but they ship in the
+# published manifest and ARE resolved by `npm install --include=dev`,
+# `npm ci` inside a clone of the published artifact, `npm audit`, some
+# SCA scanners, and downstream tooling that walks the manifest. Keeping
+# both fields literal sidesteps the entire class of failure modes.
 catalog:
   "@fontsource-variable/geist": "^5.1.0"
   "@fontsource-variable/geist-mono": "^5.1.0"
