@@ -363,7 +363,7 @@ export default defineConfig(
       // as they appear.
       "vitest/no-standalone-expect": [
         "error",
-        { additionalTestBlockFunctions: ["onPosix"] },
+        { additionalTestBlockFunctions: ["onPosix", "testFn"] },
       ],
       // Test stubs and mock callbacks routinely use empty function bodies.
       "@typescript-eslint/no-empty-function": "off",
@@ -412,6 +412,21 @@ export default defineConfig(
       // can't see that without a `this: void` annotation it doesn't
       // control.
       "@typescript-eslint/unbound-method": "off",
+      // Tests routinely chain `expect((await fetch(...)).status).toBe(...)`
+      // and `expect((await res.json()).error).toMatch(...)`. Breaking each
+      // into a local variable scatters the arrange step away from the
+      // assertion. Keep the rule on in production where the noise of an
+      // extra const is worth the readability boost.
+      "unicorn/no-await-expression-member": "off",
+      // Tests legitimately delete env vars / object keys by dynamically-
+      // computed keys (cleanup of `process.env` mutations etc.).
+      "@typescript-eslint/no-dynamic-delete": "off",
+      // Conditional `expect()` inside try/finally is a normal test pattern
+      // for cleanup-after-assertion flows.
+      "vitest/no-conditional-expect": "off",
+      // Test titles often quote command names or template literals
+      // (`it("\`--git\` works", ...)`); the strict title format complains.
+      "vitest/valid-title": "off",
     },
   },
 
