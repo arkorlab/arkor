@@ -85,16 +85,27 @@ function collisionMessage(name: string): string {
  * or any other CLI the path is forwarded to.
  *
  * Round 40 follow-up (Copilot, PR #99): a leading dash makes
- * POSIX shells, PowerShell, AND `cmd.exe` treat the argument as
- * an option/switch even when QUOTED. `cd '-foo'` and
- * `cd "-foo"` both still fail with "invalid option" in bash,
- * because the shell strips the quotes before `cd` sees the
- * argument. The portable fix is path-disambiguation: prefix a
- * relative `-`-starting path with `./` (or `.\\` on Windows).
- * `./-foo` and `.\-foo` are unambiguous filesystem paths the
- * shell hands to `cd` verbatim, sidestepping the option parser
- * entirely. Absolute paths never start with `-`, so this is a
- * no-op for them.
+ * POSIX `cd` and PowerShell's `Set-Location` (aliased as `cd`)
+ * treat the argument as an option/switch even when QUOTED.
+ * `cd '-foo'` and `cd "-foo"` both still fail with
+ * "invalid option" in bash, because the shell strips the quotes
+ * before `cd` sees the argument. PowerShell's `Set-Location`
+ * has the same problem: it parses positional / parameter
+ * arguments before honouring the quote layer, so `cd '-foo'`
+ * becomes `Set-Location -foo` and `-f` is interpreted as
+ * `-Filter`. cmd.exe's `cd` is different: it takes a single
+ * positional and only knows the `/D`-style switch family, so
+ * a leading-dash directory is actually safe in cmd. The
+ * disambiguation is still applied uniformly (including for
+ * cmd users) so the rule stays simple and so the same
+ * recovery hint reads correctly in whichever shell the user
+ * actually pastes into. The portable fix is
+ * path-disambiguation: prefix a relative `-`-starting path
+ * with `./` (or `.\\` on Windows). `./-foo` and `.\-foo` are
+ * unambiguous filesystem paths the shell hands to `cd`
+ * verbatim, sidestepping the option parser entirely.
+ * Absolute paths never start with `-`, so this is a no-op
+ * for them.
  *
  * Round 40 follow-up #5 (Copilot, PR #149): factored out of
  * `shellQuoteIfNeeded` so `buildCdLine`'s `%`-on-Windows PS
