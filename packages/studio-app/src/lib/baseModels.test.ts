@@ -24,7 +24,7 @@ describe("baseModels", () => {
     // are accepted. The regex allows that shape while still rejecting
     // empty or otherwise malformed entries.
     for (const m of SUPPORTED_BASE_MODELS) {
-      expect(m).toMatch(/^[A-Za-z0-9][A-Za-z0-9./_-]*$/);
+      expect(m).toMatch(/^[A-Z0-9][\w./-]*$/i);
     }
   });
 });

@@ -151,7 +151,7 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   const app = new Hono();
 
-  const loopbackHostPattern = /^(127\.0\.0\.1|localhost)(:\d+)?$/;
+  const loopbackHostPattern = /^(?:127\.0\.0\.1|localhost)(?::\d+)?$/;
   const jobEventsPathPattern = /^\/api\/jobs\/[^/]+\/events$/;
 
   // Host-header guard for every route, including static HTML that carries the

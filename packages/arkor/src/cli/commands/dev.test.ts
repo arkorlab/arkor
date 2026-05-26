@@ -599,7 +599,7 @@ describe("runDev", () => {
     // Token file lives under the same directory as credentials.json.
     expect(existsSync(studioTokenPath())).toBe(true);
     const contents = readFileSync(studioTokenPath(), "utf8");
-    expect(contents).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(contents).toMatch(/^[\w-]+$/);
 
     expect(serve).toHaveBeenCalledTimes(1);
     const arg = vi.mocked(serve).mock.calls[0]?.[0] as {

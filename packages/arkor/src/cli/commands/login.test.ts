@@ -473,7 +473,7 @@ describe("runLogin", () => {
       .mockImplementation(((c: unknown) => {
         writes.push(String(c));
         const buf = writes.join("");
-        const m = /Browser: (https:\/\/[^\s]+)/.exec(buf);
+        const m = /Browser: (https:\/\/\S+)/.exec(buf);
         if (m && !firedCallback) {
           firedCallback = true;
           const parsed = new URL(m[1] as string);

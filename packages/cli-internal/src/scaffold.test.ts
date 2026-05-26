@@ -374,7 +374,7 @@ describe("scaffold", () => {
     // mentions inside prose / backticks are just text that must be
     // preserved verbatim.
     const countAnchored = (s: string, marker: string): number => {
-      const re = new RegExp(String.raw`(?:^|\n)${marker.replaceAll(/[.*+?^${}()|[\\]\\\\]/g, String.raw`\\$&`)}`, "g");
+      const re = new RegExp(String.raw`(?:^|\n)${marker.replaceAll(/[.*+?^${}()|[\\]\\\\\]/g, String.raw`\\$&`)}`, "g");
       return (s.match(re) ?? []).length;
     };
 

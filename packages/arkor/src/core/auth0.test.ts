@@ -12,9 +12,9 @@ import {
 describe("generatePkce", () => {
   it("produces URL-safe base64 values", () => {
     const pkce = generatePkce();
-    expect(pkce.verifier).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(pkce.challenge).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(pkce.state).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(pkce.verifier).toMatch(/^[\w-]+$/);
+    expect(pkce.challenge).toMatch(/^[\w-]+$/);
+    expect(pkce.state).toMatch(/^[\w-]+$/);
     expect(pkce.verifier.length).toBeGreaterThanOrEqual(43);
     expect(pkce.challenge.length).toBe(43);
   });
