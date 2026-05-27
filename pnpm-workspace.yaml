@@ -60,7 +60,7 @@ catalog:
   tailwindcss: "^4.0.0"
   tsdown: "^0.21.9"
   turbo: "^2.9.14"
-  typescript: "^5"
+  typescript: "^6"
   typescript-eslint: "^8.59.4"
   vite: "^6.0.0"
   vitest: "^4.1.5"
