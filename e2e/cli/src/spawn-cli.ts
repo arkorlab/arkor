@@ -26,9 +26,11 @@ let bunBinPath: string | undefined | null;
  * Resolve the `bun` executable on PATH and cache the result.
  * Returns `undefined` when bun isn't installed; callers (the bun
  * runtime test suite) skip themselves in that case so local dev
- * machines without bun aren't penalised. CI provisions bun
- * explicitly for the bun-runtime job, so the cache hits on the
- * runner's pre-installed binary.
+ * machines without bun aren't penalised. CI provisions bun on
+ * every build-matrix job (see `.github/workflows/ci.yaml`'s
+ * `Setup bun` step in the `build` job), so this probe finds the
+ * runner's pre-installed binary on every CI run and the bun
+ * runtime suite is never skipped there.
  *
  * The cache distinguishes "not yet looked up" (`undefined` initial
  * state of `bunBinPath`) from "looked up and not found" (`null`)
@@ -158,10 +160,16 @@ export function cleanup(dir: string): void {
 }
 
 /**
- * Spawn a CLI binary as a Node child in `cwd`, capture stdio, return on exit.
+ * Spawn a CLI binary in `cwd` under the selected JavaScript runtime,
+ * capture stdio, and return on exit.
  *
- * - `process.execPath` is used so we don't depend on `chmod +x dist/bin.mjs`
- *   on CI runners or on Windows shebang handling.
+ * - The `runtime` arg picks the executable. `"node"` (default) uses
+ *   `process.execPath` so we don't depend on `chmod +x dist/bin.mjs`
+ *   on CI runners or on Windows shebang handling, and the spawned
+ *   CLI runs under the same Node that runs vitest. `"bun"` resolves
+ *   the `bun` binary on PATH (see `findBunBin()`); callers gate
+ *   themselves on `findBunBin() !== undefined` so this branch only
+ *   fires when bun is installed.
  * - `CI=1` makes both `bin.ts`'s and `prompts.ts`'s `isInteractive()` return
  *   false, so prompts short-circuit instead of reading stdin (we leave stdin
  *   ignored).

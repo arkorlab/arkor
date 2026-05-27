@@ -19,7 +19,9 @@ import { cleanup, findBunBin, makeTempDir, runCli } from "./spawn-cli";
 // runtime) instead of `node` and assert it produces the same
 // observable output. They auto-skip when `bun` isn't on PATH so
 // local developers without bun installed don't see spurious
-// failures; CI provisions bun for the dedicated bun-runtime job.
+// failures; CI provisions bun on every build-matrix job (via the
+// `Setup bun` step in `.github/workflows/ci.yaml`'s `build` job),
+// so these tests always run on CI rather than skipping.
 const BUN_BIN = findBunBin();
 
 describe.skipIf(BUN_BIN === undefined)("arkor CLI under the Bun runtime", () => {
