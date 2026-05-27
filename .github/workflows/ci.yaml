@@ -606,8 +606,10 @@ jobs:
 
       # GitHub native code coverage (public preview, announced 2026-05-26).
       # Uploads the Cobertura XML produced alongside lcov.info by each
-      # package's vitest v8 coverage reporter (and by c8 for e2e/cli) so
-      # GitHub can display per-PR coverage % directly on pull requests.
+      # package's vitest v8 coverage reporter so GitHub can display
+      # per-PR coverage % directly on pull requests. e2e/cli is excluded:
+      # see the skip note below for the c8 / cobertura empty-output
+      # rationale.
       # Codecov stays authoritative while the feature is in preview; once
       # GitHub Coverage reaches GA we can decide whether to drop one path.
       # `fail-on-error: false` mirrors the Codecov uploads' philosophy:
