@@ -656,7 +656,7 @@ jobs:
       # c8's cobertura reporter currently emits an empty 402-byte shell
       # here: the istanbul cobertura writer doesn't pick up c8's
       # sourcemap-remapped coverage of the spawned CLI children the way
-      # the lcov reporter does. The Codecov upload below stays on the
+      # the lcov reporter does. The Codecov upload above stays on the
       # lcov path, which has produced usable signal historically; once
       # the c8 ↔ cobertura gap is closed (or we switch e2e/cli off c8),
       # re-add this upload alongside the others.
