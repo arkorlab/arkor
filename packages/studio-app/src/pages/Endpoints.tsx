@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type SyntheticEvent,
@@ -300,13 +301,16 @@ function NewEndpointForm({
   const inFlightRef = useRef(false);
   const inFlightSlugRef = useRef<string>("");
   const onMaybeCreatedRef = useRef(onMaybeCreated);
-  // Refresh the captured callback in an effect rather than during
-  // render. The `[onMaybeCreated]` dep array skips the effect on
-  // renders where the prop reference is stable (parents that wrap
-  // it in `useCallback`), while still picking up every real change.
-  useEffect(() => {
+  // `useLayoutEffect` with no dep array (not `useEffect([onMaybeCreated])`)
+  // so the ref is refreshed synchronously after every commit. The
+  // unmount cleanup below reads `onMaybeCreatedRef.current`, and a
+  // dep-gated `useEffect` would leave the ref stale on the
+  // commit-then-unmount-without-deps-change path React allows
+  // (the effect for the latest render never runs but cleanup still
+  // fires with whatever value the previous effect installed).
+  useLayoutEffect(() => {
     onMaybeCreatedRef.current = onMaybeCreated;
-  }, [onMaybeCreated]);
+  });
   useEffect(() => {
     return () => {
       if (inFlightRef.current) {

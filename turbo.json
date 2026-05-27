@@ -1,5 +1,9 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
+  "globalDependencies": [
+    "eslint.config.ts",
+    ".oxlintrc.json"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
