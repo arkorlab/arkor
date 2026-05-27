@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import * as clack from "@clack/prompts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +22,7 @@ vi.mock("open", () => ({
 
 import { serve } from "@hono/node-server";
 import open from "open";
+
 // Re-import the credentials module as a namespace so individual tests can
 // `vi.spyOn` on `writeCredentials` to inject deterministic fs failures
 // regardless of host OS / filesystem semantics.
@@ -31,6 +33,7 @@ import {
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
+
 import { ensureCredentialsForStudio, runDev } from "./dev";
 
 let fakeHome: string;
@@ -90,24 +93,24 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -125,24 +128,24 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -165,13 +168,13 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -210,13 +213,13 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -257,13 +260,13 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -290,13 +293,13 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -345,24 +348,24 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -384,20 +387,20 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
         // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
-        return new Response(
-          JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
+        return Response.json(
+          { token: "t", anonymousId: "a", kind: "cli" },
           { status: 200 },
         );
       }
@@ -418,13 +421,13 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -438,20 +441,20 @@ describe("ensureCredentialsForStudio", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
         // Missing `personalOrg` — anonymousTokenResponseSchema rejects.
-        return new Response(
-          JSON.stringify({ token: "t", anonymousId: "a", kind: "cli" }),
+        return Response.json(
+          { token: "t", anonymousId: "a", kind: "cli" },
           { status: 200 },
         );
       }
@@ -468,33 +471,33 @@ describe("ensureCredentialsForStudio", () => {
   // bootstrap regardless of OAuth status.
   describe("anon-issuance output (ANON_PERSISTENCE_NUDGE gating)", () => {
     const okConfigResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           auth0Domain: "tenant.auth0.com",
           clientId: "client-id",
           audience: "https://api.arkor.ai",
           callbackPorts: [4000],
-        }),
+        },
         { status: 200 },
       );
     const noOauthConfigResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           auth0Domain: null,
           clientId: null,
           audience: null,
           callbackPorts: [],
-        }),
+        },
         { status: 200 },
       );
     const okAnonResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           token: "anon-tok",
           anonymousId: "anon-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       );
 
@@ -596,7 +599,7 @@ describe("runDev", () => {
     // Token file lives under the same directory as credentials.json.
     expect(existsSync(studioTokenPath())).toBe(true);
     const contents = readFileSync(studioTokenPath(), "utf8");
-    expect(contents).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(contents).toMatch(/^[\w-]+$/);
 
     expect(serve).toHaveBeenCalledTimes(1);
     const arg = vi.mocked(serve).mock.calls[0]?.[0] as {
@@ -695,7 +698,7 @@ describe("runDev", () => {
     try {
       // Pull and fire the most-recently-registered SIGINT handler.
       const sigintListeners = process.listeners("SIGINT");
-      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      const handler = sigintListeners.at(-1) as () => void;
       handler();
       expect(existsSync(studioTokenPath())).toBe(false);
       expect(exitSpy).toHaveBeenCalledWith(0);
@@ -718,7 +721,7 @@ describe("runDev", () => {
     // Pull the most-recently-registered exit listener and invoke it; that
     // exercises the unlinkSync(path) branch of scheduleStudioTokenCleanup.
     const exitListeners = process.listeners("exit");
-    const cleanup = exitListeners[exitListeners.length - 1] as () => void;
+    const cleanup = exitListeners.at(-1) as () => void;
     cleanup();
     expect(existsSync(studioTokenPath())).toBe(false);
 

@@ -107,7 +107,7 @@ function tryGit(
       stdio: ["ignore", "ignore", "pipe"],
     });
     const chunks: Buffer[] = [];
-    child.stderr?.on("data", (c: Buffer) => chunks.push(c));
+    child.stderr.on("data", (c: Buffer) => chunks.push(c));
     child.on("error", reject);
     child.on("close", (code) => {
       resolve({

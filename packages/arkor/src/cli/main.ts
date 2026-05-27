@@ -1,11 +1,3 @@
-import { Command } from "commander";
-import { runLogin } from "./commands/login";
-import { runLogout } from "./commands/logout";
-import { runWhoami } from "./commands/whoami";
-import { runInit } from "./commands/init";
-import { runDev } from "./commands/dev";
-import { runBuild } from "./commands/build";
-import { runStart } from "./commands/start";
 import {
   ClaudeCodeStrictExit,
   formatClaudeCodeMissingMessage,
@@ -14,10 +6,20 @@ import {
   resolvePackageManager,
   type TemplateId,
 } from "@arkor/cli-internal";
+import { Command } from "commander";
+
 import { getRecordedDeprecation } from "../core/deprecation";
 import { shutdownTelemetry, withTelemetry } from "../core/telemetry";
 import { detectedUpgradeCommand } from "../core/upgrade-hint";
 import { SDK_VERSION } from "../core/version";
+
+import { runBuild } from "./commands/build";
+import { runDev } from "./commands/dev";
+import { runInit } from "./commands/init";
+import { runLogin } from "./commands/login";
+import { runLogout } from "./commands/logout";
+import { runStart } from "./commands/start";
+import { runWhoami } from "./commands/whoami";
 import { ui } from "./prompts";
 
 export async function main(argv: string[]): Promise<void> {

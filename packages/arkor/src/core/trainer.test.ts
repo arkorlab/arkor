@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTrainer } from "./trainer";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { writeState } from "./state";
+import { createTrainer } from "./trainer";
+
 import type { AnonymousCredentials } from "./credentials";
 
 interface Expectation {
@@ -25,7 +28,7 @@ function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
 }
 
 function mockFetch(queue: Expectation[]): typeof fetch {
-  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const calls: { url: string; init?: RequestInit }[] = [];
   const impl: typeof fetch = (async (
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -105,7 +108,7 @@ describe("createTrainer (config builder branches)", () => {
           config: Record<string, unknown>;
         };
         postedConfig = body.config;
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -645,7 +648,7 @@ describe("createTrainer (SSE event stream)", () => {
       globalThis.fetch = originalFetch;
     }
     const calls = (fetcher as unknown as {
-      calls: Array<{ url: string; init?: RequestInit }>;
+      calls: { url: string; init?: RequestInit }[];
     }).calls;
     const chatCall = calls.find((c) => c.url.includes("/v1/inference/chat"));
     expect(chatCall).toBeDefined();
@@ -688,10 +691,10 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   };
 
   function streamFetcher(
-    handlers: Array<
+    handlers: (
       | { kind: "throw"; error: Error }
       | { kind: "stream"; chunks: string[] }
-    >,
+    )[],
   ): { fetch: typeof fetch; streamCalls: () => number } {
     let streamCalls = 0;
     const impl: typeof fetch = (async (
@@ -701,13 +704,16 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
       }
       if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
         const handler = handlers[streamCalls++];
+        // Defensive runtime check; TS thinks out-of-bounds returns `T`
+        // (we don't run with `noUncheckedIndexedAccess`).
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         if (!handler) {
           throw new Error(`unexpected stream open #${streamCalls}`);
         }
@@ -971,7 +977,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -987,7 +993,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
         url.includes("/v1/jobs/j-cancel/cancel")
       ) {
         cancelCallSeen = true;
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -1185,7 +1191,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1307,7 +1313,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1352,7 +1358,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       await expect(trainer.wait()).rejects.toThrow();
       const elapsed = Date.now() - start;
       // Aborted long before the 60 s retry budget would have allowed.
-      expect(elapsed).toBeLessThan(5_000);
+      expect(elapsed).toBeLessThan(5000);
       expect(streamCount).toBeGreaterThanOrEqual(1);
     } finally {
       globalThis.fetch = original;

@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
-import { CopyButton } from "../ui/CopyButton";
 import { cn } from "../ui/cn";
+import { CopyButton } from "../ui/CopyButton";
+
+import type { ReactNode } from "react";
 
 export interface JobMetaItem {
   label: string;

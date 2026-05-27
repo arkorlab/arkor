@@ -3,18 +3,12 @@ import {
   parseErrorBody,
   type ArkorClient,
 } from "@arkor/cloud-api-client";
-import type { z } from "zod";
-import type { Credentials } from "./credentials";
-import type {
-  CreateDeploymentInput,
-  CreateDeploymentKeyInput,
-  CreateDeploymentKeyResult,
-  DeploymentDto,
-  DeploymentKeyDto,
-  DeploymentScope,
-  UpdateDeploymentInput,
-} from "./deployments";
-import { recordDeprecation, tapDeprecation } from "./deprecation";
+
+import {
+  recordDeprecation,
+  tapDeprecation,
+  type DeprecationNotice,
+} from "./deprecation";
 import {
   createDeploymentKeyResponseSchema,
   createDeploymentResponseSchema,
@@ -27,6 +21,19 @@ import {
   listProjectsResponseSchema,
   updateDeploymentResponseSchema,
 } from "./schemas";
+import { formatSdkUpgradeError } from "./upgrade-hint";
+import { SDK_VERSION } from "./version";
+
+import type { Credentials } from "./credentials";
+import type {
+  CreateDeploymentInput,
+  CreateDeploymentKeyInput,
+  CreateDeploymentKeyResult,
+  DeploymentDto,
+  DeploymentKeyDto,
+  DeploymentScope,
+  UpdateDeploymentInput,
+} from "./deployments";
 import type {
   ChatMessage,
   JobConfig,
@@ -36,8 +43,7 @@ import type {
   ToolDefinition,
   TrainingJob,
 } from "./types";
-import { formatSdkUpgradeError } from "./upgrade-hint";
-import { SDK_VERSION } from "./version";
+import type { z } from "zod";
 
 export class CloudApiError extends Error {
   status: number;
@@ -60,6 +66,17 @@ async function decode<T>(res: Response, schema: z.ZodType<T>): Promise<T> {
   return schema.parse(await res.json());
 }
 
+// Hono's typed RPC client narrows successful Responses to `ok: true` based
+// on the endpoint's declared status codes. Defensive `if (!res.ok)` at the
+// call site is then dead code per TypeScript but essential at runtime
+// (network failures, 5xx). Widen through this `Response`-typed helper so
+// the check is honest and the rule stops flagging it.
+async function throwIfNotOk(res: Response): Promise<void> {
+  if (!res.ok) {
+    throw await buildCloudApiError(res);
+  }
+}
+
 /**
  * Build a `CloudApiError` from a non-ok Response, inlining the cloud-api
  * gate's upgrade hint when the status is 426.
@@ -80,6 +97,7 @@ async function buildCloudApiError(res: Response): Promise<CloudApiError> {
   const fields = parseErrorBody(parsed);
   // Use `||` (not `??`) so an empty-string body falls through to the
   // generic `cloud-api <status>` instead of becoming an empty message.
+  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
   const message = fields.error || text || `cloud-api ${res.status}`;
   return new CloudApiError(res.status, message);
 }
@@ -96,7 +114,7 @@ export interface CloudApiClientOptions {
    * `Sunset` headers on the proxy response, matching the passthrough
    * behavior of `/api/jobs` and friends.
    */
-  onDeprecation?: (notice: import("./deprecation").DeprecationNotice) => void;
+  onDeprecation?: (notice: DeprecationNotice) => void;
 }
 
 export class CloudApiClient {
@@ -198,9 +216,7 @@ export class CloudApiClient {
       param: { id: jobId },
       query: scope,
     });
-    if (!res.ok) {
-      throw await buildCloudApiError(res);
-    }
+    await throwIfNotOk(res);
   }
 
   /**
@@ -297,9 +313,7 @@ export class CloudApiClient {
       param: { id },
       query: scope,
     });
-    if (!res.ok) {
-      throw await buildCloudApiError(res);
-    }
+    await throwIfNotOk(res);
   }
 
   async listDeploymentKeys(
@@ -337,9 +351,7 @@ export class CloudApiClient {
       param: { id, keyId },
       query: scope,
     });
-    if (!res.ok) {
-      throw await buildCloudApiError(res);
-    }
+    await throwIfNotOk(res);
   }
 
   /**

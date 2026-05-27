@@ -232,7 +232,7 @@ export default {};
  */
 export const STARTER_README = (
   name: string,
-  options: { agentsMd: boolean } = { agentsMd: true },
+  { agentsMd = true }: { agentsMd?: boolean } = {},
 ) => `# ${name}
 
 An arkor training project scaffolded by \`create-arkor\`.
@@ -277,7 +277,7 @@ npm run start    # runs the build artifact on the cloud
 - \`arkor.config.ts\` — placeholder for future project-level config. The
   runtime does not read fields from this file yet. Project routing lives
   in \`.arkor/state.json\`, managed by the CLI.${
-    options.agentsMd
+    agentsMd
       ? `
 - \`AGENTS.md\` / \`CLAUDE.md\` — instructions for AI coding agents,
   briefing them that arkor post-dates their training data. When the

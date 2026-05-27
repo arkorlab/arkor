@@ -1,9 +1,11 @@
-import type { Credentials } from "../../lib/api";
-import type { Route } from "../../route";
 import { ArkorMark } from "../icons/ArkorMark";
+
 import { IdentityChip } from "./IdentityChip";
 import { NavTabs } from "./NavTabs";
 import { ThemeToggle } from "./ThemeToggle";
+
+import type { Credentials } from "../../lib/api";
+import type { Route } from "../../route";
 
 export function Header({
   creds,

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { fetchJobs, type Job } from "../lib/api";
+
 import { ArrowRight, BookOpen, Inbox, Sparkles } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
 import { RunTraining } from "../components/RunTraining";
@@ -12,6 +12,7 @@ import {
 } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
+import { fetchJobs, type Job } from "../lib/api";
 
 const RECENT_LIMIT = 5;
 
@@ -35,10 +36,10 @@ export function Overview() {
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (!cancelled) timer = setTimeout(tick, 5000);
+        if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
-    tick();
+    void tick();
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);

@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+
 import {
   gitInitialCommit,
   install,
@@ -15,6 +16,7 @@ import {
   type PackageManager,
   type TemplateId,
 } from "@arkor/cli-internal";
+
 import {
   isInteractive,
   promptConfirm,
@@ -373,7 +375,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   // ("recovery should not treat install as successful for
   // git/outro purposes") while preserving the round-39 UX
   // benefit for users with a populated tree.
-  const RECOVERY_ELIGIBLE_PMS: Array<PackageManager> = ["pnpm", "bun"];
+  const RECOVERY_ELIGIBLE_PMS: PackageManager[] = ["pnpm", "bun"];
   const installAttemptCompleted = !wouldHaveInstalled || installed;
   const installArtifactsLanded =
     installThrewError !== undefined &&
@@ -489,9 +491,10 @@ export async function runInit(options: InitOptions): Promise<void> {
   // the warning. Repeat the fix-first recovery instead so the
   // closing line stays consistent with the advisory above.
   if (wouldHaveInstalled && blockInstall) {
-    const fixRetry = pm
-      ? `\`${pm} install\``
-      : MANUAL_INSTALL_HINT;
+    // `wouldHaveInstalled` proved `pm !== undefined` for the rest of
+    // this branch, so the previous `pm ? ... : MANUAL_INSTALL_HINT`
+    // ternaries collapsed to the truthy arm.
+    const fixRetry = `\`${pm} install\``;
     if (gitInitSkipped) {
       // Multi-line outro: each git step on its own line so users
       // copy-paste them individually. See `gitCmdLines` above for
@@ -500,7 +503,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       ui.outro(
         [
           `After fixing the advisory above, run:`,
-          `  ${pm ? `${pm} install` : MANUAL_INSTALL_HINT}`,
+          `  ${pm} install`,
           ...gitCmdLines.map((line) => `  ${line}`),
           `  ${devCmd}`,
         ].join("\n"),

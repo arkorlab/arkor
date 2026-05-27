@@ -107,10 +107,10 @@ export function openJobEvents(jobId: string): EventSource {
 }
 
 export interface ChatRequestBody {
-  messages: Array<{
+  messages: {
     role: "system" | "user" | "assistant";
     content: string;
-  }>;
+  }[];
   adapter?: { kind: "final" | "checkpoint"; jobId: string; step?: number };
   baseModel?: string;
   temperature?: number;
@@ -184,10 +184,14 @@ async function* iterateSseFrames(
       const { value, done } = await reader.read();
       if (done) break;
       parser.feed(decoder.decode(value, { stream: true }));
-      while (pending.length > 0) yield pending.shift()!;
+      for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
+        yield next;
+      }
     }
     parser.feed(decoder.decode());
-    while (pending.length > 0) yield pending.shift()!;
+    for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
+      yield next;
+    }
   } finally {
     reader.releaseLock();
   }
@@ -243,6 +247,9 @@ export async function streamTraining(
   // Cancel the underlying body when the caller aborts so we don't
   // hang on `reader.read()` after the page (and the AbortController
   // cleanup) have moved on.
+  // Best-effort cancel; if the reader is already done the rejection is
+  // irrelevant.
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   const onAbort = () => void reader.cancel().catch(() => {});
   // Cover the case where the signal was already aborted before we
   // got here (or aborted in the small window between `getReader()`
@@ -250,6 +257,7 @@ export async function streamTraining(
   // fire after the fact, so the trainer process spawned upstream
   // would never be killed. Cancel synchronously instead.
   if (signal?.aborted) {
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
     void reader.cancel().catch(() => {});
     reader.releaseLock();
     return;
@@ -381,6 +389,10 @@ async function deploymentJson<T>(res: Response): Promise<T> {
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   throw new DeploymentApiError(
     res.status,
+    // `||` (not `??`) so an empty-string `error` field falls through to
+    // the generic `<status> <statusText>` rather than surfacing as a
+    // blank message.
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     body.error || `${res.status} ${res.statusText}`,
   );
 }

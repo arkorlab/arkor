@@ -33,6 +33,8 @@ vi.mock("../core/deprecation", () => ({
   tapDeprecation: vi.fn(),
 }));
 
+import { shutdownTelemetry } from "../core/telemetry";
+
 import { runBuild } from "./commands/build";
 import { runDev } from "./commands/dev";
 import { runInit } from "./commands/init";
@@ -40,7 +42,6 @@ import { runLogin } from "./commands/login";
 import { runLogout } from "./commands/logout";
 import { runStart } from "./commands/start";
 import { runWhoami } from "./commands/whoami";
-import { shutdownTelemetry } from "../core/telemetry";
 import { main } from "./main";
 
 // Capture once so the after-each can restore. Without this, tests that

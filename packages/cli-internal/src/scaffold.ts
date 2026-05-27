@@ -1,8 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import type { PackageManager } from "./package-manager";
-import { detectYarnMajor } from "./yarn-version";
+
 import {
   STARTER_CONFIG,
   STARTER_INDEX,
@@ -10,6 +9,9 @@ import {
   TEMPLATES,
   type TemplateId,
 } from "./templates";
+import { detectYarnMajor } from "./yarn-version";
+
+import type { PackageManager } from "./package-manager";
 
 /**
  * - `created` — file was missing; the scaffolder wrote a new one.
@@ -89,7 +91,7 @@ export interface ScaffoldOptions {
 }
 
 export interface ScaffoldResult {
-  files: Array<{ path: string; action: FileAction }>;
+  files: { path: string; action: FileAction }[];
   cwd: string;
   /**
    * Non-fatal advisories the scaffolder couldn't fix on its own.
@@ -272,7 +274,7 @@ async function ensureDirExists(cwd: string): Promise<void> {
  * untouched and only fill in missing ones.
  *
  * Used to derive `isExistingProject`, which gates the yarn-config
- * and `pnpm-workspace.yaml` emission rules — the policy there is
+ * and `pnpm-workspace.yaml` emission rules; the policy there is
  * "don't mutate workspace-level config in someone else's project"
  * (round 5 / 14 / 15). Caller's responsibility to invoke AFTER
  * `ensureDirExists` (a readdir ENOENTs on a freshly-created dir)
@@ -285,12 +287,13 @@ async function ensureDirExists(cwd: string): Promise<void> {
  * readdir+filter immediately afterwards to compute
  * `isExistingProject`. The comment claimed the snapshot reused
  * the predicate `ensureEmptyEnough` "already applied", but the
- * helper applied nothing — it was a misleadingly-named no-op.
+ * helper applied nothing; it was a misleadingly-named no-op.
  * Folded into a single listing call so the predicate is computed
  * once and the comment matches the code.
  */
 async function listExistingEntries(cwd: string): Promise<readonly string[]> {
-  return (await readdir(cwd)).filter((f) => f !== "." && f !== "..");
+  const entries = await readdir(cwd);
+  return entries.filter((f) => f !== "." && f !== "..");
 }
 
 async function ensureFile(
@@ -375,11 +378,11 @@ async function patchGitignore(
  * `pnpm-workspace.yaml` written by Windows editors (Notepad's
  * pre-2019 default, some Visual Studio templates, PowerShell's
  * `Set-Content` without `-Encoding UTF8NoBOM`) carry a BOM that
- * makes the first line look like `﻿packages: []` to a literal
+ * makes the first line look like `<U+FEFF>packages: []` to a literal
  * matcher: every patcher / reader then misclassifies the file as
  * "no top-level key found" and either appends a duplicate or fails
  * to detect a user pin. `findManagedBlock` (AGENTS.md) handles the
- * BOM inline via `^﻿?` in its regex; the YAML readers below
+ * BOM inline via `^<U+FEFF>?` in its regex; the YAML readers below
  * use `String#split` / multi-regex matching instead, so they need
  * an upfront strip.
  */
@@ -432,14 +435,20 @@ function readNodeLinkerValue(yarnrc: string): string | undefined {
       continue;
     }
     const indent = /^(\s*)/.exec(line)?.[1].length ?? 0;
-    if (rootIndent === undefined) rootIndent = indent;
-    if (indent !== rootIndent) continue; // nested — skip
-    const m = /^\s*nodeLinker\s*:\s*(.*)$/.exec(line);
+    rootIndent ??= indent;
+    if (indent !== rootIndent) continue; // nested, skip
+    // Drop the post-colon `[ \t]*` so it can't backtrack against
+    // `(.*)`; the `.trim()` below absorbs the leading whitespace.
+    const m = /^[ \t]*nodeLinker[ \t]*:(.*)$/.exec(line);
     if (!m) continue;
-    let value = m[1] ?? "";
-    value = value.replace(/\s+#.*$/, "").trim();
+    let value = m[1].trim();
+    // `[ \t]+# …` (not `\s+#`) so the leading whitespace class doesn't
+    // overlap with the comment body's `.*`, eliminating the
+    // polynomial-backtracking shape CodeQL / `regexp/no-super-linear-
+    // backtracking` flag on chains of trailing spaces.
+    value = value.replace(/[ \t]+#.*$/, "").trim();
     const quoted = /^(["'])(.*)\1$/.exec(value);
-    if (quoted) value = quoted[2] ?? "";
+    if (quoted) value = quoted[2];
     return value;
   }
   return undefined;
@@ -773,7 +782,7 @@ function declaresYarnBerry(
   if (typeof packageManagerField !== "string") return false;
   const m = /^yarn@(\d+)/.exec(packageManagerField.trim());
   if (!m) return false;
-  const major = Number.parseInt(m[1] ?? "", 10);
+  const major = Number.parseInt(m[1], 10);
   return Number.isFinite(major) && major >= 2;
 }
 
@@ -836,11 +845,11 @@ function detectEol(s: string): "\r\n" | "\n" {
 function withEol(content: string, eol: "\r\n" | "\n"): string {
   // Author content always uses LF; re-target only when patching CRLF hosts.
   if (eol === "\n") return content;
-  return content.replace(/\r?\n/g, "\r\n");
+  return content.replaceAll(/\r?\n/g, "\r\n");
 }
 
 function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 type ManagedBlockLookup =
@@ -887,11 +896,11 @@ function findManagedBlock(s: string): ManagedBlockLookup {
   // skips an optional UTF-8 BOM (U+FEFF) at the file start so AGENTS.md
   // saved by editors that prepend a BOM (Windows Notepad's pre-2019
   // default, etc.) still detect the existing block on re-scaffold.
-  const NL = "(?:\\r\\n|\\n)";
+  const NL = String.raw`(?:\r\n|\n)`;
   const re = new RegExp(
-    `(?:^\\uFEFF?|${NL})${escapeRegExp(AGENTS_BLOCK_BEGIN)}${NL}${escapeRegExp(
+    String.raw`(?:^\uFEFF?|${NL})${escapeRegExp(AGENTS_BLOCK_BEGIN)}${NL}${escapeRegExp(
       AGENTS_BLOCK_SIGNATURE_LINE,
-    )}${NL}[\\s\\S]*?${NL}${escapeRegExp(AGENTS_BLOCK_END)}`,
+    )}${NL}[\s\S]*?${NL}${escapeRegExp(AGENTS_BLOCK_END)}`,
     "gm",
   );
   const matches = [...s.matchAll(re)];
@@ -899,14 +908,14 @@ function findManagedBlock(s: string): ManagedBlockLookup {
   if (matches.length > 1) {
     return { kind: "ambiguous", count: matches.length };
   }
-  const m = matches[0]!;
+  const m = matches[0];
   // Strip the leading-newline (or BOM) anchor so we replace the marker
   // itself, not the newline / BOM ahead of it. Possible prefixes:
   //   - "\r\n" (2 chars)
   //   - "\n"   (1 char)
-  //   - "﻿" (1 char — UTF-16 code unit; both String#slice and the
-  //     scaffolder's downstream `string.slice(start, end)` are UTF-16
-  //     code-unit-indexed, matching `m.index` semantics)
+  //   - U+FEFF (1 char, BOM; both String#slice and the scaffolder's
+  //     downstream `string.slice(start, end)` are UTF-16 code-unit-
+  //     indexed, matching `m.index` semantics)
   //   - "" when the marker sits at byte 0 of an unBOM'd file
   let leading = 0;
   if (m[0].startsWith("\r\n")) leading = 2;
@@ -1102,7 +1111,7 @@ async function patchPnpmWorkspace(
 // before end-of-line. Used at the end of every "key: value" anchor
 // so `esbuild: false # documented` (round-38 Copilot review) doesn't
 // fall through to the no-match fallback and double-write.
-const TRAILING_COMMENT_AND_EOL = "[ \\t]*(?:#[^\\r\\n]*)?\\r?$";
+const TRAILING_COMMENT_AND_EOL = String.raw`[ \t]*(?:#[^\r\n]*)?\r?$`;
 
 // Like `TRAILING_COMMENT_AND_EOL` but captures the trailing
 // whitespace + optional comment as a single group so a regex
@@ -1118,7 +1127,7 @@ const TRAILING_COMMENT_AND_EOL = "[ \\t]*(?:#[^\\r\\n]*)?\\r?$";
 // a CRLF `pnpm-workspace.yaml` consumed the `\r` via the regex
 // but re-emitted only the spacing/comment, leaving the original
 // `\n` behind and converting just that line to LF in the process.
-const TRAILING_COMMENT_AND_EOL_CAPTURED = "([ \\t]*(?:#[^\\r\\n]*)?\\r?)$";
+const TRAILING_COMMENT_AND_EOL_CAPTURED = String.raw`([ \t]*(?:#[^\r\n]*)?\r?)$`;
 
 // True when `trimmed` is a YAML document-boundary marker. Per
 // the YAML 1.2 spec a marker line can be `---` (or `...`)
@@ -1192,14 +1201,12 @@ function readAllowBuildsValue(
 ): boolean | undefined {
   contents = stripBom(contents);
   const root = detectYamlRootIndent(contents);
-  const escaped = pkg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = pkg.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   // Inline mapping at the document root: `allowBuilds: { esbuild: false, ... }`.
-  const inlineMatch = contents.match(
-    new RegExp(
-      `^${root}allowBuilds:[ \\t]*\\{([^}]*)\\}${TRAILING_COMMENT_AND_EOL}`,
+  const inlineMatch = new RegExp(
+      String.raw`^${root}allowBuilds:[ \t]*\{([^}]*)\}${TRAILING_COMMENT_AND_EOL}`,
       "m",
-    ),
-  );
+    ).exec(contents);
   if (inlineMatch) {
     // Round 39 (Codex P2, PR #99): anchor the key match at a
     // mapping-start boundary so `esbuild` doesn't match as a
@@ -1210,7 +1217,7 @@ function readAllowBuildsValue(
     // matches "start of string OR a non-key character (`{`, `,`,
     // whitespace)" so we don't false-match into another key.
     const pairRe = new RegExp(
-      `(?:^|[\\s,{])["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)`,
+      String.raw`(?:^|[\s,{])["']?${escaped}["']?[ \t]*:[ \t]*(true|false)`,
     );
     const inner = inlineMatch[1].match(pairRe);
     if (inner) return inner[1] === "true";
@@ -1235,13 +1242,11 @@ function readAllowBuildsValue(
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (line === "") continue;
-    const indentMatch = line.match(/^[ \t]+/);
+    const indentMatch = /^[ \t]+/.exec(line);
     if (!indentMatch || indentMatch[0].length <= root.length) break; // dedent
-    const m = line.match(
-      new RegExp(
-        `^[ \\t]+["']?${escaped}["']?[ \\t]*:[ \\t]*(true|false)${TRAILING_COMMENT_AND_EOL}`,
-      ),
-    );
+    const m = new RegExp(
+        String.raw`^[ \t]+["']?${escaped}["']?[ \t]*:[ \t]*(true|false)${TRAILING_COMMENT_AND_EOL}`,
+      ).exec(line);
     if (m) return m[1] === "true";
   }
   return undefined;
@@ -1259,7 +1264,7 @@ function hasTopLevelAllowBuildsScalar(contents: string): boolean {
   contents = stripBom(contents);
   const root = detectYamlRootIndent(contents);
   return new RegExp(
-    `^${root}allowBuilds:[ \\t]+(?:true|false)${TRAILING_COMMENT_AND_EOL}`,
+    String.raw`^${root}allowBuilds:[ \t]+(?:true|false)${TRAILING_COMMENT_AND_EOL}`,
     "m",
   ).test(contents);
 }
@@ -1373,7 +1378,7 @@ function appendEsbuildToAllowBuilds(
   // capture, a re-run of the scaffold silently dropped a user's
   // explanation of their build-script policy.
   const inlineRe = new RegExp(
-    `^${root}allowBuilds:[ \\t]*\\{([^}]*)\\}${TRAILING_COMMENT_AND_EOL_CAPTURED}`,
+    String.raw`^${root}allowBuilds:[ \t]*\{([^}]*)\}${TRAILING_COMMENT_AND_EOL_CAPTURED}`,
     "m",
   );
   const inlineMatch = contents.match(inlineRe);
@@ -1401,7 +1406,7 @@ function appendEsbuildToAllowBuilds(
   // than the document root, which lets the body live under any
   // root indent and stops at the first dedent/blank/sibling.
   const blockRe = new RegExp(
-    `^${root}allowBuilds:([ \\t]*(?:#[^\\r\\n]*)?)\\r?\\n((?:[ \\t]{${root.length + 1},}[^\\r\\n]*\\r?\\n)*)`,
+    String.raw`^${root}allowBuilds:([ \t]*(?:#[^\r\n]*)?)\r?\n((?:[ \t]{${root.length + 1},}[^\r\n]*\r?\n)*)`,
     "m",
   );
   const blockMatch = contents.match(blockRe);
@@ -1410,7 +1415,7 @@ function appendEsbuildToAllowBuilds(
     const body = blockMatch[2];
     // Reuse the existing entry indent if there is one; otherwise
     // default to root + two spaces (pnpm's convention).
-    const entryIndentMatch = body.match(/^([ \t]+)/);
+    const entryIndentMatch = /^([ \t]+)/.exec(body);
     const entryIndent = entryIndentMatch?.[1] ?? `${root}  `;
     const replacement =
       `${root}allowBuilds:${headerTrailing}${eol}${body}${entryIndent}esbuild: ${value}${eol}`;
@@ -1470,11 +1475,11 @@ export async function scaffold(
   const warnings: string[] = [];
   // Flipped to `true` whenever a yarn-config-blocking advisory fires
   // (conflict warning OR berry caveat). The CLIs use this to skip the
-  // auto-install — see ScaffoldResult.blockInstall for the rationale.
+  // auto-install; see `ScaffoldResult.blockInstall` for the rationale.
   let blockInstall = false;
   // Snapshot whether the cwd already had any contents BEFORE
   // `ensureFile` / `patch*` start writing files. Drives the
-  // yarn-config and gitignore-yarn-lines emission rules below — the
+  // yarn-config and gitignore-yarn-lines emission rules below; the
   // policy is "don't mutate workspace-level config in someone else's
   // project". Earlier rounds keyed off `existsSync(package.json)`,
   // but Copilot (PR #99 round 15) flagged that `scaffold()` also
@@ -1482,40 +1487,46 @@ export async function scaffold(
   // (e.g. an existing git repo with just a README, a monorepo
   // sub-dir scaffolded for a new package, etc). Those would be
   // misclassified as "fresh" under the package.json predicate and
-  // still get repo-level yarn writes — reintroducing the
+  // still get repo-level yarn writes, reintroducing the
   // workspace-mutation hazard rounds 5/14 closed. See
   // `listExistingEntries` for the predicate's "AFTER
   // `ensureDirExists`, BEFORE any `ensureFile` / `patch*`" timing
   // contract; a single readdir+filter feeds both the
   // allow-but-don't-overwrite merge policy and this snapshot.
-  const isExistingProject = (await listExistingEntries(cwd)).length > 0;
+  const existingEntries = await listExistingEntries(cwd);
+  const isExistingProject = existingEntries.length > 0;
   // Snapshot the pre-existing `package.json#packageManager` field
-  // BEFORE `patchPackageJson` runs — same timing rationale as
+  // BEFORE `patchPackageJson` runs; same timing rationale as
   // `isExistingProject` above. `patchPackageJson` will create a
   // fresh `package.json` (no `packageManager` field) when none
   // exists, so a post-patch read in the inspect path would
   // obscure both the pre-existing local declaration and any
   // parent-workspace declaration we'd want to walk up to.
-  // (PR #99 round 16 — Copilot flagged the timing bug after the
+  // (PR #99 round 16: Copilot flagged the timing bug after the
   // round-15 `isExistingProject` widening exposed the case.)
   const preExistingPackageManagerField = await readPackageManagerField(
     join(cwd, PACKAGE_JSON_PATH),
   );
-  files.push({
-    path: INDEX_PATH,
-    action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),
-  });
-  files.push({
-    path: TRAINER_PATH,
-    action: await ensureFile(
-      join(cwd, TRAINER_PATH),
-      TEMPLATES[options.template].trainer,
-    ),
-  });
-  files.push({
-    path: CONFIG_PATH,
-    action: await ensureFile(join(cwd, CONFIG_PATH), STARTER_CONFIG),
-  });
+  // Single `files.push(...)` (not three) so `unicorn/prefer-single-call`
+  // is satisfied; `await` argument-evaluation order is left-to-right so
+  // each `ensureFile` still completes before the next runs.
+  files.push(
+    {
+      path: INDEX_PATH,
+      action: await ensureFile(join(cwd, INDEX_PATH), STARTER_INDEX),
+    },
+    {
+      path: TRAINER_PATH,
+      action: await ensureFile(
+        join(cwd, TRAINER_PATH),
+        TEMPLATES[options.template].trainer,
+      ),
+    },
+    {
+      path: CONFIG_PATH,
+      action: await ensureFile(join(cwd, CONFIG_PATH), STARTER_CONFIG),
+    },
+  );
   // Determine the AGENTS.md / CLAUDE.md outcome *before* writing README.
   // STARTER_README documents whichever agent files actually land on
   // disk, so generating the README earlier locks in the wrong content
@@ -1553,32 +1564,37 @@ export async function scaffold(
     }
   }
 
-  files.push({
-    path: README_PATH,
-    action: await ensureFile(
-      join(cwd, README_PATH),
-      // Document the AGENTS.md / CLAUDE.md bullet only when both files
-      // are present on disk after this run. Skipped CLAUDE.md (duplicate
-      // AGENTS.md case) means the README would describe a file that
-      // isn't there; the bullet is suppressed to keep the README
-      // truthful.
-      STARTER_README(options.name, {
-        agentsMd: options.agentsMd === true && claudeWritten,
-      }),
-    ),
-  });
-  files.push({
-    path: GITIGNORE_PATH,
-    action: await patchGitignore(
-      cwd,
-      options.packageManager,
-      isExistingProject,
-    ),
-  });
-  files.push({
-    path: PACKAGE_JSON_PATH,
-    action: await patchPackageJson(cwd, options.name),
-  });
+  // Single `files.push(...)` (not three) to satisfy
+  // `unicorn/prefer-single-call`; `await` argument evaluation is
+  // left-to-right so each helper still runs in source order.
+  files.push(
+    {
+      path: README_PATH,
+      action: await ensureFile(
+        join(cwd, README_PATH),
+        // Document the AGENTS.md / CLAUDE.md bullet only when both
+        // files are present on disk after this run. Skipped CLAUDE.md
+        // (duplicate AGENTS.md case) means the README would describe a
+        // file that isn't there; the bullet is suppressed to keep the
+        // README truthful.
+        STARTER_README(options.name, {
+          agentsMd: options.agentsMd === true && claudeWritten,
+        }),
+      ),
+    },
+    {
+      path: GITIGNORE_PATH,
+      action: await patchGitignore(
+        cwd,
+        options.packageManager,
+        isExistingProject,
+      ),
+    },
+    {
+      path: PACKAGE_JSON_PATH,
+      action: await patchPackageJson(cwd, options.name),
+    },
+  );
   // pnpm-workspace.yaml emission rules. Two axes:
   //
   //   (1) Should we *handle* the file at all (patch existing or
@@ -1820,10 +1836,14 @@ export async function scaffold(
     //     irrelevant noise (the CLI gets invoked via `node`/`tsx`
     //     a lot, which doesn't set `npm_config_user_agent`).
     const status = await inspectYarnConfig(cwd);
-    if (status.kind === "conflict") {
+    switch (status.kind) {
+    case "conflict": {
       warnings.push(buildYarnLinkerConflictWarning(status.value));
       blockInstall = true;
-    } else if (status.kind === "berry-without-linker") {
+
+    break;
+    }
+    case "berry-without-linker": {
       // Round 39 (Copilot, PR #99): cwd's yarnrc has no
       // `nodeLinker:` key, but yarn merges configs up the tree —
       // an ancestor workspace root pinning `nodeLinker: node-modules`
@@ -1836,7 +1856,10 @@ export async function scaffold(
         warnings.push(buildYarnBerryCaveatAdvisory());
         blockInstall = true;
       }
-    } else if (status.kind === "no-config") {
+
+    break;
+    }
+    case "no-config": {
       // Round 16 (Copilot, PR #99): consult the pre-patch
       // local snapshot AND the parent tree for the corepack
       // declaration. The bare cwd-only check would (a) misread
@@ -1884,17 +1907,21 @@ export async function scaffold(
           blockInstall = true;
         }
       }
+
+    break;
+    }
+    // No default
     }
   }
   for (const entry of agentEntries) files.push(entry);
   return { files, cwd, warnings, blockInstall };
 }
 
-export function templateChoices(): Array<{
+export function templateChoices(): {
   value: TemplateId;
   label: string;
   hint: string;
-}> {
+}[] {
   return (Object.keys(TEMPLATES) as TemplateId[]).map((key) => ({
     value: key,
     label: TEMPLATES[key].label,

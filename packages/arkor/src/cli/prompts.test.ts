@@ -20,6 +20,7 @@ vi.mock("@clack/prompts", () => {
 });
 
 import * as clack from "@clack/prompts";
+
 import {
   CliCancelled,
   isInteractive,

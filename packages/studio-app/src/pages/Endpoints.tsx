@@ -1,10 +1,24 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type SyntheticEvent,
 } from "react";
+
+import { Inbox } from "../components/icons";
+import { Button } from "../components/ui/Button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/Card";
+import { CopyButton } from "../components/ui/CopyButton";
+import { EmptyState } from "../components/ui/EmptyState";
+import { Skeleton } from "../components/ui/Skeleton";
 import {
   createDeployment,
   createDeploymentKey,
@@ -23,23 +37,12 @@ import {
   type DeploymentTarget,
 } from "../lib/api";
 import { navigateBackOr, registerNavigationGuard } from "../route";
-import { Button } from "../components/ui/Button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../components/ui/Card";
-import { CopyButton } from "../components/ui/CopyButton";
-import { EmptyState } from "../components/ui/EmptyState";
-import { Skeleton } from "../components/ui/Skeleton";
-import { Inbox } from "../components/icons";
-import { QuickStart } from "./QuickStart";
+
 import {
   pollDeploymentsForSlug,
   setupKeyIssueGuards,
 } from "./Endpoints.helpers";
+import { QuickStart } from "./QuickStart";
 
 function describeTarget(target: DeploymentTarget): string {
   if (target.kind === "adapter") {
@@ -298,7 +301,16 @@ function NewEndpointForm({
   const inFlightRef = useRef(false);
   const inFlightSlugRef = useRef<string>("");
   const onMaybeCreatedRef = useRef(onMaybeCreated);
-  onMaybeCreatedRef.current = onMaybeCreated;
+  // `useLayoutEffect` with no dep array (not `useEffect([onMaybeCreated])`)
+  // so the ref is refreshed synchronously after every commit. The
+  // unmount cleanup below reads `onMaybeCreatedRef.current`, and a
+  // dep-gated `useEffect` would leave the ref stale on the
+  // commit-then-unmount-without-deps-change path React allows
+  // (the effect for the latest render never runs but cleanup still
+  // fires with whatever value the previous effect installed).
+  useLayoutEffect(() => {
+    onMaybeCreatedRef.current = onMaybeCreated;
+  });
   useEffect(() => {
     return () => {
       if (inFlightRef.current) {
@@ -399,7 +411,7 @@ function NewEndpointForm({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
           <label className="block">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Slug
@@ -1005,7 +1017,7 @@ export function EndpointDetail({ id }: { id: string }) {
             {describeTarget(deployment.target)}
           </p>
         </div>
-        <Button variant="danger" onClick={onDelete} disabled={busy}>
+        <Button variant="danger" onClick={() => void onDelete()} disabled={busy}>
           Delete
         </Button>
       </div>
@@ -1038,7 +1050,7 @@ export function EndpointDetail({ id }: { id: string }) {
             <Button
               size="sm"
               variant="secondary"
-              onClick={toggleEnabled}
+              onClick={() => void toggleEnabled()}
               disabled={busy}
             >
               {deployment.enabled ? "Disable" : "Enable"}
@@ -1077,7 +1089,7 @@ export function EndpointDetail({ id }: { id: string }) {
           )}
         </CardHeader>
         <CardContent>
-          <form onSubmit={onCreateKey} className="mb-4 flex items-center gap-2">
+          <form onSubmit={(e) => void onCreateKey(e)} className="mb-4 flex items-center gap-2">
             <input
               type="text"
               aria-label="API key label"

@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
+
 import { isArkor } from "./arkor";
+
 import type { Trainer } from "./types";
 
 const DEFAULT_ENTRY = "src/arkor/index.ts";

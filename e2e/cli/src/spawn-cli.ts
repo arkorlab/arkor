@@ -348,7 +348,9 @@ function runCliOnce(
       } catch {
         // best-effort
       }
-      reject(mkErr);
+      // `mkErr` is whatever `mkdtempSync` threw; coerce to Error so
+      // the rejection reason is always inspectable.
+      reject(mkErr instanceof Error ? mkErr : new Error(String(mkErr)));
       return;
     }
     // Cleanup closure declared up-front so a synchronous `spawn`
@@ -440,11 +442,11 @@ function runCliOnce(
       stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (err) {
-      // Synchronous spawn failure — clean the per-spawn cache
-      // tmp dirs before propagating, otherwise they leak on
-      // every retry. (Round-39 Copilot review.)
+      // Synchronous spawn failure; clean the per-spawn cache tmp dirs
+      // before propagating, otherwise they leak on every retry. (Round-39
+      // Copilot review.)
       cleanup();
-      reject(err);
+      reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
     const out: Buffer[] = [];

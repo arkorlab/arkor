@@ -13,7 +13,7 @@ if (typeof document !== "undefined") {
   const meta = document.createElement("meta");
   meta.name = "arkor-studio-token";
   meta.content = "test-token";
-  document.head.appendChild(meta);
+  document.head.append(meta);
 
   // Pull in @testing-library/react lazily so node-only suites don't
   // import jsdom-only globals through the dependency tree.

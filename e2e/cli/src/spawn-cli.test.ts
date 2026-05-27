@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// `EventEmitter` is correct here: this file mocks Node's `ChildProcess`
+// shape, which extends `EventEmitter` (not `EventTarget`).
+/* eslint-disable unicorn/prefer-event-target */
 import { EventEmitter } from "node:events";
 import {
   existsSync,
@@ -12,6 +14,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 // `vi.hoisted` ensures the mock factory and its captured `spawnMock` are
 // available before any module-level imports execute, so the
 // `import { spawn } from "node:child_process"` at the top of `spawn-cli.ts`
@@ -21,7 +25,6 @@ vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 
 // Imports come after the `vi.mock` for clarity; vitest hoists both above
 // the imports at runtime so the mocked binding is in place either way.
-// eslint-disable-next-line import/first
 import { runCli, shouldRetryAfterSigkill, type RunResult } from "./spawn-cli";
 
 // Pure-function tests for the ENG-632 retry gate. They cover the decision
@@ -215,7 +218,7 @@ describe("runCli orchestration", () => {
     // output and so we can assert it fired.
     stderrSpy = vi
       .spyOn(process.stderr, "write")
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
+
       .mockImplementation(() => true);
   });
 
@@ -470,7 +473,7 @@ describe("runCli yarn cache plumbing", () => {
   function lastSpawnEnv(): NodeJS.ProcessEnv {
     const calls = spawnMock.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    const opts = calls[calls.length - 1]?.[2] as { env: NodeJS.ProcessEnv };
+    const opts = calls.at(-1)?.[2] as { env: NodeJS.ProcessEnv };
     return opts.env;
   }
 

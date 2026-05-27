@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchJobs, type Job } from "../lib/api";
+
 import { Inbox, Refresh, Search } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
 import { Card, CardHeader, CardTitle, CardDescription } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { IconButton } from "../components/ui/IconButton";
 import { Skeleton } from "../components/ui/Skeleton";
+import { fetchJobs, type Job } from "../lib/api";
 
 type StatusFilter = "all" | Job["status"];
 
@@ -53,6 +54,10 @@ export function JobsList() {
   // `manual` flips the visible spinner; the silent 5s polling tick
   // calls load() without it so the refresh icon doesn't pulse every
   // five seconds and look like the user just clicked it.
+  // React Compiler isn't enabled in this project; the rule's "skipped
+  // optimization" warning is informational and the manual `useCallback`
+  // is still what we want for stable identity across renders.
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const load = useCallback(async (manual = false) => {
     if (inFlightRef.current) {
       // Don't drop a user click — flip the spinner so they get
@@ -103,9 +108,9 @@ export function JobsList() {
     async function schedule() {
       await load();
       if (cancelled) return;
-      timer = setTimeout(schedule, 5000);
+      timer = setTimeout(() => void schedule(), 5000);
     }
-    schedule();
+    void schedule();
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
@@ -215,12 +220,12 @@ export function JobsList() {
           <EmptyState
             icon={<Inbox />}
             title={
-              jobs && jobs.length === 0
+              jobs?.length === 0
                 ? "No jobs yet"
                 : "No matches"
             }
             description={
-              jobs && jobs.length === 0
+              jobs?.length === 0
                 ? "Run training from Overview to create your first job."
                 : "Try adjusting the filter or clearing the search."
             }

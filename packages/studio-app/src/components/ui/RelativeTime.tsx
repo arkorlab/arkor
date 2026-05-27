@@ -1,4 +1,5 @@
 import { useEffect, useReducer } from "react";
+
 import { formatRelativeTime } from "../../lib/format";
 
 // Each `RelativeTime` instance used to own a `setInterval(... 30_000)`
@@ -12,11 +13,9 @@ let ticker: ReturnType<typeof setInterval> | undefined;
 
 function subscribe(fn: () => void): () => void {
   subscribers.add(fn);
-  if (ticker === undefined) {
-    ticker = setInterval(() => {
-      for (const f of subscribers) f();
-    }, 30_000);
-  }
+  ticker ??= setInterval(() => {
+    for (const f of subscribers) f();
+  }, 30_000);
   return () => {
     subscribers.delete(fn);
     if (subscribers.size === 0 && ticker !== undefined) {

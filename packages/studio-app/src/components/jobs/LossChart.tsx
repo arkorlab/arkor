@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+
 import { summarize, type LossStats } from "../../lib/stats";
 
 export interface LossPoint {
@@ -96,6 +97,10 @@ export function LossChart({
         });
       }
     }
+    // `.sort()` (not `.toSorted()`) because the SPA's tsconfig pins
+    // `target: ES2022` and `toSorted` is ES2023; Vite / esbuild does
+    // not polyfill it, so older evergreen browsers would throw.
+    // eslint-disable-next-line unicorn/no-array-sort
     return [...byStep.values()].sort((a, b) => a.step - b.step);
   }, [points]);
 
@@ -162,8 +167,11 @@ export function LossChart({
   // training.log at step 1 leaves an empty gap from PADDING.left to
   // the line's first vertex and tick labels at the left edge would
   // disagree with where the line actually starts.
-  const firstStep = unified[0]!.step;
-  const lastStep = Math.max(firstStep + 1, unified[unified.length - 1]!.step);
+  const firstStep = unified[0].step;
+  // `.at(-1)` is the rule-preferred form; the `!` rides along because
+  // `unified.length > 0` is already established above.
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const lastStep = Math.max(firstStep + 1, unified.at(-1)!.step);
   const xSpan = lastStep - firstStep;
   const innerW = Math.max(50, width - PADDING.left - PADDING.right);
   const innerH = HEIGHT - PADDING.top - PADDING.bottom;
@@ -183,7 +191,9 @@ export function LossChart({
     .join(" ");
   const areaPath =
     trainSeries.length > 0
-      ? `${linePath} L${xFor(trainSeries[trainSeries.length - 1]!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0]!.step).toFixed(2)},${PADDING.top + innerH} Z`
+      // `trainSeries.length > 0` proved above; `at(-1)!` is safe.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      ? `${linePath} L${xFor(trainSeries.at(-1)!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0].step).toFixed(2)},${PADDING.top + innerH} Z`
       : "";
 
   const evalPath =
@@ -205,14 +215,12 @@ export function LossChart({
   // De-dupe via Set so a small span (e.g. lastStep === 3 with
   // xTickCount === 6) doesn't render the same step number twice.
   const xTickCount = Math.min(6, unified.length);
-  const xTicks = Array.from(
-    new Set(
+  const xTicks = [...new Set(
       Array.from({ length: xTickCount }).map((_, i) => {
         const t = xTickCount === 1 ? 0 : i / (xTickCount - 1);
         return Math.round(firstStep + t * xSpan);
       }),
-    ),
-  );
+    )];
 
   function onMouseMove(e: MouseEvent<SVGRectElement>) {
     // The `<rect>` is already positioned at `x={PADDING.left}`, so its
@@ -235,11 +243,11 @@ export function LossChart({
     let hi = unified.length - 1;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (unified[mid]!.step < targetStep) lo = mid + 1;
+      if (unified[mid].step < targetStep) lo = mid + 1;
       else hi = mid;
     }
-    const candidate = unified[lo]!;
-    const before = lo > 0 ? unified[lo - 1]! : candidate;
+    const candidate = unified[lo];
+    const before = lo > 0 ? unified[lo - 1] : candidate;
     const nearest =
       Math.abs(before.step - targetStep) <= Math.abs(candidate.step - targetStep)
         ? before
@@ -250,12 +258,17 @@ export function LossChart({
   // Tooltip y-anchor: prefer the training-loss vertex when present,
   // otherwise pin to the eval-loss vertex so eval-only steps still
   // get a sensibly-placed tooltip.
+  // Every unified log point has at least one of `loss` / `evalLoss` set
+  // (a frame with neither is filtered upstream), so reaching the
+  // `evalLoss` branch with both null would be a data invariant
+  // violation. Use `!` to surface that as a throw rather than silently
+  // anchoring at y=0, which is itself a meaningful loss value
+  // (converged runs do log loss=0).
   const hoverAnchorLoss =
     hover === null
       ? 0
-      : hover.loss !== null
-        ? hover.loss
-        : (hover.evalLoss as number);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      : (hover.loss ?? hover.evalLoss!);
 
   return (
     <div ref={wrapperRef} className="relative w-full">

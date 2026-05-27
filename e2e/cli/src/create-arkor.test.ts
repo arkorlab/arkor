@@ -1,7 +1,9 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
 import { CREATE_ARKOR_BIN } from "./bins";
 import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
@@ -390,7 +392,7 @@ describe("create-arkor (E2E)", () => {
     expect(existsSync(join(targetDir, "src/arkor/index.ts"))).toBe(true);
 
     // Nothing should land directly in parentDir except the new subdir.
-    expect(readdirSync(parentDir).sort()).toEqual(["arkor-project"]);
+    expect(readdirSync(parentDir).toSorted()).toEqual(["arkor-project"]);
 
     // Outro should tell the user to `cd arkor-project`.
     expect(result.stdout).toContain("cd arkor-project");
@@ -426,7 +428,7 @@ describe("create-arkor (E2E)", () => {
       readFileSync(join(targetDir, "package.json"), "utf8"),
     ) as { name?: string };
     expect(pkg.name).toBe("named-app");
-    expect(readdirSync(parentDir).sort()).toEqual(["named-app"]);
+    expect(readdirSync(parentDir).toSorted()).toEqual(["named-app"]);
   });
 
   // Collision guards for the auto-derived `./<name>/` path. When the user
@@ -552,7 +554,7 @@ describe("create-arkor (E2E)", () => {
           !existsSync(join(targetDir, "node_modules")) ||
           !expectedGit
         ) {
-          // eslint-disable-next-line no-console
+
           console.error(
             `[install-matrix:${label}] create-arkor missing expected artefact:\n` +
               `  exit: ${result.code}\n` +
