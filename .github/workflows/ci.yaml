@@ -95,6 +95,19 @@ jobs:
           node --version
           echo "**Resolved Node:** \`$(node --version)\` (matrix: \`${{ matrix.node }}\`)" >> "$GITHUB_STEP_SUMMARY"
 
+      # Provision bun on every build-matrix job so the bun-runtime
+      # E2E suite (`e2e/cli/src/bun-runtime.test.ts`) actually runs
+      # here rather than auto-skipping. Bun is a different JS
+      # runtime (JavaScriptCore, not V8/Node), so its compat with
+      # the bundled arkor CLI is a real coverage axis distinct
+      # from the install-matrix's bun-as-pm shard. Pinned to the
+      # same `1.3.13` the install-matrix uses so both axes
+      # exercise identical bun behaviour; bump together.
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.13'
+
       - name: Install
         # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
         # already gates which packages may run postinstall, and

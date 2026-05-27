@@ -1,7 +1,76 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+/**
+ * Which JavaScript runtime the spawned CLI runs under.
+ *
+ * - `"node"` (default): `process.execPath`, the same Node that runs
+ *   vitest. Matches how end users invoke arkor via npm / pnpm / yarn
+ *   shims, since every published package's bin entry resolves to
+ *   `node`.
+ * - `"bun"`: the `bun` binary on PATH (resolved at first use, cached
+ *   in `bunBinPath`). Used by `bun-runtime.test.ts` to assert that
+ *   arkor's bundled `dist/bin.mjs` doesn't lean on Node-only globals
+ *   when executed under Bun's runtime. Bun is a JavaScript runtime
+ *   in its own right (JavaScriptCore-based, not V8), so any
+ *   accidental Node-isms in the CLI bundle would surface as a Bun
+ *   runtime error rather than a packaging concern.
+ */
+export type Runtime = "node" | "bun";
+
+let bunBinPath: string | undefined | null;
+
+/**
+ * Resolve the `bun` executable on PATH and cache the result.
+ * Returns `undefined` when bun isn't installed; callers (the bun
+ * runtime test suite) skip themselves in that case so local dev
+ * machines without bun aren't penalised. CI provisions bun
+ * explicitly for the bun-runtime job, so the cache hits on the
+ * runner's pre-installed binary.
+ *
+ * The cache distinguishes "not yet looked up" (`undefined` initial
+ * state of `bunBinPath`) from "looked up and not found" (`null`)
+ * via a sentinel; the public `findBunBin()` collapses both
+ * outcomes back to `undefined`.
+ */
+export function findBunBin(): string | undefined {
+  if (bunBinPath !== undefined) return bunBinPath ?? undefined;
+  // Probe by trying to invoke `bun --version` directly. We can't use
+  // `command -v` (a shell builtin, not an executable, so `spawnSync`
+  // can't run it) or `which` (not standard on Windows). `spawnSync`
+  // does its own PATH lookup, so a successful exit with version-shaped
+  // stdout is sufficient evidence that `bun` is invocable from the
+  // same env the test suite will spawn under. Use `shell: true` on
+  // Windows for the same reason `runCli`'s underlying `spawn` does:
+  // bun ships as `bun.exe`, but `setup-bun` adds `~/.bun/bin` to
+  // PATH where some Windows shells need `cmd` to resolve the lookup.
+  const probe = spawnSync("bun", ["--version"], {
+    stdio: ["ignore", "pipe", "ignore"],
+    shell: process.platform === "win32",
+  });
+  if (probe.status !== 0 || probe.stdout === null) {
+    bunBinPath = null;
+    return undefined;
+  }
+  const out = probe.stdout.toString("utf8").trim();
+  if (!out || !/^\d+\.\d+/.test(out)) {
+    // Sanity check: a bun --version output looks like `1.3.13`. If
+    // PATH resolved `bun` to something else (a stale script, a
+    // typo'd binary on a developer's machine), bail rather than
+    // try to spawn it as a runtime.
+    bunBinPath = null;
+    return undefined;
+  }
+  // Return the literal string `"bun"` and let `spawn` resolve it via
+  // PATH each time. Caching the resolved absolute path would tie us
+  // to whatever `setup-bun` placed in `$GITHUB_PATH` at startup; the
+  // PATH lookup is the source of truth for the spawned env so the
+  // string form is more robust.
+  bunBinPath = "bun";
+  return bunBinPath;
+}
 
 export interface RunResult {
   /**
@@ -174,6 +243,7 @@ export async function runCli(
   argv: string[],
   cwd: string,
   extraEnv: NodeJS.ProcessEnv = {},
+  runtime: Runtime = "node",
 ): Promise<RunResult> {
   // Only the darwin + CI combination can ever fire the retry, so only
   // that combination pays the snapshot cost. Linux/Windows CI jobs and
@@ -182,7 +252,7 @@ export async function runCli(
   const canRetry = process.platform === "darwin" && Boolean(process.env.CI);
   const snapshotDir = canRetry ? snapshotCwd(cwd) : undefined;
   try {
-    let result = await runCliOnce(binPath, argv, cwd, extraEnv);
+    let result = await runCliOnce(binPath, argv, cwd, extraEnv, runtime);
     if (
       snapshotDir !== undefined &&
       shouldRetryAfterSigkill(result, process.platform, Boolean(process.env.CI))
@@ -191,7 +261,7 @@ export async function runCli(
         `[runCli] retrying after SIGKILL at ${result.elapsedMs}ms (${binPath} ${argv.join(" ")})\n`,
       );
       restoreFromSnapshot(cwd, snapshotDir);
-      result = await runCliOnce(binPath, argv, cwd, extraEnv);
+      result = await runCliOnce(binPath, argv, cwd, extraEnv, runtime);
     }
     return result;
   } finally {
@@ -250,6 +320,7 @@ function runCliOnce(
   argv: string[],
   cwd: string,
   extraEnv: NodeJS.ProcessEnv,
+  runtime: Runtime,
 ): Promise<RunResult> {
   // `pnpm test` propagates the workspace's pnpm config to children as
   // `npm_config_*` / `pnpm_config_*` env vars (e.g. minimumReleaseAge from
@@ -389,9 +460,37 @@ function runCliOnce(
     // (`elapsedMs` in RunResult — see shouldRetryAfterSigkill).
     const start = Date.now();
     let child: ReturnType<typeof spawn>;
+    // Resolve the runtime executable. `node` (default) reuses
+    // `process.execPath` so the spawned CLI runs under the same Node
+    // that vitest is using (matches the published-bin behaviour where
+    // `node_modules/.bin/arkor` shebangs `#!/usr/bin/env node`).
+    // `bun` calls `findBunBin()`; the test suite gates itself on the
+    // same probe, so this branch only fires when bun is on PATH.
+    let runtimeBin: string;
+    if (runtime === "bun") {
+      const found = findBunBin();
+      if (!found) {
+        cleanup();
+        reject(
+          new Error(
+            "bun runtime requested but `bun` is not on PATH. Tests targeting the bun runtime should call `findBunBin()` themselves and skip when undefined.",
+          ),
+        );
+        return;
+      }
+      runtimeBin = found;
+    } else {
+      runtimeBin = process.execPath;
+    }
     try {
-      child = spawn(process.execPath, [binPath, ...argv], {
+      child = spawn(runtimeBin, [binPath, ...argv], {
       cwd,
+      // Defer to the shell only for the bun runtime on Windows, where
+      // PATH may resolve `bun` via a `.cmd` shim that direct spawn
+      // can't execute (same policy as `cli-internal`'s install
+      // spawn). The Node default keeps direct exec: `process.execPath`
+      // is always an absolute path so no shell lookup is needed.
+      shell: runtime === "bun" && process.platform === "win32",
       env: {
         ...cleanEnv,
         CI: "1",
