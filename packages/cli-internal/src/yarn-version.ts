@@ -75,7 +75,7 @@ export async function detectYarnMajor(
       }
       settle(undefined);
     }, 5000);
-    timeoutId.unref?.();
+    timeoutId.unref();
     let output = "";
     child.stdout?.on("data", (chunk: Buffer) => {
       output += chunk.toString("utf8");
@@ -95,7 +95,7 @@ export async function detectYarnMajor(
         settle(undefined);
         return;
       }
-      const major = Number.parseInt(match[1] ?? "", 10);
+      const major = Number.parseInt(match[1], 10);
       settle(Number.isFinite(major) ? major : undefined);
     });
   });

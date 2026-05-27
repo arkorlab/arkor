@@ -546,7 +546,7 @@ describe("arkor init (E2E)", () => {
             !existsSync(join(projectDir, "node_modules")) ||
             !expectedGit
           ) {
-            // eslint-disable-next-line no-console
+
             console.error(
               `[install-matrix:${label}] arkor init missing expected artefact:\n` +
                 `  exit: ${result.code}\n` +

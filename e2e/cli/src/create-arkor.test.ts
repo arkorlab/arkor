@@ -554,7 +554,7 @@ describe("create-arkor (E2E)", () => {
           !existsSync(join(targetDir, "node_modules")) ||
           !expectedGit
         ) {
-          // eslint-disable-next-line no-console
+
           console.error(
             `[install-matrix:${label}] create-arkor missing expected artefact:\n` +
               `  exit: ${result.code}\n` +

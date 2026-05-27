@@ -560,7 +560,7 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
     // same path within the same millisecond can leave mtime
     // unchanged on coarse-resolution filesystems, which would mask
     // the assertion. Using `utimesSync` is deterministic.
-    const newer = (before.mtimeMs + 5_000) / 1000;
+    const newer = (before.mtimeMs + 5000) / 1000;
     utimesSync(join(dir, "pnpm-lock.yaml"), newer, newer);
     expect(lockfileChangedSince(dir, "pnpm", before)).toBe(true);
   });
@@ -682,7 +682,7 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
   it("nodeModulesChangedSince returns true when cwd node_modules mtime advances", () => {
     mkdirSync(join(dir, "node_modules"));
     const before: NodeModulesSnapshot = snapshotNodeModules(dir);
-    const newer = (before.cwd.mtimeMs + 5_000) / 1000;
+    const newer = (before.cwd.mtimeMs + 5000) / 1000;
     utimesSync(join(dir, "node_modules"), newer, newer);
     expect(nodeModulesChangedSince(dir, before)).toBe(true);
   });
@@ -695,7 +695,7 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
     const before: NodeModulesSnapshot = snapshotNodeModules(sub);
     expect(before.cwd.exists).toBe(false);
     const beforeMtime = before.enclosing.get(join(dir, "node_modules"))!;
-    const newer = (beforeMtime + 5_000) / 1000;
+    const newer = (beforeMtime + 5000) / 1000;
     utimesSync(join(dir, "node_modules"), newer, newer);
     expect(nodeModulesChangedSince(sub, before)).toBe(true);
   });

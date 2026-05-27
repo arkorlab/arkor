@@ -88,7 +88,6 @@ describe("gitInitialCommit", () => {
     for (const k of Object.keys(process.env)) {
       // The whole point of this cleanup is to delete keys we don't know
       // statically; they were set by individual tests.
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       if (!(k in ORIG_ENV)) delete process.env[k];
     }
     Object.assign(process.env, ORIG_ENV);

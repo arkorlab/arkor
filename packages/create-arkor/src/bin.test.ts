@@ -32,8 +32,8 @@ vi.mock("@arkor/cli-internal", () => ({
   sanitise: (s: string) =>
     s
       .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "")
+      .replaceAll(/[^a-z0-9-]/g, "-")
+      .replaceAll(/^-+|-+$/g, "")
       .slice(0, 60) || "arkor-project",
   scaffold: vi.fn(async () => ({
     files: [{ action: "created", path: "package.json" }],
@@ -518,11 +518,11 @@ describe("shellQuoteIfNeeded", () => {
       });
     });
 
-    it("escapes embedded single quotes with the '\\'' close-literal-open sequence", () => {
+    it(String.raw`escapes embedded single quotes with the '\'' close-literal-open sequence`, () => {
       // Standard POSIX trick: 'foo'\''bar' parses as 'foo' + \' + 'bar'.
       withPlatform("linux", () => {
-        expect(shellQuoteIfNeeded("it's")).toBe("'it'\\''s'");
-        expect(shellQuoteIfNeeded("a'b'c")).toBe("'a'\\''b'\\''c'");
+        expect(shellQuoteIfNeeded("it's")).toBe(String.raw`'it'\''s'`);
+        expect(shellQuoteIfNeeded("a'b'c")).toBe(String.raw`'a'\''b'\''c'`);
       });
     });
   });
@@ -544,12 +544,12 @@ describe("shellQuoteIfNeeded", () => {
       });
     });
 
-    it("escapes embedded double quotes as \\\"", () => {
+    it(String.raw`escapes embedded double quotes as \"`, () => {
       // Practically rare, but pin the escape so a future tweak
       // doesn't drop the backslash and silently corrupt the
       // copy-paste command.
       withPlatform("win32", () => {
-        expect(shellQuoteIfNeeded('a"b')).toBe('"a\\"b"');
+        expect(shellQuoteIfNeeded('a"b')).toBe(String.raw`"a\"b"`);
       });
     });
 
@@ -561,9 +561,9 @@ describe("shellQuoteIfNeeded", () => {
     // the quoted value would absorb the closing `"` and
     // un-terminate the argument; a `\\"` run would also be
     // double-decoded by downstream commands.
-    it("escapes embedded backslashes as \\\\ (CodeQL)", () => {
+    it(String.raw`escapes embedded backslashes as \\ (CodeQL)`, () => {
       withPlatform("win32", () => {
-        expect(shellQuoteIfNeeded("a\\b c")).toBe('"a\\\\b c"');
+        expect(shellQuoteIfNeeded(String.raw`a\b c`)).toBe(String.raw`"a\\b c"`);
       });
     });
 
@@ -573,13 +573,13 @@ describe("shellQuoteIfNeeded", () => {
         // `"foo\"` — the closing quote is consumed and the
         // argument is unterminated. Doubling the trailing
         // backslash keeps it literal.
-        expect(shellQuoteIfNeeded("foo\\ bar")).toBe('"foo\\\\ bar"');
+        expect(shellQuoteIfNeeded(String.raw`foo\ bar`)).toBe(String.raw`"foo\\ bar"`);
       });
     });
 
-    it("escapes a backslash-quote run round-trippably (\\\" → \\\\\\\")", () => {
+    it(String.raw`escapes a backslash-quote run round-trippably (\" → \\\")`, () => {
       withPlatform("win32", () => {
-        expect(shellQuoteIfNeeded('a\\"b')).toBe('"a\\\\\\"b"');
+        expect(shellQuoteIfNeeded(String.raw`a\"b`)).toBe(String.raw`"a\\\"b"`);
       });
     });
 
@@ -655,8 +655,8 @@ describe("shellQuoteIfNeeded", () => {
         // (Windows path normalization collapses `.\\-foo` to
         // `.\-foo` for `cd` / `Set-Location`, so the doubling is
         // functionally benign).
-        expect(shellQuoteIfNeeded("-foo")).toBe('".\\\\-foo"');
-        expect(shellQuoteIfNeeded("--foo")).toBe('".\\\\--foo"');
+        expect(shellQuoteIfNeeded("-foo")).toBe(String.raw`".\\-foo"`);
+        expect(shellQuoteIfNeeded("--foo")).toBe(String.raw`".\\--foo"`);
       });
     });
 
@@ -668,11 +668,11 @@ describe("shellQuoteIfNeeded", () => {
       });
     });
 
-    it("combines the .\\ prefix with double-quoting on Windows when the name also has a space", () => {
+    it(String.raw`combines the .\ prefix with double-quoting on Windows when the name also has a space`, () => {
       withPlatform("win32", () => {
         // Same `\\` doubling as above; the space triggers
         // double-quoting which subsumes the bare ./--prefix path.
-        expect(shellQuoteIfNeeded("-foo bar")).toBe('".\\\\-foo bar"');
+        expect(shellQuoteIfNeeded("-foo bar")).toBe(String.raw`".\\-foo bar"`);
       });
     });
 
@@ -746,7 +746,7 @@ describe("buildCdLine", () => {
   // the path is unambiguous to `Set-Location`.
   it("prefixes leading-dash paths with .\\ in the `%`/PS fallback (Windows)", () => {
     withPlatform("win32", () => {
-      expect(buildCdLine("-foo%bar%")).toBe("cd '.\\-foo%bar%'");
+      expect(buildCdLine("-foo%bar%")).toBe(String.raw`cd '.\-foo%bar%'`);
     });
   });
 

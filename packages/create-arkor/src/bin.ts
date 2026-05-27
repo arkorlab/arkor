@@ -199,7 +199,7 @@ export function shellQuoteIfNeeded(value: string): string {
   // unambiguous extras (`-_./+@:,`). After the leading-dash
   // disambiguation above, `value` no longer starts with `-`
   // even if the user-supplied path did.
-  if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
+  if (/^[\w./+@:,-]+$/.test(value)) return value;
   if (process.platform === "win32") {
     // Order matters: backtick first (it's the PS escape
     // character for the others, so escaping it first prevents
@@ -208,13 +208,13 @@ export function shellQuoteIfNeeded(value: string): string {
     // `_setargv` / msvcrt argv parsing when the quoted path
     // is forwarded to a child program.
     const escaped = value
-      .replace(/`/g, "``")
-      .replace(/\$/g, "`$")
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"');
+      .replaceAll('`', "``")
+      .replaceAll('$', "`$")
+      .replaceAll('\\', "\\\\")
+      .replaceAll('"', String.raw`\"`);
     return `"${escaped}"`;
   }
-  return `'${value.replace(/'/g, "'\\''")}'`;
+  return `'${value.replaceAll('\'', String.raw`'\''`)}'`;
 }
 
 /**
@@ -264,7 +264,7 @@ export function buildCdLine(cdTarget: string): string {
     // PR #149). The `%` branch already pins us to Windows.
     const prefixed = disambiguateLeadingDashPath(cdTarget, "win32");
     // PS single-quote escape: doubled single quote `''`.
-    return `cd '${prefixed.replace(/'/g, "''")}'`;
+    return `cd '${prefixed.replaceAll('\'', "''")}'`;
   }
   return `cd ${shellQuoteIfNeeded(cdTarget)}`;
 }
@@ -610,7 +610,7 @@ export async function run(options: RunOptions): Promise<void> {
   //     "Next:" hint and differentiates the skip-git message
   //     between "looks populated, inspect & commit manually"
   //     and "real failure, fix & re-run".
-  const RECOVERY_ELIGIBLE_PMS: Array<PackageManager> = ["pnpm", "bun"];
+  const RECOVERY_ELIGIBLE_PMS: PackageManager[] = ["pnpm", "bun"];
   const installAttemptCompleted = !wouldHaveInstalled || installed;
   const installArtifactsLanded =
     installThrewError !== undefined &&
@@ -676,9 +676,9 @@ export async function run(options: RunOptions): Promise<void> {
     clack.log.info(
       installArtifactsLanded
         ? `Skipping git init — \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
-        : reRunIsSafe
+        : (reRunIsSafe
           ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
-          : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`,
+          : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`),
     );
     gitInitSkipped = true;
   } else if (shouldInitGit) {
@@ -942,18 +942,19 @@ program
 // before comparing so the symlink and its target collapse.
 // Exported so `bin.test.ts` can drive the comparison with a synthetic
 // symlink/target pair without spawning the real binary.
+function resolveSafe(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
 export function shouldRunAsCli(
   argv1: string | undefined,
   moduleUrl: string,
 ): boolean {
   if (!argv1) return false;
-  const resolveSafe = (p: string): string => {
-    try {
-      return realpathSync(p);
-    } catch {
-      return p;
-    }
-  };
   let modulePath: string;
   try {
     modulePath = fileURLToPath(moduleUrl);
@@ -965,6 +966,12 @@ export function shouldRunAsCli(
 }
 
 if (shouldRunAsCli(process.argv[1], import.meta.url)) {
+  // Promise-chain form (not `try { await ... } catch`) so the strict-
+  // mode early-return below can set `process.exitCode` without
+  // having to deal with a top-level `await` swallowing the spinner
+  // teardown delay. `program.parseAsync` is the very last statement
+  // in the module either way.
+  // eslint-disable-next-line unicorn/prefer-top-level-await
   program.parseAsync(process.argv).catch((err: unknown) => {
     // The strict-mode validator throws this sentinel after writing the
     // missing-flags block; exit silently so the `create-arkor failed:`

@@ -473,7 +473,7 @@ describe("runCli yarn cache plumbing", () => {
   function lastSpawnEnv(): NodeJS.ProcessEnv {
     const calls = spawnMock.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    const opts = calls[calls.length - 1]?.[2] as { env: NodeJS.ProcessEnv };
+    const opts = calls.at(-1)?.[2] as { env: NodeJS.ProcessEnv };
     return opts.env;
   }
 
