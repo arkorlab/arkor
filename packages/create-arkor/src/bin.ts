@@ -58,7 +58,15 @@ const MANUAL_INSTALL_HINT =
   "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 function isInteractive(): boolean {
-  return process.stdout.isTTY && !process.env.CI;
+  // `@types/node` optimistically types `process.stdout.isTTY` as
+  // `true` (always defined), so `?? false` reads as "unnecessary" to
+  // the type-aware rules. At runtime it is genuinely `undefined` when
+  // stdout is piped, so the `?? false` is load-bearing: it keeps this
+  // function returning a strict `boolean` rather than `undefined`.
+  // (`Boolean(...)` and `=== true` are flagged by sibling rules; the
+  // type optimism makes every spelling "unnecessary", so disable here.)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  return (process.stdout.isTTY ?? false) && !process.env.CI;
 }
 
 /**
