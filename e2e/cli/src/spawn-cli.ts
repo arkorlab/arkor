@@ -23,14 +23,23 @@ export type Runtime = "node" | "bun";
 let bunBinPath: string | undefined | null;
 
 /**
- * Resolve the `bun` executable on PATH and cache the result.
- * Returns `undefined` when bun isn't installed; callers (the bun
- * runtime test suite) skip themselves in that case so local dev
- * machines without bun aren't penalised. CI provisions bun on
- * every build-matrix job (see `.github/workflows/ci.yaml`'s
- * `Setup bun` step in the `build` job), so this probe finds the
- * runner's pre-installed binary on every CI run and the bun
+ * Probe the parent `process.env` for a usable `bun` on PATH and
+ * cache the result. Used by the bun runtime test suite to decide
+ * whether to skip itself; local dev machines without bun installed
+ * aren't penalised. CI provisions bun on every build-matrix job
+ * (see `.github/workflows/ci.yaml`'s `Setup bun` step in the
+ * `build` job), so this probe always succeeds on CI and the bun
  * runtime suite is never skipped there.
+ *
+ * Scope note (PR #159 Copilot review): this is NOT the source of
+ * truth for whether `runCli(runtime: "bun")` will succeed.
+ * `runCli` spawns `"bun"` directly and lets the OS resolve it
+ * against the spawned env's PATH (which can differ from the
+ * parent's if a caller overrides `extraEnv.PATH`). A future test
+ * that injects a custom PATH must do its own bun-availability
+ * check against that env; the helper here only covers the
+ * common "spawn inherits parent PATH" case the skipIf gating
+ * relies on.
  *
  * The cache distinguishes "not yet looked up" (`undefined` initial
  * state of `bunBinPath`) from "looked up and not found" (`null`)
@@ -472,24 +481,16 @@ function runCliOnce(
     // `process.execPath` so the spawned CLI runs under the same Node
     // that vitest is using (matches the published-bin behaviour where
     // `node_modules/.bin/arkor` shebangs `#!/usr/bin/env node`).
-    // `bun` calls `findBunBin()`; the test suite gates itself on the
-    // same probe, so this branch only fires when bun is on PATH.
-    let runtimeBin: string;
-    if (runtime === "bun") {
-      const found = findBunBin();
-      if (!found) {
-        cleanup();
-        reject(
-          new Error(
-            "bun runtime requested but `bun` is not on PATH. Tests targeting the bun runtime should call `findBunBin()` themselves and skip when undefined.",
-          ),
-        );
-        return;
-      }
-      runtimeBin = found;
-    } else {
-      runtimeBin = process.execPath;
-    }
+    // `bun` passes the literal `"bun"` and lets `spawn` resolve it
+    // via the spawned env's PATH. Callers gate themselves on
+    // `findBunBin() !== undefined` (which probes the parent env);
+    // any further mismatch between the parent's PATH and the spawn
+    // env's PATH (e.g. a test that injects `extraEnv.PATH`) surfaces
+    // through the child's `error` event with ENOENT rather than a
+    // synthetic preflight error. The on-error reject below is the
+    // single source of truth for "spawn failed to find the bin",
+    // regardless of which runtime was selected.
+    const runtimeBin = runtime === "bun" ? "bun" : process.execPath;
     try {
       child = spawn(runtimeBin, [binPath, ...argv], {
       cwd,
