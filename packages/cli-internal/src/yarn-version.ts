@@ -75,7 +75,12 @@ export async function detectYarnMajor(
       }
       settle(undefined);
     }, 5000);
-    timeoutId.unref();
+    // Optional `?.` despite the TS type saying `.unref` is always
+    // present: under vitest fake timers `setTimeout` can return a
+    // plain numeric id (no method on it), and `.unref()` would throw,
+    // preventing the Promise from ever settling.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    timeoutId.unref?.();
     let output = "";
     child.stdout?.on("data", (chunk: Buffer) => {
       output += chunk.toString("utf8");
