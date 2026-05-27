@@ -16,8 +16,22 @@ import { join } from "node:path";
 // available before any module-level imports execute, so the
 // `import { spawn } from "node:child_process"` at the top of `spawn-cli.ts`
 // resolves to our fake instead of the real Node binding.
+//
+// PR #159 Copilot review: spread `vi.importActual` for the other named
+// exports so `spawn-cli.ts`'s `import { spawn, spawnSync }` line
+// resolves `spawnSync` to the real Node implementation (the mock only
+// intercepts `spawn`). Without the spread, `spawnSync` would be
+// `undefined` in the mocked module and a future test that exercises
+// `findBunBin()` (which calls `spawnSync` directly) would throw
+// "spawnSync is not a function". The current test suite doesn't hit
+// that path, but pinning the contract here keeps the mock honest.
 const spawnMock = vi.hoisted(() => vi.fn());
-vi.mock("node:child_process", () => ({ spawn: spawnMock }));
+vi.mock("node:child_process", async () => ({
+  ...(await vi.importActual<typeof import("node:child_process")>(
+    "node:child_process",
+  )),
+  spawn: spawnMock,
+}));
 
 // Imports come after the `vi.mock` for clarity; vitest hoists both above
 // the imports at runtime so the mocked binding is in place either way.
