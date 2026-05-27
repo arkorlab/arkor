@@ -57,9 +57,21 @@ export function findBunBin(): string | undefined {
   // Windows for the same reason `runCli`'s underlying `spawn` does:
   // bun ships as `bun.exe`, but `setup-bun` adds `~/.bun/bin` to
   // PATH where some Windows shells need `cmd` to resolve the lookup.
+  //
+  // PR #159 Copilot review: probe from `tmpdir()` rather than the
+  // workspace cwd. The workspace declares `packageManager: pnpm@...`
+  // in its `package.json`, and corepack (which wraps `bun` on
+  // Node-with-corepack systems) refuses to run a non-pnpm command
+  // from any cwd descended from that workspace with
+  // `Error: This project is configured to use pnpm`. The
+  // install-matrix's `Confirm pm version` CI step already cd's
+  // into `$RUNNER_TEMP` for the same reason; mirror that here so
+  // the probe doesn't falsely conclude bun is unavailable just
+  // because vitest happens to spawn us inside the workspace.
   const probe = spawnSync("bun", ["--version"], {
     stdio: ["ignore", "pipe", "ignore"],
     shell: process.platform === "win32",
+    cwd: tmpdir(),
   });
   if (probe.status !== 0 || probe.stdout === null) {
     bunBinPath = null;
