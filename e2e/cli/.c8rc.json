@@ -9,7 +9,7 @@
     "**/*.test.*",
     "**/node_modules/**"
   ],
-  "reporter": ["text", "lcov", "cobertura"],
+  "reporter": ["text", "lcov"],
   "reports-dir": "./coverage",
   "temp-directory": "./.v8-coverage"
 }
