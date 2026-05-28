@@ -86,11 +86,60 @@ export function findBunBin(): string | undefined {
     bunBinPath = null;
     return undefined;
   }
-  // Return the literal string `"bun"` and let `spawn` resolve it via
-  // PATH each time. Caching the resolved absolute path would tie us
-  // to whatever `setup-bun` placed in `$GITHUB_PATH` at startup; the
-  // PATH lookup is the source of truth for the spawned env so the
-  // string form is more robust.
+  // PR #159 Copilot review (follow-up): resolve the ABSOLUTE path
+  // here so `runCli` can spawn bun with `shell: false` on every
+  // platform. The previous form returned the literal `"bun"` and
+  // relied on the spawned process's PATH lookup, which forced
+  // `shell: true` on Windows (`bun.exe` resolution required cmd
+  // for some PATH layouts setup-bun produces). `shell: true` joins
+  // argv into a single cmd.exe command string and applies cmd
+  // quoting, which corrupts args containing spaces or shell-
+  // sensitive characters. Resolving to the absolute `.exe` here
+  // means `spawn(bunExe, argv, { shell: false })` works
+  // identically on Windows, macOS, and Linux without any shell
+  // quoting layer in the picture.
+  //
+  // `where` (Windows) and `command -v` (POSIX) both print one path
+  // per line. `where` may return multiple matches (e.g. shim +
+  // real exe); prefer the first `.exe` over a `.cmd` / `.bat` so
+  // the resolved path is directly executable without shell.
+  // `command -v` returns a single line, so the same first-line
+  // pick is correct for POSIX too.
+  const resolveBin = process.platform === "win32" ? "where" : "command";
+  const resolveArgs =
+    process.platform === "win32" ? ["bun"] : ["-v", "bun"];
+  const resolveProbe = spawnSync(resolveBin, resolveArgs, {
+    stdio: ["ignore", "pipe", "ignore"],
+    // POSIX `command -v` is a shell builtin, so `shell: true`
+    // there is mandatory. `where` is a real executable on Windows
+    // so `shell: false` is fine, but `shell: true` is harmless
+    // either way and keeps the call uniform.
+    shell: true,
+    cwd: tmpdir(),
+  });
+  if (resolveProbe.status === 0 && resolveProbe.stdout !== null) {
+    const lines = resolveProbe.stdout
+      .toString("utf8")
+      .trim()
+      .split(/\r?\n/)
+      .filter((line) => line.length > 0);
+    const preferred =
+      process.platform === "win32"
+        ? lines.find((p) => p.toLowerCase().endsWith(".exe")) ?? lines[0]
+        : lines[0];
+    if (preferred !== undefined && preferred.length > 0) {
+      bunBinPath = preferred;
+      return bunBinPath;
+    }
+  }
+  // Resolver fell over (e.g. `where` isn't in PATH on a stripped
+  // Windows image, `command -v` returned non-zero despite the
+  // `--version` probe succeeding). Fall back to the literal name
+  // and let the eventual `runCli` spawn surface any failure via
+  // its `error` event. This branch is best-effort: the suite is
+  // already known-good (the `--version` probe passed), so any
+  // resolver disagreement is logged via the spawn error rather
+  // than blocking the suite entirely.
   bunBinPath = "bun";
   return bunBinPath;
 }
@@ -502,16 +551,27 @@ function runCliOnce(
     // synthetic preflight error. The on-error reject below is the
     // single source of truth for "spawn failed to find the bin",
     // regardless of which runtime was selected.
-    const runtimeBin = runtime === "bun" ? "bun" : process.execPath;
+    // PR #159 Copilot review: resolve bun to its absolute path via
+    // `findBunBin()` so `shell: false` works on every platform.
+    // `process.execPath` is already absolute, and `findBunBin()`'s
+    // resolver step yields an absolute `.exe` on Windows (or the
+    // POSIX `command -v` result on Unix), so the spawn no longer
+    // needs to go through cmd.exe / sh to resolve the binary. That
+    // eliminates the shell-quoting layer entirely, which was the
+    // source of mis-handling for `binPath` / `argv` containing
+    // spaces or shell-sensitive characters. If `findBunBin()` fell
+    // back to the literal `"bun"` (the resolver itself failed
+    // despite `--version` succeeding), we accept the residual risk
+    // and let `spawn` do PATH lookup directly; that path is rare
+    // enough on CI runners (which have `where` / `command` in
+    // PATH) that wiring a separate quoting strategy isn't
+    // justified.
+    const runtimeBin =
+      runtime === "bun" ? findBunBin() ?? "bun" : process.execPath;
     try {
       child = spawn(runtimeBin, [binPath, ...argv], {
         cwd,
-        // Defer to the shell only for the bun runtime on Windows, where
-        // PATH may resolve `bun` via a `.cmd` shim that direct spawn
-        // can't execute (same policy as `cli-internal`'s install
-        // spawn). The Node default keeps direct exec: `process.execPath`
-        // is always an absolute path so no shell lookup is needed.
-        shell: runtime === "bun" && process.platform === "win32",
+        shell: false,
         env: {
           ...cleanEnv,
           CI: "1",
