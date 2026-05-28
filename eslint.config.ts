@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import stylistic from "@stylistic/eslint-plugin";
 import vitest from "@vitest/eslint-plugin";
+import type { Rule } from "eslint";
 import { defineConfig } from "eslint/config";
 import { flatConfigs as importXConfigs } from "eslint-plugin-import-x";
 import jsxA11y from "eslint-plugin-jsx-a11y";
@@ -25,6 +26,54 @@ const CONFIG_TS_FILES = [
   "**/vitest.setup.ts",
   "**/playwright.config.ts",
 ];
+
+// Matches the em dash (U+2014) glyph and its HTML entity. Non-global so the
+// shared instance carries no `lastIndex` state between `.test()` calls.
+const EM_DASH = /—|&mdash;/;
+
+// Local rule: ban em dashes in comments and string/template literals. The
+// project writes prose (comments, JSDoc, generated-file template bodies)
+// with a colon, comma, parentheses, or " - " instead. CLI runtime
+// user-facing strings are the one documented exception and opt out with an
+// inline disable. No autofix: the right replacement is context-dependent
+// (colon vs comma vs restructure), so a blind substitution would be wrong.
+const noEmDash: Rule.RuleModule = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Disallow em dashes in comments and string literals; prefer a colon, comma, parentheses, or ' - '.",
+    },
+    schema: [],
+    messages: {
+      emDash:
+        "Avoid the em dash here. Use a colon, comma, parentheses, ' - ', or restructure. CLI runtime user-facing strings are the only exception: add `// eslint-disable-next-line local/no-em-dash`.",
+    },
+  },
+  create(context) {
+    const { sourceCode } = context;
+    return {
+      Program() {
+        for (const comment of sourceCode.getAllComments()) {
+          if (comment.loc && EM_DASH.test(comment.value)) {
+            context.report({ loc: comment.loc, messageId: "emDash" });
+          }
+        }
+      },
+      Literal(node) {
+        if (typeof node.value === "string" && EM_DASH.test(node.value)) {
+          context.report({ node, messageId: "emDash" });
+        }
+      },
+      TemplateElement(node) {
+        const text = node.value.cooked ?? node.value.raw;
+        if (EM_DASH.test(text)) {
+          context.report({ node, messageId: "emDash" });
+        }
+      },
+    };
+  },
+};
 
 export default defineConfig(
   {
@@ -79,6 +128,20 @@ export default defineConfig(
       "@stylistic/object-curly-spacing": ["error", "always"],
       "@stylistic/keyword-spacing": "error",
     },
+  },
+
+  // Local em-dash ban (see `noEmDash` above). Applies to every linted file
+  // (no `files` filter) so comments and string literals in TS, TSX, and JS
+  // are all covered. The ~868 pre-existing occurrences are baselined per
+  // package in `eslint-suppressions.json` (ESLint resolves that file
+  // relative to each `eslint .` cwd, which is why the baseline is
+  // per-package rather than one root file); only newly introduced em
+  // dashes fail. Regenerate a package's baseline with
+  // `pnpm exec eslint . --suppress-rule local/no-em-dash` from that
+  // package, or drop stale entries with `--prune-suppressions`.
+  {
+    plugins: { local: { rules: { "no-em-dash": noEmDash } } },
+    rules: { "local/no-em-dash": "error" },
   },
 
   // Pin `n`'s view of the target Node.js to a single concrete version

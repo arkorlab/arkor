@@ -1,0 +1,17 @@
+{
+  "src/bin.test.ts": {
+    "local/no-em-dash": {
+      "count": 11
+    }
+  },
+  "src/bin.ts": {
+    "local/no-em-dash": {
+      "count": 32
+    }
+  },
+  "tsdown.config.ts": {
+    "local/no-em-dash": {
+      "count": 1
+    }
+  }
+}
