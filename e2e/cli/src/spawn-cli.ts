@@ -23,6 +23,15 @@ export type Runtime = "node" | "bun";
 let bunBinPath: string | undefined | null;
 
 /**
+ * Reset `findBunBin`'s cache. Exists for `spawn-cli.test.ts` so
+ * each branch of the probe / resolver can be exercised with a
+ * fresh `bunBinPath`; not intended for production callers.
+ */
+export function __resetBunBinCacheForTest(): void {
+  bunBinPath = undefined;
+}
+
+/**
  * Probe the parent `process.env` for a usable `bun` on PATH and
  * cache the result. Used by the bun runtime test suite to decide
  * whether to skip itself; local dev machines without bun installed
@@ -68,15 +77,22 @@ export function findBunBin(): string | undefined {
   // probe itself uses `shell: true`.
   //
   // PR #159 Copilot review: probe from `tmpdir()` rather than the
-  // workspace cwd. The workspace declares `packageManager: pnpm@...`
-  // in its `package.json`, and corepack (which wraps `bun` on
-  // Node-with-corepack systems) refuses to run a non-pnpm command
-  // from any cwd descended from that workspace with
-  // `Error: This project is configured to use pnpm`. The
+  // workspace cwd. Running `bun --version` from any cwd inside
+  // the workspace surfaces `Error: This project is configured to
+  // use pnpm` and exits non-zero, even though bun itself is
+  // installed and otherwise invocable. The trigger is the
+  // workspace `package.json`'s `packageManager: pnpm@...` field,
+  // which is honoured by some pm-resolution layer in the
+  // environment (the exact layer depends on how bun was
+  // installed: corepack-aware shims hook it, and bun's own
+  // `packageManager` enforcement does too on recent versions).
+  // Working around it from cwd alone is cleaner than reasoning
+  // about which mechanism is active on the runner. The
   // install-matrix's `Confirm pm version` CI step already cd's
-  // into `$RUNNER_TEMP` for the same reason; mirror that here so
-  // the probe doesn't falsely conclude bun is unavailable just
-  // because vitest happens to spawn us inside the workspace.
+  // into `$RUNNER_TEMP` for the same kind of reason; mirror that
+  // here so the probe doesn't falsely conclude bun is
+  // unavailable just because vitest happens to spawn us inside
+  // the workspace.
   const probe = spawnSync("bun", ["--version"], {
     stdio: ["ignore", "pipe", "ignore"],
     shell: process.platform === "win32",
@@ -132,23 +148,46 @@ export function findBunBin(): string | undefined {
       .trim()
       .split(/\r?\n/)
       .filter((line) => line.length > 0);
-    const preferred =
-      process.platform === "win32"
-        ? lines.find((p) => p.toLowerCase().endsWith(".exe")) ?? lines[0]
-        : lines[0];
-    if (preferred !== undefined && preferred.length > 0) {
-      bunBinPath = preferred;
+    if (process.platform === "win32") {
+      // PR #159 Copilot review (follow-up): require `.exe`
+      // explicitly on Windows. `runCli` spawns with
+      // `shell: false`, and `CreateProcessW` cannot execute
+      // `.cmd` / `.bat` / `.ps1` shims directly. If `where`
+      // returned only shim paths (a bun install that exposes
+      // `bun.cmd` but not `bun.exe`), treating that as "bun
+      // available" would let the bun runtime suite proceed and
+      // then fail at spawn time with an opaque ENOENT or
+      // permission error. Mark bun unavailable so `skipIf`
+      // takes effect instead.
+      const exe = lines.find((p) => p.toLowerCase().endsWith(".exe"));
+      if (exe !== undefined && exe.length > 0) {
+        bunBinPath = exe;
+        return bunBinPath;
+      }
+      bunBinPath = null;
+      return undefined;
+    }
+    // POSIX: any absolute path from `command -v` is directly
+    // executable (no `.cmd`/`.bat` shim concern).
+    const first = lines[0];
+    if (first !== undefined && first.length > 0) {
+      bunBinPath = first;
       return bunBinPath;
     }
   }
-  // Resolver fell over (e.g. `where` isn't in PATH on a stripped
-  // Windows image, `command -v` returned non-zero despite the
-  // `--version` probe succeeding). Fall back to the literal name
-  // and let the eventual `runCli` spawn surface any failure via
-  // its `error` event. This branch is best-effort: the suite is
-  // already known-good (the `--version` probe passed), so any
-  // resolver disagreement is logged via the spawn error rather
-  // than blocking the suite entirely.
+  // Resolver fell over: on POSIX (e.g. `command -v` returned
+  // non-zero despite the `--version` probe succeeding) fall back
+  // to the literal name and let the eventual `runCli` spawn
+  // surface any failure via its `error` event. This branch is
+  // best-effort: the suite is already known-good (the
+  // `--version` probe passed), so any resolver disagreement is
+  // logged via the spawn error rather than blocking the suite
+  // entirely. On Windows we already short-circuited to
+  // `undefined` above, so this fallback is POSIX-only.
+  if (process.platform === "win32") {
+    bunBinPath = null;
+    return undefined;
+  }
   bunBinPath = "bun";
   return bunBinPath;
 }
