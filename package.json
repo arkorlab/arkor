@@ -1,11 +1,12 @@
 {
   "name": "arkor-root",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "format": "oxfmt",
-    "format:check": "oxfmt --check",
+    "format": "oxfmt -c oxfmt.config.ts",
+    "format:check": "oxfmt --check -c oxfmt.config.ts",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
