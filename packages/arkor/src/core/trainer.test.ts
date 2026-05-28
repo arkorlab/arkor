@@ -1478,7 +1478,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1491,7 +1491,7 @@ describe("createTrainer (early stop)", () => {
       }
       if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
         cancelCalls += 1;
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -1584,7 +1584,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1596,7 +1596,7 @@ describe("createTrainer (early stop)", () => {
         });
       }
       if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -1681,7 +1681,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1694,7 +1694,7 @@ describe("createTrainer (early stop)", () => {
       }
       if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
         cancelCalls += 1;
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -1715,7 +1715,7 @@ describe("createTrainer (early stop)", () => {
               armedPromise = requestTrainerEarlyStop(trainer, {
                 timeoutMs: 60_000,
               });
-              armedPromise.then(
+              void armedPromise.then(
                 () => {
                   armedResult = "resolved";
                 },
@@ -1757,7 +1757,7 @@ describe("createTrainer (early stop)", () => {
       // (resolve), not via the 60-second timeout. The cancel POST
       // also fired (early-stop reached the cancel call before the
       // throw was re-raised). Together: shutdown wouldn't hang.
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
       expect(armedResult).toBe("resolved");
       expect(cancelCalls).toBe(1);
     } finally {
@@ -1798,7 +1798,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1822,7 +1822,10 @@ describe("createTrainer (early stop)", () => {
           // silently swallowed and wait() resolved as if no callback
           // had thrown. With the fix `wait()` rejects (handleFailure
           // wraps the throw because maxReconnectAttempts is 0).
+          // Throwing a non-Error is the whole point of this test, so
+          // the `only-throw-error` rule is disabled at this line.
           onCheckpoint: () => {
+            // eslint-disable-next-line @typescript-eslint/only-throw-error
             throw null;
           },
         },
@@ -1891,7 +1894,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -1933,7 +1936,7 @@ describe("createTrainer (early stop)", () => {
               armedPromise = requestTrainerEarlyStop(trainer, {
                 timeoutMs: 60_000,
               });
-              armedPromise.then(
+              void armedPromise.then(
                 () => {
                   armedResult = "resolved";
                 },
@@ -1954,7 +1957,7 @@ describe("createTrainer (early stop)", () => {
       await trainer.wait();
       // Flush microtasks so the .then(resolve, reject) handler
       // observes the settlement before we assert.
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
     } finally {
       globalThis.fetch = original;
     }
@@ -2012,7 +2015,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -2027,7 +2030,8 @@ describe("createTrainer (early stop)", () => {
         // Falsy non-Error throw: under the bug, the run would be
         // labelled "cancelled" because `cancelError !== null` is
         // false when the catch reassigned `cancelError = null`.
-        // eslint-disable-next-line no-throw-literal
+        // Throwing a non-Error is the scenario under test.
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
         throw null;
       }
       throw new Error(`unexpected fetch: ${method} ${url}`);
@@ -2047,7 +2051,7 @@ describe("createTrainer (early stop)", () => {
               armedPromise = requestTrainerEarlyStop(trainer, {
                 timeoutMs: 60_000,
               });
-              armedPromise.then(
+              void armedPromise.then(
                 () => {
                   armedResult = "resolved";
                 },
@@ -2067,7 +2071,7 @@ describe("createTrainer (early stop)", () => {
     let result: Awaited<ReturnType<typeof trainer.wait>>;
     try {
       result = await trainer.wait();
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
     } finally {
       globalThis.fetch = original;
     }
@@ -2131,7 +2135,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -2144,7 +2148,7 @@ describe("createTrainer (early stop)", () => {
       }
       if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
         cancelCalls += 1;
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -2181,7 +2185,7 @@ describe("createTrainer (early stop)", () => {
       const result = await trainer.wait();
       // Flush microtasks so the .then() chain off `requestEarlyStop`
       // observes the resolution before we assert.
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
       expect(result.job.status).toBe("completed");
       // No cancel POST was issued: the terminal branch just
       // releases the latch; it doesn't cancel a run that already
@@ -2239,7 +2243,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -2311,7 +2315,7 @@ describe("createTrainer (early stop)", () => {
       // the latch would still be armed → `stopResolved` stays
       // false → the test fails (rather than timing out, since
       // `maxReconnectAttempts: 0` already unblocks wait()).
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
       expect(stopResolved).toBe(true);
       expect(stopRejected).toBe(false);
     } finally {
@@ -2353,7 +2357,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -2369,7 +2373,7 @@ describe("createTrainer (early stop)", () => {
         // Closing the stream now mimics cloud-api's response to a cancel:
         // the SSE channel ends and wait() exits its loop.
         streamController?.close();
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -2448,7 +2452,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -2505,7 +2509,9 @@ describe("createTrainer (early stop)", () => {
       { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
     );
     // Should resolve without contacting cloud-api at all.
-    await requestTrainerEarlyStop(trainer, { timeoutMs: 1 });
+    await expect(
+      requestTrainerEarlyStop(trainer, { timeoutMs: 1 }),
+    ).resolves.toBeUndefined();
   });
 
   it("waits out an in-flight start() so a SIGTERM during create-job can still cancel the new job", async () => {
@@ -2539,14 +2545,14 @@ describe("createTrainer (early stop)", () => {
         // valid job: that establishes the post-create state
         // requestEarlyStop should then act on (cancel POST).
         await createJobReleased;
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
       }
       if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
         cancelCalls += 1;
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -2570,7 +2576,7 @@ describe("createTrainer (early stop)", () => {
       const startPromise = trainer.start();
       // Yield once so the start microtasks queue up to the
       // `await client.createJob`.
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
       // requestEarlyStop fires while start() is mid-flight. With
       // the fix it awaits start() rather than no-op'ing immediately.
       // Tiny `timeoutMs` so once `start()` resolves the latch's
@@ -2587,7 +2593,7 @@ describe("createTrainer (early stop)", () => {
       void stopPromise.then(() => {
         stopSettled = true;
       });
-      await new Promise((r) => setImmediate(r));
+      await new Promise((resolve) => setImmediate(resolve));
       expect(stopSettled).toBe(false);
       // Release createJob → start() resolves → stop() proceeds.
       releaseCreateJob();
@@ -2641,7 +2647,7 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
@@ -2701,14 +2707,14 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return new Response(JSON.stringify({ job: minimalJobRow }), {
+        return Response.json({ job: minimalJobRow }, {
           status: 201,
           headers: { "content-type": "application/json" },
         });
       }
       if (method === "POST" && url.includes("/v1/jobs/j-stop/cancel")) {
         cancelCalls += 1;
-        return new Response(JSON.stringify({ ok: true }), {
+        return Response.json({ ok: true }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });

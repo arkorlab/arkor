@@ -266,7 +266,7 @@ export class TrainRegistry {
   }
 
   /** Read-only snapshot, mostly for tests / observability. */
-  list(): ReadonlyArray<ActiveTrain> {
+  list(): readonly ActiveTrain[] {
     return [...this.entries.values()];
   }
 

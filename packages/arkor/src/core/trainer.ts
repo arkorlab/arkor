@@ -13,6 +13,7 @@ import {
   attachTrainerInspection,
   type RequestEarlyStopOptions,
 } from "./trainerInspection";
+
 import type {
   CheckpointContext,
   InferArgs,
@@ -735,9 +736,9 @@ export function createTrainer(
       // silently downgrade the cancel-failure path to "clean
       // cancel".
       let cancelFailed = false;
-      trainer
+      void trainer
         .cancel()
-        .catch((err) => {
+        .catch((err: unknown) => {
           cancelError = err;
           cancelFailed = true;
         })
@@ -792,7 +793,7 @@ export function createTrainer(
     }, timeoutMs);
     // `Timer.unref` keeps the early-stop timer from blocking process exit
     // when the host runtime finishes for unrelated reasons.
-    timer.unref?.();
+    timer.unref();
     earlyStopDeferred = {
       promise,
       resolve: resolveFn,
@@ -815,7 +816,7 @@ export function createTrainer(
     callbacks: currentCallbacks,
   }));
   attachTrainerCallbackReplacer(trainer, (callbacks) => {
-    currentCallbacks = callbacks ?? {};
+    currentCallbacks = callbacks;
   });
   attachTrainerEarlyStopper(trainer, requestEarlyStop);
 

@@ -74,7 +74,7 @@ describe("installShutdownHandlers", () => {
     const dispose = installShutdownHandlers(trainer);
     try {
       process.emit("SIGTERM", "SIGTERM");
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(trainer.__earlyStop.calls).toBe(1);
       expect(exitSpy).toHaveBeenCalledWith(0);
     } finally {
@@ -93,7 +93,7 @@ describe("installShutdownHandlers", () => {
     // job classification, `&&` / `||` chains that distinguish
     // user-cancel from clean exit). Mirrors `SIGNAL_EXIT_CODE` in
     // `cli/cleanupHooks.ts`.
-    const cases: Array<["SIGINT" | "SIGTERM" | "SIGHUP", number]> = [
+    const cases: ["SIGINT" | "SIGTERM" | "SIGHUP", number][] = [
       ["SIGINT", 130],
       ["SIGTERM", 143],
       ["SIGHUP", 129],
@@ -113,9 +113,9 @@ describe("installShutdownHandlers", () => {
       const dispose = installShutdownHandlers(trainer);
       try {
         process.emit(sig, sig);
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise((resolve) => setTimeout(resolve, 10));
         process.emit(sig, sig);
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise((resolve) => setTimeout(resolve, 10));
         // First signal exits 0 via the early-stop chain's
         // `.finally(() => process.exit(0))`; second signal exits
         // with the per-signal POSIX code.
@@ -137,7 +137,7 @@ describe("installShutdownHandlers", () => {
     // despite the stderr diagnostic. Fix: non-zero POSIX 128+signo on
     // rejection so the exit status carries the same signal-shape
     // semantics as the second-signal emergency path.
-    const cases: Array<["SIGINT" | "SIGTERM" | "SIGHUP", number]> = [
+    const cases: ["SIGINT" | "SIGTERM" | "SIGHUP", number][] = [
       ["SIGINT", 130],
       ["SIGTERM", 143],
       ["SIGHUP", 129],
@@ -176,7 +176,7 @@ describe("installShutdownHandlers", () => {
       try {
         process.emit(sig, sig);
         // Wait for the .catch / .finally microtasks to settle.
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise((resolve) => setTimeout(resolve, 10));
         // Under the bug this was just `[0]`. With the fix the
         // first-signal exit code reflects the signal that fired.
         expect(exitCodes, `signal ${sig}`).toEqual([expectedExit]);
@@ -204,9 +204,9 @@ describe("installShutdownHandlers", () => {
     const dispose = installShutdownHandlers(trainer);
     try {
       process.emit("SIGTERM", "SIGTERM");
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       process.emit("SIGTERM", "SIGTERM");
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(trainer.__earlyStop.calls).toBe(1);
       expect(exitCodes).toContain(0);
       expect(exitCodes).toContain(143);
@@ -270,7 +270,7 @@ describe("installCallbackReloadHandler", () => {
       process.emit("SIGUSR2", "SIGUSR2");
       // Wait for the dynamic import + replaceCallbacks to settle.
       for (let i = 0; i < 50 && trainer.__replace.lastCallbacks === null; i++) {
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
       expect(trainer.__replace.lastCallbacks).not.toBeNull();
       expect(typeof trainer.__replace.lastCallbacks?.onLog).toBe("function");
@@ -360,7 +360,7 @@ describe("installCallbackReloadHandler", () => {
       // we can't poll on `lastCallbacks !== null` because the v1
       // IIFE might land first and short-circuit our wait, hiding
       // the count assertion below.
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((resolve) => setTimeout(resolve, 200));
       // Without the seq guard, both IIFEs would call
       // `replaceTrainerCallbacks` and `calls` would be 2. With the
       // guard, the older IIFE's `seq !== loadSeq` short-circuit
@@ -391,7 +391,7 @@ describe("installCallbackReloadHandler", () => {
     try {
       process.emit("SIGUSR2", "SIGUSR2");
       // Give the dynamic import a few ticks.
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       expect(stderrChunks.join("")).toMatch(/no inspectable trainer/i);
       expect(trainer.__replace.lastCallbacks).toBeNull();
     } finally {

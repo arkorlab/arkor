@@ -120,8 +120,10 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       // returned promise resolves; that preserves "side effect is
       // observable right after the handler returns" for sync
       // cleanups like `unlinkSync` (and the existing tests that
-      // assert on it).
-      run();
+      // assert on it). `void` because we deliberately don't await the
+      // async tail here; the `exitOnSignal` branch below waits on the
+      // in-flight set instead.
+      void run();
       detach();
       if (!options.exitOnSignal) return;
       // Capture which signal triggered shutdown so the exit code

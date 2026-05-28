@@ -5,10 +5,19 @@ import {
   replaceTrainerCallbacks,
   requestTrainerEarlyStop,
 } from "./trainerInspection";
+
 import type { Trainer, TrainerCallbacks } from "./types";
 
 const SHUTDOWN_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
 const CALLBACK_RELOAD_SIGNAL = "SIGUSR2" as const;
+
+/**
+ * Shared no-op disposer returned when signal registration fails (e.g.
+ * `process.on("SIGUSR2", ...)` throwing on a platform that doesn't
+ * support the signal). Hoisted to module scope so it doesn't close
+ * over anything and satisfies `unicorn/consistent-function-scoping`.
+ */
+const NO_OP_DISPOSE = (): void => undefined;
 
 /**
  * Two-stage shutdown handling so HMR rebuilds (Studio sends SIGTERM)
@@ -39,9 +48,11 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
       // status: 130 for SIGINT (Ctrl-C twice), 129 for SIGHUP,
       // 143 for SIGTERM. Hardcoding 143 misclassifies SIGINT and
       // SIGHUP shutdowns as SIGTERM-style exits and breaks
-      // signal-aware orchestration. Defaults to 143 for any future
-      // signal we forget to map.
-      const code = SIGNAL_EXIT_CODE[signal] ?? 143;
+      // signal-aware orchestration. `SIGNAL_EXIT_CODE` is keyed by the
+      // exact `SHUTDOWN_SIGNALS` union, so the lookup is always defined
+      // (a new signal added to the tuple without a code would fail the
+      // Record literal's exhaustiveness check at compile time).
+      const code = SIGNAL_EXIT_CODE[signal];
       process.exit(code);
       // Explicit return so test mocks of process.exit (which don't
       // actually terminate the worker) don't fall through into the
@@ -67,16 +78,14 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
     // second-signal exit-code convention so parent shells see a
     // signal-style nonzero status.
     let earlyStopFailed = false;
-    requestTrainerEarlyStop(trainer)
+    void requestTrainerEarlyStop(trainer)
       .catch((err: unknown) => {
         earlyStopFailed = true;
         const msg = err instanceof Error ? err.message : String(err);
         process.stderr.write(`requestEarlyStop failed: ${msg}\n`);
       })
       .finally(() => {
-        const code = earlyStopFailed
-          ? (SIGNAL_EXIT_CODE[signal] ?? 143)
-          : 0;
+        const code = earlyStopFailed ? SIGNAL_EXIT_CODE[signal] : 0;
         process.exit(code);
       });
   };
@@ -176,26 +185,18 @@ export function installCallbackReloadHandler(
   // ("unsupported" → falls back to SIGTERM-restart), so an unarmed
   // listener here is the documented contract on those platforms:
   // quietly degrade to a no-op disposer rather than crashing
-  // `arkor start` at boot.
-  // Track registration success so the returned disposer never
-  // calls `process.off(...)` for a handler we never attached.
-  // Today this only fires for the early-return-no-op path where
-  // `process.on` threw at registration, but future Node versions
-  // could route `off` through the same libuv signal-wrap that
-  // throws for unsupported signals on Windows, and a symmetric
-  // throw inside the disposer would crash the `runTrainer` finally
-  // block instead of merely being a no-op.
-  let attached = false;
+  // `arkor start` at boot. When `process.on` throws we return the
+  // shared `NO_OP_DISPOSE` so the caller's `runTrainer` finally
+  // block never tries to `process.off(...)` a handler that was
+  // never attached; the success path's disposer is only ever
+  // created after the registration succeeds, so it can off()
+  // unconditionally.
   try {
     process.on(CALLBACK_RELOAD_SIGNAL, handler);
-    attached = true;
   } catch {
-    return () => {
-      // no-op: handler was never attached
-    };
+    return NO_OP_DISPOSE;
   }
   return () => {
-    if (!attached) return;
     process.off(CALLBACK_RELOAD_SIGNAL, handler);
   };
 }

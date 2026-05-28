@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+
 import type { JobConfig } from "./types";
 
 /**
@@ -86,7 +87,7 @@ function stableStringifyRec(
     // sees the hosting field name.
     const obj = value as Record<string, unknown>;
     const parts: string[] = [];
-    for (const k of Object.keys(obj).sort()) {
+    for (const k of Object.keys(obj).toSorted()) {
       const serialised = stableStringifyRec(obj[k], k, seen);
       if (serialised === undefined) continue;
       parts.push(`${JSON.stringify(k)}:${serialised}`);
@@ -101,7 +102,7 @@ function stableStringifyRec(
   }
 }
 
-function stableStringify(value: unknown, key: string = ""): string | undefined {
+function stableStringify(value: unknown, key = ""): string | undefined {
   return stableStringifyRec(value, key, new WeakSet());
 }
 

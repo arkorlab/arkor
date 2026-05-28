@@ -17,8 +17,8 @@ import {
   requestAnonymousToken,
   type AnonymousCredentials,
 } from "../../core/credentials";
-import { buildStudioApp } from "../../studio/server";
 import { createHmrCoordinator } from "../../studio/hmr";
+import { buildStudioApp } from "../../studio/server";
 import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
 import { registerCleanupHook } from "../cleanupHooks";
 import { ui } from "../prompts";

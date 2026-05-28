@@ -7,6 +7,7 @@ import {
   installCallbackReloadHandler,
   installShutdownHandlers,
 } from "./runnerSignals";
+
 import type { Trainer } from "./types";
 
 const DEFAULT_ENTRY = "src/arkor/index.ts";

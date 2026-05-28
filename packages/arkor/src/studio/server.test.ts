@@ -696,7 +696,7 @@ process.exit(0);
         setInterval(() => {}, 60_000);
         `,
       );
-      let cancelHits: Array<{ url: string }> = [];
+      const cancelHits: { url: string }[] = [];
       const ORIG_FETCH = globalThis.fetch;
       globalThis.fetch = (async (
         input: Parameters<typeof fetch>[0],
@@ -706,7 +706,7 @@ process.exit(0);
         const method = init?.method ?? "GET";
         if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
           cancelHits.push({ url });
-          return new Response(JSON.stringify({ ok: true }), {
+          return Response.json({ ok: true }, {
             status: 200,
             headers: { "content-type": "application/json" },
           });
@@ -746,7 +746,7 @@ process.exit(0);
           buf += decoder.decode(value, { stream: true });
         }
         await reader.cancel();
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         // The cancel POST must target the REAL id. With the bug
         // the decoy would have been recorded first → cancelHits[0]
@@ -805,7 +805,7 @@ process.exit(0);
       // server's cancel POST landed with the right job id +
       // scope. The default fetch in this suite would 404 our POST
       // and leave it as `cancelCalls === 0`.
-      let cancelHits: Array<{ url: string; method: string }> = [];
+      const cancelHits: { url: string; method: string }[] = [];
       const ORIG_FETCH = globalThis.fetch;
       globalThis.fetch = (async (
         input: Parameters<typeof fetch>[0],
@@ -818,7 +818,7 @@ process.exit(0);
           url.includes(`/v1/jobs/${FAKE_JOB_ID}/cancel`)
         ) {
           cancelHits.push({ url, method });
-          return new Response(JSON.stringify({ ok: true }), {
+          return Response.json({ ok: true }, {
             status: 200,
             headers: { "content-type": "application/json" },
           });
@@ -865,7 +865,7 @@ process.exit(0);
         await reader.cancel();
         // Fire-and-forget: give the void IIFE a tick to actually
         // dispatch the fetch + receive the 200 response.
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         expect(cancelHits).toHaveLength(1);
         expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
@@ -908,7 +908,7 @@ process.exit(0);
         setInterval(() => {}, 60_000);
         `,
       );
-      let cancelHits: Array<{ url: string }> = [];
+      const cancelHits: { url: string }[] = [];
       const ORIG_FETCH = globalThis.fetch;
       globalThis.fetch = (async (
         input: Parameters<typeof fetch>[0],
@@ -918,7 +918,7 @@ process.exit(0);
         const method = init?.method ?? "GET";
         if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
           cancelHits.push({ url });
-          return new Response(JSON.stringify({ ok: true }), {
+          return Response.json({ ok: true }, {
             status: 200,
             headers: { "content-type": "application/json" },
           });
@@ -961,7 +961,7 @@ process.exit(0);
         // fix, the registry-pinned scope is used and the POST goes
         // out anyway.
         await reader.cancel();
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         expect(cancelHits).toHaveLength(1);
         expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
@@ -1011,7 +1011,7 @@ process.exit(0);
         setInterval(() => {}, 60_000);
         `,
       );
-      let cancelHits: Array<{ url: string }> = [];
+      const cancelHits: { url: string }[] = [];
       const ORIG_FETCH = globalThis.fetch;
       globalThis.fetch = (async (
         input: Parameters<typeof fetch>[0],
@@ -1021,7 +1021,7 @@ process.exit(0);
         const method = init?.method ?? "GET";
         if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
           cancelHits.push({ url });
-          return new Response(JSON.stringify({ ok: true }), {
+          return Response.json({ ok: true }, {
             status: 200,
             headers: { "content-type": "application/json" },
           });
@@ -1057,7 +1057,7 @@ process.exit(0);
           buf += decoder.decode(value, { stream: true });
         }
         await reader.cancel();
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((resolve) => setTimeout(resolve, 250));
 
         // Under the bug there were 0 cancel hits (pinned scope null
         // → skip). With the fix the cancel-time read recovers the
@@ -1112,7 +1112,7 @@ process.exit(0);
         setInterval(() => {}, 60_000);
         `,
       );
-      let cancelHits: { url: string }[] = [];
+      const cancelHits: { url: string }[] = [];
       const ORIG_FETCH = globalThis.fetch;
       globalThis.fetch = (async (
         input: Parameters<typeof fetch>[0],
@@ -1122,7 +1122,7 @@ process.exit(0);
         const method = init?.method ?? "GET";
         if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
           cancelHits.push({ url });
-          return new Response(JSON.stringify({ ok: true }), {
+          return Response.json({ ok: true }, {
             status: 200,
             headers: { "content-type": "application/json" },
           });
@@ -1158,7 +1158,7 @@ process.exit(0);
           buf += decoder.decode(value, { stream: true });
         }
         await reader.cancel();
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         // Under the bug: 0 hits (the merged `"loading dataset… [arkor:n] Started job <id>"`
         // line failed the `^\[arkor:` anchor, so parsedJobId stayed
@@ -1211,7 +1211,7 @@ process.exit(0);
         setInterval(() => {}, 60_000);
         `,
       );
-      let cancelHits: Array<{ url: string }> = [];
+      const cancelHits: { url: string }[] = [];
       const ORIG_FETCH = globalThis.fetch;
       globalThis.fetch = (async (
         input: Parameters<typeof fetch>[0],
@@ -1221,7 +1221,7 @@ process.exit(0);
         const method = init?.method ?? "GET";
         if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
           cancelHits.push({ url });
-          return new Response(JSON.stringify({ ok: true }), {
+          return Response.json({ ok: true }, {
             status: 200,
             headers: { "content-type": "application/json" },
           });
@@ -1261,7 +1261,7 @@ process.exit(0);
           buf += decoder.decode(value, { stream: true });
         }
         await reader.cancel();
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         // Cancel POST landed against the REAL id: the spoof was
         // rejected by the anchored nonce-prefixed regex.
@@ -1321,7 +1321,7 @@ process.exit(0);
       await res.body!.cancel();
 
       // Give the OS a moment to deliver SIGKILL and reap.
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       // `process.kill(pid, 0)` is the standard "is this pid alive?"
       // probe: sends signal 0 (no-op) but the syscall still
@@ -1450,7 +1450,7 @@ process.exit(0);
         // Give the child's interval a few iterations to attempt
         // post-cancel writes. The handler must short-circuit on the
         // `closed` flag and not crash the worker.
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((resolve) => setTimeout(resolve, 50));
       } finally {
         process.off("uncaughtException", onUnhandled);
         process.off("unhandledRejection", onUnhandled);
@@ -2748,7 +2748,7 @@ process.exit(0);
         setInterval(() => {}, 60_000);
         `,
       );
-      let cancelHits: Array<{ url: string }> = [];
+      const cancelHits: { url: string }[] = [];
       const ORIG_FETCH = globalThis.fetch;
       globalThis.fetch = (async (
         input: Parameters<typeof fetch>[0],
@@ -2758,7 +2758,7 @@ process.exit(0);
         const method = init?.method ?? "GET";
         if (method === "POST" && /\/v1\/jobs\/[^/]+\/cancel/.test(url)) {
           cancelHits.push({ url });
-          return new Response(JSON.stringify({ ok: true }), {
+          return Response.json({ ok: true }, {
             status: 200,
             headers: { "content-type": "application/json" },
           });
@@ -2809,12 +2809,12 @@ process.exit(0);
           trainerName: "t",
         });
         // Let the dispatch run + signal land.
-        await new Promise((r) => setTimeout(r, 80));
+        await new Promise((resolve) => setTimeout(resolve, 80));
 
         // Manual cancel: old code would have early-returned; new
         // code POSTs cloud cancel + SIGKILLs.
         await reader.cancel();
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((resolve) => setTimeout(resolve, 250));
 
         // Cloud cancel POST landed for the right job.
         expect(cancelHits).toHaveLength(1);

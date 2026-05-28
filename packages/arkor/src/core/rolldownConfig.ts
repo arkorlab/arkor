@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
+
 import type { InputOptions } from "rolldown";
 
 const DEFAULT_ENTRY = "src/arkor/index.ts";

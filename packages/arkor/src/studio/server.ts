@@ -2,7 +2,6 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { createClient } from "@arkor/cloud-api-client";
@@ -25,16 +24,19 @@ import {
   AUTH0_MISSING_STATE_MESSAGE,
   ensureProjectState,
 } from "../core/projectState";
+import { resolveBuildEntry } from "../core/rolldownConfig";
 import {
   createDeploymentKeyRequestSchema,
   createDeploymentRequestSchema,
 } from "../core/schemas";
 import { readState } from "../core/state";
-import { resolveBuildEntry } from "../core/rolldownConfig";
 import { SDK_VERSION } from "../core/version";
+
 import { readManifestSummary } from "./manifest";
-import type { HmrCoordinator, HmrEvent } from "./hmr";
 import { TrainRegistry, type RestartTarget } from "./trainRegistry";
+
+import type { HmrCoordinator, HmrEvent } from "./hmr";
+import type { Readable, Writable } from "node:stream";
 
 /** Identify the spawned subprocess to the SPA without exposing it as
  *  a body frame (which would interleave with trainer stdout). The SPA
@@ -72,7 +74,7 @@ const TRAIN_PID_HEADER = "x-arkor-train-pid";
 function buildStartedJobPattern(nonce: string): RegExp {
   // Nonce is a 32-char hex string from `randomBytes(16).toString("hex")`,
   // i.e. only `[0-9a-f]` (safe to interpolate into the regex literal).
-  return new RegExp(`\\[arkor:${nonce}\\] Started job (\\S+)$`);
+  return new RegExp(String.raw`\[arkor:${nonce}\] Started job (\S+)$`);
 }
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
@@ -690,7 +692,7 @@ export function buildStudioApp(options: StudioServerOptions) {
               const line = stdoutLineBuf.slice(0, nl).replace(/\r$/, "");
               stdoutLineBuf = stdoutLineBuf.slice(nl + 1);
               const m = startedJobPattern.exec(line);
-              if (m && m[1]) {
+              if (m?.[1]) {
                 activeTrains.recordJobId(child.pid, m[1]);
                 // Mirror to the parent-scope closure so the cancel
                 // handler can pick this up even AFTER it called
@@ -868,8 +870,15 @@ export function buildStudioApp(options: StudioServerOptions) {
           // multi-spawn cases.
           if (parsedJobId === null) {
             const start = Date.now();
+            // `parsedJobId` is mutated by the stdout parser closure
+            // while we await below; TS's flow analysis narrows it to
+            // `null` here (it can't see the cross-closure write across
+            // the await) and `no-unnecessary-condition` mis-reports the
+            // loop guard as always-true. The poll is real: the marker
+            // line can land mid-wait.
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
             while (parsedJobId === null && Date.now() - start < 500) {
-              await new Promise((r) => setTimeout(r, 25));
+              await new Promise((resolve) => setTimeout(resolve, 25));
             }
           }
           if (parsedJobId === null) return;

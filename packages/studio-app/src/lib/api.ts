@@ -108,7 +108,6 @@ async function readBodyCapped(res: Response, maxBytes: number): Promise<string> 
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
-      if (!value) continue;
       const remaining = maxBytes - total;
       if (remaining <= 0) break;
       const slice =
@@ -124,7 +123,7 @@ async function readBodyCapped(res: Response, maxBytes: number): Promise<string> 
     // runs after to drop the reader's claim on the underlying body
     // so any later consumer (or GC) is unblocked; calling `releaseLock`
     // before `cancel` would throw because the reader is still active.
-    void reader.cancel().catch(() => {});
+    void reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
   out += decoder.decode();
@@ -207,11 +206,11 @@ export interface DevEvent {
   message?: string;
   /** True when the rebuild changed cloud-side config and a child was SIGTERM'd. */
   restart?: boolean;
-  restartTargets?: Array<{ pid: number; trainFile?: string }>;
+  restartTargets?: { pid: number; trainFile?: string }[];
   /** True when the rebuild only changed callbacks and one or more children
    *  were SIGUSR2'd to hot-swap their callback closures in place. */
   hotSwap?: boolean;
-  hotSwapTargets?: Array<{ pid: number; trainFile?: string }>;
+  hotSwapTargets?: { pid: number; trainFile?: string }[];
 }
 
 export function openDevEvents(): EventSource {
@@ -373,7 +372,8 @@ export async function streamTraining(
   if (!res.ok) {
     let detail = "";
     try {
-      detail = (await readBodyCapped(res, ERROR_BODY_MAX_BYTES)).trim();
+      const body = await readBodyCapped(res, ERROR_BODY_MAX_BYTES);
+      detail = body.trim();
     } catch {
       // Body unreadable (already consumed, network gone, etc.):
       // surface the status alone rather than masking the failure
@@ -387,7 +387,7 @@ export async function streamTraining(
   }
   if (onSpawn) {
     const raw = res.headers.get("x-arkor-train-pid");
-    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
     onSpawn(Number.isFinite(parsed) ? parsed : null);
   }
   if (!res.body) return;

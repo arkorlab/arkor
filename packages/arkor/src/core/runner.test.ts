@@ -225,7 +225,7 @@ describe("runTrainer: shutdown signal handling", () => {
       const KEY = Symbol.for("arkor.trainer.requestEarlyStop");
       let earlyStopCalls = 0;
       let resolveWait;
-      const waitPromise = new Promise((r) => { resolveWait = r; });
+      const waitPromise = new Promise((resolve) => { resolveWait = resolve; });
       globalThis.__test_signalProbe = {
         get earlyStopCalls() { return earlyStopCalls; },
         finishWait: () => resolveWait({
@@ -277,21 +277,21 @@ describe("runTrainer: shutdown signal handling", () => {
         probe = (globalThis as unknown as { __test_signalProbe?: Probe })
           .__test_signalProbe;
         if (probe) break;
-        await new Promise((r) => setTimeout(r, 25));
+        await new Promise((resolve) => setTimeout(resolve, 25));
       }
       if (!probe) throw new Error("Probe not installed by user bundle");
 
       // 1st SIGTERM → requestEarlyStop is called, exit(0) scheduled in the
       // promise's `.finally`.
       process.emit("SIGTERM", "SIGTERM");
-      await new Promise((r) => setTimeout(r, 25));
+      await new Promise((resolve) => setTimeout(resolve, 25));
       expect(probe.earlyStopCalls).toBe(1);
       expect(exitCalls).toContain(0);
 
       // 2nd SIGTERM (still in-flight, listeners not yet removed) →
       // exit(143) immediately, no second requestEarlyStop call.
       process.emit("SIGTERM", "SIGTERM");
-      await new Promise((r) => setTimeout(r, 25));
+      await new Promise((resolve) => setTimeout(resolve, 25));
       expect(probe.earlyStopCalls).toBe(1);
       expect(exitCalls).toContain(143);
 

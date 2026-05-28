@@ -183,7 +183,11 @@ export function RunTraining() {
       if (!(raw instanceof MessageEvent)) return;
       let payload: DevEvent;
       try {
-        payload = JSON.parse(raw.data) as DevEvent;
+        // `MessageEvent.data` is typed `any`; the SSE frames the HMR
+        // server emits are always JSON strings, so assert `string`
+        // before handing it to `JSON.parse` to satisfy
+        // `no-unsafe-argument`.
+        payload = JSON.parse(raw.data as string) as DevEvent;
       } catch {
         return;
       }

@@ -205,7 +205,7 @@ describe("TrainRegistry", () => {
     expect(reg.isEarlyStopRequested(901)).toBe(true);
     // Defensive cases: non-numeric / unknown / never-registered pid.
     expect(reg.isEarlyStopRequested(undefined)).toBe(false);
-    expect(reg.isEarlyStopRequested(99999)).toBe(false);
+    expect(reg.isEarlyStopRequested(99_999)).toBe(false);
     // Once the child unregisters (close handler) the flag effectively
     // resets: subsequent queries return false rather than retaining
     // stale state.

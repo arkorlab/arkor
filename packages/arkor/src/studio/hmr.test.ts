@@ -34,7 +34,7 @@ function nextEvent(
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const tick = () => {
-      const found = events.find(predicate);
+      const found = events.find((e) => predicate(e));
       if (found) return resolve(found);
       if (Date.now() - start > timeoutMs) {
         return reject(
@@ -181,7 +181,7 @@ describe("createHmrCoordinator", () => {
       const lateEvents: HmrEvent[] = [];
       hmr.subscribe((e) => lateEvents.push(e));
       expect(lateEvents.length).toBeGreaterThanOrEqual(1);
-      expect(lateEvents[0]).toEqual(firstEvents[firstEvents.length - 1]);
+      expect(lateEvents[0]).toEqual(firstEvents.at(-1));
     } finally {
       await hmr.dispose();
     }
@@ -243,7 +243,7 @@ describe("createHmrCoordinator", () => {
       join(cwd, "src/arkor/index.ts"),
       FAKE_MANIFEST.replace(`"alpha"`, `"gamma"`),
     );
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((resolve) => setTimeout(resolve, 250));
     expect(events.length).toBe(countAfterDispose);
   });
 
@@ -289,7 +289,7 @@ describe("createHmrCoordinator", () => {
       await waitForStableEvents(events, 750);
       const stat = statSync(join(cwd, ".arkor/build/index.mjs"));
       const expectedHash = `${stat.mtimeMs}-${stat.ctimeMs}-${stat.size}`;
-      expect(events[events.length - 1]?.hash).toBe(expectedHash);
+      expect(events.at(-1)?.hash).toBe(expectedHash);
     } finally {
       await hmr.dispose();
     }

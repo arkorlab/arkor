@@ -754,7 +754,7 @@ describe("runDev", () => {
       }) as typeof process.exit);
     try {
       const sigintListeners = process.listeners("SIGINT");
-      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      const handler = sigintListeners.at(-1) as () => void;
       handler();
       // Even though the token file was never written, the cleanup hook
       // ran (best-effort `unlinkSync` swallows ENOENT) and the
@@ -817,7 +817,7 @@ describe("runDev", () => {
       // Restore read perms so we can `readFileSync` to verify content.
       chmodSync(path, 0o644);
       const sigintListeners = process.listeners("SIGINT");
-      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      const handler = sigintListeners.at(-1) as () => void;
       handler();
       await flushMicrotasks();
       // The pre-existing token is still on disk AND unchanged: this
@@ -851,7 +851,7 @@ describe("runDev", () => {
     const path = studioTokenPath();
     expect(existsSync(path)).toBe(true);
     const ourToken = readFileSync(path, "utf8").trim();
-    expect(ourToken).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(ourToken).toMatch(/^[\w-]+$/);
     // Simulate the concurrent overwrite: a second `arkor dev` wrote
     // its own token to the same shared path while we were running.
     const concurrentToken = "concurrent-dev-token-XYZ";
@@ -864,7 +864,7 @@ describe("runDev", () => {
       }) as typeof process.exit);
     try {
       const sigintListeners = process.listeners("SIGINT");
-      const handler = sigintListeners[sigintListeners.length - 1] as () => void;
+      const handler = sigintListeners.at(-1) as () => void;
       handler();
       await flushMicrotasks();
       // Under the bug the file would be gone. With the fix the

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
+
 import { watch, type RolldownWatcher } from "rolldown";
+
 import { hashJobConfig } from "../core/configHash";
 import { moduleCacheBustUrl } from "../core/moduleCacheBust";
 import {
@@ -324,6 +326,14 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     // inspection will own the broadcast for the latest state; this
     // one publishing now would just clobber `lastEvent` with the
     // older snapshot.
+    // `disposed` is re-checked AFTER the `inspectBundle` await above:
+    // `dispose()` can flip it to `true` while the inspection is in
+    // flight. TS's control-flow narrowing assumes single-threaded
+    // execution and treats `disposed` as still-`false` here (it can't
+    // see the cross-closure mutation across the await), so
+    // `no-unnecessary-condition` mis-reports it as always-falsy. The
+    // runtime guard is real: keep it.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (seq !== buildSeq || disposed) return;
     const type: HmrEventType = firstBroadcast ? "ready" : "rebuild";
     firstBroadcast = false;
@@ -373,7 +383,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
             startWatcher();
           }
         }, 1000);
-        entryWaitTimer.unref?.();
+        entryWaitTimer.unref();
       }
       return;
     }
@@ -390,7 +400,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     watcher.on("event", (event) => {
       if (event.code === "BUNDLE_END") {
         // rolldown requires the per-build result to be closed to avoid leaks.
-        event.result.close().catch(() => {});
+        event.result.close().catch(() => undefined);
         // The event type ("ready" vs "rebuild") is decided inside
         // `emitBuildSucceeded` *after* the inspection await, based on
         // whether any prior broadcast actually landed (see the
@@ -407,8 +417,12 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
         // state forever even after the user fixes their code.
         // Optional-chain so we still close any result that *is*
         // present (avoiding the leak rolldown warns about) without
-        // blowing up the watcher when none is.
-        event.result?.close().catch(() => {});
+        // blowing up the watcher when none is. Rolldown's types mark
+        // `event.result` non-nullable, so `no-unnecessary-condition`
+        // flags the `?.`, but the parse/resolve-phase ERROR events
+        // genuinely omit it at runtime; keep the guard.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        event.result?.close().catch(() => undefined);
         // Bump the seq so a still-in-flight `emitBuildSucceeded`
         // from a *prior* BUNDLE_END drops its broadcast when its
         // inspection finally resolves. Without this, the older
@@ -520,7 +534,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       if (watcher) {
         const w = watcher;
         watcher = null;
-        await w.close().catch(() => {});
+        await w.close().catch(() => undefined);
       }
     },
   };

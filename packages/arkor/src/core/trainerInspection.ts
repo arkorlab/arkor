@@ -1,4 +1,5 @@
 import { isArkor } from "./arkor";
+
 import type { Arkor, JobConfig, Trainer, TrainerCallbacks } from "./types";
 
 /**
@@ -300,7 +301,7 @@ export function findTrainerInModule(
 export function findInspectableTrainer(
   mod: Record<string, unknown>,
 ): TrainerInspection | null {
-  const trainer = findTrainerCandidates(mod)[0];
-  if (!trainer) return null;
-  return getTrainerInspection(trainer);
+  const candidates = findTrainerCandidates(mod);
+  if (candidates.length === 0) return null;
+  return getTrainerInspection(candidates[0]);
 }

@@ -10,8 +10,12 @@ import {
 // covers tests whose registration never fires (still need their
 // listeners off the worker before the next test runs).
 
-let exitSpy: ReturnType<typeof vi.spyOn> | null = null;
-let stdoutSpy: ReturnType<typeof vi.spyOn> | null = null;
+// `ReturnType<typeof vi.spyOn>` resolves to `any` in this vitest
+// version, so a `| null` union trips `no-redundant-type-constituents`
+// (the `any` already absorbs `null`). Initialise to `null` at runtime
+// for the `?.mockRestore()` afterEach guard; the type stays `any`.
+let exitSpy: ReturnType<typeof vi.spyOn> = null;
+let stdoutSpy: ReturnType<typeof vi.spyOn> = null;
 
 afterEach(() => {
   exitSpy?.mockRestore();
@@ -51,10 +55,10 @@ describe("registerCleanupHook", () => {
     });
 
     registerCleanupHook({
-      cleanup: () =>
-        slowDispose.then(() => {
-          order.push("async-cleanup-finished");
-        }),
+      cleanup: async () => {
+        await slowDispose;
+        order.push("async-cleanup-finished");
+      },
     });
     registerCleanupHook({
       cleanup: () => {
@@ -119,10 +123,10 @@ describe("registerCleanupHook", () => {
     // Sibling async cleanup registered AFTER. With the old code,
     // its promise wouldn't make it into the exit-owner's snapshot.
     registerCleanupHook({
-      cleanup: () =>
-        slow.then(() => {
-          order.push("async-cleanup-finished");
-        }),
+      cleanup: async () => {
+        await slow;
+        order.push("async-cleanup-finished");
+      },
     });
 
     const codes = mockExit();
@@ -154,7 +158,7 @@ describe("registerCleanupHook", () => {
     // unreaped. POSIX convention is 128 + signo (SIGINT=2 → 130,
     // SIGTERM=15 → 143, SIGHUP=1 → 129); SIGNAL_EXIT_CODE in
     // cleanupHooks.ts pins the mapping.
-    const cases: Array<["SIGINT" | "SIGTERM" | "SIGHUP", number]> = [
+    const cases: ["SIGINT" | "SIGTERM" | "SIGHUP", number][] = [
       ["SIGINT", 130],
       ["SIGTERM", 143],
       ["SIGHUP", 129],
