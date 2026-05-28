@@ -75,7 +75,7 @@ export function Playground({
       .catch((err: unknown) => {
         if (cancelled) return;
         // Even on /api/jobs failure, drop into base-model mode so the
-        // composer still works — only the Adapter segment depends on
+        // composer still works; only the Adapter segment depends on
         // having completed jobs to enumerate. Force `mode` back to
         // "base" too: if the user landed here via
         // `#/playground?adapter=<id>` (e.g. "Open in Playground" from
@@ -110,7 +110,7 @@ export function Playground({
     const query = params.toString();
     const next = query ? `#/playground?${query}` : "#/playground";
     if (window.location.hash === next) return;
-    // appliedAdapterRef tracks "the last URL value we honoured" — set
+    // appliedAdapterRef tracks "the last URL value we honoured"; set
     // it BEFORE the hashchange dispatch below so the sync-from-prop
     // effect's first equality check sees both sides matching and
     // returns early. Otherwise the effect would treat the new prop
@@ -121,7 +121,7 @@ export function Playground({
     window.history.replaceState(null, "", next);
     // `replaceState` doesn't fire hashchange on its own, so
     // `useHashRoute` would otherwise stay on the mount-time value
-    // and feed a stale `initialAdapterId` back in — the sync effect
+    // and feed a stale `initialAdapterId` back in; the sync effect
     // below would then snap us back to that stale value at the next
     // re-render. Dispatch the event manually so `useHashRoute` re-
     // parses against the URL we just wrote.
@@ -135,7 +135,7 @@ export function Playground({
   // useState seeds at the top run only once on mount; without this
   // effect, prop changes afterwards would leave the page out of sync
   // with the URL. Skip while a stream is in flight so we don't yank
-  // the user out of an active conversation — when streaming flips
+  // the user out of an active conversation; when streaming flips
   // false the effect re-runs and applies the pending change.
   const appliedAdapterRef = useRef(initialAdapterId);
   useEffect(() => {
@@ -146,7 +146,7 @@ export function Playground({
       setMode("adapter");
       setSelectedJob(initialAdapterId);
     } else {
-      // URL dropped the adapter param — fall back to base mode so the
+      // URL dropped the adapter param; fall back to base mode so the
       // page state matches the bare `#/playground` URL. Leave
       // `selectedJob` as-is so flipping back to Adapter via the
       // picker remembers the prior selection.
@@ -250,7 +250,7 @@ export function Playground({
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             {mode === "base"
-              ? "Chat with a supported base model — no training run required."
+              ? "Chat with a supported base model. No training run required."
               : "Chat with a completed adapter to verify behaviour."}
           </p>
         </div>
@@ -313,8 +313,8 @@ export function Playground({
               title="Ready when you are"
               description={
                 mode === "base"
-                  ? "Send the first message below — responses stream from the base model."
-                  : "Send the first message below — responses stream from your selected adapter."
+                  ? "Send the first message below. Responses stream from the base model."
+                  : "Send the first message below. Responses stream from your selected adapter."
               }
             />
           </div>

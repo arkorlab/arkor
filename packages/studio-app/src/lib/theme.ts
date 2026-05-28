@@ -22,7 +22,7 @@ export function getInitialTheme(): Theme {
         : "light";
     }
   } catch {
-    // some environments throw on the first matchMedia query — fall through
+    // some environments throw on the first matchMedia query; fall through
   }
   return "light";
 }
@@ -37,7 +37,7 @@ export function setTheme(theme: Theme): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, theme);
   } catch {
-    // localStorage may be unavailable (private mode, etc.) — silently skip.
+    // localStorage may be unavailable (private mode, etc.); silently skip.
   }
 }
 

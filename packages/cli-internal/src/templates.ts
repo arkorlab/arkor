@@ -1,13 +1,13 @@
 /**
  * Starter templates written out by `create-arkor` / `arkor init`.
- * Single source of truth — both consumers bundle this module at build time.
+ * Single source of truth: both consumers bundle this module at build time.
  *
  * Layout written to disk:
  *
  *   src/arkor/index.ts    ← entry-point manifest (`createArkor({ trainer })`)
  *   src/arkor/trainer.ts  ← per-template trainer (`createTrainer({...})`)
  *
- * `index.ts` is identical across templates — only the trainer body differs.
+ * `index.ts` is identical across templates: only the trainer body differs.
  */
 export type TemplateId = "redaction" | "translate" | "triage";
 
@@ -25,7 +25,7 @@ export interface Template {
 // hands the right shape to the trainer's apply_chat_template step.
 //
 // `evalSteps: 25` is wired in by default so a fresh scaffold produces both
-// training and eval loss out of the box — Studio's loss chart picks the
+// training and eval loss out of the box: Studio's loss chart picks the
 // `evalLoss` series up automatically, and `onLog` prints it on the steps
 // where the trainer actually evaluates (`evalLoss` is null on non-eval
 // steps, so the segment is omitted there).
@@ -38,7 +38,7 @@ export interface Template {
 // `redaction`. Indentation is baked into this constant (`    ` for the
 // `onLog:` line, `      ` for the body), and the `${ONLOG_BODY}`
 // interpolation in each trainer string sits at column 0 with **no
-// leading space** — adding one would push the rendered `onLog:` block
+// leading space**: adding one would push the rendered `onLog:` block
 // one column right of the surrounding `callbacks: {`. Reviewers / bots
 // occasionally flag the bare `${ONLOG_BODY}` line as misaligned because
 // neighbouring source lines (`  callbacks: {` above, `  },` below)
@@ -52,12 +52,12 @@ export interface Template {
 // Escaping note: this string is itself a JS template literal whose
 // product is the *runtime* trainer-source backticks/interpolations. So
 // `\`` and `\${...}` here become `` ` `` and `${...}` in the emitted
-// source code — exactly what the user-visible `console.log` template
+// source code: exactly what the user-visible `console.log` template
 // literal needs.
 const ONLOG_BODY = `    onLog: ({ step, loss, evalLoss }) => {
       // Omit each \`field=…\` segment when its value isn't a finite number
       // so the line stays readable on eval-only steps (where \`loss\` is
-      // null) and on training-only steps (where \`evalLoss\` is null) —
+      // null) and on training-only steps (where \`evalLoss\` is null):
       // matches the format Studio's event log uses.
       const lossPart =
         typeof loss === "number" && Number.isFinite(loss)
@@ -179,7 +179,7 @@ ${ONLOG_BODY}
 });
 `;
 
-// Order is significant — `templateChoices()` preserves insertion order so the
+// Order is significant: `templateChoices()` preserves insertion order so the
 // CLI prompt lists demos first (sorted by estimated training time).
 //
 // Estimated training times assume A100 80GB on Runpod Serverless with the
@@ -204,7 +204,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
 };
 
 /**
- * Body of `src/arkor/index.ts` — identical across templates. The `createArkor`
+ * Body of `src/arkor/index.ts`, identical across templates. The `createArkor`
  * factory is what `arkor build` / Studio discovers; per-role primitives
  * (`trainer`, future `deploy`, `eval`) live in sibling files and get gathered
  * here.
@@ -215,7 +215,7 @@ import { trainer } from "./trainer";
 export const arkor = createArkor({ trainer });
 `;
 
-export const STARTER_CONFIG = `// Placeholder for future project-level config — the runtime does not read
+export const STARTER_CONFIG = `// Placeholder for future project-level config; the runtime does not read
 // fields from this file yet. Training settings (\`maxSteps\`, \`lora\`, etc.)
 // live on the Trainer in src/arkor/trainer.ts. Project routing
 // (orgSlug / projectSlug) is tracked automatically in .arkor/state.json.
@@ -241,7 +241,7 @@ An arkor training project scaffolded by \`create-arkor\`.
 
 The \`dev\` / \`build\` / \`start\` package scripts forward to the matching
 \`arkor\` subcommands, so the script form works across every package
-manager (\`npm\` does not run package binaries via \`npm <bin>\` — use
+manager (\`npm\` does not run package binaries via \`npm <bin>\`; use
 \`npm run <script>\` or \`npx arkor <subcommand>\`).
 
 \`\`\`
@@ -253,7 +253,7 @@ npm install && npm run dev
 
 \`arkor dev\` opens the local Studio GUI (most workflows live there).
 
-Optional — log in to your own org instead of using anonymous tokens:
+Optional: log in to your own org instead of using anonymous tokens:
 
 \`\`\`
 npx arkor login
@@ -268,18 +268,18 @@ npm run start    # runs the build artifact on the cloud
 
 ## Files
 
-- \`src/arkor/index.ts\` — entry-point manifest (\`createArkor({ trainer })\`).
+- \`src/arkor/index.ts\`: entry-point manifest (\`createArkor({ trainer })\`).
   This is what the CLI and Studio discover.
-- \`src/arkor/trainer.ts\` — your trainer (\`createTrainer({...})\`). Training
+- \`src/arkor/trainer.ts\`: your trainer (\`createTrainer({...})\`). Training
   settings (\`maxSteps\`, \`lora\`, etc.) live on the Trainer itself. Add
   sibling files for future primitives (\`deploy.ts\`, \`eval.ts\`) and
   register them in the \`createArkor\` call.
-- \`arkor.config.ts\` — placeholder for future project-level config. The
+- \`arkor.config.ts\`: placeholder for future project-level config. The
   runtime does not read fields from this file yet. Project routing lives
   in \`.arkor/state.json\`, managed by the CLI.${
     agentsMd
       ? `
-- \`AGENTS.md\` / \`CLAUDE.md\` — instructions for AI coding agents,
+- \`AGENTS.md\` / \`CLAUDE.md\`: instructions for AI coding agents,
   briefing them that arkor post-dates their training data. When the
   scaffolder creates \`CLAUDE.md\` itself it is a one-liner that imports
   \`AGENTS.md\` via the Claude Code \`@<path>\` directive; if you already

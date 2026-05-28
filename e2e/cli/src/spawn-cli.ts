@@ -7,7 +7,7 @@ export interface RunResult {
   /**
    * The child's final exit code, or `-1` if the child was terminated by a
    * signal (close event with `code === null`). Use `signal` to disambiguate
-   * those two cases — see ENG-632 retry policy in `runCli`.
+   * those two cases (see ENG-632 retry policy in `runCli`).
    */
   code: number;
   /**
@@ -20,7 +20,7 @@ export interface RunResult {
    * Wall-clock milliseconds from spawn to the `close` event. Used by the
    * ENG-632 SIGKILL retry guard to distinguish a startup-time runner kill
    * (observed at ~104 ms) from a kill that arrived after the CLI had
-   * already done meaningful filesystem work — the latter would leave a
+   * already done meaningful filesystem work; the latter would leave a
    * dirty `cwd` that retrying over could turn into a false positive.
    */
   elapsedMs: number;
@@ -40,7 +40,7 @@ export interface RunResult {
  * (or much later, e.g. mid-`pnpm install`), at which point the `cwd`
  * is no longer pristine and a retry could mask the real failure, pass
  * spuriously against the merged-in-place tree, or fail with a different
- * error — all of which are worse than letting the original failure
+ * error; all of which are worse than letting the original failure
  * surface.
  */
 const SIGKILL_RETRY_MAX_MS = 300;
@@ -104,26 +104,26 @@ export function cleanup(dir: string): void {
  *   has no `user.name` / `user.email` configured.
  *
  * ENG-632: macOS GitHub Actions runners occasionally SIGKILL the spawned
- * child during startup under load — the `close` event then fires with
+ * child during startup under load: the `close` event then fires with
  * `code === null` and `signal === "SIGKILL"` at ~100 ms, well before
  * scaffold/install/git work begins. Same invocation passes on rerun and
  * on every other matrix slot, so it's a runner artefact rather than a
  * regression. We retry exactly once and only when ALL of the following
  * hold (see `shouldRetryAfterSigkill`):
  *
- *   (a) we're on macOS — only platform that has produced the symptom,
+ *   (a) we're on macOS (only platform that has produced the symptom),
  *   (b) the previous attempt's `signal === "SIGKILL"`,
- *   (c) the previous attempt's `elapsedMs < SIGKILL_RETRY_MAX_MS` —
+ *   (c) the previous attempt's `elapsedMs < SIGKILL_RETRY_MAX_MS`, which
  *       distinguishes a startup-time runner kill from a SIGKILL that
  *       arrived after the CLI had already started writing files (e.g.
  *       OOM mid-`pnpm install`), where retrying in the dirty `cwd`
  *       could mask the real failure or pass spuriously,
- *   (d) `process.env.CI` is set — local Mac developers debugging
+ *   (d) `process.env.CI` is set (local Mac developers debugging
  *       intermittent crashes get one-shot failures rather than silent
- *       retries that would hide the bug they're chasing.
+ *       retries that would hide the bug they're chasing).
  *
- * SIGTERM / SIGABRT / SIGSEGV / SIGBUS — i.e. the CLI itself crashed —
- * are NOT retried; same for any non-zero exit code (assertion-driven
+ * SIGTERM / SIGABRT / SIGSEGV / SIGBUS (i.e. the CLI itself crashed) are
+ * NOT retried; same for any non-zero exit code (assertion-driven
  * failures, broken pm, real CLI bugs). Those still surface on the first
  * run on every platform.
  *
@@ -144,22 +144,22 @@ export function cleanup(dir: string): void {
  *   3. The snapshot dir is cleaned up regardless of whether the retry
  *      fired.
  *
- * The snapshot is gated on `darwin + CI` — the only environment where
- * the retry can possibly fire — so Linux/Windows CI jobs and local
+ * The snapshot is gated on `darwin + CI` (the only environment where
+ * the retry can possibly fire), so Linux/Windows CI jobs and local
  * macOS dev runs pay nothing extra. Even on the darwin+CI hot path the
  * cost is bounded: the retry only fires on SIGKILL within
  * `SIGKILL_RETRY_MAX_MS` (300 ms), which is well before any test runs
  * `pnpm install` or `arkor build`, so the snapshotted tree is always
- * the small pre-seed fixture (a few KB at most) — never a populated
+ * the small pre-seed fixture (a few KB at most), never a populated
  * `node_modules/` or build artefact.
  *
- * Limitation — only `cwd` is snapshotted. CLI commands that write
+ * Limitation: only `cwd` is snapshotted. CLI commands that write
  * outside `cwd` (e.g. `arkor login` writing `~/.arkor/credentials.json`,
  * or `arkor dev` touching the same path) carry that mutated HOME state
  * into attempt 2, which could pass spuriously against partial state.
- * No current e2e command exercises that pattern through `runCli` — the
+ * No current e2e command exercises that pattern through `runCli`: the
  * commands we test (`init` / `build` / scaffold) write only inside
- * `cwd`, and `whoami` reads (never writes) HOME — but tests that add
+ * `cwd`, and `whoami` reads (never writes) HOME. Tests that add
  * write-to-HOME flows in the future should isolate themselves by
  * pointing `extraEnv.HOME` at a per-test temp dir and either accept
  * the risk or extend this snapshot to cover that path too.
@@ -220,7 +220,7 @@ function snapshotCwd(cwd: string): string {
   try {
     entries = readdirSync(cwd);
   } catch {
-    // `cwd` doesn't exist or isn't readable — return an empty snapshot.
+    // `cwd` doesn't exist or isn't readable: return an empty snapshot.
     // `runCliOnce` will surface the real spawn failure if `cwd` truly
     // can't be used.
     return snapshotDir;
@@ -256,7 +256,7 @@ function runCliOnce(
   // pnpm-workspace.yaml becomes `npm_config_minimum_release_age`). Inside
   // an e2e test that scaffolds a *fresh* project in /tmp and runs `pnpm
   // install`, those leak through and apply the workspace's policy to a
-  // brand-new tree — most painfully, freshly-published `arkor` versions
+  // brand-new tree; most painfully, freshly-published `arkor` versions
   // get blocked by minimumReleaseAge. Strip them so the spawned CLI sees
   // a clean user shell.
   //
@@ -265,7 +265,7 @@ function runCliOnce(
   // the parent can hand us `NPM_CONFIG_USER_AGENT` while we expect
   // `npm_config_user_agent`. A case-sensitive prefix check would let the
   // upper-case variant leak through, which on Windows then collides with
-  // our explicit `npm_config_user_agent: ""` override below — Windows
+  // our explicit `npm_config_user_agent: ""` override below: Windows
   // picks one of the duplicates non-deterministically and the spawned
   // CLI has historically seen pnpm's UA, defeating the hermetic
   // `detectPackageManager()` path.
@@ -296,7 +296,7 @@ function runCliOnce(
     // POSIX consults HOME, Windows consults USERPROFILE (with HOMEDRIVE
     // + HOMEPATH as a tertiary fallback). Without this, tests that seed
     // a fake `~/.arkor/credentials.json` under HOME are silently bypassed
-    // on Windows — the CLI keeps reading the real runner profile and
+    // on Windows: the CLI keeps reading the real runner profile and
     // reports "Not signed in", causing assertions to fail in confusing
     // ways. Tests that genuinely need divergent HOME / USERPROFILE values
     // can still set USERPROFILE explicitly: extraEnv is spread last.
@@ -305,7 +305,7 @@ function runCliOnce(
     // Per-spawn yarn cache. Vitest runs test files in parallel workers;
     // when two workers each call `arkor init --use-yarn`, both yarn 1
     // processes hammer the shared `~/.cache/yarn/v6/` and race during
-    // tarball extraction — the inner mkdir-then-write sequence collides
+    // tarball extraction: the inner mkdir-then-write sequence collides
     // and the second loser dies with `ENOENT: ... open
     // '...integrity/node_modules/<pkg>/.yarn-tarball.tgz'`. yarn 1's
     // `--mutex network` would also work, but it's a flag (we'd need
@@ -327,7 +327,7 @@ function runCliOnce(
     //
     // Round 39 (Copilot, PR #99): the two `mkdtempSync` calls
     // run sequentially. If the SECOND throws (tmpdir EACCES /
-    // ENOSPC / permissions race), the first dir would leak —
+    // ENOSPC / permissions race), the first dir would leak:
     // the close/error listeners that fire `cleanup()` haven't
     // attached yet because `spawn(...)` runs even later. Wrap
     // both in a try/catch and unwind the first if the second
@@ -338,7 +338,7 @@ function runCliOnce(
       bunCacheDir = mkdtempSync(join(tmpdir(), "arkor-e2e-bun-cache-"));
     } catch (mkErr) {
       // Round 40 (Copilot, PR #99): mirror the `cleanup()` closure
-      // below — `rmSync` can throw on Windows with transient
+      // below: `rmSync` can throw on Windows with transient
       // EPERM/EBUSY. Without the guard, a cleanup throw replaces
       // the original `mkdtemp` failure in the promise rejection
       // AND can still leak `yarnCacheDir`. Swallow the cleanup
@@ -357,7 +357,7 @@ function runCliOnce(
     // throw (invalid `binPath`, exec-time platform error, etc.)
     // can run the same teardown the close/error events use.
     // Without this, the per-spawn yarn / bun cache tmp dirs leak
-    // every time spawn rejects synchronously — CI accumulates
+    // every time spawn rejects synchronously, and CI accumulates
     // `arkor-e2e-{yarn,bun}-cache-*` indefinitely on retry-heavy
     // matrices. Round-39 Copilot review.
     const cleanup = () => {
@@ -371,7 +371,7 @@ function runCliOnce(
       // scanner holding a handle, a worker process still
       // releasing a lock, etc.). `cleanup()` runs from the
       // child's `close` / `error` listeners, so a throw here
-      // would propagate into the spawn promise — turning an
+      // would propagate into the spawn promise, turning an
       // otherwise-successful test into a rejection (worse,
       // masking the real failure on the error path). Cleanup
       // is best-effort: a leaked tmp dir is recoverable, a
@@ -388,7 +388,7 @@ function runCliOnce(
       }
     };
     // Wall-clock start for the ENG-632 SIGKILL retry gate
-    // (`elapsedMs` in RunResult — see shouldRetryAfterSigkill).
+    // (`elapsedMs` in RunResult; see shouldRetryAfterSigkill).
     const start = Date.now();
     let child: ReturnType<typeof spawn>;
     try {
@@ -411,7 +411,7 @@ function runCliOnce(
         BUN_INSTALL_CACHE_DIR: bunCacheDir,
         // yarn 1 has a long-standing race extracting esbuild-style
         // platform-specific optionalDependencies inside a single
-        // process — the parent `node_modules/@<scope>/<arch>/` dir
+        // process: the parent `node_modules/@<scope>/<arch>/` dir
         // gets created racily and the tarball write fails with ENOENT.
         // The per-spawn YARN_CACHE_FOLDER above already prevents
         // *inter*-process races (different test workers don't share a
@@ -423,7 +423,7 @@ function runCliOnce(
         // yarn-berry has its own cache layer (`enableGlobalCache:
         // true` by default) that lives at
         // `%LOCALAPPDATA%\Yarn\Berry\cache` on Windows and
-        // `~/.yarn/berry/cache` elsewhere — separate from
+        // `~/.yarn/berry/cache` elsewhere, separate from
         // `YARN_CACHE_FOLDER`, which yarn-berry only honours when
         // global cache is disabled. Parallel vitest workers running
         // `yarn install` against that shared dir race the same

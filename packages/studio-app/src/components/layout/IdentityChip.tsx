@@ -4,7 +4,7 @@ import type { Credentials } from "../../lib/api";
 
 const PRODUCTION_CLOUD_API_URL = "https://api.arkor.ai";
 
-// Hide the cloud-api URL when pointing at production — regular users don't
+// Hide the cloud-api URL when pointing at production: regular users don't
 // need it. For Arkor contributors running against a local cloud-api
 // (`ARKOR_CLOUD_API_URL=...`), surface just the host:port so it's clear which
 // backend the Studio is talking to without the protocol noise.

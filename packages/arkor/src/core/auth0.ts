@@ -112,6 +112,7 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
         sendPlain(
           res,
           400,
+          // eslint-disable-next-line local/no-em-dash
           `Authentication failed: ${error} — ${errorDescription ?? ""}`,
         );
         rejectCallback(
@@ -226,7 +227,7 @@ export function credentialsFromExchange(
      * (and the SDK's `defaultArkorCloudApiUrl(credentials)`) target
      * the same staging / self-hosted control plane without needing
      * `ARKOR_CLOUD_API_URL` re-set every time. Optional only for
-     * defensive call sites that don't have the URL handy yet — the
+     * defensive call sites that don't have the URL handy yet; the
      * `arkor login` flow always passes it.
      */
     arkorCloudApiUrl?: string;
@@ -247,7 +248,7 @@ export function credentialsFromExchange(
     // back to production) round-trips through the persisted
     // credentials. A truthy check would drop the field, and on the
     // next run `defaultArkorCloudApiUrl(creds)` would silently fall
-    // through to the production endpoint — exactly the masking
+    // through to the production endpoint, exactly the masking
     // behaviour the empty env var is configured to avoid.
     ...(config.arkorCloudApiUrl !== undefined
       ? { arkorCloudApiUrl: config.arkorCloudApiUrl }

@@ -9,7 +9,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Restore via the delete-when-undefined dance — `process.env.X =
+  // Restore via the delete-when-undefined dance: `process.env.X =
   // undefined` writes the literal string "undefined" otherwise.
   if (ORIG_PM === undefined) delete process.env.ARKOR_E2E_PM;
   else process.env.ARKOR_E2E_PM = ORIG_PM;
@@ -20,7 +20,7 @@ afterEach(() => {
 
 // `install-matrix.ts` snapshots ARKOR_E2E_PM / SKIP_E2E_INSTALL at
 // module-eval time. `vi.resetModules()` between imports gives each
-// test a fresh module-level read of `process.env` — without it the
+// test a fresh module-level read of `process.env`; without it the
 // snapshot from the very first import would leak across tests and
 // only the env mutation that ran before that first load would
 // register.

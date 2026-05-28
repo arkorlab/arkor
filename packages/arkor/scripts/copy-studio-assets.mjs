@@ -16,6 +16,7 @@ const dst = join(pkgRoot, "dist/assets");
 
 if (!existsSync(src)) {
   console.error(
+    // eslint-disable-next-line local/no-em-dash
     `[copy-studio-assets] expected ${src} to exist — run \`pnpm --filter @arkor/studio-app bundle\` first.`,
   );
   process.exit(1);

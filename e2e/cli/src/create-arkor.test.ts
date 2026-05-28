@@ -40,7 +40,7 @@ async function runCreateArkor(
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";
 
 // pnpm 10 cannot parse Windows-drive `file:` URIs in any form
-// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break — pnpm strips
+// (`file:D:\...`, `file:D:/...`, `file:///D:/...` all break; pnpm strips
 // the prefix and joins to the install cwd, then aborts with
 // `ENOENT: scandir '<cwd>\D:\...'`). The install-matrix tests sidestep
 // that by pre-packing arkor into a tarball once per file and referencing
@@ -305,7 +305,7 @@ describe("create-arkor (E2E)", () => {
     expect(result.stderr).not.toContain("--agents-md / --no-agents-md");
     // The scaffold completed in a directory literally named `--no-agents-md`
     // and AGENTS.md was generated (because --agents-md is the only effective
-    // agent flag — the post-sentinel token was a positional, not a flag).
+    // agent flag, and the post-sentinel token was a positional, not a flag).
     expect(existsSync(join(targetDir, "AGENTS.md"))).toBe(true);
     expect(existsSync(join(targetDir, "CLAUDE.md"))).toBe(true);
   });
@@ -335,7 +335,7 @@ describe("create-arkor (E2E)", () => {
     expect(trainer).toContain('"redaction-run"');
   });
 
-  // Regression for ENG-357 — `--name "Foo Bar"` previously fell through to
+  // Regression for ENG-357: `--name "Foo Bar"` previously fell through to
   // package.json verbatim because sanitisation only ran inside the
   // interactive branch.
   it("sanitises --name when prompts are skipped", async () => {
@@ -354,7 +354,7 @@ describe("create-arkor (E2E)", () => {
     expect(pkg.name).toBe("foo-bar");
   });
 
-  // Regression for ENG-359 — `process.cwd()` / `options.dir` ending in `/`
+  // Regression for ENG-359: `process.cwd()` / `options.dir` ending in `/`
   // (Docker root, `--dir foo/`, etc.) used to produce an empty defaultName
   // because `cwd.split(/[/\\]/).pop()` returned "" and `??` only fires on
   // null/undefined. `path.basename` correctly strips the trailing slash.
@@ -374,7 +374,7 @@ describe("create-arkor (E2E)", () => {
     expect(pkg.name).toBe("trail");
   });
 
-  // Regression for ENG-426 — without an explicit `[dir]` the CLI used to
+  // Regression for ENG-426: without an explicit `[dir]` the CLI used to
   // scaffold straight into `process.cwd()`, littering whatever directory the
   // user happened to be in. The new behaviour mirrors `create-vite`: derive
   // the project name (prompted in interactive mode, `arkor-project` under
@@ -433,7 +433,7 @@ describe("create-arkor (E2E)", () => {
 
   // Collision guards for the auto-derived `./<name>/` path. When the user
   // didn't pass `[dir]` we refuse to merge into a non-empty existing
-  // directory — easy to hit by accident (typo, forgotten earlier scaffold)
+  // directory (easy to hit by accident through a typo, forgotten earlier scaffold),
   // and the silent merge would surprise users.
   it("refuses to scaffold when ./arkor-project/ already exists and is non-empty", async () => {
     const collidingDir = join(parentDir, "arkor-project");
@@ -449,7 +449,7 @@ describe("create-arkor (E2E)", () => {
     expect(result.stdout + result.stderr).toContain(
       'Directory "arkor-project/" already exists and is not empty.',
     );
-    // Sentinel survives — we bailed before touching anything.
+    // Sentinel survives: we bailed before touching anything.
     expect(readFileSync(join(collidingDir, "sentinel.txt"), "utf8")).toBe(
       "do not touch\n",
     );
@@ -491,8 +491,8 @@ describe("create-arkor (E2E)", () => {
     expect(readFileSync(join(targetDir, "sentinel.txt"), "utf8")).toBe("kept\n");
   });
 
-  // Collision check should NOT fire when the would-be target is empty —
-  // makes sure the guard discriminates between empty placeholders (e.g. a
+  // Collision check should NOT fire when the would-be target is empty;
+  // this makes sure the guard discriminates between empty placeholders (e.g. a
   // pre-created mount point) and real existing projects.
   it("scaffolds into an empty pre-existing ./<name>/ without complaining", async () => {
     const target = join(parentDir, "arkor-project");
@@ -508,13 +508,13 @@ describe("create-arkor (E2E)", () => {
   });
 
   // Mirror of the install-matrix in arkor-init.test.ts. See
-  // ./install-matrix.ts for the case list and gating rules — both
+  // ./install-matrix.ts for the case list and gating rules; both
   // test files share that source so the matrix can't drift.
   //
   // Per-case the test stages a pre-packed `arkor-*.tgz` under
-  // parentDir and points the scaffold spec at the relative path —
-  // see the top-of-file beforeAll for why pnpm 10 can't parse an
-  // absolute Windows `file:` URI directly. Lockfile-by-flag drives
+  // parentDir and points the scaffold spec at the relative path
+  // (see the top-of-file beforeAll for why pnpm 10 can't parse an
+  // absolute Windows `file:` URI directly). Lockfile-by-flag drives
   // the post-install assertion that verifies git init runs *after*
   // install (so the bootstrap commit is reproducible).
   const LOCKFILE_BY_FLAG: Record<"npm" | "pnpm" | "yarn" | "bun", string> = {
@@ -538,14 +538,14 @@ describe("create-arkor (E2E)", () => {
           { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
         );
         // create-arkor swallows `<pm> install` failures into a warning
-        // (so the user can retry manually) — same gotcha as
+        // (so the user can retry manually): same gotcha as
         // arkor-init.test.ts. Surface the captured output eagerly when
         // the install-matrix run is about to fail an assertion, so the
         // CI logs aren't bare `expected false to be true` lines.
         //
         // Round 35 (PR #99) added a follow-up failure mode: install
         // can throw AFTER writing node_modules, create-arkor's catch
-        // fires, and git is now also skipped — leaving result.code===0
+        // fires, and git is now also skipped, leaving result.code===0
         // + node_modules present + .git/HEAD missing. Trigger the
         // diagnostic dump for that combination too.
         const expectedGit = existsSync(join(targetDir, ".git/HEAD"));
@@ -565,7 +565,7 @@ describe("create-arkor (E2E)", () => {
           );
         }
         expect(result.code).toBe(0);
-        // See arkor-init.test.ts for the node_modules invariant — the
+        // See arkor-init.test.ts for the node_modules invariant: the
         // scaffold pins `nodeLinker: node-modules` for yarn so PnP can't
         // hide deps from the arkor runtime.
         expect(existsSync(join(targetDir, "node_modules"))).toBe(true);
@@ -576,7 +576,7 @@ describe("create-arkor (E2E)", () => {
 
         // Lockfile-in-initial-commit invariant: the git-init prompt
         // is surfaced *before* install so the user can walk away, but
-        // git init execution still happens *after* install — otherwise
+        // git init execution still happens *after* install; otherwise
         // the lockfile wouldn't be tracked and the bootstrap commit
         // wouldn't be reproducible.
         const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
@@ -623,7 +623,7 @@ describe("create-arkor (E2E)", () => {
       // Sanity: exit happened before any scaffold work. Without [dir],
       // a non-strict create-arkor run would have created
       // `./arkor-project/` (its auto-derived default subdirectory) and
-      // a `package.json` inside it — not in parentDir itself — so
+      // a `package.json` inside it (not in parentDir itself), so
       // asserting `parentDir/package.json` alone wouldn't catch a
       // regression where strict mode failed and the scaffolder still
       // ran. Assert that `parentDir` is byte-for-byte unchanged

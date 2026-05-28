@@ -1,5 +1,5 @@
 export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (!Number.isFinite(ms) || ms < 0) return "-";
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -28,7 +28,7 @@ function fallbackRelative(value: number, unit: string): string {
 
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
   const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "—";
+  if (Number.isNaN(t)) return "-";
   const diffSec = Math.round((t - now) / 1000);
   const abs = Math.abs(diffSec);
   if (abs < 45) {

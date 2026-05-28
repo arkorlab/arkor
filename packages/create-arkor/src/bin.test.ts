@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mirror the @arkor/cli-internal mock from `arkor`'s init.test.ts —
+// Mirror the @arkor/cli-internal mock from `arkor`'s init.test.ts:
 // keep the helpers cheap (no real fs / install / git) so the focused
 // `run()` test below can verify orchestration without spawning real
 // CLIs. The scaffold mock returns `warnings: []` by default;
@@ -86,14 +86,14 @@ const ORIG_CWD = process.cwd();
 const ORIG_CI = process.env.CI;
 
 beforeEach(() => {
-  // Same canonicalisation dance as init.test.ts — macOS realpaths
+  // Same canonicalisation dance as init.test.ts: macOS realpaths
   // `/tmp/...` to `/private/tmp/...`, and the test asserts on paths
   // derived from `process.cwd()` indirectly via the scaffold mock's
   // captured arguments.
   parentDir = realpathSync(mkdtempSync(join(tmpdir(), "create-arkor-test-")));
   process.chdir(parentDir);
   process.env.CI = "1";
-  // `vi.mock()`-created mocks aren't reset by `restoreAllMocks` — it
+  // `vi.mock()`-created mocks aren't reset by `restoreAllMocks`: it
   // only undoes `vi.spyOn` patches. Use `clearAllMocks` to wipe the
   // call lists so the "no warn" test isn't polluted by the prior
   // test's `clack.log.warn` invocations. The warning-surface test
@@ -154,7 +154,7 @@ describe("create-arkor run()", () => {
 
   // Mirror of the warnings-surface test in arkor's init.test.ts.
   // The conflicting-`nodeLinker:` notice (and any future scaffold
-  // advisory) only reaches the user through this loop — without
+  // advisory) only reaches the user through this loop; without
   // coverage a regression here would silently eat important
   // guidance.
   it("surfaces every scaffold warning via clack.log.warn", async () => {
@@ -232,7 +232,7 @@ describe("create-arkor run()", () => {
   // skipped install above; running git init at this point would
   // commit a tree without `node_modules`/lockfile, breaking the
   // "lockfile lands in the initial commit" invariant. Skip git
-  // too — the user re-runs after fixing the advisory and the
+  // too: the user re-runs after fixing the advisory and the
   // next run produces a single bootstrap commit with the
   // lockfile included.
   it("skips git init when scaffold returns blockInstall=true (preserves lockfile-in-initial-commit invariant)", async () => {
@@ -260,7 +260,7 @@ describe("create-arkor run()", () => {
     expect(infoMessages).toMatch(/Skipping git init/);
     expect(infoMessages).toMatch(/re-run this command/);
     // Round 21 (Copilot, PR #99) dropped the prescriptive
-    // `create-arkor` rerun copy — real users invoke via
+    // `create-arkor` rerun copy: real users invoke via
     // `npm create` / `pnpm create` / etc, and the original flags
     // would be lost in the prescription.
     expect(infoMessages).not.toMatch(/`create-arkor`/);
@@ -268,7 +268,7 @@ describe("create-arkor run()", () => {
 
   // Round 21 (Codex P2, PR #99): when the user explicitly opted
   // out of install (`--skip-install`), the lockfile-ordering
-  // rationale doesn't apply — there's no lockfile to wait for.
+  // rationale doesn't apply: there's no lockfile to wait for.
   // Honor an explicit `--git` request even when scaffold returns
   // blockInstall=true.
   it("STILL runs git init when blockInstall=true but install was explicitly skipped via --skip-install", async () => {
@@ -347,7 +347,7 @@ describe("create-arkor run()", () => {
       .mocked(clack.log.info)
       .mock.calls.map((c) => c[0])
       .join("\n");
-    // No inline "Retry manually" — the skip-git message + outro
+    // No inline "Retry manually": the skip-git message + outro
     // cover the next step.
     expect(infoMessages).not.toMatch(/Retry manually/);
     expect(infoMessages).toMatch(/look populated/);
@@ -418,7 +418,7 @@ describe("create-arkor run()", () => {
 // vitest broke `npm create arkor` / `pnpm create arkor` / `npx`.
 // Those launchers run the bin via a `node_modules/.bin/<name>`
 // shim, so `process.argv[1]` is the symlink while `import.meta.url`
-// is the resolved real file — a verbatim equality check returned
+// is the resolved real file: a verbatim equality check returned
 // `false` and `program.parseAsync` never ran. Lock the
 // symlink-tolerant comparison down so the regression can't
 // resurface; the fixture creates a real symlink with `symlinkSync`
@@ -570,7 +570,7 @@ describe("shellQuoteIfNeeded", () => {
     it("escapes a trailing backslash so it doesn't absorb the closing quote", () => {
       withPlatform("win32", () => {
         // Without backslash escaping, the result would be
-        // `"foo\"` — the closing quote is consumed and the
+        // `"foo\"`: the closing quote is consumed and the
         // argument is unterminated. Doubling the trailing
         // backslash keeps it literal.
         expect(shellQuoteIfNeeded(String.raw`foo\ bar`)).toBe(String.raw`"foo\\ bar"`);
@@ -590,7 +590,7 @@ describe("shellQuoteIfNeeded", () => {
     // Backtick-escape `$` and `` ` `` itself so PowerShell sees
     // them as literal text. cmd.exe renders the backtick
     // literally, but cmd doesn't interpolate `$` in the first
-    // place — paths with literal `$` / backtick are vanishingly
+    // place; paths with literal `$` / backtick are vanishingly
     // rare in practice.
     it("backtick-escapes `$` so PowerShell doesn't interpolate the path", () => {
       withPlatform("win32", () => {

@@ -35,14 +35,14 @@ test.describe("Studio pages", () => {
     // What this test actually checks: that JobDetail mounts an
     // `EventSource` against `/api/jobs/:id/events` and that the
     // Studio server proxies it to cloud-api with the correct scope
-    // query params — i.e. the SSE attach + URL-construction contract.
+    // query params: i.e. the SSE attach + URL-construction contract.
     // It does NOT exercise the page's reaction to specific event
     // payloads (UI rendering of `training.log` step/loss is covered
     // by the studio-app unit tests). The override exists to (a) make
     // the assertion deterministic by replacing the default handler
     // (which keeps the socket open with a different framing), and
     // (b) re-enforce the scope check that `setRoute` would otherwise
-    // bypass — `setRoute` matches on path-only, so without this a
+    // bypass: `setRoute` matches on path-only, so without this a
     // regression that drops `orgSlug`/`projectSlug` could still
     // succeed against the registered route handler.
     cloudApi.setRoute(

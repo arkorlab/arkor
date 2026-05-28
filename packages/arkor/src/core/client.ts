@@ -87,7 +87,7 @@ async function buildCloudApiError(res: Response): Promise<CloudApiError> {
   try {
     parsed = text ? JSON.parse(text) : null;
   } catch {
-    // not JSON — fall through
+    // not JSON; fall through
   }
   // 426 always carries the upgrade hint, even for malformed bodies, so
   // callers don't have to special-case the gate's response shape.
@@ -139,7 +139,7 @@ export class CloudApiClient {
       // wraps `result.catch(...)`. A `void` return makes
       // `typeof undefined.then` throw inside `try`, and the surrounding
       // catch logs `[@arkor/cloud-api-client] onDeprecation handler
-      // threw; ignoring:` on every deprecated response — even though
+      // threw; ignoring:` on every deprecated response, even though
       // the user handler ran fine. Returning `null` short-circuits the
       // left side of the `&&`, so the `.then` access never runs and
       // the spurious log goes away. Same pattern is mirrored in
@@ -179,7 +179,7 @@ export class CloudApiClient {
     name: string;
     config: JobConfig;
   }): Promise<{ job: TrainingJob }> {
-    // The server's Zod schema for job config is `looseObject` — any object
+    // The server's Zod schema for job config is `looseObject`: any object
     // with a `model` + `datasetSource` passes. The Hono RPC input type is
     // inferred from that schema, so we cast through `unknown` to satisfy
     // the structural mismatch on `datasetSource`'s discriminated shape.
@@ -368,7 +368,7 @@ export class CloudApiClient {
       topP?: number;
       maxTokens?: number;
       stream?: boolean;
-      // Function calling + structured outputs. Forwarded verbatim — the
+      // Function calling + structured outputs. Forwarded verbatim: the
       // cloud-api inference route spreads the body into its proxy, so any
       // field declared on `chatInferenceRequestSchema` flows through.
       tools?: ToolDefinition[];

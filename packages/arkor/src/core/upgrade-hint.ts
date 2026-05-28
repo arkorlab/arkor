@@ -2,9 +2,9 @@
 // (after a 426 or deprecation warning) reflects what they actually have.
 //
 // Two signals, in order:
-//   1. `npm_config_user_agent` — set when arkor was launched via `npx`,
+//   1. `npm_config_user_agent`: set when arkor was launched via `npx`,
 //      `pnpm exec`, `yarn arkor`, `bunx`. Most reliable when present.
-//   2. `process.argv[1]` path — heuristic for globally-installed binaries.
+//   2. `process.argv[1]` path: heuristic for globally-installed binaries.
 //      pnpm/bun/yarn put their global bin under distinctive directories;
 //      everything else falls back to npm.
 import { upgradeMessageFromBody } from "@arkor/cloud-api-client";
@@ -77,7 +77,7 @@ export function detectedUpgradeCommand(): string {
  * Format a user-facing message for an HTTP 426 response. Prefers the rich
  * message produced from the gate's structured body; falls back to a generic
  * one-liner when the body is missing, non-JSON, or doesn't match the
- * expected shape — so callers can rely on a non-empty string for **every**
+ * expected shape, so callers can rely on a non-empty string for **every**
  * 426 instead of guarding on `null` and accidentally falling through to a
  * different code path.
  */

@@ -55,8 +55,8 @@ describe("<LossChart />", () => {
       { step: 1, loss: 0.9 },
     ];
     render(<LossChart points={points} />);
-    // Assert against text that actually appears in the advanced panel
-    // — "Mean loss" is the row label and "95% CI" is the hint beside
+    // Assert against text that actually appears in the advanced panel:
+    // "Mean loss" is the row label and "95% CI" is the hint beside
     // it. The earlier check used a stale "Mean CE" string which would
     // have stayed green even if the panel started leaking through.
     expect(screen.queryByText("Mean loss")).toBeNull();
@@ -98,7 +98,7 @@ describe("<LossChart />", () => {
       { step: 2, loss: 0.8, evalLoss: 1.6 },
     ];
     render(<LossChart points={points} advanced />);
-    // Both cards show "n = 3" — one per series.
+    // Both cards show "n = 3" (one per series).
     expect(screen.getAllByText("n = 3").length).toBe(2);
     // Eval-mean of [2.0, 1.8, 1.6] is 1.8 → "1.8000 ± …".
     expect(screen.getByText(/1\.8000 ± /)).toBeInTheDocument();
@@ -107,7 +107,7 @@ describe("<LossChart />", () => {
   it("still renders the eval series when training.log frames omit `loss`", () => {
     // Eval-only logging shape: trainer reports `evalLoss` on a coarser
     // cadence and elides `loss` on those frames. The chart must still
-    // surface these in the eval line, legend, and stats — earlier
+    // surface these in the eval line, legend, and stats; earlier
     // versions filtered the eval series through the training-loss
     // numeric subset and dropped them entirely.
     const points: LossPoint[] = [
@@ -146,7 +146,7 @@ describe("<LossChart />", () => {
     // JSON allows exponent forms like `1e309` that parse to `Infinity`,
     // and explicit `NaN` can also slip in. Letting either through
     // would corrupt min/max/span and leave NaN coordinates in the SVG
-    // path. The chart should treat them like nulls — the surrounding
+    // path. The chart should treat them like nulls; the surrounding
     // finite points still render as a normal series.
     const points: LossPoint[] = [
       { step: 0, loss: 1 },
@@ -162,7 +162,7 @@ describe("<LossChart />", () => {
     expect(screen.getByText("n = 1")).toBeInTheDocument();
     // Mean of [1.0, 0.9] is 0.95 → "0.9500 ± …".
     expect(screen.getByText(/0\.9500 ± /)).toBeInTheDocument();
-    // No path's `d` attribute carries `NaN` — the rendered SVG would
+    // No path's `d` attribute carries `NaN`; the rendered SVG would
     // be unusable otherwise.
     for (const path of container.querySelectorAll("svg path")) {
       expect(path.getAttribute("d")).not.toMatch(/NaN/);

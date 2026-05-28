@@ -64,7 +64,7 @@ describe("shouldRetryAfterSigkill", () => {
     "SIGSEGV",
     "SIGBUS",
     "SIGINT",
-  ])("does not retry on %s — those are genuine CLI crashes", (signal) => {
+  ])("does not retry on %s: those are genuine CLI crashes", (signal) => {
     // Anything other than SIGKILL means the CLI itself faulted
     // (assertion failure, OOM-but-not-from-runner, segfault, user ^C).
     // Retrying would mask the real bug.
@@ -90,7 +90,7 @@ describe("shouldRetryAfterSigkill", () => {
   });
 
   it("does not retry on a clean exit-zero", () => {
-    // The happy-path baseline — the gate must not fire when the test
+    // The happy-path baseline: the gate must not fire when the test
     // passed. Sanity check; a buggy gate that returned `true` here would
     // double the runtime of every test for no reason.
     expect(
@@ -105,7 +105,7 @@ describe("shouldRetryAfterSigkill", () => {
     // a SIGKILL above that cutoff most likely landed *after* the bin
     // touched the filesystem. The dirty `cwd` from attempt 1 could then
     // either mask a real failure or produce a different failure on
-    // attempt 2 — both worse outcomes than just letting the SIGKILL
+    // attempt 2; both worse outcomes than just letting the SIGKILL
     // surface as-is.
     expect(
       shouldRetryAfterSigkill(
@@ -124,7 +124,7 @@ describe("shouldRetryAfterSigkill", () => {
   });
 
   it.each<NodeJS.Platform>(["linux", "win32", "freebsd"])(
-    "does not retry on %s — only the macOS runner has produced the symptom",
+    "does not retry on %s: only the macOS runner has produced the symptom",
     (platform) => {
       // Other platforms have not exhibited this flake on PR #104's CI
       // history; widening the gate would let a real Linux/Windows
@@ -157,7 +157,7 @@ describe("shouldRetryAfterSigkill", () => {
 // `runCli` orchestration tests: hermetic, mock `node:child_process` so
 // we can drive the close-event sequence and assert on call count. The
 // pure-function tests above lock in the gate's decision matrix; these
-// tests lock in that `runCli` actually wires the gate up correctly —
+// tests lock in that `runCli` actually wires the gate up correctly:
 // retries exactly once (not zero, not twice) on a qualifying SIGKILL,
 // wipes `cwd` between attempts, refuses to retry against pre-seeded
 // state, and never retries non-qualifying outcomes.
@@ -205,7 +205,7 @@ describe("runCli orchestration", () => {
     // Real temp dir so the cwd-empty / wipe / pre-seed paths actually
     // exercise filesystem state. The mocked `spawn` doesn't run a real
     // process, so any files in `cwd` come from `writeFileSync` inside
-    // the test or inside the mock's `mockImplementationOnce` callback —
+    // the test or inside the mock's `mockImplementationOnce` callback,
     // i.e. exactly the carryover patterns we want to assert on.
     cwd = mkdtempSync(join(tmpdir(), "spawn-cli-orchestration-"));
     // Pin `Date.now` so `elapsedMs` is independent of wall-clock jitter.
@@ -260,7 +260,7 @@ describe("runCli orchestration", () => {
   });
 
   it("does not retry a third time when both attempts SIGKILL", async () => {
-    // Retry budget is one — a second SIGKILL must surface as the final
+    // Retry budget is one: a second SIGKILL must surface as the final
     // result. Without this guard a flaky environment could loop forever.
     dateNowSpy
       .mockReturnValueOnce(1000)
@@ -455,7 +455,7 @@ describe("runCli orchestration", () => {
 // cache being cleaned up on either close or error (no tmpdir
 // pollution), and `extraEnv` keeping its last-write-wins ordering
 // (so individual tests can override). Round 28 (Copilot, PR #99)
-// flagged the absence of hermetic coverage for this plumbing —
+// flagged the absence of hermetic coverage for this plumbing;
 // these tests lock the contract down so a future refactor that
 // drops a piece trips a unit test rather than a CI yarn flake.
 describe("runCli yarn cache plumbing", () => {
@@ -498,7 +498,7 @@ describe("runCli yarn cache plumbing", () => {
     expect(lastSpawnEnv().YARN_NETWORK_CONCURRENCY).toBe("1");
   });
 
-  // Round 36 (PR #99 — CI run 25349847532): bun on Windows
+  // Round 36 (PR #99, CI run 25349847532): bun on Windows
   // raced its shared `~/.bun/install/cache/` between vitest
   // workers, the rename of `.<hash>-<n>.<pkg>` →
   // `<pkg>@<ver>@@@<n>` failed with `ENOTEMPTY
@@ -516,7 +516,7 @@ describe("runCli yarn cache plumbing", () => {
     expect(bunCache).toMatch(/[\\/]arkor-e2e-bun-cache-/);
   });
 
-  // Round 36 (PR #99 — CI run 25351227697): yarn-berry on
+  // Round 36 (PR #99, CI run 25351227697): yarn-berry on
   // Windows raced its global `%LOCALAPPDATA%\Yarn\Berry\cache`
   // between workers and tarball renames failed with `EPERM:
   // operation not permitted`. yarn-berry only honours
@@ -622,7 +622,7 @@ describe("runCli yarn cache plumbing", () => {
     await runCli("/fake/bin", [], cwd);
 
     // After runCli resolves, the close handler's cleanup should
-    // have removed both dirs — no tmpdir pollution.
+    // have removed both dirs, leaving no tmpdir pollution.
     expect(existsSync(capturedYarnCacheDir!)).toBe(false);
     expect(existsSync(capturedBunCacheDir!)).toBe(false);
   });
@@ -630,7 +630,7 @@ describe("runCli yarn cache plumbing", () => {
   // Round 39 (Copilot, PR #99): the per-spawn cache dirs were
   // mkdtemp'd before `spawn(...)` was called, so a SYNCHRONOUS
   // spawn throw (invalid `binPath`, exec-time platform error,
-  // EACCES on the cwd, etc.) leaked them — the close/error
+  // EACCES on the cwd, etc.) leaked them: the close/error
   // listeners that fire `cleanup()` never got a chance to
   // attach. The fix wraps `spawn` in a try/catch and runs the
   // same teardown before propagating. Without this, a tight
@@ -654,7 +654,7 @@ describe("runCli yarn cache plumbing", () => {
     );
     expect(capturedYarnCacheDir).toBeDefined();
     expect(capturedBunCacheDir).toBeDefined();
-    // Both dirs must be gone — without the try/catch around
+    // Both dirs must be gone; without the try/catch around
     // spawn(), the unhandled throw would leak them.
     expect(existsSync(capturedYarnCacheDir!)).toBe(false);
     expect(existsSync(capturedBunCacheDir!)).toBe(false);
@@ -683,7 +683,7 @@ describe("runCli yarn cache plumbing", () => {
     await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(
       /spawn ENOENT/,
     );
-    // Error path also has to clean — otherwise a tight loop of
+    // Error path also has to clean; otherwise a tight loop of
     // failed spawns would fill tmpdir on long CI runs.
     expect(capturedYarnCacheDir).toBeDefined();
     expect(capturedBunCacheDir).toBeDefined();

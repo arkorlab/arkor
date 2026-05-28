@@ -7,7 +7,7 @@ import { z } from "zod";
  * `String(date)` returns the locale-ish form (e.g. `"Tue May 12 …"`),
  * so we normalise via `toISOString()` to keep the public DTO contract
  * actually ISO. Strings pass through verbatim (the cloud API is the
- * canonical source of truth for their format — we don't re-parse).
+ * canonical source of truth for their format, so we don't re-parse).
  */
 function toIso(v: string | Date): string {
   return v instanceof Date ? v.toISOString() : v;
@@ -112,7 +112,7 @@ const deploymentTargetSchema = z.union([
 /**
  * Request-body schema for `POST /v1/endpoints` (and Studio's
  * `POST /api/deployments` proxy). Used by Studio to gate the
- * scope-bootstrap branch *before* `ensureProjectState()` runs — a
+ * scope-bootstrap branch *before* `ensureProjectState()` runs: a
  * malformed body that the cloud API would 400 anyway must NOT cause
  * an `.arkor/state.json` write or a remote project create on a fresh
  * anonymous workspace as a side effect.
@@ -137,7 +137,7 @@ export const createDeploymentRequestSchema = z
     // The retention fields are a discriminated coupling: `days` mode
     // requires a positive integer `runRetentionDays`, the other modes
     // forbid it (and unset omits both). Mirroring the SDK's closed
-    // enum here is intentional — Studio constructs these bodies, not
+    // enum here is intentional: Studio constructs these bodies, not
     // arbitrary clients, so unknown modes would already be a Studio
     // bug. The response decoder (`deploymentSchema` below) stays
     // open-enum so a future server-side addition flows through to
@@ -204,12 +204,12 @@ const deploymentSchema = z.looseObject({
   urlFormat: z.literal("openai_compat"),
   enabled: z.boolean(),
   customDomain: z.string().nullable(),
-  // Retention fields are optional on the wire — treat them as such.
+  // Retention fields are optional on the wire; treat them as such.
   // `runRetentionMode` is parsed as a plain string rather than a closed
   // enum so an older SDK does not refuse to decode the response when the
   // control plane introduces a new mode (e.g. `"hours"`). The public DTO
   // type narrows the documented values for autocomplete via the
-  // `(string & {})` open-enum trick — see DeploymentRunRetentionMode in
+  // `(string & {})` open-enum trick; see DeploymentRunRetentionMode in
   // ./deployments.ts.
   runRetentionMode: z.string().optional(),
   runRetentionDays: z.number().optional(),

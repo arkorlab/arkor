@@ -78,7 +78,7 @@ const SAMPLE_DEPLOYMENT: DeploymentDto = {
 
 const SCOPE = { orgSlug: "myorg", projectSlug: "myproj" };
 
-describe("CloudApiClient — deployment methods", () => {
+describe("CloudApiClient: deployment methods", () => {
   it("listDeployments → GET /v1/endpoints with scope query + bearer token", async () => {
     const { fetch: f, calls } = recordingFetch([
       {
@@ -134,7 +134,7 @@ describe("CloudApiClient — deployment methods", () => {
     expect(out.deployment.slug).toBe("myllama");
 
     const [{ init }] = calls;
-    // Use the Headers API for case-insensitive lookup — Hono RPC sets the
+    // Use the Headers API for case-insensitive lookup: Hono RPC sets the
     // header as `content-type` (lowercase) while raw fetch typically uses
     // `Content-Type`. The HTTP wire format is case-insensitive either way.
     const reqHeaders = new Headers(init.headers);
@@ -182,7 +182,7 @@ describe("CloudApiClient — deployment methods", () => {
       enabled: false,
     });
     expect(out.deployment.enabled).toBe(false);
-    // Body must be exactly what the caller passed — no extra fields.
+    // Body must be exactly what the caller passed: no extra fields.
     expect(JSON.parse(calls[0].init.body as string)).toEqual({
       enabled: false,
     });
@@ -231,7 +231,7 @@ describe("CloudApiClient — deployment methods", () => {
     const out = await client.listDeploymentKeys(SAMPLE_DEPLOYMENT.id, SCOPE);
     expect(out.keys).toHaveLength(1);
     expect(out.keys[0].label).toBe("production");
-    // List view must not carry plaintext — schema would let it pass (looseObject)
+    // List view must not carry plaintext: schema would let it pass (looseObject)
     // but the production handler doesn't include it, so the assertion guards
     // against future regressions.
     expect(

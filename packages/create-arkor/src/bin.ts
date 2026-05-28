@@ -70,7 +70,7 @@ function isInteractive(): boolean {
 }
 
 /**
- * Truthy when `path` is a non-empty directory — or when it exists but isn't a
+ * Truthy when `path` is a non-empty directory, or when it exists but isn't a
  * readable directory at all (file, broken symlink, etc.). Both cases should
  * block scaffolding into an auto-derived `./<name>/` so we don't silently
  * merge into someone else's work.
@@ -149,10 +149,10 @@ function disambiguateLeadingDashPath(
  *
  *   - POSIX (Linux / macOS): single quotes. Embedded `'` is
  *     escaped via the standard `'\''` close-literal-open
- *     sequence — the bytes `'`, `\`, `'`, `'` parse as
+ *     sequence: the bytes `'`, `\`, `'`, `'` parse as
  *     end-quote, literal `'`, start-quote.
  *   - Windows (cmd.exe / PowerShell): double quotes with a
- *     MIXED escape strategy — there is no single quoting form
+ *     MIXED escape strategy: there is no single quoting form
  *     that's clean for both shells, so we pick the safer
  *     escape per metacharacter:
  *       * `` ` `` (backtick) and `$`: PS-style backtick prefix
@@ -180,7 +180,7 @@ function disambiguateLeadingDashPath(
  *         ever hands us a non-path string with embedded
  *         quotes; under real `cdTarget` values from
  *         `options.dir ?? name` the branch is unreachable.
- *       * `%`: NOT escaped — there is no transparent escape for
+ *       * `%`: NOT escaped, since there is no transparent escape for
  *         `%VAR%` inside double quotes in interactive `cmd.exe`
  *         (`^%` only suppresses expansion in batch files, not
  *         at the prompt; `%%` becomes literal `%%` outside
@@ -212,7 +212,7 @@ export function shellQuoteIfNeeded(value: string): string {
     // Order matters: backtick first (it's the PS escape
     // character for the others, so escaping it first prevents
     // double-decoding), then the metachars it protects (`$`,
-    // `"`). Backslash escape is independent — it's for
+    // `"`). Backslash escape is independent: it's for
     // `_setargv` / msvcrt argv parsing when the quoted path
     // is forwarded to a child program.
     const escaped = value
@@ -299,6 +299,7 @@ async function decideGitInit(
   if (options.skipGit) return false;
 
   if (await isInGitRepo(cwd)) {
+    // eslint-disable-next-line local/no-em-dash
     clack.log.info("Directory is already inside a git repository — skipping git init.");
     return false;
   }
@@ -325,6 +326,7 @@ async function runGitInit(cwd: string): Promise<void> {
   // "already inside a git repo → skip" rule.
   if (await isInGitRepo(cwd)) {
     clack.log.info(
+      // eslint-disable-next-line local/no-em-dash
       "Directory became a git repository during install — skipping git init.",
     );
     return;
@@ -337,6 +339,7 @@ async function runGitInit(cwd: string): Promise<void> {
     );
     if (result.signingFallback) {
       clack.log.warn(
+        // eslint-disable-next-line local/no-em-dash
         "Commit signing failed — created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
       );
     }
@@ -348,7 +351,7 @@ async function runGitInit(cwd: string): Promise<void> {
 
 // Exported so the focused unit test in `bin.test.ts` can call `run()`
 // directly without spawning the bundled binary. Commander still owns
-// argv parsing in production — `run()` is the side-effecting kernel
+// argv parsing in production; `run()` is the side-effecting kernel
 // the parser hands off to.
 export async function run(options: RunOptions): Promise<void> {
   clack.intro("create-arkor");
@@ -362,7 +365,7 @@ export async function run(options: RunOptions): Promise<void> {
       (options.dir !== undefined ? basename(resolve(options.dir)) : "arkor-project"),
   );
 
-  // Always sanitise — `defaultName` is already sanitised, but `options.name`
+  // Always sanitise: `defaultName` is already sanitised, but `options.name`
   // straight from `--name` is not, and falls through to package.json as-is
   // when `--yes` skips the interactive prompt.
   let name = sanitise(options.name ?? defaultName);
@@ -385,7 +388,7 @@ export async function run(options: RunOptions): Promise<void> {
     // pressing Enter on empty input falls back to `defaultName` via clack's
     // `defaultValue`. After a collision, pre-fill the rejected name as
     // `initialValue` so the user can edit (e.g. add a suffix) instead of
-    // retyping, and require non-empty input — otherwise the user could loop
+    // retyping, and require non-empty input; otherwise the user could loop
     // forever by pressing Enter on the same colliding default.
     let retryInitial: string | null = null;
     while (true) {
@@ -432,7 +435,7 @@ export async function run(options: RunOptions): Promise<void> {
   }
 
   // When no `dir` was passed, scaffold into a fresh subdirectory named after
-  // the project — matching `create-vite` / `create-next-app`. Pass `.` (or
+  // the project, matching `create-vite` / `create-next-app`. Pass `.` (or
   // any path that resolves to `process.cwd()`) to opt into "scaffold here".
   const cwd =
     options.dir !== undefined
@@ -443,7 +446,7 @@ export async function run(options: RunOptions): Promise<void> {
 
   // Guard for the non-interactive / `--yes` paths where we couldn't re-prompt
   // (the interactive loop above already prevents this branch from firing in
-  // TTY mode). Explicit `dir` is exempt — same rationale as the loop.
+  // TTY mode). Explicit `dir` is exempt: same rationale as the loop.
   if (options.dir === undefined && (await isOccupied(cwd))) {
     clack.cancel(
       `${collisionMessage(name)} Pass an explicit [dir] or remove the existing directory first.`,
@@ -483,7 +486,7 @@ export async function run(options: RunOptions): Promise<void> {
   // Resolve the git-init choice before kicking off install so the user can
   // walk away once they've answered every prompt; otherwise they'd sit at an
   // interactive question after a multi-minute `<pm> install`. Execution still
-  // happens after install — the lockfile generated by the package manager
+  // happens after install: the lockfile generated by the package manager
   // must land in the initial commit, otherwise the tree would be dirty right
   // after `--git` / `-y` and the bootstrap commit wouldn't be reproducible.
   const shouldInitGit = await decideGitInit(cwd, options);
@@ -512,7 +515,7 @@ export async function run(options: RunOptions): Promise<void> {
       // tell the user to fix `.yarnrc.yml` before running `yarn
       // install`. Running install ourselves first would produce an
       // empty `node_modules` (yarn 4 PnP) and leave `arkor dev` /
-      // `arkor train` broken — the install becomes worse than
+      // `arkor train` broken: the install becomes worse than
       // useless. Skip and surface the manual-retry hint instead.
       // Round 40 follow-up #4 (Codex P2, PR #99): no shell-chain
       // separator works across all four supported shells (`&&`
@@ -526,6 +529,7 @@ export async function run(options: RunOptions): Promise<void> {
         ? `\`${pm} install\``
         : `\`${pm} install\` in \`${cdTarget}\``;
       clack.log.info(
+        // eslint-disable-next-line local/no-em-dash
         `Skipping install — fix the advisory above first, then run ${retry}.`,
       );
     } else {
@@ -572,7 +576,7 @@ export async function run(options: RunOptions): Promise<void> {
   // `yarn create` / `bun create` (the `create-arkor` bin
   // usually isn't on PATH directly), and the hint dropped any
   // flags the user originally passed (`--use-yarn` / `--git` /
-  // `--name` / etc). Drop the prescriptive command — point at
+  // `--name` / etc). Drop the prescriptive command; point at
   // the advisory and let the user re-invoke with whatever they
   // originally typed.
   // Round 35 (Copilot, PR #99): the lockfile-in-initial-commit
@@ -580,7 +584,7 @@ export async function run(options: RunOptions): Promise<void> {
   // round-19 advisory case. install can also THROW (caught above,
   // sets `installed=false` + surfaces a manual-retry hint). In
   // that case the original code still ran `git init` on the
-  // no-lockfile tree — same dirty-repo / amend headache as the
+  // no-lockfile tree: same dirty-repo / amend headache as the
   // round-19 case. Skip git in both modes; the
   // wouldHaveInstalled gate (round 21) still honors the
   // `--skip-install --git` no-install-attempted case.
@@ -593,7 +597,7 @@ export async function run(options: RunOptions): Promise<void> {
   // bootstrap was effectively complete.
   //
   // Round 39 follow-up (Codex P1, PR #99): compare against the
-  // pre-install snapshot rather than `existsSync` alone — a
+  // pre-install snapshot rather than `existsSync` alone: a
   // workspace-subdir scaffold has a stale ancestor lockfile, so
   // the loose existence check would treat a totally failed
   // install as "lockfile landed" and proceed with `git init`
@@ -606,13 +610,13 @@ export async function run(options: RunOptions): Promise<void> {
   // slip through, AND so an ambient ancestor `node_modules`
   // (monorepo subdir) doesn't false-positive the gate. See
   // `arkor init` for the full rationale.
-  // Round 40 (Copilot, PR #99) — see `arkor init`'s mirror of
+  // Round 40 (Copilot, PR #99): see `arkor init`'s mirror of
   // this comment for the full rationale. Split the signal:
   //
   //   - `installAttemptCompleted` (strict): drives the auto-git
   //     decision. On any throw, false regardless of artefacts.
   //     Closes the "real lifecycle failure on pnpm/bun satisfies
-  //     the diff" hazard Copilot kept re-flagging — we never
+  //     the diff" hazard Copilot kept re-flagging: we never
   //     auto-commit on throw.
   //   - `installArtifactsLanded` (lenient): drives the outro's
   //     "Next:" hint and differentiates the skip-git message
@@ -647,7 +651,7 @@ export async function run(options: RunOptions): Promise<void> {
   // `installArtifactsLanded && !shouldInitGit` branch. Without
   // this, a `--skip-git` user whose install threw with artefacts
   // landed sees no warning before the outro proceeds with "Next:
-  // dev" — silently treating the non-zero exit as fine. Surface
+  // dev", silently treating the non-zero exit as fine. Surface
   // the recovered-artefacts guidance independently of git so the
   // warning appears in every shape of the run.
   if (installArtifactsLanded && !shouldInitGit) {
@@ -671,7 +675,9 @@ export async function run(options: RunOptions): Promise<void> {
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(
       reRunIsSafe
+        // eslint-disable-next-line local/no-em-dash
         ? "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit."
+        // eslint-disable-next-line local/no-em-dash
         : `Skipping git init too — fix the advisory above, then run ${recoverInDir} to finish the bootstrap.`,
     );
     gitInitSkipped = true;
@@ -683,9 +689,12 @@ export async function run(options: RunOptions): Promise<void> {
     // auto-derived subdir's occupied-directory guard).
     clack.log.info(
       installArtifactsLanded
+        // eslint-disable-next-line local/no-em-dash
         ? `Skipping git init — \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
         : (reRunIsSafe
+          // eslint-disable-next-line local/no-em-dash
           ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
+          // eslint-disable-next-line local/no-em-dash
           : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`),
     );
     gitInitSkipped = true;
@@ -697,8 +706,8 @@ export async function run(options: RunOptions): Promise<void> {
   // hint uses the LENIENT signal (artefacts landed counts as
   // "tree is ready") so a user whose throw was the benign kind
   // doesn't get told to re-run install they just completed. The
-  // git decision above used the strict signal — we never
-  // auto-commit on throw — but the outro is informational and
+  // git decision above used the strict signal (we never
+  // auto-commit on throw), but the outro is informational and
   // benefits from the on-disk evidence. `wouldHaveInstalled`
   // still pivots `--skip-install` / no-pm users to a manual
   // install step.
@@ -749,7 +758,7 @@ export async function run(options: RunOptions): Promise<void> {
   //
   // Round 40 (Copilot, PR #99): the previous fix prepended a
   // `  # Fix the advisory above first, then:` line inside the
-  // multi-line block, but `#` is NOT a comment in `cmd.exe` —
+  // multi-line block, but `#` is NOT a comment in `cmd.exe`:
   // pasting that line at a cmd prompt errors with `'#' is not
   // recognized as an internal or external command`. There's no
   // portable comment syntax across cmd / PowerShell / bash, so
@@ -759,8 +768,8 @@ export async function run(options: RunOptions): Promise<void> {
   // finish the bootstrap with:"). Prose-with-colon as the lead
   // line is the same shape as the default branch and won't be
   // mistaken for a command. The two earlier `clack.log.info`
-  // advisories ("Skipping install — fix the advisory above
-  // first, ...", "Skipping git init too — fix the advisory
+  // advisories ("Skipping install: fix the advisory above
+  // first, ...", "Skipping git init too: fix the advisory
   // above first, ...") still anchor the warning prominently
   // before the outro lands.
   const outroIntro =
@@ -809,6 +818,7 @@ program
   .option("--skip-git", "skip the git init prompt and do not initialise git")
   .option(
     "--allow-builds",
+    // eslint-disable-next-line local/no-em-dash
     "opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
   )
   .option(
@@ -843,7 +853,7 @@ program
       // Commander treats `--agents-md` and `--no-agents-md` as the same
       // option (last-wins), so it will not surface a conflict on its own.
       // Mirror the explicit `--git` / `--skip-git` check by inspecting raw
-      // argv: passing both is almost always a mistake — refuse early
+      // argv: passing both is almost always a mistake; refuse early
       // instead of silently honouring whichever came last. Stop scanning
       // at the POSIX `--` end-of-options sentinel so a positional `[dir]`
       // that happens to start with `--` (e.g. `create-arkor --agents-md

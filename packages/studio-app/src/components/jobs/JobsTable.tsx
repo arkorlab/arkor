@@ -15,7 +15,7 @@ function jobDurationMs(job: Job): number | null {
   }
   // Only tick "now" against running jobs. Terminal statuses without a
   // completedAt (e.g. failed / cancelled where the server didn't
-  // record the timestamp) shouldn't keep climbing on every render —
+  // record the timestamp) shouldn't keep climbing on every render;
   // that would mislead the table reader.
   if (job.status !== "running") return null;
   return Math.max(0, Date.now() - start);
@@ -57,7 +57,7 @@ export function JobsTable({
                    * carries the navigation and the keyboard focus stop;
                    * its ::before is positioned absolute, which (because
                    * the <a> is static) resolves against the closest
-                   * positioned ancestor — the <tr> with `relative` —
+                   * positioned ancestor (the <tr> with `relative`),
                    * extending the click target across the whole row.
                    */}
                   <a
@@ -69,7 +69,7 @@ export function JobsTable({
                 </td>
                 {!compact && (
                   <td className="px-6 py-3.5 align-middle text-zinc-500 dark:text-zinc-400 tabular-nums">
-                    {ms === null ? "—" : formatDuration(ms)}
+                    {ms === null ? "-" : formatDuration(ms)}
                   </td>
                 )}
                 <td className="px-6 py-3.5 align-middle text-zinc-500 dark:text-zinc-400">

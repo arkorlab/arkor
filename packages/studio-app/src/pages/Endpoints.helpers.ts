@@ -33,7 +33,7 @@ export interface PollDeploymentsForSlugOptions {
   /**
    * Default 500. Wait between attempts. Tests pass a tiny value to keep
    * the suite fast. We only wait *between* attempts, not before the
-   * first one — by the time this helper is called, the parent has just
+   * first one: by the time this helper is called, the parent has just
    * aborted a POST, so the very first attempt is the most likely to
    * still race the server commit.
    */
@@ -51,7 +51,7 @@ export interface PollDeploymentsForSlugOptions {
 
 /**
  * Default abortable sleep used by `pollDeploymentsForSlug`. Resolves
- * either when the timer fires or when `signal` aborts — whichever
+ * either when the timer fires or when `signal` aborts, whichever
  * comes first. The post-resolve `signal.aborted` checks in the polling
  * loop turn an aborted wake-up into an immediate return, so a caller
  * that aborts mid-delay observes cancellation within roughly the
@@ -69,7 +69,7 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
     // Re-check `signal.aborted` *after* the listener is registered.
     // `AbortSignal` only fires `abort` once at `controller.abort()`
     // time, so a listener wired up after the controller has already
-    // aborted will never see the event — without this re-check, the
+    // aborted will never see the event; without this re-check, the
     // promise would sit blocked until the timer fires (defeating the
     // whole point of the helper).
     if (signal.aborted) {
@@ -89,13 +89,13 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
  * while the server may have already committed the row. Polls
  * `fetchDeployments` until either the new slug appears (the row really
  * did commit) or the budget is exhausted (orphan row, or the abort
- * actually beat the commit). Returns nothing — state propagation is
+ * actually beat the commit). Returns nothing: state propagation is
  * fully done through `onUpdate` / `onError`.
  *
  * Detection is by *slug match* rather than count delta. A length-only
  * heuristic stops too early when (a) the initial fetch hadn't returned
  * yet so the count baseline is 0 despite existing rows, or (b) another
- * tab / CLI added a different deployment first — `length > baseline`
+ * tab / CLI added a different deployment first; `length > baseline`
  * would fire and we'd still miss the slug we actually care about.
  */
 export async function pollDeploymentsForSlug(
@@ -146,7 +146,7 @@ export async function pollDeploymentsForSlug(
  * plaintext" wiring. Returns a cleanup function the caller runs from
  * a `useEffect` cleanup. Extracted so tests can verify all three
  * defenses (beforeunload prompt, navigation-guard prompt, unmount
- * abort) actually fire — and stay in sync with each other — without
+ * abort) actually fire, and stay in sync with each other, without
  * standing up a DOM.
  */
 export interface KeyIssueGuardOptions {
@@ -170,7 +170,7 @@ export interface KeyIssueGuardOptions {
   confirm: (message: string) => boolean;
   /**
    * Called when the user accepts losing the plaintext at the confirm
-   * dialog — the caller should clear `pendingKeyIssueRef` so
+   * dialog: the caller should clear `pendingKeyIssueRef` so
    * subsequent navigations flow through.
    */
   onAcceptedLoss: () => void;
@@ -186,7 +186,7 @@ export function setupKeyIssueGuards(opts: KeyIssueGuardOptions): () => void {
     if (!opts.isPending()) return;
     // Goal: stop the user from losing the one-time plaintext key by
     // closing the tab mid-flight. Set BOTH `preventDefault()` AND
-    // `returnValue` for cross-browser reliability — the spec was
+    // `returnValue` for cross-browser reliability: the spec was
     // tightened so that modern engines (Chrome 119+, Firefox, Safari)
     // honour `preventDefault()` alone, but older Chromium / WebKit
     // builds and many embedded WebViews still require `returnValue` to

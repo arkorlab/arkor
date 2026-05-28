@@ -12,8 +12,8 @@ import type { NavigationGuard } from "../route";
 
 // `Endpoints.tsx`'s component-level wiring isn't directly testable
 // without a DOM (no `@testing-library/react` / `jsdom` in this
-// workspace), so the resilience-critical parts — the post-abort
-// polling loop and the one-time-key navigation-guard wiring — were
+// workspace), so the resilience-critical parts (the post-abort
+// polling loop and the one-time-key navigation-guard wiring) were
 // extracted into pure helpers. These tests cover the branches that
 // would otherwise only show up in-browser when a user cancels a
 // create or starts issuing a key.
@@ -53,7 +53,7 @@ describe("pollDeploymentsForSlug", () => {
         throw new Error("first attempt should not delay");
       },
     });
-    // Single fetch — the slug was visible immediately, so no poll loop
+    // Single fetch: the slug was visible immediately, so no poll loop
     // and no follow-up wait.
     expect(fetchDeployments).toHaveBeenCalledTimes(1);
     expect(updates).toHaveLength(1);
@@ -91,7 +91,7 @@ describe("pollDeploymentsForSlug", () => {
       ["other", "target"],
     ]);
     // 3 fetches => 2 inter-attempt delays. The first attempt has no
-    // preceding wait — it fires immediately because the parent has
+    // preceding wait: it fires immediately because the parent has
     // just aborted a POST and the server commit is most likely to
     // race the very first reload.
     expect(delays).toBe(2);
@@ -165,7 +165,7 @@ describe("pollDeploymentsForSlug", () => {
   it("bails immediately when the external signal is already aborted", async () => {
     // Caller superseded us before the loop could even start. We must
     // fire zero `fetchDeployments` calls and zero `onUpdate` /
-    // `onError` callbacks — otherwise we'd race state with whatever
+    // `onError` callbacks; otherwise we'd race state with whatever
     // replaced us.
     const ctrl = new AbortController();
     ctrl.abort();
@@ -190,7 +190,7 @@ describe("pollDeploymentsForSlug", () => {
     // a `controller.abort()` during the wait window has to break the
     // loop within roughly the AbortSignal's dispatch latency, not
     // after the full `delayMs`. The default `abortableDelay` races
-    // the timer against the signal — verify by recording the
+    // the timer against the signal: verify by recording the
     // `(ms, signal)` pair `pollDeploymentsForSlug` actually passes
     // and confirming that aborting via that signal flushes the wait.
     const ctrl = new AbortController();
@@ -214,7 +214,7 @@ describe("pollDeploymentsForSlug", () => {
           if (signal.aborted) return resolve();
           signal.addEventListener("abort", () => resolve(), { once: true });
           // Abort on the next microtask so the call site is already
-          // awaiting `delay` when the signal fires — exercises the
+          // awaiting `delay` when the signal fires; exercises the
           // real "abort mid-delay" path, not "abort before delay".
           queueMicrotask(() => ctrl.abort());
         });
@@ -235,7 +235,7 @@ describe("setupKeyIssueGuards", () => {
   // Three layers of defence (beforeunload, navigation guard,
   // unmount-abort) all set up by one helper. These tests verify the
   // registration order, that the guard picks the right confirm copy
-  // for each phase, and that the cleanup tears everything down — any
+  // for each phase, and that the cleanup tears everything down: any
   // regression here can let a user lose an unrecoverable API key
   // secret, so it's worth pinning the wiring even though no DOM is
   // involved.
@@ -305,7 +305,7 @@ describe("setupKeyIssueGuards", () => {
   });
 
   it("cleanup tolerates a null controller (no key request was in flight)", () => {
-    // First mount before any Issue key click — `keyIssueControllerRef`
+    // First mount before any Issue key click; `keyIssueControllerRef`
     // is still null, and the cleanup must not crash trying to
     // `?.abort()` it.
     const f = makeFakes({ controller: null });
@@ -318,7 +318,7 @@ describe("setupKeyIssueGuards", () => {
     // (the base `Event` interface), so a `e.returnValue = "..."` write
     // gets coerced and we can't read the string back. Override with a
     // capturing setter so we can assert the cross-browser legacy cue
-    // — a non-empty string assignment — actually fires.
+    // (a non-empty string assignment) actually fires.
     function makeBeforeUnloadEvent() {
       const e = new Event("beforeunload") as BeforeUnloadEvent;
       const writes: unknown[] = [];
@@ -349,8 +349,8 @@ describe("setupKeyIssueGuards", () => {
     // Cross-browser reliability: older Chromium / WebKit / WebView
     // builds need a non-empty `returnValue` string (in addition to
     // `preventDefault`) before they show the unload confirm dialog.
-    // The string itself is not rendered to the user — modern browsers
-    // show their own generic message — but the assignment is what
+    // The string itself is not rendered to the user (modern browsers
+    // show their own generic message), but the assignment is what
     // legacy engines treat as the "show the prompt" cue.
     expect(active.writes).toHaveLength(1);
     expect(typeof active.writes[0]).toBe("string");
@@ -374,7 +374,7 @@ describe("setupKeyIssueGuards", () => {
     setupKeyIssueGuards(f.fakes);
     const allowed = f.guardRegistrations[0]!();
     expect(f.confirmCalls).toEqual([KEY_ISSUE_INFLIGHT_MESSAGE]);
-    // User cancelled — block the navigation, don't release the guard.
+    // User cancelled: block the navigation, don't release the guard.
     expect(allowed).toBe(false);
     expect(f.onAcceptedLossCalls).toHaveLength(0);
   });
@@ -396,7 +396,7 @@ describe("setupKeyIssueGuards", () => {
 
   it("user accepting the prompt allows navigation AND fires onAcceptedLoss", () => {
     // The caller uses `onAcceptedLoss` to clear the protection flag
-    // so subsequent navigations flow through unimpeded — without it
+    // so subsequent navigations flow through unimpeded; without it
     // the guard would re-prompt on every link click forever.
     const f = makeFakes({
       isPending: () => true,

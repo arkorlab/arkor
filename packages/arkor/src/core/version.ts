@@ -6,7 +6,7 @@
 //      `undefined`, so the `?? "0.0.0-dev"` fallback actually fires.
 //   2. Lint compatibility. The previous `typeof X !== "undefined"` probe
 //      tripped `unicorn/no-typeof-undefined`, whose auto-fix rewrites it
-//      to `X !== undefined` — re-introducing the ReferenceError above.
+//      to `X !== undefined`, re-introducing the ReferenceError above.
 //      Typing the global as `string | undefined` makes `?? fallback` a
 //      "necessary" coalesce that no rule wants to strip.
 // tsdown's `define` is keyed against the literal text `"globalThis.__SDK_VERSION__"`,
@@ -18,7 +18,7 @@
 //     their global types with our build constant.
 //   - `(globalThis as { __SDK_VERSION__?: ... }).__SDK_VERSION__` keeps
 //     the type local, but rolldown's `define` only rewrites a bare
-//     `globalThis.X` member expression — wrapping `globalThis` in a
+//     `globalThis.X` member expression: wrapping `globalThis` in a
 //     cast breaks the AST match and the version stops getting inlined
 //     (`undefined ?? "0.0.0-dev"` at runtime in every build).
 // Suppress the type error at the read site and assign through an

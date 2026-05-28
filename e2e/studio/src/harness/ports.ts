@@ -15,7 +15,7 @@ export function getEphemeralPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
     srv.unref();
-    // Close on error too — leaving the server open here would keep
+    // Close on error too: leaving the server open here would keep
     // the underlying TCP handle alive and (without `unref` honoured
     // for half-open sockets) could pin the event loop until the
     // process exits. Idempotent close is safe whether the error

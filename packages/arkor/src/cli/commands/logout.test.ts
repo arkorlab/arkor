@@ -82,7 +82,7 @@ afterEach(() => {
   else delete process.env.CI;
   if (ORIG_CLAUDECODE !== undefined) process.env.CLAUDECODE = ORIG_CLAUDECODE;
   else delete process.env.CLAUDECODE;
-  // Restore the TTY flag in case the interactive test mutated it —
+  // Restore the TTY flag in case the interactive test mutated it;
   // otherwise a later test that unsets CI would unexpectedly enter
   // interactive prompt paths.
   Object.defineProperty(process.stdout, "isTTY", {

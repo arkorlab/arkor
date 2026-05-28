@@ -46,7 +46,7 @@ describe("api CSRF token wiring", () => {
     // When the Studio server's `/api/*` middleware rejects a request
     // (missing/stale token, host-header mismatch, dev restarted and
     // minted a fresh token while the SPA still holds the old one),
-    // it returns 403. `apiFetch` does not throw on non-2xx itself —
+    // it returns 403. `apiFetch` does not throw on non-2xx itself;
     // `json()` does, throwing a plain `Error` whose message embeds
     // `${status} ${statusText}` (e.g. `"403 Forbidden"`). There is no
     // structured/tagged error type today; the SPA renders that

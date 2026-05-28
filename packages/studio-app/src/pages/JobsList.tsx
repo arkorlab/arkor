@@ -27,7 +27,7 @@ export function JobsList() {
   const [refreshing, setRefreshing] = useState(false);
   // True while a `load()` call is awaiting fetchJobs. Used to coalesce
   // a manual refresh click that lands while the polling tick is still
-  // in flight (or vice versa) into a single request — without this,
+  // in flight (or vice versa) into a single request; without this,
   // two concurrent /api/jobs calls could finish out of order and an
   // older snapshot could overwrite a newer one in `setJobs`.
   const inFlightRef = useRef(false);
@@ -60,7 +60,7 @@ export function JobsList() {
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const load = useCallback(async (manual = false) => {
     if (inFlightRef.current) {
-      // Don't drop a user click — flip the spinner so they get
+      // Don't drop a user click; flip the spinner so they get
       // immediate feedback and queue a follow-up fetch for when the
       // current request resolves.
       if (manual) {

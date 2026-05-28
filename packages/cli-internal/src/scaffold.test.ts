@@ -69,7 +69,7 @@ describe("scaffold", () => {
   it("writes all starter files in an empty directory", async () => {
     const result = await scaffold({ cwd, name: "my-app", template: "triage" });
     // index.ts, trainer.ts, arkor.config.ts, README.md, .gitignore,
-    // package.json, pnpm-workspace.yaml, .yarnrc.yml — the trailing
+    // package.json, pnpm-workspace.yaml, .yarnrc.yml: the trailing
     // `.yarnrc.yml` fires because `packageManager` is undefined here
     // (no `--use-*` was simulated), and the manual-install-hint flow
     // defensively emits the file so a yarn-berry user reading the
@@ -181,18 +181,18 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("patched");
   });
 
-  // Round 36 (PR #99 — CI runs 25349847532, 25351227697): pnpm 11
+  // Round 36 (PR #99: CI runs 25349847532, 25351227697): pnpm 11
   // refuses postinstall scripts unless the project allow- or
   // deny-lists the dep, exiting with `ERR_PNPM_IGNORED_BUILDS` and
-  // code 1. esbuild's postinstall is unnecessary in normal use —
-  // pnpm already installs `@esbuild/<platform>` as an optional dep
-  // — so the scaffolded default is `esbuild: false` (explicit
+  // code 1. esbuild's postinstall is unnecessary in normal use
+  // (pnpm already installs `@esbuild/<platform>` as an optional dep)
+  // so the scaffolded default is `esbuild: false` (explicit
   // deny). That silences pnpm 11 without granting esbuild the
   // right to execute code at install time. Users who genuinely
   // need the postinstall (rare) can flip the entry to `true`.
   //
-  // The first attempt wrote `package.json#pnpm.onlyBuiltDependencies`
-  // — that works on pnpm 9/10 but pnpm 11 silently ignores the
+  // The first attempt wrote `package.json#pnpm.onlyBuiltDependencies`:
+  // that works on pnpm 9/10 but pnpm 11 silently ignores the
   // package.json field; the allow-list moved to
   // `pnpm-workspace.yaml#allowBuilds`. These tests pin the
   // pnpm-workspace.yaml shape so a future refactor that regresses
@@ -201,17 +201,17 @@ describe("scaffold", () => {
   //
   // pnpm 9 *requires* `packages:` to be present whenever
   // `pnpm-workspace.yaml` exists or it errors "packages field
-  // missing or empty" — hence the empty list. pnpm 10/11 accept the
+  // missing or empty"; hence the empty list. pnpm 10/11 accept the
   // file without `packages:` but tolerate `[]`. yarn / npm / bun
   // do not read the file.
   it("emits pnpm-workspace.yaml with packages:[] + allowBuilds esbuild=false (deny by default)", async () => {
     await scaffold({ cwd, name: "fresh", template: "triage" });
     const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
     expect(yaml).toContain("packages: []");
-    // Deny — supply-chain default is "do not run install scripts".
+    // Deny: supply-chain default is "do not run install scripts".
     expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+false/);
     expect(yaml).not.toMatch(/esbuild:[ \t]+true/);
-    // package.json no longer carries the legacy `pnpm` field — it
+    // package.json no longer carries the legacy `pnpm` field: it
     // had no effect on pnpm 11 anyway, and keeping a no-op there
     // would muddy the "single source of truth" story.
     const pkg = JSON.parse(
@@ -235,7 +235,7 @@ describe("scaffold", () => {
 
   it("preserves an existing user-set esbuild=false deny (idempotent on re-run)", async () => {
     // Re-running the scaffold against its own previous output must
-    // be a no-op — otherwise we'd churn the file on every `arkor
+    // be a no-op; otherwise we'd churn the file on every `arkor
     // init` into an existing project.
     const original = `packages: []\nallowBuilds:\n  esbuild: false\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
@@ -274,7 +274,7 @@ describe("scaffold", () => {
   // Round 39 (Codex P2, PR #99): the inline-key reader used an
   // unbounded match for the package name, so `myesbuild: false`
   // would falsely satisfy the `esbuild` lookup and skip the
-  // patch — leaving pnpm 11 to keep erroring on the real
+  // patch, leaving pnpm 11 to keep erroring on the real
   // (missing) `esbuild` entry. Anchor the lookup at a
   // mapping-start boundary (`{`, `,`, whitespace, or string
   // start) so substring keys aren't a false positive.
@@ -298,7 +298,7 @@ describe("scaffold", () => {
   // Round 39 (Codex P2, PR #99): hand-written
   // `allowBuilds: { sharp: true, }` with a trailing comma
   // would otherwise produce `sharp: true,, esbuild: false`
-  // after the merge — invalid YAML pnpm rejects on parse. The
+  // after the merge: invalid YAML pnpm rejects on parse. The
   // inline writer now strips a trailing comma (with optional
   // whitespace) before joining.
   it("strips a trailing comma in inline form before appending esbuild", async () => {
@@ -319,7 +319,7 @@ describe("scaffold", () => {
 
   it("appends a fresh allowBuilds block to a pnpm-workspace.yaml that has none", async () => {
     // A workspace declared without any allowBuilds yet (e.g. on
-    // pnpm 9 where the field is unused) — append the whole block
+    // pnpm 9 where the field is unused): append the whole block
     // rather than trying to splice into a non-existent header.
     const original = `packages:\n  - "packages/*"\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
@@ -335,7 +335,7 @@ describe("scaffold", () => {
   // after the header AND each body line, so the last entry
   // (`  sharp: true<EOF>`) would otherwise slip past the body
   // capture and the function would fall through to "no
-  // allowBuilds at all" — appending a duplicate top-level
+  // allowBuilds at all", appending a duplicate top-level
   // `allowBuilds:` block. The fix normalizes the input by
   // appending a newline if missing.
   it("merges esbuild into an existing allowBuilds block when the file lacks a trailing newline", async () => {
@@ -398,7 +398,7 @@ describe("scaffold", () => {
 
   it("preserves a user-set esbuild=false even when --allow-builds is passed", async () => {
     // The flag tells the scaffold what default to write, but never
-    // overrides an explicit user pin — silently flipping false →
+    // overrides an explicit user pin; silently flipping false →
     // true would change the install-time threat model.
     const original = `packages: []\nallowBuilds:\n  esbuild: false\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
@@ -413,7 +413,7 @@ describe("scaffold", () => {
     expect(entry?.action).toBe("ok");
   });
 
-  // Round 37 (PR #99 — multi-reviewer P1: Codex + Copilot 2x):
+  // Round 37 (PR #99, multi-reviewer P1: Codex + Copilot 2x):
   // dropping a fresh `pnpm-workspace.yaml` with `packages: []`
   // into a subdirectory of an EXISTING pnpm monorepo would
   // shadow the parent workspace root, so subsequent
@@ -421,7 +421,7 @@ describe("scaffold", () => {
   // the parent (`ERR_PNPM_WORKSPACE_PKG_NOT_FOUND`). The scaffold
   // walks ancestors via `hasEnclosingPath` and skips creation in
   // that case. Patching a file the user already has at cwd is
-  // still allowed — we only ever ADD esbuild to their existing
+  // still allowed: we only ever ADD esbuild to their existing
   // allow-list, never reroute the workspace root.
   it("does not create pnpm-workspace.yaml when an ancestor directory already has one", async () => {
     const parent = mkdtempSync(join(tmpdir(), "scaffold-monorepo-"));
@@ -458,7 +458,7 @@ describe("scaffold", () => {
       join(parent, "pnpm-workspace.yaml"),
       `packages:\n  - "packages/**"\n`,
     );
-    // 25 nested dir levels under the parent — well past the
+    // 25 nested dir levels under the parent: well past the
     // previous 20-level cap.
     const segments = Array.from({ length: 25 }, (_, i) => `lvl${i}`);
     const sub = join(parent, ...segments, "new-pkg");
@@ -535,7 +535,7 @@ describe("scaffold", () => {
   it("preserves a top-level scalar allowBuilds pin (does not append a duplicate sibling)", async () => {
     // `allowBuilds: false` (top-level scalar) is pnpm's "deny all"
     // global pin. Appending a fresh `allowBuilds:` block alongside
-    // would yield two top-level keys — invalid/ambiguous YAML.
+    // would yield two top-level keys: invalid/ambiguous YAML.
     // The scaffold must observe the scalar and bow out as `ok`.
     const original = `packages: []\nallowBuilds: false\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
@@ -571,7 +571,7 @@ describe("scaffold", () => {
     expect(yaml.match(/^allowBuilds:/gm)).toHaveLength(1);
     expect(yaml).toContain("sharp: true");
     expect(yaml).toContain("esbuild: false");
-    // Output should preserve CRLF — no LF-only newlines introduced.
+    // Output should preserve CRLF: no LF-only newlines introduced.
     expect(yaml).not.toMatch(/[^\r]\n/);
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("patched");
@@ -670,7 +670,7 @@ describe("scaffold", () => {
     expect(yaml.startsWith("%YAML 1.2\n---\n")).toBe(true);
     expect(yaml).toContain("packages: []");
     // Directive + marker still come first, then the synthetic
-    // `packages: []` — one document, not two.
+    // `packages: []`: one document, not two.
     expect(yaml.match(/^---/gm)).toHaveLength(1);
   });
 
@@ -779,7 +779,7 @@ describe("scaffold", () => {
 
   // Round 38 (Codex P2): an ancestor `.yarnrc.yml` with
   // `nodeLinker: node-modules` is the safe case the berry caveat
-  // is supposed to nudge users toward — the install runs without
+  // is supposed to nudge users toward: the install runs without
   // PnP, and the arkor runtime can resolve modules normally. The
   // scaffold must NOT raise the caveat or set blockInstall in
   // that case, even when the local cwd looks like a yarn-berry
@@ -807,7 +807,7 @@ describe("scaffold", () => {
   });
 
   // Round 39 (Copilot, PR #99): cwd's own `.yarnrc.yml` has no
-  // `nodeLinker:` key, but yarn merges configs up the tree —
+  // `nodeLinker:` key, but yarn merges configs up the tree;
   // a parent yarnrc pinning `nodeLinker: node-modules` IS the
   // effective linker for cwd, so the bootstrap is safe and no
   // caveat / blockInstall should fire. The earlier helper bailed
@@ -890,7 +890,7 @@ describe("scaffold", () => {
   it("inserts a separating newline when the existing .gitignore lacks a trailing newline", async () => {
     // Without the `endsWith("\n") ? "" : "\n"` separator, the patched
     // file would smash the previous last line into the appended
-    // entry — e.g. `node_modules/.arkor/`, which git would interpret
+    // entry, e.g. `node_modules/.arkor/`, which git would interpret
     // as a single path pattern. Round 16 (Copilot, PR #99) tightened
     // the patch path to ONLY append `.arkor/`: `node_modules/`,
     // `dist/`, and the yarn-cache lines are no longer added to a
@@ -903,7 +903,7 @@ describe("scaffold", () => {
   });
 
   // yarn-berry defaults to Plug'n'Play, which doesn't materialise
-  // node_modules — and the arkor runtime (esbuild → `node ./.arkor/build/
+  // node_modules, and the arkor runtime (esbuild → `node ./.arkor/build/
   // index.mjs`) doesn't load PnP, so a vanilla yarn-4 install would leave
   // `arkor dev` unable to resolve dependencies. The scaffold writes a
   // `.yarnrc.yml` pinning `nodeLinker: node-modules` whenever the user
@@ -923,7 +923,7 @@ describe("scaffold", () => {
     );
   });
 
-  // Existing `.yarnrc.yml` with no `nodeLinker:` line — yarn 4 would
+  // Existing `.yarnrc.yml` with no `nodeLinker:` line: yarn 4 would
   // silently fall back to PnP, breaking the arkor runtime. Scaffold
   // must append `nodeLinker: node-modules` while preserving the
   // user's other settings (Copilot review on PR #99).
@@ -937,7 +937,7 @@ describe("scaffold", () => {
   // (The round-12 `insertNodeLinkerIntoYarnrc` helper that handled
   // YAML terminators / indented root mappings became unreachable
   // when round 15 closed this branch and was removed alongside.)
-  it("does NOT mutate an existing .yarnrc.yml that lacks nodeLinker — surfaces the caveat", async () => {
+  it("does NOT mutate an existing .yarnrc.yml that lacks nodeLinker (surfaces the caveat)", async () => {
     const yarnrcContent = "yarnPath: .yarn/releases/yarn-4.x.cjs\n";
     writeFileSync(join(cwd, ".yarnrc.yml"), yarnrcContent);
     const result = await scaffold({
@@ -948,7 +948,7 @@ describe("scaffold", () => {
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc?.action).toBe("kept");
-    // File is unchanged — the user's existing config wins.
+    // File is unchanged: the user's existing config wins.
     expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(yarnrcContent);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
@@ -963,12 +963,12 @@ describe("scaffold", () => {
   // inspect path uses, but from the explicit-yarn arm.
   //
   // Round 20 (Copilot, PR #99): the caveat-fire condition is
-  // gated on positive yarn-berry signal — `.yarnrc.yml` on disk
+  // gated on positive yarn-berry signal: `.yarnrc.yml` on disk
   // OR a corepack-style `packageManager: "yarn@2+"` declaration.
   // Without one of those, `--use-yarn` could mean yarn 1.x,
   // which doesn't read `.yarnrc.yml` and would install fine.
   // The fixture below declares yarn@4 to satisfy the gate.
-  it("does NOT create .yarnrc.yml in --use-yarn + existing-project + no-yarnrc + yarn-berry signal — surfaces caveat instead", async () => {
+  it("does NOT create .yarnrc.yml in --use-yarn + existing-project + no-yarnrc + yarn-berry signal (surfaces caveat instead)", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify(
@@ -988,7 +988,7 @@ describe("scaffold", () => {
     // NOT record a `.yarnrc.yml` entry in `files[]`. Both CLIs
     // print files verbatim in the "Files" note, so an entry here
     // would surface "kept .yarnrc.yml" for a file that doesn't
-    // exist — confusing the user about repo state.
+    // exist, confusing the user about repo state.
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
@@ -999,7 +999,7 @@ describe("scaffold", () => {
     expect(result.blockInstall).toBe(true);
   });
 
-  // Round 33 (Copilot, PR #99) — final settle on the
+  // Round 33 (Copilot, PR #99): final settle on the
   // detection-undefined trade-off (round 31 ↔ 32 ↔ 33): when
   // `--use-yarn` is passed, none of the on-disk signals are
   // present, AND `detectYarnMajor()` returns `undefined`
@@ -1037,8 +1037,8 @@ describe("scaffold", () => {
   });
 
   // Round 29 cont'd: `.yarn/` directory existence is a positive
-  // signal even without `.yarnrc.yml` or a corepack declaration
-  // — yarn 1 doesn't create that tree, so an existing `.yarn/`
+  // signal even without `.yarnrc.yml` or a corepack declaration:
+  // yarn 1 doesn't create that tree, so an existing `.yarn/`
   // dir means the user is on yarn-berry. Pin the contract so a
   // future tightening of the gate doesn't drop this signal.
   it("DOES fire the caveat in --use-yarn + existing-project when only `.yarn/` dir signals yarn-berry", async () => {
@@ -1046,7 +1046,7 @@ describe("scaffold", () => {
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
     );
-    // Just an empty `.yarn/` dir — common in yarn-berry repos
+    // Just an empty `.yarn/` dir: common in yarn-berry repos
     // that haven't yet committed `.yarnrc.yml` (e.g. mid-bootstrap)
     // but already pinned a yarn release under `.yarn/releases/`.
     mkdirSync(join(cwd, ".yarn"));
@@ -1062,7 +1062,7 @@ describe("scaffold", () => {
   });
 
   // Round 34 (Copilot, PR #99): yarn itself walks up for
-  // `.yarnrc.yml` and `.yarn/` during resolution — the workspace
+  // `.yarnrc.yml` and `.yarn/` during resolution: the workspace
   // root's config governs descendant packages. The cwd-only
   // signal check missed monorepo-subdir scaffolds (e.g.
   // `monorepo/packages/new-pkg`) whose root pins the yarn-berry
@@ -1122,7 +1122,7 @@ describe("scaffold", () => {
       "yarnPath: .yarn/releases/yarn-4.x.cjs\n",
     );
     // Pre-existing package.json in subdir but NO `packageManager`
-    // field — without round 34's tree walk, this path saw
+    // field: without round 34's tree walk, this path saw
     // `no-config` (no local yarnrc) + no corepack declaration
     // and stayed silent.
     writeFileSync(
@@ -1158,7 +1158,7 @@ describe("scaffold", () => {
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
     );
-    // No yarnrc, no .yarn/, no corepack declaration — the
+    // No yarnrc, no .yarn/, no corepack declaration: the
     // documented round-29 gap. Runtime detection now closes it.
     vi.mocked(detectYarnMajor).mockResolvedValueOnce(4);
     const result = await scaffold({
@@ -1184,7 +1184,7 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "yarn",
     });
-    // yarn 1 ignores `.yarnrc.yml` so install would work — no caveat.
+    // yarn 1 ignores `.yarnrc.yml` so install would work: no caveat.
     expect(result.warnings).toEqual([]);
     expect(result.blockInstall).toBe(false);
   });
@@ -1213,10 +1213,10 @@ describe("scaffold", () => {
 
   // Round 14 #1 cont'd: same policy when the existing
   // `.yarnrc.yml` lacks a `nodeLinker:` key. The absence is itself
-  // a deliberate PnP choice in an existing yarn-berry workspace —
+  // a deliberate PnP choice in an existing yarn-berry workspace,
   // appending would flip the install mode just as if we'd created
   // the file from scratch.
-  it("does NOT append nodeLinker:node-modules in --use-yarn + existing-project + yarnrc-without-linker — surfaces caveat instead", async () => {
+  it("does NOT append nodeLinker:node-modules in --use-yarn + existing-project + yarnrc-without-linker (surfaces caveat instead)", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
@@ -1232,7 +1232,7 @@ describe("scaffold", () => {
     // Counterpart to the no-yarnrc test above: HERE the
     // `.yarnrc.yml` does exist on disk (we declined to mutate it,
     // not to create it), so the round-18 phantom-entry guard does
-    // NOT fire — the `kept` entry IS legitimate. Pin that down so
+    // NOT fire: the `kept` entry IS legitimate. Pin that down so
     // a future tightening of the existsSync check doesn't drop
     // the entry for the existing-but-unmodified case.
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
@@ -1269,13 +1269,13 @@ describe("scaffold", () => {
   // Round 15 (Copilot, PR #99): `isExistingProject` used to be
   // inferred from `existsSync(package.json)`, but `scaffold()`
   // also supports merging into directories that aren't
-  // bootstrapped yet — e.g. an existing git repo with just a
+  // bootstrapped yet, e.g. an existing git repo with just a
   // README, a monorepo sub-dir scaffolded for a new package.
   // Under the package.json predicate those got `false` and the
   // patch path would still write `.yarnrc.yml` + add yarn-cache
   // lines, reintroducing the workspace-mutation hazard rounds
   // 5/14 had closed for the package.json-bearing case. The
-  // predicate is now "cwd has any pre-existing entries" — these
+  // predicate is now "cwd has any pre-existing entries": these
   // tests pin that down for a representative non-package.json
   // case (just a README, no package.json).
   it("treats a non-empty directory without package.json as existing-project (no yarnrc + no yarn-cache gitignore lines under --use-yarn)", async () => {
@@ -1283,7 +1283,7 @@ describe("scaffold", () => {
     // "existing git repo with just a README" scenario from the
     // round-15 review. The point of this test is round-15's
     // existing-project policy (no yarnrc, no `.yarn/` gitignore
-    // lines), not the round-32 fail-closed gate — so simulate
+    // lines), not the round-32 fail-closed gate, so simulate
     // a successful yarn 1 detection so the caveat path stays
     // dormant and we can assert on the file-side semantics
     // cleanly.
@@ -1303,12 +1303,12 @@ describe("scaffold", () => {
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc).toBeUndefined();
     expect(existsSync(join(cwd, ".yarnrc.yml"))).toBe(false);
-    // No caveat — yarn 1 detected, no yarn-berry signal, so the
+    // No caveat: yarn 1 detected, no yarn-berry signal, so the
     // gate stays open. (Round 32's fail-closed only fires when
     // detection returns undefined.)
     expect(result.warnings).toEqual([]);
     expect(result.blockInstall).toBe(false);
-    // .gitignore does NOT get yarn-cache lines either — Yarn
+    // .gitignore does NOT get yarn-cache lines either: Yarn
     // zero-install setups commit `.yarn/cache/` and silently
     // ignoring those archives is the round-14 #2 hazard.
     const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
@@ -1318,7 +1318,7 @@ describe("scaffold", () => {
 
   // Counterpart of the above: a TRULY empty cwd (just made by
   // mkdtempSync, nothing in it) should still be treated as fresh
-  // — that's the create-arkor `pnpm create arkor my-app` flow
+  // (that's the create-arkor `pnpm create arkor my-app` flow)
   // and we want the defensive `.yarnrc.yml` + gitignore yarn
   // entries to fire there. This guards against accidentally
   // tightening the predicate too far (e.g. treating `["."]` as
@@ -1338,13 +1338,13 @@ describe("scaffold", () => {
     const gi = readFileSync(join(cwd, ".gitignore"), "utf8");
     expect(gi).toContain(".yarn/cache");
     expect(gi).toContain(".yarn/install-state.gz");
-    // No caveat — the patch path actually mutated, no advisory needed.
+    // No caveat: the patch path actually mutated, no advisory needed.
     expect(result.warnings).toEqual([]);
   });
 
   // Round 14 #1 still has an explicit-conflict counterpart that
   // must keep working: `--use-yarn` + existing project + yarnrc
-  // pinned to `nodeLinker: pnp` — the conflict path has always
+  // pinned to `nodeLinker: pnp`: the conflict path has always
   // been "kept + warning"; the new isExistingProject gate must
   // not interfere with it (the conflict branch returns before the
   // gate runs).
@@ -1371,7 +1371,7 @@ describe("scaffold", () => {
   // `patchPackageJson` had already created it for the no-local-
   // package.json case. Round 15's `isExistingProject` widening
   // exposed this for the "yarn-berry monorepo subdir without a
-  // local package.json" case — the helper read the freshly-
+  // local package.json" case: the helper read the freshly-
   // scaffolded manifest (no `packageManager` field) and
   // suppressed the caveat even though `yarn install` resolves
   // through the parent workspace and hits the unsupported PnP
@@ -1408,7 +1408,7 @@ describe("scaffold", () => {
         name: "n",
         template: "triage",
       });
-      // Caveat surfaces — the parent's declaration was found via
+      // Caveat surfaces: the parent's declaration was found via
       // the walk-up.
       expect(result.warnings).toHaveLength(1);
       expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
@@ -1473,7 +1473,7 @@ describe("scaffold", () => {
   // matters because most fresh scaffolds genuinely want both
   // entries ignored.
   it("STILL writes node_modules/ + dist/ + .arkor/ when creating a fresh .gitignore in an existing project", async () => {
-    // README.md only — cwd is non-empty (round-15 isExistingProject
+    // README.md only: cwd is non-empty (round-15 isExistingProject
     // fires) but no `.gitignore` exists, so the create path runs.
     writeFileSync(join(cwd, "README.md"), "# my project\n");
     await scaffold({
@@ -1485,7 +1485,7 @@ describe("scaffold", () => {
     expect(gi).toContain("node_modules/");
     expect(gi).toContain("dist/");
     expect(gi).toContain(".arkor/");
-    // round 14 #2 still applies — yarn-cache lines stay out of
+    // round 14 #2 still applies: yarn-cache lines stay out of
     // existing-project scaffolds even on the create path.
     expect(gi).not.toContain(".yarn/");
   });
@@ -1497,7 +1497,7 @@ describe("scaffold", () => {
   // directories, so silently flipping the install mode would
   // change repo-wide behaviour and could break unrelated packages
   // in a yarn-berry workspace. Policy: report `kept` and leave the
-  // file alone — the user's explicit choice wins, and the runtime
+  // file alone: the user's explicit choice wins, and the runtime
   // mismatch is a problem they get to reconcile (or arkor's
   // runtime grows PnP support).
   it("keeps an existing .yarnrc.yml that explicitly pins a non-node-modules linker and surfaces a warning", async () => {
@@ -1513,7 +1513,7 @@ describe("scaffold", () => {
     const contents = readFileSync(join(cwd, ".yarnrc.yml"), "utf8");
     expect(contents).toBe("nodeLinker: pnp\nfoo: bar\n");
     // Without a warning the user wouldn't know `arkor dev` is going
-    // to fail later — Copilot's follow-up review on PR #99 pushed
+    // to fail later: Copilot's follow-up review on PR #99 pushed
     // back on the silent `kept`, so the scaffolder now surfaces the
     // conflict to the CLI for it to render.
     expect(result.warnings).toHaveLength(1);
@@ -1521,7 +1521,7 @@ describe("scaffold", () => {
     expect(result.warnings[0]).toMatch(/arkor dev/);
   });
 
-  // Existing `.yarnrc.yml` that already pins the right linker — no
+  // Existing `.yarnrc.yml` that already pins the right linker: no
   // mutation, no fake "patched" log entry, no warning.
   it("reports ok when existing .yarnrc.yml already pins nodeLinker:node-modules", async () => {
     writeFileSync(
@@ -1543,8 +1543,8 @@ describe("scaffold", () => {
   // `package.json`) fires when neither `--use-*` was passed nor
   // `npm_config_user_agent` told us anything. The manual install
   // hint says "yarn / bun install", so a yarn-berry user lands here
-  // — without a `.yarnrc.yml` they'd hit PnP and break the arkor
-  // runtime (Copilot review on PR #99).
+  // (without a `.yarnrc.yml` they'd hit PnP and break the arkor
+  // runtime), per Copilot review on PR #99.
   it("emits .yarnrc.yml when packageManager is undefined and the project is fresh", async () => {
     const result = await scaffold({
       cwd,
@@ -1563,8 +1563,8 @@ describe("scaffold", () => {
   // yarn-berry workspace deliberately on the PnP default. Without
   // an explicit `--use-yarn` we can't tell, so silently dropping a
   // `.yarnrc.yml` would flip the install mode for the entire repo
-  // — Copilot's follow-up review on PR #99 flagged exactly this
-  // foot-gun. Defer to the user instead.
+  // (Copilot's follow-up review on PR #99 flagged exactly this
+  // foot-gun). Defer to the user instead.
   it("does NOT emit .yarnrc.yml when packageManager is undefined and the project already exists", async () => {
     writeFileSync(
       join(cwd, "package.json"),
@@ -1582,7 +1582,7 @@ describe("scaffold", () => {
   // Counterpart-of-the-counterpart (PR #99 round 8): the
   // undefined-pm + existing-project skip path was eating the
   // conflict warning entirely. The file is still NOT mutated (the
-  // round-5 policy stands — we won't flip the install mode of an
+  // round-5 policy stands: we won't flip the install mode of an
   // unknown surrounding workspace), but if the user later acts on
   // the manual-install hint and runs `yarn install` against an
   // existing `nodeLinker: pnp` setup, `arkor dev` will fail the
@@ -1616,7 +1616,7 @@ describe("scaffold", () => {
   // Round 9 (Copilot): when undefined-pm merges into an existing
   // project that has NO usable yarn config (no `.yarnrc.yml` at
   // all here), the round-5 policy stripped both the defensive
-  // `.yarnrc.yml` write AND the yarn-cache `.gitignore` lines —
+  // `.yarnrc.yml` write AND the yarn-cache `.gitignore` lines;
   // but the manual install hint still says "yarn / bun install".
   // A yarn-berry user following it would land on PnP (no yarnrc)
   // and pollute the repo with `.yarn/cache` (no gitignore). The
@@ -1652,7 +1652,7 @@ describe("scaffold", () => {
     );
     // But the caveat IS surfaced. Round 29 (Copilot, PR #99)
     // trimmed the prior `.yarn/cache` / `.yarn/install-state.gz`
-    // gitignore prescription — `patchGitignore` deliberately
+    // gitignore prescription: `patchGitignore` deliberately
     // doesn't add those to existing repos (round-14 #2: Yarn
     // zero-install repos commit them on purpose), so prescribing
     // them in the advisory contradicted our own patch policy.
@@ -1661,14 +1661,14 @@ describe("scaffold", () => {
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/yarn 2\+|yarn-berry/);
     expect(result.warnings[0]).toContain("nodeLinker: node-modules");
-    // No `.yarn/cache` / `.yarn/install-state.gz` recommendation —
+    // No `.yarn/cache` / `.yarn/install-state.gz` recommendation;
     // see round-29 trim above.
     expect(result.warnings[0]).not.toContain(".yarn/cache");
     expect(result.warnings[0]).not.toContain(".yarn/install-state.gz");
   });
 
   // Round 31 (Copilot, PR #99): the inspect path's `no-config`
-  // branch was narrower than the patch path's gate — it only
+  // branch was narrower than the patch path's gate: it only
   // consulted the corepack `packageManager` declaration, missing
   // yarn-berry repos that committed `.yarn/releases/yarn-*.cjs`
   // but not yet a `packageManager` field. `.yarn/` is yarn-berry
@@ -1679,7 +1679,7 @@ describe("scaffold", () => {
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
     );
-    // No `.yarnrc.yml`, no `packageManager` declaration — but
+    // No `.yarnrc.yml`, no `packageManager` declaration, but
     // `.yarn/` directory exists (the bootstrap state where the
     // yarn binary was committed under `.yarn/releases/` but the
     // user hasn't yet committed a `.yarnrc.yml` or corepack
@@ -1699,12 +1699,12 @@ describe("scaffold", () => {
   // `nodeLinker:` key, the file's mere existence is yarn-berry
   // evidence (yarn 1 reads `.yarnrc` without the `.yml` suffix),
   // so the caveat must fire even when `package.json#packageManager`
-  // is absent — the round-10 corepack-declaration gate would
+  // is absent: the round-10 corepack-declaration gate would
   // otherwise silence a real hazard. yarn 4 will silently default
   // to PnP here, breaking the runtime just like the patch-path
   // case (which appends `nodeLinker: node-modules`; the inspect
   // branch can't mutate, so it surfaces the caveat instead).
-  it("warns about the yarn-berry caveat when .yarnrc.yml exists without a nodeLinker key — even without a packageManager declaration", async () => {
+  it("warns about the yarn-berry caveat when .yarnrc.yml exists without a nodeLinker key (even without a packageManager declaration)", async () => {
     writeFileSync(
       join(cwd, "package.json"),
       JSON.stringify({ name: "existing", private: true }, null, 2),
@@ -1730,7 +1730,7 @@ describe("scaffold", () => {
   // Round 10 noise-suppression cases: with no `package.json#
   // packageManager` declaration (or one that names a non-yarn-berry
   // pm), the inspect branch must NOT emit the caveat. These mirror
-  // the realistic invocation patterns Copilot called out — `node`/
+  // the realistic invocation patterns Copilot called out: `node`/
   // `tsx` invocation with no UA, npm/pnpm/bun projects that have
   // declared their pm via corepack, and yarn 1 (which ignores
   // `.yarnrc.yml` entirely so the caveat is irrelevant there too).
@@ -1779,7 +1779,7 @@ describe("scaffold", () => {
     },
   );
 
-  // Conflict still wins regardless of the packageManager field —
+  // Conflict still wins regardless of the packageManager field;
   // an existing `.yarnrc.yml` pinned to a non-`node-modules` value
   // is unambiguous evidence the project is using yarn-berry, so
   // the corepack declaration filter shouldn't gate the conflict
@@ -1803,7 +1803,7 @@ describe("scaffold", () => {
 
   // And: an existing `.yarnrc.yml` that's already on
   // `nodeLinker: node-modules` is not a conflict, so no warning
-  // either. Same skip path, same parser as the patch path —
+  // either. Same skip path, same parser as the patch path:
   // covers the indented / quoted / comment forms transitively.
   it("does not warn in the undefined-pm + existing-project flow when the existing .yarnrc.yml already pins node-modules", async () => {
     writeFileSync(
@@ -1826,7 +1826,7 @@ describe("scaffold", () => {
   // through a small normaliser (strip trailing comment, strip a
   // single matched quote pair, trim). The Codex P2 / Copilot
   // reviews on PR #99 flagged that an exact-string equality check
-  // misreads valid YAML forms — `node-modules` quoted, with a
+  // misreads valid YAML forms: `node-modules` quoted, with a
   // trailing comment, with extra whitespace. Lock the normaliser
   // down so those forms are recognised as already-correct.
   it.each([
@@ -1876,7 +1876,7 @@ describe("scaffold", () => {
   // rounds anchored `rootIndent` on the FIRST non-blank,
   // non-comment line, so a perfectly valid `---\n  nodeLinker:
   // node-modules\n` would set rootIndent=0 (from `---`) and then
-  // skip the indented `nodeLinker:` as nested — misclassifying an
+  // skip the indented `nodeLinker:` as nested, misclassifying an
   // already-correct file as needs-setup and (in the patch path)
   // appending a duplicate `nodeLinker:`. The reader now skips
   // those markers.
@@ -1910,7 +1910,7 @@ describe("scaffold", () => {
       const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
       expect(yarnrc?.action).toBe("ok");
       expect(result.warnings).toEqual([]);
-      // No duplicate append — file content is unchanged.
+      // No duplicate append: file content is unchanged.
       expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(content);
     },
   );
@@ -1925,7 +1925,7 @@ describe("scaffold", () => {
   // pre-seeded yarnrc makes the cwd non-empty → patch path bows
   // out with `kept + caveat` instead. The point of this test is
   // to assert the *parser* still treats the nested entry as
-  // "no top-level nodeLinker" — i.e. no spurious conflict warning,
+  // "no top-level nodeLinker": i.e. no spurious conflict warning,
   // and the nested entry is preserved verbatim.
   it("treats a nested nodeLinker key as not-top-level (no conflict warning, file untouched)", async () => {
     const yarnrcContent =
@@ -1939,13 +1939,13 @@ describe("scaffold", () => {
     });
     const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
     expect(yarnrc?.action).toBe("kept");
-    // File is untouched — the original nested entry survives verbatim,
+    // File is untouched: the original nested entry survives verbatim,
     // and we did NOT spuriously add a top-level nodeLinker.
     expect(readFileSync(join(cwd, ".yarnrc.yml"), "utf8")).toBe(yarnrcContent);
     // The single warning is the yarn-berry caveat (no top-level
     // nodeLinker found = `berry-without-linker` route under
     // round 11 + 15). Crucially NOT a `nodeLinker: pnp` conflict
-    // warning — the parser correctly ignored the nested key.
+    // warning: the parser correctly ignored the nested key.
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).not.toMatch(/nodeLinker: pnp/);
     expect(result.warnings[0]).toMatch(/yarn 4\+|yarn-berry/);
@@ -2026,7 +2026,7 @@ describe("scaffold", () => {
   });
 
   it("uses ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC override when set", async () => {
-    // The value is opaque to scaffold — only that it's faithfully
+    // The value is opaque to scaffold; only that it's faithfully
     // round-tripped into package.json matters, so use a relative
     // `file:` spec that is platform-neutral (no Unix-only `/tmp`).
     const overrideSpec = "file:./vendor/arkor-0.0.2-alpha.2.tgz";
@@ -2106,7 +2106,7 @@ describe("scaffold", () => {
   it("creates the target directory when it does not exist yet", async () => {
     // The fresh-scaffold path used by `npm create arkor my-new-app` runs
     // before the directory exists on disk. ensureDirExists's mkdir branch
-    // only fires there — once the directory exists, scaffold reuses it.
+    // only fires there; once the directory exists, scaffold reuses it.
     const parent = mkdtempSync(join(tmpdir(), "scaffold-fresh-"));
     const fresh = join(parent, "brand-new");
     try {
@@ -2251,14 +2251,14 @@ describe("scaffold", () => {
     const after = readFileSync(join(cwd, "AGENTS.md"), "utf8");
     expect(after).toContain("arkor is newer than your training data");
     expect(after).not.toContain("original canonical body");
-    // Exactly one canonical (line-anchored) BEGIN/END pair — the prose
+    // Exactly one canonical (line-anchored) BEGIN/END pair: the prose
     // mention is preserved verbatim but does not count as a canonical
     // marker because it is inside backticks.
     expect(countAnchored(after, AGENTS_BEGIN)).toBe(1);
     expect(countAnchored(after, AGENTS_END)).toBe(1);
     expect(after).toContain("Note: the canonical block is delimited by");
 
-    // Second re-scaffold: must be idempotent — file size and marker
+    // Second re-scaffold: must be idempotent; file size and marker
     // count both stable, no second block appended.
     const second = await scaffold({
       cwd,
@@ -2366,7 +2366,7 @@ describe("scaffold", () => {
       agentsMd: true,
     });
     expect(first.warnings).toEqual([]);
-    // The block was detected and patched in place — file still has
+    // The block was detected and patched in place: file still has
     // exactly one BEGIN / END pair and the BOM survives at byte 0.
     const after = readFileSync(join(cwd, "AGENTS.md"), "utf8");
     expect(after.startsWith(BOM)).toBe(true);
@@ -2390,7 +2390,7 @@ describe("scaffold", () => {
   });
 
   it("refuses to patch when AGENTS.md contains multiple canonical blocks (warns instead) AND skips CLAUDE.md", async () => {
-    // Auto-picking first/last is unsafe — `writeAgentsMd` lets users
+    // Auto-picking first/last is unsafe: `writeAgentsMd` lets users
     // put content on either side of the managed block, so a duplicate
     // could be a real earlier block + a user-pasted example below it
     // (or vice versa). The conservative response is to refuse the
@@ -2412,17 +2412,17 @@ describe("scaffold", () => {
     });
     const agents = result.files.find((f) => f.path === "AGENTS.md");
     expect(agents?.action).toBe("kept");
-    // File must be byte-identical — no auto-patch happened.
+    // File must be byte-identical: no auto-patch happened.
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(original);
 
-    // CLAUDE.md was skipped — action `skipped`, not `kept` (which would
+    // CLAUDE.md was skipped: action `skipped`, not `kept` (which would
     // imply an existing file we left alone). Nothing on disk.
     const claude = result.files.find((f) => f.path === "CLAUDE.md");
     expect(claude?.action).toBe("skipped");
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
 
     // The README must not advertise AGENTS.md / CLAUDE.md as present
-    // when CLAUDE.md was actually skipped — otherwise the fresh README
+    // when CLAUDE.md was actually skipped; otherwise the fresh README
     // documents files that aren't on disk.
     const readme = readFileSync(join(cwd, "README.md"), "utf8");
     expect(readme).not.toContain("CLAUDE.md");
@@ -2441,7 +2441,7 @@ describe("scaffold", () => {
   it("does not overwrite an existing CLAUDE.md even when AGENTS.md is ambiguous (no extra warning)", async () => {
     // Companion to the test above: when CLAUDE.md is already on disk,
     // the existing-file branch of writeClaudeMd ("kept") covers the
-    // user — no `@AGENTS.md` shim is created, so we don't need to add
+    // user: no `@AGENTS.md` shim is created, so we don't need to add
     // a second warning about not creating one.
     const dup = `${AGENTS_BEGIN}\n${AGENTS_SIGNATURE_LINE}\nbody\n${AGENTS_END}`;
     const original = `${dup}\n\n${dup}\n`;
@@ -2511,7 +2511,7 @@ describe("scaffold", () => {
     const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
     // The pre-existing stray CRLF must survive untouched outside the block.
     expect(body).toContain("Line B (stray)\r\n");
-    // The inserted block — checked via its first newline after BEGIN —
+    // The inserted block, checked via its first newline after BEGIN,
     // must be LF, not CRLF.
     expect(body).toContain(`${AGENTS_BEGIN}\n`);
     expect(body).not.toContain(`${AGENTS_BEGIN}\r\n`);
@@ -2576,7 +2576,7 @@ describe("scaffold", () => {
     const body = readFileSync(join(cwd, "AGENTS.md"), "utf8");
 
     // The fenced documentation example survives byte-for-byte at the
-    // top of the file (we only verify the example's distinctive line —
+    // top of the file (we only verify the example's distinctive line;
     // the surrounding fence + markers stay because they are not the
     // trailing line-anchored pair).
     expect(body).toContain(
