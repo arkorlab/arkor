@@ -1,7 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // Mock the yarn-version subprocess helper so unit tests are
 // deterministic regardless of whether the test machine has yarn
@@ -9,18 +17,18 @@ import { join } from "node:path";
 // fallback (round 30, PR #99) would shell out to `yarn --version`
 // in the explicit-`--use-yarn` + no-signal branch, and the test's
 // caveat-fires-or-not outcome would depend on the dev box's yarn
-// version. Default mock returns `undefined` (yarn not detected →
+// version. Default mock returns `undefined` (yarn not detected,
 // caveat doesn't fire); per-test overrides below simulate yarn 1
 // vs yarn 4 for the round-30 regression tests.
 vi.mock("./yarn-version", () => ({
   detectYarnMajor: vi.fn(async () => undefined),
 }));
 
-import { scaffold, templateChoices } from "./scaffold";
 import {
   detectPackageManager,
   resolvePackageManager,
 } from "./package-manager";
+import { scaffold, templateChoices } from "./scaffold";
 import { detectYarnMajor } from "./yarn-version";
 
 let cwd: string;
@@ -1736,7 +1744,7 @@ describe("scaffold", () => {
       pkg: {
         name: "existing",
         private: true,
-        packageManager: "pnpm@10.33.2",
+        packageManager: "pnpm@11.3.0",
       },
     },
     {
@@ -2218,7 +2226,15 @@ describe("scaffold", () => {
     // mentions inside prose / backticks are just text that must be
     // preserved verbatim.
     const countAnchored = (s: string, marker: string): number => {
-      const re = new RegExp(`(?:^|\\n)${marker.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}`, "g");
+      // Standard regex-escape: the character class must include `]`
+      // (escaped) and `\` (escaped as `\\`), and the replacement is a
+      // single backslash + the match. The previous form was missing
+      // `]` from the class and used a doubled backslash in the
+      // replacement, so it never actually escaped anything; the test
+      // happened to pass because the canonical marker strings don't
+      // contain any regex metacharacters.
+      const escaped = marker.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+      const re = new RegExp(String.raw`(?:^|\n)${escaped}`, "g");
       return (s.match(re) ?? []).length;
     };
 
@@ -2671,7 +2687,7 @@ describe("resolvePackageManager", () => {
 describe("templateChoices", () => {
   it("exposes every registered template with a hint", () => {
     const list = templateChoices();
-    expect(list.map((t) => t.value).sort()).toEqual([
+    expect(list.map((t) => t.value).toSorted()).toEqual([
       "redaction",
       "translate",
       "triage",

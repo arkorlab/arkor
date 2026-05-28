@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+
 import type { PackageManager } from "./package-manager";
 
 /**
@@ -425,6 +426,9 @@ export async function install(
           // a context where we want to honour that decision.
           continue;
         }
+        // Dynamic env-var cleanup; the keys come from a filter loop
+        // above, not from untrusted input.
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete env[key];
       }
     }

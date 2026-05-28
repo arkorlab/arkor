@@ -1,12 +1,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 // Imports above are used by helpers + the new "empty cwd" test below.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { CloudApiClient, CloudApiError } from "./client";
-import type { AnonymousCredentials, Auth0Credentials } from "./credentials";
 import { ensureProjectState } from "./projectState";
 import { readState, writeState } from "./state";
+
+import type { AnonymousCredentials, Auth0Credentials } from "./credentials";
 
 let cwd: string;
 

@@ -1,5 +1,6 @@
-import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "./cn";
+
+import type { HTMLAttributes, ReactNode } from "react";
 
 export function Card({
   className,

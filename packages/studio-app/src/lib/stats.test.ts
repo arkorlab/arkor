@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   mean,
   variance,
@@ -90,7 +91,7 @@ describe("stats", () => {
       // non-zero. The actual numbers don't matter; what matters is
       // that df is above the t-table cutoff (30) and we exercise the
       // z=1.96 fallback path.
-      const xs = Array.from({ length: 31 }, () => 1).concat([2]);
+      const xs = [...Array.from({ length: 31 }, () => 1), 2];
       const ci = confidenceInterval95(xs);
       const sd = stddev(xs);
       expect(ci).toBeCloseTo(1.96 * (sd / Math.sqrt(xs.length)), 6);

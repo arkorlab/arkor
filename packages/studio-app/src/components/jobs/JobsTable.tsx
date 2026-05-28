@@ -1,7 +1,8 @@
-import type { Job } from "../../lib/api";
 import { formatDuration, truncateMiddle } from "../../lib/format";
 import { RelativeTime } from "../ui/RelativeTime";
 import { StatusBadge } from "../ui/StatusBadge";
+
+import type { Job } from "../../lib/api";
 
 function jobDurationMs(job: Job): number | null {
   if (!job.startedAt) return null;

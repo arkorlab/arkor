@@ -27,20 +27,35 @@ packages:
 # SCA scanners, and downstream tooling that walks the manifest. Keeping
 # both fields literal sidesteps the entire class of failure modes.
 catalog:
+  "@eslint/js": "^10.0.1"
   "@fontsource-variable/geist": "^5.1.0"
   "@fontsource-variable/geist-mono": "^5.1.0"
   "@playwright/test": "^1.50.0"
+  "@stylistic/eslint-plugin": "^5.10.0"
   "@tailwindcss/vite": "^4.0.0"
   "@testing-library/jest-dom": "6.9.1"
   "@testing-library/react": "16.3.2"
   "@testing-library/user-event": "14.6.1"
+  "@types/eslint-plugin-jsx-a11y": "^6.10.1"
+  "@types/eslint-plugin-promise": "^7.3.0"
   "@types/node": "^24"
   "@types/react": "^19.0.0"
   "@types/react-dom": "^19.0.0"
   "@vitejs/plugin-react": "^4.3.0"
   "@vitest/coverage-v8": "^4.1.5"
+  "@vitest/eslint-plugin": "^1.6.17"
   c8: "^10.1.3"
+  eslint: "^10.4.0"
+  eslint-import-resolver-typescript: "^4.4.4"
+  eslint-plugin-import-x: "^4.16.2"
+  eslint-plugin-jsx-a11y: "^6.10.2"
+  eslint-plugin-n: "^18.0.1"
+  eslint-plugin-promise: "^7.3.0"
+  eslint-plugin-react-hooks: "^7.1.1"
+  eslint-plugin-regexp: "^3.1.0"
+  eslint-plugin-unicorn: "^64.0.0"
   eventsource-parser: "^3.0.0"
+  globals: "^17.6.0"
   jsdom: 29.1.1
   mint: 4.2.577
   oxlint: 1.66.0
@@ -50,6 +65,7 @@ catalog:
   tsdown: "^0.22.0"
   turbo: "^2.9.14"
   typescript: "^5"
+  typescript-eslint: "^8.59.4"
   vite: "^6.0.0"
   vitest: "^4.1.5"
 minimumReleaseAge: 1440
@@ -91,10 +107,22 @@ trustPolicyExclude:
 # stance in one place, and so the setting stays pinned if a future pnpm
 # release walks the default back.
 blockExoticSubdeps: true
+# Transitive deps under `mint` (in `docs/`): each ships a postinstall
+# (keytar's native binding, puppeteer's Chromium download, sharp's
+# libvips binary). `false` is the deny choice: it suppresses pnpm
+# 11's `ERR_PNPM_IGNORED_BUILDS` without granting any of them the
+# right to run install-time code. The docs workflow has been running
+# under pnpm 10's "warn-and-skip" behaviour without these
+# postinstalls; pnpm 11 surfaces the same skip explicitly, and `false`
+# preserves that posture. Flip an entry to `true` only if a concrete
+# docs task starts failing because its native binary isn't there.
 allowBuilds:
   rolldown: true
   unrs-resolver: true
   esbuild: true
+  keytar: false
+  puppeteer: false
+  sharp: false
 # Bump `unrun` past 0.2.x so its transitive `rolldown` resolves to the
 # GA series (^1.0.0) instead of the legacy `1.0.0-rc.17` pin in
 # `unrun@0.2.37`. `unrun` lands in the tree only as an optional peer of

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
+
 import { ARKOR_BIN } from "./bins";
 import { getEphemeralPort } from "./ports";
 
@@ -31,7 +32,7 @@ const PORT_POLL_TIMEOUT_MS = 10_000;
  * failure, while preventing the buffer from growing unboundedly under
  * `STUDIO_E2E_DEBUG` runs (where the child can emit lots of output).
  */
-const STDIO_BUFFER_CAP = 4_096;
+const STDIO_BUFFER_CAP = 4096;
 
 /**
  * Rolling string buffer with a bounded memory footprint. Memory is
@@ -98,9 +99,11 @@ async function waitForPort(port: number): Promise<void> {
       });
     });
     if (ok) return;
-    await new Promise((r) => setTimeout(r, PORT_POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, PORT_POLL_INTERVAL_MS));
   }
-  throw new Error(`Port ${port} did not become ready within ${PORT_POLL_TIMEOUT_MS}ms`);
+  throw new Error(
+    `Port ${String(port)} did not become ready within ${String(PORT_POLL_TIMEOUT_MS)}ms`,
+  );
 }
 
 /**
@@ -128,8 +131,11 @@ function makeKill(child: ChildProcess): () => Promise<void> {
     await new Promise<void>((resolve) => {
       // Pre-declared with `undefined` rather than `null` so
       // `clearTimeout(fallback)` is always type-correct (Node's
-      // `clearTimeout` accepts `undefined` as a no-op) — no null
-      // guard needed in `onClose` below.
+      // `clearTimeout` accepts `undefined` as a no-op); no null
+      // guard needed in `onClose` below. The closure captures
+      // `fallback` before the assignment on line 168, so `const`
+      // wouldn't work here.
+      // eslint-disable-next-line prefer-const
       let fallback: ReturnType<typeof setTimeout> | undefined;
       // Wait on `close`, not `exit`: Node skips `exit` when the
       // process fails to spawn (it emits `error` then `close`) and
@@ -166,7 +172,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
         if (child.exitCode === null && child.signalCode === null) {
           child.kill("SIGKILL");
         }
-      }, 5_000);
+      }, 5000);
       child.kill("SIGINT");
     });
   };
@@ -233,29 +239,29 @@ async function spawnStudio(
   // logs quiet by default — set the env var while iterating on the
   // harness or chasing a flake; turbo.json declares it so toggling
   // busts the task cache.
-  child.stderr?.setEncoding("utf8");
-  child.stdout?.setEncoding("utf8");
-  child.stderr?.on("data", (d: string) => {
+  child.stderr.setEncoding("utf8");
+  child.stdout.setEncoding("utf8");
+  child.stderr.on("data", (d: string) => {
     stderr.append(d);
     if (process.env.STUDIO_E2E_DEBUG) {
-      process.stderr.write(`[arkor dev:err pid=${child.pid}] ${d}`);
+      process.stderr.write(`[arkor dev:err pid=${String(child.pid)}] ${d}`);
     }
   });
-  child.stdout?.on("data", (d: string) => {
+  child.stdout.on("data", (d: string) => {
     stdout.append(d);
     if (process.env.STUDIO_E2E_DEBUG) {
-      process.stderr.write(`[arkor dev:out pid=${child.pid}] ${d}`);
+      process.stderr.write(`[arkor dev:out pid=${String(child.pid)}] ${d}`);
     }
   });
   if (process.env.STUDIO_E2E_DEBUG) {
     child.on("exit", (code, signal) => {
       process.stderr.write(
-        `[arkor dev:exit pid=${child.pid}] code=${code} signal=${signal}\n`,
+        `[arkor dev:exit pid=${String(child.pid)}] code=${String(code)} signal=${String(signal)}\n`,
       );
     });
   }
 
-  const url = `http://127.0.0.1:${port}`;
+  const url = `http://127.0.0.1:${String(port)}`;
 
   // Wait for the ready line on stdout; surface stderr on hang so a
   // failed launch (missing assets, port collision after the eph-port
@@ -272,13 +278,16 @@ async function spawnStudio(
   // both via `tail()` is O(cap), not O(total bytes), so this stays
   // cheap regardless of how chatty the child has been.
   const errorTail = (): string =>
-    `${stderr.tail(1_000)}${stdout.tail(1_000)}`;
+    `${stderr.tail(1000)}${stdout.tail(1000)}`;
   try {
     await new Promise<void>((resolve, reject) => {
       const onData = (chunk: string) => {
         // Test the chunk first (handles the line landing in one read)
         // and fall back to the rolling buffer (handles the rare split
         // where "Arkor Studio" and "running on" arrive in two chunks).
+        // Use the shared regex constant so the substring doesn't drift;
+        // `prefer-includes` would push us back to a hardcoded literal.
+        // eslint-disable-next-line @typescript-eslint/prefer-includes
         if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.toString())) {
           settle(resolve);
         }
@@ -287,7 +296,7 @@ async function spawnStudio(
         settle(() =>
           reject(
             new Error(
-              `arkor dev exited before signalling ready (code=${code}, signal=${signal}).\n--- last output ---\n${errorTail()}`,
+              `arkor dev exited before signalling ready (code=${String(code)}, signal=${String(signal)}).\n--- last output ---\n${errorTail()}`,
             ),
           ),
         );
@@ -312,7 +321,7 @@ async function spawnStudio(
         settle(() =>
           reject(
             new Error(
-              `Timed out waiting for "${READY_LINE_PATTERN}" on stdout from arkor dev.\n--- last output ---\n${errorTail()}`,
+              `Timed out waiting for "${READY_LINE_PATTERN.source}" on stdout from arkor dev.\n--- last output ---\n${errorTail()}`,
             ),
           ),
         );
@@ -322,12 +331,12 @@ async function spawnStudio(
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        child.stdout?.off("data", onData);
+        child.stdout.off("data", onData);
         child.off("exit", onExit);
         child.off("error", onError);
         action();
       }
-      child.stdout?.on("data", onData);
+      child.stdout.on("data", onData);
       child.on("exit", onExit);
       child.on("error", onError);
       // The buffering `child.stdout.on("data", …)` listener attached
@@ -339,6 +348,8 @@ async function spawnStudio(
       // `onData` would never fire and we'd hang until
       // `READY_TIMEOUT_MS`. Probe the rolling buffer once after
       // attaching listeners to catch that pre-buffered line.
+      // Same shared-constant rationale as the `onData` callback above.
+      // eslint-disable-next-line @typescript-eslint/prefer-includes
       if (READY_LINE_PATTERN.test(stdout.toString())) {
         settle(resolve);
       }
@@ -362,18 +373,16 @@ async function spawnStudio(
 async function readMetaToken(url: string): Promise<string> {
   const res = await fetch(`${url}/`);
   if (!res.ok) {
-    throw new Error(`Studio root returned ${res.status} ${res.statusText}`);
+    throw new Error(`Studio root returned ${String(res.status)} ${res.statusText}`);
   }
   const html = await res.text();
-  const match = html.match(
-    /<meta\s+name=["']arkor-studio-token["']\s+content=["']([^"']+)["']/,
-  );
+  const match = /<meta\s+name=["']arkor-studio-token["']\s+content=["']([^"']+)["']/.exec(html);
   if (!match) {
     throw new Error(
       `Could not find <meta name="arkor-studio-token"> in served HTML`,
     );
   }
-  return match[1]!;
+  return match[1];
 }
 
 export async function startStudio(

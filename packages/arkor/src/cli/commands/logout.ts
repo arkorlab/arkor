@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
+
 import { credentialsPath } from "../../core/credentials";
 import { promptConfirm, ui } from "../prompts";
 

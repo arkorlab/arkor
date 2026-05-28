@@ -1,5 +1,6 @@
-import type { Credentials } from "../../lib/api";
 import { cn } from "../ui/cn";
+
+import type { Credentials } from "../../lib/api";
 
 const PRODUCTION_CLOUD_API_URL = "https://api.arkor.ai";
 

@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+
 import { runTrainer } from "../../core/runner";
+
 import { runBuild } from "./build";
 
 export interface StartOptions {

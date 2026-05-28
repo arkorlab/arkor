@@ -1,5 +1,6 @@
-import type { Route } from "../../route";
 import { cn } from "../ui/cn";
+
+import type { Route } from "../../route";
 
 interface NavTab {
   label: string;

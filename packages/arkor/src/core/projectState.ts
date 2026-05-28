@@ -1,6 +1,7 @@
-import { CloudApiClient, CloudApiError } from "./client";
-import type { Credentials } from "./credentials";
+import { type CloudApiClient, CloudApiError } from "./client";
 import { readState, writeState } from "./state";
+
+import type { Credentials } from "./credentials";
 import type { ArkorProjectState } from "./types";
 
 export interface EnsureProjectStateOptions {
@@ -63,13 +64,18 @@ export async function ensureProjectState(
   }
   const orgSlug = credentials.orgSlug;
 
-  const baseName = cwd.split(/[/\\]/).filter(Boolean).pop() ?? "project";
-  const projectSlug =
-    baseName
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "project";
+  const baseName = cwd.split(/[/\\]/).findLast(Boolean) ?? "project";
+  const dashy = baseName.toLowerCase().replaceAll(/[^a-z0-9-]/g, "-");
+  // Hand-rolled dash-trim instead of `/^-+|-+$/g` (alternation with
+  // two greedy `-+` branches is the CodeQL polynomial-ReDoS shape) or
+  // even `/^-+/` + `/-+$/` (CodeQL still flags anchored greedy
+  // repetition on uncontrolled input). Linear scan from each end is
+  // unambiguously O(n).
+  let start = 0;
+  while (start < dashy.length && dashy[start] === "-") start++;
+  let end = dashy.length;
+  while (end > start && dashy[end - 1] === "-") end--;
+  const projectSlug = dashy.slice(start, end).slice(0, 40) || "project";
 
   let project: { id: string; slug: string };
   try {

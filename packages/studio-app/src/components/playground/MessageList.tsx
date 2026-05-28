@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+
 import { Sparkles } from "../icons";
 import { cn } from "../ui/cn";
 

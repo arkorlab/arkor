@@ -35,8 +35,8 @@ export function sanitise(name: string): string {
   return (
     name
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
+      .replaceAll(/[^a-z0-9]+/g, "-")
       .slice(0, 60)
-      .replace(/^-|-$/g, "") || "arkor-project"
+      .replaceAll(/^-|-$/g, "") || "arkor-project"
   );
 }

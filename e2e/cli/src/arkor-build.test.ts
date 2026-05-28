@@ -1,6 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { ARKOR_BIN } from "./bins";
 import { cleanup, makeTempDir, runCli } from "./spawn-cli";
 

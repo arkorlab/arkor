@@ -52,17 +52,23 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-      - uses: actions/setup-node@v6
+      # No pnpm tooling on preflight. This job only validates the tag,
+      # reconciles versions via `node -p`, and probes npm, so
+      # `pnpm/action-setup` (and any `cache: pnpm` question that comes
+      # with it) is dead weight here. Keeping the release-path trust
+      # surface minimal. If a future preflight step needs pnpm, add
+      # the setup step alongside it and consciously decide on the
+      # cache stance at that point; the test/build jobs below are the
+      # reference for the no-restored-cache rule the rest of the
+      # chain follows.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: pnpm
 
       - name: Resolve release metadata
         id: meta
@@ -150,16 +156,24 @@ jobs:
     needs: preflight
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
-      - uses: actions/setup-node@v6
+      # No `cache: pnpm`. Same reasoning as the no-Playwright-cache step
+      # further down: a pnpm store restored from a prior run's cache
+      # is an unauthenticated input. This test job is the gate that
+      # decides whether build.yaml runs at all (build.yaml does its
+      # own clean install on a separate runner, so no on-disk state
+      # is shared with it directly), so a poisoned cache here is
+      # dangerous because it can produce a misleading-green test
+      # signal that lets a bad release through. The marginal
+      # install-time savings are not worth that.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-          cache: pnpm
 
       - name: Install
         # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
@@ -168,8 +182,11 @@ jobs:
         # invoke Playwright's browser-download script today. Setting
         # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` keeps that contract
         # explicit so a future `allowBuilds` change can't silently
-        # re-enable a 150 MB postinstall download that the following
-        # cache + `playwright install` steps are meant to satisfy.
+        # re-enable a 150 MB postinstall download that would duplicate
+        # (and obscure) the explicit `playwright install` step below.
+        # That explicit step is the only place we want browser
+        # installation to happen, and the release path runs it
+        # without restoring from a Playwright cache.
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
@@ -270,7 +287,7 @@ jobs:
           done
 
       - name: Download release tarballs
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: npm-tarballs
           path: ${{ runner.temp }}/npm-pack

@@ -31,7 +31,7 @@ arkor/
 
 ## 開発セットアップ
 
-**Node.js 24 (できれば最新版)** と **pnpm 10.21+** を使用してください。
+**Node.js 24 (できれば最新版)** と **pnpm 11.0+** を使用してください。
 
 ```bash
 git clone https://github.com/arkorlab/arkor.git
@@ -40,7 +40,7 @@ pnpm install
 pnpm build         # turbo run build (全パッケージをカバー)
 pnpm test          # モノレポ全体のユニットテスト
 pnpm typecheck     # モノレポ全体の tsc
-pnpm lint          # モノレポ全体の oxlint (--deny-warnings)
+pnpm lint          # oxlint --deny-warnings の後、型情報ベースの strict ESLint 10 をモノレポ全体に
 ```
 
 特定のパッケージで作業するには:

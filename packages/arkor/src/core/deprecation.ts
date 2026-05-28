@@ -1,6 +1,6 @@
 import type { DeprecationNotice } from "@arkor/cloud-api-client";
 
-export type { DeprecationNotice };
+
 
 let latest: DeprecationNotice | null = null;
 
@@ -39,3 +39,5 @@ export function tapDeprecation(res: Response, sdkVersion: string): void {
     sunset: res.headers.get("Sunset"),
   });
 }
+
+export type { DeprecationNotice } from "@arkor/cloud-api-client";

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import {
   detectPackageManagerFrom,
   detectedUpgradeCommand,
@@ -52,7 +53,7 @@ describe("detectPackageManagerFrom (path fallback)", () => {
     expect(
       detectPackageManagerFrom({
         execPath:
-          "C:\\Users\\u\\AppData\\Local\\pnpm\\global\\5\\node_modules\\arkor\\dist\\bin.mjs",
+          String.raw`C:\Users\u\AppData\Local\pnpm\global\5\node_modules\arkor\dist\bin.mjs`,
       }),
     ).toBe("pnpm");
   });
@@ -96,6 +97,9 @@ describe("detectedUpgradeCommand", () => {
     // literal value `undefined` and break later callers that assume
     // `process.argv` is `string[]`. Splice the index out instead when
     // the original was missing.
+    // TS types `process.argv[1]` as `string` (no `noUncheckedIndexedAccess`),
+    // but in some launch contexts it really can be missing.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (ORIG_ARGV1 === undefined) process.argv.splice(1, 1);
     else process.argv[1] = ORIG_ARGV1;
   });
@@ -129,6 +133,9 @@ describe("formatSdkUpgradeError", () => {
     // literal value `undefined` and break later callers that assume
     // `process.argv` is `string[]`. Splice the index out instead when
     // the original was missing.
+    // TS types `process.argv[1]` as `string` (no `noUncheckedIndexedAccess`),
+    // but in some launch contexts it really can be missing.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (ORIG_ARGV1 === undefined) process.argv.splice(1, 1);
     else process.argv[1] = ORIG_ARGV1;
   });

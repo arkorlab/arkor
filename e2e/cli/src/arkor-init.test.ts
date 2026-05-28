@@ -1,7 +1,9 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
 import { ARKOR_BIN } from "./bins";
 import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
 import { cleanup, makeTempDir, runCli, runGit } from "./spawn-cli";
@@ -544,7 +546,7 @@ describe("arkor init (E2E)", () => {
             !existsSync(join(projectDir, "node_modules")) ||
             !expectedGit
           ) {
-            // eslint-disable-next-line no-console
+
             console.error(
               `[install-matrix:${label}] arkor init missing expected artefact:\n` +
                 `  exit: ${result.code}\n` +

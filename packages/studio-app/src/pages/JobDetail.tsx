@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
-import { fetchJobs, openJobEvents, type Job } from "../lib/api";
+
 import { ArrowLeft, Sparkles } from "../components/icons";
 import {
   EventsStream,
   type EventEntry,
 } from "../components/jobs/EventsStream";
-import { LossChart, type LossPoint } from "../components/jobs/LossChart";
 import {
   JobMetaSidebar,
   type JobMetaItem,
 } from "../components/jobs/JobMetaSidebar";
+import { LossChart, type LossPoint } from "../components/jobs/LossChart";
 import { Breadcrumb } from "../components/ui/Breadcrumb";
 import { Button } from "../components/ui/Button";
 import {
@@ -20,6 +20,7 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { StatusBadge } from "../components/ui/StatusBadge";
+import { fetchJobs, openJobEvents, type Job } from "../lib/api";
 import { formatDuration, truncateMiddle } from "../lib/format";
 
 const MAX_LOSS_POINTS = 2000;
@@ -60,10 +61,10 @@ export function JobDetail({ jobId }: { jobId: string }) {
       } catch {
         // ignore — events stream is the source of truth for live status
       } finally {
-        if (!cancelled) timer = setTimeout(tick, 5000);
+        if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
-    tick();
+    void tick();
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
@@ -104,7 +105,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
       let message = data;
       if (parsed && typeof parsed === "object") {
         const p = parsed as Record<string, unknown>;
-        if (event === "training.log") {
+        switch (event) {
+        case "training.log": {
           // Omit each `key=…` segment when the corresponding field is
           // missing/non-numeric so eval-only frames render cleanly as
           // `step=<n> evalLoss=…` instead of being padded with a noisy
@@ -126,14 +128,27 @@ export function JobDetail({ jobId }: { jobId: string }) {
             typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss)
               ? ` evalLoss=${p.evalLoss.toFixed(4)}`
               : "";
-          message = `step=${p.step ?? "—"}${lossPart}${evalPart}`;
-        } else if (event === "training.failed") {
-          message = String(p.error ?? "failed");
-        } else if (event === "training.completed") {
+          message = `step=${typeof p.step === "number" ? p.step : "—"}${lossPart}${evalPart}`;
+
+        break;
+        }
+        case "training.failed": {
+          message = typeof p.error === "string" ? p.error : "failed";
+
+        break;
+        }
+        case "training.completed": {
           const n = Array.isArray(p.artifacts) ? p.artifacts.length : 0;
           message = `${n} artifact${n === 1 ? "" : "s"}`;
-        } else if (event === "checkpoint.saved") {
-          message = `step=${p.step ?? "—"}`;
+
+        break;
+        }
+        case "checkpoint.saved": {
+          message = `step=${typeof p.step === "number" ? p.step : "—"}`;
+
+        break;
+        }
+        // No default
         }
       }
       setEvents((prev) => [
@@ -146,7 +161,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
     }
 
     const es = openJobEvents(jobId);
-    es.addEventListener("training.started", (ev: MessageEvent) => {
+    es.addEventListener("training.started", (ev: MessageEvent<string>) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.started", ev.data, parsed);
       // SSE is the source of truth for live status. Drive `liveStatus`
@@ -156,10 +171,11 @@ export function JobDetail({ jobId }: { jobId: string }) {
       setLiveStatus("running");
       if (parsed && typeof parsed === "object") {
         const d = parsed as { timestamp?: string };
-        if (d.timestamp) setLiveStartedAt((prev) => prev ?? d.timestamp!);
+        const ts = d.timestamp;
+        if (ts) setLiveStartedAt((prev) => prev ?? ts);
       }
     });
-    es.addEventListener("training.log", (ev: MessageEvent) => {
+    es.addEventListener("training.log", (ev: MessageEvent<string>) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.log", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
@@ -215,10 +231,10 @@ export function JobDetail({ jobId }: { jobId: string }) {
         });
       }
     });
-    es.addEventListener("checkpoint.saved", (ev: MessageEvent) => {
+    es.addEventListener("checkpoint.saved", (ev: MessageEvent<string>) => {
       pushEvent("checkpoint.saved", ev.data, safeParse(ev.data));
     });
-    es.addEventListener("training.completed", (ev: MessageEvent) => {
+    es.addEventListener("training.completed", (ev: MessageEvent<string>) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.completed", ev.data, parsed);
       // SSE payload carries the trainer-side completion timestamp; use
@@ -235,7 +251,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
         setTerminal({ status: "completed", artifacts: 0 });
       }
     });
-    es.addEventListener("training.failed", (ev: MessageEvent) => {
+    es.addEventListener("training.failed", (ev: MessageEvent<string>) => {
       const parsed = safeParse(ev.data);
       pushEvent("training.failed", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
@@ -251,7 +267,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("end", () => es.close());
-    es.onerror = () => setEventErr("Event stream interrupted.");
+    es.addEventListener("error", () => setEventErr("Event stream interrupted."));
     return () => es.close();
   }, [jobId]);
 
@@ -272,7 +288,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
     job?.status === "cancelled";
   const status: Job["status"] =
     terminal?.status ??
-    (polledIsTerminal ? job!.status : (liveStatus ?? job?.status ?? "queued"));
+    (polledIsTerminal
+      ? job.status
+      : (liveStatus ?? job?.status ?? "queued"));
 
   // Live duration ticker while the job is running.
   const isRunning = status === "running" && !terminal;

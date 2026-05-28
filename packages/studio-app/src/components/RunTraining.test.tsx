@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { RunTraining } from "./RunTraining";
+import { describe, it, expect, afterEach, vi } from "vitest";
+
 import { jsonResponse, textStreamResponse } from "../test-utils/responses";
+
+import { RunTraining } from "./RunTraining";
+
 
 const ORIG_FETCH = globalThis.fetch;
 
@@ -28,8 +31,8 @@ describe("<RunTraining />", () => {
   it("surfaces a manifest error inline", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === "/api/manifest")
-        return new Response(
-          JSON.stringify({ error: "src/arkor/index.ts not found" }),
+        return Response.json(
+          { error: "src/arkor/index.ts not found" },
           { status: 400, headers: { "content-type": "application/json" } },
         );
       throw new Error(`Unexpected fetch: ${String(input)}`);

@@ -14,7 +14,8 @@ packages/arkor/docs/
 # Turbo
 .turbo/
 
-# Vitest coverage reports (uploaded to Codecov in CI)
+# Vitest coverage reports (lcov.info → Codecov; cobertura-coverage.xml →
+# GitHub native code coverage; junit.xml → Codecov Test Analytics).
 coverage/
 
 # Playwright run artefacts (HTML reports, traces, videos, screenshots,

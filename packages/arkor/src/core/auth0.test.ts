@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   buildAuthorizeUrl,
   credentialsFromExchange,
@@ -11,9 +12,9 @@ import {
 describe("generatePkce", () => {
   it("produces URL-safe base64 values", () => {
     const pkce = generatePkce();
-    expect(pkce.verifier).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(pkce.challenge).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(pkce.state).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(pkce.verifier).toMatch(/^[\w-]+$/);
+    expect(pkce.challenge).toMatch(/^[\w-]+$/);
+    expect(pkce.state).toMatch(/^[\w-]+$/);
     expect(pkce.verifier.length).toBeGreaterThanOrEqual(43);
     expect(pkce.challenge.length).toBe(43);
   });
@@ -144,10 +145,10 @@ describe("fetchCliConfig", () => {
       auth0Domain: "tenant.auth0.com",
       clientId: "abc",
       audience: "https://api.arkor.ai",
-      callbackPorts: [52521, 52522],
+      callbackPorts: [52_521, 52_522],
     };
     const fetchImpl = (async () =>
-      new Response(JSON.stringify(payload), {
+      Response.json(payload, {
         status: 200,
         headers: { "content-type": "application/json" },
       })) as typeof fetch;
@@ -167,13 +168,13 @@ describe("fetchCliConfig", () => {
     let captured = "";
     const fetchImpl = (async (input: RequestInfo | URL) => {
       captured = String(input);
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           auth0Domain: null,
           clientId: null,
           audience: null,
           callbackPorts: [],
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -193,13 +194,13 @@ describe("exchangeCode", () => {
         url: String(input),
         body: typeof init?.body === "string" ? init.body : "",
       };
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           access_token: "at-token",
           refresh_token: "rt-token",
           id_token: "id-token",
           expires_in: 7200,
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -252,11 +253,11 @@ describe("exchangeCode", () => {
     // setup mistake — surface the actionable hint loudly rather than
     // limping along with no refresh capability.
     const fetchImpl = (async () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           access_token: "at",
           expires_in: 3600,
-        }),
+        },
         { status: 200 },
       )) as typeof fetch;
     await expect(
@@ -285,7 +286,7 @@ describe("startLoopbackServer", () => {
     const callback = result.waitForCallback;
     try {
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?code=auth-code&state=state-val`,
+        `http://127.0.0.1:${String(result.port)}/callback?code=auth-code&state=state-val`,
       );
       expect(res.status).toBe(200);
       expect(await callback).toEqual({ code: "auth-code", state: "state-val" });
@@ -302,7 +303,7 @@ describe("startLoopbackServer", () => {
     const callback = result.waitForCallback.catch((e: unknown) => e);
     try {
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?error=access_denied&error_description=user%20cancelled`,
+        `http://127.0.0.1:${String(result.port)}/callback?error=access_denied&error_description=user%20cancelled`,
       );
       expect(res.status).toBe(400);
       const err = await callback;
@@ -321,7 +322,7 @@ describe("startLoopbackServer", () => {
     const callback = result.waitForCallback.catch((e: unknown) => e);
     try {
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?error=server_error`,
+        `http://127.0.0.1:${String(result.port)}/callback?error=server_error`,
       );
       expect(res.status).toBe(400);
       const body = await res.text();
@@ -348,7 +349,7 @@ describe("startLoopbackServer", () => {
     try {
       const payload = "<script>alert(1)</script>";
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?error=server_error&error_description=${encodeURIComponent(payload)}`,
+        `http://127.0.0.1:${String(result.port)}/callback?error=server_error&error_description=${encodeURIComponent(payload)}`,
       );
       expect(res.status).toBe(400);
       expect(res.headers.get("content-type")).toMatch(
@@ -370,7 +371,7 @@ describe("startLoopbackServer", () => {
     const callback = result.waitForCallback.catch((e: unknown) => e);
     try {
       const res = await fetch(
-        `http://127.0.0.1:${result.port}/callback?code=only`,
+        `http://127.0.0.1:${String(result.port)}/callback?code=only`,
       );
       expect(res.status).toBe(400);
       const err = await callback;
@@ -386,7 +387,7 @@ describe("startLoopbackServer", () => {
     // turn into a stray unhandled rejection on test shutdown.
     result.waitForCallback.catch(() => undefined);
     try {
-      const res = await fetch(`http://127.0.0.1:${result.port}/`);
+      const res = await fetch(`http://127.0.0.1:${String(result.port)}/`);
       expect(res.status).toBe(404);
 
       // The callback promise is still pending — `waitForCallback` only
@@ -394,7 +395,7 @@ describe("startLoopbackServer", () => {
       const sentinel = Symbol("pending");
       const winner = await Promise.race([
         result.waitForCallback,
-        new Promise((r) => setTimeout(() => r(sentinel), 30)),
+        new Promise((resolve) => setTimeout(() => resolve(sentinel), 30)),
       ]);
       expect(winner).toBe(sentinel);
     } finally {
@@ -432,7 +433,7 @@ describe("startLoopbackServer", () => {
     try {
       await expect(startLoopbackServer([busy.port])).rejects.toThrow(
         new RegExp(
-          `Unable to bind any of the loopback ports ${busy.port}`,
+          `Unable to bind any of the loopback ports ${String(busy.port)}`,
         ),
       );
     } finally {

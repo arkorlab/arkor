@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   existsSync,
   mkdtempSync,
@@ -10,14 +9,18 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { buildStudioApp } from "./server";
-import type { HmrCoordinator, HmrEvent } from "./hmr";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { writeCredentials } from "../core/credentials";
-import { readState, writeState } from "../core/state";
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
 } from "../core/deprecation";
+import { readState, writeState } from "../core/state";
+
+import { buildStudioApp } from "./server";
+import type { HmrCoordinator, HmrEvent } from "./hmr";
 
 const ANON_CREDS = {
   mode: "anon" as const,
@@ -487,8 +490,8 @@ describe("Studio server", () => {
       const fakeBin = join(trainCwd, "fake-bin.mjs");
       writeFileSync(
         fakeBin,
-        `#!/usr/bin/env node
-process.stdout.write("[fake-bin] argv=" + JSON.stringify(process.argv.slice(2)) + "\\n");
+        String.raw`#!/usr/bin/env node
+process.stdout.write("[fake-bin] argv=" + JSON.stringify(process.argv.slice(2)) + "\n");
 process.exit(0);
 `,
       );
@@ -564,7 +567,7 @@ process.exit(0);
       // macOS / certain Linux temp setups rewrites prefixes (e.g.
       // `/tmp/...` → `/private/tmp/...`); building the expected string
       // with `resolve()` here would mismatch on those hosts.
-      const argvMatch = text.match(/argv=(\[[^\]]+\])/);
+      const argvMatch = /argv=(\[[^\]]+\])/.exec(text);
       expect(argvMatch).not.toBeNull();
       const argv = JSON.parse(argvMatch![1] as string) as string[];
       expect(argv[0]).toBe("start");
@@ -1472,13 +1475,13 @@ process.exit(0);
         const url = String(input);
         if (url.endsWith("/v1/auth/anonymous")) {
           calls++;
-          return new Response(
-            JSON.stringify({
+          return Response.json(
+            {
               token: "lazy-anon",
               anonymousId: "lazy-aid",
               kind: "cli",
               personalOrg: { id: "o", slug: "lazy-aid", name: "Anon" },
-            }),
+            },
             { status: 200 },
           );
         }
@@ -1566,7 +1569,7 @@ process.exit(0);
         for (const [key, value] of headers) {
           capturedHeaders[key.toLowerCase()] = value;
         }
-        return new Response(JSON.stringify({ user: { id: "u1" } }), {
+        return Response.json({ user: { id: "u1" } }, {
           status: 200,
           headers: {
             "content-type": "application/json",
@@ -1656,7 +1659,7 @@ process.exit(0);
           method: init?.method ?? req?.method ?? "GET",
           headers: lowerHeaders,
         };
-        return new Response(JSON.stringify({ jobs: [] }), {
+        return Response.json({ jobs: [] }, {
           status: 200,
           headers: {
             "content-type": "application/json",
@@ -1717,7 +1720,7 @@ process.exit(0);
       let upstreamUrl = "";
       globalThis.fetch = (async (input: RequestInfo | URL) => {
         upstreamUrl = input instanceof Request ? input.url : input.toString();
-        return new Response(JSON.stringify({ jobs: [] }), {
+        return Response.json({ jobs: [] }, {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -2266,12 +2269,12 @@ process.exit(0);
       // No state.json: server should derive a slug from cwd, create the
       // project on cloud-api, persist state, and forward the inference call.
 
-      const calls: Array<{
+      const calls: {
         url: string;
         method: string;
         body?: string;
         headers: Record<string, string>;
-      }> = [];
+      }[] = [];
       globalThis.fetch = (async (
         input: RequestInfo | URL,
         init?: RequestInit,
@@ -2287,15 +2290,15 @@ process.exit(0);
         }
         calls.push({ url, method, body, headers });
         if (url.includes("/v1/projects") && method === "POST") {
-          return new Response(
-            JSON.stringify({
+          return Response.json(
+            {
               project: {
                 id: "p-bootstrap",
                 slug: "auto-slug",
                 name: "auto",
                 orgId: "anon-org-id",
               },
-            }),
+            },
             { status: 201, headers: { "content-type": "application/json" } },
           );
         }
@@ -2360,7 +2363,7 @@ process.exit(0);
         trainCwd,
       );
 
-      const calls: Array<{ url: string; method: string }> = [];
+      const calls: { url: string; method: string }[] = [];
       globalThis.fetch = (async (
         input: RequestInfo | URL,
         init?: RequestInit,
@@ -2463,7 +2466,7 @@ process.exit(0);
         const url = typeof input === "string" ? input : input.toString();
         const method = init?.method ?? "GET";
         if (url.includes("/v1/projects") && method === "POST") {
-          return new Response(JSON.stringify({ error: "upstream is down" }), {
+          return Response.json({ error: "upstream is down" }, {
             status: 503,
             headers: { "content-type": "application/json" },
           });
@@ -2987,8 +2990,8 @@ process.exit(0);
       let upstreamUrl: string | null = null;
       globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
         upstreamUrl = String(input);
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             deployments: [
               {
                 id: "d1",
@@ -3004,7 +3007,7 @@ process.exit(0);
                 updatedAt: "2026-05-05T00:00:00Z",
               },
             ],
-          }),
+          },
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as typeof fetch;
@@ -3030,8 +3033,8 @@ process.exit(0);
         trainCwd,
       );
       globalThis.fetch = (async () =>
-        new Response(
-          JSON.stringify({ error: "Deployment slug is already taken" }),
+        Response.json(
+          { error: "Deployment slug is already taken" },
           { status: 409, headers: { "content-type": "application/json" } },
         )) as typeof fetch;
       const app = build();
@@ -3067,7 +3070,7 @@ process.exit(0);
         trainCwd,
       );
       globalThis.fetch = (async () =>
-        new Response(JSON.stringify({ deployments: [] }), {
+        Response.json({ deployments: [] }, {
           status: 200,
           headers: {
             "content-type": "application/json",
@@ -3076,7 +3079,7 @@ process.exit(0);
             // and a newline. Cloud-api would normally escape these
             // before sending, but the Studio proxy can't trust that —
             // it has to defensively sanitise on its own emit too.
-            Warning: '299 - "she said \\"hi\\" \\\\ then left"',
+            Warning: String.raw`299 - "she said \"hi\" \\ then left"`,
           },
         })) as typeof fetch;
       const app = build();
@@ -3113,7 +3116,7 @@ process.exit(0);
         trainCwd,
       );
       globalThis.fetch = (async () =>
-        new Response(JSON.stringify({ deployments: [] }), {
+        Response.json({ deployments: [] }, {
           status: 200,
           headers: {
             "content-type": "application/json",
@@ -3156,8 +3159,8 @@ process.exit(0);
         trainCwd,
       );
       globalThis.fetch = (async () =>
-        new Response(
-          JSON.stringify({ error: "Deployment slug is already taken" }),
+        Response.json(
+          { error: "Deployment slug is already taken" },
           {
             status: 409,
             headers: {
@@ -3216,8 +3219,8 @@ process.exit(0);
         const url = String(input);
         upstreamCalls.push({ url, method: init?.method });
         if (url.includes("/v1/projects") && init?.method === "POST") {
-          return new Response(
-            JSON.stringify({
+          return Response.json(
+            {
               project: {
                 id: "p-id",
                 slug: "anon-cwd",
@@ -3226,13 +3229,13 @@ process.exit(0);
                 createdAt: "2026-05-04T00:00:00Z",
                 updatedAt: "2026-05-04T00:00:00Z",
               },
-            }),
+            },
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
         if (url.includes("/v1/endpoints") && init?.method === "POST") {
-          return new Response(
-            JSON.stringify({ deployment: deploymentResponse("first") }),
+          return Response.json(
+            { deployment: deploymentResponse("first") },
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
@@ -3283,7 +3286,8 @@ process.exit(0);
         body: "{not json",
       });
       expect(malformedRes.status).toBe(400);
-      expect((await malformedRes.json()).error).toBe("Invalid JSON body");
+      const malformedBody = await malformedRes.json();
+      expect(malformedBody.error).toBe("Invalid JSON body");
 
       // 2-4. Valid JSON, valid-but-falsy → schema rejects with the
       // structured `Invalid deployment create body` envelope, NOT
@@ -3331,7 +3335,8 @@ process.exit(0);
           body,
         });
         expect(patchRes.status).toBe(400);
-        expect((await patchRes.json()).error).toMatch(/must be a JSON object/);
+        const patchBody = await patchRes.json();
+        expect(patchBody.error).toMatch(/must be a JSON object/);
 
         const keyRes = await app.request("/api/deployments/dep-1/keys", {
           method: "POST",
@@ -3342,7 +3347,8 @@ process.exit(0);
         // Key-create runs the schema validator, so the message
         // mentions the missing `label` rather than the generic "must
         // be a JSON object" copy used for PATCH.
-        expect((await keyRes.json()).error).toMatch(/`label`/);
+        const keyBody = await keyRes.json();
+        expect(keyBody.error).toMatch(/`label`/);
       }
       expect(upstreamCalls).toBe(0);
     });
@@ -3379,7 +3385,8 @@ process.exit(0);
           body: JSON.stringify(body),
         });
         expect(res.status).toBe(400);
-        expect((await res.json()).error).toMatch(/`label`/);
+        const errBody = await res.json();
+        expect(errBody.error).toMatch(/`label`/);
       }
       expect(upstreamCalls).toBe(0);
     });
@@ -3418,7 +3425,8 @@ process.exit(0);
         body: "{not json",
       });
       expect(malformedPatch.status).toBe(400);
-      expect((await malformedPatch.json()).error).toBe("Invalid JSON body");
+      const malformedPatchBody = await malformedPatch.json();
+      expect(malformedPatchBody.error).toBe("Invalid JSON body");
     });
 
     it("rejects malformed POST bodies BEFORE bootstrapping scope (no orphan project)", async () => {
@@ -3609,8 +3617,8 @@ process.exit(0);
       let upstreamUrl: string | null = null;
       globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
         upstreamUrl = String(input);
-        return new Response(
-          JSON.stringify({ deployment: deploymentResponse("alpha") }),
+        return Response.json(
+          { deployment: deploymentResponse("alpha") },
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as typeof fetch;
@@ -3633,10 +3641,10 @@ process.exit(0);
       ) => {
         upstreamMethod = init?.method;
         upstreamBody = init?.body as string | undefined;
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             deployment: { ...deploymentResponse(), enabled: false },
-          }),
+          },
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as typeof fetch;
@@ -3648,7 +3656,7 @@ process.exit(0);
       });
       expect(res.status).toBe(200);
       expect(upstreamMethod).toBe("PATCH");
-      expect(JSON.parse(upstreamBody as string)).toEqual({ enabled: false });
+      expect(JSON.parse(upstreamBody!)).toEqual({ enabled: false });
     });
 
     it("PATCH /api/deployments/:id rejects malformed JSON with 400 (no upstream call)", async () => {
@@ -3696,8 +3704,8 @@ process.exit(0);
       let upstreamUrl: string | null = null;
       globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
         upstreamUrl = String(input);
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             keys: [
               {
                 id: "k1",
@@ -3708,7 +3716,7 @@ process.exit(0);
                 lastUsedAt: null,
               },
             ],
-          }),
+          },
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as typeof fetch;
@@ -3723,8 +3731,8 @@ process.exit(0);
     it("POST /api/deployments/:id/keys preserves the plaintext envelope", async () => {
       await arrangeProjectState();
       globalThis.fetch = (async () =>
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             key: {
               id: "k1",
               label: "production",
@@ -3732,7 +3740,7 @@ process.exit(0);
               prefix: "ark_live_T",
               createdAt: "2026-05-04T00:00:00Z",
             },
-          }),
+          },
           { status: 201, headers: { "content-type": "application/json" } },
         )) as typeof fetch;
       const app = build();

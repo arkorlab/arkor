@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import {
   createDeployment,
   createDeploymentKey,
   deleteDeployment,
-  DeploymentApiError,
+  type DeploymentApiError,
   extractInferenceDelta,
   fetchCredentials,
   fetchDeployment,
@@ -198,14 +199,14 @@ describe("apiFetch JSON helpers", () => {
     const seenUrls: string[] = [];
     globalThis.fetch = vi.fn(async (input) => {
       seenUrls.push(String(input));
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           token: "studio-tok",
           mode: "anon",
           baseUrl: "http://mock-cloud-api",
           orgSlug: "anon-abc",
           projectSlug: null,
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -224,11 +225,11 @@ describe("apiFetch JSON helpers", () => {
   it("fetchMe returns the parsed user + orgs envelope", async () => {
     globalThis.fetch = vi.fn(
       async () =>
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             user: { id: "u1" },
             orgs: [{ slug: "a" }, { slug: "b" }],
-          }),
+          },
           { status: 200 },
         ),
     ) as typeof fetch;
@@ -241,8 +242,8 @@ describe("apiFetch JSON helpers", () => {
   it("fetchJobs returns the parsed jobs list", async () => {
     globalThis.fetch = vi.fn(
       async () =>
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             jobs: [
               {
                 id: "j1",
@@ -251,7 +252,7 @@ describe("apiFetch JSON helpers", () => {
                 createdAt: "2026-01-01T00:00:00Z",
               },
             ],
-          }),
+          },
           { status: 200 },
         ),
     ) as typeof fetch;
@@ -281,7 +282,7 @@ describe("fetchManifest", () => {
   it("returns the manifest summary on 200", async () => {
     globalThis.fetch = vi.fn(
       async () =>
-        new Response(JSON.stringify({ trainer: { name: "my-run" } }), {
+        Response.json({ trainer: { name: "my-run" } }, {
           status: 200,
         }),
     ) as typeof fetch;
@@ -294,8 +295,8 @@ describe("fetchManifest", () => {
     // failure; the helper must therefore distinguish 400 from other 4xx.
     globalThis.fetch = vi.fn(
       async () =>
-        new Response(
-          JSON.stringify({ error: "src/arkor/index.ts not found" }),
+        Response.json(
+          { error: "src/arkor/index.ts not found" },
           { status: 400 },
         ),
     ) as typeof fetch;
@@ -434,7 +435,7 @@ describe("streamTraining", () => {
     // `decode()` flush after the loop, the trailing bytes would be
     // silently discarded and the user would see truncated trainer
     // output for any non-ASCII tail.
-    const enc = new Uint8Array([0xe3, 0x81, 0x82]);
+    const enc = new Uint8Array([0xE3, 0x81, 0x82]);
     globalThis.fetch = vi.fn(
       async () =>
         new Response(
@@ -710,7 +711,7 @@ describe("deployment api helpers", () => {
   it("fetchDeployments → GET /api/deployments", async () => {
     const { fetch: f, calls } = recordingDeploymentFetch(
       () =>
-        new Response(JSON.stringify({ deployments: [] }), {
+        Response.json({ deployments: [] }, {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -726,10 +727,10 @@ describe("deployment api helpers", () => {
   it("createDeployment → POST /api/deployments with JSON body", async () => {
     const { fetch: f, calls } = recordingDeploymentFetch(
       () =>
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             deployment: { id: "d1", slug: "x" },
-          }),
+          },
           { status: 200, headers: { "content-type": "application/json" } },
         ),
     );
@@ -753,7 +754,7 @@ describe("deployment api helpers", () => {
     const id = "deploy-123/with-/slashes";
     const { fetch: f, calls } = recordingDeploymentFetch(
       () =>
-        new Response(JSON.stringify({ deployment: { id } }), {
+        Response.json({ deployment: { id } }, {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -783,8 +784,8 @@ describe("deployment api helpers", () => {
   it("createDeploymentKey returns plaintext from the response envelope", async () => {
     const { fetch: f } = recordingDeploymentFetch(
       () =>
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             key: {
               id: "k1",
               label: "production",
@@ -792,7 +793,7 @@ describe("deployment api helpers", () => {
               prefix: "ark_live_S",
               createdAt: "2026-05-05T00:00:00Z",
             },
-          }),
+          },
           { status: 200, headers: { "content-type": "application/json" } },
         ),
     );
@@ -804,7 +805,7 @@ describe("deployment api helpers", () => {
   it("fetchDeploymentKeys + revokeDeploymentKey use the keys sub-route", async () => {
     const { fetch: f, calls } = recordingDeploymentFetch(
       () =>
-        new Response(JSON.stringify({ keys: [] }), {
+        Response.json({ keys: [] }, {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -820,8 +821,8 @@ describe("deployment api helpers", () => {
   it("non-2xx responses throw DeploymentApiError carrying status + message", async () => {
     const { fetch: f } = recordingDeploymentFetch(
       () =>
-        new Response(
-          JSON.stringify({ error: "Deployment slug is already taken" }),
+        Response.json(
+          { error: "Deployment slug is already taken" },
           { status: 409, headers: { "content-type": "application/json" } },
         ),
     );

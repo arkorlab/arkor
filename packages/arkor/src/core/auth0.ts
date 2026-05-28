@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+
 import type { Auth0Credentials } from "./credentials";
+import type { AddressInfo } from "node:net";
 
 export interface CliConfig {
   auth0Domain: string | null;
@@ -72,8 +73,18 @@ export async function startLoopbackServer(
   throw new Error(
     `Unable to bind any of the loopback ports ${ports.join(
       ", ",
-    )}. The Auth0 Application must list at least one of these as an Allowed Callback URL: ${lastError}`,
+    )}. The Auth0 Application must list at least one of these as an Allowed Callback URL: ${String(lastError)}`,
   );
+}
+
+// text/plain + nosniff: the error path reflects user-controlled
+// `error` / `error_description` query params, so we must defeat
+// browser MIME sniffing to prevent reflected XSS on the loopback origin.
+function sendPlain(res: ServerResponse, status: number, body: string): void {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.end(body);
 }
 
 function bindOnPort(port: number): Promise<LoopbackServerResult> {
@@ -81,25 +92,11 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
     let resolveCallback: (v: { code: string; state: string }) => void;
     let rejectCallback: (err: Error) => void;
     const waitForCallback = new Promise<{ code: string; state: string }>(
-      (res, rej) => {
-        resolveCallback = res;
-        rejectCallback = rej;
+      (resolve, reject) => {
+        resolveCallback = resolve;
+        rejectCallback = reject;
       },
     );
-
-    const sendPlain = (
-      res: ServerResponse,
-      status: number,
-      body: string,
-    ) => {
-      res.statusCode = status;
-      // text/plain + nosniff: the error path reflects user-controlled
-      // `error` / `error_description` query params, so we must defeat
-      // browser MIME sniffing to prevent reflected XSS on the loopback origin.
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      res.end(body);
-    };
 
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);

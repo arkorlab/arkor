@@ -13,7 +13,7 @@
   "scripts": {
     "build": "echo 'no build (consumers bundle the source)'",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --deny-warnings .",
+    "lint": "oxlint --deny-warnings . && eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

@@ -1,27 +1,26 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
+
 import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig, type Plugin } from "vite";
 
 // Source of truth for this path is `packages/arkor/src/core/credentials.ts`
 // (`studioTokenPath`). Cross-package imports complicate the Vite config build
 // so we mirror the constant here; if it ever changes, update both sides.
 const STUDIO_TOKEN_PATH = join(homedir(), ".arkor", "studio-token");
 
+const HTML_ATTR_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
 function htmlAttrEscape(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) =>
-    ch === "&"
-      ? "&amp;"
-      : ch === "<"
-        ? "&lt;"
-        : ch === ">"
-          ? "&gt;"
-          : ch === '"'
-            ? "&quot;"
-            : "&#39;",
-  );
+  return s.replaceAll(/[&<>"']/g, (ch) => HTML_ATTR_ESCAPES[ch] ?? ch);
 }
 
 /**
@@ -56,7 +55,8 @@ function arkorStudioToken(): Plugin {
     async transformIndexHtml(html) {
       let token: string;
       try {
-        token = (await readFile(STUDIO_TOKEN_PATH, "utf8")).trim();
+        const raw = await readFile(STUDIO_TOKEN_PATH, "utf8");
+        token = raw.trim();
       } catch {
         // `arkor dev` not running yet — leave the SPA token-less and let
         // the Studio server's 403 surface the wiring problem on first call.

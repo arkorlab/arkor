@@ -1,22 +1,23 @@
 import { useEffect, useRef, useState } from "react";
+
+import { Sparkles } from "../components/icons";
+import { AdapterPicker } from "../components/playground/AdapterPicker";
+import { BaseModelPicker } from "../components/playground/BaseModelPicker";
+import { Composer } from "../components/playground/Composer";
+import {
+  MessageList,
+  type ChatMessage,
+} from "../components/playground/MessageList";
+import {
+  ModelToggle,
+  type Mode,
+} from "../components/playground/ModelToggle";
+import { EmptyState } from "../components/ui/EmptyState";
 import { fetchJobs, streamInferenceContent, type Job } from "../lib/api";
 import {
   DEFAULT_BASE_MODEL,
   type SupportedBaseModel,
 } from "../lib/baseModels";
-import { Sparkles } from "../components/icons";
-import { AdapterPicker } from "../components/playground/AdapterPicker";
-import { BaseModelPicker } from "../components/playground/BaseModelPicker";
-import {
-  ModelToggle,
-  type Mode,
-} from "../components/playground/ModelToggle";
-import {
-  MessageList,
-  type ChatMessage,
-} from "../components/playground/MessageList";
-import { Composer } from "../components/playground/Composer";
-import { EmptyState } from "../components/ui/EmptyState";
 
 export function Playground({
   initialAdapterId,
@@ -159,7 +160,7 @@ export function Playground({
   const canSend =
     !streaming &&
     input.trim().length > 0 &&
-    (mode === "base" || (mode === "adapter" && selectedJob !== null));
+    (mode === "base" || selectedJob !== null);
 
   async function send() {
     if (sendingRef.current) return;
@@ -196,9 +197,9 @@ export function Playground({
     try {
       const stream = streamInferenceContent(
         {
-          ...(mode === "base"
+          ...(mode === "base" || !selectedJob
             ? { baseModel }
-            : { adapter: { kind: "final", jobId: selectedJob! } }),
+            : { adapter: { kind: "final" as const, jobId: selectedJob } }),
           messages: [...messages, userMsg],
           stream: true,
         },
@@ -269,14 +270,14 @@ export function Playground({
               }}
               disabled={streaming}
             />
-          ) : jobs && jobs.length > 0 ? (
+          ) : (jobs && jobs.length > 0 ? (
             <AdapterPicker
               jobs={jobs}
               selectedId={selectedJob}
               onSelect={selectAdapter}
               disabled={streaming}
             />
-          ) : null}
+          ) : null)}
         </div>
       </div>
 
@@ -320,7 +321,7 @@ export function Playground({
           <Composer
             value={input}
             onChange={setInput}
-            onSubmit={send}
+            onSubmit={() => void send()}
             disabled={streaming}
           />
         </div>
@@ -330,7 +331,7 @@ export function Playground({
           <Composer
             value={input}
             onChange={setInput}
-            onSubmit={send}
+            onSubmit={() => void send()}
             disabled={streaming}
           />
         </div>

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { TEMPLATES, type TemplateId } from "./templates";
 
 // Derive the id list from `TEMPLATES` (rather than hard-coding it) so a

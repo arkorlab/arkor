@@ -39,6 +39,9 @@ export function parseRoute(hash: string = window.location.hash): Route {
     const params = new URLSearchParams(query);
     // Treat blank/whitespace-only `?adapter=` as absent so callers
     // never see an empty string masquerading as a real adapter id.
+    // `||` (not `??`) so the empty-string case from `.trim()` falls
+    // through to `undefined`.
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     const adapterJobId = params.get("adapter")?.trim() || undefined;
     return { kind: "playground", adapterJobId };
   }

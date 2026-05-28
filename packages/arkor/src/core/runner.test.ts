@@ -1,8 +1,11 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+
 import { runTrainer } from "./runner";
+
 import type { Trainer } from "./types";
 
 function fakeTrainer(onStart?: () => void, onWait?: () => void): Trainer {

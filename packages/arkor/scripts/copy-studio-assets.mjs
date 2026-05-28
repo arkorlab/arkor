@@ -4,8 +4,8 @@
  * published tarball serves a self-contained UI. Kept as Node (not shell) to
  * stay Windows-friendly.
  */
-import { cp, mkdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 

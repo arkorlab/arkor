@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+
 import {
   KEY_ISSUE_DISPLAYED_MESSAGE,
   KEY_ISSUE_INFLIGHT_MESSAGE,
   pollDeploymentsForSlug,
   setupKeyIssueGuards,
 } from "./Endpoints.helpers";
+
 import type { Deployment } from "../lib/api";
 import type { NavigationGuard } from "../route";
 
@@ -192,7 +194,7 @@ describe("pollDeploymentsForSlug", () => {
     // `(ms, signal)` pair `pollDeploymentsForSlug` actually passes
     // and confirming that aborting via that signal flushes the wait.
     const ctrl = new AbortController();
-    const observed: Array<{ ms: number; signal: AbortSignal }> = [];
+    const observed: { ms: number; signal: AbortSignal }[] = [];
     let calls = 0;
     await pollDeploymentsForSlug({
       slug: "never",
@@ -244,7 +246,7 @@ describe("setupKeyIssueGuards", () => {
     confirmAnswer?: boolean;
     controller?: AbortController | null;
   } = {}) {
-    const beforeUnloadListeners: Array<(e: BeforeUnloadEvent) => void> = [];
+    const beforeUnloadListeners: ((e: BeforeUnloadEvent) => void)[] = [];
     const guardRegistrations: NavigationGuard[] = [];
     const confirmCalls: string[] = [];
     let unregisterCalls = 0;
@@ -264,7 +266,7 @@ describe("setupKeyIssueGuards", () => {
       },
       removeBeforeUnloadListener: (h: (e: BeforeUnloadEvent) => void) => {
         const idx = beforeUnloadListeners.indexOf(h);
-        if (idx >= 0) beforeUnloadListeners.splice(idx, 1);
+        if (idx !== -1) beforeUnloadListeners.splice(idx, 1);
       },
       confirm: (msg: string) => {
         confirmCalls.push(msg);
@@ -322,7 +324,7 @@ describe("setupKeyIssueGuards", () => {
       const writes: unknown[] = [];
       Object.defineProperty(e, "returnValue", {
         configurable: true,
-        get: () => writes[writes.length - 1],
+        get: () => writes.at(-1),
         set: (v) => writes.push(v),
       });
       return { e, writes };

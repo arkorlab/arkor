@@ -31,7 +31,7 @@ arkor/
 
 ## Development setup
 
-Please use **Node.js 24 (preferably the latest)** and **pnpm 10.21+**.
+Please use **Node.js 24 (preferably the latest)** and **pnpm 11.0+**.
 
 ```bash
 git clone https://github.com/arkorlab/arkor.git
@@ -40,7 +40,7 @@ pnpm install
 pnpm build         # turbo run build (covers all packages)
 pnpm test          # unit tests across the monorepo
 pnpm typecheck     # tsc across the monorepo
-pnpm lint          # oxlint across the monorepo (--deny-warnings)
+pnpm lint          # oxlint --deny-warnings, then strict ESLint 10 (type-aware) across the monorepo
 ```
 
 To work on a specific package:

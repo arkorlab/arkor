@@ -4,8 +4,7 @@ import { readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import * as clack from "@clack/prompts";
-import { Command } from "commander";
+
 import {
   ClaudeCodeStrictExit,
   formatClaudeCodeMissingMessage,
@@ -26,6 +25,8 @@ import {
   type PackageManager,
   type TemplateId,
 } from "@arkor/cli-internal";
+import * as clack from "@clack/prompts";
+import { Command } from "commander";
 
 interface RunOptions {
   dir?: string;
@@ -57,7 +58,15 @@ const MANUAL_INSTALL_HINT =
   "install dependencies (npm i / pnpm install / yarn / bun install)";
 
 function isInteractive(): boolean {
-  return Boolean(process.stdout.isTTY) && !process.env.CI;
+  // `@types/node` optimistically types `process.stdout.isTTY` as
+  // `true` (always defined), so `?? false` reads as "unnecessary" to
+  // the type-aware rules. At runtime it is genuinely `undefined` when
+  // stdout is piped, so the `?? false` is load-bearing: it keeps this
+  // function returning a strict `boolean` rather than `undefined`.
+  // (`Boolean(...)` and `=== true` are flagged by sibling rules; the
+  // type optimism makes every spelling "unnecessary", so disable here.)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  return (process.stdout.isTTY ?? false) && !process.env.CI;
 }
 
 /**
@@ -69,7 +78,8 @@ function isInteractive(): boolean {
 async function isOccupied(path: string): Promise<boolean> {
   if (!existsSync(path)) return false;
   try {
-    return (await readdir(path)).length > 0;
+    const entries = await readdir(path);
+    return entries.length > 0;
   } catch {
     return true;
   }
@@ -77,6 +87,52 @@ async function isOccupied(path: string): Promise<boolean> {
 
 function collisionMessage(name: string): string {
   return `Directory "${name}/" already exists and is not empty.`;
+}
+
+/**
+ * Disambiguate a relative path that starts with `-` so it doesn't
+ * look like an option/switch to `cd` (POSIX shells, PowerShell)
+ * or any other CLI the path is forwarded to.
+ *
+ * Round 40 follow-up (Copilot, PR #99): a leading dash makes
+ * POSIX `cd` and PowerShell's `Set-Location` (aliased as `cd`)
+ * treat the argument as an option/switch even when QUOTED.
+ * `cd '-foo'` and `cd "-foo"` both still fail with
+ * "invalid option" in bash, because the shell strips the quotes
+ * before `cd` sees the argument. PowerShell's `Set-Location`
+ * has the same problem: it parses positional / parameter
+ * arguments before honouring the quote layer, so `cd '-foo'`
+ * becomes `Set-Location -foo` and `-f` is interpreted as
+ * `-Filter`. cmd.exe's `cd` is different: it takes a single
+ * positional and only knows the `/D`-style switch family, so
+ * a leading-dash directory is actually safe in cmd. The
+ * disambiguation is still applied uniformly (including for
+ * cmd users) so the rule stays simple and so the same
+ * recovery hint reads correctly in whichever shell the user
+ * actually pastes into. The portable fix is
+ * path-disambiguation: prefix a relative `-`-starting path
+ * with `./` (or `.\\` on Windows). `./-foo` and `.\-foo` are
+ * unambiguous filesystem paths the shell hands to `cd`
+ * verbatim, sidestepping the option parser entirely.
+ * Absolute paths never start with `-`, so this is a no-op
+ * for them.
+ *
+ * Round 40 follow-up #5 (Copilot, PR #149): factored out of
+ * `shellQuoteIfNeeded` so `buildCdLine`'s `%`-on-Windows PS
+ * fallback path can share the exact same disambiguation rule
+ * instead of re-implementing it (where the two could drift).
+ * Platform is passed in (not read from `process.platform`)
+ * because the `%`-fallback call site is already gated on
+ * `isWindowsPercentPath` and the test suite drives the helper
+ * across both platforms via `withPlatform`.
+ */
+function disambiguateLeadingDashPath(
+  value: string,
+  platform: NodeJS.Platform,
+): string {
+  if (!value.startsWith("-")) return value;
+  const prefix = platform === "win32" ? ".\\" : "./";
+  return `${prefix}${value}`;
 }
 
 /**
@@ -146,29 +202,12 @@ function collisionMessage(name: string): string {
  *     length for a hazard most users will never hit.
  */
 export function shellQuoteIfNeeded(value: string): string {
-  // Round 40 follow-up (Copilot, PR #99): a leading dash makes
-  // POSIX shells, PowerShell, AND cmd.exe treat the argument as
-  // an option/switch even when QUOTED. `cd '-foo'` and
-  // `cd "-foo"` both still fail with "invalid option" in bash,
-  // because the shell strips the quotes before `cd` sees the
-  // argument. The portable fix is path-disambiguation: prefix
-  // a relative `-`-starting path with `./` (or `.\\` on
-  // Windows). `./-foo` and `.\-foo` are unambiguous filesystem
-  // paths the shell hands to `cd` verbatim, sidestepping the
-  // option parser entirely. Absolute paths never start with `-`,
-  // so this is a no-op for them. Apply BEFORE the safe-unquote
-  // and quoting paths below so a quoted `-`-prefixed name also
-  // gets the prefix (e.g. a path with both leading dash and a
-  // space).
-  if (value.startsWith("-")) {
-    const prefix = process.platform === "win32" ? ".\\" : "./";
-    value = `${prefix}${value}`;
-  }
+  value = disambiguateLeadingDashPath(value, process.platform);
   // Safe-unquote criteria: only alphanumerics + a small set of
   // unambiguous extras (`-_./+@:,`). After the leading-dash
   // disambiguation above, `value` no longer starts with `-`
   // even if the user-supplied path did.
-  if (/^[a-zA-Z0-9_./+@:,-]+$/.test(value)) return value;
+  if (/^[\w./+@:,-]+$/.test(value)) return value;
   if (process.platform === "win32") {
     // Order matters: backtick first (it's the PS escape
     // character for the others, so escaping it first prevents
@@ -177,13 +216,13 @@ export function shellQuoteIfNeeded(value: string): string {
     // `_setargv` / msvcrt argv parsing when the quoted path
     // is forwarded to a child program.
     const escaped = value
-      .replace(/`/g, "``")
-      .replace(/\$/g, "`$")
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"');
+      .replaceAll('`', "``")
+      .replaceAll('$', "`$")
+      .replaceAll('\\', "\\\\")
+      .replaceAll('"', String.raw`\"`);
     return `"${escaped}"`;
   }
-  return `'${value.replace(/'/g, "'\\''")}'`;
+  return `'${value.replaceAll('\'', String.raw`'\''`)}'`;
 }
 
 /**
@@ -221,8 +260,19 @@ function isWindowsPercentPath(cdTarget: string): boolean {
  */
 export function buildCdLine(cdTarget: string): string {
   if (isWindowsPercentPath(cdTarget)) {
+    // Apply the SAME leading-dash disambiguation that
+    // `shellQuoteIfNeeded` uses (prefix `./` POSIX or `.\`
+    // Windows) BEFORE wrapping in PS single quotes. Without
+    // it, a directory named `-foo%bar%` would emit
+    // `cd '-foo%bar%'` and PowerShell would parse `-foo` as an
+    // option/switch to `Set-Location` even inside the single
+    // quotes (the quotes are stripped before option parsing).
+    // Shared via `disambiguateLeadingDashPath` so the two
+    // call paths can't drift (round 40 follow-up #5, Copilot
+    // PR #149). The `%` branch already pins us to Windows.
+    const prefixed = disambiguateLeadingDashPath(cdTarget, "win32");
     // PS single-quote escape: doubled single quote `''`.
-    return `cd '${cdTarget.replace(/'/g, "''")}'`;
+    return `cd '${prefixed.replaceAll('\'', "''")}'`;
   }
   return `cd ${shellQuoteIfNeeded(cdTarget)}`;
 }
@@ -568,7 +618,7 @@ export async function run(options: RunOptions): Promise<void> {
   //     "Next:" hint and differentiates the skip-git message
   //     between "looks populated, inspect & commit manually"
   //     and "real failure, fix & re-run".
-  const RECOVERY_ELIGIBLE_PMS: Array<PackageManager> = ["pnpm", "bun"];
+  const RECOVERY_ELIGIBLE_PMS: PackageManager[] = ["pnpm", "bun"];
   const installAttemptCompleted = !wouldHaveInstalled || installed;
   const installArtifactsLanded =
     installThrewError !== undefined &&
@@ -634,9 +684,9 @@ export async function run(options: RunOptions): Promise<void> {
     clack.log.info(
       installArtifactsLanded
         ? `Skipping git init — \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
-        : reRunIsSafe
+        : (reRunIsSafe
           ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
-          : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`,
+          : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`),
     );
     gitInitSkipped = true;
   } else if (shouldInitGit) {
@@ -656,9 +706,9 @@ export async function run(options: RunOptions): Promise<void> {
     (installAttemptCompleted || installArtifactsLanded) && wouldHaveInstalled;
   const installLine = treeIsReady
     ? null
-    : pm
+    : (pm
       ? `  ${pm} install`
-      : `  ${MANUAL_INSTALL_HINT}`;
+      : `  ${MANUAL_INSTALL_HINT}`);
   const devLine =
     pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
   // Round 39 (Copilot, PR #99): when git init was skipped (install
@@ -888,42 +938,49 @@ program
 // (`bin.test.ts`) import `run` directly to exercise the side-effect
 // kernel without commander spinning up on vitest's argv.
 //
-// `process.argv[1]` is the path Node was invoked with — under
+// `process.argv[1]` is the path Node was invoked with: under
 // `npm create arkor` / `pnpm create arkor` / `npx create-arkor` it's
 // the symlink/shim at `node_modules/.bin/create-arkor`, while
 // `import.meta.url` is the *resolved* path Node loaded the module
 // from (`--preserve-symlinks-main` defaults to false). A naïve
 // equality check between the two skips `program.parseAsync` for
 // every package-manager invocation and the CLI silently exits doing
-// nothing — Codex P1 / Copilot review on PR #99 round 7 flagged
-// the regression I introduced in round 6. Realpath both sides
+// nothing (Codex P1 / Copilot review on PR #99 round 7 flagged
+// the regression I introduced in round 6). Realpath both sides
 // before comparing so the symlink and its target collapse.
 // Exported so `bin.test.ts` can drive the comparison with a synthetic
 // symlink/target pair without spawning the real binary.
+function resolveSafe(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
 export function shouldRunAsCli(
   argv1: string | undefined,
   moduleUrl: string,
 ): boolean {
   if (!argv1) return false;
-  const resolveSafe = (p: string): string => {
-    try {
-      return realpathSync(p);
-    } catch {
-      return p;
-    }
-  };
   let modulePath: string;
   try {
     modulePath = fileURLToPath(moduleUrl);
   } catch {
-    // Non-file URL (e.g. data:, vitest's transform URL) — never CLI.
+    // Non-file URL (e.g. data:, vitest's transform URL); never CLI.
     return false;
   }
   return resolveSafe(argv1) === resolveSafe(modulePath);
 }
 
 if (shouldRunAsCli(process.argv[1], import.meta.url)) {
-  program.parseAsync(process.argv).catch((err) => {
+  // Promise-chain form (not `try { await ... } catch`) so the strict-
+  // mode early-return below can set `process.exitCode` without
+  // having to deal with a top-level `await` swallowing the spinner
+  // teardown delay. `program.parseAsync` is the very last statement
+  // in the module either way.
+  // eslint-disable-next-line unicorn/prefer-top-level-await
+  program.parseAsync(process.argv).catch((err: unknown) => {
     // The strict-mode validator throws this sentinel after writing the
     // missing-flags block; exit silently so the `create-arkor failed:`
     // prefix below doesn't double up on the already-printed message.

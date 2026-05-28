@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { type DeploymentAuthMode } from "../lib/api";
+
+import { BookOpen, ExternalLink, Sparkles } from "../components/icons";
 import { Button } from "../components/ui/Button";
 import {
   Card,
@@ -9,7 +10,8 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { CopyButton } from "../components/ui/CopyButton";
-import { BookOpen, ExternalLink, Sparkles } from "../components/icons";
+
+import type { DeploymentAuthMode } from "../lib/api";
 
 // ---------------------------------------------------------------------------
 // Quick start: language- and operation-keyed code samples.
@@ -192,6 +194,11 @@ export function QuickStart({
     endpointUrl,
     authMode,
   });
+  // Future-proof: `SampleOperation` currently has a single literal
+  // (`"chat"`), so this lookup looks trivially-true to the type system.
+  // When the dropdown gains another operation, the `find` will start
+  // discriminating naturally.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   const opMeta = SAMPLE_OPERATIONS.find((o) => o.value === operation);
 
   return (

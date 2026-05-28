@@ -1,5 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// `EventEmitter` is correct here: this file mocks Node's `ChildProcess`
+// shape, which extends `EventEmitter` (not `EventTarget`).
+/* eslint-disable unicorn/prefer-event-target */
 import { EventEmitter } from "node:events";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // `vi.hoisted` ensures the spawn mock is in place before the
 // module under test resolves its `node:child_process` import.
@@ -7,7 +11,6 @@ import { EventEmitter } from "node:events";
 const spawnMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 
-// eslint-disable-next-line import/first
 import { detectYarnMajor } from "./yarn-version";
 
 interface FakeChildOptions {
@@ -171,7 +174,7 @@ describe("detectYarnMajor", () => {
 
     const promise = detectYarnMajor("/fake/cwd");
     // Advance past the 5s timeout the helper installs.
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5000);
 
     const major = await promise;
 
@@ -203,7 +206,7 @@ describe("detectYarnMajor", () => {
     });
 
     const promise = detectYarnMajor("/fake/cwd");
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5000);
 
     const major = await promise;
 
