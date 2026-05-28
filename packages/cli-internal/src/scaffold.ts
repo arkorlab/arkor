@@ -489,8 +489,7 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
   return (
     `Existing .yarnrc.yml pins \`nodeLinker: ${existingValue}\`. ` +
     `arkor's runtime can't resolve dependencies through anything ` +
-    // eslint-disable-next-line local/no-em-dash
-    `other than \`nodeLinker: node-modules\` — \`arkor dev\` and ` +
+    `other than \`nodeLinker: node-modules\`. \`arkor dev\` and ` +
     `\`arkor train\` will fail until you change the value to ` +
     `\`node-modules\`.`
   );
@@ -952,8 +951,7 @@ async function writeAgentsMd(
     // will patch in place.
     return {
       action: "kept",
-      // eslint-disable-next-line local/no-em-dash
-      warning: `${AGENTS_MD_PATH} contains ${found.count} arkor-managed blocks (delimited by ${AGENTS_BLOCK_BEGIN} / ${AGENTS_BLOCK_END} with the canonical signature line). Refusing to patch automatically — remove the duplicate(s) and re-run.`,
+      warning: `${AGENTS_MD_PATH} contains ${found.count} arkor-managed blocks (delimited by ${AGENTS_BLOCK_BEGIN} / ${AGENTS_BLOCK_END} with the canonical signature line). Refusing to patch automatically. Remove the duplicate(s) and re-run.`,
     };
   }
   if (found.kind === "single") {

@@ -328,8 +328,7 @@ describe("startLoopbackServer", () => {
       const body = await res.text();
       // The trailing separator is preserved before the empty description
       // so a regression that drops it surfaces here.
-      // eslint-disable-next-line local/no-em-dash
-      expect(body).toContain("Authentication failed: server_error — ");
+      expect(body).toContain("Authentication failed: server_error. ");
       const err = await callback;
       expect((err as Error).message).toMatch(/server_error/);
     } finally {

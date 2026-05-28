@@ -112,8 +112,7 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
         sendPlain(
           res,
           400,
-          // eslint-disable-next-line local/no-em-dash
-          `Authentication failed: ${error} — ${errorDescription ?? ""}`,
+          `Authentication failed: ${error}. ${errorDescription ?? ""}`,
         );
         rejectCallback(
           new Error(`Authentication failed: ${error} ${errorDescription ?? ""}`),

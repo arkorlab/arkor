@@ -98,20 +98,7 @@ Studio runs at `http://127.0.0.1:4000` with a CSRF token injected per launch.
 
 ## Style conventions
 
-We avoid the em dash (`—`, U+2014) in code. Reach for a colon, a comma, parentheses, a spaced hyphen (`" - "`), or a reworded sentence instead. A local ESLint rule, `local/no-em-dash`, enforces this: it flags em dashes in comments and in string or template literals across every package.
-
-The one exception is CLI runtime user-facing messages (strings printed to the terminal, where an em dash reads more naturally than a colon). Opt those lines out explicitly:
-
-```ts
-// eslint-disable-next-line local/no-em-dash
-throw new Error("State mismatch — aborting to prevent CSRF");
-```
-
-The rule is scoped to **new** em dashes. The ones that predate it are recorded as a baseline in a per-package `eslint-suppressions.json` (ESLint resolves that file relative to each package directory, which is why the baseline lives in each package rather than at the repo root), so they do not fail CI. If you add an em dash to a file that already has baselined ones, ESLint surfaces every em dash in that file until you remove your addition; deleting it drops the count back to the baseline and lint passes again. Removing a baselined em dash never breaks lint. To prune the now-stale entry afterward, run this in the affected package:
-
-```bash
-pnpm exec eslint . --prune-suppressions
-```
+We avoid the em dash (`—`, U+2014) anywhere in code. Reach for a colon, a period, a comma, parentheses, a spaced hyphen (`" - "`), or a reworded sentence instead. A local ESLint rule, `local/no-em-dash`, enforces this across comments and string or template literals in every package, with no carve-out: CLI runtime messages, generated-file template bodies, and test names all follow the same rule.
 
 Markdown (including this file) is not linted by the rule, but the same no-em-dash convention applies to prose in docs.
 

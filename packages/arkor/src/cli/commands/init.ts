@@ -85,8 +85,7 @@ async function decideGitInit(
 
   if (await isInGitRepo(cwd)) {
     ui.log.info(
-      // eslint-disable-next-line local/no-em-dash
-      "Directory is already inside a git repository — skipping git init.",
+      "Directory is already inside a git repository. Skipping git init.",
     );
     return false;
   }
@@ -108,8 +107,7 @@ async function runGitInit(cwd: string): Promise<void> {
   // "already inside a git repo → skip" rule.
   if (await isInGitRepo(cwd)) {
     ui.log.info(
-      // eslint-disable-next-line local/no-em-dash
-      "Directory became a git repository during install — skipping git init.",
+      "Directory became a git repository during install. Skipping git init.",
     );
     return;
   }
@@ -121,8 +119,7 @@ async function runGitInit(cwd: string): Promise<void> {
     );
     if (result.signingFallback) {
       ui.log.warn(
-        // eslint-disable-next-line local/no-em-dash
-        "Commit signing failed — created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
+        "Commit signing failed. Created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
       );
     }
   } catch (err) {
@@ -243,8 +240,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       // useless. Skip and surface the manual-retry hint instead, so
       // the user fixes the config first and retries.
       ui.log.info(
-        // eslint-disable-next-line local/no-em-dash
-        `Skipping install — fix the advisory above first, then run: ${pm} install`,
+        `Skipping install. Fix the advisory above first, then run: ${pm} install`,
       );
     } else {
       // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
@@ -419,8 +415,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   let gitInitSkipped = false;
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     ui.log.info(
-      // eslint-disable-next-line local/no-em-dash
-      "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
+      "Skipping git init too. Fix the advisory above first, then re-run this command so the lockfile lands in the initial commit.",
     );
     gitInitSkipped = true;
   } else if (shouldInitGit && !installAttemptCompleted) {
@@ -431,10 +426,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     // don't, the install genuinely failed.
     ui.log.info(
       installArtifactsLanded
-        // eslint-disable-next-line local/no-em-dash
-        ? `Skipping git init — \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first and re-run.`
-        // eslint-disable-next-line local/no-em-dash
-        : `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
+        ? `Skipping git init. \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first and re-run.`
+        : `Skipping git init too. \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
     );
     gitInitSkipped = true;
   } else if (shouldInitGit) {

@@ -299,8 +299,7 @@ async function decideGitInit(
   if (options.skipGit) return false;
 
   if (await isInGitRepo(cwd)) {
-    // eslint-disable-next-line local/no-em-dash
-    clack.log.info("Directory is already inside a git repository — skipping git init.");
+    clack.log.info("Directory is already inside a git repository. Skipping git init.");
     return false;
   }
 
@@ -326,8 +325,7 @@ async function runGitInit(cwd: string): Promise<void> {
   // "already inside a git repo → skip" rule.
   if (await isInGitRepo(cwd)) {
     clack.log.info(
-      // eslint-disable-next-line local/no-em-dash
-      "Directory became a git repository during install — skipping git init.",
+      "Directory became a git repository during install. Skipping git init.",
     );
     return;
   }
@@ -339,8 +337,7 @@ async function runGitInit(cwd: string): Promise<void> {
     );
     if (result.signingFallback) {
       clack.log.warn(
-        // eslint-disable-next-line local/no-em-dash
-        "Commit signing failed — created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
+        "Commit signing failed. Created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
       );
     }
   } catch (err) {
@@ -529,8 +526,7 @@ export async function run(options: RunOptions): Promise<void> {
         ? `\`${pm} install\``
         : `\`${pm} install\` in \`${cdTarget}\``;
       clack.log.info(
-        // eslint-disable-next-line local/no-em-dash
-        `Skipping install — fix the advisory above first, then run ${retry}.`,
+        `Skipping install. Fix the advisory above first, then run ${retry}.`,
       );
     } else {
       // Round 39 (Codex P1, PR #99): snapshot the closest-enclosing
@@ -675,10 +671,8 @@ export async function run(options: RunOptions): Promise<void> {
   if (shouldInitGit && wouldHaveInstalled && blockInstall) {
     clack.log.info(
       reRunIsSafe
-        // eslint-disable-next-line local/no-em-dash
-        ? "Skipping git init too — fix the advisory above first, then re-run this command so the lockfile lands in the initial commit."
-        // eslint-disable-next-line local/no-em-dash
-        : `Skipping git init too — fix the advisory above, then run ${recoverInDir} to finish the bootstrap.`,
+        ? "Skipping git init too. Fix the advisory above first, then re-run this command so the lockfile lands in the initial commit."
+        : `Skipping git init too. Fix the advisory above, then run ${recoverInDir} to finish the bootstrap.`,
     );
     gitInitSkipped = true;
   } else if (shouldInitGit && !installAttemptCompleted) {
@@ -689,13 +683,10 @@ export async function run(options: RunOptions): Promise<void> {
     // auto-derived subdir's occupied-directory guard).
     clack.log.info(
       installArtifactsLanded
-        // eslint-disable-next-line local/no-em-dash
-        ? `Skipping git init — \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
+        ? `Skipping git init. \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
         : (reRunIsSafe
-          // eslint-disable-next-line local/no-em-dash
-          ? `Skipping git init too — \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
-          // eslint-disable-next-line local/no-em-dash
-          : `Skipping git init too — \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`),
+          ? `Skipping git init too. \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
+          : `Skipping git init too. \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`),
     );
     gitInitSkipped = true;
   } else if (shouldInitGit) {
@@ -818,8 +809,7 @@ program
   .option("--skip-git", "skip the git init prompt and do not initialise git")
   .option(
     "--allow-builds",
-    // eslint-disable-next-line local/no-em-dash
-    "opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
+    "opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny, since pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
   )
   .option(
     "--agents-md",

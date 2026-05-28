@@ -407,8 +407,7 @@ describe("arkor init (E2E)", () => {
     );
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      // eslint-disable-next-line local/no-em-dash
-      "Directory is already inside a git repository — skipping git init.",
+      "Directory is already inside a git repository. Skipping git init.",
     );
 
     // No commit should have been added (the pre-seeded repo has no HEAD yet).

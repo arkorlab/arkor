@@ -32,22 +32,23 @@ const CONFIG_TS_FILES = [
 const EM_DASH = /—|&mdash;/;
 
 // Local rule: ban em dashes in comments and string/template literals. The
-// project writes prose (comments, JSDoc, generated-file template bodies)
-// with a colon, comma, parentheses, or " - " instead. CLI runtime
-// user-facing strings are the one documented exception and opt out with an
-// inline disable. No autofix: the right replacement is context-dependent
-// (colon vs comma vs restructure), so a blind substitution would be wrong.
+// project writes prose (comments, JSDoc, CLI runtime messages, generated-
+// file template bodies, test names) with a colon, period, comma,
+// parentheses, semicolon, or a spaced hyphen instead. There is no carve-
+// out: this rule is enforced uniformly across every linted file. No
+// autofix: the right replacement is context-dependent (colon vs period
+// vs restructure), so a blind substitution would be wrong.
 const noEmDash: Rule.RuleModule = {
   meta: {
     type: "problem",
     docs: {
       description:
-        "Disallow em dashes in comments and string literals; prefer a colon, comma, parentheses, or ' - '.",
+        "Disallow em dashes anywhere in source; prefer a colon, period, comma, parentheses, or ' - '.",
     },
     schema: [],
     messages: {
       emDash:
-        "Avoid the em dash here. Use a colon, comma, parentheses, ' - ', or restructure. CLI runtime user-facing strings are the only exception: add `// eslint-disable-next-line local/no-em-dash`.",
+        "Avoid the em dash here. Use a colon, period, comma, parentheses, ' - ', or restructure.",
     },
   },
   create(context) {

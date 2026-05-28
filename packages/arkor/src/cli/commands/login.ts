@@ -59,8 +59,7 @@ export async function runLogin(options: LoginOptions = {}): Promise<void> {
       );
     }
     ui.log.info(
-      // eslint-disable-next-line local/no-em-dash
-      "OAuth is not configured — continuing with an anonymous session.",
+      "OAuth is not configured. Continuing with an anonymous session.",
     );
     await runAnonymousLogin({ oauthAvailable: false });
     return;
@@ -159,8 +158,7 @@ async function runAnonymousLogin(opts: {
   await writeCredentials(creds);
   spin.stop(`Anonymous id: ${result.anonymousId}`);
   ui.log.info(
-    // eslint-disable-next-line local/no-em-dash
-    `This id is how Arkor Cloud recognises this client across sessions — keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
+    `This id is how Arkor Cloud recognises this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
   );
   // see ../anonymous.ts for wording rationale and gating contract.
   if (opts.oauthAvailable === true) {
@@ -208,8 +206,7 @@ async function runAuth0Login(
     spin.start("Waiting for browser callback");
     const { code, state } = await loopback.waitForCallback;
     if (state !== pkce.state) {
-      // eslint-disable-next-line local/no-em-dash
-      throw new Error("State mismatch — aborting to prevent CSRF");
+      throw new Error("State mismatch. Aborting to prevent CSRF");
     }
     const exchange = await exchangeCode(cfg, {
       code,

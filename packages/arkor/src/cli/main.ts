@@ -46,8 +46,7 @@ export async function main(argv: string[]): Promise<void> {
     .option("--skip-git", "Skip the git init prompt and do not initialise git")
     .option(
       "--allow-builds",
-      // eslint-disable-next-line local/no-em-dash
-      "Opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
+      "Opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny, since pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
     )
     .option(
       "--agents-md",
