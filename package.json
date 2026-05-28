@@ -5,8 +5,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "format": "oxfmt -c oxfmt.config.ts",
-    "format:check": "oxfmt --check -c oxfmt.config.ts",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
