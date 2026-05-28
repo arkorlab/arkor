@@ -31,15 +31,21 @@ let bunBinPath: string | undefined | null;
  * `build` job), so this probe always succeeds on CI and the bun
  * runtime suite is never skipped there.
  *
- * Scope note (PR #159 Copilot review): this is NOT the source of
- * truth for whether `runCli(runtime: "bun")` will succeed.
- * `runCli` spawns `"bun"` directly and lets the OS resolve it
+ * Scope note (PR #159 Copilot review): the resolved absolute path
+ * is cached and consumed by `runCli(runtime: "bun")` directly, so
+ * the spawned child no longer needs the OS to re-resolve `bun`
  * against the spawned env's PATH (which can differ from the
- * parent's if a caller overrides `extraEnv.PATH`). A future test
- * that injects a custom PATH must do its own bun-availability
- * check against that env; the helper here only covers the
+ * parent's if a caller overrides `extraEnv.PATH`). That keeps
+ * `runCli`'s spawn `shell: false` and side-steps cmd.exe / sh
+ * quoting layers. A future test that injects a custom PATH to
+ * exercise a different `bun` binary would have to bypass this
+ * cache (or invalidate it) and do its own bun-availability check
+ * against the override env; the helper here only covers the
  * common "spawn inherits parent PATH" case the skipIf gating
- * relies on.
+ * relies on. The resolver itself falls back to the literal name
+ * `"bun"` when `where` / `command -v` fail despite a successful
+ * `--version` probe, so the cache may hold either an absolute
+ * path or the literal string in rare environments.
  *
  * The cache distinguishes "not yet looked up" (`undefined` initial
  * state of `bunBinPath`) from "looked up and not found" (`null`)
@@ -50,13 +56,16 @@ export function findBunBin(): string | undefined {
   if (bunBinPath !== undefined) return bunBinPath ?? undefined;
   // Probe by trying to invoke `bun --version` directly. We can't use
   // `command -v` (a shell builtin, not an executable, so `spawnSync`
-  // can't run it) or `which` (not standard on Windows). `spawnSync`
-  // does its own PATH lookup, so a successful exit with version-shaped
-  // stdout is sufficient evidence that `bun` is invocable from the
-  // same env the test suite will spawn under. Use `shell: true` on
-  // Windows for the same reason `runCli`'s underlying `spawn` does:
-  // bun ships as `bun.exe`, but `setup-bun` adds `~/.bun/bin` to
-  // PATH where some Windows shells need `cmd` to resolve the lookup.
+  // can't run it as the binary argument) or `which` (not standard on
+  // Windows). `spawnSync` does its own PATH lookup, so a successful
+  // exit with version-shaped stdout is sufficient evidence that
+  // `bun` is invocable from the same env the test suite will spawn
+  // under. `shell: true` on Windows is for the probe's PATH lookup
+  // only: `setup-bun` adds `~/.bun/bin` to PATH where some Windows
+  // shells need `cmd` to resolve the lookup. The subsequent
+  // resolver step below is what turns this into an absolute path,
+  // so `runCli`'s spawn can stay `shell: false` even though the
+  // probe itself uses `shell: true`.
   //
   // PR #159 Copilot review: probe from `tmpdir()` rather than the
   // workspace cwd. The workspace declares `packageManager: pnpm@...`
@@ -538,34 +547,34 @@ function runCliOnce(
     // (`elapsedMs` in RunResult — see shouldRetryAfterSigkill).
     const start = Date.now();
     let child: ReturnType<typeof spawn>;
-    // Resolve the runtime executable. `node` (default) reuses
-    // `process.execPath` so the spawned CLI runs under the same Node
-    // that vitest is using (matches the published-bin behaviour where
-    // `node_modules/.bin/arkor` shebangs `#!/usr/bin/env node`).
-    // `bun` passes the literal `"bun"` and lets `spawn` resolve it
-    // via the spawned env's PATH. Callers gate themselves on
-    // `findBunBin() !== undefined` (which probes the parent env);
-    // any further mismatch between the parent's PATH and the spawn
-    // env's PATH (e.g. a test that injects `extraEnv.PATH`) surfaces
-    // through the child's `error` event with ENOENT rather than a
-    // synthetic preflight error. The on-error reject below is the
-    // single source of truth for "spawn failed to find the bin",
-    // regardless of which runtime was selected.
-    // PR #159 Copilot review: resolve bun to its absolute path via
-    // `findBunBin()` so `shell: false` works on every platform.
-    // `process.execPath` is already absolute, and `findBunBin()`'s
-    // resolver step yields an absolute `.exe` on Windows (or the
-    // POSIX `command -v` result on Unix), so the spawn no longer
-    // needs to go through cmd.exe / sh to resolve the binary. That
-    // eliminates the shell-quoting layer entirely, which was the
-    // source of mis-handling for `binPath` / `argv` containing
-    // spaces or shell-sensitive characters. If `findBunBin()` fell
-    // back to the literal `"bun"` (the resolver itself failed
-    // despite `--version` succeeding), we accept the residual risk
-    // and let `spawn` do PATH lookup directly; that path is rare
-    // enough on CI runners (which have `where` / `command` in
-    // PATH) that wiring a separate quoting strategy isn't
-    // justified.
+    // Resolve the runtime executable. Both branches yield an
+    // absolute path under normal CI / dev conditions, which is what
+    // keeps the `spawn` below `shell: false` and the `binPath` /
+    // `argv` free of cmd.exe / sh quoting layers (PR #159 Copilot
+    // review: `shell: true` joined argv into a single command
+    // string and corrupted args containing spaces or shell-
+    // sensitive chars).
+    //
+    //   - `node` (default): reuses `process.execPath`. Always
+    //     absolute, so the spawned CLI runs under the same Node
+    //     that vitest is using (matches the published-bin
+    //     behaviour where `node_modules/.bin/arkor` shebangs
+    //     `#!/usr/bin/env node`).
+    //   - `bun`: calls `findBunBin()`, which probes for a usable
+    //     bun (cached after the first call) and runs `where bun`
+    //     on Windows / `command -v bun` on POSIX to turn the
+    //     literal name into an absolute path. Callers gate
+    //     themselves on `findBunBin() !== undefined`; the same
+    //     call here re-uses that cached value and so adds no
+    //     spawn overhead. When the resolver itself fails despite
+    //     a passing `--version` probe (e.g. `where` not in PATH
+    //     on a stripped Windows image), `findBunBin()` falls back
+    //     to the literal `"bun"` and `spawn` does its own PATH
+    //     lookup. That residual branch is rare on CI (every
+    //     runner has `where` / `command -v` in PATH) and any
+    //     spawn-time mismatch surfaces through the child's
+    //     `error` event with ENOENT, so it's not worth wiring a
+    //     separate quoting strategy for.
     const runtimeBin =
       runtime === "bun" ? findBunBin() ?? "bun" : process.execPath;
     try {
