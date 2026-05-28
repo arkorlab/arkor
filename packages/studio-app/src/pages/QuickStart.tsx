@@ -317,7 +317,7 @@ export function QuickStart({
             <pre className="overflow-x-auto px-3 py-3 pr-12 font-mono text-xs leading-relaxed text-zinc-800 dark:text-zinc-200">
               <code>{sample}</code>
             </pre>
-            <div className="absolute right-2 top-2">
+            <div className="absolute top-2 right-2">
               <CopyButton value={sample} />
             </div>
           </div>

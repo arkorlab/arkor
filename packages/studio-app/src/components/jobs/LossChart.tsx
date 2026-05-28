@@ -407,7 +407,7 @@ export function LossChart({
 
       {hover ? (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] font-mono shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+          className="pointer-events-none absolute -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
           style={{
             left: xFor(hover.step),
             top: Math.max(0, yFor(hoverAnchorLoss) - 36),
@@ -517,7 +517,7 @@ function StatsCard({
     <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
       <div className="mb-2 flex items-center justify-between">
         <span
-          className={`text-[11px] font-medium uppercase tracking-wide ${accent}`}
+          className={`text-[11px] font-medium tracking-wide uppercase ${accent}`}
         >
           {label}
         </span>

@@ -61,7 +61,7 @@ function Segment({
       onClick={onClick}
       className={cn(
         "inline-flex h-7 items-center rounded-full px-3 font-medium transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30",
+        "focus-visible:ring-2 focus-visible:ring-teal-500/30 focus-visible:outline-none",
         active
           ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-100"
           : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",

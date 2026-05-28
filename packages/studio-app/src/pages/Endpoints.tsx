@@ -238,12 +238,12 @@ export function EndpointsList() {
                   href={`#/endpoints/${encodeURIComponent(d.id)}`}
                   className="flex items-center justify-between gap-4 px-6 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900"
                 >
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">
                       {d.slug}
                       <span className="text-zinc-400">.arkor.app</span>
                     </span>
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
+                    <span className="truncate text-xs text-zinc-500 dark:text-zinc-400">
                       {describeTarget(d.target)} · auth: {d.authMode}
                     </span>
                   </div>

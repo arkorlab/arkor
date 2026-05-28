@@ -10,6 +10,9 @@ export default defineConfig({
   trailingComma: "all",
   sortPackageJson: false,
   sortImports: false,
+  sortTailwindcss: {
+    functions: ["cn"],
+  },
   ignorePatterns: [
     ".claude/**",
     "**/*.md",
