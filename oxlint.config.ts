@@ -1,15 +1,16 @@
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "oxc", "import", "promise"],
-  "categories": {
-    "correctness": "error"
+import { defineConfig } from "oxlint";
+
+export default defineConfig({
+  plugins: ["typescript", "unicorn", "oxc", "import", "promise"],
+  categories: {
+    correctness: "error",
   },
-  "env": {
-    "builtin": true,
-    "node": true,
-    "es2024": true
+  env: {
+    builtin: true,
+    node: true,
+    es2024: true,
   },
-  "ignorePatterns": [
+  ignorePatterns: [
     "**/dist/**",
     "**/.arkor/**",
     "**/coverage/**",
@@ -20,72 +21,72 @@
     "packages/arkor/docs/**",
     "packages/*/CONTRIBUTING.md",
     "**/*.md",
-    "**/*.mdx"
+    "**/*.mdx",
   ],
-  "rules": {
+  rules: {
     "eqeqeq": ["error", "always"],
     "typescript/consistent-type-imports": [
       "error",
-      { "prefer": "type-imports", "fixStyle": "inline-type-imports" }
+      { prefer: "type-imports", fixStyle: "inline-type-imports" },
     ],
     "typescript/no-import-type-side-effects": "error",
-    "promise/always-return": ["error", { "ignoreLastCallback": true }],
+    "promise/always-return": ["error", { ignoreLastCallback: true }],
     "import/no-cycle": "error",
     "no-unused-vars": [
       "error",
       {
-        "argsIgnorePattern": "^_",
-        "varsIgnorePattern": "^_",
-        "caughtErrorsIgnorePattern": "^_",
-        "destructuredArrayIgnorePattern": "^_"
-      }
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+        destructuredArrayIgnorePattern: "^_",
+      },
     ],
     "unicorn/filename-case": [
       "error",
-      { "cases": { "kebabCase": true, "camelCase": true, "pascalCase": true } }
+      { cases: { kebabCase: true, camelCase: true, pascalCase: true } },
     ],
     "unicorn/no-null": "off",
     "unicorn/no-negated-condition": "off",
     "unicorn/prefer-global-this": "off",
     "unicorn/catch-error-name": "off",
     "unicorn/no-useless-undefined": "off",
-    "unicorn/switch-case-braces": "off"
+    "unicorn/switch-case-braces": "off",
   },
-  "overrides": [
+  overrides: [
     {
-      "files": ["packages/studio-app/**/*.{ts,tsx,jsx}"],
-      "plugins": [
+      files: ["packages/studio-app/**/*.{ts,tsx,jsx}"],
+      plugins: [
         "typescript",
         "unicorn",
         "oxc",
         "import",
         "promise",
         "react",
-        "jsx-a11y"
+        "jsx-a11y",
       ],
-      "env": {
-        "browser": true
+      env: {
+        browser: true,
       },
-      "rules": {
+      rules: {
         "react/rules-of-hooks": "error",
         "react/exhaustive-deps": "error",
-        "unicorn/no-nested-ternary": "off"
-      }
+        "unicorn/no-nested-ternary": "off",
+      },
     },
     {
-      "files": [
+      files: [
         "**/*.test.{ts,tsx,js,jsx,mjs}",
-        "**/*.spec.{ts,tsx,js,jsx,mjs}"
+        "**/*.spec.{ts,tsx,js,jsx,mjs}",
       ],
-      "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "vitest"],
-      "env": {
-        "node": true
+      plugins: ["typescript", "unicorn", "oxc", "import", "promise", "vitest"],
+      env: {
+        node: true,
       },
-      "rules": {
+      rules: {
         "vitest/require-mock-type-parameters": "off",
         "vitest/no-standalone-expect": [
           "error",
-          { "additionalTestBlockFunctions": ["onPosix", "testFn"] }
+          { additionalTestBlockFunctions: ["onPosix", "testFn"] },
         ],
         "vitest/no-conditional-expect": "off",
         "vitest/valid-title": "off",
@@ -93,25 +94,25 @@
         "typescript/no-non-null-assertion": "off",
         "typescript/no-dynamic-delete": "off",
         "unicorn/consistent-function-scoping": "off",
-        "unicorn/no-await-expression-member": "off"
-      }
+        "unicorn/no-await-expression-member": "off",
+      },
     },
     {
-      "files": ["e2e/studio/**/*.{ts,tsx,js,jsx,mjs}"],
-      "rules": {
-        "eslint/no-empty-pattern": "off"
-      }
+      files: ["e2e/studio/**/*.{ts,tsx,js,jsx,mjs}"],
+      rules: {
+        "eslint/no-empty-pattern": "off",
+      },
     },
     {
-      "files": [
+      files: [
         "**/scripts/**/*.{mjs,js,ts}",
         "**/bin.ts",
         "**/bin.mjs",
-        "packages/arkor/src/cli/commands/**/*.ts"
+        "packages/arkor/src/cli/commands/**/*.ts",
       ],
-      "rules": {
-        "unicorn/no-process-exit": "off"
-      }
-    }
-  ]
-}
+      rules: {
+        "unicorn/no-process-exit": "off",
+      },
+    },
+  ],
+});
