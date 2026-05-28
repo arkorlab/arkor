@@ -34,11 +34,11 @@ import { SDK_VERSION } from "./version";
 // intentionally not declared on `globalThis` for consumers.
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 const inlinedPosthogKey: string | undefined = globalThis.__ARKOR_POSTHOG_KEY__;
+// oxfmt-ignore
 // @ts-expect-error: tsdown `define` constant supplied at build time;
 // intentionally not declared on `globalThis` for consumers.
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const inlinedPosthogHost: string | undefined =
-  globalThis.__ARKOR_POSTHOG_HOST__;
+const inlinedPosthogHost: string | undefined = globalThis.__ARKOR_POSTHOG_HOST__;
 const POSTHOG_KEY: string = inlinedPosthogKey ?? "";
 const POSTHOG_HOST: string = inlinedPosthogHost ?? "https://us.i.posthog.com";
 
