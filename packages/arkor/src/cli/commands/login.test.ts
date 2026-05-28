@@ -52,7 +52,8 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
-  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  if (ORIG_USERPROFILE !== undefined)
+    process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
@@ -80,9 +81,9 @@ describe("runLogin", () => {
       throw new Error("fetch should not be called");
     }) as typeof fetch;
 
-    await expect(
-      runLogin({ oauth: true, anonymous: true }),
-    ).rejects.toThrow(/--oauth \/ --anonymous, not both/);
+    await expect(runLogin({ oauth: true, anonymous: true })).rejects.toThrow(
+      /--oauth \/ --anonymous, not both/,
+    );
     expect(await readCredentials()).toBeNull();
   });
 
@@ -381,7 +382,9 @@ describe("runLogin", () => {
       // actually reaches the real TCP socket instead of being intercepted
       // by the test's mock fetch.
       setTimeout(() => {
-        void ORIG_FETCH(`${String(redirect)}?code=auth-code&state=${String(state)}`);
+        void ORIG_FETCH(
+          `${String(redirect)}?code=auth-code&state=${String(state)}`,
+        );
       }, 0);
       return undefined;
     }) as never);
@@ -478,23 +481,23 @@ describe("runLogin", () => {
     // permanently rebind the slot to a wrapper for the rest of the
     // worker, breaking later tests' own write spies / expectations).
     const writes: string[] = [];
-    const writeSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((c: unknown) => {
-        writes.push(String(c));
-        const buf = writes.join("");
-        const m = /Browser: (https:\/\/\S+)/.exec(buf);
-        if (m && !firedCallback) {
-          firedCallback = true;
-          const parsed = new URL(m[1] as string);
-          const state = parsed.searchParams.get("state");
-          const redirect = parsed.searchParams.get("redirect_uri");
-          setTimeout(() => {
-            void ORIG_FETCH(`${String(redirect)}?code=c&state=${String(state)}`);
-          }, 0);
-        }
-        return true;
-      }) as typeof process.stdout.write);
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      c: unknown,
+    ) => {
+      writes.push(String(c));
+      const buf = writes.join("");
+      const m = /Browser: (https:\/\/\S+)/.exec(buf);
+      if (m && !firedCallback) {
+        firedCallback = true;
+        const parsed = new URL(m[1] as string);
+        const state = parsed.searchParams.get("state");
+        const redirect = parsed.searchParams.get("redirect_uri");
+        setTimeout(() => {
+          void ORIG_FETCH(`${String(redirect)}?code=c&state=${String(state)}`);
+        }, 0);
+      }
+      return true;
+    }) as typeof process.stdout.write);
 
     try {
       await runLogin({ oauth: true, noBrowser: true });

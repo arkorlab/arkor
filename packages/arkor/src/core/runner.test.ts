@@ -110,9 +110,7 @@ describe("runTrainer — entry extraction", () => {
   it("throws when neither default nor named export is a Trainer", async () => {
     const entry = join(cwd, "bad-entry.mjs");
     writeFileSync(entry, `export default { notATrainer: true };`);
-    await expect(runTrainer(entry)).rejects.toThrow(
-      /must export `arkor`/,
-    );
+    await expect(runTrainer(entry)).rejects.toThrow(/must export `arkor`/);
   });
 
   it("throws when the module has no default export at all (skips the nested-trainer probe)", async () => {
@@ -121,9 +119,7 @@ describe("runTrainer — entry extraction", () => {
     // TypeError instead of the actionable "must export …" message.
     const entry = join(cwd, "no-default.mjs");
     writeFileSync(entry, `export const random = "value";`);
-    await expect(runTrainer(entry)).rejects.toThrow(
-      /must export `arkor`/,
-    );
+    await expect(runTrainer(entry)).rejects.toThrow(/must export `arkor`/);
   });
 
   it("throws when default export is a primitive (typeof !== 'object' branch)", async () => {
@@ -132,9 +128,7 @@ describe("runTrainer — entry extraction", () => {
     // the nested-trainer probe.
     const entry = join(cwd, "primitive-default.mjs");
     writeFileSync(entry, `export default 42;`);
-    await expect(runTrainer(entry)).rejects.toThrow(
-      /must export `arkor`/,
-    );
+    await expect(runTrainer(entry)).rejects.toThrow(/must export `arkor`/);
   });
 
   it("accepts a default export wrapping a `trainer` field (legacy power-user shape)", async () => {
@@ -173,10 +167,7 @@ describe("runTrainer — entry extraction", () => {
     // The runner uses `src/arkor/index.ts`, but Node's loader resolves
     // index.mjs in tests where TS isn't stripped. Emulate by writing a
     // re-export at the .ts path that points at the .mjs sibling.
-    writeFileSync(
-      join(arkorDir, "index.ts"),
-      `export * from "./index.mjs";\n`,
-    );
+    writeFileSync(join(arkorDir, "index.ts"), `export * from "./index.mjs";\n`);
     // Pass undefined explicitly to exercise the `?? DEFAULT_ENTRY` branch
     // — Node's built-in TypeScript stripping handles the .ts extension at
     // runtime. (vitest also strips TS so this works under test too.)

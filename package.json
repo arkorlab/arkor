@@ -4,6 +4,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
@@ -25,6 +27,7 @@
     "eslint-plugin-regexp": "catalog:",
     "eslint-plugin-unicorn": "catalog:",
     "globals": "catalog:",
+    "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "turbo": "catalog:",
     "typescript-eslint": "catalog:"

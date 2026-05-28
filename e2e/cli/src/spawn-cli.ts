@@ -393,53 +393,53 @@ function runCliOnce(
     let child: ReturnType<typeof spawn>;
     try {
       child = spawn(process.execPath, [binPath, ...argv], {
-      cwd,
-      env: {
-        ...cleanEnv,
-        CI: "1",
-        // No explicit `CLAUDECODE` override here: any inherited
-        // entry (any case variant) has already been dropped from
-        // `cleanEnv` above so the default test environment matches a
-        // vanilla CI shell. CLAUDECODE-specific tests opt in via
-        // `extraEnv`, which is spread last.
-        npm_config_user_agent: "",
-        GIT_AUTHOR_NAME: "Arkor E2E",
-        GIT_AUTHOR_EMAIL: "e2e@arkor.test",
-        GIT_COMMITTER_NAME: "Arkor E2E",
-        GIT_COMMITTER_EMAIL: "e2e@arkor.test",
-        YARN_CACHE_FOLDER: yarnCacheDir,
-        BUN_INSTALL_CACHE_DIR: bunCacheDir,
-        // yarn 1 has a long-standing race extracting esbuild-style
-        // platform-specific optionalDependencies inside a single
-        // process — the parent `node_modules/@<scope>/<arch>/` dir
-        // gets created racily and the tarball write fails with ENOENT.
-        // The per-spawn YARN_CACHE_FOLDER above already prevents
-        // *inter*-process races (different test workers don't share a
-        // cache); this serialises *intra*-process resolution as a
-        // belt-and-braces measure. yarn-berry reads
-        // `networkConcurrency` from `.yarnrc.yml` instead, so the env
-        // is a no-op for it.
-        YARN_NETWORK_CONCURRENCY: "1",
-        // yarn-berry has its own cache layer (`enableGlobalCache:
-        // true` by default) that lives at
-        // `%LOCALAPPDATA%\Yarn\Berry\cache` on Windows and
-        // `~/.yarn/berry/cache` elsewhere — separate from
-        // `YARN_CACHE_FOLDER`, which yarn-berry only honours when
-        // global cache is disabled. Parallel vitest workers running
-        // `yarn install` against that shared dir race the same
-        // tarball-rename sequence as bun above and produce
-        // `EPERM: operation not permitted, rename '<pkg>.zip-<hash>.tmp'
-        // -> '<pkg>.zip'` (CI run 25351227697, install · yarn-berry ·
-        // windows-latest · node 24.12). Forcing
-        // `enableGlobalCache: false` flips the cache target to the
-        // per-spawn `cacheFolder` (== `YARN_CACHE_FOLDER` above), so
-        // each worker writes into its own tmp dir. yarn 1 ignores the
-        // env, npm / pnpm / bun ignore it.
-        YARN_ENABLE_GLOBAL_CACHE: "false",
-        ...homeMirror,
-        ...extraEnv,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+        cwd,
+        env: {
+          ...cleanEnv,
+          CI: "1",
+          // No explicit `CLAUDECODE` override here: any inherited
+          // entry (any case variant) has already been dropped from
+          // `cleanEnv` above so the default test environment matches a
+          // vanilla CI shell. CLAUDECODE-specific tests opt in via
+          // `extraEnv`, which is spread last.
+          npm_config_user_agent: "",
+          GIT_AUTHOR_NAME: "Arkor E2E",
+          GIT_AUTHOR_EMAIL: "e2e@arkor.test",
+          GIT_COMMITTER_NAME: "Arkor E2E",
+          GIT_COMMITTER_EMAIL: "e2e@arkor.test",
+          YARN_CACHE_FOLDER: yarnCacheDir,
+          BUN_INSTALL_CACHE_DIR: bunCacheDir,
+          // yarn 1 has a long-standing race extracting esbuild-style
+          // platform-specific optionalDependencies inside a single
+          // process — the parent `node_modules/@<scope>/<arch>/` dir
+          // gets created racily and the tarball write fails with ENOENT.
+          // The per-spawn YARN_CACHE_FOLDER above already prevents
+          // *inter*-process races (different test workers don't share a
+          // cache); this serialises *intra*-process resolution as a
+          // belt-and-braces measure. yarn-berry reads
+          // `networkConcurrency` from `.yarnrc.yml` instead, so the env
+          // is a no-op for it.
+          YARN_NETWORK_CONCURRENCY: "1",
+          // yarn-berry has its own cache layer (`enableGlobalCache:
+          // true` by default) that lives at
+          // `%LOCALAPPDATA%\Yarn\Berry\cache` on Windows and
+          // `~/.yarn/berry/cache` elsewhere — separate from
+          // `YARN_CACHE_FOLDER`, which yarn-berry only honours when
+          // global cache is disabled. Parallel vitest workers running
+          // `yarn install` against that shared dir race the same
+          // tarball-rename sequence as bun above and produce
+          // `EPERM: operation not permitted, rename '<pkg>.zip-<hash>.tmp'
+          // -> '<pkg>.zip'` (CI run 25351227697, install · yarn-berry ·
+          // windows-latest · node 24.12). Forcing
+          // `enableGlobalCache: false` flips the cache target to the
+          // per-spawn `cacheFolder` (== `YARN_CACHE_FOLDER` above), so
+          // each worker writes into its own tmp dir. yarn 1 ignores the
+          // env, npm / pnpm / bun ignore it.
+          YARN_ENABLE_GLOBAL_CACHE: "false",
+          ...homeMirror,
+          ...extraEnv,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (err) {
       // Synchronous spawn failure; clean the per-spawn cache tmp dirs

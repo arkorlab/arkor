@@ -15,7 +15,10 @@ const SIZE: Record<Size, string> = {
 };
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
-  ({ size = "md", className, children, label, type = "button", ...rest }, ref) => (
+  (
+    { size = "md", className, children, label, type = "button", ...rest },
+    ref,
+  ) => (
     <button
       ref={ref}
       type={type}

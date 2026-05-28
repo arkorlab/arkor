@@ -50,8 +50,7 @@ const SAMPLE_OPERATIONS: {
         <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
           model
         </code>{" "}
-        is ignored because the deployment pins the target adapter or
-        base model.
+        is ignored because the deployment pins the target adapter or base model.
       </>
     ),
   },
@@ -226,14 +225,13 @@ export function QuickStart({
       {!hidden && (
         <CardContent className="space-y-4">
           <p className="text-sm text-zinc-700 dark:text-zinc-300">
-            This deployment speaks the OpenAI Chat Completions wire
-            format. cURL hits the URL above directly; OpenAI-compatible
-            SDKs take the base URL ending in
+            This deployment speaks the OpenAI Chat Completions wire format. cURL
+            hits the URL above directly; OpenAI-compatible SDKs take the base
+            URL ending in
             <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
               /v1
             </code>
-            (the samples below cover both shapes — pointing an SDK at
-            the full
+            (the samples below cover both shapes — pointing an SDK at the full
             <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
               /v1/chat/completions
             </code>
@@ -245,8 +243,8 @@ export function QuickStart({
             <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
               stream: true
             </code>
-            on the SDK call, to receive SSE token-by-token responses;
-            the samples below are non-streaming by default.
+            on the SDK call, to receive SSE token-by-token responses; the
+            samples below are non-streaming by default.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -254,9 +252,7 @@ export function QuickStart({
               <span className="sr-only">Language</span>
               <select
                 value={language}
-                onChange={(e) =>
-                  setLanguage(e.target.value as SampleLanguage)
-                }
+                onChange={(e) => setLanguage(e.target.value as SampleLanguage)}
                 className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
                 aria-label="Sample language"
               >

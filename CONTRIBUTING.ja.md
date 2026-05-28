@@ -41,6 +41,8 @@ pnpm build         # turbo run build (全パッケージをカバー)
 pnpm test          # モノレポ全体のユニットテスト
 pnpm typecheck     # モノレポ全体の tsc
 pnpm lint          # oxlint --deny-warnings の後、型情報ベースの strict ESLint 10 をモノレポ全体に
+pnpm format        # oxfmt --write (JS/TS/JSON/CSS/HTML を整形。設定は .oxfmtrc.json)
+pnpm format:check  # oxfmt --check。未整形ファイルがあると CI が失敗する
 ```
 
 特定のパッケージで作業するには:

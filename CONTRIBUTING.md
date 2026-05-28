@@ -41,6 +41,8 @@ pnpm build         # turbo run build (covers all packages)
 pnpm test          # unit tests across the monorepo
 pnpm typecheck     # tsc across the monorepo
 pnpm lint          # oxlint --deny-warnings, then strict ESLint 10 (type-aware) across the monorepo
+pnpm format        # oxfmt --write (formats JS/TS/JSON/CSS/HTML; config in .oxfmtrc.json)
+pnpm format:check  # oxfmt --check; CI fails on unformatted files
 ```
 
 To work on a specific package:

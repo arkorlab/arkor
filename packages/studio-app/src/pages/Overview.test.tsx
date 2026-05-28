@@ -6,7 +6,6 @@ import { jsonResponse } from "../test-utils/responses";
 
 import { Overview } from "./Overview";
 
-
 import type { Job } from "../lib/api";
 
 function makeJob(overrides: Partial<Job>): Job {
@@ -103,13 +102,14 @@ describe("<Overview />", () => {
   it("surfaces the error banner when /api/jobs fails", async () => {
     globalThis.fetch = mockFetchByRoute({
       jobs: () =>
-        new Response("nope", { status: 503, statusText: "Service Unavailable" }),
+        new Response("nope", {
+          status: 503,
+          statusText: "Service Unavailable",
+        }),
       manifest: () => jsonResponse({ trainer: null }),
     });
     render(<Overview />);
-    expect(
-      await screen.findByText(/failed to load jobs/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/failed to load jobs/i)).toBeInTheDocument();
   });
 
   it("renders the trainer name on the run-training button when the manifest exposes one", async () => {

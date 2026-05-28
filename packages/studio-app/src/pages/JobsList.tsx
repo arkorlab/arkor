@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Inbox, Refresh, Search } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
-import { Card, CardHeader, CardTitle, CardDescription } from "../components/ui/Card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { IconButton } from "../components/ui/IconButton";
 import { Skeleton } from "../components/ui/Skeleton";
@@ -123,9 +128,7 @@ export function JobsList() {
     return jobs.filter((j) => {
       if (filter !== "all" && j.status !== filter) return false;
       if (!q) return true;
-      return (
-        j.name.toLowerCase().includes(q) || j.id.toLowerCase().includes(q)
-      );
+      return j.name.toLowerCase().includes(q) || j.id.toLowerCase().includes(q);
     });
   }, [jobs, query, filter]);
 
@@ -219,11 +222,7 @@ export function JobsList() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon={<Inbox />}
-            title={
-              jobs?.length === 0
-                ? "No jobs yet"
-                : "No matches"
-            }
+            title={jobs?.length === 0 ? "No jobs yet" : "No matches"}
             description={
               jobs?.length === 0
                 ? "Run training from Overview to create your first job."

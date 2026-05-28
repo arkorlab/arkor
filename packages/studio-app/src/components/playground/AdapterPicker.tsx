@@ -46,7 +46,11 @@ export function AdapterPicker({
           </option>
         ) : null}
         {jobs.map((j) => (
-          <option key={j.id} value={j.id} className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+          <option
+            key={j.id}
+            value={j.id}
+            className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100"
+          >
             {j.name} ({truncateMiddle(j.id, 4, 4)})
           </option>
         ))}

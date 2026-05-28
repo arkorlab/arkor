@@ -34,7 +34,8 @@ export function Overview() {
           setError(null);
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
@@ -63,7 +64,8 @@ export function Overview() {
         <CardHeader>
           <CardTitle>Run training</CardTitle>
           <CardDescription>
-            Triggers your local trainer entry point and streams logs in real time.
+            Triggers your local trainer entry point and streams logs in real
+            time.
           </CardDescription>
         </CardHeader>
         <CardContent>

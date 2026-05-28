@@ -36,10 +36,7 @@ export function MessageList({
   }, [messages]);
 
   return (
-    <div
-      ref={wrapRef}
-      className="flex-1 overflow-y-auto px-4 py-6 sm:px-8"
-    >
+    <div ref={wrapRef} className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
         {messages.map((m, i) => {
           const isLast = i === messages.length - 1;

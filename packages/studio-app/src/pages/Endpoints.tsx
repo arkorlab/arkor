@@ -149,7 +149,10 @@ export function EndpointsList() {
             Endpoints
           </h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Dedicated <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-900">*.arkor.app</code>{" "}
+            Dedicated{" "}
+            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-900">
+              *.arkor.app
+            </code>{" "}
             URLs that serve OpenAI-compatible chat completions for a chosen
             adapter or base model.
           </p>
@@ -712,7 +715,6 @@ export function EndpointDetail({ id }: { id: string }) {
     };
   }, [id]);
 
-
   /**
    * Wrap a mutation so a slow API call that resolves after the user has
    * navigated to a different endpoint doesn't apply its result to the
@@ -963,9 +965,7 @@ export function EndpointDetail({ id }: { id: string }) {
         await refreshKeysIfStale(myId);
       } else {
         setKeys(
-          keys.map((k) =>
-            k.id === keyId ? { ...k, enabled: false } : k,
-          ),
+          keys.map((k) => (k.id === keyId ? { ...k, enabled: false } : k)),
         );
       }
     });
@@ -1017,7 +1017,11 @@ export function EndpointDetail({ id }: { id: string }) {
             {describeTarget(deployment.target)}
           </p>
         </div>
-        <Button variant="danger" onClick={() => void onDelete()} disabled={busy}>
+        <Button
+          variant="danger"
+          onClick={() => void onDelete()}
+          disabled={busy}
+        >
           Delete
         </Button>
       </div>
@@ -1089,7 +1093,10 @@ export function EndpointDetail({ id }: { id: string }) {
           )}
         </CardHeader>
         <CardContent>
-          <form onSubmit={(e) => void onCreateKey(e)} className="mb-4 flex items-center gap-2">
+          <form
+            onSubmit={(e) => void onCreateKey(e)}
+            className="mb-4 flex items-center gap-2"
+          >
             <input
               type="text"
               aria-label="API key label"

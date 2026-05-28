@@ -203,7 +203,8 @@ describe("install", () => {
         // lockfile.
         expect(log).not.toContain("\nfalse\n");
       } finally {
-        if (ORIG === undefined) delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
+        if (ORIG === undefined)
+          delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
         else process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = ORIG;
       }
     },
@@ -239,9 +240,11 @@ describe("install", () => {
         // None of the case variants survived to the child.
         expect(log).not.toContain("\nfalse\n");
       } finally {
-        if (ORIG_LOWER === undefined) delete process.env.yarn_enable_immutable_installs;
+        if (ORIG_LOWER === undefined)
+          delete process.env.yarn_enable_immutable_installs;
         else process.env.yarn_enable_immutable_installs = ORIG_LOWER;
-        if (ORIG_MIXED === undefined) delete process.env.Yarn_Enable_Immutable_Installs;
+        if (ORIG_MIXED === undefined)
+          delete process.env.Yarn_Enable_Immutable_Installs;
         else process.env.Yarn_Enable_Immutable_Installs = ORIG_MIXED;
       }
     },
@@ -429,9 +432,7 @@ describe("install", () => {
     // helper hits its `error` event branch (separate from the close-code
     // branch above).
     process.env.PATH = "/nonexistent-bin-path";
-    await expect(
-      install("pnpm" as never, cwd),
-    ).rejects.toThrow();
+    await expect(install("pnpm" as never, cwd)).rejects.toThrow();
   });
 });
 

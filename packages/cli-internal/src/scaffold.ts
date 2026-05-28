@@ -23,12 +23,7 @@ import type { PackageManager } from "./package-manager";
  *   `AGENTS.md` contains duplicate managed blocks). The file is **not**
  *   on disk afterwards, distinguishing this from `kept`.
  */
-export type FileAction =
-  | "created"
-  | "kept"
-  | "patched"
-  | "ok"
-  | "skipped";
+export type FileAction = "created" | "kept" | "patched" | "ok" | "skipped";
 
 export interface ScaffoldOptions {
   /** Destination directory — created if it does not already exist. */
@@ -152,8 +147,7 @@ const AGENTS_BLOCK_END = "<!-- END:arkor-agent-rules -->";
 // this string is a breaking change that orphans every existing
 // AGENTS.md (the old block will no longer be detected and a fresh one
 // will be appended on re-scaffold).
-const AGENTS_BLOCK_SIGNATURE_LINE =
-  "# arkor is newer than your training data";
+const AGENTS_BLOCK_SIGNATURE_LINE = "# arkor is newer than your training data";
 
 // Authored with LF; `withEol` re-targets line endings when patching a CRLF
 // host file so the surrounding content stays uniform.
@@ -363,9 +357,7 @@ async function patchGitignore(
     return "created";
   }
   const current = await readFile(path, "utf8");
-  const present = new Set(
-    current.split(/\r?\n/).map((line) => line.trim()),
-  );
+  const present = new Set(current.split(/\r?\n/).map((line) => line.trim()));
   if (present.has(".arkor/")) return "ok";
   const separator = current.endsWith("\n") ? "" : "\n";
   await writeFile(path, `${current}${separator}.arkor/\n`);
@@ -776,9 +768,7 @@ async function resolveEnclosingPackageManagerField(
  * resolution out so the corepack lookup uses the pre-patch local
  * snapshot + parent-tree walk-up.)
  */
-function declaresYarnBerry(
-  packageManagerField: string | undefined,
-): boolean {
+function declaresYarnBerry(packageManagerField: string | undefined): boolean {
   if (typeof packageManagerField !== "string") return false;
   const m = /^yarn@(\d+)/.exec(packageManagerField.trim());
   if (!m) return false;
@@ -1024,8 +1014,7 @@ async function patchPackageJson(
     string,
     unknown
   >;
-  const scripts =
-    (current.scripts as Record<string, string> | undefined) ?? {};
+  const scripts = (current.scripts as Record<string, string> | undefined) ?? {};
   let dirty = false;
   for (const [key, value] of Object.entries(SCRIPT_DEFAULTS)) {
     if (!scripts[key]) {
@@ -1204,9 +1193,9 @@ function readAllowBuildsValue(
   const escaped = pkg.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   // Inline mapping at the document root: `allowBuilds: { esbuild: false, ... }`.
   const inlineMatch = new RegExp(
-      String.raw`^${root}allowBuilds:[ \t]*\{([^}]*)\}${TRAILING_COMMENT_AND_EOL}`,
-      "m",
-    ).exec(contents);
+    String.raw`^${root}allowBuilds:[ \t]*\{([^}]*)\}${TRAILING_COMMENT_AND_EOL}`,
+    "m",
+  ).exec(contents);
   if (inlineMatch) {
     // Round 39 (Codex P2, PR #99): anchor the key match at a
     // mapping-start boundary so `esbuild` doesn't match as a
@@ -1245,8 +1234,8 @@ function readAllowBuildsValue(
     const indentMatch = /^[ \t]+/.exec(line);
     if (!indentMatch || indentMatch[0].length <= root.length) break; // dedent
     const m = new RegExp(
-        String.raw`^[ \t]+["']?${escaped}["']?[ \t]*:[ \t]*(true|false)${TRAILING_COMMENT_AND_EOL}`,
-      ).exec(line);
+      String.raw`^[ \t]+["']?${escaped}["']?[ \t]*:[ \t]*(true|false)${TRAILING_COMMENT_AND_EOL}`,
+    ).exec(line);
     if (m) return m[1] === "true";
   }
   return undefined;
@@ -1392,9 +1381,8 @@ function appendEsbuildToAllowBuilds(
     // original was written.
     const inner = inlineMatch[1].trim().replace(/,\s*$/, "");
     const trailing = inlineMatch[2];
-    const merged = inner.length > 0
-      ? `${inner}, esbuild: ${value}`
-      : `esbuild: ${value}`;
+    const merged =
+      inner.length > 0 ? `${inner}, esbuild: ${value}` : `esbuild: ${value}`;
     return contents.replace(
       inlineRe,
       `${root}allowBuilds: { ${merged} }${trailing}`,
@@ -1417,8 +1405,7 @@ function appendEsbuildToAllowBuilds(
     // default to root + two spaces (pnpm's convention).
     const entryIndentMatch = /^([ \t]+)/.exec(body);
     const entryIndent = entryIndentMatch?.[1] ?? `${root}  `;
-    const replacement =
-      `${root}allowBuilds:${headerTrailing}${eol}${body}${entryIndent}esbuild: ${value}${eol}`;
+    const replacement = `${root}allowBuilds:${headerTrailing}${eol}${body}${entryIndent}esbuild: ${value}${eol}`;
     return contents.replace(blockRe, replacement);
   }
   // No allowBuilds at all. Append a fresh block at the document
@@ -1632,8 +1619,7 @@ export async function scaffold(
     PNPM_WORKSPACE_PATH,
   );
   const pmIsPnpmOrUndefined =
-    options.packageManager === "pnpm" ||
-    options.packageManager === undefined;
+    options.packageManager === "pnpm" || options.packageManager === undefined;
   const shouldCreateFreshPnpmWorkspace =
     !cwdHasPnpmWorkspace &&
     !enclosingPnpmWorkspaceAbove &&
@@ -1643,10 +1629,7 @@ export async function scaffold(
     pmIsPnpmOrUndefined &&
     (cwdHasPnpmWorkspace || shouldCreateFreshPnpmWorkspace)
   ) {
-    const action = await patchPnpmWorkspace(
-      cwd,
-      options.allowBuilds === true,
-    );
+    const action = await patchPnpmWorkspace(cwd, options.allowBuilds === true);
     files.push({ path: PNPM_WORKSPACE_PATH, action });
   }
   // Yarn-config emission rules:
@@ -1803,10 +1786,7 @@ export async function scaffold(
         blockInstall = true;
       }
     }
-  } else if (
-    options.packageManager === undefined &&
-    isExistingProject
-  ) {
+  } else if (options.packageManager === undefined && isExistingProject) {
     // Inspect-only counterpart to the patch path above. The
     // emission rules elected NOT to write `.yarnrc.yml` here (an
     // unknown-pm merge into a pre-existing project mustn't flip
@@ -1837,80 +1817,80 @@ export async function scaffold(
     //     a lot, which doesn't set `npm_config_user_agent`).
     const status = await inspectYarnConfig(cwd);
     switch (status.kind) {
-    case "conflict": {
-      warnings.push(buildYarnLinkerConflictWarning(status.value));
-      blockInstall = true;
-
-    break;
-    }
-    case "berry-without-linker": {
-      // Round 39 (Copilot, PR #99): cwd's yarnrc has no
-      // `nodeLinker:` key, but yarn merges configs up the tree —
-      // an ancestor workspace root pinning `nodeLinker: node-modules`
-      // is the safe case the caveat is supposed to nudge users
-      // toward. `readEnclosingYarnrcNodeLinker` walks ancestor
-      // yarnrcs until it finds the first definitive `nodeLinker:`,
-      // so it correctly resolves the merged effective value here.
-      const merged = await readEnclosingYarnrcNodeLinker(cwd);
-      if (merged !== "node-modules") {
-        warnings.push(buildYarnBerryCaveatAdvisory());
+      case "conflict": {
+        warnings.push(buildYarnLinkerConflictWarning(status.value));
         blockInstall = true;
-      }
 
-    break;
-    }
-    case "no-config": {
-      // Round 16 (Copilot, PR #99): consult the pre-patch
-      // local snapshot AND the parent tree for the corepack
-      // declaration. The bare cwd-only check would (a) misread
-      // a freshly scaffolded `package.json` because
-      // `patchPackageJson` already ran above, and (b) miss
-      // the entire parent-workspace declaration in the
-      // monorepo-subdir case round 15 widened us into.
-      //
-      // Round 31 (Copilot, PR #99): also consult `.yarn/` on
-      // disk — the patch path adopted that as a positive
-      // yarn-berry signal in round 29 (yarn 1 doesn't create
-      // that tree, so its existence is unambiguous yarn-berry
-      // evidence) but the inspect path was still narrower,
-      // missing yarn-berry repos that have committed
-      // `.yarn/releases/yarn-*.cjs` but not yet a corepack
-      // `packageManager` field. We DO NOT mirror the patch
-      // path's runtime `detectYarnMajor` fallback here:
-      // the inspect path fires when the user did NOT opt into
-      // yarn (`pm === undefined`), so probing `yarn --version`
-      // would false-positive on every pnpm/npm/bun project that
-      // happens to have yarn installed in its dev env.
-      //
-      // Round 34 (Copilot, PR #99): walk up the ancestor tree
-      // for both `.yarnrc.yml` and `.yarn/` (matching the patch
-      // path's round-34 fix) so monorepo-subdir scaffolds whose
-      // workspace root pins the yarn-berry config are detected.
-      // The cwd-only `inspectYarnConfig` returned `no-config`
-      // because the local dir doesn't have `.yarnrc.yml`, but
-      // the parent workspace's `.yarnrc.yml` still governs
-      // `yarn install` from this subdir.
-      // Round 38 (Codex P2, PR #99): same enclosing-linker
-      // short-circuit as the patch path above. An ancestor
-      // workspace root that already pins `nodeLinker: node-modules`
-      // is the safe case — no caveat needed.
-      const enclosingNodeLinker = await readEnclosingYarnrcNodeLinker(cwd);
-      if (enclosingNodeLinker !== "node-modules") {
-        const yarnrcInTree = hasEnclosingPath(cwd, YARNRC_YML_PATH);
-        const yarnDirInTree = hasEnclosingPath(cwd, ".yarn");
-        const declared = await resolveEnclosingPackageManagerField(
-          cwd,
-          preExistingPackageManagerField,
-        );
-        if (yarnrcInTree || yarnDirInTree || declaresYarnBerry(declared)) {
+        break;
+      }
+      case "berry-without-linker": {
+        // Round 39 (Copilot, PR #99): cwd's yarnrc has no
+        // `nodeLinker:` key, but yarn merges configs up the tree —
+        // an ancestor workspace root pinning `nodeLinker: node-modules`
+        // is the safe case the caveat is supposed to nudge users
+        // toward. `readEnclosingYarnrcNodeLinker` walks ancestor
+        // yarnrcs until it finds the first definitive `nodeLinker:`,
+        // so it correctly resolves the merged effective value here.
+        const merged = await readEnclosingYarnrcNodeLinker(cwd);
+        if (merged !== "node-modules") {
           warnings.push(buildYarnBerryCaveatAdvisory());
           blockInstall = true;
         }
-      }
 
-    break;
-    }
-    // No default
+        break;
+      }
+      case "no-config": {
+        // Round 16 (Copilot, PR #99): consult the pre-patch
+        // local snapshot AND the parent tree for the corepack
+        // declaration. The bare cwd-only check would (a) misread
+        // a freshly scaffolded `package.json` because
+        // `patchPackageJson` already ran above, and (b) miss
+        // the entire parent-workspace declaration in the
+        // monorepo-subdir case round 15 widened us into.
+        //
+        // Round 31 (Copilot, PR #99): also consult `.yarn/` on
+        // disk — the patch path adopted that as a positive
+        // yarn-berry signal in round 29 (yarn 1 doesn't create
+        // that tree, so its existence is unambiguous yarn-berry
+        // evidence) but the inspect path was still narrower,
+        // missing yarn-berry repos that have committed
+        // `.yarn/releases/yarn-*.cjs` but not yet a corepack
+        // `packageManager` field. We DO NOT mirror the patch
+        // path's runtime `detectYarnMajor` fallback here:
+        // the inspect path fires when the user did NOT opt into
+        // yarn (`pm === undefined`), so probing `yarn --version`
+        // would false-positive on every pnpm/npm/bun project that
+        // happens to have yarn installed in its dev env.
+        //
+        // Round 34 (Copilot, PR #99): walk up the ancestor tree
+        // for both `.yarnrc.yml` and `.yarn/` (matching the patch
+        // path's round-34 fix) so monorepo-subdir scaffolds whose
+        // workspace root pins the yarn-berry config are detected.
+        // The cwd-only `inspectYarnConfig` returned `no-config`
+        // because the local dir doesn't have `.yarnrc.yml`, but
+        // the parent workspace's `.yarnrc.yml` still governs
+        // `yarn install` from this subdir.
+        // Round 38 (Codex P2, PR #99): same enclosing-linker
+        // short-circuit as the patch path above. An ancestor
+        // workspace root that already pins `nodeLinker: node-modules`
+        // is the safe case — no caveat needed.
+        const enclosingNodeLinker = await readEnclosingYarnrcNodeLinker(cwd);
+        if (enclosingNodeLinker !== "node-modules") {
+          const yarnrcInTree = hasEnclosingPath(cwd, YARNRC_YML_PATH);
+          const yarnDirInTree = hasEnclosingPath(cwd, ".yarn");
+          const declared = await resolveEnclosingPackageManagerField(
+            cwd,
+            preExistingPackageManagerField,
+          );
+          if (yarnrcInTree || yarnDirInTree || declaresYarnBerry(declared)) {
+            warnings.push(buildYarnBerryCaveatAdvisory());
+            blockInstall = true;
+          }
+        }
+
+        break;
+      }
+      // No default
     }
   }
   for (const entry of agentEntries) files.push(entry);

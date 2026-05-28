@@ -29,7 +29,11 @@ export function BaseModelPicker({
         className="absolute inset-0 cursor-pointer appearance-none bg-transparent text-transparent opacity-0 disabled:cursor-not-allowed"
       >
         {SUPPORTED_BASE_MODELS.map((m) => (
-          <option key={m} value={m} className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+          <option
+            key={m}
+            value={m}
+            className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100"
+          >
             {m}
           </option>
         ))}

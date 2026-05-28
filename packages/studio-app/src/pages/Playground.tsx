@@ -8,16 +8,10 @@ import {
   MessageList,
   type ChatMessage,
 } from "../components/playground/MessageList";
-import {
-  ModelToggle,
-  type Mode,
-} from "../components/playground/ModelToggle";
+import { ModelToggle, type Mode } from "../components/playground/ModelToggle";
 import { EmptyState } from "../components/ui/EmptyState";
 import { fetchJobs, streamInferenceContent, type Job } from "../lib/api";
-import {
-  DEFAULT_BASE_MODEL,
-  type SupportedBaseModel,
-} from "../lib/baseModels";
+import { DEFAULT_BASE_MODEL, type SupportedBaseModel } from "../lib/baseModels";
 
 export function Playground({
   initialAdapterId,
@@ -232,7 +226,10 @@ export function Playground({
     // on the same view, and going Base drops the `?adapter=…` so it
     // doesn't reappear on next reload. `replaceState` (not push) so we
     // don't litter the back/forward stack with every toggle.
-    syncHash({ mode: next, adapterId: next === "adapter" ? selectedJob : null });
+    syncHash({
+      mode: next,
+      adapterId: next === "adapter" ? selectedJob : null,
+    });
   }
 
   function selectAdapter(id: string) {
@@ -270,14 +267,14 @@ export function Playground({
               }}
               disabled={streaming}
             />
-          ) : (jobs && jobs.length > 0 ? (
+          ) : jobs && jobs.length > 0 ? (
             <AdapterPicker
               jobs={jobs}
               selectedId={selectedJob}
               onSelect={selectAdapter}
               disabled={streaming}
             />
-          ) : null)}
+          ) : null}
         </div>
       </div>
 

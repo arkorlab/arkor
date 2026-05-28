@@ -20,7 +20,8 @@ vi.mock("../core/telemetry", () => ({
       _name: string,
       handler: (...args: TArgs) => Promise<void>,
     ) =>
-    async (...args: TArgs) => handler(...args),
+    async (...args: TArgs) =>
+      handler(...args),
   shutdownTelemetry: vi.fn(async () => undefined),
 }));
 
@@ -126,9 +127,9 @@ describe("main (CLI Commander wiring)", () => {
   });
 
   it("rejects `init --git --skip-git` (mutually exclusive)", async () => {
-    await expect(
-      main(["init", "--git", "--skip-git"]),
-    ).rejects.toThrow(/--git \/ --skip-git, not both/);
+    await expect(main(["init", "--git", "--skip-git"])).rejects.toThrow(
+      /--git \/ --skip-git, not both/,
+    );
     expect(runInit).not.toHaveBeenCalled();
   });
 
@@ -143,7 +144,6 @@ describe("main (CLI Commander wiring)", () => {
     ).rejects.toThrow(/--agents-md \/ --no-agents-md, not both/);
     expect(runInit).not.toHaveBeenCalled();
   });
-
 
   it("dispatches `login` with parsed --oauth / --no-browser flags", async () => {
     await main(["login", "--oauth", "--no-browser"]);
@@ -164,9 +164,9 @@ describe("main (CLI Commander wiring)", () => {
   });
 
   it("rejects `login --oauth --anonymous` at the CLI layer", async () => {
-    await expect(
-      main(["login", "--oauth", "--anonymous"]),
-    ).rejects.toThrow(/--oauth \/ --anonymous, not both/);
+    await expect(main(["login", "--oauth", "--anonymous"])).rejects.toThrow(
+      /--oauth \/ --anonymous, not both/,
+    );
     expect(runLogin).not.toHaveBeenCalled();
   });
 
@@ -214,12 +214,12 @@ describe("main (CLI Commander wiring)", () => {
     };
     // clack's `ui.log.warn` writes the formatted line to stdout.
     const stdoutChunks: string[] = [];
-    const spy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((c: unknown) => {
-        stdoutChunks.push(String(c));
-        return true;
-      }) as typeof process.stdout.write);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      c: unknown,
+    ) => {
+      stdoutChunks.push(String(c));
+      return true;
+    }) as typeof process.stdout.write);
     try {
       await main(["whoami"]);
     } finally {
@@ -250,12 +250,12 @@ describe("main (CLI Commander wiring)", () => {
     // parent worker).
     process.env.CLAUDECODE = "1";
     const stderrChunks: string[] = [];
-    const spy = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(((c: unknown) => {
-        stderrChunks.push(String(c));
-        return true;
-      }) as typeof process.stderr.write);
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(((
+      c: unknown,
+    ) => {
+      stderrChunks.push(String(c));
+      return true;
+    }) as typeof process.stderr.write);
     try {
       await expect(
         main(["init", "--template", "triage", "--skip-git"]),
@@ -299,12 +299,12 @@ describe("main (CLI Commander wiring)", () => {
     };
     // clack's `ui.log.warn` writes the formatted line to stdout.
     const stdoutChunks: string[] = [];
-    const spy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((c: unknown) => {
-        stdoutChunks.push(String(c));
-        return true;
-      }) as typeof process.stdout.write);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      c: unknown,
+    ) => {
+      stdoutChunks.push(String(c));
+      return true;
+    }) as typeof process.stdout.write);
     try {
       await main(["whoami"]);
     } finally {

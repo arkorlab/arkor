@@ -49,7 +49,11 @@ export const anonymousTokenResponseSchema = z.object({
   token: z.string(),
   anonymousId: z.string(),
   kind: z.enum(["cli", "web"]),
-  personalOrg: z.looseObject({ slug: z.string(), id: z.string(), name: z.string() }),
+  personalOrg: z.looseObject({
+    slug: z.string(),
+    id: z.string(),
+    name: z.string(),
+  }),
 });
 
 export const projectSchema = z.looseObject({
@@ -130,7 +134,7 @@ export const createDeploymentRequestSchema = z
       .max(50)
       .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, {
         message:
-          "slug must be 2-50 chars, lowercase letters / digits / hyphens, starting and ending with a letter or digit (e.g. \"my-model\")",
+          'slug must be 2-50 chars, lowercase letters / digits / hyphens, starting and ending with a letter or digit (e.g. "my-model")',
       }),
     target: deploymentTargetSchema,
     authMode: z.enum(["none", "fixed_api_key"]),
@@ -142,9 +146,7 @@ export const createDeploymentRequestSchema = z
     // bug. The response decoder (`deploymentSchema` below) stays
     // open-enum so a future server-side addition flows through to
     // the SPA without a synchronous SDK release.
-    runRetentionMode: z
-      .enum(["unlimited", "disabled", "days"])
-      .optional(),
+    runRetentionMode: z.enum(["unlimited", "disabled", "days"]).optional(),
     runRetentionDays: z.number().int().positive().optional(),
   })
   .superRefine((data, ctx) => {
@@ -160,7 +162,7 @@ export const createDeploymentRequestSchema = z
         code: "custom",
         path: ["runRetentionDays"],
         message:
-          "runRetentionDays is only valid when runRetentionMode is \"days\".",
+          'runRetentionDays is only valid when runRetentionMode is "days".',
       });
     }
     if (
@@ -171,7 +173,7 @@ export const createDeploymentRequestSchema = z
         code: "custom",
         path: ["runRetentionDays"],
         message:
-          "runRetentionMode \"days\" requires a positive integer runRetentionDays.",
+          'runRetentionMode "days" requires a positive integer runRetentionDays.',
       });
     }
   });
