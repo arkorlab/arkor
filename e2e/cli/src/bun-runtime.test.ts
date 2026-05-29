@@ -19,9 +19,18 @@ import { cleanup, findBunBin, makeTempDir, runCli } from "./spawn-cli";
 // runtime) instead of `node` and assert it produces the same
 // observable output. They auto-skip when `bun` isn't on PATH so
 // local developers without bun installed don't see spurious
-// failures; CI provisions bun on every build-matrix job (via the
-// `Setup bun` step in `.github/workflows/ci.yaml`'s `build` job),
-// so these tests always run on CI rather than skipping.
+// failures.
+//
+// CI coverage: the workflow's `build` matrix job provisions bun
+// (via the `Setup bun` step in `.github/workflows/ci.yaml`) on
+// every cell, so this suite runs across the full OS / Node fan-
+// out there. The `coverage` job, which also dispatches
+// `e2e/cli`'s test target via `pnpm test:coverage`, does NOT
+// provision bun and therefore auto-skips this suite; that's an
+// accepted gap (coverage-on-bun isn't tracked) rather than an
+// oversight. If you ever need coverage of the bun runtime path,
+// add a `Setup bun` step to the `coverage` job and the suite
+// will start running there too.
 const BUN_BIN = findBunBin();
 
 describe.skipIf(BUN_BIN === undefined)("arkor CLI under the Bun runtime", () => {

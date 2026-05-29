@@ -37,8 +37,13 @@ export function __resetBunBinCacheForTest(): void {
  * whether to skip itself; local dev machines without bun installed
  * aren't penalised. CI provisions bun on every build-matrix job
  * (see `.github/workflows/ci.yaml`'s `Setup bun` step in the
- * `build` job), so this probe always succeeds on CI and the bun
- * runtime suite is never skipped there.
+ * `build` job), so this probe succeeds on every build-matrix cell
+ * and the bun runtime suite runs there. The `coverage` job does
+ * NOT provision bun (it runs `pnpm test:coverage` which still
+ * dispatches `e2e/cli`'s test target), so the suite auto-skips
+ * there; that's an accepted gap because the build-matrix already
+ * exercises the bun runtime path across the OS / Node fan-out
+ * and coverage-on-bun isn't tracked.
  *
  * Scope note (PR #159 Copilot review): the resolved absolute path
  * is cached and consumed by `runCli(runtime: "bun")` directly, so
