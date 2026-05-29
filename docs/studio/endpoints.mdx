@@ -29,7 +29,7 @@ Open `#/endpoints` from the nav. Each row shows:
 
 Click any row to open the detail page. There is no search / filter or auto-refresh on this page today; reload to pick up changes from another tab or the CLI / SDK.
 
-When `.arkor/state.json` isn't on disk yet, the deployments list itself shows empty without an upstream call (there's no scope to send without `orgSlug` / `projectSlug`). Studio's startup may still hit the cloud API once via `/api/credentials` to mint an anonymous token if `~/.arkor/credentials.json` is also missing — that's the only outbound call made before the empty list renders. The state file itself is bootstrapped lazily on the first call that needs a scope (training run, base-model inference, first deployment create) — but **only for anonymous credentials**. OAuth-signed-in callers without a state file get a "missing state" error instead and have to write `.arkor/state.json` by hand with `{ orgSlug, projectSlug, projectId }`; auto-bootstrap doesn't run there because the runtime doesn't know which org / project the logged-in user wants. `arkor dev` itself doesn't write the file, so an empty list right after launching Studio is normal and expected.
+When `.arkor/state.json` isn't on disk yet, the deployments list itself shows empty without an upstream call (there's no scope to send without `orgSlug` / `projectSlug`). Studio's startup may still hit the cloud API once via `/api/credentials` to mint an anonymous token if `~/.arkor/credentials.json` is also missing; that's the only outbound call made before the empty list renders. The state file itself is bootstrapped lazily on the first call that needs a scope (training run, base-model inference, first deployment create), but **only for anonymous credentials**. OAuth-signed-in callers without a state file get a "missing state" error instead and have to write `.arkor/state.json` by hand with `{ orgSlug, projectSlug, projectId }`; auto-bootstrap doesn't run there because the runtime doesn't know which org / project the logged-in user wants. `arkor dev` itself doesn't write the file, so an empty list right after launching Studio is normal and expected.
 
 ## Create
 
@@ -51,7 +51,7 @@ The detail page (`#/endpoints/<id>`) groups four concerns:
 
 ### Endpoint URL
 
-The full `https://<slug>.arkor.app/v1/chat/completions` URL with a copy button. This is the **per-operation** URL — paste it into cURL or any raw HTTP client. The OpenAI SDKs expect the **base URL** instead (`https://<slug>.arkor.app/v1`); pointing them at the full per-operation URL would have the SDK append its own route and 404. The Quick start card below shows the correct shape for each language so you don't have to choose.
+The full `https://<slug>.arkor.app/v1/chat/completions` URL with a copy button. This is the **per-operation** URL; paste it into cURL or any raw HTTP client. The OpenAI SDKs expect the **base URL** instead (`https://<slug>.arkor.app/v1`); pointing them at the full per-operation URL would have the SDK append its own route and 404. The Quick start card below shows the correct shape for each language so you don't have to choose.
 
 ### Quick start
 
@@ -73,7 +73,7 @@ The target itself is **not** editable from the UI today. To re-target a deployme
 
 - The list shows label and prefix (the first ~12 chars of the plaintext, e.g. `ark_live_abcd1234…`). Revoked keys appear struck-through.
 - **Issue key** prompts for a label (1-80 chars, e.g. `production`, `staging`) and on success shows the **plaintext exactly once** in an amber callout with a copy button. Save it now; neither Studio nor the cloud API will ever return it again.
-- **Revoke** flips `enabled` to false. The edge service stops accepting the key shortly afterwards; the exact window isn't part of the public contract, so don't gate flows that need an immediate hard cutoff on this — pair revoke with a server-side block when the disable must be instantaneous.
+- **Revoke** flips `enabled` to false. The edge service stops accepting the key shortly afterwards; the exact window isn't part of the public contract, so don't gate flows that need an immediate hard cutoff on this; pair revoke with a server-side block when the disable must be instantaneous.
 
 The cloud API also tracks a per-key `lastUsedAt` timestamp (best-effort), but Studio does not surface it in this list yet. Call [`listDeploymentKeys`](/sdk/deployments) from the SDK if you need to see it. It's intended for "has anyone used this key recently?" rather than precise audit.
 

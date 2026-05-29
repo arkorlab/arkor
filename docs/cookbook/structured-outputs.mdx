@@ -5,7 +5,7 @@ description: "Constrain a checkpoint's output to a JSON schema, parse it as a ty
 
 # Structured outputs and function calling
 
-A fine-tuned model is supposed to emit a fixed shape — `triage` produces `{ category, urgency, summary, nextAction }`, `redaction` produces `{ redactedText, redactedCount, tags }` — but at a half-trained checkpoint the output drifts: extra prose, missing keys, the occasional unparseable blob. Hoping the dataset alone keeps things tidy is fragile.
+A fine-tuned model is supposed to emit a fixed shape (`triage` produces `{ category, urgency, summary, nextAction }`, `redaction` produces `{ redactedText, redactedCount, tags }`), but at a half-trained checkpoint the output drifts: extra prose, missing keys, the occasional unparseable blob. Hoping the dataset alone keeps things tidy is fragile.
 
 `infer({ responseFormat })` gets you a hard guarantee. The model is constrained at decode time to emit a string that matches the JSON Schema you hand it, so `JSON.parse` always succeeds and the resulting object always has the keys you asked for. That turns the mid-run check from "log a sample, eyeball it" into "extract typed fields, branch on them."
 
@@ -110,7 +110,7 @@ The schema guarantees `category` exists and is a string; you decide what *valid*
 
 ## Function calling
 
-When the model needs to reach for a tool — look up an order, fetch the weather, query an internal API — pass `tools` and `toolChoice` to `infer`. The response carries `tool_calls` instead of free-form content; your code runs the tool and (if you want to continue the conversation) appends a `tool` message and calls `infer` again.
+When the model needs to reach for a tool (look up an order, fetch the weather, query an internal API), pass `tools` and `toolChoice` to `infer`. The response carries `tool_calls` instead of free-form content; your code runs the tool and (if you want to continue the conversation) appends a `tool` message and calls `infer` again.
 
 ```ts
 onCheckpoint: async ({ step, infer }) => {
@@ -146,13 +146,13 @@ onCheckpoint: async ({ step, infer }) => {
 };
 ```
 
-Function calling needs the inference endpoint to be configured with auto-tool-extraction. If it is not, the request returns `400 tool_calling_not_configured` — that is the signal to flip the endpoint config, not to retry. `toolChoice: "required"` and `toolChoice: { type: "function", function: { name } }` go through a guided-decoding path instead and do not need the parser; `"auto"` is the one that needs it.
+Function calling needs the inference endpoint to be configured with auto-tool-extraction. If it is not, the request returns `400 tool_calling_not_configured`; that is the signal to flip the endpoint config, not to retry. `toolChoice: "required"` and `toolChoice: { type: "function", function: { name } }` go through a guided-decoding path instead and do not need the parser; `"auto"` is the one that needs it.
 
 ## When `responseFormat` cannot express the constraint
 
 `responseFormat` is the right knob 90% of the time. For the rest there is `structuredOutputs`, vLLM's superset that adds regex matching, fixed choice lists, and custom EBNF grammars. **Exactly one** of `json` / `regex` / `choice` / `grammar` / `json_object` must be set; the type encodes that invariant so you cannot accidentally combine two.
 
-A common case is forcing the output to one of a fixed set of strings — useful for classifier-style prompts where any free-form prefix would be a regression:
+A common case is forcing the output to one of a fixed set of strings, useful for classifier-style prompts where any free-form prefix would be a regression:
 
 ```ts
 const res = await infer({
@@ -171,6 +171,6 @@ Other shapes follow the same pattern: `regex: "^[A-Z]{3}-\\d{4}$"` for ticket-id
 ## What to keep in mind
 
 - **`strict: true` is what you want.** Without it, the schema is a hint; the model can still drift. With it, the backend rejects properties not in `properties` and enforces `required`.
-- **`stream: false` for parsing.** With streaming on you get SSE deltas, which means you have to assemble the JSON yourself before parsing. For a recipe like this, a single JSON body is shorter and the latency cost is irrelevant — it is one inference per checkpoint.
+- **`stream: false` for parsing.** With streaming on you get SSE deltas, which means you have to assemble the JSON yourself before parsing. For a recipe like this, a single JSON body is shorter and the latency cost is irrelevant: it is one inference per checkpoint.
 - **Wrap in `try / catch`.** The runtime catches throws and routes them through the SSE reconnect loop ([SDK § Lifecycle callbacks](/sdk/callbacks)). For deterministic behavior, handle errors inside the callback and use a controller for state changes (same convention as the other recipes).
 - **Schemas are forwarded verbatim.** The SDK does not validate the JSON Schema you pass; the inference backend does. Errors come back as 4xx with a message that points at the offending field.
