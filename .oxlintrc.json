@@ -77,7 +77,14 @@
         "**/*.test.{ts,tsx,js,jsx,mjs}",
         "**/*.spec.{ts,tsx,js,jsx,mjs}"
       ],
-      "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "vitest"],
+      "plugins": [
+        "typescript",
+        "unicorn",
+        "oxc",
+        "import",
+        "promise",
+        "vitest"
+      ],
       "env": {
         "node": true
       },

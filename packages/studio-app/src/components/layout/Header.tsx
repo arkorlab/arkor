@@ -24,7 +24,9 @@ export function Header({
           className="flex shrink-0 items-center gap-2 text-zinc-900 dark:text-zinc-100"
         >
           <ArkorMark />
-          <span className="text-[15px] font-semibold tracking-tight">Arkor</span>
+          <span className="text-[15px] font-semibold tracking-tight">
+            Arkor
+          </span>
         </a>
 
         <span aria-hidden className="text-zinc-300 dark:text-zinc-700">

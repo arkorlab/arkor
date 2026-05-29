@@ -1,8 +1,22 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import { ARKOR_BIN } from "./bins";
 import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
@@ -65,7 +79,6 @@ beforeAll(() => {
 afterAll(() => {
   if (arkorPackDir) cleanup(arkorPackDir);
 });
-
 
 describe("arkor init (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -151,16 +164,19 @@ describe("arkor init (E2E)", () => {
   it.each([
     { pm: "yarn", devCmd: "yarn arkor dev" },
     { pm: "bun", devCmd: "bun arkor dev" },
-  ])("renders the $pm next-steps when --use-$pm is set", async ({ pm, devCmd }) => {
-    const result = await runCli(
-      ARKOR_BIN,
-      ["init", "-y", "--skip-install", "--skip-git", `--use-${pm}`],
-      cwd,
-    );
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain(`${pm} install`);
-    expect(result.stdout).toContain(devCmd);
-  });
+  ])(
+    "renders the $pm next-steps when --use-$pm is set",
+    async ({ pm, devCmd }) => {
+      const result = await runCli(
+        ARKOR_BIN,
+        ["init", "-y", "--skip-install", "--skip-git", `--use-${pm}`],
+        cwd,
+      );
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain(`${pm} install`);
+      expect(result.stdout).toContain(devCmd);
+    },
+  );
 
   it("creates a real git repo and initial commit when --git is set", async () => {
     const result = await runCli(
@@ -239,9 +255,9 @@ describe("arkor init (E2E)", () => {
     const trainer = readFileSync(join(cwd, "src/arkor/trainer.ts"), "utf8");
     expect(trainer).toContain('"redaction-run"');
 
-    const pkg = JSON.parse(
-      readFileSync(join(cwd, "package.json"), "utf8"),
-    ) as { name?: string };
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as {
+      name?: string;
+    };
     expect(pkg.name).toBe("no-prompt-app");
   });
 
@@ -251,21 +267,14 @@ describe("arkor init (E2E)", () => {
   it("sanitises --name when prompts are skipped", async () => {
     const result = await runCli(
       ARKOR_BIN,
-      [
-        "init",
-        "-y",
-        "--skip-install",
-        "--skip-git",
-        "--name",
-        "Foo Bar!",
-      ],
+      ["init", "-y", "--skip-install", "--skip-git", "--name", "Foo Bar!"],
       cwd,
     );
     expect(result.code).toBe(0);
 
-    const pkg = JSON.parse(
-      readFileSync(join(cwd, "package.json"), "utf8"),
-    ) as { name?: string };
+    const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as {
+      name?: string;
+    };
     expect(pkg.name).toBe("foo-bar");
   });
 
@@ -281,10 +290,10 @@ describe("arkor init (E2E)", () => {
         CLAUDECODE: "1",
       });
       expect(result.code).toBe(1);
+      expect(result.stderr).toContain("arkor init: CLAUDECODE=1 detected");
       expect(result.stderr).toContain(
-        "arkor init: CLAUDECODE=1 detected",
+        "--template <triage|translate|redaction>",
       );
-      expect(result.stderr).toContain("--template <triage|translate|redaction>");
       expect(result.stderr).toContain("--git (recommended) or --skip-git");
       expect(result.stderr).toContain("--use-pnpm");
       expect(result.stderr).toContain(
@@ -546,7 +555,6 @@ describe("arkor init (E2E)", () => {
             !existsSync(join(projectDir, "node_modules")) ||
             !expectedGit
           ) {
-
             console.error(
               `[install-matrix:${label}] arkor init missing expected artefact:\n` +
                 `  exit: ${result.code}\n` +

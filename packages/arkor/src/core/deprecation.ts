@@ -1,7 +1,5 @@
 import type { DeprecationNotice } from "@arkor/cloud-api-client";
 
-
-
 let latest: DeprecationNotice | null = null;
 
 /**

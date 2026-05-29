@@ -7,7 +7,6 @@ import { jsonResponse, textStreamResponse } from "../test-utils/responses";
 
 import { RunTraining } from "./RunTraining";
 
-
 const ORIG_FETCH = globalThis.fetch;
 
 afterEach(() => {

@@ -10,12 +10,7 @@
  */
 
 /** Stable label that gates the install case via `ARKOR_E2E_PM`. */
-export type InstallCaseLabel =
-  | "npm"
-  | "pnpm"
-  | "yarn"
-  | "yarn-berry"
-  | "bun";
+export type InstallCaseLabel = "npm" | "pnpm" | "yarn" | "yarn-berry" | "bun";
 
 export interface InstallCase {
   /** Value `ARKOR_E2E_PM` must match for this case to run. */
@@ -33,14 +28,14 @@ export interface InstallCase {
 }
 
 export const INSTALL_CASES: readonly InstallCase[] = [
-  { label: "npm",        flag: "npm",  localDefault: true  },
-  { label: "pnpm",       flag: "pnpm", localDefault: true  },
-  { label: "yarn",       flag: "yarn", localDefault: false },
+  { label: "npm", flag: "npm", localDefault: true },
+  { label: "pnpm", flag: "pnpm", localDefault: true },
+  { label: "yarn", flag: "yarn", localDefault: false },
   // yarn-berry shares the SDK's `--use-yarn` flag; the CI matrix
   // swaps the `yarn` binary in PATH between 1.x (classic) and 4.x
   // (berry).
   { label: "yarn-berry", flag: "yarn", localDefault: false },
-  { label: "bun",        flag: "bun",  localDefault: false },
+  { label: "bun", flag: "bun", localDefault: false },
 ] as const;
 
 const SKIP_INSTALL = process.env.SKIP_E2E_INSTALL === "1";

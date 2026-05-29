@@ -34,7 +34,8 @@ export function Overview() {
           setError(null);
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
@@ -63,7 +64,8 @@ export function Overview() {
         <CardHeader>
           <CardTitle>Run training</CardTitle>
           <CardDescription>
-            Triggers your local trainer entry point and streams logs in real time.
+            Triggers your local trainer entry point and streams logs in real
+            time.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -156,7 +158,7 @@ function QuickStartTile({
       rel={external ? "noopener noreferrer" : undefined}
       className="group flex items-start gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700"
     >
-      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-600 transition-colors group-hover:bg-teal-50 group-hover:text-teal-600 group-hover:border-teal-200 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:group-hover:bg-teal-400/10 dark:group-hover:text-teal-300 dark:group-hover:border-teal-400/30">
+      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-600 transition-colors group-hover:border-teal-200 group-hover:bg-teal-50 group-hover:text-teal-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:group-hover:border-teal-400/30 dark:group-hover:bg-teal-400/10 dark:group-hover:text-teal-300">
         {icon}
       </span>
       <div className="min-w-0">

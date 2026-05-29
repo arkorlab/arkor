@@ -131,12 +131,12 @@ describe("runBuild", () => {
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
     const chunks: string[] = [];
-    const writeSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((c: unknown) => {
-        chunks.push(String(c));
-        return true;
-      }) as typeof process.stdout.write);
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      c: unknown,
+    ) => {
+      chunks.push(String(c));
+      return true;
+    }) as typeof process.stdout.write);
     try {
       await runBuild({ cwd });
     } finally {

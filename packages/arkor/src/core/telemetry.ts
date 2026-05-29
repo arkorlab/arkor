@@ -1,10 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -39,6 +34,7 @@ import { SDK_VERSION } from "./version";
 // intentionally not declared on `globalThis` for consumers.
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 const inlinedPosthogKey: string | undefined = globalThis.__ARKOR_POSTHOG_KEY__;
+// oxfmt-ignore
 // @ts-expect-error: tsdown `define` constant supplied at build time;
 // intentionally not declared on `globalThis` for consumers.
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -95,7 +91,7 @@ function decodeJwtSub(accessToken: string): string | null {
   if (parts.length !== 3) return null;
   try {
     const payload = parts[1];
-    const normalized = payload.replaceAll('-', "+").replaceAll('_', "/");
+    const normalized = payload.replaceAll("-", "+").replaceAll("_", "/");
     const padded = normalized.padEnd(
       normalized.length + ((4 - (normalized.length % 4)) % 4),
       "=",

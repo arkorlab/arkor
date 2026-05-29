@@ -20,7 +20,9 @@ export function ThemeToggle() {
   return (
     <IconButton
       size="sm"
-      label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+      label={
+        theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+      }
       onClick={toggle}
     >
       {theme === "dark" ? <Sun /> : <Moon />}

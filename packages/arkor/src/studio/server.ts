@@ -426,10 +426,13 @@ export function buildStudioApp(options: StudioServerOptions) {
       // (local writeState failures, missing-credentials guard) is treated as
       // a server-side error.
       if (err instanceof CloudApiError) {
-        return Response.json({ error: err.message }, {
-          status: err.status,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { error: err.message },
+          {
+            status: err.status,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
@@ -480,9 +483,10 @@ export function buildStudioApp(options: StudioServerOptions) {
    * the anonymous-token bootstrap fails offline, turning the empty-list
    * read into a 500.
    */
-  async function readScopeFromState(): Promise<
-    { orgSlug: string; projectSlug: string } | null
-  > {
+  async function readScopeFromState(): Promise<{
+    orgSlug: string;
+    projectSlug: string;
+  } | null> {
     const state = await readState(trainCwd);
     return state
       ? { orgSlug: state.orgSlug, projectSlug: state.projectSlug }
@@ -599,7 +603,7 @@ export function buildStudioApp(options: StudioServerOptions) {
           // to deny CR / LF / NUL / etc. from leaking into the header.
           // eslint-disable-next-line no-control-regex
           .replaceAll(/[\u0000-\u001F\u007F]/g, " ")
-          .replaceAll('\\', "\\\\")
+          .replaceAll("\\", "\\\\")
           .replaceAll('"', String.raw`\"`);
         headers.set("Warning", `299 - "${safeMessage}"`);
         if (deprecationNotice.sunset) {
@@ -702,10 +706,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       // `err.message` / stack. Log full detail for the operator and
       // return an opaque 500 to the SPA.
       console.error("[studio] withDeploymentClient setup failed:", err);
-      return jsonWithDeprecation(
-        { error: "Studio backend unavailable" },
-        500,
-      );
+      return jsonWithDeprecation({ error: "Studio backend unavailable" }, 500);
     }
 
     try {
@@ -760,9 +761,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   // to reject the wrong shape with an accurate error message.
   const PARSE_FAILED: unique symbol = Symbol("studio.body-parse-failed");
   type ParseFailed = typeof PARSE_FAILED;
-  const isPlainObject = (
-    value: unknown,
-  ): value is Record<string, unknown> =>
+  const isPlainObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value);
 
   app.post("/api/deployments", async (c) => {
@@ -794,16 +793,20 @@ export function buildStudioApp(options: StudioServerOptions) {
         400,
       );
     }
-    const body = parsed.data as Parameters<CloudApiClient["createDeployment"]>[1];
-    return await withDeploymentClient("create", async ({ client, scope }) =>
-      await client.createDeployment(scope, body),
+    const body = parsed.data as Parameters<
+      CloudApiClient["createDeployment"]
+    >[1];
+    return await withDeploymentClient(
+      "create",
+      async ({ client, scope }) => await client.createDeployment(scope, body),
     );
   });
 
   app.get("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    return await withDeploymentClient("read", async ({ client, scope }) =>
-      await client.getDeployment(id, scope),
+    return await withDeploymentClient(
+      "read",
+      async ({ client, scope }) => await client.getDeployment(id, scope),
     );
   });
 
@@ -830,8 +833,10 @@ export function buildStudioApp(options: StudioServerOptions) {
       );
     }
     const body = raw as Parameters<CloudApiClient["updateDeployment"]>[2];
-    return await withDeploymentClient("mutate", async ({ client, scope }) =>
-      await client.updateDeployment(id, scope, body),
+    return await withDeploymentClient(
+      "mutate",
+      async ({ client, scope }) =>
+        await client.updateDeployment(id, scope, body),
     );
   });
 
@@ -847,8 +852,9 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.get("/api/deployments/:id/keys", async (c) => {
     const id = c.req.param("id");
-    return await withDeploymentClient("read", async ({ client, scope }) =>
-      await client.listDeploymentKeys(id, scope),
+    return await withDeploymentClient(
+      "read",
+      async ({ client, scope }) => await client.listDeploymentKeys(id, scope),
     );
   });
 
@@ -880,8 +886,10 @@ export function buildStudioApp(options: StudioServerOptions) {
     const body = parsed.data as Parameters<
       CloudApiClient["createDeploymentKey"]
     >[2];
-    return await withDeploymentClient("mutate", async ({ client, scope }) =>
-      await client.createDeploymentKey(id, scope, body),
+    return await withDeploymentClient(
+      "mutate",
+      async ({ client, scope }) =>
+        await client.createDeploymentKey(id, scope, body),
     );
   });
 

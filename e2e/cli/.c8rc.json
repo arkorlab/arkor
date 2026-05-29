@@ -5,10 +5,7 @@
     "../../packages/arkor/dist/**",
     "../../packages/create-arkor/dist/**"
   ],
-  "exclude": [
-    "**/*.test.*",
-    "**/node_modules/**"
-  ],
+  "exclude": ["**/*.test.*", "**/node_modules/**"],
   "reporter": ["text", "lcov"],
   "reports-dir": "./coverage",
   "temp-directory": "./.v8-coverage"
