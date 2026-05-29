@@ -326,9 +326,12 @@ describe("startLoopbackServer", () => {
       );
       expect(res.status).toBe(400);
       const body = await res.text();
-      // The trailing separator is preserved before the empty description
-      // so a regression that drops it surfaces here.
-      expect(body).toContain("Authentication failed: server_error. ");
+      // When the auth provider omits an `error_description`, the body
+      // ends cleanly at the error code with no trailing separator or
+      // whitespace, so the user-facing line doesn't look like a typo
+      // (`server_error. ` would suggest a missing follow-up).
+      expect(body).toContain("Authentication failed: server_error");
+      expect(body).not.toMatch(/server_error[.\s]/);
       const err = await callback;
       expect((err as Error).message).toMatch(/server_error/);
     } finally {

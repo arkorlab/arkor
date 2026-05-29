@@ -119,7 +119,7 @@ async function runGitInit(cwd: string): Promise<void> {
     );
     if (result.signingFallback) {
       ui.log.warn(
-        "Commit signing failed. Created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
+        "Commit signing failed: created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
       );
     }
   } catch (err) {
@@ -426,7 +426,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     // don't, the install genuinely failed.
     ui.log.info(
       installArtifactsLanded
-        ? `Skipping git init. \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first and re-run.`
+        ? `Skipping git init: \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first and re-run.`
         : `Skipping git init too. \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`,
     );
     gitInitSkipped = true;

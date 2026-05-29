@@ -188,7 +188,7 @@ The exit code is `1` and no scaffold work happens before the early exit, so the 
 | --- | --- | --- |
 | `Pick one of --git / --skip-git, not both.` | Both git flags were passed. | Pass at most one. |
 | `Unknown template "<id>". Available: triage, translate, redaction` | `--template` value did not match any registered template id. | Use one of the listed ids. |
-| `Commit signing failed. Created an unsigned commit.` | `git init` succeeded but the initial commit could not be GPG-signed. | Re-sign with `git commit --amend -S` once your signing setup is fixed. The repo is otherwise fine. |
+| `Commit signing failed: created an unsigned commit.` | `git init` succeeded but the initial commit could not be GPG-signed. | Re-sign with `git commit --amend -S` once your signing setup is fixed. The repo is otherwise fine. |
 
 ## Examples
 

@@ -206,7 +206,7 @@ async function runAuth0Login(
     spin.start("Waiting for browser callback");
     const { code, state } = await loopback.waitForCallback;
     if (state !== pkce.state) {
-      throw new Error("State mismatch. Aborting to prevent CSRF");
+      throw new Error("State mismatch. Aborting to prevent CSRF.");
     }
     const exchange = await exchangeCode(cfg, {
       code,

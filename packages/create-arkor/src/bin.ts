@@ -337,7 +337,7 @@ async function runGitInit(cwd: string): Promise<void> {
     );
     if (result.signingFallback) {
       clack.log.warn(
-        "Commit signing failed. Created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
+        "Commit signing failed: created an unsigned commit. Re-sign with `git commit --amend -S` once your signing setup is fixed.",
       );
     }
   } catch (err) {
@@ -683,7 +683,7 @@ export async function run(options: RunOptions): Promise<void> {
     // auto-derived subdir's occupied-directory guard).
     clack.log.info(
       installArtifactsLanded
-        ? `Skipping git init. \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
+        ? `Skipping git init: \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
         : (reRunIsSafe
           ? `Skipping git init too. \`${pm} install\` failed, so the lockfile didn't land. Fix the install error first, then re-run this command.`
           : `Skipping git init too. \`${pm} install\` failed. Fix the install error, then run ${recoverInDir} to finish the bootstrap.`),
@@ -759,8 +759,8 @@ export async function run(options: RunOptions): Promise<void> {
   // finish the bootstrap with:"). Prose-with-colon as the lead
   // line is the same shape as the default branch and won't be
   // mistaken for a command. The two earlier `clack.log.info`
-  // advisories ("Skipping install: fix the advisory above
-  // first, ...", "Skipping git init too: fix the advisory
+  // advisories ("Skipping install. Fix the advisory above
+  // first, ...", "Skipping git init too. Fix the advisory
   // above first, ...") still anchor the warning prominently
   // before the outro lands.
   const outroIntro =

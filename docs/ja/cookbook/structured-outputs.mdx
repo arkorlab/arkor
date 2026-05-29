@@ -110,7 +110,7 @@ onCheckpoint: async ({ step, infer }) => {
 
 ## Function Calling
 
-外部ツールを呼ぶ必要があるとき (注文の状態を引く、天気を取る、社内 API を叩く) `tools` と `toolChoice` を `infer` に渡します。応答は free-form なテキストではなく `tool_calls` を含む形になり、あなたのコードがそのツールを実行し、続けたければ `tool` ロールのメッセージを足して再度 `infer` を呼びます。
+外部ツールを呼ぶ必要があるとき (注文の状態を引く、天気を取る、社内 API を叩く) は、`tools` と `toolChoice` を `infer` に渡します。応答は free-form なテキストではなく `tool_calls` を含む形になり、あなたのコードがそのツールを実行し、続けたければ `tool` ロールのメッセージを足して再度 `infer` を呼びます。
 
 ```ts
 onCheckpoint: async ({ step, infer }) => {
