@@ -1016,3 +1016,48 @@ describe("findBunBin", () => {
     });
   });
 });
+
+// PR #159 Copilot review (follow-up): when `runCli({ runtime:
+// "bun" })` is invoked but `findBunBin()` returns undefined (the
+// caller forgot to gate on it, or bun became unavailable
+// between the gate check and the spawn), `runCli` must reject
+// with an actionable error rather than falling back to spawning
+// the literal `"bun"`. The literal fallback would defeat both
+// the `skipIf` contract AND the Windows-only `.exe`-required
+// safeguard inside `findBunBin` (Windows returns undefined
+// precisely so `shell: false` spawning doesn't blow up on a
+// `.cmd` shim). Pin the contract here so a future refactor that
+// re-introduces the silent fallback trips a test instead.
+describe("runCli runtime: 'bun' gate enforcement", () => {
+  beforeEach(() => {
+    spawnSyncMock.mockReset();
+    spawnMock.mockReset();
+    __resetBunBinCacheForTest();
+  });
+
+  it("rejects with a gate-violation error when findBunBin returns undefined", async () => {
+    // Force `findBunBin()` to return undefined by making the
+    // `--version` probe fail. The error wording mentions the
+    // skipIf contract so future readers see the actionable fix.
+    spawnSyncMock.mockReturnValueOnce({
+      status: 1,
+      stdout: null,
+      stderr: Buffer.from(""),
+      pid: 1,
+      output: ["", null, Buffer.from("")],
+      signal: null,
+    } as unknown as ReturnType<typeof import("node:child_process").spawnSync>);
+    const cwd = mkdtempSync(join(tmpdir(), "runcli-bun-gate-"));
+    try {
+      await expect(
+        runCli("/fake/bin", [], cwd, {}, "bun"),
+      ).rejects.toThrow(/findBunBin\(\).*returned undefined/);
+      // Crucially, the early reject must NOT call `spawn` (no
+      // literal-`"bun"` fallback that re-introduces the
+      // shell-quoting hazard on Windows).
+      expect(spawnMock).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});

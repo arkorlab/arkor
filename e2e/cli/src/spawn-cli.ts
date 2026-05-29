@@ -605,17 +605,36 @@ function runCliOnce(
     //     literal name into an absolute path. Callers gate
     //     themselves on `findBunBin() !== undefined`; the same
     //     call here re-uses that cached value and so adds no
-    //     spawn overhead. When the resolver itself fails despite
-    //     a passing `--version` probe (e.g. `where` not in PATH
-    //     on a stripped Windows image), `findBunBin()` falls back
-    //     to the literal `"bun"` and `spawn` does its own PATH
-    //     lookup. That residual branch is rare on CI (every
-    //     runner has `where` / `command -v` in PATH) and any
-    //     spawn-time mismatch surfaces through the child's
-    //     `error` event with ENOENT, so it's not worth wiring a
-    //     separate quoting strategy for.
-    const runtimeBin =
-      runtime === "bun" ? findBunBin() ?? "bun" : process.execPath;
+    //     spawn overhead. If `findBunBin()` returns `undefined`
+    //     anyway (caller forgot to gate, or bun became unavailable
+    //     between the gate check and the spawn), reject the
+    //     promise with an explicit error rather than falling back
+    //     to the literal `"bun"`. The literal-fallback path would
+    //     defeat both the skipIf contract AND the Windows-only
+    //     `.exe`-required safeguard inside `findBunBin` (Windows
+    //     returns `undefined` precisely so `shell: false` spawning
+    //     doesn't blow up on a `.cmd` shim); failing here with the
+    //     gate-violation message is more actionable than a
+    //     downstream ENOENT.
+    let runtimeBin: string;
+    if (runtime === "bun") {
+      const bunBin = findBunBin();
+      if (bunBin === undefined) {
+        cleanup();
+        reject(
+          new Error(
+            "runCli({ runtime: 'bun' }) was called but `findBunBin()` " +
+              "returned undefined (bun not on PATH, --version probe failed, " +
+              "or Windows .cmd-shim-only install). Gate the call site on " +
+              "`findBunBin() !== undefined` (e.g. via `describe.skipIf`).",
+          ),
+        );
+        return;
+      }
+      runtimeBin = bunBin;
+    } else {
+      runtimeBin = process.execPath;
+    }
     try {
       child = spawn(runtimeBin, [binPath, ...argv], {
         cwd,
