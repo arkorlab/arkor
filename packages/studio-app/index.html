@@ -15,7 +15,7 @@
           stored = localStorage.getItem("arkor-studio-theme");
         } catch (_) {
           // localStorage may throw under privacy modes / sandboxed
-          // iframes — fall through to prefers-color-scheme rather than
+          // iframes; fall through to prefers-color-scheme rather than
           // hardcoding light, which would override an explicit OS-level
           // dark preference.
         }

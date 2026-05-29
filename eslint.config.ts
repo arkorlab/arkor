@@ -27,9 +27,11 @@ const CONFIG_TS_FILES = [
   "**/playwright.config.ts",
 ];
 
-// Matches the em dash (U+2014) glyph and its HTML entity. Non-global so the
-// shared instance carries no `lastIndex` state between `.test()` calls.
-const EM_DASH = /—|&mdash;/;
+// Matches the em-dash glyph (U+2014) and its HTML entity. Non-global so the
+// shared instance carries no `lastIndex` state between `.test()` calls. The
+// glyph is written as `\u2014` (Unicode escape) so this file itself
+// contains no em-dash character.
+const EM_DASH = /\u2014|&mdash;/;
 
 // Local rule: ban em dashes in comments and string/template literals. The
 // project writes prose (comments, JSDoc, CLI runtime messages, generated-
@@ -152,7 +154,7 @@ export default defineConfig(
   // would include early 23.x releases where APIs like `ReadableStream`
   // (backport range `^22.15`) aren't yet stable, producing false
   // positives. Pinning to "22.22.0" tells the plugin to test against
-  // that one version (which IS in every relevant backport range) —
+  // that one version (which IS in every relevant backport range);
   // future Node API adoption still gets flagged correctly because the
   // minimum-version check is the part we actually care about.
   {
@@ -310,7 +312,7 @@ export default defineConfig(
         },
       ],
       // Skip `||` on boolean primitives. `disabled || isEmpty` reads as
-      // "either of these is true" — semantically *boolean OR*. Rewriting
+      // "either of these is true": semantically *boolean OR*. Rewriting
       // to `??` would change behaviour (`false ?? true === false`), so
       // the rule's suggestion would actively break the logic. Keep the
       // rule on for nullable non-booleans where `??` really is safer.
@@ -333,7 +335,7 @@ export default defineConfig(
       // `strict-type-checked` flips every `allow*` off, but `number` is
       // safe to interpolate (toString is unambiguous) and pervasive in
       // SVG attribute strings, React `key`s, URLs, log lines, etc.
-      // Keep the rest of the rule's defaults — `null` / `undefined` /
+      // Keep the rest of the rule's defaults: `null` / `undefined` /
       // `object` / `RegExp` interpolation stays an error.
       "@typescript-eslint/restrict-template-expressions": [
         "error",

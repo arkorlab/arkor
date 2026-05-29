@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   # Same shape as release.yaml's preflight: all source-level validation
-  # lives here. Duplication is intentional — see the comment at the top
+  # lives here. Duplication is intentional; see the comment at the top
   # of build.yaml.
   preflight:
     runs-on: ubuntu-latest
@@ -148,7 +148,7 @@ jobs:
   # packed tarball, and exercises `pnpm publish --dry-run` to surface
   # `files:` / dist/ / package.json metadata regressions before the
   # maintainer manually triggers release.yaml. Does NOT call
-  # build.yaml — the trusted builder is exercised only on real release.
+  # build.yaml; the trusted builder is exercised only on real release.
   test:
     needs: preflight
     runs-on: ubuntu-latest
@@ -171,7 +171,7 @@ jobs:
       - name: Install
         # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
         # already gates which packages may run postinstall, and
-        # `playwright` is not in that list — so `pnpm install` won't
+        # `playwright` is not in that list, so `pnpm install` won't
         # invoke Playwright's browser-download script today. Setting
         # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` keeps that contract
         # explicit so a future `allowBuilds` change can't silently
@@ -233,7 +233,7 @@ jobs:
 
       # Publish from the package directory (not from the pre-Test pack)
       # so the dry-run exercises the dist/ shape `arkor#build` produced
-      # under `pnpm test` — same dist/ that `npm publish` would upload
+      # under `pnpm test`, the same dist/ that `npm publish` would upload
       # during a real release.
       - name: Dry run publish (arkor)
         working-directory: packages/arkor

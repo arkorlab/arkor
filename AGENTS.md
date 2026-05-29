@@ -65,14 +65,14 @@ cd my-arkor-app && pnpm dev                            # Studio at http://127.0.
 `arkor dev` generates a 32-byte base64url token per launch ([packages/arkor/src/cli/commands/dev.ts](packages/arkor/src/cli/commands/dev.ts)) and:
 
 1. Passes it to `buildStudioApp({ studioToken })`. The Hono server validates every `/api/*` request via `X-Arkor-Studio-Token` header (or `?studioToken=` query for `EventSource`, which can't set headers). Comparison uses `timingSafeEqual`.
-2. Persists it to `~/.arkor/studio-token` (mode 0600) so the SPA dev workflow (`pnpm --filter @arkor/studio-app dev`) can read it via the `arkor-studio-token` Vite plugin in [packages/studio-app/vite.config.ts](packages/studio-app/vite.config.ts), which injects `<meta name="arkor-studio-token">` into `index.html` on each request. Persistence failure must NOT block server start (read-only `$HOME` on Docker, etc.) — just warn.
+2. Persists it to `~/.arkor/studio-token` (mode 0600) so the SPA dev workflow (`pnpm --filter @arkor/studio-app dev`) can read it via the `arkor-studio-token` Vite plugin in [packages/studio-app/vite.config.ts](packages/studio-app/vite.config.ts), which injects `<meta name="arkor-studio-token">` into `index.html` on each request. Persistence failure must NOT block server start (read-only `$HOME` on Docker, etc.); just warn.
 3. Cleans up on `exit`/SIGINT/SIGTERM/SIGHUP via `unlinkSync`.
 
-`/api/*` middleware also enforces a host-header allow-list (`127.0.0.1`/`localhost`) for DNS-rebinding defence. **CORS is intentionally NOT configured** — the SPA is same-origin so reflecting `*` would let "simple" cross-origin POSTs reach handlers. The token check rejects those; cross-origin tabs cannot read the SPA's `<meta>`.
+`/api/*` middleware also enforces a host-header allow-list (`127.0.0.1`/`localhost`) for DNS-rebinding defence. **CORS is intentionally NOT configured**: the SPA is same-origin so reflecting `*` would let "simple" cross-origin POSTs reach handlers. The token check rejects those; cross-origin tabs cannot read the SPA's `<meta>`.
 
-The whole point: prevents another browser tab on the same machine from POSTing `/api/train` (which spawns `arkor train` and dynamically imports user TS — RCE-grade).
+The whole point: prevents another browser tab on the same machine from POSTing `/api/train` (which spawns `arkor train` and dynamically imports user TS, an RCE-grade exposure).
 
-When touching the Studio server or SPA fetch layer, preserve: token via header for `fetch`, query param for `EventSource`, host-header guard, no CORS, timing-safe compare. The Vite plugin is dev-only (`apply: "serve"`) — running it during `vite build` would bake a stale per-launch token into the production `index.html` and shadow the runtime tag, causing every `/api/*` call to 403.
+When touching the Studio server or SPA fetch layer, preserve: token via header for `fetch`, query param for `EventSource`, host-header guard, no CORS, timing-safe compare. The Vite plugin is dev-only (`apply: "serve"`): running it during `vite build` would bake a stale per-launch token into the production `index.html` and shadow the runtime tag, causing every `/api/*` call to 403.
 
 ### Project entry-point discovery
 
@@ -82,9 +82,9 @@ The CLI/Studio look at `src/arkor/index.ts` in user projects. Discovery in [pack
 
 ### E2E suite specifics
 
-Both [e2e/cli](e2e/cli) and [e2e/studio](e2e/studio) declare `arkor` (and, for `e2e/cli`, `create-arkor`) as `workspace:*` `devDependencies`, so Turbo's `^build` produces `dist/bin.mjs` exactly once before `#test`/`#test:coverage` runs — no `pretest` hooks, no concurrent rebuilds racing on `dist/`. Standalone runs (`pnpm --filter @arkor/e2e-* test`) need a prior `pnpm build`. Every supported Node (≥22.22.0) is in rolldown's compatible range (^20.19 || >=22.12), so the previous "rolldown-incompatible" CI bypass path was removed.
+Both [e2e/cli](e2e/cli) and [e2e/studio](e2e/studio) declare `arkor` (and, for `e2e/cli`, `create-arkor`) as `workspace:*` `devDependencies`, so Turbo's `^build` produces `dist/bin.mjs` exactly once before `#test`/`#test:coverage` runs (no `pretest` hooks, no concurrent rebuilds racing on `dist/`). Standalone runs (`pnpm --filter @arkor/e2e-* test`) need a prior `pnpm build`. Every supported Node (≥22.22.0) is in rolldown's compatible range (^20.19 || >=22.12), so the previous "rolldown-incompatible" CI bypass path was removed.
 
-The build / coverage lanes set `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:.../packages/arkor` so scaffolded fixtures resolve to the in-workspace `arkor` (a directory) instead of the npm-published one. The install-matrix lane does NOT set this env at the job level — every real-install test packs a fresh `arkor-*.tgz` itself (`beforeAll` in `e2e/cli/src/{arkor-init,create-arkor}.test.ts`) and threads a per-case `file:../<tgz>` override into `runCli` / `runCreateArkor`. The relative-and-tarball form is mandatory because pnpm 10 rejects absolute Windows-drive `file:` URIs (`file:D:\…`) and bun on Windows skips `bun.lock` generation for multi-segment relative paths; a job-wide absolute fallback would mask that requirement and let Windows-only flakes slip past Linux/macOS reviewers. This var, `SKIP_E2E_INSTALL`, and `ARKOR_E2E_PM` (set per-runner by the CI install-matrix to gate exactly one pm's install assertions per job; valid labels: `npm` / `pnpm` / `yarn` / `yarn-berry` / `bun`) are all declared in [turbo.json](turbo.json) so they pass through Turbo's hash.
+The build / coverage lanes set `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:.../packages/arkor` so scaffolded fixtures resolve to the in-workspace `arkor` (a directory) instead of the npm-published one. The install-matrix lane does NOT set this env at the job level; every real-install test packs a fresh `arkor-*.tgz` itself (`beforeAll` in `e2e/cli/src/{arkor-init,create-arkor}.test.ts`) and threads a per-case `file:../<tgz>` override into `runCli` / `runCreateArkor`. The relative-and-tarball form is mandatory because pnpm 10 rejects absolute Windows-drive `file:` URIs (`file:D:\…`) and bun on Windows skips `bun.lock` generation for multi-segment relative paths; a job-wide absolute fallback would mask that requirement and let Windows-only flakes slip past Linux/macOS reviewers. This var, `SKIP_E2E_INSTALL`, and `ARKOR_E2E_PM` (set per-runner by the CI install-matrix to gate exactly one pm's install assertions per job; valid labels: `npm` / `pnpm` / `yarn` / `yarn-berry` / `bun`) are all declared in [turbo.json](turbo.json) so they pass through Turbo's hash.
 
 E2E coverage uses `c8` wrapping vitest (NOT vitest's own coverage) so child CLI processes' V8 coverage is captured and remapped through tsdown sourcemaps back to `src/`. `create-arkor`'s tsdown config only emits sourcemaps when `CREATE_ARKOR_BUILD_SOURCEMAP=1`; CI's "Test with coverage" step sets that var, and turbo.json declares it on `build`/`test:coverage` so it propagates into `create-arkor#build` and busts the cache versus the no-sourcemap variant. The published tarball (release workflow) does NOT set this and ships without `.map` files.
 
@@ -99,7 +99,7 @@ When implementing anything (new feature, SDK/CLI/Studio behaviour change, schema
 1. **Docs in both languages.** This repo pairs English/Japanese docs: `README.md` ↔ `README.ja.md`, `CONTRIBUTING.md` ↔ `CONTRIBUTING.ja.md`, and `docs/` ↔ `docs/ja/`. If you edit the English side, update the Japanese side in the same PR. Don't leave Japanese docs to be retro-translated later.
 2. **Tests.** Add vitest cases under `packages/*/src/**/*.test.ts` for SDK/CLI/scaffold logic changes. For CLI flow changes, consider an `e2e/cli` scenario.
 
-Don't split these into "docs in a follow-up PR" or "tests later" — land them in the same PR. Skip only when the user explicitly says to.
+Don't split these into "docs in a follow-up PR" or "tests later"; land them in the same PR. Skip only when the user explicitly says to.
 
 ## Non-obvious gotchas
 

@@ -57,8 +57,8 @@ pnpm --filter create-arkor dev        # スキャフォルダーを tsdown --wat
 
 | スイート | スコープ | ツール |
 | --- | --- | --- |
-| [`e2e/cli`](e2e/cli) | `arkor` / `create-arkor` CLI 表面 — spawn・スキャフォルド・ビルド・終了コード・stdout/stderr | ビルド済み `dist/bin.mjs` を vitest で起動 |
-| [`e2e/studio`](e2e/studio) | `arkor dev` が配信する Studio SPA — `<meta>` トークン注入、`/api/*` 認可契約、ページレベル描画、SSE ストリーミング | 実 `arkor dev` + 同一プロセス内 fake cloud-api に対し Playwright で Chromium を駆動 |
+| [`e2e/cli`](e2e/cli) | `arkor` / `create-arkor` CLI 表面: spawn・スキャフォルド・ビルド・終了コード・stdout/stderr | ビルド済み `dist/bin.mjs` を vitest で起動 |
+| [`e2e/studio`](e2e/studio) | `arkor dev` が配信する Studio SPA: `<meta>` トークン注入、`/api/*` 認可契約、ページレベル描画、SSE ストリーミング | 実 `arkor dev` + 同一プロセス内 fake cloud-api に対し Playwright で Chromium を駆動 |
 
 どちらのスイートも `arkor`（CLI スイートはさらに `create-arkor`）のビルド済み `dist/bin.mjs` を消費します。リポジトリ ルートで `pnpm test` を回した場合は Turbo の `^build` で自動的に揃いますが、スタンドアロン (`pnpm --filter @arkor/e2e-* test`) で実行する場合は事前にビルドしておく必要があります。
 
@@ -98,7 +98,7 @@ Studio は起動ごとに注入される CSRF トークン付きで `http://127.
 
 ## スタイル規約
 
-コードのどこでもエムダッシュ (`—`, U+2014) は使いません。代わりにコロン、ピリオド、カンマ、丸括弧、スペース付きハイフン (`" - "`)、または文の言い換えを使ってください。これはローカルの ESLint ルール `local/no-em-dash` で全パッケージのコメントおよび文字列・テンプレートリテラルに対して強制しています。例外はありません: CLI ランタイムのメッセージも、生成ファイルのテンプレート本文も、テスト名も同じルールに従います。
+コードのどこでもエムダッシュ (U+2014) は使いません。代わりにコロン、ピリオド、カンマ、丸括弧、スペース付きハイフン (`" - "`)、または文の言い換えを使ってください。これはローカルの ESLint ルール `local/no-em-dash` で全パッケージのコメントおよび文字列・テンプレートリテラルに対して強制しています。例外はありません: CLI ランタイムのメッセージも、生成ファイルのテンプレート本文も、テスト名も同じルールに従います。
 
 Markdown (このファイルを含む) はこのルールの対象外ですが、ドキュメントの文章にも同じノーエムダッシュ規約が適用されます。
 
