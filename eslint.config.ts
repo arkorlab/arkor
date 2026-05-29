@@ -49,7 +49,7 @@ const noEmDash: Rule.RuleModule = {
     type: "problem",
     docs: {
       description:
-        "Disallow em dashes anywhere in source; prefer a colon, period, comma, parentheses, or ' - '.",
+        "Disallow em dashes in comments and string or template literals; prefer a colon, period, comma, parentheses, or ' - '.",
     },
     schema: [],
     messages: {
@@ -138,14 +138,14 @@ export default defineConfig(
   },
 
   // Local em-dash ban (see `noEmDash` above). Applies to every linted file
-  // (no `files` filter) so comments and string literals in TS, TSX, and JS
-  // are all covered. The ~868 pre-existing occurrences are baselined per
-  // package in `eslint-suppressions.json` (ESLint resolves that file
-  // relative to each `eslint .` cwd, which is why the baseline is
-  // per-package rather than one root file); only newly introduced em
-  // dashes fail. Regenerate a package's baseline with
-  // `pnpm exec eslint . --suppress-rule local/no-em-dash` from that
-  // package, or drop stale entries with `--prune-suppressions`.
+  // (no `files` filter) so comments and string literals in TS, TSX, and
+  // JS are all covered. Enforced as a hard ban with no suppressions file
+  // and no per-site inline disables: the pre-existing prose was rewritten
+  // contextually rather than baselined, so any new em dash that lands
+  // here is a regression worth surfacing immediately. The companion
+  // `scripts/check-no-em-dash.sh` (wired into CI as the `no_em_dash`
+  // job) keeps the same zero across non-lint-target files such as yaml,
+  // md, json, html, and root config.
   {
     plugins: { local: { rules: { "no-em-dash": noEmDash } } },
     rules: { "local/no-em-dash": "error" },
