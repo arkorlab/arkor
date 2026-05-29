@@ -216,13 +216,13 @@ export function shellQuoteIfNeeded(value: string): string {
     // `_setargv` / msvcrt argv parsing when the quoted path
     // is forwarded to a child program.
     const escaped = value
-      .replaceAll('`', "``")
-      .replaceAll('$', "`$")
-      .replaceAll('\\', "\\\\")
+      .replaceAll("`", "``")
+      .replaceAll("$", "`$")
+      .replaceAll("\\", "\\\\")
       .replaceAll('"', String.raw`\"`);
     return `"${escaped}"`;
   }
-  return `'${value.replaceAll('\'', String.raw`'\''`)}'`;
+  return `'${value.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 /**
@@ -272,7 +272,7 @@ export function buildCdLine(cdTarget: string): string {
     // PR #149). The `%` branch already pins us to Windows.
     const prefixed = disambiguateLeadingDashPath(cdTarget, "win32");
     // PS single-quote escape: doubled single quote `''`.
-    return `cd '${prefixed.replaceAll('\'', "''")}'`;
+    return `cd '${prefixed.replaceAll("'", "''")}'`;
   }
   return `cd ${shellQuoteIfNeeded(cdTarget)}`;
 }
@@ -299,7 +299,9 @@ async function decideGitInit(
   if (options.skipGit) return false;
 
   if (await isInGitRepo(cwd)) {
-    clack.log.info("Directory is already inside a git repository. Skipping git init.");
+    clack.log.info(
+      "Directory is already inside a git repository. Skipping git init.",
+    );
     return false;
   }
 
@@ -359,7 +361,9 @@ export async function run(options: RunOptions): Promise<void> {
   // for the root-dir / empty-basename case.
   const defaultName = sanitise(
     options.name ??
-      (options.dir !== undefined ? basename(resolve(options.dir)) : "arkor-project"),
+      (options.dir !== undefined
+        ? basename(resolve(options.dir))
+        : "arkor-project"),
   );
 
   // Always sanitise: `defaultName` is already sanitised, but `options.name`
@@ -546,8 +550,7 @@ export async function run(options: RunOptions): Promise<void> {
         // `Retry manually` hint is DEFERRED to after the recovery
         // gate computes `installSucceeded` below; see the
         // `installThrewError` declaration above for the rationale.
-        installThrewError =
-          err instanceof Error ? err.message : String(err);
+        installThrewError = err instanceof Error ? err.message : String(err);
         clack.log.warn(installThrewError);
       }
     }
@@ -681,6 +684,7 @@ export async function run(options: RunOptions): Promise<void> {
     // look populated. Mirror of arkor init's skip-git branch;
     // the `reRunIsSafe` axis is create-arkor-specific (the
     // auto-derived subdir's occupied-directory guard).
+    // oxfmt-ignore
     clack.log.info(
       installArtifactsLanded
         ? `Skipping git init: \`${pm} install\` exited non-zero, but the lockfile and node_modules look populated. If the install actually completed (pnpm 11 ignored-builds noise or bun-on-Windows quirks), inspect the tree and commit manually with the command in the outro below; otherwise fix the install error first${reRunIsSafe ? " and re-run this command" : ` and run ${recoverInDir} to finish the bootstrap`}.`
@@ -704,13 +708,13 @@ export async function run(options: RunOptions): Promise<void> {
   // install step.
   const treeIsReady =
     (installAttemptCompleted || installArtifactsLanded) && wouldHaveInstalled;
+  // oxfmt-ignore
   const installLine = treeIsReady
     ? null
     : (pm
       ? `  ${pm} install`
       : `  ${MANUAL_INSTALL_HINT}`);
-  const devLine =
-    pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
+  const devLine = pm && pm !== "npm" ? `  ${pm} arkor dev` : `  npx arkor dev`;
   // Round 39 (Copilot, PR #99): when git init was skipped (install
   // blocked or threw) but the user originally requested `--git`,
   // remind them in the closing outro that they still need to
@@ -850,16 +854,12 @@ program
       // -- --no-agents-md`) is not misclassified as a conflicting flag.
       const sentinelIdx = process.argv.indexOf("--");
       const flagsArgv =
-        sentinelIdx === -1
-          ? process.argv
-          : process.argv.slice(0, sentinelIdx);
+        sentinelIdx === -1 ? process.argv : process.argv.slice(0, sentinelIdx);
       if (
         flagsArgv.includes("--agents-md") &&
         flagsArgv.includes("--no-agents-md")
       ) {
-        throw new Error(
-          "Pick one of --agents-md / --no-agents-md, not both.",
-        );
+        throw new Error("Pick one of --agents-md / --no-agents-md, not both.");
       }
       // Under CLAUDECODE=1, refuse to fall through to interactive prompts
       // (they'd hang) or to silent defaults (they'd hide decisions the
@@ -883,7 +883,7 @@ program
           useBun: opts.useBun,
           name: opts.name,
           dir,
-          agentsMd: agentsMdSpecified ? opts.agentsMd ?? true : undefined,
+          agentsMd: agentsMdSpecified ? (opts.agentsMd ?? true) : undefined,
           requireProjectName: true,
         });
         if (missing.length > 0) {

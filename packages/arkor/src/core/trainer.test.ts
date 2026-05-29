@@ -36,7 +36,8 @@ function mockFetch(queue: Expectation[]): typeof fetch {
     const url = typeof input === "string" ? input : input.toString();
     calls.push({ url, init });
     const next = queue.shift();
-    if (!next) throw new Error(`unexpected fetch: ${init?.method ?? "GET"} ${url}`);
+    if (!next)
+      throw new Error(`unexpected fetch: ${init?.method ?? "GET"} ${url}`);
     const method = init?.method ?? "GET";
     if (next.method !== method || !url.includes(next.path)) {
       throw new Error(
@@ -108,10 +109,13 @@ describe("createTrainer (config builder branches)", () => {
           config: Record<string, unknown>;
         };
         postedConfig = body.config;
-        return Response.json({ job: minimalJobRow }, {
-          status: 201,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { job: minimalJobRow },
+          {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (method === "GET" && url.includes("/v1/jobs/j-cfg/events/stream")) {
         return new Response(
@@ -294,8 +298,7 @@ describe("createTrainer (credentials defaulting)", () => {
       if (ORIG_USERPROFILE !== undefined)
         process.env.USERPROFILE = ORIG_USERPROFILE;
       else delete process.env.USERPROFILE;
-      if (ORIG_HOMEDRIVE !== undefined)
-        process.env.HOMEDRIVE = ORIG_HOMEDRIVE;
+      if (ORIG_HOMEDRIVE !== undefined) process.env.HOMEDRIVE = ORIG_HOMEDRIVE;
       else delete process.env.HOMEDRIVE;
       if (ORIG_HOMEPATH !== undefined) process.env.HOMEPATH = ORIG_HOMEPATH;
       else delete process.env.HOMEPATH;
@@ -326,17 +329,19 @@ describe("createTrainer (SSE event stream)", () => {
     };
     const sse = [
       `id: 2026-01-01T00:00:01Z\nevent: training.started\ndata: ${JSON.stringify(
-        { type: "training.started", jobId: "j1", timestamp: "2026-01-01T00:00:01Z" },
-      )}\n\n`,
-      `id: 2026-01-01T00:00:02Z\nevent: training.log\ndata: ${JSON.stringify(
         {
-          type: "training.log",
+          type: "training.started",
           jobId: "j1",
-          timestamp: "2026-01-01T00:00:02Z",
-          step: 1,
-          loss: 1.23,
+          timestamp: "2026-01-01T00:00:01Z",
         },
       )}\n\n`,
+      `id: 2026-01-01T00:00:02Z\nevent: training.log\ndata: ${JSON.stringify({
+        type: "training.log",
+        jobId: "j1",
+        timestamp: "2026-01-01T00:00:02Z",
+        step: 1,
+        loss: 1.23,
+      })}\n\n`,
       `id: 2026-01-01T00:00:03Z\nevent: checkpoint.saved\ndata: ${JSON.stringify(
         {
           type: "checkpoint.saved",
@@ -356,7 +361,12 @@ describe("createTrainer (SSE event stream)", () => {
     ];
 
     const fetcher = mockFetch([
-      { method: "POST", path: "/v1/jobs?", body: JSON.stringify({ job: jobRow }), status: 201 },
+      {
+        method: "POST",
+        path: "/v1/jobs?",
+        body: JSON.stringify({ job: jobRow }),
+        status: 201,
+      },
       {
         method: "GET",
         path: "/v1/jobs/j1/events/stream",
@@ -430,17 +440,20 @@ describe("createTrainer (SSE event stream)", () => {
       completedAt: null,
     };
     const sse = [
-      `id: 1\nevent: training.failed\ndata: ${JSON.stringify(
-        {
-          type: "training.failed",
-          jobId: "j2",
-          timestamp: "2026-01-01T00:00:01Z",
-          error: "CUDA OOM",
-        },
-      )}\n\n`,
+      `id: 1\nevent: training.failed\ndata: ${JSON.stringify({
+        type: "training.failed",
+        jobId: "j2",
+        timestamp: "2026-01-01T00:00:01Z",
+        error: "CUDA OOM",
+      })}\n\n`,
     ];
     const fetcher = mockFetch([
-      { method: "POST", path: "/v1/jobs?", body: JSON.stringify({ job: jobRow }), status: 201 },
+      {
+        method: "POST",
+        path: "/v1/jobs?",
+        body: JSON.stringify({ job: jobRow }),
+        status: 201,
+      },
       {
         method: "GET",
         path: "/v1/jobs/j2/events/stream",
@@ -492,21 +505,17 @@ describe("createTrainer (SSE event stream)", () => {
       completedAt: null,
     };
     const sse = [
-      `id: 1\nevent: checkpoint.saved\ndata: ${JSON.stringify(
-        {
-          type: "checkpoint.saved",
-          jobId: "j3",
-          timestamp: "2026-01-01T00:00:01Z",
-          step: 5,
-        },
-      )}\n\n`,
-      `id: 2\nevent: training.completed\ndata: ${JSON.stringify(
-        {
-          type: "training.completed",
-          jobId: "j3",
-          timestamp: "2026-01-01T00:00:02Z",
-        },
-      )}\n\n`,
+      `id: 1\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+        type: "checkpoint.saved",
+        jobId: "j3",
+        timestamp: "2026-01-01T00:00:01Z",
+        step: 5,
+      })}\n\n`,
+      `id: 2\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j3",
+        timestamp: "2026-01-01T00:00:02Z",
+      })}\n\n`,
     ];
 
     // Extra expectation: the infer() call made inside onCheckpoint.
@@ -647,9 +656,11 @@ describe("createTrainer (SSE event stream)", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
-    const calls = (fetcher as unknown as {
-      calls: { url: string; init?: RequestInit }[];
-    }).calls;
+    const calls = (
+      fetcher as unknown as {
+        calls: { url: string; init?: RequestInit }[];
+      }
+    ).calls;
     const chatCall = calls.find((c) => c.url.includes("/v1/inference/chat"));
     expect(chatCall).toBeDefined();
     const body = JSON.parse(chatCall!.init?.body as string) as Record<
@@ -704,10 +715,13 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return Response.json({ job: minimalJobRow }, {
-          status: 201,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { job: minimalJobRow },
+          {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
         const handler = handlers[streamCalls++];
@@ -773,9 +787,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       trainer.wait().catch((e: unknown) => e),
     );
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toMatch(
-      /failed 3 consecutive times/,
-    );
+    expect((error as Error).message).toMatch(/failed 3 consecutive times/);
     expect((error as Error).cause).toBeInstanceOf(TypeError);
     expect(streamCalls()).toBe(3);
   });
@@ -977,10 +989,13 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return Response.json({ job: minimalJobRow }, {
-          status: 201,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { job: minimalJobRow },
+          {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (method === "GET" && url.includes("/v1/jobs/j-cancel/events/stream")) {
         return new Response(sseStream(sse), {
@@ -988,15 +1003,15 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
           headers: { "content-type": "text/event-stream" },
         });
       }
-      if (
-        method === "POST" &&
-        url.includes("/v1/jobs/j-cancel/cancel")
-      ) {
+      if (method === "POST" && url.includes("/v1/jobs/j-cancel/cancel")) {
         cancelCallSeen = true;
-        return Response.json({ ok: true }, {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { ok: true },
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }) as typeof fetch;
@@ -1191,10 +1206,13 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return Response.json({ job: minimalJobRow }, {
-          status: 201,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { job: minimalJobRow },
+          {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
         streamCount++;
@@ -1313,15 +1331,15 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
-        return Response.json({ job: minimalJobRow }, {
-          status: 201,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { job: minimalJobRow },
+          {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
-      if (
-        method === "GET" &&
-        url.includes("/v1/jobs/j-abort/events/stream")
-      ) {
+      if (method === "GET" && url.includes("/v1/jobs/j-abort/events/stream")) {
         streamCount++;
         // Always fail so the trainer enters its delay loop.
         throw new TypeError("fetch failed");

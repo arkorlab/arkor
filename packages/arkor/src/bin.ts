@@ -22,7 +22,9 @@ try {
   if (err instanceof ClaudeCodeStrictExit) {
     process.exitCode = 1;
   } else {
-    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+    console.error(
+      err instanceof Error ? (err.stack ?? err.message) : String(err),
+    );
     process.exitCode = 1;
   }
 }

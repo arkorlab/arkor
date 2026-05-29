@@ -72,6 +72,7 @@ export function percentile(values: number[], q: number): number {
   // SPA's tsconfig pins `target: ES2022` and `Array.prototype.toSorted`
   // is ES2023; Vite/esbuild won't polyfill it, so older evergreen
   // browsers would throw at runtime.
+  // oxfmt-ignore
   // eslint-disable-next-line unicorn/no-array-sort
   return percentileFromSorted([...values].sort((a, b) => a - b), q);
 }
@@ -80,12 +81,9 @@ export function percentile(values: number[], q: number): number {
 // we use 1.96 (the normal-distribution limit), close enough for the
 // kinds of step counts a training run produces.
 const T_95: readonly number[] = [
-  12.706, 4.303, 3.182, 2.776, 2.571,
-  2.447, 2.365, 2.306, 2.262, 2.228,
-  2.201, 2.179, 2.16, 2.145, 2.131,
-  2.12, 2.11, 2.101, 2.093, 2.086,
-  2.08, 2.074, 2.069, 2.064, 2.06,
-  2.056, 2.052, 2.048, 2.045, 2.042,
+  12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201,
+  2.179, 2.16, 2.145, 2.131, 2.12, 2.11, 2.101, 2.093, 2.086, 2.08, 2.074,
+  2.069, 2.064, 2.06, 2.056, 2.052, 2.048, 2.045, 2.042,
 ];
 
 function tCritical95(df: number): number {

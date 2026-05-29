@@ -84,12 +84,14 @@ describe("CloudApiClient construction", () => {
 
 describe("CloudApiClient.cancelJob", () => {
   it("resolves on 200 OK", async () => {
-    const { fetch: f, calls } = recorder(
-      () =>
-        Response.json({ ok: true }, {
+    const { fetch: f, calls } = recorder(() =>
+      Response.json(
+        { ok: true },
+        {
           status: 200,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",
@@ -106,12 +108,14 @@ describe("CloudApiClient.cancelJob", () => {
   });
 
   it("throws CloudApiError with the parsed message on non-2xx", async () => {
-    const { fetch: f } = recorder(
-      () =>
-        Response.json({ error: "already cancelled" }, {
+    const { fetch: f } = recorder(() =>
+      Response.json(
+        { error: "already cancelled" },
+        {
           status: 409,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",
@@ -130,9 +134,7 @@ describe("CloudApiClient.cancelJob", () => {
   it("falls through to a generic message when the body is empty", async () => {
     // `||` (not `??`) in buildCloudApiError specifically handles this: an
     // empty body shouldn't produce an empty error message.
-    const { fetch: f } = recorder(
-      () => new Response("", { status: 500 }),
-    );
+    const { fetch: f } = recorder(() => new Response("", { status: 500 }));
     const client = new CloudApiClient({
       baseUrl: "http://mock",
       credentials: anonCreds,
@@ -147,20 +149,19 @@ describe("CloudApiClient.cancelJob", () => {
   });
 
   it("inlines the SDK upgrade hint on 426 (with structured body)", async () => {
-    const { fetch: f } = recorder(
-      () =>
-        Response.json(
-          {
-            error: "sdk_version_unsupported",
-            currentVersion: "1.3.5",
-            supportedRange: "^1.4.0",
-            upgrade: "npm install -g arkor@latest",
-          },
-          {
-            status: 426,
-            headers: { "content-type": "application/json" },
-          },
-        ),
+    const { fetch: f } = recorder(() =>
+      Response.json(
+        {
+          error: "sdk_version_unsupported",
+          currentVersion: "1.3.5",
+          supportedRange: "^1.4.0",
+          upgrade: "npm install -g arkor@latest",
+        },
+        {
+          status: 426,
+          headers: { "content-type": "application/json" },
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",
@@ -467,12 +468,14 @@ describe("CloudApiClient.chat", () => {
   });
 
   it("throws CloudApiError on non-2xx with the upstream error message", async () => {
-    const { fetch: f } = recorder(
-      () =>
-        Response.json({ error: "bad adapter" }, {
+    const { fetch: f } = recorder(() =>
+      Response.json(
+        { error: "bad adapter" },
+        {
           status: 422,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",
@@ -490,20 +493,17 @@ describe("CloudApiClient.chat", () => {
 
 describe("CloudApiClient.listProjects", () => {
   it("hits /v1/projects?orgSlug=… and returns the parsed envelope", async () => {
-    const { fetch: f, calls } = recorder(
-      () =>
-        Response.json(
-          {
-            org: { slug: "anon-abc", id: "o1", name: "Anon" },
-            projects: [
-              { id: "p1", slug: "play", name: "Play", orgId: "o1" },
-            ],
-          },
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
+    const { fetch: f, calls } = recorder(() =>
+      Response.json(
+        {
+          org: { slug: "anon-abc", id: "o1", name: "Anon" },
+          projects: [{ id: "p1", slug: "play", name: "Play", orgId: "o1" }],
+        },
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",
@@ -519,17 +519,16 @@ describe("CloudApiClient.listProjects", () => {
 
 describe("CloudApiClient.createProject", () => {
   it("POSTs the JSON body and returns the parsed envelope", async () => {
-    const { fetch: f, calls } = recorder(
-      () =>
-        Response.json(
-          {
-            project: { id: "p1", slug: "new", name: "New", orgId: "o1" },
-          },
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
+    const { fetch: f, calls } = recorder(() =>
+      Response.json(
+        {
+          project: { id: "p1", slug: "new", name: "New", orgId: "o1" },
+        },
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",
@@ -565,12 +564,14 @@ describe("CloudApiClient.getJob", () => {
       startedAt: "2026-01-01T00:00:01Z",
       completedAt: null,
     };
-    const { fetch: f, calls } = recorder(
-      () =>
-        Response.json({ job, events: [] }, {
+    const { fetch: f, calls } = recorder(() =>
+      Response.json(
+        { job, events: [] },
+        {
           status: 200,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",
@@ -589,12 +590,14 @@ describe("CloudApiClient.getJob", () => {
   });
 
   it("propagates a CloudApiError on non-2xx", async () => {
-    const { fetch: f } = recorder(
-      () =>
-        Response.json({ error: "not found" }, {
+    const { fetch: f } = recorder(() =>
+      Response.json(
+        { error: "not found" },
+        {
           status: 404,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",
@@ -609,30 +612,29 @@ describe("CloudApiClient.getJob", () => {
 
 describe("CloudApiClient.createJob", () => {
   it("POSTs name + config and returns the parsed envelope", async () => {
-    const { fetch: f, calls } = recorder(
-      () =>
-        Response.json(
-          {
-            job: {
-              id: "j-new",
-              orgId: "o1",
-              projectId: "p1",
-              name: "run",
-              status: "queued",
-              config: {
-                model: "m",
-                datasetSource: { type: "huggingface", name: "x" },
-              },
-              createdAt: "2026-01-01T00:00:00Z",
-              startedAt: null,
-              completedAt: null,
+    const { fetch: f, calls } = recorder(() =>
+      Response.json(
+        {
+          job: {
+            id: "j-new",
+            orgId: "o1",
+            projectId: "p1",
+            name: "run",
+            status: "queued",
+            config: {
+              model: "m",
+              datasetSource: { type: "huggingface", name: "x" },
             },
+            createdAt: "2026-01-01T00:00:00Z",
+            startedAt: null,
+            completedAt: null,
           },
-          {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          },
-        ),
+        },
+        {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        },
+      ),
     );
     const client = new CloudApiClient({
       baseUrl: "http://mock",

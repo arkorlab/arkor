@@ -161,11 +161,7 @@ export class CloudApiClient {
     return decode(res, listProjectsResponseSchema);
   }
 
-  async createProject(input: {
-    orgSlug: string;
-    name: string;
-    slug: string;
-  }) {
+  async createProject(input: { orgSlug: string; name: string; slug: string }) {
     const res = await this.rpc.v1.projects.$post({
       query: { orgSlug: input.orgSlug },
       json: { name: input.name, slug: input.slug },

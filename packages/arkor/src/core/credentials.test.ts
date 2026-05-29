@@ -41,7 +41,8 @@ afterEach(() => {
   // delete-when-originally-unset pattern used in cli/commands/*.test.ts.
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
-  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  if (ORIG_USERPROFILE !== undefined)
+    process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
@@ -63,7 +64,9 @@ describe("credentials roundtrip", () => {
       orgSlug: "anon-abc",
     };
     await writeCredentials(creds);
-    expect(credentialsPath()).toBe(join(fakeHome, ".arkor", "credentials.json"));
+    expect(credentialsPath()).toBe(
+      join(fakeHome, ".arkor", "credentials.json"),
+    );
     expect(await readCredentials()).toEqual(creds);
   });
 
@@ -277,10 +280,7 @@ describe("requestAnonymousToken", () => {
         { status: 200 },
       )) as typeof fetch;
 
-    const result = await requestAnonymousToken(
-      "http://mock-cloud-api",
-      "cli",
-    );
+    const result = await requestAnonymousToken("http://mock-cloud-api", "cli");
     expect(result).toEqual({
       token: "anon-tok",
       anonymousId: "anon-aid",
@@ -352,9 +352,7 @@ describe("ensureCredentials", () => {
     // No credentials file exists (fakeHome was just mkdtemp'd in beforeEach).
     process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api/";
     const seenUrls: string[] = [];
-    globalThis.fetch = (async (
-      input: Parameters<typeof fetch>[0],
-    ) => {
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       seenUrls.push(String(input));
       return Response.json(
         {
@@ -388,9 +386,12 @@ describe("ensureCredentials", () => {
 
   it("rethrows when the anonymous endpoint refuses to issue a token", async () => {
     globalThis.fetch = (async () =>
-      Response.json({ error: "anonymous disabled" }, {
-        status: 403,
-      })) as typeof fetch;
+      Response.json(
+        { error: "anonymous disabled" },
+        {
+          status: 403,
+        },
+      )) as typeof fetch;
     await expect(ensureCredentials()).rejects.toThrow(/403/);
     expect(await readCredentials()).toBeNull();
   });

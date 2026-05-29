@@ -42,18 +42,18 @@ beforeEach(() => {
 
   stdoutChunks = [];
   stderrChunks = [];
-  stdoutSpy = vi
-    .spyOn(process.stdout, "write")
-    .mockImplementation(((chunk: unknown) => {
-      stdoutChunks.push(String(chunk));
-      return true;
-    }) as typeof process.stdout.write);
-  stderrSpy = vi
-    .spyOn(process.stderr, "write")
-    .mockImplementation(((chunk: unknown) => {
-      stderrChunks.push(String(chunk));
-      return true;
-    }) as typeof process.stderr.write);
+  stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+    chunk: unknown,
+  ) => {
+    stdoutChunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write);
+  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((
+    chunk: unknown,
+  ) => {
+    stderrChunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write);
 });
 
 afterEach(() => {
@@ -61,7 +61,8 @@ afterEach(() => {
   stderrSpy.mockRestore();
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
-  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  if (ORIG_USERPROFILE !== undefined)
+    process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
   if (ORIG_HOMEDRIVE !== undefined) process.env.HOMEDRIVE = ORIG_HOMEDRIVE;
   else delete process.env.HOMEDRIVE;
@@ -136,12 +137,14 @@ describe("runWhoami", () => {
       arkorCloudApiUrl: "http://mock-cloud-api",
       orgSlug: "anon-abc",
     });
-    globalThis.fetch = vi.fn(
-      async () =>
-        Response.json({ user: { id: "u" }, orgs: [] }, {
+    globalThis.fetch = vi.fn(async () =>
+      Response.json(
+        { user: { id: "u" }, orgs: [] },
+        {
           status: 200,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     ) as typeof fetch;
 
     await runWhoami();
@@ -158,20 +161,19 @@ describe("runWhoami", () => {
       arkorCloudApiUrl: "http://mock-cloud-api",
       orgSlug: "anon-abc",
     });
-    globalThis.fetch = vi.fn(
-      async () =>
-        Response.json(
-          {
-            error: "sdk_version_unsupported",
-            currentVersion: "1.3.5",
-            supportedRange: "^1.4.0 || >=2.1.0",
-            upgrade: "npm install -g arkor@latest",
-          },
-          {
-            status: 426,
-            headers: { "content-type": "application/json" },
-          },
-        ),
+    globalThis.fetch = vi.fn(async () =>
+      Response.json(
+        {
+          error: "sdk_version_unsupported",
+          currentVersion: "1.3.5",
+          supportedRange: "^1.4.0 || >=2.1.0",
+          upgrade: "npm install -g arkor@latest",
+        },
+        {
+          status: 426,
+          headers: { "content-type": "application/json" },
+        },
+      ),
     ) as typeof fetch;
 
     await runWhoami();
@@ -233,9 +235,12 @@ describe("runWhoami", () => {
     let capturedUrl = "";
     globalThis.fetch = vi.fn(async (input) => {
       capturedUrl = String(input);
-      return Response.json({ user: { id: "u" }, orgs: [] }, {
-        status: 200,
-      });
+      return Response.json(
+        { user: { id: "u" }, orgs: [] },
+        {
+          status: 200,
+        },
+      );
     }) as typeof fetch;
 
     await runWhoami();
@@ -260,9 +265,12 @@ describe("runWhoami", () => {
     let capturedUrl = "";
     globalThis.fetch = vi.fn(async (input) => {
       capturedUrl = String(input);
-      return Response.json({ user: { id: "u" }, orgs: [] }, {
-        status: 200,
-      });
+      return Response.json(
+        { user: { id: "u" }, orgs: [] },
+        {
+          status: 200,
+        },
+      );
     }) as typeof fetch;
 
     await runWhoami();
@@ -310,15 +318,14 @@ describe("runWhoami", () => {
       arkorCloudApiUrl: "http://mock-cloud-api",
       orgSlug: "anon-abc",
     });
-    globalThis.fetch = vi.fn(
-      async () =>
-        Response.json(
-          {
-            user: { id: "u" },
-            orgs: [{ id: "o-without-slug" }, { slug: "named", id: "x" }],
-          },
-          { status: 200 },
-        ),
+    globalThis.fetch = vi.fn(async () =>
+      Response.json(
+        {
+          user: { id: "u" },
+          orgs: [{ id: "o-without-slug" }, { slug: "named", id: "x" }],
+        },
+        { status: 200 },
+      ),
     ) as typeof fetch;
 
     await runWhoami();

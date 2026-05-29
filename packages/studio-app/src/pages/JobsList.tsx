@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Inbox, Refresh, Search } from "../components/icons";
 import { JobsTable } from "../components/jobs/JobsTable";
-import { Card, CardHeader, CardTitle, CardDescription } from "../components/ui/Card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { IconButton } from "../components/ui/IconButton";
 import { Skeleton } from "../components/ui/Skeleton";
@@ -123,9 +128,7 @@ export function JobsList() {
     return jobs.filter((j) => {
       if (filter !== "all" && j.status !== filter) return false;
       if (!q) return true;
-      return (
-        j.name.toLowerCase().includes(q) || j.id.toLowerCase().includes(q)
-      );
+      return j.name.toLowerCase().includes(q) || j.id.toLowerCase().includes(q);
     });
   }, [jobs, query, filter]);
 
@@ -162,7 +165,7 @@ export function JobsList() {
         </CardHeader>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
-          <div className="relative flex-1 min-w-[180px]">
+          <div className="relative min-w-[180px] flex-1">
             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-zinc-400 dark:text-zinc-500">
               <Search />
             </span>
@@ -172,7 +175,7 @@ export function JobsList() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name or ID…"
               aria-label="Search jobs by name or ID"
-              className="h-9 w-full rounded-lg border border-zinc-200 bg-white pl-9 pr-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:border-teal-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+              className="h-9 w-full rounded-lg border border-zinc-200 bg-white pr-3 pl-9 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:border-teal-400 focus-visible:ring-2 focus-visible:ring-teal-500/30 focus-visible:outline-none dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600"
             />
           </div>
           <div
@@ -219,11 +222,7 @@ export function JobsList() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon={<Inbox />}
-            title={
-              jobs?.length === 0
-                ? "No jobs yet"
-                : "No matches"
-            }
+            title={jobs?.length === 0 ? "No jobs yet" : "No matches"}
             description={
               jobs?.length === 0
                 ? "Run training from Overview to create your first job."

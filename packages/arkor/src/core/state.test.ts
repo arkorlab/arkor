@@ -32,10 +32,7 @@ describe("state", () => {
   });
 
   it("writes to <cwd>/.arkor/state.json", async () => {
-    await writeState(
-      { orgSlug: "o", projectSlug: "p", projectId: "pid" },
-      cwd,
-    );
+    await writeState({ orgSlug: "o", projectSlug: "p", projectId: "pid" }, cwd);
     expect(statePath(cwd)).toBe(join(cwd, ".arkor", "state.json"));
   });
 

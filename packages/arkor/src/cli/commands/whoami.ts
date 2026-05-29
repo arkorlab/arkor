@@ -28,8 +28,7 @@ export async function runWhoami(): Promise<void> {
   // hit the typed surface and avoid duplicating the plumbing.
   const rpc = createClient({
     baseUrl,
-    token: () =>
-      creds.mode === "anon" ? creds.token : creds.accessToken,
+    token: () => (creds.mode === "anon" ? creds.token : creds.accessToken),
     clientVersion: SDK_VERSION,
     // Wrap the deprecation callback so we return `null` (not `void`):
     // `@arkor/cloud-api-client` alpha.2 feeds the handler's return into

@@ -132,8 +132,7 @@ export async function pollDeploymentsForSlug(
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (signal.aborted) return;
       if (err instanceof DOMException && err.name === "AbortError") return;
-      const msg =
-        err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error ? err.message : String(err);
       onError(msg);
       return;
     }
@@ -160,9 +159,7 @@ export interface KeyIssueGuardOptions {
   registerNavigationGuard: (guard: NavigationGuard) => () => void;
   /** Injection point so tests can avoid touching `window`. */
   addBeforeUnloadListener: (handler: (e: BeforeUnloadEvent) => void) => void;
-  removeBeforeUnloadListener: (
-    handler: (e: BeforeUnloadEvent) => void,
-  ) => void;
+  removeBeforeUnloadListener: (handler: (e: BeforeUnloadEvent) => void) => void;
   /**
    * Window confirm prompt; tests inject a stub so they can answer
    * Yes / No deterministically. Real callers use `window.confirm`.

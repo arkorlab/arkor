@@ -184,12 +184,20 @@ async function* iterateSseFrames(
       const { value, done } = await reader.read();
       if (done) break;
       parser.feed(decoder.decode(value, { stream: true }));
-      for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
+      for (
+        let next = pending.shift();
+        next !== undefined;
+        next = pending.shift()
+      ) {
         yield next;
       }
     }
     parser.feed(decoder.decode());
-    for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
+    for (
+      let next = pending.shift();
+      next !== undefined;
+      next = pending.shift()
+    ) {
       yield next;
     }
   } finally {

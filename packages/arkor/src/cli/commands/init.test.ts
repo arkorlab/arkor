@@ -15,7 +15,13 @@ vi.mock("@clack/prompts", () => ({
   intro: vi.fn(),
   outro: vi.fn(),
   note: vi.fn(),
-  log: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn(), step: vi.fn() },
+  log: {
+    info: vi.fn(),
+    success: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    step: vi.fn(),
+  },
   spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
 }));
 
@@ -325,7 +331,9 @@ describe("runInit", () => {
     // around install. The CLI's warn line must still render even when a
     // dependency throws a plain string/object.
 
-    vi.mocked(install).mockRejectedValueOnce("rate-limited" as unknown as Error);
+    vi.mocked(install).mockRejectedValueOnce(
+      "rate-limited" as unknown as Error,
+    );
     await expect(
       runInit({
         yes: true,
@@ -726,7 +734,9 @@ describe("runInit", () => {
       .join("\n");
     expect(outroMessages).toMatch(/Next:\n[\s\S]*git init/);
     expect(outroMessages).toMatch(/git add -A/);
-    expect(outroMessages).toMatch(/git commit -m "Initial commit from arkor init"/);
+    expect(outroMessages).toMatch(
+      /git commit -m "Initial commit from arkor init"/,
+    );
     expect(outroMessages).toMatch(/pnpm arkor dev/);
     // The dev command comes AFTER the git steps in the outro
     // (manual commit precedes starting the dev server).

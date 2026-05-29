@@ -115,7 +115,9 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
           `Authentication failed: ${error}${errorDescription ? `. ${errorDescription}` : ""}`,
         );
         rejectCallback(
-          new Error(`Authentication failed: ${error}${errorDescription ? ` ${errorDescription}` : ""}`),
+          new Error(
+            `Authentication failed: ${error}${errorDescription ? ` ${errorDescription}` : ""}`,
+          ),
         );
         return;
       }
@@ -194,7 +196,12 @@ export async function exchangeCode(
 
 export function buildAuthorizeUrl(
   config: { auth0Domain: string; clientId: string; audience: string },
-  input: { redirectUri: string; state: string; challenge: string; scopes?: string[] },
+  input: {
+    redirectUri: string;
+    state: string;
+    challenge: string;
+    scopes?: string[];
+  },
 ): string {
   const scopes = input.scopes ?? [
     "openid",

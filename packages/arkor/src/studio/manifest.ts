@@ -26,7 +26,9 @@ const EMPTY: ManifestSummary = { trainer: null };
  * without restarting Studio. The import URL carries a cache-bust query so
  * Node's ESM cache doesn't return a stale module.
  */
-export async function readManifestSummary(cwd: string): Promise<ManifestSummary> {
+export async function readManifestSummary(
+  cwd: string,
+): Promise<ManifestSummary> {
   const { outFile } = await runBuild({ cwd, quiet: true });
   const url = `${pathToFileURL(outFile).href}?t=${Date.now()}`;
   const mod = (await import(url)) as Record<string, unknown>;

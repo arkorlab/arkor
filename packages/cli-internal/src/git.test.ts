@@ -93,28 +93,24 @@ describe("gitInitialCommit", () => {
     Object.assign(process.env, ORIG_ENV);
   });
 
-  it(
-    "creates a commit with the given message and reports no signing fallback",
-    async () => {
-      writeFileSync(join(cwd, "README.md"), "# hello\n");
-      const result = await gitInitialCommit(cwd, "Initial commit from test");
-      expect(result.signingFallback).toBe(false);
+  // Vitest's 5s default is too tight for GitHub Windows runners: git
+  // init+add+commit through three spawn() calls intermittently lands past
+  // 5s under Defender / file-locking pressure, even though sibling tests in
+  // this file pass in <1s. Not a real regression.
+  it("creates a commit with the given message and reports no signing fallback", async () => {
+    writeFileSync(join(cwd, "README.md"), "# hello\n");
+    const result = await gitInitialCommit(cwd, "Initial commit from test");
+    expect(result.signingFallback).toBe(false);
 
-      const subjectOut = await runGit(["log", "-1", "--pretty=%s"], { cwd });
-      const subject = subjectOut.trim();
-      expect(subject).toBe("Initial commit from test");
+    const subjectOut = await runGit(["log", "-1", "--pretty=%s"], { cwd });
+    const subject = subjectOut.trim();
+    expect(subject).toBe("Initial commit from test");
 
-      // The README was staged via `git add -A`.
-      const trackedOut = await runGit(["ls-files"], { cwd });
-      const tracked = trackedOut.trim().split("\n");
-      expect(tracked).toContain("README.md");
-    },
-    // Vitest's 5s default is too tight for GitHub Windows runners: git
-    // init+add+commit through three spawn() calls intermittently lands
-    // past 5s under Defender / file-locking pressure, even though sibling
-    // tests in this file pass in <1s. Not a real regression.
-    30_000,
-  );
+    // The README was staged via `git add -A`.
+    const trackedOut = await runGit(["ls-files"], { cwd });
+    const tracked = trackedOut.trim().split("\n");
+    expect(tracked).toContain("README.md");
+  }, 30_000);
 
   it("preserves an exotic message containing quotes and newlines", async () => {
     writeFileSync(join(cwd, "f.txt"), "x");
@@ -152,9 +148,9 @@ describe("gitInitialCommit", () => {
   it("rejects when commit fails for a non-signing reason", async () => {
     // Empty repo with nothing staged → `git commit` errors "nothing to
     // commit" rather than a signing failure; the helper must surface it.
-    await expect(
-      gitInitialCommit(cwd, "should fail"),
-    ).rejects.toThrow(/git commit.*exited/);
+    await expect(gitInitialCommit(cwd, "should fail")).rejects.toThrow(
+      /git commit.*exited/,
+    );
   });
 
   it("propagates the failing exit code when `git init` itself fails", async () => {
@@ -165,9 +161,9 @@ describe("gitInitialCommit", () => {
     // `if (code !== 0) reject(...)` would never be exercised by the
     // gitInitialCommit happy path.
     writeFileSync(join(cwd, ".git"), "this is not a valid gitfile");
-    await expect(
-      gitInitialCommit(cwd, "anything"),
-    ).rejects.toThrow(/git init.*exited with code/);
+    await expect(gitInitialCommit(cwd, "anything")).rejects.toThrow(
+      /git init.*exited with code/,
+    );
   });
 
   it("rejects with the spawn error when git is not on PATH at all", async () => {

@@ -186,10 +186,7 @@ describe("fetchCliConfig", () => {
 describe("exchangeCode", () => {
   it("POSTs the PKCE code to Auth0 and returns the parsed token shape", async () => {
     let captured: { url: string; body: string } = { url: "", body: "" };
-    const fetchImpl = (async (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => {
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
       captured = {
         url: String(input),
         body: typeof init?.body === "string" ? init.body : "",

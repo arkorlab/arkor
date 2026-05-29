@@ -159,7 +159,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   const projectName = await promptText({
     message: "Project name?",
     initialValue: options.name ?? defaultName,
-    skipWith: bypassPrompts ? options.name ?? defaultName : undefined,
+    skipWith: bypassPrompts ? (options.name ?? defaultName) : undefined,
   });
   // An explicit `--template <id>` is authoritative: skip the prompt and use it as-is.
   const template = await promptSelect<TemplateId>({
@@ -264,8 +264,7 @@ export async function runInit(options: InitOptions): Promise<void> {
         // `Retry manually` hint is DEFERRED to after the recovery
         // gate computes `installSucceeded` below; see the
         // `installThrewError` declaration above for the rationale.
-        installThrewError =
-          err instanceof Error ? err.message : String(err);
+        installThrewError = err instanceof Error ? err.message : String(err);
         ui.log.warn(installThrewError);
       }
     }
@@ -434,8 +433,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     await runGitInit(cwd);
   }
 
-  const devCmd =
-    pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
+  const devCmd = pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
   // Round 39 (Copilot, PR #99): when git init was skipped (install
   // blocked or threw) but the user originally requested `--git`,
   // the closing outro must remind them to create the repo + initial
@@ -541,7 +539,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     // `gitCmdLines` above for why no single chain separator
     // works across the supported shells.
     const lines: string[] = ["Next:"];
-    if (!treeIsReady) lines.push(`  ${pm ? `${pm} install` : MANUAL_INSTALL_HINT}`);
+    if (!treeIsReady)
+      lines.push(`  ${pm ? `${pm} install` : MANUAL_INSTALL_HINT}`);
     for (const line of gitCmdLines) lines.push(`  ${line}`);
     lines.push(`  ${devCmd}`);
     ui.outro(lines.join("\n"));

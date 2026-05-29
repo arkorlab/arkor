@@ -244,7 +244,9 @@ describe("runCli orchestration", () => {
       .mockReturnValueOnce(2000) // attempt 2 start
       .mockReturnValueOnce(2050); // attempt 2 close → elapsedMs=50
     spawnMock
-      .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }))
+      .mockImplementationOnce(() =>
+        makeFakeChild({ code: null, signal: "SIGKILL" }),
+      )
       .mockImplementationOnce(() => makeFakeChild({ code: 0, signal: null }));
 
     const result = await runCli("/fake/bin", [], cwd);
@@ -268,8 +270,12 @@ describe("runCli orchestration", () => {
       .mockReturnValueOnce(2000)
       .mockReturnValueOnce(2100);
     spawnMock
-      .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }))
-      .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }));
+      .mockImplementationOnce(() =>
+        makeFakeChild({ code: null, signal: "SIGKILL" }),
+      )
+      .mockImplementationOnce(() =>
+        makeFakeChild({ code: null, signal: "SIGKILL" }),
+      );
 
     const result = await runCli("/fake/bin", [], cwd);
 
@@ -649,9 +655,7 @@ describe("runCli yarn cache plumbing", () => {
       throw new Error("spawn EACCES (synthetic)");
     });
 
-    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(
-      /spawn EACCES/,
-    );
+    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(/spawn EACCES/);
     expect(capturedYarnCacheDir).toBeDefined();
     expect(capturedBunCacheDir).toBeDefined();
     // Both dirs must be gone; without the try/catch around
@@ -680,9 +684,7 @@ describe("runCli yarn cache plumbing", () => {
       return child;
     });
 
-    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(
-      /spawn ENOENT/,
-    );
+    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(/spawn ENOENT/);
     // Error path also has to clean; otherwise a tight loop of
     // failed spawns would fill tmpdir on long CI runs.
     expect(capturedYarnCacheDir).toBeDefined();

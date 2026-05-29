@@ -11,9 +11,7 @@ import { upgradeMessageFromBody } from "@arkor/cloud-api-client";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 
-function detectFromUserAgent(
-  ua: string | undefined,
-): PackageManager | null {
+function detectFromUserAgent(ua: string | undefined): PackageManager | null {
   if (!ua) return null;
   const product = ua.split("/")[0];
   switch (product) {
@@ -29,7 +27,7 @@ function detectFromUserAgent(
 
 function detectFromExecPath(argv1: string | undefined): PackageManager | null {
   if (!argv1) return null;
-  const path = argv1.replaceAll('\\', "/").toLowerCase();
+  const path = argv1.replaceAll("\\", "/").toLowerCase();
   if (path.includes("/.bun/")) return "bun";
   if (path.includes("/pnpm/") || path.includes("/.pnpm/")) return "pnpm";
   if (path.includes("/.yarn/") || path.includes("/yarn/")) return "yarn";

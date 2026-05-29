@@ -76,7 +76,12 @@ function Dot({ className, pulse }: { className: string; pulse?: boolean }) {
           )}
         />
       ) : null}
-      <span className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", className)} />
+      <span
+        className={cn(
+          "relative inline-flex h-1.5 w-1.5 rounded-full",
+          className,
+        )}
+      />
     </span>
   );
 }

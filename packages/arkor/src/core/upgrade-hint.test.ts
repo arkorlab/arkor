@@ -33,14 +33,8 @@ describe("detectPackageManagerFrom (path fallback)", () => {
       "/home/user/.local/share/pnpm/global/5/.pnpm/arkor@1.0.0/node_modules/arkor/dist/bin.mjs",
       "pnpm",
     ],
-    [
-      "/home/user/.bun/install/global/node_modules/arkor/dist/bin.mjs",
-      "bun",
-    ],
-    [
-      "/home/user/.config/yarn/global/node_modules/arkor/dist/bin.mjs",
-      "yarn",
-    ],
+    ["/home/user/.bun/install/global/node_modules/arkor/dist/bin.mjs", "bun"],
+    ["/home/user/.config/yarn/global/node_modules/arkor/dist/bin.mjs", "yarn"],
     [
       "/usr/local/lib/node_modules/arkor/dist/bin.mjs",
       "npm", // default fallback
@@ -52,8 +46,7 @@ describe("detectPackageManagerFrom (path fallback)", () => {
   it("handles Windows-style separators", () => {
     expect(
       detectPackageManagerFrom({
-        execPath:
-          String.raw`C:\Users\u\AppData\Local\pnpm\global\5\node_modules\arkor\dist\bin.mjs`,
+        execPath: String.raw`C:\Users\u\AppData\Local\pnpm\global\5\node_modules\arkor\dist\bin.mjs`,
       }),
     ).toBe("pnpm");
   });

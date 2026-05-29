@@ -33,7 +33,10 @@ export async function main(argv: string[]): Promise<void> {
     )
     .option("-y, --yes", "Accept defaults instead of prompting")
     .option("--name <name>", "Project name (default: directory name)")
-    .option("--template <template>", "Starter template: triage | translate | redaction")
+    .option(
+      "--template <template>",
+      "Starter template: triage | translate | redaction",
+    )
     .option("--skip-install", "Skip installing dependencies after scaffolding")
     .option("--use-npm", "Force npm as the package manager")
     .option("--use-pnpm", "Force pnpm as the package manager")
@@ -54,133 +57,141 @@ export async function main(argv: string[]): Promise<void> {
     )
     .option("--no-agents-md", "Skip generating AGENTS.md and CLAUDE.md")
     .action(
-      withTelemetry("init", async (opts: {
-        yes?: boolean;
-        name?: string;
-        template?: string;
-        skipInstall?: boolean;
-        useNpm?: boolean;
-        usePnpm?: boolean;
-        useYarn?: boolean;
-        useBun?: boolean;
-        git?: boolean;
-        skipGit?: boolean;
-        allowBuilds?: boolean;
-        // Commander v13 leaves this undefined unless one of --agents-md /
-        // --no-agents-md was passed; the action treats undefined as the
-        // default-on value.
-        agentsMd?: boolean;
-      }) => {
-        if (opts.git && opts.skipGit) {
-          throw new Error("Pick one of --git / --skip-git, not both.");
-        }
-        // Commander treats `--agents-md` and `--no-agents-md` as the same
-        // option (last-wins), so it will not surface a conflict on its
-        // own. Mirror the `--git` / `--skip-git` check by inspecting the
-        // raw argv passed to `main()`: using `process.argv` directly
-        // would miss the conflict when called from tests via
-        // `main([...])` and could false-positive on the parent process's
-        // own arguments. Stop scanning at the POSIX `--` end-of-options
-        // sentinel so a positional that happens to start with `--` is
-        // not misclassified as a conflicting flag.
-        const sentinelIdx = argv.indexOf("--");
-        const flagsArgv =
-          sentinelIdx === -1 ? argv : argv.slice(0, sentinelIdx);
-        if (
-          flagsArgv.includes("--agents-md") &&
-          flagsArgv.includes("--no-agents-md")
-        ) {
-          throw new Error(
-            "Pick one of --agents-md / --no-agents-md, not both.",
-          );
-        }
-        // Under CLAUDECODE=1, refuse to fall through to interactive prompts
-        // (they'd hang) or to silent defaults (they'd hide decisions the
-        // agent should be making). Print the suggested re-invocation and
-        // exit 1 so the agent can re-run with explicit flags. `agentsMd`
-        // is checked from raw argv so default-on doesn't satisfy the
-        // requirement: the agent should opt in or out deliberately.
-        if (isClaudeCode()) {
-          const agentsMdSpecified =
-            flagsArgv.includes("--agents-md") ||
-            flagsArgv.includes("--no-agents-md");
-          const missing = missingClaudeCodeFlags({
-            yes: opts.yes,
-            template: opts.template,
-            git: opts.git,
-            skipGit: opts.skipGit,
-            skipInstall: opts.skipInstall,
+      withTelemetry(
+        "init",
+        async (opts: {
+          yes?: boolean;
+          name?: string;
+          template?: string;
+          skipInstall?: boolean;
+          useNpm?: boolean;
+          usePnpm?: boolean;
+          useYarn?: boolean;
+          useBun?: boolean;
+          git?: boolean;
+          skipGit?: boolean;
+          allowBuilds?: boolean;
+          // Commander v13 leaves this undefined unless one of --agents-md /
+          // --no-agents-md was passed; the action treats undefined as the
+          // default-on value.
+          agentsMd?: boolean;
+        }) => {
+          if (opts.git && opts.skipGit) {
+            throw new Error("Pick one of --git / --skip-git, not both.");
+          }
+          // Commander treats `--agents-md` and `--no-agents-md` as the same
+          // option (last-wins), so it will not surface a conflict on its
+          // own. Mirror the `--git` / `--skip-git` check by inspecting the
+          // raw argv passed to `main()`: using `process.argv` directly
+          // would miss the conflict when called from tests via
+          // `main([...])` and could false-positive on the parent process's
+          // own arguments. Stop scanning at the POSIX `--` end-of-options
+          // sentinel so a positional that happens to start with `--` is
+          // not misclassified as a conflicting flag.
+          const sentinelIdx = argv.indexOf("--");
+          const flagsArgv =
+            sentinelIdx === -1 ? argv : argv.slice(0, sentinelIdx);
+          if (
+            flagsArgv.includes("--agents-md") &&
+            flagsArgv.includes("--no-agents-md")
+          ) {
+            throw new Error(
+              "Pick one of --agents-md / --no-agents-md, not both.",
+            );
+          }
+          // Under CLAUDECODE=1, refuse to fall through to interactive prompts
+          // (they'd hang) or to silent defaults (they'd hide decisions the
+          // agent should be making). Print the suggested re-invocation and
+          // exit 1 so the agent can re-run with explicit flags. `agentsMd`
+          // is checked from raw argv so default-on doesn't satisfy the
+          // requirement: the agent should opt in or out deliberately.
+          if (isClaudeCode()) {
+            const agentsMdSpecified =
+              flagsArgv.includes("--agents-md") ||
+              flagsArgv.includes("--no-agents-md");
+            const missing = missingClaudeCodeFlags({
+              yes: opts.yes,
+              template: opts.template,
+              git: opts.git,
+              skipGit: opts.skipGit,
+              skipInstall: opts.skipInstall,
+              useNpm: opts.useNpm,
+              usePnpm: opts.usePnpm,
+              useYarn: opts.useYarn,
+              useBun: opts.useBun,
+              name: opts.name,
+              agentsMd: agentsMdSpecified ? (opts.agentsMd ?? true) : undefined,
+              // arkor init operates on `process.cwd()`; basename(cwd) is
+              // the runtime default for the project name, so strict mode
+              // doesn't require an explicit `--name`. Passing `initCwd`
+              // lets the validator reject the pathological case where
+              // the cwd basename itself has no alphanumerics (e.g.
+              // `/tmp/!!!/`), which would otherwise sanitise to the
+              // generic `arkor-project` fallback.
+              requireProjectName: false,
+              initCwd: process.cwd(),
+            });
+            if (missing.length > 0) {
+              process.stderr.write(
+                formatClaudeCodeMissingMessage("arkor init", missing),
+              );
+              // Throw (don't `process.exit`) so the `finally` at the bottom of
+              // main() still runs telemetry shutdown / the deprecation notice.
+              // bin.ts recognises this sentinel and exits without re-printing
+              // the message.
+              throw new ClaudeCodeStrictExit();
+            }
+          }
+          const packageManager = resolvePackageManager({
             useNpm: opts.useNpm,
             usePnpm: opts.usePnpm,
             useYarn: opts.useYarn,
             useBun: opts.useBun,
-            name: opts.name,
-            agentsMd: agentsMdSpecified ? opts.agentsMd ?? true : undefined,
-            // arkor init operates on `process.cwd()`; basename(cwd) is
-            // the runtime default for the project name, so strict mode
-            // doesn't require an explicit `--name`. Passing `initCwd`
-            // lets the validator reject the pathological case where
-            // the cwd basename itself has no alphanumerics (e.g.
-            // `/tmp/!!!/`), which would otherwise sanitise to the
-            // generic `arkor-project` fallback.
-            requireProjectName: false,
-            initCwd: process.cwd(),
           });
-          if (missing.length > 0) {
-            process.stderr.write(
-              formatClaudeCodeMissingMessage("arkor init", missing),
-            );
-            // Throw (don't `process.exit`) so the `finally` at the bottom of
-            // main() still runs telemetry shutdown / the deprecation notice.
-            // bin.ts recognises this sentinel and exits without re-printing
-            // the message.
-            throw new ClaudeCodeStrictExit();
-          }
-        }
-        const packageManager = resolvePackageManager({
-          useNpm: opts.useNpm,
-          usePnpm: opts.usePnpm,
-          useYarn: opts.useYarn,
-          useBun: opts.useBun,
-        });
-        await runInit({
-          yes: opts.yes,
-          name: opts.name,
-          template: opts.template as TemplateId | undefined,
-          skipInstall: opts.skipInstall,
-          packageManager,
-          git: opts.git,
-          skipGit: opts.skipGit,
-          allowBuilds: opts.allowBuilds,
-          // Commander v13 leaves opts.agentsMd undefined when no flag is
-          // passed; default to on so `arkor init` matches `create-arkor`.
-          // Only explicit `--no-agents-md` (which sets `false`) opts out.
-          agentsMd: opts.agentsMd !== false,
-        });
-      }),
+          await runInit({
+            yes: opts.yes,
+            name: opts.name,
+            template: opts.template as TemplateId | undefined,
+            skipInstall: opts.skipInstall,
+            packageManager,
+            git: opts.git,
+            skipGit: opts.skipGit,
+            allowBuilds: opts.allowBuilds,
+            // Commander v13 leaves opts.agentsMd undefined when no flag is
+            // passed; default to on so `arkor init` matches `create-arkor`.
+            // Only explicit `--no-agents-md` (which sets `false`) opts out.
+            agentsMd: opts.agentsMd !== false,
+          });
+        },
+      ),
     );
 
   program
     .command("login")
-    .description("Sign in to arkor (OAuth Authorization Code + PKCE on loopback)")
+    .description(
+      "Sign in to arkor (OAuth Authorization Code + PKCE on loopback)",
+    )
     .option("--oauth", "Sign in via OAuth in the browser")
     .option("--anonymous", "Issue a throwaway anonymous token instead")
     .option("--no-browser", "Print the URL instead of opening a browser")
     .action(
-      withTelemetry("login", async (opts: {
-        oauth?: boolean;
-        anonymous?: boolean;
-        browser?: boolean;
-      }) => {
-        if (opts.oauth && opts.anonymous) {
-          throw new Error("Pick one of --oauth / --anonymous, not both.");
-        }
-        await runLogin({
-          oauth: opts.oauth,
-          anonymous: opts.anonymous,
-          noBrowser: opts.browser === false,
-        });
-      }),
+      withTelemetry(
+        "login",
+        async (opts: {
+          oauth?: boolean;
+          anonymous?: boolean;
+          browser?: boolean;
+        }) => {
+          if (opts.oauth && opts.anonymous) {
+            throw new Error("Pick one of --oauth / --anonymous, not both.");
+          }
+          await runLogin({
+            oauth: opts.oauth,
+            anonymous: opts.anonymous,
+            noBrowser: opts.browser === false,
+          });
+        },
+      ),
     );
 
   program
@@ -205,7 +216,10 @@ export async function main(argv: string[]): Promise<void> {
   program
     .command("build")
     .description("Bundle src/arkor/index.ts into .arkor/build/index.mjs")
-    .argument("[entry]", "path to the source entry (default: src/arkor/index.ts)")
+    .argument(
+      "[entry]",
+      "path to the source entry (default: src/arkor/index.ts)",
+    )
     .action(
       withTelemetry("build", async (entry?: string) => {
         await runBuild({ entry });

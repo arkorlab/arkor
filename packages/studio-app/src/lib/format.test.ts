@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import {
-  formatDuration,
-  formatRelativeTime,
-  truncateMiddle,
-} from "./format";
+import { formatDuration, formatRelativeTime, truncateMiddle } from "./format";
 
 describe("formatDuration", () => {
   it("returns a placeholder for invalid input", () => {
@@ -46,9 +42,9 @@ describe("formatRelativeTime", () => {
 
   it("formats past timestamps with 'ago' phrasing", () => {
     // 30 seconds ago → seconds bucket
-    expect(formatRelativeTime(new Date(NOW - 30_000).toISOString(), NOW)).toMatch(
-      /\b30 seconds ago\b/,
-    );
+    expect(
+      formatRelativeTime(new Date(NOW - 30_000).toISOString(), NOW),
+    ).toMatch(/\b30 seconds ago\b/);
     // 5 minutes ago → minutes bucket
     expect(
       formatRelativeTime(new Date(NOW - 5 * 60_000).toISOString(), NOW),

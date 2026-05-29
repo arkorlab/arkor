@@ -11,9 +11,7 @@ test.describe("Studio pages", () => {
     });
 
     await page.goto(studio.url);
-    await expect(
-      page.getByRole("heading", { name: "Overview" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
     // The default fake cloud-api returns one job named "studio-e2e-trainer".
     await expect(page.getByText("studio-e2e-trainer").first()).toBeVisible();
     expect(consoleErrors, consoleErrors.join("\n")).toEqual([]);
@@ -21,9 +19,7 @@ test.describe("Studio pages", () => {
 
   test("Jobs list renders rows from /api/jobs", async ({ page, studio }) => {
     await page.goto(`${studio.url}/#/jobs`);
-    await expect(
-      page.getByRole("heading", { name: /Jobs/ }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Jobs/ })).toBeVisible();
     await expect(page.getByText("studio-e2e-trainer").first()).toBeVisible();
   });
 
@@ -45,43 +41,39 @@ test.describe("Studio pages", () => {
     // bypass: `setRoute` matches on path-only, so without this a
     // regression that drops `orgSlug`/`projectSlug` could still
     // succeed against the registered route handler.
-    cloudApi.setRoute(
-      "GET",
-      "/v1/jobs/job-e2e-1/events/stream",
-      (req, res) => {
-        const url = new URL(req.url ?? "", "http://x");
-        if (
-          url.searchParams.get("orgSlug") !== "studio-e2e-org" ||
-          url.searchParams.get("projectSlug") !== "studio-e2e-project"
-        ) {
-          res.statusCode = 400;
-          res.setHeader("content-type", "application/json");
-          res.end(
-            JSON.stringify({
-              error: "scope mismatch on events stream override",
-              received: {
-                orgSlug: url.searchParams.get("orgSlug"),
-                projectSlug: url.searchParams.get("projectSlug"),
-              },
-            }),
-          );
-          return;
-        }
-        res.statusCode = 200;
-        res.setHeader("content-type", "text/event-stream");
-        res.setHeader("cache-control", "no-cache, no-transform");
-        res.write(
-          `event: training.started\ndata: ${JSON.stringify({
-            startedAt: "2026-05-01T00:00:01.000Z",
-          })}\n\n`,
+    cloudApi.setRoute("GET", "/v1/jobs/job-e2e-1/events/stream", (req, res) => {
+      const url = new URL(req.url ?? "", "http://x");
+      if (
+        url.searchParams.get("orgSlug") !== "studio-e2e-org" ||
+        url.searchParams.get("projectSlug") !== "studio-e2e-project"
+      ) {
+        res.statusCode = 400;
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            error: "scope mismatch on events stream override",
+            received: {
+              orgSlug: url.searchParams.get("orgSlug"),
+              projectSlug: url.searchParams.get("projectSlug"),
+            },
+          }),
         );
-        res.write(
-          `event: log\ndata: ${JSON.stringify({
-            line: "studio-e2e-log-line",
-          })}\n\n`,
-        );
-      },
-    );
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/event-stream");
+      res.setHeader("cache-control", "no-cache, no-transform");
+      res.write(
+        `event: training.started\ndata: ${JSON.stringify({
+          startedAt: "2026-05-01T00:00:01.000Z",
+        })}\n\n`,
+      );
+      res.write(
+        `event: log\ndata: ${JSON.stringify({
+          line: "studio-e2e-log-line",
+        })}\n\n`,
+      );
+    });
 
     await page.goto(`${studio.url}/#/jobs/job-e2e-1`);
     // The detail page should mount and start the SSE. Assert against
@@ -89,13 +81,15 @@ test.describe("Studio pages", () => {
     // proxy regression that drops them is caught here even though
     // the override above already 400s on mismatch (defence in depth
     // against the override being relaxed in the future).
-    await expect.poll(() =>
-      cloudApi.requests.some(
-        (r) =>
-          r.url.startsWith("/v1/jobs/job-e2e-1/events/stream?") &&
-          r.url.includes("orgSlug=studio-e2e-org") &&
-          r.url.includes("projectSlug=studio-e2e-project"),
-      ),
-    ).toBe(true);
+    await expect
+      .poll(() =>
+        cloudApi.requests.some(
+          (r) =>
+            r.url.startsWith("/v1/jobs/job-e2e-1/events/stream?") &&
+            r.url.includes("orgSlug=studio-e2e-org") &&
+            r.url.includes("projectSlug=studio-e2e-project"),
+        ),
+      )
+      .toBe(true);
   });
 });

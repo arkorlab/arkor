@@ -14,7 +14,12 @@
     "url": "https://github.com/arkorlab/arkor/issues"
   },
   "license": "MIT",
-  "keywords": ["arkor", "create", "scaffold", "template"],
+  "keywords": [
+    "arkor",
+    "create",
+    "scaffold",
+    "template"
+  ],
   "bin": {
     "create-arkor": "./dist/bin.mjs"
   },

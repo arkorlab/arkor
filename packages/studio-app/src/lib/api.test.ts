@@ -222,15 +222,14 @@ describe("apiFetch JSON helpers", () => {
   });
 
   it("fetchMe returns the parsed user + orgs envelope", async () => {
-    globalThis.fetch = vi.fn(
-      async () =>
-        Response.json(
-          {
-            user: { id: "u1" },
-            orgs: [{ slug: "a" }, { slug: "b" }],
-          },
-          { status: 200 },
-        ),
+    globalThis.fetch = vi.fn(async () =>
+      Response.json(
+        {
+          user: { id: "u1" },
+          orgs: [{ slug: "a" }, { slug: "b" }],
+        },
+        { status: 200 },
+      ),
     ) as typeof fetch;
 
     const me = await fetchMe();
@@ -239,21 +238,20 @@ describe("apiFetch JSON helpers", () => {
   });
 
   it("fetchJobs returns the parsed jobs list", async () => {
-    globalThis.fetch = vi.fn(
-      async () =>
-        Response.json(
-          {
-            jobs: [
-              {
-                id: "j1",
-                name: "run",
-                status: "running",
-                createdAt: "2026-01-01T00:00:00Z",
-              },
-            ],
-          },
-          { status: 200 },
-        ),
+    globalThis.fetch = vi.fn(async () =>
+      Response.json(
+        {
+          jobs: [
+            {
+              id: "j1",
+              name: "run",
+              status: "running",
+              createdAt: "2026-01-01T00:00:00Z",
+            },
+          ],
+        },
+        { status: 200 },
+      ),
     ) as typeof fetch;
     const { jobs } = await fetchJobs();
     expect(jobs).toHaveLength(1);
@@ -263,7 +261,10 @@ describe("apiFetch JSON helpers", () => {
   it("apiFetch helpers throw with the status text on non-ok responses", async () => {
     globalThis.fetch = vi.fn(
       async () =>
-        new Response("nope", { status: 503, statusText: "Service Unavailable" }),
+        new Response("nope", {
+          status: 503,
+          statusText: "Service Unavailable",
+        }),
     ) as typeof fetch;
     await expect(fetchMe()).rejects.toThrow(/503/);
     await expect(fetchJobs()).rejects.toThrow(/503/);
@@ -279,11 +280,13 @@ describe("fetchManifest", () => {
   });
 
   it("returns the manifest summary on 200", async () => {
-    globalThis.fetch = vi.fn(
-      async () =>
-        Response.json({ trainer: { name: "my-run" } }, {
+    globalThis.fetch = vi.fn(async () =>
+      Response.json(
+        { trainer: { name: "my-run" } },
+        {
           status: 200,
-        }),
+        },
+      ),
     ) as typeof fetch;
     const m = await fetchManifest();
     expect(m).toEqual({ trainer: { name: "my-run" } });
@@ -292,12 +295,8 @@ describe("fetchManifest", () => {
   it("returns the structured error envelope on 400 (e.g. missing src/arkor/index.ts)", async () => {
     // The SPA renders this error inline as a hint instead of a generic
     // failure; the helper must therefore distinguish 400 from other 4xx.
-    globalThis.fetch = vi.fn(
-      async () =>
-        Response.json(
-          { error: "src/arkor/index.ts not found" },
-          { status: 400 },
-        ),
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({ error: "src/arkor/index.ts not found" }, { status: 400 }),
     ) as typeof fetch;
     const m = await fetchManifest();
     expect(m).toEqual({ error: "src/arkor/index.ts not found" });
@@ -339,8 +338,8 @@ describe("streamTraining", () => {
   }
 
   it("streams chunks to onChunk in order until the body closes", async () => {
-    globalThis.fetch = vi.fn(
-      async () => mockChunkedResponse(["one ", "two ", "three"]),
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["one ", "two ", "three"]),
     ) as typeof fetch;
     const received: string[] = [];
     await streamTraining((t) => received.push(t));
@@ -387,6 +386,7 @@ describe("streamTraining", () => {
     // `decode()` flush after the loop, the trailing bytes would be
     // silently discarded and the user would see truncated trainer
     // output for any non-ASCII tail.
+    // oxfmt-ignore
     const enc = new Uint8Array([0xE3, 0x81, 0x82]);
     globalThis.fetch = vi.fn(
       async () =>
@@ -589,12 +589,14 @@ describe("deployment api helpers", () => {
   });
 
   it("fetchDeployments → GET /api/deployments", async () => {
-    const { fetch: f, calls } = recordingDeploymentFetch(
-      () =>
-        Response.json({ deployments: [] }, {
+    const { fetch: f, calls } = recordingDeploymentFetch(() =>
+      Response.json(
+        { deployments: [] },
+        {
           status: 200,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     );
     globalThis.fetch = f;
     const out = await fetchDeployments();
@@ -605,14 +607,13 @@ describe("deployment api helpers", () => {
   });
 
   it("createDeployment → POST /api/deployments with JSON body", async () => {
-    const { fetch: f, calls } = recordingDeploymentFetch(
-      () =>
-        Response.json(
-          {
-            deployment: { id: "d1", slug: "x" },
-          },
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+    const { fetch: f, calls } = recordingDeploymentFetch(() =>
+      Response.json(
+        {
+          deployment: { id: "d1", slug: "x" },
+        },
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
     );
     globalThis.fetch = f;
     await createDeployment({
@@ -632,12 +633,14 @@ describe("deployment api helpers", () => {
 
   it("fetchDeployment + updateDeployment encode the id segment", async () => {
     const id = "deploy-123/with-/slashes";
-    const { fetch: f, calls } = recordingDeploymentFetch(
-      () =>
-        Response.json({ deployment: { id } }, {
+    const { fetch: f, calls } = recordingDeploymentFetch(() =>
+      Response.json(
+        { deployment: { id } },
+        {
           status: 200,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     );
     globalThis.fetch = f;
     await fetchDeployment(id);
@@ -662,20 +665,19 @@ describe("deployment api helpers", () => {
   });
 
   it("createDeploymentKey returns plaintext from the response envelope", async () => {
-    const { fetch: f } = recordingDeploymentFetch(
-      () =>
-        Response.json(
-          {
-            key: {
-              id: "k1",
-              label: "production",
-              plaintext: "ark_live_SECRET",
-              prefix: "ark_live_S",
-              createdAt: "2026-05-05T00:00:00Z",
-            },
+    const { fetch: f } = recordingDeploymentFetch(() =>
+      Response.json(
+        {
+          key: {
+            id: "k1",
+            label: "production",
+            plaintext: "ark_live_SECRET",
+            prefix: "ark_live_S",
+            createdAt: "2026-05-05T00:00:00Z",
           },
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+        },
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
     );
     globalThis.fetch = f;
     const out = await createDeploymentKey("d1", { label: "production" });
@@ -683,12 +685,14 @@ describe("deployment api helpers", () => {
   });
 
   it("fetchDeploymentKeys + revokeDeploymentKey use the keys sub-route", async () => {
-    const { fetch: f, calls } = recordingDeploymentFetch(
-      () =>
-        Response.json({ keys: [] }, {
+    const { fetch: f, calls } = recordingDeploymentFetch(() =>
+      Response.json(
+        { keys: [] },
+        {
           status: 200,
           headers: { "content-type": "application/json" },
-        }),
+        },
+      ),
     );
     globalThis.fetch = f;
     await fetchDeploymentKeys("d1");
@@ -699,12 +703,11 @@ describe("deployment api helpers", () => {
   });
 
   it("non-2xx responses throw DeploymentApiError carrying status + message", async () => {
-    const { fetch: f } = recordingDeploymentFetch(
-      () =>
-        Response.json(
-          { error: "Deployment slug is already taken" },
-          { status: 409, headers: { "content-type": "application/json" } },
-        ),
+    const { fetch: f } = recordingDeploymentFetch(() =>
+      Response.json(
+        { error: "Deployment slug is already taken" },
+        { status: 409, headers: { "content-type": "application/json" } },
+      ),
     );
     globalThis.fetch = f;
     await expect(

@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import {
-  fetchManifest,
-  streamTraining,
-  type ManifestResult,
-} from "../lib/api";
+import { fetchManifest, streamTraining, type ManifestResult } from "../lib/api";
 
 import { Play, StopCircle } from "./icons";
 import { Button } from "./ui/Button";
@@ -105,8 +101,7 @@ export function RunTraining() {
   }
 
   const trainer = manifest && "trainer" in manifest ? manifest.trainer : null;
-  const manifestError =
-    manifest && "error" in manifest ? manifest.error : null;
+  const manifestError = manifest && "error" in manifest ? manifest.error : null;
   const hasTrainer = Boolean(trainer);
 
   return (
@@ -169,9 +164,9 @@ export function RunTraining() {
         >
           {running
             ? "Stop training"
-            : (trainer
+            : trainer
               ? `Run training: ${trainer.name}`
-              : "Run training")}
+              : "Run training"}
         </Button>
       </div>
 

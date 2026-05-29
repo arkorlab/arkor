@@ -1,8 +1,23 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import { CREATE_ARKOR_BIN } from "./bins";
 import { INSTALL_CASES, shouldSkipInstallCase } from "./install-matrix";
@@ -78,7 +93,6 @@ beforeAll(() => {
 afterAll(() => {
   if (arkorPackDir) cleanup(arkorPackDir);
 });
-
 
 describe("create-arkor (E2E)", () => {
   it("scaffolds with --skip-install --skip-git (hermetic happy path)", async () => {
@@ -156,17 +170,20 @@ describe("create-arkor (E2E)", () => {
   it.each([
     { pm: "yarn", devCmd: "yarn arkor dev" },
     { pm: "bun", devCmd: "bun arkor dev" },
-  ])("renders the $pm next-steps when --use-$pm is set", async ({ pm, devCmd }) => {
-    const { result } = await runCreateArkor([
-      "-y",
-      "--skip-install",
-      "--skip-git",
-      `--use-${pm}`,
-    ]);
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain(`${pm} install`);
-    expect(result.stdout).toContain(devCmd);
-  });
+  ])(
+    "renders the $pm next-steps when --use-$pm is set",
+    async ({ pm, devCmd }) => {
+      const { result } = await runCreateArkor([
+        "-y",
+        "--skip-install",
+        "--skip-git",
+        `--use-${pm}`,
+      ]);
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain(`${pm} install`);
+      expect(result.stdout).toContain(devCmd);
+    },
+  );
 
   it("creates a real git repo and initial commit when --git is set", async () => {
     const { result, targetDir } = await runCreateArkor([
@@ -488,7 +505,9 @@ describe("create-arkor (E2E)", () => {
     );
     expect(result.code).toBe(0);
     expect(existsSync(join(targetDir, "package.json"))).toBe(true);
-    expect(readFileSync(join(targetDir, "sentinel.txt"), "utf8")).toBe("kept\n");
+    expect(readFileSync(join(targetDir, "sentinel.txt"), "utf8")).toBe(
+      "kept\n",
+    );
   });
 
   // Collision check should NOT fire when the would-be target is empty;
@@ -554,7 +573,6 @@ describe("create-arkor (E2E)", () => {
           !existsSync(join(targetDir, "node_modules")) ||
           !expectedGit
         ) {
-
           console.error(
             `[install-matrix:${label}] create-arkor missing expected artefact:\n` +
               `  exit: ${result.code}\n` +
@@ -579,7 +597,12 @@ describe("create-arkor (E2E)", () => {
         // git init execution still happens *after* install; otherwise
         // the lockfile wouldn't be tracked and the bootstrap commit
         // wouldn't be reproducible.
-        const tracked = await runGit(targetDir, ["ls-tree", "-r", "--name-only", "HEAD"]);
+        const tracked = await runGit(targetDir, [
+          "ls-tree",
+          "-r",
+          "--name-only",
+          "HEAD",
+        ]);
         expect(tracked.stdout).toContain(LOCKFILE_BY_FLAG[flag]);
       },
       180_000,
@@ -603,11 +626,11 @@ describe("create-arkor (E2E)", () => {
         CLAUDECODE: "1",
       });
       expect(result.code).toBe(1);
-      expect(result.stderr).toContain(
-        "create-arkor: CLAUDECODE=1 detected",
-      );
+      expect(result.stderr).toContain("create-arkor: CLAUDECODE=1 detected");
       expect(result.stderr).toContain("[dir]");
-      expect(result.stderr).toContain("--template <triage|translate|redaction>");
+      expect(result.stderr).toContain(
+        "--template <triage|translate|redaction>",
+      );
       expect(result.stderr).toContain("--git (recommended) or --skip-git");
       expect(result.stderr).toContain("--use-pnpm");
       expect(result.stderr).toContain(
@@ -688,37 +711,34 @@ describe("create-arkor (E2E)", () => {
     it.each([
       ["empty positional", ""],
       ["whitespace-only positional", "   "],
-    ])(
-      "rejects %s under strict mode",
-      async (_label, dir) => {
-        // PR #141 review (Copilot): the motivating case is the empty
-        // string. `path.resolve("")` returns `process.cwd()` and
-        // would scaffold against the parent's alphanumeric basename
-        // without the early trim guard. Whitespace inputs would also
-        // fail strict mode via the downstream alphanumeric check on
-        // their own (since `resolve("   ")` resolves to a whitespace-
-        // basename path), but pinning both shapes here keeps the
-        // contract that empty-shaped positionals get the same
-        // rejection as `--name ""`.
-        const result = await runCli(
-          CREATE_ARKOR_BIN,
-          [
-            dir,
-            "--template",
-            "triage",
-            "--skip-git",
-            "--skip-install",
-            "--no-agents-md",
-          ],
-          parentDir,
-          { CLAUDECODE: "1" },
-        );
-        expect(result.code).toBe(1);
-        expect(result.stderr).toContain("[dir]");
-        // Sanity: parent dir stays empty.
-        expect(readdirSync(parentDir)).toEqual([]);
-      },
-    );
+    ])("rejects %s under strict mode", async (_label, dir) => {
+      // PR #141 review (Copilot): the motivating case is the empty
+      // string. `path.resolve("")` returns `process.cwd()` and
+      // would scaffold against the parent's alphanumeric basename
+      // without the early trim guard. Whitespace inputs would also
+      // fail strict mode via the downstream alphanumeric check on
+      // their own (since `resolve("   ")` resolves to a whitespace-
+      // basename path), but pinning both shapes here keeps the
+      // contract that empty-shaped positionals get the same
+      // rejection as `--name ""`.
+      const result = await runCli(
+        CREATE_ARKOR_BIN,
+        [
+          dir,
+          "--template",
+          "triage",
+          "--skip-git",
+          "--skip-install",
+          "--no-agents-md",
+        ],
+        parentDir,
+        { CLAUDECODE: "1" },
+      );
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("[dir]");
+      // Sanity: parent dir stays empty.
+      expect(readdirSync(parentDir)).toEqual([]);
+    });
 
     it("accepts `create-arkor .` (resolves to the parent dir basename, not the literal `.`)", async () => {
       // Regression for PR #141 review (codex + Copilot): the strict

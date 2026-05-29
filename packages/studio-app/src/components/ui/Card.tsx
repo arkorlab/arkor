@@ -37,7 +37,9 @@ export function CardHeader({
       {...rest}
     >
       <div className="min-w-0 flex-1">{children}</div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+      ) : null}
     </div>
   );
 }
@@ -67,10 +69,7 @@ export function CardDescription({
 }: HTMLAttributes<HTMLParagraphElement>) {
   return (
     <p
-      className={cn(
-        "mt-1 text-sm text-zinc-500 dark:text-zinc-400",
-        className,
-      )}
+      className={cn("mt-1 text-sm text-zinc-500 dark:text-zinc-400", className)}
       {...rest}
     >
       {children}

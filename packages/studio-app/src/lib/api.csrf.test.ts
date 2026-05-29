@@ -21,14 +21,17 @@ describe("api CSRF token wiring", () => {
     seenHeaders = null;
     globalThis.fetch = vi.fn(async (_input, init?: RequestInit) => {
       seenHeaders = new Headers(init?.headers);
-      return Response.json({ jobs: [] }, {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return Response.json(
+        { jobs: [] },
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as typeof fetch;
   });
 
-  it("apiFetch attaches the token from <meta name=\"arkor-studio-token\"> as X-Arkor-Studio-Token", async () => {
+  it('apiFetch attaches the token from <meta name="arkor-studio-token"> as X-Arkor-Studio-Token', async () => {
     // The test setup file injects the meta tag at boot, mirroring the
     // production `index.html` Studio renders for the SPA. If `api.ts`
     // ever stops reading the meta tag at module load, real Studio

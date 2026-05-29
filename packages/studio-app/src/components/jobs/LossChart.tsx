@@ -191,9 +191,9 @@ export function LossChart({
     .join(" ");
   const areaPath =
     trainSeries.length > 0
-      // `trainSeries.length > 0` proved above; `at(-1)!` is safe.
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      ? `${linePath} L${xFor(trainSeries.at(-1)!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0].step).toFixed(2)},${PADDING.top + innerH} Z`
+      ? // `trainSeries.length > 0` proved above; `at(-1)!` is safe.
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        `${linePath} L${xFor(trainSeries.at(-1)!.step).toFixed(2)},${PADDING.top + innerH} L${xFor(trainSeries[0].step).toFixed(2)},${PADDING.top + innerH} Z`
       : "";
 
   const evalPath =
@@ -215,12 +215,14 @@ export function LossChart({
   // De-dupe via Set so a small span (e.g. lastStep === 3 with
   // xTickCount === 6) doesn't render the same step number twice.
   const xTickCount = Math.min(6, unified.length);
-  const xTicks = [...new Set(
+  const xTicks = [
+    ...new Set(
       Array.from({ length: xTickCount }).map((_, i) => {
         const t = xTickCount === 1 ? 0 : i / (xTickCount - 1);
         return Math.round(firstStep + t * xSpan);
       }),
-    )];
+    ),
+  ];
 
   function onMouseMove(e: MouseEvent<SVGRectElement>) {
     // The `<rect>` is already positioned at `x={PADDING.left}`, so its
@@ -249,7 +251,8 @@ export function LossChart({
     const candidate = unified[lo];
     const before = lo > 0 ? unified[lo - 1] : candidate;
     const nearest =
-      Math.abs(before.step - targetStep) <= Math.abs(candidate.step - targetStep)
+      Math.abs(before.step - targetStep) <=
+      Math.abs(candidate.step - targetStep)
         ? before
         : candidate;
     setHover(nearest);
@@ -267,8 +270,8 @@ export function LossChart({
   const hoverAnchorLoss =
     hover === null
       ? 0
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      : (hover.loss ?? hover.evalLoss!);
+      : // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        (hover.loss ?? hover.evalLoss!);
 
   return (
     <div ref={wrapperRef} className="relative w-full">
@@ -404,7 +407,7 @@ export function LossChart({
 
       {hover ? (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] font-mono shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+          className="pointer-events-none absolute -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
           style={{
             left: xFor(hover.step),
             top: Math.max(0, yFor(hoverAnchorLoss) - 36),
@@ -513,7 +516,9 @@ function StatsCard({
   return (
     <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
       <div className="mb-2 flex items-center justify-between">
-        <span className={`text-[11px] font-medium uppercase tracking-wide ${accent}`}>
+        <span
+          className={`text-[11px] font-medium tracking-wide uppercase ${accent}`}
+        >
           {label}
         </span>
         <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -526,7 +531,11 @@ function StatsCard({
         </div>
       ) : (
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
-          <Row term="Mean loss" value={`${stats.mean.toFixed(4)} ± ${stats.ci95HalfWidth.toFixed(4)}`} hint="95% CI" />
+          <Row
+            term="Mean loss"
+            value={`${stats.mean.toFixed(4)} ± ${stats.ci95HalfWidth.toFixed(4)}`}
+            hint="95% CI"
+          />
           <Row term="Std dev" value={stats.stddev.toFixed(4)} />
           <Row term="Variance" value={stats.variance.toFixed(4)} />
           <Row term="p90" value={stats.p90.toFixed(4)} />
@@ -537,7 +546,15 @@ function StatsCard({
   );
 }
 
-function Row({ term, value, hint }: { term: string; value: string; hint?: string }) {
+function Row({
+  term,
+  value,
+  hint,
+}: {
+  term: string;
+  value: string;
+  hint?: string;
+}) {
   return (
     <>
       <dt className="text-zinc-500 dark:text-zinc-400">

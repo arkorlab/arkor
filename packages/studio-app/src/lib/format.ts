@@ -26,7 +26,10 @@ function fallbackRelative(value: number, unit: string): string {
   return value < 0 ? `${abs}${unit} ago` : `in ${abs}${unit}`;
 }
 
-export function formatRelativeTime(iso: string, now: number = Date.now()): string {
+export function formatRelativeTime(
+  iso: string,
+  now: number = Date.now(),
+): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "-";
   const diffSec = Math.round((t - now) / 1000);

@@ -123,7 +123,11 @@ export function lockfileChangedSince(
 ): boolean {
   const after = snapshotLockfile(cwd, pm);
   if (!before.exists && after.exists) return true;
-  if (before.path !== null && after.path !== null && before.path !== after.path) {
+  if (
+    before.path !== null &&
+    after.path !== null &&
+    before.path !== after.path
+  ) {
     return true;
   }
   if (after.mtimeMs > before.mtimeMs) return true;

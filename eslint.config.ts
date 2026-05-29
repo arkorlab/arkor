@@ -25,6 +25,7 @@ const CONFIG_TS_FILES = [
   "**/vitest.config.ts",
   "**/vitest.setup.ts",
   "**/playwright.config.ts",
+  "**/oxfmt.config.ts",
 ];
 
 // Matches the em-dash glyph (U+2014) and its HTML entity. Built via

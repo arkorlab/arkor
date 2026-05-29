@@ -129,6 +129,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Format check
+        run: pnpm format:check
+
       # Playwright bundles its own browser binaries (~150 MB). Cache by
       # OS and the lockfile hash so a `@playwright/test` upgrade busts
       # the cache automatically. Cache locations are OS-specific:
