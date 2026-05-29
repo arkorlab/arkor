@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "check:no-em-dash": "./scripts/check-no-em-dash.sh",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",

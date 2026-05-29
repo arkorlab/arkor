@@ -5,6 +5,20 @@ on:
   pull_request:
 
 jobs:
+  # Repo-wide em-dash guard. The ESLint rule `local/no-em-dash` covers TS
+  # / TSX / JS / JSX / MTS / MJS source under `packages/*` and `e2e/*`;
+  # this job covers everything else (yaml, md, json, html, root config),
+  # so a regression in a non-lint-target file fails before the build
+  # matrix runs. The check is a single `git grep`, so the job finishes in
+  # a few seconds and does not consume Node / pnpm cache budget.
+  no_em_dash:
+    name: no em dashes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Check no em dashes
+        run: ./scripts/check-no-em-dash.sh
+
   build:
     name: typecheck · lint · test · build · ${{ matrix.os }} · node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}

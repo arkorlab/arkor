@@ -100,7 +100,13 @@ Studio runs at `http://127.0.0.1:4000` with a CSRF token injected per launch.
 
 We avoid the em dash (U+2014) anywhere in code. Reach for a colon, a period, a comma, parentheses, a spaced hyphen (`" - "`), or a reworded sentence instead. A local ESLint rule, `local/no-em-dash`, enforces this across comments and string or template literals in every package, with no carve-out: CLI runtime messages, generated-file template bodies, and test names all follow the same rule.
 
-Markdown (including this file) is not linted by the rule, but the same no-em-dash convention applies to prose in docs.
+Markdown (including this file) is not linted by the rule. To extend the same convention to yaml, md, json, html, and root-level config, the [`scripts/check-no-em-dash.sh`](scripts/check-no-em-dash.sh) repo-wide guard scans every tracked file via `git grep` and fails on the em-dash glyph or its HTML entity. Run it locally with:
+
+```bash
+pnpm check:no-em-dash
+```
+
+CI runs the same script as a dedicated job (`no em dashes`) ahead of the build matrix, so a regression in a non-lint-target file blocks the PR before the rest of the workflow burns runner minutes.
 
 ## Pull request guidelines
 

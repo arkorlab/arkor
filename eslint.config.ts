@@ -27,11 +27,14 @@ const CONFIG_TS_FILES = [
   "**/playwright.config.ts",
 ];
 
-// Matches the em-dash glyph (U+2014) and its HTML entity. Non-global so the
-// shared instance carries no `lastIndex` state between `.test()` calls. The
-// glyph is written as `\u2014` (Unicode escape) so this file itself
-// contains no em-dash character.
-const EM_DASH = /\u2014|&mdash;/;
+// Matches the em-dash glyph (U+2014) and its HTML entity. Built via
+// `new RegExp` from string fragments so this file itself contains
+// neither the U+2014 character (the `\u2014` escape avoids it) nor the
+// matching HTML entity literal (split across the concatenation). The
+// repo-wide guard at `scripts/check-no-em-dash.sh` would otherwise flag
+// the rule's own source. Non-global so the shared instance carries no
+// `lastIndex` state between `.test()` calls.
+const EM_DASH = new RegExp("\\u2014|&" + "mdash;");
 
 // Local rule: ban em dashes in comments and string/template literals. The
 // project writes prose (comments, JSDoc, CLI runtime messages, generated-
