@@ -12,19 +12,26 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// `vi.hoisted` ensures the mock factory and its captured `spawnMock` are
-// available before any module-level imports execute, so the
-// `import { spawn } from "node:child_process"` at the top of `spawn-cli.ts`
-// resolves to our fake instead of the real Node binding.
+// `vi.hoisted` ensures the mock factory and its captured `spawnMock` /
+// `spawnSyncMock` are available before any module-level imports
+// execute, so the `import { spawn, spawnSync } from "node:child_process"`
+// at the top of `spawn-cli.ts` resolves to our fakes instead of the real
+// Node bindings.
 //
-// PR #159 Copilot review: spread `vi.importActual` for the other named
-// exports so `spawn-cli.ts`'s `import { spawn, spawnSync }` line
-// resolves `spawnSync` to the real Node implementation (the mock only
-// intercepts `spawn`). Without the spread, `spawnSync` would be
-// `undefined` in the mocked module and a future test that exercises
-// `findBunBin()` (which calls `spawnSync` directly) would throw
-// "spawnSync is not a function". The current test suite doesn't hit
-// that path, but pinning the contract here keeps the mock honest.
+// Both `spawn` and `spawnSync` are intercepted:
+//
+//   - `spawnMock` drives the `runCli` orchestration tests
+//     (close events, retry gate, env-scrub assertions).
+//   - `spawnSyncMock` drives the `findBunBin` branch tests
+//     (probe / resolver / cache outcomes).
+//
+// Per-suite `beforeEach` resets the mock the suite cares about so
+// state doesn't leak across describes. The `vi.importActual` spread
+// passes every OTHER `node:child_process` export through to the real
+// implementation, so unrelated exports (`exec`, `execSync`,
+// `fork`, etc.) keep working if any test ever pulls them in via
+// `spawn-cli.ts`. Without the spread those would resolve to
+// `undefined` in the mocked module and silently throw at call time.
 const spawnMock = vi.hoisted(() => vi.fn());
 const spawnSyncMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", async () => ({
