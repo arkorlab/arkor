@@ -218,7 +218,7 @@ export function EndpointsList() {
             <EmptyState
               icon={<Inbox />}
               title="Workspace not scoped to a project yet"
-              description="The next endpoint create will bootstrap this for an anonymous session. If you're signed in with OAuth, restore .arkor/state.json by hand to point this Studio session at the project you want to manage. If neither applies (no credentials on disk), run `arkor login` first; Studio cannot reach the cloud API without one."
+              description="The next endpoint create will bootstrap this for an anonymous session. If you're signed in with OAuth, restore .arkor/state.json by hand to point this Studio session at the project you want to manage. If neither applies (no credentials on disk), run `arkor login` first. Studio cannot reach the cloud API without one."
             />
           ) : (
             <EmptyState
@@ -1118,7 +1118,7 @@ export function EndpointDetail({ id }: { id: string }) {
           {revealed && (
             <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700/50 dark:bg-amber-900/20">
               <p className="font-medium text-amber-900 dark:text-amber-200">
-                Copy this key now: it cannot be shown again.
+                Copy this key now. It cannot be shown again.
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <code className="flex-1 rounded bg-white px-2 py-1 font-mono text-xs break-all dark:bg-zinc-950">

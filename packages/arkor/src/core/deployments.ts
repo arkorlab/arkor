@@ -127,7 +127,7 @@ export interface CreateDeploymentKeyInput {
 
 /**
  * Response from `createDeploymentKey`. The `plaintext` field is the **only**
- * time the server returns the raw key; store it immediately. Subsequent
+ * time the server returns the raw key: store it immediately. Subsequent
  * `listDeploymentKeys` calls only return the label + display prefix.
  */
 export interface CreateDeploymentKeyResult {

@@ -433,7 +433,7 @@ describe("create-arkor (E2E)", () => {
 
   // Collision guards for the auto-derived `./<name>/` path. When the user
   // didn't pass `[dir]` we refuse to merge into a non-empty existing
-  // directory (easy to hit by accident through a typo, forgotten earlier scaffold),
+  // directory (easy to hit by accident: typo, forgotten earlier scaffold),
   // and the silent merge would surprise users.
   it("refuses to scaffold when ./arkor-project/ already exists and is non-empty", async () => {
     const collidingDir = join(parentDir, "arkor-project");

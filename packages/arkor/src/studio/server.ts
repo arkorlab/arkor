@@ -522,10 +522,10 @@ export function buildStudioApp(options: StudioServerOptions) {
   ): Promise<Response> {
     // Read scope from local FS first. `readScopeFromState` does not touch
     // credentials or the network, so on a fresh workspace we can answer
-    // read-only routes with a clean 404 *without* tripping `getCredentials()`
-    // (the latter throws when no token is on disk and `autoAnonymous` is
+    // read-only routes with a clean 404 *without* tripping `getCredentials()`:
+    // the latter throws when no token is on disk and `autoAnonymous` is
     // off, which would otherwise turn a documented "no deployments yet"
-    // into an opaque 500).
+    // into an opaque 500.
     const scope0 = await readScopeFromState().catch(() => null);
     if (!scope0 && (intent === "read" || intent === "mutate")) {
       // Stay neutral about whether deployments exist. For anonymous
@@ -753,11 +753,11 @@ export function buildStudioApp(options: StudioServerOptions) {
   // `c.req.json()` happily parses every well-formed JSON value,
   // including the literal `null`, so a `.catch(() => null)` would
   // collapse both "parse failed" and "valid `null` body" into the
-  // same case. Use a `Symbol` sentinel (Symbols can't appear in JSON)
-  // so the parse-failure branch catches *only* the syntax error and
-  // every well-formed JSON value (including `null`, `false`, `0`,
-  // `""`, arrays) flows through to the schema check that knows how
-  // to reject the wrong shape with an accurate error message.
+  // same case. Use a `Symbol` sentinel; Symbols can't appear in JSON, so
+  // the parse-failure branch catches *only* the syntax error and every
+  // well-formed JSON value (including `null`, `false`, `0`, `""`, arrays)
+  // flows through to the schema check that knows how to reject the wrong
+  // shape with an accurate error message.
   const PARSE_FAILED: unique symbol = Symbol("studio.body-parse-failed");
   type ParseFailed = typeof PARSE_FAILED;
   const isPlainObject = (

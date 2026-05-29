@@ -247,7 +247,7 @@ export function credentialsFromExchange(
     // back to production) round-trips through the persisted
     // credentials. A truthy check would drop the field, and on the
     // next run `defaultArkorCloudApiUrl(creds)` would silently fall
-    // through to the production endpoint, exactly the masking
+    // through to the production endpoint: exactly the masking
     // behaviour the empty env var is configured to avoid.
     ...(config.arkorCloudApiUrl !== undefined
       ? { arkorCloudApiUrl: config.arkorCloudApiUrl }

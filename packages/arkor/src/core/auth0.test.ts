@@ -123,7 +123,7 @@ describe("credentialsFromExchange", () => {
     // round-trip through the persisted credentials. A truthy check
     // here would drop the field, and the next run's
     // `defaultArkorCloudApiUrl(creds)` would silently fall back to
-    // production, exactly the masking the empty env var is set to
+    // production: exactly the masking the empty env var is set to
     // avoid.
     const creds = credentialsFromExchange(
       {

@@ -88,7 +88,7 @@ allowBuilds:
 If you genuinely need the postinstall to run (rare; typically a broken installer or unusual platform), pass `--allow-builds`. The flag controls only the value the scaffold *writes*: a fresh-scaffold run emits `esbuild: true` instead of `esbuild: false`, and a patch-into-existing-file run that adds a new `esbuild` entry uses `true`. An *existing* explicit `allowBuilds.esbuild` pin (or a global `allowBuilds: <bool>` scalar) is always preserved: the scaffold leaves that decision untouched even when `--allow-builds` is passed. To change a prior explicit deny, edit `pnpm-workspace.yaml` by hand. (Note: an `allowBuilds`-no-op patch run can still backfill a missing top-level `packages: []` for pnpm 9 compatibility, so the file is not always byte-for-byte unchanged; what's preserved is the `allowBuilds.esbuild` decision.)
 
 When `[dir]` is given explicitly, existing files are kept (never overwritten)
-and `package.json` is patched in place — only missing keys are added, so a
+and `package.json` is patched in place: only missing keys are added, so a
 hand-edited `build: "tsc"` survives. When the target directory is auto-derived
 (no `[dir]` passed), an existing non-empty `./<project-name>/` is treated as a
 collision: interactive runs re-prompt for a different name, and `-y` /
@@ -96,36 +96,36 @@ non-interactive runs exit with an error.
 
 `AGENTS.md` is patched non-destructively: an existing user file is preserved
 and the arkor-managed block is appended or, on re-scaffold, replaced in place.
-The block is identified by **three** signals together — the BEGIN marker
+The block is identified by **three** signals together: the BEGIN marker
 (`<!-- BEGIN:arkor-agent-rules -->`), the END marker
 (`<!-- END:arkor-agent-rules -->`), and the canonical first content line
-(`# arkor is newer than your training data`) — all on their own lines. If you
+(`# arkor is newer than your training data`), all on their own lines. If you
 hand-edit that heading, the matcher no longer recognises the block as managed
 and treats it as ordinary user content; a re-scaffold then appends a fresh
 canonical block alongside the edited one without any warning. The ambiguous-
 block warning fires only when **multiple signature-matching blocks** are
-present at once — typically from pasting the canonical block twice, not from
-heading edits — in which case the scaffolder refuses to guess which copy is
+present at once (typically from pasting the canonical block twice, not from
+heading edits), in which case the scaffolder refuses to guess which copy is
 current, leaves the file untouched, and asks you to dedupe before the next
 re-scaffold patches in place.
 `CLAUDE.md` is created with `@AGENTS.md` only when it does not already
 exist *and* `AGENTS.md` does not contain duplicate managed blocks. In
 the duplicate-block case the scaffolder skips `CLAUDE.md` too, since it
 would otherwise auto-import the unresolved rules into Claude Code via
-the `@<path>` directive — the next re-scaffold creates the file once
+the `@<path>` directive. The next re-scaffold creates the file once
 `AGENTS.md` is deduped.
 
 Claude Code auto-loads `CLAUDE.md` from the project root, and the
-`@<path>` directive is a built-in import — writing `@AGENTS.md` inlines
+`@<path>` directive is a built-in import: writing `@AGENTS.md` inlines
 the AGENTS.md contents into Claude's context, so the two files stay in
 sync without duplication. Other agents that follow the AGENTS.md
 convention read `AGENTS.md` directly.
 
 ## Templates
 
-- **triage** — support ticket triage. Free-text in → `{category, urgency, summary, nextAction}` JSON. Dataset: `arkorlab/triage-demo`. ~7 min training.
-- **translate** — multilingual support-intake translation across 9 languages. → `{translation, detectedLanguage}` JSON. Dataset: `arkorlab/translate-demo`. ~7 min training.
-- **redaction** — PII redaction. Free-text in → `{redactedText, redactedCount, tags}` JSON with `[REDACTED]` substitutions. Dataset: `arkorlab/redaction-demo`. ~12 min training.
+- **triage**: support ticket triage. Free-text in → `{category, urgency, summary, nextAction}` JSON. Dataset: `arkorlab/triage-demo`. ~7 min training.
+- **translate**: multilingual support-intake translation across 9 languages. → `{translation, detectedLanguage}` JSON. Dataset: `arkorlab/translate-demo`. ~7 min training.
+- **redaction**: PII redaction. Free-text in → `{redactedText, redactedCount, tags}` JSON with `[REDACTED]` substitutions. Dataset: `arkorlab/redaction-demo`. ~12 min training.
 
 All three pair `gemma-4-E4B-it` with a public dataset hosted under [`arkorlab` on HuggingFace](https://huggingface.co/arkorlab). The `src/arkor/index.ts` entry point is identical across templates; only `src/arkor/trainer.ts` differs.
 
@@ -142,7 +142,7 @@ cd my-app
 The `dev` / `build` / `start` package scripts forward to the corresponding
 `arkor` subcommands, so the script form works the same across npm, pnpm,
 yarn, and bun. (npm in particular does *not* run package binaries via
-`npm <bin>` — use `npm run <script>`, or `npx arkor <subcommand>` for
+`npm <bin>`. Use `npm run <script>`, or `npx arkor <subcommand>` for
 one-off invocations.)
 
 `arkor dev` opens the local Studio. See the
@@ -151,4 +151,4 @@ reference.
 
 ## License
 
-MIT — see [LICENSE.md](./LICENSE.md).
+MIT. See [LICENSE.md](./LICENSE.md).
