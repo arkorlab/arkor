@@ -32,7 +32,7 @@ const CONFIG_TS_FILES = [
 // `new RegExp` from string fragments so this file itself contains
 // neither the U+2014 character (the `\u2014` escape avoids it) nor the
 // matching HTML entity literal (split across the concatenation). The
-// repo-wide guard at `scripts/check-no-em-dash.mjs` would otherwise flag
+// repo-wide guard at `scripts/check-no-em-dash.mts` would otherwise flag
 // the rule's own source. Non-global so the shared instance carries no
 // `lastIndex` state between `.test()` calls.
 const EM_DASH = new RegExp("\\u2014|&" + "mdash;");
@@ -158,7 +158,7 @@ export default defineConfig(
   // pre-existing prose was rewritten contextually rather than
   // baselined, so any new em dash that lands here is a regression
   // worth surfacing immediately. The companion
-  // `scripts/check-no-em-dash.mjs` (wired into CI as the `no_em_dash`
+  // `scripts/check-no-em-dash.mts` (wired into CI as the `no_em_dash`
   // job) keeps the same zero across non-lint-target files such as
   // yaml, md, json, html, and root config.
   {

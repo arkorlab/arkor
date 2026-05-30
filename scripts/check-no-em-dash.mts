@@ -18,18 +18,27 @@
 // concatenation, so this script file itself contains neither literal.
 //
 // Cross-platform note: this is a Node script (not bash) so it runs
-// uniformly on Windows (no `bash` requirement, no executable-bit
-// requirement on checkout, no PCRE2 requirement on the host's `git`).
-// The previous bash implementation died on `git grep -P` when the
-// host git was built without PCRE2; we now match a literal pattern
-// (no regex), which works with every supported git build.
+// uniformly on every supported OS (no `bash` requirement, no
+// executable-bit requirement on checkout, no PCRE2 requirement on the
+// host's `git`). The previous bash implementation died on `git grep -P`
+// when the host git was built without PCRE2; we now match a literal
+// pattern (no regex), which works with every supported git build.
+//
+// Implementation note: written as `.mts` and executed by Node directly.
+// Node 22.18+ (the repo's `engines.node >= 22.22.0` minimum, and the
+// default Node on the `ubuntu-latest` runner the `no_em_dash` CI job
+// uses) strips type annotations from `.mts` files natively, so no
+// build step, no `tsx`, and no `--experimental-strip-types` flag is
+// needed. The TypeScript surface here is deliberately minimal (just
+// what's useful for catching a future spawnSync shape regression);
+// keeping it light keeps the script self-contained.
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 
-const EM_DASH = String.fromCharCode(0x2014);
-const ENTITY = "&" + "mdash;";
+const EM_DASH: string = String.fromCharCode(0x2014);
+const ENTITY: string = "&" + "mdash;";
 
-const result = spawnSync(
+const result: SpawnSyncReturns<string> = spawnSync(
   "git",
   [
     "grep",
@@ -39,7 +48,7 @@ const result = spawnSync(
     "-e",
     ENTITY,
     "--",
-    ":!scripts/check-no-em-dash.mjs",
+    ":!scripts/check-no-em-dash.mts",
   ],
   { encoding: "utf-8" },
 );
@@ -56,7 +65,7 @@ if (result.error) {
 // running outside a git repo, ...) cannot fall through to a false
 // green. 0 means a match was found; 1 means a clean tree; everything
 // else is treated as an infrastructure error and propagated.
-const rc = result.status;
+const rc: number | null = result.status;
 if (rc === 0) {
   process.stdout.write(result.stdout);
   process.stderr.write(

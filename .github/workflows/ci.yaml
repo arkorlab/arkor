@@ -25,7 +25,7 @@ jobs:
         # `node` (not `bash`) so this step runs uniformly on every
         # supported OS, including Windows hosts where the previous
         # `bash` invocation would not have been portable.
-        run: node scripts/check-no-em-dash.mjs
+        run: node scripts/check-no-em-dash.mts
 
   build:
     name: typecheck · lint · test · build · ${{ matrix.os }} · node ${{ matrix.node }}
