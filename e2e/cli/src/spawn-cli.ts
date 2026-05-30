@@ -68,18 +68,24 @@ export function __resetBunBinCacheForTest(): void {
  */
 export function findBunBin(): string | undefined {
   if (bunBinPath !== undefined) return bunBinPath ?? undefined;
-  // Probe by trying to invoke `bun --version` directly. We can't use
-  // `command -v` (a shell builtin, not an executable, so `spawnSync`
-  // can't run it as the binary argument) or `which` (not standard on
-  // Windows). `spawnSync` does its own PATH lookup, so a successful
-  // exit with version-shaped stdout is sufficient evidence that
-  // `bun` is invocable from the same env the test suite will spawn
-  // under. `shell: true` on Windows is for the probe's PATH lookup
-  // only: `setup-bun` adds `~/.bun/bin` to PATH where some Windows
-  // shells need `cmd` to resolve the lookup. The subsequent
-  // resolver step below is what turns this into an absolute path,
-  // so `runCli`'s spawn can stay `shell: false` even though the
-  // probe itself uses `shell: true`.
+  // Probe by trying to invoke `bun --version` directly. We don't use
+  // a portable resolver here (`command -v` is a shell builtin so
+  // `spawnSync` can't run it as the binary argument without
+  // `shell: true`, and `which` is not standard on Windows); the
+  // resolver step further down DOES use them for the
+  // absolute-path lookup, where the cost of `shell: true` is
+  // acceptable because we only need the stdout, not to actually
+  // execute the resolved binary. For this initial liveness probe
+  // `spawnSync("bun", ...)` is enough: spawnSync does its own PATH
+  // lookup, so a successful exit with version-shaped stdout is
+  // sufficient evidence that `bun` is invocable from the same env
+  // the test suite will spawn under. `shell: true` on Windows is
+  // for the probe's PATH lookup only: `setup-bun` adds
+  // `~/.bun/bin` to PATH where some Windows shells need `cmd` to
+  // resolve the lookup. The subsequent resolver step below is
+  // what turns this into an absolute path, so `runCli`'s spawn
+  // can stay `shell: false` even though the probe itself uses
+  // `shell: true`.
   //
   // PR #159 Copilot review: probe from `tmpdir()` rather than the
   // workspace cwd. Running `bun --version` from any cwd inside
