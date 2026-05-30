@@ -4,9 +4,9 @@ import { formatDuration, formatRelativeTime, truncateMiddle } from "./format";
 
 describe("formatDuration", () => {
   it("returns a placeholder for invalid input", () => {
-    expect(formatDuration(Number.NaN)).toBe("–");
-    expect(formatDuration(-1)).toBe("–");
-    expect(formatDuration(Infinity)).toBe("–");
+    expect(formatDuration(Number.NaN)).toBe("N/A");
+    expect(formatDuration(-1)).toBe("N/A");
+    expect(formatDuration(Infinity)).toBe("N/A");
   });
 
   it("renders sub-minute durations as seconds", () => {
@@ -37,7 +37,7 @@ describe("formatRelativeTime", () => {
   const NOW = Date.parse("2026-05-02T12:00:00.000Z");
 
   it("returns a placeholder for unparseable input", () => {
-    expect(formatRelativeTime("not-a-date", NOW)).toBe("–");
+    expect(formatRelativeTime("not-a-date", NOW)).toBe("N/A");
   });
 
   it("formats past timestamps with 'ago' phrasing", () => {

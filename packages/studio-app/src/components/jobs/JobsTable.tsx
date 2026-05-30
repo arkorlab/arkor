@@ -1,4 +1,8 @@
-import { formatDuration, truncateMiddle } from "../../lib/format";
+import {
+  formatDuration,
+  NO_VALUE_PLACEHOLDER,
+  truncateMiddle,
+} from "../../lib/format";
 import { RelativeTime } from "../ui/RelativeTime";
 import { StatusBadge } from "../ui/StatusBadge";
 
@@ -69,7 +73,7 @@ export function JobsTable({
                 </td>
                 {!compact && (
                   <td className="px-6 py-3.5 align-middle text-zinc-500 tabular-nums dark:text-zinc-400">
-                    {ms === null ? "–" : formatDuration(ms)}
+                    {ms === null ? NO_VALUE_PLACEHOLDER : formatDuration(ms)}
                   </td>
                 )}
                 <td className="px-6 py-3.5 align-middle text-zinc-500 dark:text-zinc-400">

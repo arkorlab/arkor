@@ -18,7 +18,11 @@ import {
 } from "../components/ui/Card";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { fetchJobs, openJobEvents, type Job } from "../lib/api";
-import { formatDuration, truncateMiddle } from "../lib/format";
+import {
+  formatDuration,
+  NO_VALUE_PLACEHOLDER,
+  truncateMiddle,
+} from "../lib/format";
 
 const MAX_LOSS_POINTS = 2000;
 
@@ -301,19 +305,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
     { label: "Status", value: <StatusBadge status={status} size="sm" /> },
     {
       label: "Duration",
-      value: duration === null ? "–" : formatDuration(duration),
+      value:
+        duration === null ? NO_VALUE_PLACEHOLDER : formatDuration(duration),
       mono: true,
     },
     {
       label: "Created",
-      value: job?.createdAt ? formatAbsoluteTime(job.createdAt) : "–",
+      value: job?.createdAt
+        ? formatAbsoluteTime(job.createdAt)
+        : NO_VALUE_PLACEHOLDER,
       mono: true,
     },
     {
       label: "Started",
       value: (() => {
         const at = job?.startedAt ?? liveStartedAt;
-        return at ? formatAbsoluteTime(at) : "–";
+        return at ? formatAbsoluteTime(at) : NO_VALUE_PLACEHOLDER;
       })(),
       mono: true,
     },
@@ -321,23 +328,23 @@ export function JobDetail({ jobId }: { jobId: string }) {
       label: "Completed",
       value: (() => {
         const at = job?.completedAt ?? terminal?.completedAt;
-        return at ? formatAbsoluteTime(at) : "–";
+        return at ? formatAbsoluteTime(at) : NO_VALUE_PLACEHOLDER;
       })(),
       mono: true,
     },
     {
       label: "Base model",
-      value: getConfigString(job?.config, ["model"]) ?? "–",
+      value: getConfigString(job?.config, ["model"]) ?? NO_VALUE_PLACEHOLDER,
       mono: true,
     },
     {
       label: "Dataset",
-      value: getDatasetLabel(job?.config) ?? "–",
+      value: getDatasetLabel(job?.config) ?? NO_VALUE_PLACEHOLDER,
       mono: true,
     },
     {
       label: "Artifacts",
-      value: terminal ? terminal.artifacts : "–",
+      value: terminal ? terminal.artifacts : NO_VALUE_PLACEHOLDER,
       mono: true,
     },
     {
@@ -512,11 +519,10 @@ function computeDuration(
   // If we know the job is terminal (SSE terminal frame OR polled
   // status reached completed/failed/cancelled) but we don't have a
   // `completedAt` to anchor against, return null so the caller can
-  // render its own "no value" placeholder (the en dash shown in the
-  // metadata sidebar) rather than tick `now`; otherwise a
-  // cancelled/failed job whose backend never recorded a completion
-  // timestamp would show an ever-growing duration as if it were still
-  // running.
+  // render the shared `NO_VALUE_PLACEHOLDER` ("N/A") in the metadata
+  // sidebar rather than tick `now`; otherwise a cancelled/failed
+  // job whose backend never recorded a completion timestamp would
+  // show an ever-growing duration as if it were still running.
   const polledIsTerminal =
     job?.status === "completed" ||
     job?.status === "failed" ||
@@ -533,7 +539,7 @@ function computeDuration(
 
 function formatAbsoluteTime(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "–";
+  if (Number.isNaN(d.getTime())) return NO_VALUE_PLACEHOLDER;
   const Y = d.getFullYear();
   const M = String(d.getMonth() + 1).padStart(2, "0");
   const D = String(d.getDate()).padStart(2, "0");
