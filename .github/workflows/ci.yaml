@@ -489,10 +489,6 @@ jobs:
   coverage:
     name: coverage · upload to Codecov
     runs-on: ubuntu-latest
-    # Same gate as install-matrix: avoid running the heavier coverage
-    # workload (full install + `test:coverage` + Codecov / GitHub
-    # native upload) if the em-dash check already failed.
-    needs: no_em_dash
     # The matrix above already exercises tests across Node versions; this
     # job runs once on the newest LTS to keep coverage + Test Analytics
     # uploads stable. Codecov uploads use OIDC (`use_oidc: true`); no
