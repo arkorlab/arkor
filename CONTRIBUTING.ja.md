@@ -102,7 +102,7 @@ Studio は起動ごとに注入される CSRF トークン付きで `http://127.
 
 コードのどこでもエムダッシュ (U+2014) は使いません。代わりにコロン、ピリオド、カンマ、丸括弧、スペース付きハイフン (`" - "`)、または文の言い換えを使ってください。これはローカルの ESLint ルール `local/no-em-dash` で全パッケージのコメントおよび文字列・テンプレートリテラルに対して強制しています。例外はありません: CLI ランタイムのメッセージも、生成ファイルのテンプレート本文も、テスト名も同じルールに従います。
 
-Markdown (このファイルを含む) は ESLint ルールの対象外です。同じ規約を yaml・md・json・html・ルートの config まで広げるため、[`scripts/check-no-em-dash.sh`](scripts/check-no-em-dash.sh) というリポジトリ全体のガードを用意しています。`git grep` でトラックされた全ファイルを走査し、エムダッシュのグリフまたは HTML エンティティが見つかると失敗します。ローカルでは次で実行できます:
+Markdown (このファイルを含む) は ESLint ルールの対象外です。同じ規約を yaml・md・json・html・ルートの config まで広げるため、[`scripts/check-no-em-dash.mjs`](scripts/check-no-em-dash.mjs) というリポジトリ全体のガードを用意しています。`git grep` でトラックされた全ファイルを走査し、エムダッシュのグリフまたは HTML エンティティが見つかると失敗します。ローカルでは次で実行できます:
 
 ```bash
 pnpm check:no-em-dash

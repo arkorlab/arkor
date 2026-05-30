@@ -32,24 +32,25 @@ const CONFIG_TS_FILES = [
 // `new RegExp` from string fragments so this file itself contains
 // neither the U+2014 character (the `\u2014` escape avoids it) nor the
 // matching HTML entity literal (split across the concatenation). The
-// repo-wide guard at `scripts/check-no-em-dash.sh` would otherwise flag
+// repo-wide guard at `scripts/check-no-em-dash.mjs` would otherwise flag
 // the rule's own source. Non-global so the shared instance carries no
 // `lastIndex` state between `.test()` calls.
 const EM_DASH = new RegExp("\\u2014|&" + "mdash;");
 
-// Local rule: ban em dashes in comments and string/template literals. The
-// project writes prose (comments, JSDoc, CLI runtime messages, generated-
-// file template bodies, test names) with a colon, period, comma,
-// parentheses, semicolon, or a spaced hyphen instead. There is no carve-
-// out: this rule is enforced uniformly across every linted file. No
-// autofix: the right replacement is context-dependent (colon vs period
-// vs restructure), so a blind substitution would be wrong.
+// Local rule: ban em dashes in comments, string/template literals, and
+// JSX text. The project writes prose (comments, JSDoc, CLI runtime
+// messages, generated-file template bodies, test names, rendered TSX
+// copy) with a colon, period, comma, parentheses, semicolon, or a
+// spaced hyphen instead. There is no carve-out: this rule is enforced
+// uniformly across every linted file. No autofix: the right
+// replacement is context-dependent (colon vs period vs restructure),
+// so a blind substitution would be wrong.
 const noEmDash: Rule.RuleModule = {
   meta: {
     type: "problem",
     docs: {
       description:
-        "Disallow em dashes in comments and string or template literals; prefer a colon, period, comma, parentheses, or ' - '.",
+        "Disallow em dashes in comments, string or template literals, and JSX text; prefer a colon, period, comma, parentheses, or ' - '.",
     },
     schema: [],
     messages: {
@@ -75,6 +76,19 @@ const noEmDash: Rule.RuleModule = {
       TemplateElement(node) {
         const text = node.value.cooked ?? node.value.raw;
         if (EM_DASH.test(text)) {
+          context.report({ node, messageId: "emDash" });
+        }
+      },
+      // JSX text content (`<p>Foo {bar}</p>` -> the "Foo " segment).
+      // Without this visitor, an em dash inside rendered TSX prose
+      // (anything between a JSX opening and closing tag, outside
+      // braces) would slip past `eslint .` and only fail the
+      // repo-wide `check:no-em-dash` script, surfacing as a CI-only
+      // failure for a contributor who passed local lint. Catching
+      // it at the AST level keeps local lint and the repo-wide
+      // guard aligned.
+      JSXText(node) {
+        if (EM_DASH.test(node.value)) {
           context.report({ node, messageId: "emDash" });
         }
       },
@@ -138,14 +152,15 @@ export default defineConfig(
   },
 
   // Local em-dash ban (see `noEmDash` above). Applies to every linted file
-  // (no `files` filter) so comments and string literals in TS, TSX, and
-  // JS are all covered. Enforced as a hard ban with no suppressions file
-  // and no per-site inline disables: the pre-existing prose was rewritten
-  // contextually rather than baselined, so any new em dash that lands
-  // here is a regression worth surfacing immediately. The companion
-  // `scripts/check-no-em-dash.sh` (wired into CI as the `no_em_dash`
-  // job) keeps the same zero across non-lint-target files such as yaml,
-  // md, json, html, and root config.
+  // (no `files` filter) so comments, string / template literals, and
+  // JSX text in TS, TSX, and JS are all covered. Enforced as a hard
+  // ban with no suppressions file and no per-site inline disables: the
+  // pre-existing prose was rewritten contextually rather than
+  // baselined, so any new em dash that lands here is a regression
+  // worth surfacing immediately. The companion
+  // `scripts/check-no-em-dash.mjs` (wired into CI as the `no_em_dash`
+  // job) keeps the same zero across non-lint-target files such as
+  // yaml, md, json, html, and root config.
   {
     plugins: { local: { rules: { "no-em-dash": noEmDash } } },
     rules: { "local/no-em-dash": "error" },

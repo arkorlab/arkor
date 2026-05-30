@@ -114,9 +114,14 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
           400,
           `Authentication failed: ${error}${errorDescription ? `. ${errorDescription}` : ""}`,
         );
+        // Keep the Error.message punctuation in lockstep with the
+        // sendPlain body above so logs / UI surfaces / structured
+        // error reports all read with the same separator (and the
+        // empty-description case ends cleanly at the error code in
+        // both rather than leaving a stray trailing space).
         rejectCallback(
           new Error(
-            `Authentication failed: ${error}${errorDescription ? ` ${errorDescription}` : ""}`,
+            `Authentication failed: ${error}${errorDescription ? `. ${errorDescription}` : ""}`,
           ),
         );
         return;

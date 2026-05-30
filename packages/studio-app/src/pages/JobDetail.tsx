@@ -108,17 +108,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
         const p = parsed as Record<string, unknown>;
         switch (event) {
           case "training.log": {
-            // Omit each `key=…` segment when the corresponding field is
-            // missing/non-numeric so eval-only frames render cleanly as
-            // `step=<n> evalLoss=…` instead of being padded with a noisy
-            // `loss=-` placeholder. `Number.isFinite` additionally
-            // rejects non-finite numerics: `JSON.parse` overflows
-            // out-of-range exponent forms like `1e309` to `Infinity`
-            // (RFC 8259 grammar can't express `NaN`, so it can't arrive
-            // from the wire), and we keep the `NaN` rejection as cheap
-            // defense for in-process computation. The
-            // `typeof === "number"` precondition lets TypeScript narrow
-            // `p.loss` / `p.evalLoss` from `unknown` (the
+            // Omit each numeric `key=…` segment outright when the
+            // corresponding field is missing/non-numeric so eval-only
+            // frames render cleanly as `step=<n> evalLoss=…` (with
+            // `loss=…` simply absent) rather than padded with a
+            // placeholder. The only placeholder this branch can emit
+            // is `step=-` when the frame did not carry a numeric
+            // `step` (see line 132); `loss` and `evalLoss` are either
+            // formatted with `.toFixed(4)` or dropped entirely.
+            // `Number.isFinite` additionally rejects non-finite
+            // numerics: `JSON.parse` overflows out-of-range exponent
+            // forms like `1e309` to `Infinity` (RFC 8259 grammar
+            // can't express `NaN`, so it can't arrive from the wire),
+            // and we keep the `NaN` rejection as cheap defense for
+            // in-process computation. The `typeof === "number"`
+            // precondition lets TypeScript narrow `p.loss` /
+            // `p.evalLoss` from `unknown` (the
             // `Record<string, unknown>` cast above) so `.toFixed` is
             // called on a typed `number` without an `as` assertion.
             const lossPart =
