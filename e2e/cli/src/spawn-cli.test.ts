@@ -1,15 +1,6 @@
 // `EventEmitter` is correct here: this file mocks Node's `ChildProcess`
 // shape, which extends `EventEmitter` (not `EventTarget`).
 /* eslint-disable unicorn/prefer-event-target */
-// The namespace alias is needed for the `vi.importActual<typeof
-// nodeChildProcess>(...)` generic below: the actual module type has no
-// single named export that captures the whole module shape, and
-// `consistent-type-imports` forbids `import("node:child_process")`-style
-// inline type queries (round-40 follow-up: PR #159 Copilot suggested
-// the inline form, but it would re-introduce that lint error). Named
-// type imports (`SpawnSyncReturns` below) cover the smaller
-// per-function ReturnType usages.
-import type * as nodeChildProcess from "node:child_process";
 import type { SpawnSyncReturns } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
@@ -48,11 +39,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // `undefined` in the mocked module and silently throw at call time.
 const spawnMock = vi.hoisted(() => vi.fn());
 const spawnSyncMock = vi.hoisted(() => vi.fn());
-vi.mock("node:child_process", async () => ({
-  ...(await vi.importActual<typeof nodeChildProcess>("node:child_process")),
-  spawn: spawnMock,
-  spawnSync: spawnSyncMock,
-}));
+// `vi.importActual` is generic-free here; vitest types it as
+// `Promise<unknown>` without an explicit generic, but the result is
+// a module namespace object whose properties are spread into the
+// mock. Casting to `Record<string, unknown>` is enough to make the
+// spread well-typed, and avoids the previous `typeof nodeChildProcess`
+// generic that PR #159 Copilot kept flagging (a `typeof` query on a
+// type-only namespace import; valid TS but easy to misread). The
+// `consistent-type-imports` lint rule rules out the obvious
+// alternative form `typeof import("node:child_process")`, so a
+// loose-typed spread is the cleanest compromise. The runtime
+// behaviour is unchanged: every non-`spawn`/`spawnSync` export
+// passes through to the real Node implementation.
+vi.mock("node:child_process", async () => {
+  const actual = (await vi.importActual("node:child_process")) as Record<
+    string,
+    unknown
+  >;
+  return { ...actual, spawn: spawnMock, spawnSync: spawnSyncMock };
+});
 
 // Imports come after the `vi.mock` for clarity; vitest hoists both above
 // the imports at runtime so the mocked binding is in place either way.
