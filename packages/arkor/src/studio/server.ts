@@ -1,8 +1,12 @@
 import { spawn } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
-import { Hono } from "hono";
+import { readFile, realpath } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { createClient } from "@arkor/cloud-api-client";
+import { Hono } from "hono";
+
 import { CloudApiClient, CloudApiError } from "../core/client";
 import {
   defaultArkorCloudApiUrl,
@@ -11,8 +15,11 @@ import {
   requestAnonymousToken,
   type Credentials,
 } from "../core/credentials";
-import { recordDeprecation, tapDeprecation } from "../core/deprecation";
-import { SDK_VERSION } from "../core/version";
+import {
+  recordDeprecation,
+  tapDeprecation,
+  type DeprecationNotice,
+} from "../core/deprecation";
 import {
   AUTH0_MISSING_STATE_MESSAGE,
   ensureProjectState,
@@ -22,6 +29,8 @@ import {
   createDeploymentRequestSchema,
 } from "../core/schemas";
 import { readState } from "../core/state";
+import { SDK_VERSION } from "../core/version";
+
 import { readManifestSummary } from "./manifest";
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
@@ -31,8 +40,6 @@ function copyDeprecationHeaders(from: Headers, to: Headers): void {
     if (value !== null) to.set(name, value);
   }
 }
-import { fileURLToPath } from "node:url";
-import { dirname, join, resolve, sep } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -75,18 +82,16 @@ function tokensMatch(provided: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+const HTML_ATTR_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
 function htmlAttrEscape(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) =>
-    ch === "&"
-      ? "&amp;"
-      : ch === "<"
-        ? "&lt;"
-        : ch === ">"
-          ? "&gt;"
-          : ch === '"'
-            ? "&quot;"
-            : "&#39;",
-  );
+  return s.replaceAll(/[&<>"']/g, (ch) => HTML_ATTR_ESCAPES[ch] ?? ch);
 }
 
 function injectStudioToken(html: string, token: string): string {
@@ -94,6 +99,35 @@ function injectStudioToken(html: string, token: string): string {
   const idx = html.indexOf("</head>");
   if (idx === -1) return `${meta}${html}`;
   return `${html.slice(0, idx)}${meta}${html.slice(idx)}`;
+}
+
+function tokenFromCredentials(c: Credentials): string {
+  return c.mode === "anon" ? c.token : c.accessToken;
+}
+
+function createRpc(rpcBaseUrl: string, rpcToken: string) {
+  return createClient({
+    baseUrl: rpcBaseUrl,
+    // `createClient` expects a token-getter (the SDK supports
+    // refreshable tokens). The whole point of taking `rpcToken` here
+    // is to avoid the per-request second credentials read that the
+    // previous closure-based getter caused, so resolve the in-memory
+    // value synchronously instead of re-deriving it.
+    token: () => rpcToken,
+    clientVersion: SDK_VERSION,
+    // The wrapper around `recordDeprecation` works around the same
+    // alpha.2 bug documented in `core/client.ts`: upstream guards
+    // `.then(...)` with `result !== null && typeof result.then ===
+    // "function"`, but the inner `.then` probe still throws on a
+    // `void` return and the surrounding try/catch logs every
+    // deprecated response as a "handler threw" entry. Returning
+    // `null` short-circuits the left side of the `&&` so the probe
+    // never runs and the spurious log goes away.
+    onDeprecation: (notice) => {
+      recordDeprecation(notice);
+      return null;
+    },
+  });
 }
 
 export function buildStudioApp(options: StudioServerOptions) {
@@ -107,7 +141,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   // The bin therefore sits *next* to this code at runtime, not one
   // directory up — `../bin.mjs` would resolve to the package root.
   const trainBinPath =
-    options.binPath ?? fileURLToPath(new URL("./bin.mjs", import.meta.url));
+    options.binPath ?? fileURLToPath(new URL("bin.mjs", import.meta.url));
 
   if (!studioToken || studioToken.length < 16) {
     throw new Error(
@@ -117,7 +151,7 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   const app = new Hono();
 
-  const loopbackHostPattern = /^(127\.0\.0\.1|localhost)(:\d+)?$/;
+  const loopbackHostPattern = /^(?:127\.0\.0\.1|localhost)(?::\d+)?$/;
   const jobEventsPathPattern = /^\/api\/jobs\/[^/]+\/events$/;
 
   // Host-header guard for every route, including static HTML that carries the
@@ -174,10 +208,6 @@ export function buildStudioApp(options: StudioServerOptions) {
     return creds;
   }
 
-  function tokenFromCredentials(c: Credentials): string {
-    return c.mode === "anon" ? c.token : c.accessToken;
-  }
-
   /**
    * Load credentials and resolve the cloud API base URL from them.
    * `defaultArkorCloudApiUrl(credentials)` picks `ARKOR_CLOUD_API_URL`
@@ -208,31 +238,6 @@ export function buildStudioApp(options: StudioServerOptions) {
       token: tokenFromCredentials(credentials),
       baseUrl: defaultArkorCloudApiUrl(credentials),
     };
-  }
-
-  function createRpc(rpcBaseUrl: string, rpcToken: string) {
-    return createClient({
-      baseUrl: rpcBaseUrl,
-      // `createClient` expects a token-getter (the SDK supports
-      // refreshable tokens). The whole point of taking `rpcToken` here
-      // is to avoid the per-request second credentials read that the
-      // previous closure-based getter caused, so resolve the in-memory
-      // value synchronously instead of re-deriving it.
-      token: () => rpcToken,
-      clientVersion: SDK_VERSION,
-      // The wrapper around `recordDeprecation` works around the same
-      // alpha.2 bug documented in `core/client.ts`: upstream guards
-      // `.then(...)` with `result !== null && typeof result.then ===
-      // "function"`, but the inner `.then` probe still throws on a
-      // `void` return and the surrounding try/catch logs every
-      // deprecated response as a "handler threw" entry. Returning
-      // `null` short-circuits the left side of the `&&` so the probe
-      // never runs and the spurious log goes away.
-      onDeprecation: (notice) => {
-        recordDeprecation(notice);
-        return null;
-      },
-    });
   }
 
   // ---- API routes ---------------------------------------------------------
@@ -309,14 +314,18 @@ export function buildStudioApp(options: StudioServerOptions) {
     const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
     const url = `${credsBaseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
+    // Read once and forward only when truthy: an empty
+    // `Last-Event-ID: ` header is semantically ambiguous upstream and
+    // historically the proxy treated empty as "header absent", so a
+    // bare `!== undefined` check would silently change behaviour for
+    // clients that ship the header with an empty value.
+    const lastEventId = c.req.header("Last-Event-ID");
     const upstream = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-Arkor-Client": `arkor/${SDK_VERSION}`,
         Accept: "text/event-stream",
-        ...(c.req.header("Last-Event-ID")
-          ? { "Last-Event-ID": c.req.header("Last-Event-ID") as string }
-          : {}),
+        ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
       },
     });
     // This route bypasses `createRpc()` (the SSE body has to be streamed
@@ -370,9 +379,14 @@ export function buildStudioApp(options: StudioServerOptions) {
     });
     const stream = new ReadableStream({
       start(controller) {
+        // `Buffer` extends `Uint8Array`, so enqueue the raw chunk
+        // directly: decoding each `Buffer` to a UTF-8 string and re-
+        // encoding would corrupt multi-byte sequences that the kernel
+        // happens to split across reads. The terminator line still
+        // needs encoding since it originates as a JS string.
         const enc = new TextEncoder();
-        child.stdout.on("data", (d) => controller.enqueue(enc.encode(d)));
-        child.stderr.on("data", (d) => controller.enqueue(enc.encode(d)));
+        child.stdout.on("data", (d: Buffer) => controller.enqueue(d));
+        child.stderr.on("data", (d: Buffer) => controller.enqueue(d));
         child.on("close", (code) => {
           controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
           controller.close();
@@ -412,10 +426,13 @@ export function buildStudioApp(options: StudioServerOptions) {
       // (local writeState failures, missing-credentials guard) is treated as
       // a server-side error.
       if (err instanceof CloudApiError) {
-        return new Response(JSON.stringify({ error: err.message }), {
-          status: err.status,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { error: err.message },
+          {
+            status: err.status,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
@@ -466,9 +483,10 @@ export function buildStudioApp(options: StudioServerOptions) {
    * the anonymous-token bootstrap fails offline, turning the empty-list
    * read into a 500.
    */
-  async function readScopeFromState(): Promise<
-    { orgSlug: string; projectSlug: string } | null
-  > {
+  async function readScopeFromState(): Promise<{
+    orgSlug: string;
+    projectSlug: string;
+  } | null> {
     const state = await readState(trainCwd);
     return state
       ? { orgSlug: state.orgSlug, projectSlug: state.projectSlug }
@@ -536,11 +554,11 @@ export function buildStudioApp(options: StudioServerOptions) {
       // copy below covers all three so an operator with a corrupt
       // `state.json` doesn't read "missing" and assume the file is
       // already gone.
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           error:
             "No usable .arkor/state.json for this workspace (missing or invalid). Create your first deployment to bootstrap one (anonymous), restore the file by hand (OAuth), or regenerate it with the correct { orgSlug, projectSlug, projectId } if it's currently corrupt.",
-        }),
+        },
         { status: 404, headers: { "content-type": "application/json" } },
       );
     }
@@ -555,7 +573,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     // signals — `/api/jobs` and `/api/inference/chat` stream the
     // headers through verbatim, and we want browser callers to see
     // the same warnings here.
-    let deprecationNotice: import("../core/deprecation").DeprecationNotice | null = null;
+    let deprecationNotice: DeprecationNotice | null = null;
 
     /**
      * Build a JSON Response with the upstream deprecation headers
@@ -580,16 +598,19 @@ export function buildStudioApp(options: StudioServerOptions) {
         // (replacement keeps word boundaries readable) and backslash-
         // escape the two reserved chars per the quoted-pair rule.
         const safeMessage = deprecationNotice.message
+
+          // Control chars are exactly what we strip; the intent is
+          // to deny CR / LF / NUL / etc. from leaking into the header.
           // eslint-disable-next-line no-control-regex
-          .replace(/[\x00-\x1F\x7F]/g, " ")
-          .replace(/\\/g, "\\\\")
-          .replace(/"/g, '\\"');
+          .replaceAll(/[\u0000-\u001F\u007F]/g, " ")
+          .replaceAll("\\", "\\\\")
+          .replaceAll('"', String.raw`\"`);
         headers.set("Warning", `299 - "${safeMessage}"`);
         if (deprecationNotice.sunset) {
           headers.set("Sunset", deprecationNotice.sunset);
         }
       }
-      return new Response(JSON.stringify(body), { status, headers });
+      return Response.json(body, { status, headers });
     }
     try {
       credentials = await getCredentials();
@@ -645,8 +666,8 @@ export function buildStudioApp(options: StudioServerOptions) {
           // the single source-of-truth string from `core/projectState`
           // so this surface and the trainer / Playground throw exactly
           // the same instruction.
-          return new Response(
-            JSON.stringify({ error: AUTH0_MISSING_STATE_MESSAGE }),
+          return Response.json(
+            { error: AUTH0_MISSING_STATE_MESSAGE },
             { status: 400, headers: { "content-type": "application/json" } },
           );
         }
@@ -685,10 +706,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       // `err.message` / stack. Log full detail for the operator and
       // return an opaque 500 to the SPA.
       console.error("[studio] withDeploymentClient setup failed:", err);
-      return jsonWithDeprecation(
-        { error: "Studio backend unavailable" },
-        500,
-      );
+      return jsonWithDeprecation({ error: "Studio backend unavailable" }, 500);
     }
 
     try {
@@ -720,8 +738,8 @@ export function buildStudioApp(options: StudioServerOptions) {
     // .arkor/state.json" for Auth0).
     const scope = await readScopeFromState();
     if (!scope) {
-      return new Response(
-        JSON.stringify({ deployments: [], scopeMissing: true }),
+      return Response.json(
+        { deployments: [], scopeMissing: true },
         {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -743,13 +761,11 @@ export function buildStudioApp(options: StudioServerOptions) {
   // to reject the wrong shape with an accurate error message.
   const PARSE_FAILED: unique symbol = Symbol("studio.body-parse-failed");
   type ParseFailed = typeof PARSE_FAILED;
-  const isPlainObject = (
-    value: unknown,
-  ): value is Record<string, unknown> =>
+  const isPlainObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value);
 
   app.post("/api/deployments", async (c) => {
-    const raw = await c.req
+    const raw: unknown = await c.req
       .json()
       .catch((): ParseFailed => PARSE_FAILED);
     if (raw === PARSE_FAILED) {
@@ -777,22 +793,26 @@ export function buildStudioApp(options: StudioServerOptions) {
         400,
       );
     }
-    const body = parsed.data as Parameters<CloudApiClient["createDeployment"]>[1];
-    return await withDeploymentClient("create", async ({ client, scope }) =>
-      await client.createDeployment(scope, body),
+    const body = parsed.data as Parameters<
+      CloudApiClient["createDeployment"]
+    >[1];
+    return await withDeploymentClient(
+      "create",
+      async ({ client, scope }) => await client.createDeployment(scope, body),
     );
   });
 
   app.get("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    return await withDeploymentClient("read", async ({ client, scope }) =>
-      await client.getDeployment(id, scope),
+    return await withDeploymentClient(
+      "read",
+      async ({ client, scope }) => await client.getDeployment(id, scope),
     );
   });
 
   app.patch("/api/deployments/:id", async (c) => {
     const id = c.req.param("id");
-    const raw = await c.req
+    const raw: unknown = await c.req
       .json()
       .catch((): ParseFailed => PARSE_FAILED);
     if (raw === PARSE_FAILED) {
@@ -813,8 +833,10 @@ export function buildStudioApp(options: StudioServerOptions) {
       );
     }
     const body = raw as Parameters<CloudApiClient["updateDeployment"]>[2];
-    return await withDeploymentClient("mutate", async ({ client, scope }) =>
-      await client.updateDeployment(id, scope, body),
+    return await withDeploymentClient(
+      "mutate",
+      async ({ client, scope }) =>
+        await client.updateDeployment(id, scope, body),
     );
   });
 
@@ -830,14 +852,15 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.get("/api/deployments/:id/keys", async (c) => {
     const id = c.req.param("id");
-    return await withDeploymentClient("read", async ({ client, scope }) =>
-      await client.listDeploymentKeys(id, scope),
+    return await withDeploymentClient(
+      "read",
+      async ({ client, scope }) => await client.listDeploymentKeys(id, scope),
     );
   });
 
   app.post("/api/deployments/:id/keys", async (c) => {
     const id = c.req.param("id");
-    const raw = await c.req
+    const raw: unknown = await c.req
       .json()
       .catch((): ParseFailed => PARSE_FAILED);
     if (raw === PARSE_FAILED) {
@@ -863,8 +886,10 @@ export function buildStudioApp(options: StudioServerOptions) {
     const body = parsed.data as Parameters<
       CloudApiClient["createDeploymentKey"]
     >[2];
-    return await withDeploymentClient("mutate", async ({ client, scope }) =>
-      await client.createDeploymentKey(id, scope, body),
+    return await withDeploymentClient(
+      "mutate",
+      async ({ client, scope }) =>
+        await client.createDeploymentKey(id, scope, body),
     );
   });
 
@@ -900,7 +925,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         const html = injectStudioToken(file.toString("utf8"), studioToken);
         return new Response(html, {
           status: 200,
-          headers: { "content-type": CONTENT_TYPES.html! },
+          headers: { "content-type": CONTENT_TYPES.html },
         });
       }
       return new Response(file, {

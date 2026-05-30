@@ -1,4 +1,8 @@
+// `EventEmitter` is correct here: this file mocks Node's `ChildProcess`
+// shape, which extends `EventEmitter` (not `EventTarget`).
+/* eslint-disable unicorn/prefer-event-target */
 import { EventEmitter } from "node:events";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Module-scoped mock for node:child_process so we can simulate `git`
@@ -12,6 +16,7 @@ vi.mock("node:child_process", () => {
 });
 
 import { spawn } from "node:child_process";
+
 import { gitInitialCommit } from "./git";
 
 interface FakeChild extends EventEmitter {

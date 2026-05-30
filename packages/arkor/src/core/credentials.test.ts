@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   credentialsPath,
   defaultArkorCloudApiUrl,
@@ -39,7 +41,8 @@ afterEach(() => {
   // delete-when-originally-unset pattern used in cli/commands/*.test.ts.
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
-  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  if (ORIG_USERPROFILE !== undefined)
+    process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
@@ -61,7 +64,9 @@ describe("credentials roundtrip", () => {
       orgSlug: "anon-abc",
     };
     await writeCredentials(creds);
-    expect(credentialsPath()).toBe(join(fakeHome, ".arkor", "credentials.json"));
+    expect(credentialsPath()).toBe(
+      join(fakeHome, ".arkor", "credentials.json"),
+    );
     expect(await readCredentials()).toEqual(creds);
   });
 
@@ -70,7 +75,7 @@ describe("credentials roundtrip", () => {
       mode: "auth0",
       accessToken: "at",
       refreshToken: "rt",
-      expiresAt: 1735000000,
+      expiresAt: 1_735_000_000,
       auth0Domain: "example.auth0.com",
       audience: "https://api.arkor.ai",
       clientId: "cid",
@@ -242,13 +247,13 @@ describe("requestAnonymousToken", () => {
       init?: RequestInit,
     ) => {
       captured = { url: String(input), init };
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           token: "anon-tok",
           anonymousId: "anon-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -265,20 +270,17 @@ describe("requestAnonymousToken", () => {
 
   it("returns the parsed token shape", async () => {
     globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           token: "anon-tok",
           anonymousId: "anon-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       )) as typeof fetch;
 
-    const result = await requestAnonymousToken(
-      "http://mock-cloud-api",
-      "cli",
-    );
+    const result = await requestAnonymousToken("http://mock-cloud-api", "cli");
     expect(result).toEqual({
       token: "anon-tok",
       anonymousId: "anon-aid",
@@ -308,8 +310,8 @@ describe("requestAnonymousToken", () => {
 
   it("throws with status and body snippet on non-2xx", async () => {
     globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({ error: "sdk_version_unsupported", reason: "missing" }),
+      Response.json(
+        { error: "sdk_version_unsupported", reason: "missing" },
         { status: 426 },
       )) as typeof fetch;
 
@@ -350,17 +352,15 @@ describe("ensureCredentials", () => {
     // No credentials file exists (fakeHome was just mkdtemp'd in beforeEach).
     process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api/";
     const seenUrls: string[] = [];
-    globalThis.fetch = (async (
-      input: Parameters<typeof fetch>[0],
-    ) => {
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       seenUrls.push(String(input));
-      return new Response(
-        JSON.stringify({
+      return Response.json(
+        {
           token: "fresh-tok",
           anonymousId: "fresh-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "fresh-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       );
     }) as typeof fetch;
@@ -386,9 +386,12 @@ describe("ensureCredentials", () => {
 
   it("rethrows when the anonymous endpoint refuses to issue a token", async () => {
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ error: "anonymous disabled" }), {
-        status: 403,
-      })) as typeof fetch;
+      Response.json(
+        { error: "anonymous disabled" },
+        {
+          status: 403,
+        },
+      )) as typeof fetch;
     await expect(ensureCredentials()).rejects.toThrow(/403/);
     expect(await readCredentials()).toBeNull();
   });

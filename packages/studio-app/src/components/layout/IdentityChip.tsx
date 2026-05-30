@@ -1,5 +1,6 @@
-import type { Credentials } from "../../lib/api";
 import { cn } from "../ui/cn";
+
+import type { Credentials } from "../../lib/api";
 
 const PRODUCTION_CLOUD_API_URL = "https://api.arkor.ai";
 
@@ -75,7 +76,12 @@ function Dot({ className, pulse }: { className: string; pulse?: boolean }) {
           )}
         />
       ) : null}
-      <span className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", className)} />
+      <span
+        className={cn(
+          "relative inline-flex h-1.5 w-1.5 rounded-full",
+          className,
+        )}
+      />
     </span>
   );
 }

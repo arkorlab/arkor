@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// `EventEmitter` is correct here: this file mocks Node's `ChildProcess`
+// shape, which extends `EventEmitter` (not `EventTarget`).
+/* eslint-disable unicorn/prefer-event-target */
+import type * as nodeChildProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
   existsSync,
@@ -11,6 +14,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // `vi.hoisted` ensures the mock factory and its captured `spawnMock` /
 // `spawnSyncMock` are available before any module-level imports
@@ -35,16 +40,13 @@ import { join } from "node:path";
 const spawnMock = vi.hoisted(() => vi.fn());
 const spawnSyncMock = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", async () => ({
-  ...(await vi.importActual<typeof import("node:child_process")>(
-    "node:child_process",
-  )),
+  ...(await vi.importActual<typeof nodeChildProcess>("node:child_process")),
   spawn: spawnMock,
   spawnSync: spawnSyncMock,
 }));
 
 // Imports come after the `vi.mock` for clarity; vitest hoists both above
 // the imports at runtime so the mocked binding is in place either way.
-// eslint-disable-next-line import/first
 import {
   __resetBunBinCacheForTest,
   findBunBin,
@@ -244,7 +246,7 @@ describe("runCli orchestration", () => {
     // output and so we can assert it fired.
     stderrSpy = vi
       .spyOn(process.stderr, "write")
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
+
       .mockImplementation(() => true);
   });
 
@@ -270,7 +272,9 @@ describe("runCli orchestration", () => {
       .mockReturnValueOnce(2000) // attempt 2 start
       .mockReturnValueOnce(2050); // attempt 2 close → elapsedMs=50
     spawnMock
-      .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }))
+      .mockImplementationOnce(() =>
+        makeFakeChild({ code: null, signal: "SIGKILL" }),
+      )
       .mockImplementationOnce(() => makeFakeChild({ code: 0, signal: null }));
 
     const result = await runCli("/fake/bin", [], cwd);
@@ -294,8 +298,12 @@ describe("runCli orchestration", () => {
       .mockReturnValueOnce(2000)
       .mockReturnValueOnce(2100);
     spawnMock
-      .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }))
-      .mockImplementationOnce(() => makeFakeChild({ code: null, signal: "SIGKILL" }));
+      .mockImplementationOnce(() =>
+        makeFakeChild({ code: null, signal: "SIGKILL" }),
+      )
+      .mockImplementationOnce(() =>
+        makeFakeChild({ code: null, signal: "SIGKILL" }),
+      );
 
     const result = await runCli("/fake/bin", [], cwd);
 
@@ -499,7 +507,7 @@ describe("runCli yarn cache plumbing", () => {
   function lastSpawnEnv(): NodeJS.ProcessEnv {
     const calls = spawnMock.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    const opts = calls[calls.length - 1]?.[2] as { env: NodeJS.ProcessEnv };
+    const opts = calls.at(-1)?.[2] as { env: NodeJS.ProcessEnv };
     return opts.env;
   }
 
@@ -675,9 +683,7 @@ describe("runCli yarn cache plumbing", () => {
       throw new Error("spawn EACCES (synthetic)");
     });
 
-    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(
-      /spawn EACCES/,
-    );
+    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(/spawn EACCES/);
     expect(capturedYarnCacheDir).toBeDefined();
     expect(capturedBunCacheDir).toBeDefined();
     // Both dirs must be gone — without the try/catch around
@@ -706,9 +712,7 @@ describe("runCli yarn cache plumbing", () => {
       return child;
     });
 
-    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(
-      /spawn ENOENT/,
-    );
+    await expect(runCli("/fake/bin", [], cwd)).rejects.toThrow(/spawn ENOENT/);
     // Error path also has to clean — otherwise a tight loop of
     // failed spawns would fill tmpdir on long CI runs.
     expect(capturedYarnCacheDir).toBeDefined();
@@ -901,7 +905,7 @@ describe("findBunBin", () => {
       pid: 1,
       output: ["", Buffer.from(stdout), Buffer.from("")],
       signal: null,
-    } as ReturnType<typeof import("node:child_process").spawnSync>;
+    } as ReturnType<typeof nodeChildProcess.spawnSync>;
   }
   function fail() {
     return {
@@ -911,7 +915,7 @@ describe("findBunBin", () => {
       pid: 1,
       output: ["", null, Buffer.from("")],
       signal: null,
-    } as unknown as ReturnType<typeof import("node:child_process").spawnSync>;
+    } as unknown as ReturnType<typeof nodeChildProcess.spawnSync>;
   }
 
   beforeEach(() => {
@@ -932,9 +936,13 @@ describe("findBunBin", () => {
     withPlatform("win32", () => {
       spawnSyncMock
         .mockReturnValueOnce(ok("1.3.13\r\n"))
-        .mockReturnValueOnce(ok("C:\\Users\\u\\.bun\\bin\\bun.cmd\r\nC:\\Users\\u\\.bun\\bin\\bun.exe\r\n"));
+        .mockReturnValueOnce(
+          ok(
+            "C:\\Users\\u\\.bun\\bin\\bun.cmd\r\nC:\\Users\\u\\.bun\\bin\\bun.exe\r\n",
+          ),
+        );
       // The `.exe` is preferred regardless of order in `where`'s output.
-      expect(findBunBin()).toBe("C:\\Users\\u\\.bun\\bin\\bun.exe");
+      expect(findBunBin()).toBe(String.raw`C:\Users\u\.bun\bin\bun.exe`);
     });
   });
 
@@ -1046,12 +1054,12 @@ describe("runCli runtime: 'bun' gate enforcement", () => {
       pid: 1,
       output: ["", null, Buffer.from("")],
       signal: null,
-    } as unknown as ReturnType<typeof import("node:child_process").spawnSync>);
+    } as unknown as ReturnType<typeof nodeChildProcess.spawnSync>);
     const cwd = mkdtempSync(join(tmpdir(), "runcli-bun-gate-"));
     try {
-      await expect(
-        runCli("/fake/bin", [], cwd, {}, "bun"),
-      ).rejects.toThrow(/findBunBin\(\).*returned undefined/);
+      await expect(runCli("/fake/bin", [], cwd, {}, "bun")).rejects.toThrow(
+        /findBunBin\(\).*returned undefined/,
+      );
       // Crucially, the early reject must NOT call `spawn` (no
       // literal-`"bun"` fallback that re-introduces the
       // shell-quoting hazard on Windows).

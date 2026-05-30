@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import process from "node:process";
+
 import { ClaudeCodeStrictExit } from "@arkor/cli-internal";
+
 import { main } from "./cli/main";
 
 // Catch top-level await rejections explicitly instead of letting Node's
@@ -20,7 +22,9 @@ try {
   if (err instanceof ClaudeCodeStrictExit) {
     process.exitCode = 1;
   } else {
-    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+    console.error(
+      err instanceof Error ? (err.stack ?? err.message) : String(err),
+    );
     process.exitCode = 1;
   }
 }

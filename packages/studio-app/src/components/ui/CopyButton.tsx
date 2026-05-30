@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+
 import { Check, Copy } from "../icons";
+
 import { IconButton } from "./IconButton";
 
 export function CopyButton({
@@ -35,7 +37,7 @@ export function CopyButton({
     <IconButton
       size={size}
       label={copied ? "Copied" : label}
-      onClick={onClick}
+      onClick={() => void onClick()}
       className={copied ? "text-emerald-600 dark:text-emerald-400" : undefined}
     >
       {copied ? <Check /> : <Copy />}

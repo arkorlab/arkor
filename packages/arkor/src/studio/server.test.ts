@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   existsSync,
   mkdtempSync,
@@ -10,13 +9,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { buildStudioApp } from "./server";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { writeCredentials } from "../core/credentials";
-import { readState, writeState } from "../core/state";
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
 } from "../core/deprecation";
+import { readState, writeState } from "../core/state";
+
+import { buildStudioApp } from "./server";
 
 const ANON_CREDS = {
   mode: "anon" as const,
@@ -58,7 +61,8 @@ afterEach(() => {
   // delete-when-originally-unset pattern used in cli/commands/*.test.ts.
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
-  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  if (ORIG_USERPROFILE !== undefined)
+    process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
   rmSync(fakeHome, { recursive: true, force: true });
   rmSync(assetsDir, { recursive: true, force: true });
@@ -444,8 +448,8 @@ describe("Studio server", () => {
       const fakeBin = join(trainCwd, "fake-bin.mjs");
       writeFileSync(
         fakeBin,
-        `#!/usr/bin/env node
-process.stdout.write("[fake-bin] argv=" + JSON.stringify(process.argv.slice(2)) + "\\n");
+        String.raw`#!/usr/bin/env node
+process.stdout.write("[fake-bin] argv=" + JSON.stringify(process.argv.slice(2)) + "\n");
 process.exit(0);
 `,
       );
@@ -515,7 +519,7 @@ process.exit(0);
       // macOS / certain Linux temp setups rewrites prefixes (e.g.
       // `/tmp/...` → `/private/tmp/...`); building the expected string
       // with `resolve()` here would mismatch on those hosts.
-      const argvMatch = text.match(/argv=(\[[^\]]+\])/);
+      const argvMatch = /argv=(\[[^\]]+\])/.exec(text);
       expect(argvMatch).not.toBeNull();
       const argv = JSON.parse(argvMatch![1] as string) as string[];
       expect(argv[0]).toBe("start");
@@ -566,13 +570,13 @@ process.exit(0);
         const url = String(input);
         if (url.endsWith("/v1/auth/anonymous")) {
           calls++;
-          return new Response(
-            JSON.stringify({
+          return Response.json(
+            {
               token: "lazy-anon",
               anonymousId: "lazy-aid",
               kind: "cli",
               personalOrg: { id: "o", slug: "lazy-aid", name: "Anon" },
-            }),
+            },
             { status: 200 },
           );
         }
@@ -660,15 +664,18 @@ process.exit(0);
         for (const [key, value] of headers) {
           capturedHeaders[key.toLowerCase()] = value;
         }
-        return new Response(JSON.stringify({ user: { id: "u1" } }), {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-            Deprecation: "true",
-            Warning: '299 - "me endpoint deprecated"',
-            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+        return Response.json(
+          { user: { id: "u1" } },
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              Deprecation: "true",
+              Warning: '299 - "me endpoint deprecated"',
+              Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+            },
           },
-        });
+        );
       }) as typeof fetch;
 
       // The cloud-api-client wrapper around `onDeprecation` synchronously
@@ -693,7 +700,9 @@ process.exit(0);
         expect(res.headers.get("Deprecation")).toBe("true");
         expect(res.headers.get("Warning")).toContain("me endpoint deprecated");
         expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
-        expect(getRecordedDeprecation()?.message).toBe("me endpoint deprecated");
+        expect(getRecordedDeprecation()?.message).toBe(
+          "me endpoint deprecated",
+        );
         for (const call of errorSpy.mock.calls) {
           const first = String(call[0] ?? "");
           expect(first).not.toContain("onDeprecation handler threw");
@@ -720,7 +729,11 @@ process.exit(0);
     it("forwards SDK version metadata and deprecation headers", async () => {
       await writeCredentials(ANON_CREDS);
       await writeState(
-        { orgSlug: "anon-org", projectSlug: "jobs-project", projectId: "p-jobs" },
+        {
+          orgSlug: "anon-org",
+          projectSlug: "jobs-project",
+          projectId: "p-jobs",
+        },
         trainCwd,
       );
 
@@ -750,15 +763,18 @@ process.exit(0);
           method: init?.method ?? req?.method ?? "GET",
           headers: lowerHeaders,
         };
-        return new Response(JSON.stringify({ jobs: [] }), {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-            Deprecation: "true",
-            Warning: '299 - "jobs endpoint deprecated"',
-            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+        return Response.json(
+          { jobs: [] },
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              Deprecation: "true",
+              Warning: '299 - "jobs endpoint deprecated"',
+              Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+            },
           },
-        });
+        );
       }) as typeof fetch;
 
       const app = build();
@@ -780,7 +796,9 @@ process.exit(0);
       expect(res.headers.get("Deprecation")).toBe("true");
       expect(res.headers.get("Warning")).toContain("jobs endpoint deprecated");
       expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
-      expect(getRecordedDeprecation()?.message).toBe("jobs endpoint deprecated");
+      expect(getRecordedDeprecation()?.message).toBe(
+        "jobs endpoint deprecated",
+      );
     });
 
     it("targets the credentials-stamped host instead of the startup baseUrl", async () => {
@@ -811,10 +829,13 @@ process.exit(0);
       let upstreamUrl = "";
       globalThis.fetch = (async (input: RequestInfo | URL) => {
         upstreamUrl = input instanceof Request ? input.url : input.toString();
-        return new Response(JSON.stringify({ jobs: [] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return Response.json(
+          { jobs: [] },
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }) as typeof fetch;
 
       const app = build();
@@ -1067,10 +1088,7 @@ process.exit(0);
     it("returns the trainer name when src/arkor/index.ts exports a manifest", async () => {
       await writeCredentials(ANON_CREDS);
       mkdirSync(join(trainCwd, "src/arkor"), { recursive: true });
-      writeFileSync(
-        join(trainCwd, "src/arkor/index.ts"),
-        FAKE_MANIFEST_SOURCE,
-      );
+      writeFileSync(join(trainCwd, "src/arkor/index.ts"), FAKE_MANIFEST_SOURCE);
       const app = build();
       const res = await app.request("/api/manifest", {
         headers: {
@@ -1187,12 +1205,12 @@ process.exit(0);
       // No state.json — server should derive a slug from cwd, create the
       // project on cloud-api, persist state, and forward the inference call.
 
-      const calls: Array<{
+      const calls: {
         url: string;
         method: string;
         body?: string;
         headers: Record<string, string>;
-      }> = [];
+      }[] = [];
       globalThis.fetch = (async (
         input: RequestInfo | URL,
         init?: RequestInit,
@@ -1208,20 +1226,20 @@ process.exit(0);
         }
         calls.push({ url, method, body, headers });
         if (url.includes("/v1/projects") && method === "POST") {
-          return new Response(
-            JSON.stringify({
+          return Response.json(
+            {
               project: {
                 id: "p-bootstrap",
                 slug: "auto-slug",
                 name: "auto",
                 orgId: "anon-org-id",
               },
-            }),
+            },
             { status: 201, headers: { "content-type": "application/json" } },
           );
         }
         if (url.includes("/v1/inference/chat")) {
-          return new Response("data: {\"content\":\"hi\"}\n\n", {
+          return new Response('data: {"content":"hi"}\n\n', {
             status: 200,
             headers: { "content-type": "text/event-stream" },
           });
@@ -1277,11 +1295,15 @@ process.exit(0);
     it("proxies inference using existing state without re-creating a project", async () => {
       await writeCredentials(ANON_CREDS);
       await writeState(
-        { orgSlug: "anon-org", projectSlug: "existing", projectId: "p-existing" },
+        {
+          orgSlug: "anon-org",
+          projectSlug: "existing",
+          projectId: "p-existing",
+        },
         trainCwd,
       );
 
-      const calls: Array<{ url: string; method: string }> = [];
+      const calls: { url: string; method: string }[] = [];
       globalThis.fetch = (async (
         input: RequestInfo | URL,
         init?: RequestInit,
@@ -1290,7 +1312,7 @@ process.exit(0);
         const method = init?.method ?? "GET";
         calls.push({ url, method });
         if (url.includes("/v1/inference/chat")) {
-          return new Response("data: {\"content\":\"ok\"}\n\n", {
+          return new Response('data: {"content":"ok"}\n\n', {
             status: 200,
             headers: { "content-type": "text/event-stream" },
           });
@@ -1315,7 +1337,9 @@ process.exit(0);
 
       // Only the inference call should have hit the network — no project
       // create/list when state is already present.
-      expect(calls.filter((c) => c.url.includes("/v1/projects"))).toHaveLength(0);
+      expect(calls.filter((c) => c.url.includes("/v1/projects"))).toHaveLength(
+        0,
+      );
       const chat = calls.find((c) => c.url.includes("/v1/inference/chat"));
       expect(chat!.url).toContain("projectSlug=existing");
     });
@@ -1328,7 +1352,11 @@ process.exit(0);
       clearRecordedDeprecation();
       await writeCredentials(ANON_CREDS);
       await writeState(
-        { orgSlug: "anon-org", projectSlug: "existing", projectId: "p-existing" },
+        {
+          orgSlug: "anon-org",
+          projectSlug: "existing",
+          projectId: "p-existing",
+        },
         trainCwd,
       );
 
@@ -1369,7 +1397,9 @@ process.exit(0);
       expect(res.headers.get("Deprecation")).toBe("true");
       expect(res.headers.get("Warning")).toContain("chat endpoint deprecated");
       expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
-      expect(getRecordedDeprecation()?.message).toBe("chat endpoint deprecated");
+      expect(getRecordedDeprecation()?.message).toBe(
+        "chat endpoint deprecated",
+      );
     });
 
     it("propagates the cloud-api status when project bootstrap fails", async () => {
@@ -1384,10 +1414,13 @@ process.exit(0);
         const url = typeof input === "string" ? input : input.toString();
         const method = init?.method ?? "GET";
         if (url.includes("/v1/projects") && method === "POST") {
-          return new Response(JSON.stringify({ error: "upstream is down" }), {
-            status: 503,
-            headers: { "content-type": "application/json" },
-          });
+          return Response.json(
+            { error: "upstream is down" },
+            {
+              status: 503,
+              headers: { "content-type": "application/json" },
+            },
+          );
         }
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }) as typeof fetch;
@@ -1485,8 +1518,8 @@ process.exit(0);
       let upstreamUrl: string | null = null;
       globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
         upstreamUrl = String(input);
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             deployments: [
               {
                 id: "d1",
@@ -1502,7 +1535,7 @@ process.exit(0);
                 updatedAt: "2026-05-05T00:00:00Z",
               },
             ],
-          }),
+          },
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as typeof fetch;
@@ -1528,8 +1561,8 @@ process.exit(0);
         trainCwd,
       );
       globalThis.fetch = (async () =>
-        new Response(
-          JSON.stringify({ error: "Deployment slug is already taken" }),
+        Response.json(
+          { error: "Deployment slug is already taken" },
           { status: 409, headers: { "content-type": "application/json" } },
         )) as typeof fetch;
       const app = build();
@@ -1565,18 +1598,21 @@ process.exit(0);
         trainCwd,
       );
       globalThis.fetch = (async () =>
-        new Response(JSON.stringify({ deployments: [] }), {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-            Deprecation: "true",
-            // The literal source message: a double-quote, a backslash,
-            // and a newline. Cloud-api would normally escape these
-            // before sending, but the Studio proxy can't trust that —
-            // it has to defensively sanitise on its own emit too.
-            Warning: '299 - "she said \\"hi\\" \\\\ then left"',
+        Response.json(
+          { deployments: [] },
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              Deprecation: "true",
+              // The literal source message: a double-quote, a backslash,
+              // and a newline. Cloud-api would normally escape these
+              // before sending, but the Studio proxy can't trust that —
+              // it has to defensively sanitise on its own emit too.
+              Warning: String.raw`299 - "she said \"hi\" \\ then left"`,
+            },
           },
-        })) as typeof fetch;
+        )) as typeof fetch;
       const app = build();
       const res = await app.request("/api/deployments", {
         headers: {
@@ -1611,15 +1647,18 @@ process.exit(0);
         trainCwd,
       );
       globalThis.fetch = (async () =>
-        new Response(JSON.stringify({ deployments: [] }), {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-            Deprecation: "true",
-            Warning: '299 - "endpoints API deprecated"',
-            Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+        Response.json(
+          { deployments: [] },
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              Deprecation: "true",
+              Warning: '299 - "endpoints API deprecated"',
+              Sunset: "Wed, 01 Jan 2030 00:00:00 GMT",
+            },
           },
-        })) as typeof fetch;
+        )) as typeof fetch;
       const app = build();
       const res = await app.request("/api/deployments", {
         headers: {
@@ -1630,9 +1669,7 @@ process.exit(0);
       expect(res.status).toBe(200);
       expect(res.headers.get("Deprecation")).toBe("true");
       expect(res.headers.get("Warning")).toContain("endpoints API deprecated");
-      expect(res.headers.get("Sunset")).toBe(
-        "Wed, 01 Jan 2030 00:00:00 GMT",
-      );
+      expect(res.headers.get("Sunset")).toBe("Wed, 01 Jan 2030 00:00:00 GMT");
       // Tee'd into the global recorder too so the CLI's end-of-run
       // deprecation flush still surfaces the warning when the same
       // SDK code path is exercised from a non-Studio context.
@@ -1654,8 +1691,8 @@ process.exit(0);
         trainCwd,
       );
       globalThis.fetch = (async () =>
-        new Response(
-          JSON.stringify({ error: "Deployment slug is already taken" }),
+        Response.json(
+          { error: "Deployment slug is already taken" },
           {
             status: 409,
             headers: {
@@ -1714,8 +1751,8 @@ process.exit(0);
         const url = String(input);
         upstreamCalls.push({ url, method: init?.method });
         if (url.includes("/v1/projects") && init?.method === "POST") {
-          return new Response(
-            JSON.stringify({
+          return Response.json(
+            {
               project: {
                 id: "p-id",
                 slug: "anon-cwd",
@@ -1724,13 +1761,13 @@ process.exit(0);
                 createdAt: "2026-05-04T00:00:00Z",
                 updatedAt: "2026-05-04T00:00:00Z",
               },
-            }),
+            },
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
         if (url.includes("/v1/endpoints") && init?.method === "POST") {
-          return new Response(
-            JSON.stringify({ deployment: deploymentResponse("first") }),
+          return Response.json(
+            { deployment: deploymentResponse("first") },
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
@@ -1781,7 +1818,8 @@ process.exit(0);
         body: "{not json",
       });
       expect(malformedRes.status).toBe(400);
-      expect((await malformedRes.json()).error).toBe("Invalid JSON body");
+      const malformedBody = await malformedRes.json();
+      expect(malformedBody.error).toBe("Invalid JSON body");
 
       // 2-4. Valid JSON, valid-but-falsy → schema rejects with the
       // structured `Invalid deployment create body` envelope, NOT
@@ -1829,7 +1867,8 @@ process.exit(0);
           body,
         });
         expect(patchRes.status).toBe(400);
-        expect((await patchRes.json()).error).toMatch(/must be a JSON object/);
+        const patchBody = await patchRes.json();
+        expect(patchBody.error).toMatch(/must be a JSON object/);
 
         const keyRes = await app.request("/api/deployments/dep-1/keys", {
           method: "POST",
@@ -1840,7 +1879,8 @@ process.exit(0);
         // Key-create runs the schema validator, so the message
         // mentions the missing `label` rather than the generic "must
         // be a JSON object" copy used for PATCH.
-        expect((await keyRes.json()).error).toMatch(/`label`/);
+        const keyBody = await keyRes.json();
+        expect(keyBody.error).toMatch(/`label`/);
       }
       expect(upstreamCalls).toBe(0);
     });
@@ -1877,7 +1917,8 @@ process.exit(0);
           body: JSON.stringify(body),
         });
         expect(res.status).toBe(400);
-        expect((await res.json()).error).toMatch(/`label`/);
+        const errBody = await res.json();
+        expect(errBody.error).toMatch(/`label`/);
       }
       expect(upstreamCalls).toBe(0);
     });
@@ -1916,7 +1957,8 @@ process.exit(0);
         body: "{not json",
       });
       expect(malformedPatch.status).toBe(400);
-      expect((await malformedPatch.json()).error).toBe("Invalid JSON body");
+      const malformedPatchBody = await malformedPatch.json();
+      expect(malformedPatchBody.error).toBe("Invalid JSON body");
     });
 
     it("rejects malformed POST bodies BEFORE bootstrapping scope (no orphan project)", async () => {
@@ -2107,8 +2149,8 @@ process.exit(0);
       let upstreamUrl: string | null = null;
       globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
         upstreamUrl = String(input);
-        return new Response(
-          JSON.stringify({ deployment: deploymentResponse("alpha") }),
+        return Response.json(
+          { deployment: deploymentResponse("alpha") },
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as typeof fetch;
@@ -2131,10 +2173,10 @@ process.exit(0);
       ) => {
         upstreamMethod = init?.method;
         upstreamBody = init?.body as string | undefined;
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             deployment: { ...deploymentResponse(), enabled: false },
-          }),
+          },
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as typeof fetch;
@@ -2146,7 +2188,7 @@ process.exit(0);
       });
       expect(res.status).toBe(200);
       expect(upstreamMethod).toBe("PATCH");
-      expect(JSON.parse(upstreamBody as string)).toEqual({ enabled: false });
+      expect(JSON.parse(upstreamBody!)).toEqual({ enabled: false });
     });
 
     it("PATCH /api/deployments/:id rejects malformed JSON with 400 (no upstream call)", async () => {
@@ -2194,8 +2236,8 @@ process.exit(0);
       let upstreamUrl: string | null = null;
       globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
         upstreamUrl = String(input);
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             keys: [
               {
                 id: "k1",
@@ -2206,7 +2248,7 @@ process.exit(0);
                 lastUsedAt: null,
               },
             ],
-          }),
+          },
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as typeof fetch;
@@ -2221,8 +2263,8 @@ process.exit(0);
     it("POST /api/deployments/:id/keys preserves the plaintext envelope", async () => {
       await arrangeProjectState();
       globalThis.fetch = (async () =>
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             key: {
               id: "k1",
               label: "production",
@@ -2230,7 +2272,7 @@ process.exit(0);
               prefix: "ark_live_T",
               createdAt: "2026-05-04T00:00:00Z",
             },
-          }),
+          },
           { status: 201, headers: { "content-type": "application/json" } },
         )) as typeof fetch;
       const app = build();

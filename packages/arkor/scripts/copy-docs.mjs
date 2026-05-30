@@ -10,8 +10,8 @@
  *
  * Kept as Node (not shell) to stay Windows-friendly.
  */
-import { cp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { cp, rm } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,4 +37,6 @@ await cp(src, dst, {
     return !EXCLUDE_NAMES.has(top);
   },
 });
-console.log(`Copied ${src} -> ${dst} (excluded: ${[...EXCLUDE_NAMES].join(", ")})`);
+console.log(
+  `Copied ${src} -> ${dst} (excluded: ${[...EXCLUDE_NAMES].join(", ")})`,
+);

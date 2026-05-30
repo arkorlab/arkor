@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+
 import { AppShell } from "./components/layout/AppShell";
-import { Overview } from "./pages/Overview";
-import { JobsList } from "./pages/JobsList";
-import { JobDetail } from "./pages/JobDetail";
-import { Playground } from "./pages/Playground";
-import { EndpointsList, EndpointDetail } from "./pages/Endpoints";
 import { fetchCredentials, type Credentials } from "./lib/api";
+import { EndpointsList, EndpointDetail } from "./pages/Endpoints";
+import { JobDetail } from "./pages/JobDetail";
+import { JobsList } from "./pages/JobsList";
+import { Overview } from "./pages/Overview";
+import { Playground } from "./pages/Playground";
 import { useHashRoute } from "./route";
 
 export function App() {

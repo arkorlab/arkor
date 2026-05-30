@@ -2,8 +2,10 @@ import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+
 import { serve } from "@hono/node-server";
 import open from "open";
+
 import { fetchCliConfig } from "../../core/auth0";
 import {
   AnonymousTokenRejectedError,
@@ -65,9 +67,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       "No credentials on file — bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
     );
   } else {
-    ui.log.info(
-      "No credentials on file — requesting an anonymous token.",
-    );
+    ui.log.info("No credentials on file — requesting an anonymous token.");
   }
   // Scoped to just `requestAnonymousToken` on purpose: this is where we
   // decide whether the network failure is recoverable (transport blip vs
@@ -149,7 +149,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     `Anonymous id: ${anon.anonymousId} — Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
   );
   // see ../anonymous.ts for wording rationale and gating contract.
-  if (oauthAvailable === true) {
+  if (oauthAvailable) {
     ui.log.warn(ANON_PERSISTENCE_NUDGE);
   }
   ui.log.success(`Signed in anonymously (${anon.orgSlug}).`);

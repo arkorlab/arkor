@@ -103,7 +103,7 @@ export function findBunBin(): string | undefined {
     shell: process.platform === "win32",
     cwd: tmpdir(),
   });
-  if (probe.status !== 0 || probe.stdout === null) {
+  if (probe.status !== 0) {
     bunBinPath = null;
     return undefined;
   }
@@ -136,8 +136,7 @@ export function findBunBin(): string | undefined {
   // `command -v` returns a single line, so the same first-line
   // pick is correct for POSIX too.
   const resolveBin = process.platform === "win32" ? "where" : "command";
-  const resolveArgs =
-    process.platform === "win32" ? ["bun"] : ["-v", "bun"];
+  const resolveArgs = process.platform === "win32" ? ["bun"] : ["-v", "bun"];
   const resolveProbe = spawnSync(resolveBin, resolveArgs, {
     stdio: ["ignore", "pipe", "ignore"],
     // POSIX `command -v` is a shell builtin, so `shell: true`
@@ -147,7 +146,7 @@ export function findBunBin(): string | undefined {
     shell: true,
     cwd: tmpdir(),
   });
-  if (resolveProbe.status === 0 && resolveProbe.stdout !== null) {
+  if (resolveProbe.status === 0) {
     const lines = resolveProbe.stdout
       .toString("utf8")
       .trim()
@@ -173,10 +172,11 @@ export function findBunBin(): string | undefined {
       return undefined;
     }
     // POSIX: any absolute path from `command -v` is directly
-    // executable (no `.cmd`/`.bat` shim concern).
-    const first = lines[0];
-    if (first !== undefined && first.length > 0) {
-      bunBinPath = first;
+    // executable (no `.cmd`/`.bat` shim concern). `lines` was
+    // already `.filter(line => line.length > 0)` so the first
+    // entry (if any) is non-empty.
+    if (lines.length > 0) {
+      bunBinPath = lines[0];
       return bunBinPath;
     }
   }
@@ -550,7 +550,9 @@ function runCliOnce(
       } catch {
         // best-effort
       }
-      reject(mkErr);
+      // `mkErr` is whatever `mkdtempSync` threw; coerce to Error so
+      // the rejection reason is always inspectable.
+      reject(mkErr instanceof Error ? mkErr : new Error(String(mkErr)));
       return;
     }
     // Cleanup closure declared up-front so a synchronous `spawn`
@@ -692,11 +694,11 @@ function runCliOnce(
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (err) {
-      // Synchronous spawn failure — clean the per-spawn cache
-      // tmp dirs before propagating, otherwise they leak on
-      // every retry. (Round-39 Copilot review.)
+      // Synchronous spawn failure; clean the per-spawn cache tmp dirs
+      // before propagating, otherwise they leak on every retry. (Round-39
+      // Copilot review.)
       cleanup();
-      reject(err);
+      reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
     const out: Buffer[] = [];

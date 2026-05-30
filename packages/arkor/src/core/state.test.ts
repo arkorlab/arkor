@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { readState, writeState, statePath } from "./state";
 
 let cwd: string;
@@ -30,10 +32,7 @@ describe("state", () => {
   });
 
   it("writes to <cwd>/.arkor/state.json", async () => {
-    await writeState(
-      { orgSlug: "o", projectSlug: "p", projectId: "pid" },
-      cwd,
-    );
+    await writeState({ orgSlug: "o", projectSlug: "p", projectId: "pid" }, cwd);
     expect(statePath(cwd)).toBe(join(cwd, ".arkor", "state.json"));
   });
 

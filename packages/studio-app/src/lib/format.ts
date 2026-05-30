@@ -26,7 +26,10 @@ function fallbackRelative(value: number, unit: string): string {
   return value < 0 ? `${abs}${unit} ago` : `in ${abs}${unit}`;
 }
 
-export function formatRelativeTime(iso: string, now: number = Date.now()): string {
+export function formatRelativeTime(
+  iso: string,
+  now: number = Date.now(),
+): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "—";
   const diffSec = Math.round((t - now) / 1000);
@@ -42,15 +45,15 @@ export function formatRelativeTime(iso: string, now: number = Date.now()): strin
     const v = Math.round(diffSec / 3600);
     return RTF ? RTF.format(v, "hour") : fallbackRelative(v, "h");
   }
-  if (abs < 86400 * 26) {
-    const v = Math.round(diffSec / 86400);
+  if (abs < 86_400 * 26) {
+    const v = Math.round(diffSec / 86_400);
     return RTF ? RTF.format(v, "day") : fallbackRelative(v, "d");
   }
-  if (abs < 86400 * 320) {
-    const v = Math.round(diffSec / (86400 * 30));
+  if (abs < 86_400 * 320) {
+    const v = Math.round(diffSec / (86_400 * 30));
     return RTF ? RTF.format(v, "month") : fallbackRelative(v, "mo");
   }
-  const v = Math.round(diffSec / (86400 * 365));
+  const v = Math.round(diffSec / (86_400 * 365));
   return RTF ? RTF.format(v, "year") : fallbackRelative(v, "y");
 }
 

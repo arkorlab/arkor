@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --deny-warnings .",
+    "lint": "oxlint --deny-warnings . && eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "c8 --config .c8rc.json vitest run"

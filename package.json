@@ -1,17 +1,37 @@
 {
   "name": "arkor-root",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "@eslint/js": "catalog:",
+    "@stylistic/eslint-plugin": "catalog:",
+    "@types/eslint-plugin-jsx-a11y": "catalog:",
+    "@types/eslint-plugin-promise": "catalog:",
+    "@vitest/eslint-plugin": "catalog:",
+    "eslint": "catalog:",
+    "eslint-import-resolver-typescript": "catalog:",
+    "eslint-plugin-import-x": "catalog:",
+    "eslint-plugin-jsx-a11y": "catalog:",
+    "eslint-plugin-n": "catalog:",
+    "eslint-plugin-promise": "catalog:",
+    "eslint-plugin-react-hooks": "catalog:",
+    "eslint-plugin-regexp": "catalog:",
+    "eslint-plugin-unicorn": "catalog:",
+    "globals": "catalog:",
+    "oxfmt": "catalog:",
     "oxlint": "catalog:",
-    "turbo": "catalog:"
+    "turbo": "catalog:",
+    "typescript-eslint": "catalog:"
   },
   "packageManager": "pnpm@11.3.0+sha512.2c403d6594527287672b1f7056343a1f7c3634036a67ffabfcc2b3d7595d843768f8787148d1b57cf7956c90606bbd192857c363af19e96d2d0ec9ec5741d215"
 }

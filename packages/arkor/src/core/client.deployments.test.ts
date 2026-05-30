@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { CloudApiClient, CloudApiError } from "./client";
+
+import { CloudApiClient, type CloudApiError } from "./client";
+
 import type { Credentials } from "./credentials";
 import type { CreateDeploymentInput, DeploymentDto } from "./deployments";
 
@@ -22,10 +24,10 @@ type FetchCall = { url: string; init: RequestInit };
  * without touching the real network.
  */
 function recordingFetch(
-  responders: Array<{
+  responders: {
     match: (url: string, init: RequestInit) => boolean;
     respond: () => Response;
-  }>,
+  }[],
 ): { fetch: typeof fetch; calls: FetchCall[] } {
   const calls: FetchCall[] = [];
   const fn: typeof fetch = (async (
@@ -40,10 +42,13 @@ function recordingFetch(
     calls.push({ url, init: ri });
     const handler = responders.find((r) => r.match(url, ri));
     if (!handler) {
-      return new Response(JSON.stringify({ error: "no handler" }), {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      });
+      return Response.json(
+        { error: "no handler" },
+        {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }
     return handler.respond();
   }) as typeof fetch;
@@ -81,11 +86,10 @@ describe("CloudApiClient — deployment methods", () => {
     const { fetch: f, calls } = recordingFetch([
       {
         match: (url) =>
-          url.startsWith(`${BASE_URL}/v1/endpoints?`) &&
-          !url.includes("/keys"),
+          url.startsWith(`${BASE_URL}/v1/endpoints?`) && !url.includes("/keys"),
         respond: () =>
-          new Response(
-            JSON.stringify({ deployments: [SAMPLE_DEPLOYMENT] }),
+          Response.json(
+            { deployments: [SAMPLE_DEPLOYMENT] },
             { status: 200, headers: { "content-type": "application/json" } },
           ),
       },
@@ -111,13 +115,15 @@ describe("CloudApiClient — deployment methods", () => {
     const { fetch: f, calls } = recordingFetch([
       {
         match: (url, init) =>
-          init.method === "POST" &&
-          url.startsWith(`${BASE_URL}/v1/endpoints?`),
+          init.method === "POST" && url.startsWith(`${BASE_URL}/v1/endpoints?`),
         respond: () =>
-          new Response(JSON.stringify({ deployment: SAMPLE_DEPLOYMENT }), {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          }),
+          Response.json(
+            { deployment: SAMPLE_DEPLOYMENT },
+            {
+              status: 201,
+              headers: { "content-type": "application/json" },
+            },
+          ),
       },
     ]);
     const client = clientWith(f);
@@ -147,10 +153,13 @@ describe("CloudApiClient — deployment methods", () => {
           init.method === "GET" &&
           url.includes("/v1/endpoints/00000000-0000-4000-8000-000000000010"),
         respond: () =>
-          new Response(JSON.stringify({ deployment: SAMPLE_DEPLOYMENT }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
+          Response.json(
+            { deployment: SAMPLE_DEPLOYMENT },
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          ),
       },
     ]);
     const client = clientWith(f);
@@ -167,10 +176,10 @@ describe("CloudApiClient — deployment methods", () => {
       {
         match: (_url, init) => init.method === "PATCH",
         respond: () =>
-          new Response(
-            JSON.stringify({
+          Response.json(
+            {
               deployment: { ...SAMPLE_DEPLOYMENT, enabled: false },
-            }),
+            },
             { status: 200, headers: { "content-type": "application/json" } },
           ),
       },
@@ -205,11 +214,10 @@ describe("CloudApiClient — deployment methods", () => {
   it("listDeploymentKeys → GET /v1/endpoints/:id/keys (no plaintext in DTO)", async () => {
     const { fetch: f } = recordingFetch([
       {
-        match: (url, init) =>
-          init.method === "GET" && url.includes("/keys?"),
+        match: (url, init) => init.method === "GET" && url.includes("/keys?"),
         respond: () =>
-          new Response(
-            JSON.stringify({
+          Response.json(
+            {
               keys: [
                 {
                   id: "key-1",
@@ -220,7 +228,7 @@ describe("CloudApiClient — deployment methods", () => {
                   lastUsedAt: null,
                 },
               ],
-            }),
+            },
             { status: 200, headers: { "content-type": "application/json" } },
           ),
       },
@@ -240,11 +248,10 @@ describe("CloudApiClient — deployment methods", () => {
   it("createDeploymentKey → POST returns plaintext exactly once", async () => {
     const { fetch: f, calls } = recordingFetch([
       {
-        match: (url, init) =>
-          init.method === "POST" && url.includes("/keys?"),
+        match: (url, init) => init.method === "POST" && url.includes("/keys?"),
         respond: () =>
-          new Response(
-            JSON.stringify({
+          Response.json(
+            {
               key: {
                 id: "key-1",
                 label: "production",
@@ -252,7 +259,7 @@ describe("CloudApiClient — deployment methods", () => {
                 prefix: "ark_live_PLAINTEX",
                 createdAt: "2026-04-30T00:00:00.000Z",
               },
-            }),
+            },
             { status: 201, headers: { "content-type": "application/json" } },
           ),
       },
@@ -290,8 +297,8 @@ describe("CloudApiClient — deployment methods", () => {
       {
         match: () => true,
         respond: () =>
-          new Response(
-            JSON.stringify({ error: "Deployment slug is already taken" }),
+          Response.json(
+            { error: "Deployment slug is already taken" },
             { status: 409, headers: { "content-type": "application/json" } },
           ),
       },

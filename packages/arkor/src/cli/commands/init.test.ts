@@ -1,6 +1,7 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Stub @clack/prompts so the interactive-prompt branch in decideGitInit
@@ -14,7 +15,13 @@ vi.mock("@clack/prompts", () => ({
   intro: vi.fn(),
   outro: vi.fn(),
   note: vi.fn(),
-  log: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn(), step: vi.fn() },
+  log: {
+    info: vi.fn(),
+    success: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    step: vi.fn(),
+  },
   spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
 }));
 
@@ -49,8 +56,8 @@ vi.mock("@arkor/cli-internal", () => {
     sanitise: (s: string) =>
       s
         .toLowerCase()
-        .replace(/[^a-z0-9-]/g, "-")
-        .replace(/^-+|-+$/g, "")
+        .replaceAll(/[^a-z0-9-]/g, "-")
+        .replaceAll(/^-+|-+$/g, "")
         .slice(0, 60) || "arkor-project",
     scaffold: vi.fn(async () => ({
       files: [{ action: "created", path: "package.json" }],
@@ -78,6 +85,7 @@ import {
   nodeModulesChangedSince,
   scaffold,
 } from "@arkor/cli-internal";
+
 import { runInit } from "./init";
 
 let cwd: string;
@@ -228,8 +236,8 @@ describe("runInit", () => {
       packageManager: "npm",
     });
     // basename of the temp dir starts with "arkor-init-test-".
-    const callArg = vi.mocked(scaffold).mock.calls[0]?.[0];
-    expect(callArg?.name).toMatch(/^arkor-init-test-/);
+    const callArg = vi.mocked(scaffold).mock.calls[0][0];
+    expect(callArg.name).toMatch(/^arkor-init-test-/);
   });
 
   it("falls back to 'arkor-project' as the default name when basename(cwd) is empty", async () => {
@@ -247,8 +255,8 @@ describe("runInit", () => {
       template: "triage",
       packageManager: "npm",
     });
-    const callArg = vi.mocked(scaffold).mock.calls[0]?.[0];
-    expect(callArg?.name).toBe("arkor-project");
+    const callArg = vi.mocked(scaffold).mock.calls[0][0];
+    expect(callArg.name).toBe("arkor-project");
   });
 
   it("uses 'triage' as the implicit template skipWith with --yes alone (no --template)", async () => {
@@ -322,8 +330,10 @@ describe("runInit", () => {
     // Branch coverage for `err instanceof Error ? err.message : String(err)`
     // around install. The CLI's warn line must still render even when a
     // dependency throws a plain string/object.
-    // eslint-disable-next-line @typescript-eslint/only-throw-error
-    vi.mocked(install).mockRejectedValueOnce("rate-limited" as unknown as Error);
+
+    vi.mocked(install).mockRejectedValueOnce(
+      "rate-limited" as unknown as Error,
+    );
     await expect(
       runInit({
         yes: true,
@@ -724,7 +734,9 @@ describe("runInit", () => {
       .join("\n");
     expect(outroMessages).toMatch(/Next:\n[\s\S]*git init/);
     expect(outroMessages).toMatch(/git add -A/);
-    expect(outroMessages).toMatch(/git commit -m "Initial commit from arkor init"/);
+    expect(outroMessages).toMatch(
+      /git commit -m "Initial commit from arkor init"/,
+    );
     expect(outroMessages).toMatch(/pnpm arkor dev/);
     // The dev command comes AFTER the git steps in the outro
     // (manual commit precedes starting the dev server).

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import * as clack from "@clack/prompts";
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import * as clack from "@clack/prompts";
 
 // Mock `open` so the OAuth flow doesn't try to spawn a real browser.
 // The mock also delivers the loopback callback by inspecting the
@@ -13,8 +15,10 @@ vi.mock("open", () => ({
 }));
 
 import open from "open";
-import { runLogin } from "./login";
+
 import { readCredentials } from "../../core/credentials";
+
+import { runLogin } from "./login";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
@@ -48,7 +52,8 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
-  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  if (ORIG_USERPROFILE !== undefined)
+    process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
   if (ORIG_CI !== undefined) process.env.CI = ORIG_CI;
   else delete process.env.CI;
@@ -76,9 +81,9 @@ describe("runLogin", () => {
       throw new Error("fetch should not be called");
     }) as typeof fetch;
 
-    await expect(
-      runLogin({ oauth: true, anonymous: true }),
-    ).rejects.toThrow(/--oauth \/ --anonymous, not both/);
+    await expect(runLogin({ oauth: true, anonymous: true })).rejects.toThrow(
+      /--oauth \/ --anonymous, not both/,
+    );
     expect(await readCredentials()).toBeNull();
   });
 
@@ -95,13 +100,13 @@ describe("runLogin", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -121,13 +126,13 @@ describe("runLogin", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -150,13 +155,13 @@ describe("runLogin", () => {
       const url = String(input);
       seenUrls.push(url);
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -178,24 +183,24 @@ describe("runLogin", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: null,
             clientId: null,
             audience: null,
             callbackPorts: [],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -217,24 +222,24 @@ describe("runLogin", () => {
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [4000],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url.endsWith("/v1/auth/anonymous")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             token: "anon-tok",
             anonymousId: "anon-aid",
             kind: "cli",
             personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-          }),
+          },
           { status: 200 },
         );
       }
@@ -256,33 +261,33 @@ describe("runLogin", () => {
   // anon-issuance paths through `runAnonymousLogin`.
   describe("anon-issuance output (ANON_PERSISTENCE_NUDGE gating)", () => {
     const okConfigResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           auth0Domain: "tenant.auth0.com",
           clientId: "client-id",
           audience: "https://api.arkor.ai",
           callbackPorts: [4000],
-        }),
+        },
         { status: 200 },
       );
     const noOauthConfigResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           auth0Domain: null,
           clientId: null,
           audience: null,
           callbackPorts: [],
-        }),
+        },
         { status: 200 },
       );
     const okAnonResponse = () =>
-      new Response(
-        JSON.stringify({
+      Response.json(
+        {
           token: "anon-tok",
           anonymousId: "anon-aid",
           kind: "cli",
           personalOrg: { id: "o", slug: "anon-aid", name: "Anon" },
-        }),
+        },
         { status: 200 },
       );
 
@@ -377,7 +382,9 @@ describe("runLogin", () => {
       // actually reaches the real TCP socket instead of being intercepted
       // by the test's mock fetch.
       setTimeout(() => {
-        void ORIG_FETCH(`${redirect}?code=auth-code&state=${state}`);
+        void ORIG_FETCH(
+          `${String(redirect)}?code=auth-code&state=${String(state)}`,
+        );
       }, 0);
       return undefined;
     }) as never);
@@ -385,14 +392,14 @@ describe("runLogin", () => {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             // 0 → bind on any free port (real loopback server in the SDK).
             callbackPorts: [0],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -406,13 +413,13 @@ describe("runLogin", () => {
         );
       }
       if (url === "https://tenant.auth0.com/oauth/token") {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             access_token: "auth0-at",
             refresh_token: "auth0-rt",
             id_token: "auth0-id",
             expires_in: 7200,
-          }),
+          },
           { status: 200 },
         );
       }
@@ -444,23 +451,23 @@ describe("runLogin", () => {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [0],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url === "https://tenant.auth0.com/oauth/token") {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             access_token: "no-browser-at",
             refresh_token: "no-browser-rt",
             expires_in: 60,
-          }),
+          },
           { status: 200 },
         );
       }
@@ -474,23 +481,23 @@ describe("runLogin", () => {
     // permanently rebind the slot to a wrapper for the rest of the
     // worker, breaking later tests' own write spies / expectations).
     const writes: string[] = [];
-    const writeSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((c: unknown) => {
-        writes.push(String(c));
-        const buf = writes.join("");
-        const m = buf.match(/Browser: (https:\/\/[^\s]+)/);
-        if (m && !firedCallback) {
-          firedCallback = true;
-          const parsed = new URL(m[1] as string);
-          const state = parsed.searchParams.get("state");
-          const redirect = parsed.searchParams.get("redirect_uri");
-          setTimeout(() => {
-            void ORIG_FETCH(`${redirect}?code=c&state=${state}`);
-          }, 0);
-        }
-        return true;
-      }) as typeof process.stdout.write);
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      c: unknown,
+    ) => {
+      writes.push(String(c));
+      const buf = writes.join("");
+      const m = /Browser: (https:\/\/\S+)/.exec(buf);
+      if (m && !firedCallback) {
+        firedCallback = true;
+        const parsed = new URL(m[1] as string);
+        const state = parsed.searchParams.get("state");
+        const redirect = parsed.searchParams.get("redirect_uri");
+        setTimeout(() => {
+          void ORIG_FETCH(`${String(redirect)}?code=c&state=${String(state)}`);
+        }, 0);
+      }
+      return true;
+    }) as typeof process.stdout.write);
 
     try {
       await runLogin({ oauth: true, noBrowser: true });
@@ -512,7 +519,7 @@ describe("runLogin", () => {
       const redirect = parsed.searchParams.get("redirect_uri");
       // Deliberately wrong state value to trigger the CSRF guard.
       setTimeout(() => {
-        void ORIG_FETCH(`${redirect}?code=c&state=mismatched-state`);
+        void ORIG_FETCH(`${String(redirect)}?code=c&state=mismatched-state`);
       }, 0);
       return undefined;
     }) as never);
@@ -520,13 +527,13 @@ describe("runLogin", () => {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [0],
-          }),
+          },
           { status: 200 },
         );
       }
@@ -549,7 +556,7 @@ describe("runLogin", () => {
       const state = parsed.searchParams.get("state");
       const redirect = parsed.searchParams.get("redirect_uri");
       setTimeout(() => {
-        void ORIG_FETCH(`${redirect}?code=c&state=${state}`);
+        void ORIG_FETCH(`${String(redirect)}?code=c&state=${String(state)}`);
       }, 0);
       throw new Error("xdg-open not found");
     }) as never);
@@ -557,23 +564,23 @@ describe("runLogin", () => {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
       if (url.endsWith("/v1/auth/cli/config")) {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             auth0Domain: "tenant.auth0.com",
             clientId: "client-id",
             audience: "https://api.arkor.ai",
             callbackPorts: [0],
-          }),
+          },
           { status: 200 },
         );
       }
       if (url === "https://tenant.auth0.com/oauth/token") {
-        return new Response(
-          JSON.stringify({
+        return Response.json(
+          {
             access_token: "still-at",
             refresh_token: "still-rt",
             expires_in: 60,
-          }),
+          },
           { status: 200 },
         );
       }

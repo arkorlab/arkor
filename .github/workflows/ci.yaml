@@ -54,7 +54,7 @@ jobs:
           - '>=26.0.0 <27'         # latest 26.x
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       # action-setup@v6 bootstrap-installs pnpm v11 (per its committed
       # lockfile) and only honours `packageManager` via pnpm's own
@@ -77,7 +77,7 @@ jobs:
       # hash currently does not factor it in, and we want to keep the
       # matrix entries from clobbering each other if that ever changes.
       - name: Cache Turborepo
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-node${{ matrix.node }}-${{ github.sha }}
@@ -85,7 +85,7 @@ jobs:
             turbo-${{ runner.os }}-node${{ matrix.node }}-
 
       - name: Setup matrix Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -128,6 +128,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Format check
+        run: pnpm format:check
+
       # Playwright bundles its own browser binaries (~150 MB). Cache by
       # OS and the lockfile hash so a `@playwright/test` upgrade busts
       # the cache automatically. Cache locations are OS-specific:
@@ -141,7 +144,7 @@ jobs:
       # current runner, so listing all three is safe.
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cache/ms-playwright
@@ -190,7 +193,7 @@ jobs:
       # alphanumeric escape hatch.
       - name: Upload Playwright report
         if: ${{ always() && !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-report-${{ runner.os }}-${{ strategy.job-index }}
           path: |
@@ -199,7 +202,7 @@ jobs:
           # Turbo may cancel `@arkor/e2e-studio#test` when an earlier
           # task fails (e.g. a unit test failure in `arkor:test`),
           # leaving Playwright with no chance to write its report.
-          # `actions/upload-artifact@v4` defaults to failing the step
+          # `actions/upload-artifact@v7` defaults to failing the step
           # when no files match — that would convert "test step
           # failed for an unrelated reason" into "upload step also
           # failed" and noise up the CI summary. `ignore` makes the
@@ -298,7 +301,7 @@ jobs:
           - '>=26.0.0 <27'        # latest 26.x
         id: [pnpm-9, pnpm-10, pnpm-11, npm, yarn, yarn-berry, bun]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       # The prior `rolldownIncompat` bootstrap path (separate Node 24
       # checkout to install + build CLIs before exercising them under
@@ -309,7 +312,7 @@ jobs:
       # path is no longer needed and the matrix uses a single Node
       # setup throughout.
       - name: Setup matrix Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ matrix.node }}
           # Intentionally no `cache: pnpm` — at this point pnpm isn't on
@@ -482,23 +485,34 @@ jobs:
     # required for the runner to mint the OIDC JWT that codecov-action
     # exchanges for an upload token. See
     # https://docs.codecov.com/docs/github-tokenless-uploads.
+    #
+    # `code-quality: write` is required by GitHub's native code-coverage
+    # public preview (announced 2026-05-26): `actions/upload-code-coverage`
+    # POSTs the Cobertura XML through the GitHub API using the workflow's
+    # default GITHUB_TOKEN, and the token needs that scope to write to
+    # the code-quality API. Coverage uploads to GitHub run in parallel
+    # with the Codecov uploads below; Codecov stays authoritative while
+    # the GitHub feature is in preview, so both signals are available
+    # side-by-side. See
+    # https://github.blog/changelog/2026-05-26-code-coverage-in-pull-requests-is-now-in-public-preview/.
     permissions:
       id-token: write
+      code-quality: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       # Same reason as the build job — see comment there.
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
         with:
           standalone: true
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '24'
           cache: pnpm
 
       - name: Cache Turborepo
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-coverage-${{ github.sha }}
@@ -522,7 +536,7 @@ jobs:
       # Mirror the matrix job's Playwright cache so the coverage run
       # also reuses the previously-downloaded browsers.
       - name: Cache Playwright browsers
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cache/ms-playwright
@@ -605,6 +619,63 @@ jobs:
           files: ./e2e/cli/coverage/lcov.info
           flags: e2e-cli
           fail_ci_if_error: false
+
+      # GitHub native code coverage (public preview, announced 2026-05-26).
+      # Uploads the Cobertura XML produced alongside lcov.info by each
+      # package's vitest v8 coverage reporter so GitHub can display
+      # per-PR coverage % directly on pull requests. e2e/cli is excluded:
+      # see the skip note below for the c8 / cobertura empty-output
+      # rationale.
+      # Codecov stays authoritative while the feature is in preview; once
+      # GitHub Coverage reaches GA we can decide whether to drop one path.
+      # `fail-on-error: false` mirrors the Codecov uploads' philosophy:
+      # an upload glitch must not turn a green test run red. The action
+      # itself already no-ops on `merge_group` events and fork PRs, so no
+      # extra `if:` gating is needed for those cases.
+      - name: Upload arkor coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./packages/arkor/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/arkor
+          fail-on-error: false
+
+      - name: Upload create-arkor coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./packages/create-arkor/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/create-arkor
+          fail-on-error: false
+
+      - name: Upload cli-internal coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./packages/cli-internal/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/cli-internal
+          fail-on-error: false
+
+      - name: Upload studio-app coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        with:
+          file: ./packages/studio-app/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/studio-app
+          fail-on-error: false
+
+      # e2e/cli intentionally does NOT upload a Cobertura report to GitHub.
+      # c8's cobertura reporter currently emits an empty 402-byte shell
+      # here: the istanbul cobertura writer doesn't pick up c8's
+      # sourcemap-remapped coverage of the spawned CLI children the way
+      # the lcov reporter does. The Codecov upload above stays on the
+      # lcov path, which has produced usable signal historically; once
+      # the c8 ↔ cobertura gap is closed (or we switch e2e/cli off c8),
+      # re-add this upload alongside the others.
 
       # Codecov Test Analytics — uploads JUnit XML produced by the vitest
       # `junit` reporter. Tracks pass/fail history per test, surfaces flaky

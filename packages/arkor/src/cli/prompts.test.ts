@@ -20,6 +20,7 @@ vi.mock("@clack/prompts", () => {
 });
 
 import * as clack from "@clack/prompts";
+
 import {
   CliCancelled,
   isInteractive,
@@ -121,9 +122,9 @@ describe("promptText", () => {
   });
 
   it("throws in non-interactive mode when no skipWith and no initialValue", async () => {
-    await expect(
-      promptText({ message: "Project name?" }),
-    ).rejects.toThrow(/non-interactive/);
+    await expect(promptText({ message: "Project name?" })).rejects.toThrow(
+      /non-interactive/,
+    );
   });
 
   it("returns the empty string when skipWith is empty", async () => {

@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
 import { anonymousTokenResponseSchema } from "./schemas";
 import { SDK_VERSION } from "./version";
 
@@ -85,7 +86,9 @@ export async function readCredentials(): Promise<Credentials | null> {
   return JSON.parse(raw) as Credentials;
 }
 
-export async function writeCredentials(credentials: Credentials): Promise<void> {
+export async function writeCredentials(
+  credentials: Credentials,
+): Promise<void> {
   const dir = credentialsDir();
   const path = credentialsPath();
   await mkdir(dir, { recursive: true });
@@ -142,22 +145,25 @@ export function defaultArkorCloudApiUrl(
       : undefined;
   if (fromEnv !== undefined) return fromEnv;
   // Both shapes carry an optional `arkorCloudApiUrl`: anonymous since
-  // signup, OAuth since login. `!= null` (not truthy) keeps an empty
-  // string round-tripping the same way the env-var branch above
-  // does — an operator who logged in with `ARKOR_CLOUD_API_URL=""`
-  // intentionally to surface config errors should see that
-  // propagated through the persisted credentials, not silently
-  // substituted with production. Falling back to production for
-  // *missing* `arkorCloudApiUrl` (legacy creds, e.g. tokens written
-  // before the field existed) is still safe: the worst outcome
-  // there is a 401 against the wrong control plane, which is what
-  // the operator hits today on those legacy tokens anyway.
-  if (
-    credentials?.arkorCloudApiUrl !== undefined &&
-    credentials?.arkorCloudApiUrl !== null
-  ) {
+  // signup, OAuth since login. An empty string round-trips the same
+  // way the env-var branch above does, so an operator who logged in
+  // with `ARKOR_CLOUD_API_URL=""` intentionally to surface config
+  // errors sees that propagated rather than silently substituted with
+  // production. Falling back to production for *missing*
+  // `arkorCloudApiUrl` (legacy creds, e.g. tokens written before the
+  // field existed) is still safe: the worst outcome there is a 401
+  // against the wrong control plane, which is what the operator hits
+  // today on those legacy tokens anyway. `typeof === "string"` is the
+  // narrowing check — `readCredentials()` is a raw `JSON.parse` cast
+  // without schema validation, so a hand-edited or partially-written
+  // credentials file can leave the field as `null` at runtime even
+  // though the type says `string | undefined`; the typeof guard
+  // rejects both `null` and `undefined` so neither reaches
+  // `stripTrailingSlashes(null)`.
+  const url = credentials?.arkorCloudApiUrl;
+  if (typeof url === "string") {
     // Same multi-slash strip as the env-var branch above.
-    return stripTrailingSlashes(credentials.arkorCloudApiUrl);
+    return stripTrailingSlashes(url);
   }
   return "https://api.arkor.ai";
 }
@@ -171,7 +177,8 @@ export function defaultArkorCloudApiUrl(
  */
 function stripTrailingSlashes(s: string): string {
   let end = s.length;
-  while (end > 0 && s.charCodeAt(end - 1) === 0x2f /* "/" */) end--;
+  // oxfmt-ignore
+  while (end > 0 && s.codePointAt(end - 1) === 0x2F /* "/" */) end--;
   return end === s.length ? s : s.slice(0, end);
 }
 

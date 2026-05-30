@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   jobStatusSchema,
   trainingJobSchema,
@@ -8,7 +9,13 @@ import {
 
 describe("jobStatusSchema", () => {
   it("accepts all known statuses", () => {
-    for (const s of ["queued", "running", "completed", "failed", "cancelled"] as const) {
+    for (const s of [
+      "queued",
+      "running",
+      "completed",
+      "failed",
+      "cancelled",
+    ] as const) {
       expect(jobStatusSchema.parse(s)).toBe(s);
     }
   });

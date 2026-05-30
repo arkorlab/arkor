@@ -161,7 +161,7 @@ function hasMeaningfulProjectName(opts: ClaudeCodeOptionsCheck): boolean {
   // depending on downstream regex behaviour. `.` / `./` etc. still
   // pass because they are deliberate "scaffold in this directory"
   // idioms with the same runtime semantics as any non-empty path.
-  if (opts.dir !== undefined && opts.dir.trim() === "") return false;
+  if (opts.dir?.trim() === "") return false;
   // An explicitly-passed `--name` is validated even for `arkor init`
   // (where `requireProjectName` is false). The reasoning: when the
   // agent went out of its way to write `--name <value>`, that value
@@ -232,7 +232,11 @@ export function missingClaudeCodeFlags(
     });
   }
   const pmFlagSet =
-    opts.useNpm || opts.usePnpm || opts.useYarn || opts.useBun || opts.skipInstall;
+    opts.useNpm ||
+    opts.usePnpm ||
+    opts.useYarn ||
+    opts.useBun ||
+    opts.skipInstall;
   if (!pmFlagSet) {
     missing.push({
       flag: "--use-pnpm (or --use-npm / --use-yarn / --use-bun, or --skip-install)",
@@ -266,8 +270,7 @@ export function formatClaudeCodeMissingMessage(
     "Re-run with explicit flags:",
   ];
   for (const m of missing) {
-    lines.push(`  ${m.flag}`);
-    lines.push(`      ${m.description}`);
+    lines.push(`  ${m.flag}`, `      ${m.description}`);
   }
   lines.push("Or pass -y/--yes to accept all defaults.");
   return `${lines.join("\n")}\n`;

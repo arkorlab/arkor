@@ -1,4 +1,5 @@
 import { iterateEvents } from "@arkor/cloud-api-client";
+
 import { CloudApiClient } from "./client";
 import {
   defaultArkorCloudApiUrl,
@@ -6,6 +7,7 @@ import {
   type Credentials,
 } from "./credentials";
 import { ensureProjectState } from "./projectState";
+
 import type {
   CheckpointContext,
   InferArgs,
@@ -76,7 +78,11 @@ type StreamEvent =
       metrics?: unknown;
       artifacts?: unknown[];
     })
-  | (StreamEventBase & { type: "training.failed"; error: string; step?: number });
+  | (StreamEventBase & {
+      type: "training.failed";
+      error: string;
+      step?: number;
+    });
 
 function buildJobConfig(input: TrainerInput): JobConfig {
   const config: JobConfig = {
@@ -86,24 +92,32 @@ function buildJobConfig(input: TrainerInput): JobConfig {
   if (input.lora) {
     config.loraR = input.lora.r;
     config.loraAlpha = input.lora.alpha;
-    if (input.lora.maxLength !== undefined) config.maxLength = input.lora.maxLength;
-    if (input.lora.loadIn4bit !== undefined) config.loadIn4bit = input.lora.loadIn4bit;
+    if (input.lora.maxLength !== undefined)
+      config.maxLength = input.lora.maxLength;
+    if (input.lora.loadIn4bit !== undefined)
+      config.loadIn4bit = input.lora.loadIn4bit;
   }
   if (input.maxSteps !== undefined) config.maxSteps = input.maxSteps;
-  if (input.numTrainEpochs !== undefined) config.numTrainEpochs = input.numTrainEpochs;
-  if (input.learningRate !== undefined) config.learningRate = input.learningRate;
+  if (input.numTrainEpochs !== undefined)
+    config.numTrainEpochs = input.numTrainEpochs;
+  if (input.learningRate !== undefined)
+    config.learningRate = input.learningRate;
   if (input.batchSize !== undefined) config.batchSize = input.batchSize;
   if (input.optim !== undefined) config.optim = input.optim;
-  if (input.lrSchedulerType !== undefined) config.lrSchedulerType = input.lrSchedulerType;
+  if (input.lrSchedulerType !== undefined)
+    config.lrSchedulerType = input.lrSchedulerType;
   if (input.weightDecay !== undefined) config.weightDecay = input.weightDecay;
   if (input.warmupSteps !== undefined) config.warmupSteps = input.warmupSteps;
-  if (input.loggingSteps !== undefined) config.loggingSteps = input.loggingSteps;
+  if (input.loggingSteps !== undefined)
+    config.loggingSteps = input.loggingSteps;
   if (input.saveSteps !== undefined) config.saveSteps = input.saveSteps;
   if (input.evalSteps !== undefined) config.evalSteps = input.evalSteps;
   if (input.trainOnResponsesOnly !== undefined)
     config.trainOnResponsesOnly = input.trainOnResponsesOnly;
-  if (input.datasetFormat !== undefined) config.datasetFormat = input.datasetFormat;
-  if (input.datasetSplit !== undefined) config.datasetSplit = input.datasetSplit;
+  if (input.datasetFormat !== undefined)
+    config.datasetFormat = input.datasetFormat;
+  if (input.datasetSplit !== undefined)
+    config.datasetSplit = input.datasetSplit;
   if (input.dryRun !== undefined) config.dryRun = input.dryRun;
   return config;
 }
@@ -146,14 +160,11 @@ export function createTrainer(
   let clientPromise: Promise<CloudApiClient> | null = null;
 
   async function getClient(): Promise<CloudApiClient> {
-    if (!clientPromise) {
-      clientPromise = (async () => {
-        const credentials = context.credentials ?? (await ensureCredentials());
-        const baseUrl =
-          context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
-        return new CloudApiClient({ baseUrl, credentials });
-      })();
-    }
+    clientPromise ??= (async () => {
+      const credentials = context.credentials ?? (await ensureCredentials());
+      const baseUrl = context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
+      return new CloudApiClient({ baseUrl, credentials });
+    })();
     return clientPromise;
   }
 
@@ -183,6 +194,12 @@ export function createTrainer(
 
   async function delay(ms: number, signal?: AbortSignal): Promise<void> {
     await new Promise<void>((resolve, reject) => {
+      // `AbortSignal.reason` is the convention-set rejection value for
+      // the signal (default `DOMException`, or whatever the caller
+      // passed to `controller.abort(...)`). Forwarding it verbatim
+      // matches `AbortSignal.throwIfAborted()` semantics; coercing to a
+      // fresh Error would lose the caller's intent.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
       if (signal?.aborted) return reject(signal.reason);
       const timer = setTimeout(() => {
         signal?.removeEventListener("abort", onAbort);
@@ -190,7 +207,11 @@ export function createTrainer(
       }, ms);
       const onAbort = () => {
         clearTimeout(timer);
-        reject(signal!.reason);
+        // `onAbort` only ever runs as a listener attached below, so
+        // `signal` is non-undefined here. Bind locally to surface that.
+        const s = signal;
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        if (s) reject(s.reason);
       };
       signal?.addEventListener("abort", onAbort, { once: true });
     });
@@ -198,7 +219,10 @@ export function createTrainer(
 
   async function dispatch(
     event: StreamEvent,
-    terminalResult: { status: TrainingJob["status"]; artifacts: unknown[] } | null,
+    terminalResult: {
+      status: TrainingJob["status"];
+      artifacts: unknown[];
+    } | null,
   ): Promise<{ terminal: boolean; artifacts: unknown[] }> {
     if (!startedJob || !scope) {
       throw new Error("Trainer is in an inconsistent state");
@@ -208,7 +232,11 @@ export function createTrainer(
 
     switch (event.type) {
       case "training.started": {
-        startedJob = { ...startedJob, status: "running", startedAt: event.timestamp };
+        startedJob = {
+          ...startedJob,
+          status: "running",
+          startedAt: event.timestamp,
+        };
         await callbacks.onStarted?.({ job: startedJob });
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
       }
@@ -231,9 +259,14 @@ export function createTrainer(
           jobId: startedJob.id,
           step: event.step,
         };
-        const infer = (args: InferArgs): Promise<Response> =>
-          client.chat({
-            scope: scope!,
+        const infer = (args: InferArgs): Promise<Response> => {
+          if (!scope) {
+            throw new Error(
+              "Trainer scope is not initialized at checkpoint dispatch time",
+            );
+          }
+          return client.chat({
+            scope,
             body: {
               messages: args.messages,
               adapter,
@@ -248,6 +281,7 @@ export function createTrainer(
             },
             signal: args.signal,
           });
+        };
         const ctx: CheckpointContext = {
           step: event.step,
           adapter,
@@ -377,8 +411,12 @@ export function createTrainer(
 
         if (terminal) break;
 
+        // Two distinct semantics (clean reconnect vs failure accounting)
+        // that share an `await` shape but warrant the documented split.
+        // A ternary would force a single comment above both branches.
+        // eslint-disable-next-line unicorn/prefer-ternary
         if (receivedAny) {
-          // Stream had real activity then closed cleanly. Not a failure —
+          // Stream had real activity then closed cleanly. Not a failure;
           // reconnect with Last-Event-ID at the base delay (no exponential
           // backoff, no counter increment).
           await delay(initialReconnectDelayMs, abortSignal);

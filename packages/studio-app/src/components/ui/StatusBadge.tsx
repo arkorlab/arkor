@@ -1,10 +1,16 @@
-import type { Job } from "../../lib/api";
 import { cn } from "./cn";
+
+import type { Job } from "../../lib/api";
 
 type Status = Job["status"];
 
 interface StatusBadgeProps {
-  status: Status | string;
+  // `string & {}` is the TS-known trick that keeps autocomplete for the
+  // five `Status` literals while still accepting any string at runtime
+  // (the component renders unknown values via the fallback path below).
+  // Plain `Status | string` would collapse to `string` and lose the
+  // hints.
+  status: Status | (string & {});
   size?: "sm" | "md";
   className?: string;
 }
@@ -47,7 +53,11 @@ const VARIANT: Record<
 
 const FALLBACK = VARIANT.queued;
 
-export function StatusBadge({ status, size = "md", className }: StatusBadgeProps) {
+export function StatusBadge({
+  status,
+  size = "md",
+  className,
+}: StatusBadgeProps) {
   const v = (VARIANT as Record<string, typeof FALLBACK>)[status] ?? {
     ...FALLBACK,
     label: status,
@@ -75,7 +85,9 @@ export function StatusBadge({ status, size = "md", className }: StatusBadgeProps
             )}
           />
         ) : null}
-        <span className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", v.dot)} />
+        <span
+          className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", v.dot)}
+        />
       </span>
       {v.label}
     </span>

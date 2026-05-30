@@ -18,7 +18,7 @@ export interface LossStats {
 }
 
 export function mean(values: number[]): number {
-  if (values.length === 0) return NaN;
+  if (values.length === 0) return Number.NaN;
   let sum = 0;
   for (const v of values) sum += v;
   return sum / values.length;
@@ -31,7 +31,7 @@ export function mean(values: number[]): number {
 // Single-sample input has no spread to estimate, so we report 0.
 export function variance(values: number[]): number {
   const n = values.length;
-  if (n === 0) return NaN;
+  if (n === 0) return Number.NaN;
   if (n === 1) return 0;
   const m = mean(values);
   let sq = 0;
@@ -51,15 +51,15 @@ export function stddev(values: number[]): number {
 // p90 and p95 from the same sorted view instead of sorting twice.
 function percentileFromSorted(sorted: number[], q: number): number {
   const n = sorted.length;
-  if (n === 0) return NaN;
-  if (n === 1) return sorted[0]!;
+  if (n === 0) return Number.NaN;
+  if (n === 1) return sorted[0];
   const clamped = Math.min(1, Math.max(0, q));
   const rank = clamped * (n - 1);
   const lo = Math.floor(rank);
   const hi = Math.ceil(rank);
-  if (lo === hi) return sorted[lo]!;
+  if (lo === hi) return sorted[lo];
   const frac = rank - lo;
-  return sorted[lo]! * (1 - frac) + sorted[hi]! * frac;
+  return sorted[lo] * (1 - frac) + sorted[hi] * frac;
 }
 
 // Linear-interpolated percentile — same convention as numpy's default
@@ -67,7 +67,13 @@ function percentileFromSorted(sorted: number[], q: number): number {
 // otherwise compute lo/hi outside the sorted-array bounds and trip the
 // non-null assertions below.
 export function percentile(values: number[], q: number): number {
-  if (values.length === 0) return NaN;
+  if (values.length === 0) return Number.NaN;
+  // `[...values].sort(...)` (not `.toSorted()`) because the Studio
+  // SPA's tsconfig pins `target: ES2022` and `Array.prototype.toSorted`
+  // is ES2023 — Vite/esbuild won't polyfill it, so older evergreen
+  // browsers would throw at runtime.
+  // oxfmt-ignore
+  // eslint-disable-next-line unicorn/no-array-sort
   return percentileFromSorted([...values].sort((a, b) => a - b), q);
 }
 
@@ -75,17 +81,14 @@ export function percentile(values: number[], q: number): number {
 // we use 1.96 (the normal-distribution limit) — close enough for the
 // kinds of step counts a training run produces.
 const T_95: readonly number[] = [
-  12.706, 4.303, 3.182, 2.776, 2.571,
-  2.447, 2.365, 2.306, 2.262, 2.228,
-  2.201, 2.179, 2.160, 2.145, 2.131,
-  2.120, 2.110, 2.101, 2.093, 2.086,
-  2.080, 2.074, 2.069, 2.064, 2.060,
-  2.056, 2.052, 2.048, 2.045, 2.042,
+  12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201,
+  2.179, 2.16, 2.145, 2.131, 2.12, 2.11, 2.101, 2.093, 2.086, 2.08, 2.074,
+  2.069, 2.064, 2.06, 2.056, 2.052, 2.048, 2.045, 2.042,
 ];
 
 function tCritical95(df: number): number {
-  if (df < 1) return NaN;
-  if (df <= 30) return T_95[df - 1]!;
+  if (df < 1) return Number.NaN;
+  if (df <= 30) return T_95[df - 1];
   return 1.96;
 }
 
@@ -97,7 +100,7 @@ function tCritical95(df: number): number {
 // bound it, so reporting half-width 0 is accurate.
 export function confidenceInterval95(values: number[]): number {
   const n = values.length;
-  if (n === 0) return NaN;
+  if (n === 0) return Number.NaN;
   if (n === 1) return 0;
   const sd = stddev(values);
   return tCritical95(n - 1) * (sd / Math.sqrt(n));
@@ -115,12 +118,12 @@ export function summarize(values: number[]): LossStats {
   if (n === 0) {
     return {
       count: 0,
-      mean: NaN,
-      variance: NaN,
-      stddev: NaN,
-      ci95HalfWidth: NaN,
-      p90: NaN,
-      p95: NaN,
+      mean: Number.NaN,
+      variance: Number.NaN,
+      stddev: Number.NaN,
+      ci95HalfWidth: Number.NaN,
+      p90: Number.NaN,
+      p95: Number.NaN,
     };
   }
 
@@ -142,6 +145,8 @@ export function summarize(values: number[]): LossStats {
   const sd = Math.sqrt(varv);
   const ciHalf = n <= 1 ? 0 : tCritical95(n - 1) * (sd / Math.sqrt(n));
 
+  // ES2022 target — see `percentile()` above for the toSorted rationale.
+  // eslint-disable-next-line unicorn/no-array-sort
   const sorted = [...values].sort((a, b) => a - b);
 
   return {

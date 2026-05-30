@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+
 import {
   gitInitialCommit,
   install,
@@ -15,6 +16,7 @@ import {
   type PackageManager,
   type TemplateId,
 } from "@arkor/cli-internal";
+
 import {
   isInteractive,
   promptConfirm,
@@ -157,7 +159,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   const projectName = await promptText({
     message: "Project name?",
     initialValue: options.name ?? defaultName,
-    skipWith: bypassPrompts ? options.name ?? defaultName : undefined,
+    skipWith: bypassPrompts ? (options.name ?? defaultName) : undefined,
   });
   // An explicit `--template <id>` is authoritative: skip the prompt and use it as-is.
   const template = await promptSelect<TemplateId>({
@@ -262,8 +264,7 @@ export async function runInit(options: InitOptions): Promise<void> {
         // `Retry manually` hint is DEFERRED to after the recovery
         // gate computes `installSucceeded` below; see the
         // `installThrewError` declaration above for the rationale.
-        installThrewError =
-          err instanceof Error ? err.message : String(err);
+        installThrewError = err instanceof Error ? err.message : String(err);
         ui.log.warn(installThrewError);
       }
     }
@@ -373,7 +374,7 @@ export async function runInit(options: InitOptions): Promise<void> {
   // ("recovery should not treat install as successful for
   // git/outro purposes") while preserving the round-39 UX
   // benefit for users with a populated tree.
-  const RECOVERY_ELIGIBLE_PMS: Array<PackageManager> = ["pnpm", "bun"];
+  const RECOVERY_ELIGIBLE_PMS: PackageManager[] = ["pnpm", "bun"];
   const installAttemptCompleted = !wouldHaveInstalled || installed;
   const installArtifactsLanded =
     installThrewError !== undefined &&
@@ -432,8 +433,7 @@ export async function runInit(options: InitOptions): Promise<void> {
     await runGitInit(cwd);
   }
 
-  const devCmd =
-    pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
+  const devCmd = pm && pm !== "npm" ? `${pm} arkor dev` : "npx arkor dev";
   // Round 39 (Copilot, PR #99): when git init was skipped (install
   // blocked or threw) but the user originally requested `--git`,
   // the closing outro must remind them to create the repo + initial
@@ -489,9 +489,10 @@ export async function runInit(options: InitOptions): Promise<void> {
   // the warning. Repeat the fix-first recovery instead so the
   // closing line stays consistent with the advisory above.
   if (wouldHaveInstalled && blockInstall) {
-    const fixRetry = pm
-      ? `\`${pm} install\``
-      : MANUAL_INSTALL_HINT;
+    // `wouldHaveInstalled` proved `pm !== undefined` for the rest of
+    // this branch, so the previous `pm ? ... : MANUAL_INSTALL_HINT`
+    // ternaries collapsed to the truthy arm.
+    const fixRetry = `\`${pm} install\``;
     if (gitInitSkipped) {
       // Multi-line outro: each git step on its own line so users
       // copy-paste them individually. See `gitCmdLines` above for
@@ -500,7 +501,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       ui.outro(
         [
           `After fixing the advisory above, run:`,
-          `  ${pm ? `${pm} install` : MANUAL_INSTALL_HINT}`,
+          `  ${pm} install`,
           ...gitCmdLines.map((line) => `  ${line}`),
           `  ${devCmd}`,
         ].join("\n"),
@@ -538,7 +539,8 @@ export async function runInit(options: InitOptions): Promise<void> {
     // `gitCmdLines` above for why no single chain separator
     // works across the supported shells.
     const lines: string[] = ["Next:"];
-    if (!treeIsReady) lines.push(`  ${pm ? `${pm} install` : MANUAL_INSTALL_HINT}`);
+    if (!treeIsReady)
+      lines.push(`  ${pm ? `${pm} install` : MANUAL_INSTALL_HINT}`);
     for (const line of gitCmdLines) lines.push(`  ${line}`);
     lines.push(`  ${devCmd}`);
     ui.outro(lines.join("\n"));

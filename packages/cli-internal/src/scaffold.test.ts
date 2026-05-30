@@ -1,7 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // Mock the yarn-version subprocess helper so unit tests are
 // deterministic regardless of whether the test machine has yarn
@@ -9,18 +17,15 @@ import { join } from "node:path";
 // fallback (round 30, PR #99) would shell out to `yarn --version`
 // in the explicit-`--use-yarn` + no-signal branch, and the test's
 // caveat-fires-or-not outcome would depend on the dev box's yarn
-// version. Default mock returns `undefined` (yarn not detected →
+// version. Default mock returns `undefined` (yarn not detected,
 // caveat doesn't fire); per-test overrides below simulate yarn 1
 // vs yarn 4 for the round-30 regression tests.
 vi.mock("./yarn-version", () => ({
   detectYarnMajor: vi.fn(async () => undefined),
 }));
 
+import { detectPackageManager, resolvePackageManager } from "./package-manager";
 import { scaffold, templateChoices } from "./scaffold";
-import {
-  detectPackageManager,
-  resolvePackageManager,
-} from "./package-manager";
 import { detectYarnMajor } from "./yarn-version";
 
 let cwd: string;
@@ -219,8 +224,14 @@ describe("scaffold", () => {
     // override a deliberate `true` back to `false`.
     const original = `packages:\n  - "packages/*"\nallowBuilds:\n  esbuild: true\n  sharp: true\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
-    const { files } = await scaffold({ cwd, name: "ignored", template: "triage" });
-    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+    });
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(
+      original,
+    );
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("ok");
   });
@@ -231,8 +242,14 @@ describe("scaffold", () => {
     // init` into an existing project.
     const original = `packages: []\nallowBuilds:\n  esbuild: false\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
-    const { files } = await scaffold({ cwd, name: "ignored", template: "triage" });
-    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+    });
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(
+      original,
+    );
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("ok");
   });
@@ -243,7 +260,11 @@ describe("scaffold", () => {
     // without rewriting the rest of the block.
     const original = `packages:\n  - "packages/*"\nallowBuilds:\n  sharp: true\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
-    const { files } = await scaffold({ cwd, name: "ignored", template: "triage" });
+    const { files } = await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+    });
     const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
     expect(yaml).toContain("sharp: true");
     expect(yaml).toContain("esbuild: false");
@@ -271,8 +292,7 @@ describe("scaffold", () => {
   // mapping-start boundary (`{`, `,`, whitespace, or string
   // start) so substring keys aren't a false positive.
   it("does not treat `myesbuild` as a pinned `esbuild` in inline form", async () => {
-    const original =
-      `packages: []\nallowBuilds: { myesbuild: false }\n`;
+    const original = `packages: []\nallowBuilds: { myesbuild: false }\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     await scaffold({
       cwd,
@@ -294,8 +314,7 @@ describe("scaffold", () => {
   // inline writer now strips a trailing comma (with optional
   // whitespace) before joining.
   it("strips a trailing comma in inline form before appending esbuild", async () => {
-    const original =
-      `packages: []\nallowBuilds: { sharp: true, }\n`;
+    const original = `packages: []\nallowBuilds: { sharp: true, }\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     await scaffold({
       cwd,
@@ -331,8 +350,7 @@ describe("scaffold", () => {
   // `allowBuilds:` block. The fix normalizes the input by
   // appending a newline if missing.
   it("merges esbuild into an existing allowBuilds block when the file lacks a trailing newline", async () => {
-    const original =
-      `packages: []\nallowBuilds:\n  sharp: true`; // no trailing \n
+    const original = `packages: []\nallowBuilds:\n  sharp: true`; // no trailing \n
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     const { files } = await scaffold({
       cwd,
@@ -373,7 +391,12 @@ describe("scaffold", () => {
   // fresh-create + patch behaviours stops a future refactor from
   // silently breaking the opt-in path.
   it("emits allowBuilds esbuild=true on a fresh scaffold when --allow-builds is set", async () => {
-    await scaffold({ cwd, name: "fresh", template: "triage", allowBuilds: true });
+    await scaffold({
+      cwd,
+      name: "fresh",
+      template: "triage",
+      allowBuilds: true,
+    });
     const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
     expect(yaml).toMatch(/allowBuilds:\n[ \t]+esbuild:[ \t]+true/);
     expect(yaml).not.toMatch(/esbuild:[ \t]+false/);
@@ -382,7 +405,12 @@ describe("scaffold", () => {
   it("appends esbuild=true into an existing block-form allowBuilds when --allow-builds is set", async () => {
     const original = `packages:\n  - "packages/*"\nallowBuilds:\n  sharp: true\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
-    await scaffold({ cwd, name: "ignored", template: "triage", allowBuilds: true });
+    await scaffold({
+      cwd,
+      name: "ignored",
+      template: "triage",
+      allowBuilds: true,
+    });
     const yaml = readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8");
     expect(yaml).toContain("sharp: true");
     expect(yaml).toContain("esbuild: true");
@@ -400,7 +428,9 @@ describe("scaffold", () => {
       template: "triage",
       allowBuilds: true,
     });
-    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(
+      original,
+    );
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("ok");
   });
@@ -537,7 +567,9 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "pnpm",
     });
-    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(
+      original,
+    );
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("ok");
   });
@@ -548,8 +580,7 @@ describe("scaffold", () => {
   // through to the "no allowBuilds at all" fallback even when one
   // was present).
   it("handles CRLF line endings when patching an existing block-form allowBuilds", async () => {
-    const original =
-      `packages: []\r\nallowBuilds:\r\n  sharp: true\r\n`;
+    const original = `packages: []\r\nallowBuilds:\r\n  sharp: true\r\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     const { files } = await scaffold({
       cwd,
@@ -574,8 +605,7 @@ describe("scaffold", () => {
     // it as a per-key pin. The reader must respect the user's
     // decision; otherwise the patcher would append a duplicate
     // entry under the same allowBuilds block.
-    const original =
-      `packages: []\nallowBuilds:\n  esbuild: false # documented deny\n`;
+    const original = `packages: []\nallowBuilds:\n  esbuild: false # documented deny\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     const { files } = await scaffold({
       cwd,
@@ -583,7 +613,9 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "pnpm",
     });
-    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(
+      original,
+    );
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("ok");
   });
@@ -600,7 +632,9 @@ describe("scaffold", () => {
       template: "triage",
       packageManager: "pnpm",
     });
-    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(
+      original,
+    );
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("ok");
   });
@@ -687,8 +721,7 @@ describe("scaffold", () => {
   // silently dropped any post-`}` text, throwing away user-
   // authored explanation of build-script policy.
   it("preserves a trailing YAML comment on an inline-form allowBuilds when patching", async () => {
-    const original =
-      `packages: []\nallowBuilds: { sharp: true } # native deps approved\n`;
+    const original = `packages: []\nallowBuilds: { sharp: true } # native deps approved\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     await scaffold({
       cwd,
@@ -707,8 +740,7 @@ describe("scaffold", () => {
   it("preserves a trailing YAML comment on a block-form allowBuilds header when patching", async () => {
     // The block-header path also needs to keep an explanatory
     // comment that lives on the `allowBuilds:` line itself.
-    const original =
-      `packages: []\nallowBuilds: # native deps approved\n  sharp: true\n`;
+    const original = `packages: []\nallowBuilds: # native deps approved\n  sharp: true\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     await scaffold({
       cwd,
@@ -730,8 +762,7 @@ describe("scaffold", () => {
   // The reader/writer now anchor at the detected document-root
   // indent (mirroring `readNodeLinkerValue`).
   it("respects an indented document root when reading allowBuilds (does not double-write)", async () => {
-    const original =
-      `  packages: []\n  allowBuilds:\n    esbuild: true\n`;
+    const original = `  packages: []\n  allowBuilds:\n    esbuild: true\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     const { files } = await scaffold({
       cwd,
@@ -740,7 +771,9 @@ describe("scaffold", () => {
       packageManager: "pnpm",
     });
     // esbuild already pinned at root → no edit needed.
-    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(original);
+    expect(readFileSync(join(cwd, "pnpm-workspace.yaml"), "utf8")).toBe(
+      original,
+    );
     const entry = files.find((f) => f.path === "pnpm-workspace.yaml");
     expect(entry?.action).toBe("ok");
   });
@@ -750,8 +783,7 @@ describe("scaffold", () => {
     // existing allowBuilds block. The new entry must use the same
     // body indent as the existing one (4 spaces here), and we must
     // NOT introduce a column-0 duplicate.
-    const original =
-      `  packages: []\n  allowBuilds:\n    sharp: true\n`;
+    const original = `  packages: []\n  allowBuilds:\n    sharp: true\n`;
     writeFileSync(join(cwd, "pnpm-workspace.yaml"), original);
     const { files } = await scaffold({
       cwd,
@@ -778,10 +810,7 @@ describe("scaffold", () => {
   // descendant (ancestor yarnrc + ancestor `.yarn/`).
   it("does not raise the berry caveat when an ancestor .yarnrc.yml pins nodeLinker: node-modules", async () => {
     const parent = mkdtempSync(join(tmpdir(), "scaffold-yarn-safe-"));
-    writeFileSync(
-      join(parent, ".yarnrc.yml"),
-      "nodeLinker: node-modules\n",
-    );
+    writeFileSync(join(parent, ".yarnrc.yml"), "nodeLinker: node-modules\n");
     const sub = join(parent, "packages", "new-pkg");
     mkdirSync(sub, { recursive: true });
     try {
@@ -808,10 +837,7 @@ describe("scaffold", () => {
   // for this common monorepo layout.
   it("respects merged yarnrc nodeLinker: cwd has yarnrc without key, ancestor pins node-modules", async () => {
     const parent = mkdtempSync(join(tmpdir(), "scaffold-yarn-merged-"));
-    writeFileSync(
-      join(parent, ".yarnrc.yml"),
-      "nodeLinker: node-modules\n",
-    );
+    writeFileSync(join(parent, ".yarnrc.yml"), "nodeLinker: node-modules\n");
     const sub = join(parent, "packages", "new-pkg");
     mkdirSync(sub, { recursive: true });
     // Pre-existing project content (so isExistingProject=true) +
@@ -842,17 +868,11 @@ describe("scaffold", () => {
   // the merged effective value before raising the caveat.
   it("inspect path: merged ancestor nodeLinker: node-modules suppresses the berry-without-linker caveat", async () => {
     const parent = mkdtempSync(join(tmpdir(), "scaffold-yarn-inspect-"));
-    writeFileSync(
-      join(parent, ".yarnrc.yml"),
-      "nodeLinker: node-modules\n",
-    );
+    writeFileSync(join(parent, ".yarnrc.yml"), "nodeLinker: node-modules\n");
     const sub = join(parent, "packages", "new-pkg");
     mkdirSync(sub, { recursive: true });
     writeFileSync(join(sub, "README.md"), "# pre-existing\n");
-    writeFileSync(
-      join(sub, ".yarnrc.yml"),
-      "enableImmutableCache: true\n",
-    );
+    writeFileSync(join(sub, ".yarnrc.yml"), "enableImmutableCache: true\n");
     try {
       const { warnings, blockInstall } = await scaffold({
         cwd: sub,
@@ -1758,10 +1778,7 @@ describe("scaffold", () => {
   ])(
     "stays silent in undefined-pm + existing-project when $label",
     async ({ pkg }) => {
-      writeFileSync(
-        join(cwd, "package.json"),
-        JSON.stringify(pkg, null, 2),
-      );
+      writeFileSync(join(cwd, "package.json"), JSON.stringify(pkg, null, 2));
       const result = await scaffold({
         cwd,
         name: "n",
@@ -1822,22 +1839,25 @@ describe("scaffold", () => {
   // trailing comment, with extra whitespace. Lock the normaliser
   // down so those forms are recognised as already-correct.
   it.each([
-    { label: "double-quoted",   line: 'nodeLinker: "node-modules"' },
-    { label: "single-quoted",   line: "nodeLinker: 'node-modules'" },
+    { label: "double-quoted", line: 'nodeLinker: "node-modules"' },
+    { label: "single-quoted", line: "nodeLinker: 'node-modules'" },
     { label: "trailing comment", line: "nodeLinker: node-modules # default" },
     { label: "extra whitespace", line: "nodeLinker:    node-modules" },
-  ])("treats `$label` as already correct (no warning, action=ok)", async ({ line }) => {
-    writeFileSync(join(cwd, ".yarnrc.yml"), `${line}\nfoo: bar\n`);
-    const result = await scaffold({
-      cwd,
-      name: "n",
-      template: "triage",
-      packageManager: "yarn",
-    });
-    const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
-    expect(yarnrc?.action).toBe("ok");
-    expect(result.warnings).toEqual([]);
-  });
+  ])(
+    "treats `$label` as already correct (no warning, action=ok)",
+    async ({ line }) => {
+      writeFileSync(join(cwd, ".yarnrc.yml"), `${line}\nfoo: bar\n`);
+      const result = await scaffold({
+        cwd,
+        name: "n",
+        template: "triage",
+        packageManager: "yarn",
+      });
+      const yarnrc = result.files.find((f) => f.path === ".yarnrc.yml");
+      expect(yarnrc?.action).toBe("ok");
+      expect(result.warnings).toEqual([]);
+    },
+  );
 
   // YAML allows the root mapping to be indented. An existing
   // `.yarnrc.yml` like `  nodeLinker: node-modules` (every key at
@@ -1975,7 +1995,9 @@ describe("scaffold", () => {
           template: "triage",
           packageManager: pm,
         });
-        expect(result.files.find((f) => f.path === ".yarnrc.yml")).toBeUndefined();
+        expect(
+          result.files.find((f) => f.path === ".yarnrc.yml"),
+        ).toBeUndefined();
       } finally {
         rmSync(fresh, { recursive: true, force: true });
       }
@@ -1986,7 +2008,9 @@ describe("scaffold", () => {
   it("adds yarn-cache lines to .gitignore for yarn or undetected pm", async () => {
     for (const pm of ["yarn", undefined] as const) {
       rmSync(cwd, { recursive: true, force: true });
-      const fresh = mkdtempSync(join(tmpdir(), `cli-internal-test-${pm ?? "undef"}-`));
+      const fresh = mkdtempSync(
+        join(tmpdir(), `cli-internal-test-${pm ?? "undef"}-`),
+      );
       try {
         await scaffold({
           cwd: fresh,
@@ -2115,7 +2139,11 @@ describe("scaffold", () => {
     // Default behavior: scaffold() leaves AGENTS.md / CLAUDE.md alone unless
     // the caller opts in. Protects existing arkor init flow that doesn't pass
     // the flag.
-    const result = await scaffold({ cwd, name: "no-agents", template: "triage" });
+    const result = await scaffold({
+      cwd,
+      name: "no-agents",
+      template: "triage",
+    });
     expect(result.files.map((f) => f.path)).not.toContain("AGENTS.md");
     expect(result.files.map((f) => f.path)).not.toContain("CLAUDE.md");
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
@@ -2163,7 +2191,9 @@ describe("scaffold", () => {
     expect(body).toContain(AGENTS_BEGIN);
     expect(body).toContain(AGENTS_END);
     // Exactly one blank line between user content and the block.
-    expect(body).toMatch(/Some notes from the user\.\n\n<!-- BEGIN:arkor-agent-rules -->/);
+    expect(body).toMatch(
+      /Some notes from the user\.\n\n<!-- BEGIN:arkor-agent-rules -->/,
+    );
   });
 
   it("replaces only the block contents when AGENTS.md already has the markers", async () => {
@@ -2218,7 +2248,15 @@ describe("scaffold", () => {
     // mentions inside prose / backticks are just text that must be
     // preserved verbatim.
     const countAnchored = (s: string, marker: string): number => {
-      const re = new RegExp(`(?:^|\\n)${marker.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}`, "g");
+      // Standard regex-escape: the character class must include `]`
+      // (escaped) and `\` (escaped as `\\`), and the replacement is a
+      // single backslash + the match. The previous form was missing
+      // `]` from the class and used a doubled backslash in the
+      // replacement, so it never actually escaped anything; the test
+      // happened to pass because the canonical marker strings don't
+      // contain any regex metacharacters.
+      const escaped = marker.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+      const re = new RegExp(String.raw`(?:^|\n)${escaped}`, "g");
       return (s.match(re) ?? []).length;
     };
 
@@ -2250,9 +2288,7 @@ describe("scaffold", () => {
       template: "triage",
       agentsMd: true,
     });
-    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
-      "ok",
-    );
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe("ok");
     const final = readFileSync(join(cwd, "AGENTS.md"), "utf8");
     expect(final).toBe(after);
     expect(countAnchored(final, AGENTS_BEGIN)).toBe(1);
@@ -2262,7 +2298,12 @@ describe("scaffold", () => {
   it("returns 'ok' when AGENTS.md already has the canonical block", async () => {
     // First scaffold creates the file; second scaffold should detect the
     // block is already up-to-date and skip the write.
-    await scaffold({ cwd, name: "idempotent", template: "triage", agentsMd: true });
+    await scaffold({
+      cwd,
+      name: "idempotent",
+      template: "triage",
+      agentsMd: true,
+    });
     const before = readFileSync(join(cwd, "AGENTS.md"), "utf8");
     const second = await scaffold({
       cwd,
@@ -2324,9 +2365,7 @@ describe("scaffold", () => {
       template: "triage",
       agentsMd: true,
     });
-    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
-      "ok",
-    );
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe("ok");
     const afterSecond = readFileSync(join(cwd, "AGENTS.md"), "utf8");
     expect(afterSecond).toBe(afterFirst);
     expect(afterSecond.match(new RegExp(AGENTS_BEGIN, "g"))?.length).toBe(1);
@@ -2367,9 +2406,7 @@ describe("scaffold", () => {
       template: "triage",
       agentsMd: true,
     });
-    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe(
-      "ok",
-    );
+    expect(second.files.find((f) => f.path === "AGENTS.md")?.action).toBe("ok");
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(after);
   });
 
@@ -2671,7 +2708,7 @@ describe("resolvePackageManager", () => {
 describe("templateChoices", () => {
   it("exposes every registered template with a hint", () => {
     const list = templateChoices();
-    expect(list.map((t) => t.value).sort()).toEqual([
+    expect(list.map((t) => t.value).toSorted()).toEqual([
       "redaction",
       "translate",
       "triage",

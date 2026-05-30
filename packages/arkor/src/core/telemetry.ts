@@ -1,25 +1,46 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { randomUUID } from "node:crypto";
+
 import { PostHog } from "posthog-node";
+
 import { readCredentials, type Credentials } from "./credentials";
 import { SDK_VERSION } from "./version";
 
-declare const __ARKOR_POSTHOG_KEY__: string;
-declare const __ARKOR_POSTHOG_HOST__: string;
-
-const POSTHOG_KEY: string =
-  typeof __ARKOR_POSTHOG_KEY__ !== "undefined" ? __ARKOR_POSTHOG_KEY__ : "";
-const POSTHOG_HOST: string =
-  typeof __ARKOR_POSTHOG_HOST__ !== "undefined"
-    ? __ARKOR_POSTHOG_HOST__
-    : "https://us.i.posthog.com";
+// Why `globalThis.__ARKOR_POSTHOG_*__` and not a bare identifier:
+//   1. Safety. A bare `__ARKOR_POSTHOG_KEY__` would throw `ReferenceError`
+//      under vitest (where tsdown's `define` never runs). A property access
+//      on `globalThis` is a missing-property lookup, so it returns
+//      `undefined` and the `?? fallback` fires.
+//   2. Lint compatibility. The previous `typeof X !== "undefined"` probe
+//      tripped `unicorn/no-typeof-undefined`, whose auto-fix rewrites it
+//      to `X !== undefined` and re-introduces the ReferenceError above.
+//      `globalThis.X ?? fallback` is rewrite-resistant.
+// tsdown's `define` is keyed against the literal text
+// `"globalThis.__ARKOR_POSTHOG_KEY__"` / `"globalThis.__ARKOR_POSTHOG_HOST__"`,
+// so the whole member access is the replacement target at build time.
+//
+// `declare global { var ... }` would add these symbols to the bare-
+// identifier namespace of every SDK consumer. A cast wrapper around
+// `globalThis` breaks rolldown's member-expression match for `define`
+// (the version stops getting inlined). Suppress the type error at the
+// read sites instead so the literal `globalThis.X` stays intact.
+// Assign through explicitly-typed locals so the values aren't `any`
+// after the `@ts-expect-error` suppression. The unsafe-assignment
+// disables follow because the suppressed read is typed `any`; the
+// local annotations re-establish `string | undefined`.
+// @ts-expect-error: tsdown `define` constant supplied at build time;
+// intentionally not declared on `globalThis` for consumers.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+const inlinedPosthogKey: string | undefined = globalThis.__ARKOR_POSTHOG_KEY__;
+// oxfmt-ignore
+// @ts-expect-error: tsdown `define` constant supplied at build time;
+// intentionally not declared on `globalThis` for consumers.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+const inlinedPosthogHost: string | undefined = globalThis.__ARKOR_POSTHOG_HOST__;
+const POSTHOG_KEY: string = inlinedPosthogKey ?? "";
+const POSTHOG_HOST: string = inlinedPosthogHost ?? "https://us.i.posthog.com";
 
 function envFlag(name: string): boolean {
   const v = process.env[name];
@@ -70,7 +91,7 @@ function decodeJwtSub(accessToken: string): string | null {
   if (parts.length !== 3) return null;
   try {
     const payload = parts[1];
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const normalized = payload.replaceAll("-", "+").replaceAll("_", "/");
     const padded = normalized.padEnd(
       normalized.length + ((4 - (normalized.length % 4)) % 4),
       "=",

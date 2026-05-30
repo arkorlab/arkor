@@ -8,7 +8,7 @@ export function jsonResponse(
   data: unknown,
   init?: { status?: number; statusText?: string },
 ): Response {
-  return new Response(JSON.stringify(data), {
+  return Response.json(data, {
     status: init?.status ?? 200,
     statusText: init?.statusText,
     headers: { "content-type": "application/json" },

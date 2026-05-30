@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+
+import { getCurrentTheme, setTheme, type Theme } from "../../lib/theme";
 import { Moon, Sun } from "../icons";
 import { IconButton } from "../ui/IconButton";
-import { getCurrentTheme, setTheme, type Theme } from "../../lib/theme";
 
 export function ThemeToggle() {
   const [theme, setLocal] = useState<Theme>(getCurrentTheme);
@@ -19,7 +20,9 @@ export function ThemeToggle() {
   return (
     <IconButton
       size="sm"
-      label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+      label={
+        theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+      }
       onClick={toggle}
     >
       {theme === "dark" ? <Sun /> : <Moon />}

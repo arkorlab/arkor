@@ -1,13 +1,10 @@
 import { describe, it, expect } from "vitest";
-import {
-  formatDuration,
-  formatRelativeTime,
-  truncateMiddle,
-} from "./format";
+
+import { formatDuration, formatRelativeTime, truncateMiddle } from "./format";
 
 describe("formatDuration", () => {
   it("returns em-dash for invalid input", () => {
-    expect(formatDuration(NaN)).toBe("—");
+    expect(formatDuration(Number.NaN)).toBe("—");
     expect(formatDuration(-1)).toBe("—");
     expect(formatDuration(Infinity)).toBe("—");
   });
@@ -23,13 +20,13 @@ describe("formatDuration", () => {
   it("renders sub-hour durations as Xm Ys with zero-padded seconds", () => {
     expect(formatDuration(60_000)).toBe("1m 00s");
     expect(formatDuration(75_000)).toBe("1m 15s");
-    expect(formatDuration(59 * 60_000 + 9_000)).toBe("59m 09s");
+    expect(formatDuration(59 * 60_000 + 9000)).toBe("59m 09s");
   });
 
   it("renders hour-plus durations as Xh YYm ZZs", () => {
     expect(formatDuration(3_600_000)).toBe("1h 00m 00s");
     expect(formatDuration(3_605_000)).toBe("1h 00m 05s");
-    expect(formatDuration(2 * 3_600_000 + 5 * 60_000 + 7_000)).toBe(
+    expect(formatDuration(2 * 3_600_000 + 5 * 60_000 + 7000)).toBe(
       "2h 05m 07s",
     );
   });
@@ -45,20 +42,20 @@ describe("formatRelativeTime", () => {
 
   it("formats past timestamps with 'ago' phrasing", () => {
     // 30 seconds ago → seconds bucket
-    expect(formatRelativeTime(new Date(NOW - 30_000).toISOString(), NOW)).toMatch(
-      /\b30 seconds ago\b/,
-    );
+    expect(
+      formatRelativeTime(new Date(NOW - 30_000).toISOString(), NOW),
+    ).toMatch(/\b30 seconds ago\b/);
     // 5 minutes ago → minutes bucket
     expect(
       formatRelativeTime(new Date(NOW - 5 * 60_000).toISOString(), NOW),
     ).toMatch(/\b5 minutes ago\b/);
     // 3 hours ago → hours bucket
     expect(
-      formatRelativeTime(new Date(NOW - 3 * 3600_000).toISOString(), NOW),
+      formatRelativeTime(new Date(NOW - 3 * 3_600_000).toISOString(), NOW),
     ).toMatch(/\b3 hours ago\b/);
     // 2 days ago → days bucket
     expect(
-      formatRelativeTime(new Date(NOW - 2 * 86400_000).toISOString(), NOW),
+      formatRelativeTime(new Date(NOW - 2 * 86_400_000).toISOString(), NOW),
     ).toMatch(/\b2 days ago\b/);
   });
 

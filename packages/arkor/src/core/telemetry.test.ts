@@ -1,7 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { captureMock, shutdownMock, constructorMock } = vi.hoisted(() => ({
   captureMock: vi.fn(),
@@ -42,10 +50,12 @@ interface TelemetryModule {
   shutdownTelemetry: () => Promise<void>;
 }
 
-async function loadTelemetry(opts: {
-  key?: string;
-  host?: string;
-} = {}): Promise<TelemetryModule> {
+async function loadTelemetry(
+  opts: {
+    key?: string;
+    host?: string;
+  } = {},
+): Promise<TelemetryModule> {
   const g = globalThis as unknown as Record<string, unknown>;
   if (opts.key !== undefined) g.__ARKOR_POSTHOG_KEY__ = opts.key;
   else delete g.__ARKOR_POSTHOG_KEY__;
@@ -73,11 +83,14 @@ afterEach(() => {
   // delete-when-originally-unset pattern used in cli/commands/*.test.ts.
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
-  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  if (ORIG_USERPROFILE !== undefined)
+    process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
-  if (ORIG_DO_NOT_TRACK !== undefined) process.env.DO_NOT_TRACK = ORIG_DO_NOT_TRACK;
+  if (ORIG_DO_NOT_TRACK !== undefined)
+    process.env.DO_NOT_TRACK = ORIG_DO_NOT_TRACK;
   else delete process.env.DO_NOT_TRACK;
-  if (ORIG_DISABLED !== undefined) process.env.ARKOR_TELEMETRY_DISABLED = ORIG_DISABLED;
+  if (ORIG_DISABLED !== undefined)
+    process.env.ARKOR_TELEMETRY_DISABLED = ORIG_DISABLED;
   else delete process.env.ARKOR_TELEMETRY_DISABLED;
   rmSync(fakeHome, { recursive: true, force: true });
 });
@@ -147,13 +160,13 @@ describe("getIdentity", () => {
     const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" }))
       .toString("base64")
       .replace(/=+$/, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
+      .replaceAll("+", "-")
+      .replaceAll("/", "_");
     const payload = Buffer.from(JSON.stringify({ sub: "auth0|user-123" }))
       .toString("base64")
       .replace(/=+$/, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
+      .replaceAll("+", "-")
+      .replaceAll("/", "_");
     const accessToken = `${header}.${payload}.signature`;
     writeCreds({
       mode: "auth0",
@@ -177,7 +190,10 @@ describe("getIdentity", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
 
-    const stored = readFileSync(join(fakeHome, ".arkor", "telemetry-id"), "utf8").trim();
+    const stored = readFileSync(
+      join(fakeHome, ".arkor", "telemetry-id"),
+      "utf8",
+    ).trim();
     expect(stored).toBe(first.distinctId);
 
     const second = await mod.getIdentity();
@@ -221,10 +237,12 @@ describe("getIdentity", () => {
     // Branch coverage for `typeof obj.sub === "string" && obj.sub.length > 0`.
     // Auth0 always issues a sub claim, but a custom IdP that signs through
     // our cloud-api proxy without it must not crash telemetry.
-    const header = Buffer.from(JSON.stringify({ alg: "RS256" }))
-      .toString("base64url");
-    const payload = Buffer.from(JSON.stringify({ aud: "x" }))
-      .toString("base64url");
+    const header = Buffer.from(JSON.stringify({ alg: "RS256" })).toString(
+      "base64url",
+    );
+    const payload = Buffer.from(JSON.stringify({ aud: "x" })).toString(
+      "base64url",
+    );
     writeCreds({
       mode: "auth0",
       accessToken: `${header}.${payload}.sig`,
@@ -337,11 +355,9 @@ describe("withTelemetry", () => {
       throw new Error("debug-init-failed");
     });
     const errorChunks: string[] = [];
-    const errSpy = vi
-      .spyOn(console, "error")
-      .mockImplementation((...args) => {
-        errorChunks.push(args.map((a) => String(a)).join(" "));
-      });
+    const errSpy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      errorChunks.push(args.map(String).join(" "));
+    });
     try {
       const mod = await loadTelemetry({ key: "phc_test" });
       const wrapped = mod.withTelemetry("whoami", async () => {});
@@ -350,9 +366,7 @@ describe("withTelemetry", () => {
       errSpy.mockRestore();
       delete process.env.ARKOR_TELEMETRY_DEBUG;
     }
-    expect(errorChunks.some((c) => c.includes("[arkor:telemetry]"))).toBe(
-      true,
-    );
+    expect(errorChunks.some((c) => c.includes("[arkor:telemetry]"))).toBe(true);
     expect(errorChunks.some((c) => c.includes("client init failed"))).toBe(
       true,
     );
@@ -380,11 +394,9 @@ describe("withTelemetry", () => {
 
   it("skips cli_command_completed for longRunning commands on success", async () => {
     const mod = await loadTelemetry({ key: "phc_test" });
-    const wrapped = mod.withTelemetry(
-      "dev",
-      async () => {},
-      { longRunning: true },
-    );
+    const wrapped = mod.withTelemetry("dev", async () => {}, {
+      longRunning: true,
+    });
     await wrapped();
     expect(captureMock).toHaveBeenCalledTimes(1);
     expect(captureMock.mock.calls[0][0].event).toBe("cli_command_started");

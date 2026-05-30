@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Playground } from "./Playground";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import {
   jsonResponse,
   sseResponse,
   sseDeltaFrame,
 } from "../test-utils/responses";
+
+import { Playground } from "./Playground";
 
 const ORIG_FETCH = globalThis.fetch;
 // Snapshot scrollTo so we can restore it in afterEach. `vi.restoreAllMocks()`
@@ -55,21 +57,20 @@ describe("<Playground />", () => {
       throw new Error(`Unexpected fetch: ${String(input)}`);
     }) as typeof fetch;
     render(<Playground />);
-    expect(
-      await screen.findByText(/ready when you are/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/ready when you are/i)).toBeInTheDocument();
   });
 
   it("falls back to base mode and shows the error banner when /api/jobs fails", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === "/api/jobs")
-        return new Response("nope", { status: 503, statusText: "Service Unavailable" });
+        return new Response("nope", {
+          status: 503,
+          statusText: "Service Unavailable",
+        });
       throw new Error(`Unexpected fetch: ${String(input)}`);
     }) as typeof fetch;
     render(<Playground />);
-    expect(
-      await screen.findByText(/failed to load jobs/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/failed to load jobs/i)).toBeInTheDocument();
     // Composer must still be available in base mode despite the failure.
     expect(screen.getByLabelText("Message")).toBeEnabled();
   });

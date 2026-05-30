@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { getCurrentTheme, getInitialTheme, setTheme } from "./theme";
 
 // theme.ts inspects `window` / `document` at call time, so we stub
@@ -20,8 +21,7 @@ function stubBrowser({
   documentTheme?: "light" | "dark" | undefined;
 } = {}) {
   const matchMedia = vi.fn((query: string) => ({
-    matches:
-      prefersDark === true && query === "(prefers-color-scheme: dark)",
+    matches: prefersDark === true && query === "(prefers-color-scheme: dark)",
   }));
   const dataset: Record<string, string | undefined> = {};
   if (documentTheme !== undefined) dataset.theme = documentTheme;

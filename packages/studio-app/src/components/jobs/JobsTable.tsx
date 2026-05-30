@@ -1,7 +1,8 @@
-import type { Job } from "../../lib/api";
 import { formatDuration, truncateMiddle } from "../../lib/format";
 import { RelativeTime } from "../ui/RelativeTime";
 import { StatusBadge } from "../ui/StatusBadge";
+
+import type { Job } from "../../lib/api";
 
 function jobDurationMs(job: Job): number | null {
   if (!job.startedAt) return null;
@@ -31,7 +32,7 @@ export function JobsTable({
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-[11px] font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-500">
+          <tr className="text-left text-[11px] font-medium tracking-wider text-zinc-500 uppercase dark:text-zinc-500">
             <th className="px-6 py-2.5 font-medium">Status</th>
             <th className="px-6 py-2.5 font-medium">Name</th>
             {!compact && <th className="px-6 py-2.5 font-medium">Duration</th>}
@@ -45,7 +46,7 @@ export function JobsTable({
             return (
               <tr
                 key={j.id}
-                className="group relative border-t border-zinc-100 transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50 dark:border-zinc-900 dark:hover:bg-zinc-900/60 dark:focus-within:bg-zinc-900/60"
+                className="group relative border-t border-zinc-100 transition-colors focus-within:bg-zinc-50 hover:bg-zinc-50 dark:border-zinc-900 dark:focus-within:bg-zinc-900/60 dark:hover:bg-zinc-900/60"
               >
                 <td className="px-6 py-3.5 align-middle">
                   <StatusBadge status={j.status} size="sm" />
@@ -61,13 +62,13 @@ export function JobsTable({
                    */}
                   <a
                     href={`#/jobs/${j.id}`}
-                    className="font-medium text-zinc-900 group-hover:text-teal-700 before:absolute before:inset-0 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500/40 dark:text-zinc-100 dark:group-hover:text-teal-300"
+                    className="font-medium text-zinc-900 group-hover:text-teal-700 before:absolute before:inset-0 before:content-[''] focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:outline-none focus-visible:ring-inset dark:text-zinc-100 dark:group-hover:text-teal-300"
                   >
                     {j.name}
                   </a>
                 </td>
                 {!compact && (
-                  <td className="px-6 py-3.5 align-middle text-zinc-500 dark:text-zinc-400 tabular-nums">
+                  <td className="px-6 py-3.5 align-middle text-zinc-500 tabular-nums dark:text-zinc-400">
                     {ms === null ? "—" : formatDuration(ms)}
                   </td>
                 )}

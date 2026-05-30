@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   existsSync,
   mkdirSync,
@@ -8,6 +7,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { runStart } from "./start";
 
 let cwd: string;
@@ -54,12 +56,12 @@ describe("runStart", () => {
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
 
     const writes: string[] = [];
-    const spy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((chunk: unknown) => {
-        writes.push(typeof chunk === "string" ? chunk : String(chunk));
-        return true;
-      }) as unknown as typeof process.stdout.write);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write);
 
     try {
       await runStart({ cwd });
@@ -88,12 +90,12 @@ describe("runStart", () => {
     // bad source is never re-bundled.
     writeFileSync(join(cwd, "src/arkor/index.ts"), "syntax error <<<");
     const writes: string[] = [];
-    const spy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((chunk: unknown) => {
-        writes.push(typeof chunk === "string" ? chunk : String(chunk));
-        return true;
-      }) as unknown as typeof process.stdout.write);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write);
     try {
       await expect(runStart({ cwd })).resolves.toBeUndefined();
     } finally {
@@ -108,12 +110,12 @@ describe("runStart", () => {
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
     const absOut = join(cwd, "abs-out");
     const writes: string[] = [];
-    const spy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((chunk: unknown) => {
-        writes.push(typeof chunk === "string" ? chunk : String(chunk));
-        return true;
-      }) as unknown as typeof process.stdout.write);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write);
     try {
       await runStart({ cwd, outDir: absOut });
     } finally {
@@ -129,12 +131,12 @@ describe("runStart", () => {
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
     const writes: string[] = [];
-    const spy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((chunk: unknown) => {
-        writes.push(typeof chunk === "string" ? chunk : String(chunk));
-        return true;
-      }) as unknown as typeof process.stdout.write);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write);
     try {
       await runStart({});
     } finally {
@@ -151,12 +153,12 @@ describe("runStart", () => {
     );
 
     const writes: string[] = [];
-    const spy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(((chunk: unknown) => {
-        writes.push(typeof chunk === "string" ? chunk : String(chunk));
-        return true;
-      }) as unknown as typeof process.stdout.write);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write);
     // Use a dedicated outDir so the in-process module cache doesn't return a
     // stale import (each `arkor start` invocation is a fresh process in real
     // usage, but tests share one Node ESM cache).

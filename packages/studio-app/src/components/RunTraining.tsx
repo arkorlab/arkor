@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  fetchManifest,
-  streamTraining,
-  type ManifestResult,
-} from "../lib/api";
+
+import { fetchManifest, streamTraining, type ManifestResult } from "../lib/api";
+
 import { Play, StopCircle } from "./icons";
 import { Button } from "./ui/Button";
 
@@ -50,10 +48,10 @@ export function RunTraining() {
           });
         }
       } finally {
-        if (!cancelled) timer = setTimeout(tick, 5000);
+        if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
-    tick();
+    void tick();
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
@@ -103,8 +101,7 @@ export function RunTraining() {
   }
 
   const trainer = manifest && "trainer" in manifest ? manifest.trainer : null;
-  const manifestError =
-    manifest && "error" in manifest ? manifest.error : null;
+  const manifestError = manifest && "error" in manifest ? manifest.error : null;
   const hasTrainer = Boolean(trainer);
 
   return (

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+
 import {
   clearRecordedDeprecation,
   getRecordedDeprecation,
@@ -63,7 +64,7 @@ describe("tapDeprecation", () => {
     expect(getRecordedDeprecation()?.sdkVersion).toBe("baseline");
   });
 
-  it("extracts the message from RFC 7234 Warning header (299 - \"…\")", () => {
+  it('extracts the message from RFC 7234 Warning header (299 - "…")', () => {
     const res = new Response(null, {
       status: 200,
       headers: {
@@ -104,7 +105,9 @@ describe("tapDeprecation", () => {
       },
     });
     tapDeprecation(res, "1.4.0");
-    expect(getRecordedDeprecation()?.message).toBe("deprecated, please upgrade");
+    expect(getRecordedDeprecation()?.message).toBe(
+      "deprecated, please upgrade",
+    );
   });
 
   it("falls back to a generic message when Warning is missing entirely", () => {

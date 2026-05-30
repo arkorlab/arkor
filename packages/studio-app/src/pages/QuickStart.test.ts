@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { buildQuickStartSample } from "./QuickStart";
 
 // `buildQuickStartSample` powers the QuickStart card on the Endpoint
@@ -79,7 +80,7 @@ describe("buildQuickStartSample — Python (openai SDK)", () => {
     expect(out).toContain('base_url="https://mymodel.arkor.app/v1"');
     expect(out).not.toContain("/v1/chat/completions");
     expect(out).toContain('api_key="YOUR_API_KEY"');
-    expect(out).toContain('client.chat.completions.create');
+    expect(out).toContain("client.chat.completions.create");
   });
 
   it("uses a `not-required` placeholder + comment when authMode is none", () => {

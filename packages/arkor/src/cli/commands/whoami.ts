@@ -1,3 +1,5 @@
+import { createClient } from "@arkor/cloud-api-client";
+
 import { CloudApiClient } from "../../core/client";
 import {
   defaultArkorCloudApiUrl,
@@ -6,7 +8,6 @@ import {
 import { recordDeprecation } from "../../core/deprecation";
 import { formatSdkUpgradeError } from "../../core/upgrade-hint";
 import { SDK_VERSION } from "../../core/version";
-import { createClient } from "@arkor/cloud-api-client";
 
 export async function runWhoami(): Promise<void> {
   const creds = await readCredentials();
@@ -27,8 +28,7 @@ export async function runWhoami(): Promise<void> {
   // hit the typed surface and avoid duplicating the plumbing.
   const rpc = createClient({
     baseUrl,
-    token: () =>
-      creds.mode === "anon" ? creds.token : creds.accessToken,
+    token: () => (creds.mode === "anon" ? creds.token : creds.accessToken),
     clientVersion: SDK_VERSION,
     // Wrap the deprecation callback so we return `null` (not `void`) —
     // `@arkor/cloud-api-client` alpha.2 feeds the handler's return into
@@ -43,6 +43,11 @@ export async function runWhoami(): Promise<void> {
     },
   });
   const res = await rpc.v1.me.$get();
+  // Hono RPC narrows `res.ok` to `true` based on the OpenAPI schema (only
+  // 200 declared), so this check looks unreachable to TypeScript, but
+  // network failures and undeclared statuses (426 below, 5xx) reach this
+  // branch at runtime.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (!res.ok) {
     // Hono RPC narrows `status` to the success codes declared in the OpenAPI
     // schema (200 here), so widen for the 426 check below.

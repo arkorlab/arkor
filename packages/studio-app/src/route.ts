@@ -39,6 +39,9 @@ export function parseRoute(hash: string = window.location.hash): Route {
     const params = new URLSearchParams(query);
     // Treat blank/whitespace-only `?adapter=` as absent so callers
     // never see an empty string masquerading as a real adapter id.
+    // `||` (not `??`) so the empty-string case from `.trim()` falls
+    // through to `undefined`.
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     const adapterJobId = params.get("adapter")?.trim() || undefined;
     return { kind: "playground", adapterJobId };
   }
@@ -84,9 +87,7 @@ export type NavigationGuard = () => boolean;
 const navigationGuards = new Set<NavigationGuard>();
 
 /** Register a `NavigationGuard`; the returned function unregisters it. */
-export function registerNavigationGuard(
-  guard: NavigationGuard,
-): () => void {
+export function registerNavigationGuard(guard: NavigationGuard): () => void {
   navigationGuards.add(guard);
   return () => {
     navigationGuards.delete(guard);
@@ -387,7 +388,10 @@ export function useHashRoute(): Route {
     // named global, and `history` and `window.history` resolve to
     // different bindings under the stub. Mixing the two would let
     // production code drift away from what the tests can observe.
-    const existingState = (window.history.state ?? {}) as Record<string, unknown>;
+    const existingState = (window.history.state ?? {}) as Record<
+      string,
+      unknown
+    >;
     const initialSeq =
       typeof existingState.seq === "number" ? existingState.seq : 0;
     if (typeof existingState.seq !== "number") {

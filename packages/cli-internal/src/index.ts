@@ -26,11 +26,7 @@ export {
   type LockfileSnapshot,
   type NodeModulesSnapshot,
 } from "./install";
-export {
-  gitInitialCommit,
-  isInGitRepo,
-  type InitialCommitResult,
-} from "./git";
+export { gitInitialCommit, isInGitRepo, type InitialCommitResult } from "./git";
 export { sanitise } from "./sanitise";
 export {
   ClaudeCodeStrictExit,

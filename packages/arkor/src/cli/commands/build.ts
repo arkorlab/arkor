@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
+
 import { build as esbuild } from "esbuild";
+
 import { ui } from "../prompts";
 
 export interface BuildOptions {

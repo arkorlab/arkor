@@ -116,17 +116,23 @@ export async function pollDeploymentsForSlug(
     if (attempt > 0) {
       await delay(delayMs, signal);
     }
+    // TS narrows `signal.aborted` to `false` after the first check and
+    // doesn't re-widen across the awaits below, so the repeated checks
+    // look unnecessary in the type system. They're real defensive
+    // re-reads: `AbortSignal.aborted` can flip during any `await`.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (signal.aborted) return;
     try {
       const result = await fetchDeployments({ signal });
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (signal.aborted) return;
       onUpdate(result);
       if (result.deployments.some((d) => d.slug === slug)) return;
     } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (signal.aborted) return;
       if (err instanceof DOMException && err.name === "AbortError") return;
-      const msg =
-        err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error ? err.message : String(err);
       onError(msg);
       return;
     }
@@ -153,9 +159,7 @@ export interface KeyIssueGuardOptions {
   registerNavigationGuard: (guard: NavigationGuard) => () => void;
   /** Injection point so tests can avoid touching `window`. */
   addBeforeUnloadListener: (handler: (e: BeforeUnloadEvent) => void) => void;
-  removeBeforeUnloadListener: (
-    handler: (e: BeforeUnloadEvent) => void,
-  ) => void;
+  removeBeforeUnloadListener: (handler: (e: BeforeUnloadEvent) => void) => void;
   /**
    * Window confirm prompt; tests inject a stub so they can answer
    * Yes / No deterministically. Real callers use `window.confirm`.

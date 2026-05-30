@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+
 import { createArkor, isArkor } from "./arkor";
+
 import type { Trainer } from "./types";
 
 function fakeTrainer(name = "run"): Trainer {
@@ -16,7 +18,10 @@ function fakeTrainer(name = "run"): Trainer {
           projectId: "p",
           name,
           status: "completed",
-          config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+          config: {
+            model: "m",
+            datasetSource: { type: "huggingface", name: "x" },
+          },
           createdAt: "2026-01-01",
         },
         artifacts: [],

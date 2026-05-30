@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { SDK_VERSION } from "./version";
 
 // version.ts uses `typeof __SDK_VERSION__ !== "undefined" ? … : "0.0.0-dev"`
