@@ -1,7 +1,16 @@
 // `EventEmitter` is correct here: this file mocks Node's `ChildProcess`
 // shape, which extends `EventEmitter` (not `EventTarget`).
 /* eslint-disable unicorn/prefer-event-target */
+// The namespace alias is needed for the `vi.importActual<typeof
+// nodeChildProcess>(...)` generic below: the actual module type has no
+// single named export that captures the whole module shape, and
+// `consistent-type-imports` forbids `import("node:child_process")`-style
+// inline type queries (round-40 follow-up: PR #159 Copilot suggested
+// the inline form, but it would re-introduce that lint error). Named
+// type imports (`SpawnSyncReturns` below) cover the smaller
+// per-function ReturnType usages.
 import type * as nodeChildProcess from "node:child_process";
+import type { SpawnSyncReturns } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
   existsSync,
@@ -905,7 +914,7 @@ describe("findBunBin", () => {
       pid: 1,
       output: ["", Buffer.from(stdout), Buffer.from("")],
       signal: null,
-    } as ReturnType<typeof nodeChildProcess.spawnSync>;
+    } as SpawnSyncReturns<Buffer>;
   }
   function fail() {
     return {
@@ -915,7 +924,7 @@ describe("findBunBin", () => {
       pid: 1,
       output: ["", null, Buffer.from("")],
       signal: null,
-    } as unknown as ReturnType<typeof nodeChildProcess.spawnSync>;
+    } as unknown as SpawnSyncReturns<Buffer>;
   }
 
   beforeEach(() => {
@@ -1054,7 +1063,7 @@ describe("runCli runtime: 'bun' gate enforcement", () => {
       pid: 1,
       output: ["", null, Buffer.from("")],
       signal: null,
-    } as unknown as ReturnType<typeof nodeChildProcess.spawnSync>);
+    } as unknown as SpawnSyncReturns<Buffer>);
     const cwd = mkdtempSync(join(tmpdir(), "runcli-bun-gate-"));
     try {
       await expect(runCli("/fake/bin", [], cwd, {}, "bun")).rejects.toThrow(
