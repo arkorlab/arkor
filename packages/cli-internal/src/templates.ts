@@ -253,7 +253,7 @@ npm install && npm run dev
 
 \`arkor dev\` opens the local Studio GUI (most workflows live there).
 
-Optional, log in to your own org instead of using anonymous tokens:
+Optionally, log in to your own org instead of using anonymous tokens:
 
 \`\`\`
 npx arkor login

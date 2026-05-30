@@ -1046,7 +1046,7 @@ async function patchPackageJson(
 // **top-level** `allowBuilds:` (block / inline / scalar) and merge
 // `esbuild: <value>` into it. If the user has already pinned an
 // explicit value (per-key OR a top-level scalar like
-// `allowBuilds: false`) we leave the file alone: overriding their
+// `allowBuilds: false`), we leave the file alone: overriding their
 // decision either way would silently change the install-time threat
 // model of their project, and a scalar form is a deliberate global
 // pin we must not stomp on.

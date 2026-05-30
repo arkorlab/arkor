@@ -301,19 +301,19 @@ export function JobDetail({ jobId }: { jobId: string }) {
     { label: "Status", value: <StatusBadge status={status} size="sm" /> },
     {
       label: "Duration",
-      value: duration === null ? "-" : formatDuration(duration),
+      value: duration === null ? "–" : formatDuration(duration),
       mono: true,
     },
     {
       label: "Created",
-      value: job?.createdAt ? formatAbsoluteTime(job.createdAt) : "-",
+      value: job?.createdAt ? formatAbsoluteTime(job.createdAt) : "–",
       mono: true,
     },
     {
       label: "Started",
       value: (() => {
         const at = job?.startedAt ?? liveStartedAt;
-        return at ? formatAbsoluteTime(at) : "-";
+        return at ? formatAbsoluteTime(at) : "–";
       })(),
       mono: true,
     },
@@ -321,23 +321,23 @@ export function JobDetail({ jobId }: { jobId: string }) {
       label: "Completed",
       value: (() => {
         const at = job?.completedAt ?? terminal?.completedAt;
-        return at ? formatAbsoluteTime(at) : "-";
+        return at ? formatAbsoluteTime(at) : "–";
       })(),
       mono: true,
     },
     {
       label: "Base model",
-      value: getConfigString(job?.config, ["model"]) ?? "-",
+      value: getConfigString(job?.config, ["model"]) ?? "–",
       mono: true,
     },
     {
       label: "Dataset",
-      value: getDatasetLabel(job?.config) ?? "-",
+      value: getDatasetLabel(job?.config) ?? "–",
       mono: true,
     },
     {
       label: "Artifacts",
-      value: terminal ? terminal.artifacts : "-",
+      value: terminal ? terminal.artifacts : "–",
       mono: true,
     },
     {
@@ -531,7 +531,7 @@ function computeDuration(
 
 function formatAbsoluteTime(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
+  if (Number.isNaN(d.getTime())) return "–";
   const Y = d.getFullYear();
   const M = String(d.getMonth() + 1).padStart(2, "0");
   const D = String(d.getDate()).padStart(2, "0");

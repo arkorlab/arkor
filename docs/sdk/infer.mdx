@@ -338,7 +338,7 @@ Where the result lands depends on which constraint you used:
 
 - **No constraint** or **`responseFormat: { type: "text" }`**: `choices[0].message.content` is plain text.
 - **`responseFormat: { type: "json_object" }`** or **`type: "json_schema"`**: `choices[0].message.content` is a **string** containing the JSON. You call `JSON.parse` yourself; the SDK does not pre-parse.
-- **`structuredOutputs: { json }` or `{ json_object: true }`**: same, `choices[0].message.content` is a JSON string. `JSON.parse` it.
+- **`structuredOutputs: { json }` or `{ json_object: true }`**: same; `choices[0].message.content` is a JSON string. `JSON.parse` it.
 - **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }`**: `choices[0].message.content` is a string matching the constraint. Not JSON; do not parse.
 - **`tools` request that returned a tool call**: `choices[0].message.tool_calls` is populated; `content` is omitted or `null`. Each `tool_calls[i].function.arguments` is itself a JSON-encoded string.
 

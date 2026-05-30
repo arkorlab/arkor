@@ -69,7 +69,7 @@ export function JobsTable({
                 </td>
                 {!compact && (
                   <td className="px-6 py-3.5 align-middle text-zinc-500 tabular-nums dark:text-zinc-400">
-                    {ms === null ? "-" : formatDuration(ms)}
+                    {ms === null ? "–" : formatDuration(ms)}
                   </td>
                 )}
                 <td className="px-6 py-3.5 align-middle text-zinc-500 dark:text-zinc-400">

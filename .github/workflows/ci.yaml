@@ -230,7 +230,7 @@ jobs:
   # development prerequisite and we don't want `pnpm test` on a fresh
   # checkout to require them.
   #
-  # KNOWN MATRIX GAP for Windows × bun × `arkor init`: this combination is
+  # KNOWN MATRIX GAP (Windows × bun × `arkor init`): this combination is
   # NOT covered by the install matrix. `arkor init --use-bun` on Windows
   # currently fails to produce `bun.lock` due to a CLI-binary-axis
   # divergence between `arkor init` and `create-arkor` (the two share
