@@ -511,10 +511,12 @@ function computeDuration(
 
   // If we know the job is terminal (SSE terminal frame OR polled
   // status reached completed/failed/cancelled) but we don't have a
-  // `completedAt` to anchor against, render `-` rather than tick `now`;
-  // otherwise a cancelled/failed job whose backend never recorded a
-  // completion timestamp would show an ever-growing duration as if it
-  // were still running.
+  // `completedAt` to anchor against, return null so the caller can
+  // render its own "no value" placeholder (the en dash shown in the
+  // metadata sidebar) rather than tick `now`; otherwise a
+  // cancelled/failed job whose backend never recorded a completion
+  // timestamp would show an ever-growing duration as if it were still
+  // running.
   const polledIsTerminal =
     job?.status === "completed" ||
     job?.status === "failed" ||

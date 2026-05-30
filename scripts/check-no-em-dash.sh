@@ -25,13 +25,31 @@ set -euo pipefail
 em_dash=$'\xe2\x80\x94'
 entity='&'"mdash;"
 
-if git grep -n -e "$em_dash" -e "$entity" -- ':!scripts/check-no-em-dash.sh'; then
-  {
-    printf '\n[check:no-em-dash] em-dash glyph or HTML entity found above.\n'
-    printf '[check:no-em-dash] Project policy: use a colon, period, comma, parentheses, " - ", or restructure.\n'
-    printf '[check:no-em-dash] See CONTRIBUTING.md > Style conventions.\n'
-  } >&2
-  exit 1
-fi
+# Branch on `git grep`'s documented exit codes explicitly. Wrapping the
+# command in `if ... ; then` under `set -e` would treat ANY non-zero
+# status as "no match", so a real failure (exit 2 from a malformed
+# pathspec, exit 128 from running outside a git repo, ...) would fall
+# through to the success print and produce a false green. Handle each
+# code on its own line instead.
+set +e
+git grep -n -e "$em_dash" -e "$entity" -- ':!scripts/check-no-em-dash.sh'
+rc=$?
+set -e
 
-printf '[check:no-em-dash] OK: no em dashes in the tracked tree.\n'
+case "$rc" in
+  0)
+    {
+      printf '\n[check:no-em-dash] em-dash glyph or HTML entity found above.\n'
+      printf '[check:no-em-dash] Project policy: use a colon, period, comma, parentheses, " - ", or restructure.\n'
+      printf '[check:no-em-dash] See CONTRIBUTING.md > Style conventions.\n'
+    } >&2
+    exit 1
+    ;;
+  1)
+    printf '[check:no-em-dash] OK: no em dashes in the tracked tree.\n'
+    ;;
+  *)
+    printf '[check:no-em-dash] git grep exited with status %s (treated as an error).\n' "$rc" >&2
+    exit "$rc"
+    ;;
+esac
