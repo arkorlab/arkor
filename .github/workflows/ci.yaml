@@ -11,20 +11,20 @@ jobs:
   # `local/no-em-dash` on source files is the point: this job is one
   # single check that succeeds iff the repo is clean end-to-end, so a
   # future weakening of the rule's include globs cannot silently let an
-  # em dash slip through. Invoked via `bash` rather than relying on the
-  # script's executable bit so the same step works without an extra
-  # `chmod +x` on contributors' Windows checkouts. The check is a single
-  # `git grep`, so the job finishes in a few seconds and does not
-  # consume Node / pnpm cache budget.
+  # em dash slip through. Invoked via `node` (against the `.mts`
+  # script, executed with Node's built-in type stripping which is
+  # enabled by default since 22.18 and within the repo's
+  # `engines.node >= 22.22.0` floor) rather than `bash` so the same
+  # step works uniformly across every supported OS, including Windows
+  # hosts that don't carry `bash` on PATH by default. The check is a
+  # single `git grep`, so the job finishes in a few seconds and does
+  # not consume Node / pnpm cache budget.
   no_em_dash:
     name: no em dashes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Check no em dashes
-        # `node` (not `bash`) so this step runs uniformly on every
-        # supported OS, including Windows hosts where the previous
-        # `bash` invocation would not have been portable.
         run: node scripts/check-no-em-dash.mts
 
   build:
