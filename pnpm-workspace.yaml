@@ -2,15 +2,16 @@ packages:
   - "packages/*"
   - "e2e/*"
   - "docs"
-# Embed each published package's README.md into its package.json
-# `readme` field at publish/pack time. pnpm 11's native `pnpm publish`
-# (it no longer shells out to the npm CLI) does NOT embed the README by
-# default, which leaves the package page on npmjs.com blank. The release
-# workflow publishes via `pnpm publish` (see
-# `.github/workflows/build.yaml`), so this setting is what restores the
-# rendered README on the registry. It applies to `pnpm pack` too, so the
-# attested release tarballs and the e2e scaffold tarballs carry the same
-# embedded README as the published packument.
+# Embed each published package's README.md into the `readme` field of
+# the manifest it ships: the registry packument that npmjs.com reads to
+# render the package page. The on-disk source `package.json` is not
+# mutated. pnpm 11's native `pnpm publish` (it no longer shells out to
+# the npm CLI) does NOT embed the README by default, which leaves the
+# npmjs.com page blank. The release workflow publishes via `pnpm publish`
+# (see `.github/workflows/build.yaml`), so this setting is what restores
+# the rendered README on the registry. It applies to `pnpm pack` too, so
+# the attested release tarballs and the e2e scaffold tarballs carry the
+# same embedded README as the published packument.
 embedReadme: true
 # Single source of truth for direct third-party dependency versions
 # declared in workspace `package.json` files. Each such `package.json`
