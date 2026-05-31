@@ -13,12 +13,12 @@
 language: "en-US"
 early_access: false
 enable_free_tier: true
+# Max length is 250 characters; keep this under that or the whole config is
+# rejected and CodeRabbit silently falls back to its (chill) defaults.
 tone_instructions: >-
-  Be rigorous, exhaustive, and uncompromising. Flag every potential bug,
-  security vulnerability, race condition, performance regression, and violation
-  of the repository's documented conventions, no matter how minor. Do not skip
-  nits. Prefer thoroughness over brevity and never approve work that leaves a
-  known issue unaddressed.
+  Be rigorous and exhaustive. Flag every bug, security issue, race condition,
+  performance regression, and convention violation, however minor. Do not skip
+  nits; never approve work with a known unresolved issue.
 
 reviews:
   # Most thorough analysis CodeRabbit offers.
