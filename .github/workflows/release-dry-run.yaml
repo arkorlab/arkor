@@ -255,3 +255,21 @@ jobs:
             --tag "${{ needs.preflight.outputs.npm_tag }}" \
             --no-git-checks \
             --dry-run
+
+      # Mirror the SBOM generation build.yaml runs for real (it attests and
+      # attaches the output to the GitHub Release; here we only generate and
+      # discard). Running both formats on every tag push surfaces a
+      # `pnpm sbom --prod` regression before a maintainer triggers
+      # release.yaml. `jq .` is a cheap parse check that the redirected
+      # stdout is the well-formed JSON document pnpm validates internally.
+      - name: Dry run generate release SBOMs (CycloneDX + SPDX)
+        run: |
+          SBOM_DIR="$RUNNER_TEMP/sbom"
+          rm -rf "$SBOM_DIR"
+          mkdir -p "$SBOM_DIR"
+
+          pnpm sbom --sbom-format cyclonedx --prod > "$SBOM_DIR/sbom.cyclonedx.json"
+          pnpm sbom --sbom-format spdx --prod > "$SBOM_DIR/sbom.spdx.json"
+
+          jq . "$SBOM_DIR/sbom.cyclonedx.json" >/dev/null
+          jq . "$SBOM_DIR/sbom.spdx.json" >/dev/null

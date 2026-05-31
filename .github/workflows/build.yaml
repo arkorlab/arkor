@@ -2,7 +2,7 @@ name: Build (reusable)
 
 # SLSA Build L3 trusted builder.
 #
-# Scope (intentionally minimal): install → build → pack → attest → publish.
+# Scope (intentionally minimal): install → build → pack → sbom → attest → publish.
 # Everything that is not strictly required to produce and sign the
 # artifact lives in the caller — tests (which execute arbitrary
 # user-controlled code), tag-shape validation, version reconciliation
@@ -78,10 +78,37 @@ jobs:
             (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
           done
 
+      # Generate the release SBOMs in both formats pnpm emits natively
+      # (CycloneDX 1.7 and SPDX 2.3). `pnpm sbom` writes the JSON document
+      # to stdout (progress goes to stderr), so each format is redirected
+      # to its own file. `--prod` scopes the SBOM to the production /
+      # runtime dependency closure that actually ships (~57 components)
+      # instead of the full workspace graph (~1.4k components dominated by
+      # build/test devDependencies like Playwright, Vite and ESLint that
+      # are never part of a published artifact). The Install step above
+      # populated pnpm's store, so license and author fields resolve
+      # without the `--lockfile-only` fallback. Generated inside the
+      # trusted builder so the SBOMs reflect the exact dependency tree
+      # installed here and can be attested under this workflow's OIDC
+      # identity in the step below.
+      - name: Generate release SBOMs (CycloneDX + SPDX)
+        run: |
+          SBOM_DIR="$RUNNER_TEMP/sbom"
+          rm -rf "$SBOM_DIR"
+          mkdir -p "$SBOM_DIR"
+
+          pnpm sbom --sbom-format cyclonedx --prod > "$SBOM_DIR/sbom.cyclonedx.json"
+          pnpm sbom --sbom-format spdx --prod > "$SBOM_DIR/sbom.spdx.json"
+
       - name: Generate GitHub artifact attestations for release tarballs
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: ${{ runner.temp }}/npm-pack/*.tgz
+
+      - name: Generate GitHub artifact attestations for SBOMs
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: ${{ runner.temp }}/sbom/*.json
 
       # Publish from the package directory with `pnpm publish`. pnpm 11's
       # native publish (it no longer shells out to the npm CLI) honors the
@@ -122,5 +149,16 @@ jobs:
         with:
           name: npm-tarballs
           path: ${{ runner.temp }}/npm-pack/*.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+      # SBOMs ride to the caller's postflight as their own artifact (kept
+      # separate from npm-tarballs so each can be globbed independently),
+      # where they are attached to the GitHub Release alongside the tgz files.
+      - name: Upload release SBOMs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom/*.json
           retention-days: 1
           if-no-files-found: error
