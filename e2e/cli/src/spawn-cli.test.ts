@@ -911,25 +911,41 @@ describe("findBunBin", () => {
     }
   }
 
+  // `output[0]` is `null` in real `spawnSync` results because we
+  // don't pass `input`; stdin has nothing to echo back. Keeping the
+  // mocks shaped like the real return values means future tests
+  // that inspect `output` won't be surprised by an empty string in
+  // the stdin slot (PR #159 Copilot review).
   function ok(stdout: string) {
+    const buf = Buffer.from(stdout);
     return {
       status: 0,
-      stdout: Buffer.from(stdout),
+      stdout: buf,
       stderr: Buffer.from(""),
       pid: 1,
-      output: ["", Buffer.from(stdout), Buffer.from("")],
+      output: [null, buf, Buffer.from("")],
       signal: null,
     } as SpawnSyncReturns<Buffer>;
   }
+  // Real `spawnSync`: when the child *runs* and exits non-zero,
+  // `stdout`/`stderr` are still Buffers (possibly empty). They're
+  // `null` only when the spawn itself failed (file not found, EPERM,
+  // etc.), and in that case `status` is `null` and `error` is set.
+  // Model the "ran and exited non-zero" shape here since the
+  // `--version` probe never hits the spawn-failed branch (the spawn
+  // succeeds, the child just exits 1 because there's no usable
+  // `bun`). Keeps the mock honest about which `findBunBin` branch
+  // each test exercises (PR #159 Copilot review).
   function fail() {
+    const empty = Buffer.from("");
     return {
       status: 1,
-      stdout: null,
-      stderr: Buffer.from(""),
+      stdout: empty,
+      stderr: empty,
       pid: 1,
-      output: ["", null, Buffer.from("")],
+      output: [null, empty, empty],
       signal: null,
-    } as unknown as SpawnSyncReturns<Buffer>;
+    } as SpawnSyncReturns<Buffer>;
   }
 
   beforeEach(() => {
