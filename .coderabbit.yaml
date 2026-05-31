@@ -113,7 +113,11 @@ reviews:
       enabled: true
     github-checks:
       enabled: true
-      timeout_ms: 90000
+      # Max the schema allows (15 min). This repo's CI fans install / typecheck
+      # / lint / format / test / build across a large OS x Node matrix, so the
+      # 90s default would time out before CI finishes and the review would miss
+      # failing checks.
+      timeout_ms: 900000
     languagetool:
       enabled: true
       level: "picky"
@@ -213,7 +217,10 @@ reviews:
 chat:
   # No ASCII art; keep responses focused.
   art: false
-  allow_non_org_members: true
+  # Restrict chat to org members. With Jira/Linear integrations on "auto",
+  # letting non-members trigger auto-replies would let external users on a
+  # public PR make the bot query and summarize internal issue context.
+  allow_non_org_members: false
   auto_reply: true
   integrations:
     jira:
