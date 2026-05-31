@@ -334,6 +334,12 @@ importers:
 
   packages/studio-app:
     dependencies:
+      '@fontsource-variable/geist':
+        specifier: 'catalog:'
+        version: 5.2.8
+      '@fontsource-variable/geist-mono':
+        specifier: 'catalog:'
+        version: 5.2.7
       eventsource-parser:
         specifier: 'catalog:'
         version: 3.0.8
@@ -344,12 +350,6 @@ importers:
         specifier: 'catalog:'
         version: 19.2.5(react@19.2.5)
     devDependencies:
-      '@fontsource-variable/geist':
-        specifier: 'catalog:'
-        version: 5.2.8
-      '@fontsource-variable/geist-mono':
-        specifier: 'catalog:'
-        version: 5.2.7
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.2.4(vite@6.4.2(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.0))
