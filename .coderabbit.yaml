@@ -89,6 +89,9 @@ reviews:
   # TS code doesn't JSDoc every function and AGENTS.md requires docs for
   # feature/schema changes, not a docstring on every symbol.
   pre_merge_checks:
+    # Only requested reviewers (not the PR author) may override a failing
+    # check, so the author can't self-unblock the hard gate.
+    override_requested_reviewers_only: true
     docstrings:
       mode: "warning"
       threshold: 100
@@ -161,6 +164,9 @@ reviews:
     regal:
       enabled: true
     actionlint:
+      enabled: true
+    # Static security analyzer for GitHub Actions workflows.
+    zizmor:
       enabled: true
     pmd:
       enabled: true
