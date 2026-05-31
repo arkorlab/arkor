@@ -233,8 +233,10 @@ jobs:
 
       # Publish from the package directory (not from the pre-Test pack)
       # so the dry-run exercises the dist/ shape `arkor#build` produced
-      # under `pnpm test` — same dist/ that `npm publish` would upload
-      # during a real release.
+      # under `pnpm test`, the same dist/ that `pnpm publish` uploads
+      # during a real release (see `.github/workflows/build.yaml`). This
+      # mirror also covers the `embedReadme: true` packument injection,
+      # since the dry-run runs the same native `pnpm publish` path.
       - name: Dry run publish (arkor)
         working-directory: packages/arkor
         run: |

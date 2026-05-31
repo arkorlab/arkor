@@ -242,7 +242,7 @@ jobs:
           ARKOR_TELEMETRY_DISABLED: "1"
         run: pnpm run test
 
-  # The trusted builder. Because `npm publish --provenance` runs inside
+  # The trusted builder. Because `pnpm publish --provenance` runs inside
   # build.yaml, the OIDC token Sigstore signs has
   # `job_workflow_ref = .../build.yaml@<ref>` rather than this caller's
   # path — giving SLSA Build L3 verifiers a stable, separately-lockable
