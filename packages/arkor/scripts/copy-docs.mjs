@@ -37,4 +37,6 @@ await cp(src, dst, {
     return !EXCLUDE_NAMES.has(top);
   },
 });
-console.log(`Copied ${src} -> ${dst} (excluded: ${[...EXCLUDE_NAMES].join(", ")})`);
+console.log(
+  `Copied ${src} -> ${dst} (excluded: ${[...EXCLUDE_NAMES].join(", ")})`,
+);

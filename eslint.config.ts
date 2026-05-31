@@ -24,6 +24,7 @@ const CONFIG_TS_FILES = [
   "**/vitest.config.ts",
   "**/vitest.setup.ts",
   "**/playwright.config.ts",
+  "**/oxfmt.config.ts",
 ];
 
 export default defineConfig(

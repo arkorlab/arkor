@@ -53,7 +53,11 @@ const VARIANT: Record<
 
 const FALLBACK = VARIANT.queued;
 
-export function StatusBadge({ status, size = "md", className }: StatusBadgeProps) {
+export function StatusBadge({
+  status,
+  size = "md",
+  className,
+}: StatusBadgeProps) {
   const v = (VARIANT as Record<string, typeof FALLBACK>)[status] ?? {
     ...FALLBACK,
     label: status,
@@ -81,7 +85,9 @@ export function StatusBadge({ status, size = "md", className }: StatusBadgeProps
             )}
           />
         ) : null}
-        <span className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", v.dot)} />
+        <span
+          className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", v.dot)}
+        />
       </span>
       {v.label}
     </span>

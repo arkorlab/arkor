@@ -24,7 +24,7 @@ export default defineConfig({
     "**/*.mdx",
   ],
   rules: {
-    "eqeqeq": ["error", "always"],
+    eqeqeq: ["error", "always"],
     "typescript/consistent-type-imports": [
       "error",
       { prefer: "type-imports", fixStyle: "inline-type-imports" },
@@ -74,10 +74,7 @@ export default defineConfig({
       },
     },
     {
-      files: [
-        "**/*.test.{ts,tsx,js,jsx,mjs}",
-        "**/*.spec.{ts,tsx,js,jsx,mjs}",
-      ],
+      files: ["**/*.test.{ts,tsx,js,jsx,mjs}", "**/*.spec.{ts,tsx,js,jsx,mjs}"],
       plugins: ["typescript", "unicorn", "oxc", "import", "promise", "vitest"],
       env: {
         node: true,

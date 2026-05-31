@@ -70,7 +70,8 @@ describe("ensureProjectState", () => {
     );
     const createProject = vi.fn();
     const client = fakeClient({
-      createProject: createProject as unknown as CloudApiClient["createProject"],
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
     });
 
     const state = await ensureProjectState({
@@ -96,11 +97,10 @@ describe("ensureProjectState", () => {
 
   it("creates a project for anonymous callers and persists state.json", async () => {
     const created = { id: "pid-new", slug: "my-app", name: "my-app" };
-    const createProject = vi
-      .fn()
-      .mockResolvedValue({ project: created });
+    const createProject = vi.fn().mockResolvedValue({ project: created });
     const client = fakeClient({
-      createProject: createProject as unknown as CloudApiClient["createProject"],
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
     });
 
     // Use a cwd whose basename should sanitise to "my-app".
@@ -141,7 +141,8 @@ describe("ensureProjectState", () => {
       ],
     });
     const client = fakeClient({
-      createProject: createProject as unknown as CloudApiClient["createProject"],
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
       listProjects: listProjects as unknown as CloudApiClient["listProjects"],
     });
 
@@ -173,7 +174,8 @@ describe("ensureProjectState", () => {
     const createProject = vi.fn().mockRejectedValue(conflict);
     const listProjects = vi.fn().mockResolvedValue({ projects: [] });
     const client = fakeClient({
-      createProject: createProject as unknown as CloudApiClient["createProject"],
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
       listProjects: listProjects as unknown as CloudApiClient["listProjects"],
     });
 
@@ -196,7 +198,8 @@ describe("ensureProjectState", () => {
     const createProject = vi.fn().mockRejectedValue(err);
     const listProjects = vi.fn();
     const client = fakeClient({
-      createProject: createProject as unknown as CloudApiClient["createProject"],
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
       listProjects: listProjects as unknown as CloudApiClient["listProjects"],
     });
 
@@ -217,7 +220,8 @@ describe("ensureProjectState", () => {
         };
       });
     const client = fakeClient({
-      createProject: createProject as unknown as CloudApiClient["createProject"],
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
     });
 
     // basename "!!!" sanitises to empty → fallback "project".
@@ -291,7 +295,8 @@ describe("ensureProjectState", () => {
         };
       });
     const client = fakeClient({
-      createProject: createProject as unknown as CloudApiClient["createProject"],
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
     });
 
     const longParent = mkdtempSync(join(tmpdir(), "long-"));

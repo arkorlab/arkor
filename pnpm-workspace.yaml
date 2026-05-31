@@ -54,6 +54,7 @@ catalog:
   globals: "^17.6.0"
   jsdom: 29.1.1
   mint: 4.2.577
+  oxfmt: 0.52.0
   oxlint: 1.66.0
   react: "^19.0.0"
   react-dom: "^19.0.0"

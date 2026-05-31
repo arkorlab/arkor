@@ -10,8 +10,8 @@
     "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono:
-    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 @layer base {
@@ -53,7 +53,11 @@
   }
 
   [data-theme="dark"] ::selection {
-    background-color: color-mix(in srgb, var(--color-teal-400) 30%, transparent);
+    background-color: color-mix(
+      in srgb,
+      var(--color-teal-400) 30%,
+      transparent
+    );
     color: var(--color-teal-50);
   }
 }

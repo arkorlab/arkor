@@ -46,17 +46,24 @@ function extractTrainer(mod: Record<string, unknown>): Trainer {
 
 export async function runTrainer(file?: string): Promise<void> {
   const relative = file ?? DEFAULT_ENTRY;
-  const abs = isAbsolute(relative) ? relative : resolve(process.cwd(), relative);
+  const abs = isAbsolute(relative)
+    ? relative
+    : resolve(process.cwd(), relative);
   if (!existsSync(abs)) {
     throw new Error(
       `Training entry not found: ${abs}. Provide a path or create ${DEFAULT_ENTRY}.`,
     );
   }
-  const mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
+  const mod = (await import(pathToFileURL(abs).href)) as Record<
+    string,
+    unknown
+  >;
   const trainer = extractTrainer(mod);
 
   const { jobId } = await trainer.start();
   process.stdout.write(`Started job ${jobId}\n`);
   const result = await trainer.wait();
-  process.stdout.write(`Job ${result.job.id} finished with status=${result.job.status}\n`);
+  process.stdout.write(
+    `Job ${result.job.id} finished with status=${result.job.status}\n`,
+  );
 }

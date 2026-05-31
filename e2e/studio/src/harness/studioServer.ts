@@ -189,9 +189,7 @@ interface SpawnedStudio {
   stdout: TailBuffer;
 }
 
-async function spawnStudio(
-  opts: StartStudioOptions,
-): Promise<SpawnedStudio> {
+async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
   const port = await getEphemeralPort();
   // `runCli` in e2e/cli also strips parent's `npm_config_*` to keep the
   // child's pm detection deterministic; for `arkor dev` it doesn't
@@ -277,8 +275,7 @@ async function spawnStudio(
   // Combine the two tail buffers into a 2 KiB error excerpt. Reading
   // both via `tail()` is O(cap), not O(total bytes), so this stays
   // cheap regardless of how chatty the child has been.
-  const errorTail = (): string =>
-    `${stderr.tail(1000)}${stdout.tail(1000)}`;
+  const errorTail = (): string => `${stderr.tail(1000)}${stdout.tail(1000)}`;
   try {
     await new Promise<void>((resolve, reject) => {
       const onData = (chunk: string) => {
@@ -287,6 +284,7 @@ async function spawnStudio(
         // where "Arkor Studio" and "running on" arrive in two chunks).
         // Use the shared regex constant so the substring doesn't drift;
         // `prefer-includes` would push us back to a hardcoded literal.
+        // oxfmt-ignore
         // eslint-disable-next-line @typescript-eslint/prefer-includes
         if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.toString())) {
           settle(resolve);
@@ -373,10 +371,15 @@ async function spawnStudio(
 async function readMetaToken(url: string): Promise<string> {
   const res = await fetch(`${url}/`);
   if (!res.ok) {
-    throw new Error(`Studio root returned ${String(res.status)} ${res.statusText}`);
+    throw new Error(
+      `Studio root returned ${String(res.status)} ${res.statusText}`,
+    );
   }
   const html = await res.text();
-  const match = /<meta\s+name=["']arkor-studio-token["']\s+content=["']([^"']+)["']/.exec(html);
+  const match =
+    /<meta\s+name=["']arkor-studio-token["']\s+content=["']([^"']+)["']/.exec(
+      html,
+    );
   if (!match) {
     throw new Error(
       `Could not find <meta name="arkor-studio-token"> in served HTML`,

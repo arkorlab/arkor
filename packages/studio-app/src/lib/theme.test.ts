@@ -21,8 +21,7 @@ function stubBrowser({
   documentTheme?: "light" | "dark" | undefined;
 } = {}) {
   const matchMedia = vi.fn((query: string) => ({
-    matches:
-      prefersDark === true && query === "(prefers-color-scheme: dark)",
+    matches: prefersDark === true && query === "(prefers-color-scheme: dark)",
   }));
   const dataset: Record<string, string | undefined> = {};
   if (documentTheme !== undefined) dataset.theme = documentTheme;

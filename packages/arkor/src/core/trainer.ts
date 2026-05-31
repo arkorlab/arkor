@@ -78,7 +78,11 @@ type StreamEvent =
       metrics?: unknown;
       artifacts?: unknown[];
     })
-  | (StreamEventBase & { type: "training.failed"; error: string; step?: number });
+  | (StreamEventBase & {
+      type: "training.failed";
+      error: string;
+      step?: number;
+    });
 
 function buildJobConfig(input: TrainerInput): JobConfig {
   const config: JobConfig = {
@@ -88,24 +92,32 @@ function buildJobConfig(input: TrainerInput): JobConfig {
   if (input.lora) {
     config.loraR = input.lora.r;
     config.loraAlpha = input.lora.alpha;
-    if (input.lora.maxLength !== undefined) config.maxLength = input.lora.maxLength;
-    if (input.lora.loadIn4bit !== undefined) config.loadIn4bit = input.lora.loadIn4bit;
+    if (input.lora.maxLength !== undefined)
+      config.maxLength = input.lora.maxLength;
+    if (input.lora.loadIn4bit !== undefined)
+      config.loadIn4bit = input.lora.loadIn4bit;
   }
   if (input.maxSteps !== undefined) config.maxSteps = input.maxSteps;
-  if (input.numTrainEpochs !== undefined) config.numTrainEpochs = input.numTrainEpochs;
-  if (input.learningRate !== undefined) config.learningRate = input.learningRate;
+  if (input.numTrainEpochs !== undefined)
+    config.numTrainEpochs = input.numTrainEpochs;
+  if (input.learningRate !== undefined)
+    config.learningRate = input.learningRate;
   if (input.batchSize !== undefined) config.batchSize = input.batchSize;
   if (input.optim !== undefined) config.optim = input.optim;
-  if (input.lrSchedulerType !== undefined) config.lrSchedulerType = input.lrSchedulerType;
+  if (input.lrSchedulerType !== undefined)
+    config.lrSchedulerType = input.lrSchedulerType;
   if (input.weightDecay !== undefined) config.weightDecay = input.weightDecay;
   if (input.warmupSteps !== undefined) config.warmupSteps = input.warmupSteps;
-  if (input.loggingSteps !== undefined) config.loggingSteps = input.loggingSteps;
+  if (input.loggingSteps !== undefined)
+    config.loggingSteps = input.loggingSteps;
   if (input.saveSteps !== undefined) config.saveSteps = input.saveSteps;
   if (input.evalSteps !== undefined) config.evalSteps = input.evalSteps;
   if (input.trainOnResponsesOnly !== undefined)
     config.trainOnResponsesOnly = input.trainOnResponsesOnly;
-  if (input.datasetFormat !== undefined) config.datasetFormat = input.datasetFormat;
-  if (input.datasetSplit !== undefined) config.datasetSplit = input.datasetSplit;
+  if (input.datasetFormat !== undefined)
+    config.datasetFormat = input.datasetFormat;
+  if (input.datasetSplit !== undefined)
+    config.datasetSplit = input.datasetSplit;
   if (input.dryRun !== undefined) config.dryRun = input.dryRun;
   return config;
 }
@@ -150,8 +162,7 @@ export function createTrainer(
   async function getClient(): Promise<CloudApiClient> {
     clientPromise ??= (async () => {
       const credentials = context.credentials ?? (await ensureCredentials());
-      const baseUrl =
-        context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
+      const baseUrl = context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
       return new CloudApiClient({ baseUrl, credentials });
     })();
     return clientPromise;
@@ -208,7 +219,10 @@ export function createTrainer(
 
   async function dispatch(
     event: StreamEvent,
-    terminalResult: { status: TrainingJob["status"]; artifacts: unknown[] } | null,
+    terminalResult: {
+      status: TrainingJob["status"];
+      artifacts: unknown[];
+    } | null,
   ): Promise<{ terminal: boolean; artifacts: unknown[] }> {
     if (!startedJob || !scope) {
       throw new Error("Trainer is in an inconsistent state");
@@ -218,7 +232,11 @@ export function createTrainer(
 
     switch (event.type) {
       case "training.started": {
-        startedJob = { ...startedJob, status: "running", startedAt: event.timestamp };
+        startedJob = {
+          ...startedJob,
+          status: "running",
+          startedAt: event.timestamp,
+        };
         await callbacks.onStarted?.({ job: startedJob });
         return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
       }

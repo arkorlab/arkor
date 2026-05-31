@@ -240,12 +240,14 @@ describe("setupKeyIssueGuards", () => {
   // secret, so it's worth pinning the wiring even though no DOM is
   // involved.
 
-  function makeFakes(opts: {
-    isPending?: () => boolean;
-    isPostInFlight?: () => boolean;
-    confirmAnswer?: boolean;
-    controller?: AbortController | null;
-  } = {}) {
+  function makeFakes(
+    opts: {
+      isPending?: () => boolean;
+      isPostInFlight?: () => boolean;
+      confirmAnswer?: boolean;
+      controller?: AbortController | null;
+    } = {},
+  ) {
     const beforeUnloadListeners: ((e: BeforeUnloadEvent) => void)[] = [];
     const guardRegistrations: NavigationGuard[] = [];
     const confirmCalls: string[] = [];
