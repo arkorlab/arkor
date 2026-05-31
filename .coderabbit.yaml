@@ -9,9 +9,10 @@
 #     and docstring coverage only warn, to match CONTRIBUTING.md's lenient stance
 #   - every linter / security / secret scanner enabled (including ones off by default),
 #     with each tool's own level pushed to its strictest (languagetool picky, phpstan max)
-#   - repo conventions (no em dashes, bilingual EN/JA docs parity, two-linter setup, ...)
-#     are fed from their source of truth via knowledge_base.code_guidelines.filePatterns,
-#     so the reviewer enforces them without us re-encoding nuanced rules here.
+#   - documented repo conventions (bilingual EN/JA docs parity, two-linter setup,
+#     supply-chain guards, Studio CSRF invariants, ...) are fed from their source
+#     of truth via knowledge_base.code_guidelines.filePatterns, so the reviewer
+#     applies them without us re-encoding nuanced rules here.
 language: "en-US"
 early_access: false
 enable_free_tier: true
@@ -242,10 +243,12 @@ knowledge_base:
   opt_out: false
   web_search:
     enabled: true
-  # Enforce the repo's own conventions from their source of truth, so the
-  # reviewer applies them without us duplicating (and risking drift on) the
-  # nuanced rules (em-dash ban, bilingual EN/JA docs parity, supply-chain
-  # guards, two-linter setup, Studio CSRF invariants, ...).
+  # Feed the repo's own documented conventions to the reviewer from their source
+  # of truth, so it applies them without us duplicating (and risking drift on)
+  # the nuanced rules actually written there: bilingual EN/JA docs parity,
+  # supply-chain guards, the two-linter setup, Studio CSRF invariants, etc.
+  # (Only conventions documented in these files are enforced; an unwritten
+  # preference like an em-dash ban is not, so it is not claimed here.)
   code_guidelines:
     enabled: true
     filePatterns:
