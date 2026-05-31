@@ -3,9 +3,10 @@
 # CodeRabbit configuration, tuned for the STRICTEST possible review (ENG-801).
 #
 # Every knob below is deliberately set to its most rigorous value:
-#   - assertive profile + request-changes workflow + failing commit status = a hard gate
-#   - title / description / issue-assessment pre-merge checks escalated to "error"
-#     (docstring coverage targets 100% but only warns, to match repo norms)
+#   - assertive profile + request-changes workflow + error-level pre-merge checks
+#     are the hard merge gate (the failing commit status is a signal, not the gate)
+#   - title and linked-issue pre-merge checks escalated to "error"; description
+#     and docstring coverage only warn, to match CONTRIBUTING.md's lenient stance
 #   - every linter / security / secret scanner enabled (including ones off by default),
 #     with each tool's own level pushed to its strictest (languagetool picky, phpstan max)
 #   - repo conventions (no em dashes, bilingual EN/JA docs parity, two-linter setup, ...)
@@ -84,10 +85,13 @@ reviews:
     simplify:
       enabled: true
 
-  # Hard pre-merge gate. Title / description / issue assessment block merge on
-  # failure. Docstring coverage targets 100% but only warns, since the existing
-  # TS code doesn't JSDoc every function and AGENTS.md requires docs for
-  # feature/schema changes, not a docstring on every symbol.
+  # Pre-merge gate. Title and linked-issue assessment block merge on failure.
+  # Description only warns: CONTRIBUTING.md explicitly says a sparse PR
+  # description is OK and is handled with review follow-ups, so blocking on it
+  # would contradict the documented contributor promise. Docstring coverage
+  # targets 100% but only warns too, since the existing TS code doesn't JSDoc
+  # every function and AGENTS.md requires docs for feature/schema changes, not
+  # a docstring on every symbol.
   pre_merge_checks:
     # Only requested reviewers (not the PR author) may override a failing
     # check, so the author can't self-unblock the hard gate.
@@ -98,7 +102,7 @@ reviews:
     title:
       mode: "error"
     description:
-      mode: "error"
+      mode: "warning"
     issue_assessment:
       mode: "error"
 
