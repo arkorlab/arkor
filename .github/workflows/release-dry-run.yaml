@@ -258,18 +258,23 @@ jobs:
 
       # Mirror the SBOM generation build.yaml runs for real (it attests and
       # attaches the output to the GitHub Release; here we only generate and
-      # discard). Running both formats on every tag push surfaces a
+      # check). Running both formats on every tag push surfaces a
       # `pnpm sbom --prod` regression before a maintainer triggers
-      # release.yaml. `jq .` is a cheap parse check that the redirected
-      # stdout is the well-formed JSON document pnpm validates internally.
+      # release.yaml. The version asserts fail if pnpm's emitted schema ever
+      # drifts from what build.yaml and AGENTS.md promise (CycloneDX 1.7 /
+      # SPDX 2.3). SPDX has no spec-version flag to pin, so this assert is
+      # its only drift guard. `jq -er` doubles as the parse check that the
+      # redirected stdout is the well-formed JSON pnpm validates internally.
       - name: Dry run generate release SBOMs (CycloneDX + SPDX)
         run: |
           SBOM_DIR="$RUNNER_TEMP/sbom"
           rm -rf "$SBOM_DIR"
           mkdir -p "$SBOM_DIR"
 
-          pnpm sbom --sbom-format cyclonedx --prod > "$SBOM_DIR/sbom.cyclonedx.json"
+          pnpm sbom --sbom-format cyclonedx --sbom-spec-version 1.7 --prod > "$SBOM_DIR/sbom.cyclonedx.json"
           pnpm sbom --sbom-format spdx --prod > "$SBOM_DIR/sbom.spdx.json"
 
-          jq . "$SBOM_DIR/sbom.cyclonedx.json" >/dev/null
-          jq . "$SBOM_DIR/sbom.spdx.json" >/dev/null
+          CDX_VER="$(jq -er '.specVersion' "$SBOM_DIR/sbom.cyclonedx.json")"
+          SPDX_VER="$(jq -er '.spdxVersion' "$SBOM_DIR/sbom.spdx.json")"
+          test "$CDX_VER" = "1.7" || { echo "CycloneDX specVersion drifted: $CDX_VER (expected 1.7)"; exit 1; }
+          test "$SPDX_VER" = "SPDX-2.3" || { echo "SPDX spdxVersion drifted: $SPDX_VER (expected SPDX-2.3)"; exit 1; }

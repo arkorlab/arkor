@@ -82,22 +82,26 @@ jobs:
       # (CycloneDX 1.7 and SPDX 2.3). `pnpm sbom` writes the JSON document
       # to stdout (progress goes to stderr), so each format is redirected
       # to its own file. `--prod` scopes the SBOM to the production /
-      # runtime dependency closure that actually ships (~57 components)
+      # runtime dependency closure that actually ships (~59 components)
       # instead of the full workspace graph (~1.4k components dominated by
       # build/test devDependencies like Playwright, Vite and ESLint that
       # are never part of a published artifact). The Install step above
       # populated pnpm's store, so license and author fields resolve
-      # without the `--lockfile-only` fallback. Generated inside the
-      # trusted builder so the SBOMs reflect the exact dependency tree
-      # installed here and can be attested under this workflow's OIDC
-      # identity in the step below.
+      # without the `--lockfile-only` fallback. The CycloneDX spec version
+      # is pinned with `--sbom-spec-version 1.7` so a future change to
+      # pnpm's default cannot silently ship a different schema than the one
+      # documented; SPDX has no equivalent flag (pnpm emits 2.3), and
+      # release-dry-run.yaml asserts both versions on every tag push.
+      # Generated inside the trusted builder so the SBOMs reflect the exact
+      # dependency tree installed here and can be attested under this
+      # workflow's OIDC identity in the step below.
       - name: Generate release SBOMs (CycloneDX + SPDX)
         run: |
           SBOM_DIR="$RUNNER_TEMP/sbom"
           rm -rf "$SBOM_DIR"
           mkdir -p "$SBOM_DIR"
 
-          pnpm sbom --sbom-format cyclonedx --prod > "$SBOM_DIR/sbom.cyclonedx.json"
+          pnpm sbom --sbom-format cyclonedx --sbom-spec-version 1.7 --prod > "$SBOM_DIR/sbom.cyclonedx.json"
           pnpm sbom --sbom-format spdx --prod > "$SBOM_DIR/sbom.spdx.json"
 
       - name: Generate GitHub artifact attestations for release tarballs
