@@ -1077,14 +1077,21 @@ describe("runCli runtime: 'bun' gate enforcement", () => {
     // Force `findBunBin()` to return undefined by making the
     // `--version` probe fail. The error wording mentions the
     // skipIf contract so future readers see the actionable fix.
+    // Use the `failed` helper shape (status: 1, stdout/stderr empty
+    // Buffers, output[0] null) so the mock matches a real
+    // ran-and-exited-non-zero `spawnSync` result; the previous
+    // inline form had `stdout: null` which corresponds to a
+    // spawn-failed shape (status: null) instead, which doesn't
+    // exercise the same `findBunBin` branch the call site hits.
+    const empty = Buffer.from("");
     spawnSyncMock.mockReturnValueOnce({
       status: 1,
-      stdout: null,
-      stderr: Buffer.from(""),
+      stdout: empty,
+      stderr: empty,
       pid: 1,
-      output: ["", null, Buffer.from("")],
+      output: [null, empty, empty],
       signal: null,
-    } as unknown as SpawnSyncReturns<Buffer>);
+    } as SpawnSyncReturns<Buffer>);
     const cwd = mkdtempSync(join(tmpdir(), "runcli-bun-gate-"));
     try {
       await expect(runCli("/fake/bin", [], cwd, {}, "bun")).rejects.toThrow(
