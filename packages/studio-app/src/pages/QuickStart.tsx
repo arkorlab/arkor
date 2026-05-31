@@ -231,7 +231,7 @@ export function QuickStart({
             <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
               /v1
             </code>
-            (the samples below cover both shapes; pointing an SDK at the full
+            (the samples below cover both shapes: pointing an SDK at the full
             <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
               /v1/chat/completions
             </code>

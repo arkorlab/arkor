@@ -64,10 +64,10 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     // to follow up is to upgrade to OAuth, so the interactive picker
     // would just add friction. Surface the fast path directly.
     ui.log.info(
-      "No credentials on file: bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
+      "No credentials on file. Bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
     );
   } else {
-    ui.log.info("No credentials on file: requesting an anonymous token.");
+    ui.log.info("No credentials on file. Requesting an anonymous token.");
   }
   // Scoped to just `requestAnonymousToken` on purpose: this is where we
   // decide whether the network failure is recoverable (transport blip vs

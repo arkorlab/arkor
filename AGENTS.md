@@ -72,7 +72,7 @@ cd my-arkor-app && pnpm dev                            # Studio at http://127.0.
 
 `/api/*` middleware also enforces a host-header allow-list (`127.0.0.1`/`localhost`) for DNS-rebinding defence. **CORS is intentionally NOT configured**: the SPA is same-origin so reflecting `*` would let "simple" cross-origin POSTs reach handlers. The token check rejects those; cross-origin tabs cannot read the SPA's `<meta>`.
 
-The whole point: prevents another browser tab on the same machine from POSTing `/api/train` (which spawns `arkor train` and dynamically imports user TS, an RCE-grade exposure).
+The whole point: prevents another browser tab on the same machine from POSTing `/api/train` (which spawns `arkor train` and dynamically imports user TS: RCE-grade).
 
 When touching the Studio server or SPA fetch layer, preserve: token via header for `fetch`, query param for `EventSource`, host-header guard, no CORS, timing-safe compare. The Vite plugin is dev-only (`apply: "serve"`): running it during `vite build` would bake a stale per-launch token into the production `index.html` and shadow the runtime tag, causing every `/api/*` call to 403.
 

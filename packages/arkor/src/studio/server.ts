@@ -466,8 +466,8 @@ export function buildStudioApp(options: StudioServerOptions) {
   // Studio-side routes thinly wrap the SDK's `CloudApiClient` so the SPA can
   // manage `*.arkor.app` deployments without re-implementing the cloud API
   // contract. Each request:
-  //   1. Reads the project state to derive `(orgSlug, projectSlug)` scope;
-  //      no scope means no deployments to list, return an empty wrapper.
+  //   1. Reads the project state to derive `(orgSlug, projectSlug)` scope.
+  //      No scope means no deployments to list; return an empty wrapper.
   //   2. Builds a `CloudApiClient` from on-disk credentials (same flow as
   //      `/api/inference/chat`).
   //   3. Calls the corresponding SDK method.
