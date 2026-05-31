@@ -4,7 +4,8 @@
 #
 # Every knob below is deliberately set to its most rigorous value:
 #   - assertive profile + request-changes workflow + failing commit status = a hard gate
-#   - all pre-merge checks escalated from "warning" to "error", docstring coverage at 100%
+#   - title / description / issue-assessment pre-merge checks escalated to "error"
+#     (docstring coverage targets 100% but only warns, to match repo norms)
 #   - every linter / security / secret scanner enabled (including ones off by default),
 #     with each tool's own level pushed to its strictest (languagetool picky, phpstan max)
 #   - repo conventions (no em dashes, bilingual EN/JA docs parity, two-linter setup, ...)
@@ -31,7 +32,9 @@ reviews:
   # Emit the full review-detail breakdown rather than the terse status.
   review_details: true
   commit_status: true
-  # Fail the PR's commit status when the review surfaces problems.
+  # Let the CodeRabbit commit status report failure (red) rather than staying
+  # neutral when a review can't complete. The actual merge gate is
+  # request_changes_workflow + the pre_merge_checks below, not this status.
   fail_commit_status: true
   collapse_walkthrough: false
   changed_files_summary: true
@@ -49,7 +52,7 @@ reviews:
   # Stop reviewing as soon as a PR is closed; no wasted runs.
   abort_on_close: true
   # Never reuse cached analysis; re-review every change from scratch.
-  disable_cache: false
+  disable_cache: true
   # Keep the review serious and focused, no cosmetic filler.
   poem: false
   in_progress_fortune: false
@@ -81,10 +84,13 @@ reviews:
     simplify:
       enabled: true
 
-  # Hard pre-merge gate: every check is an error, docstring coverage must be total.
+  # Hard pre-merge gate. Title / description / issue assessment block merge on
+  # failure. Docstring coverage targets 100% but only warns, since the existing
+  # TS code doesn't JSDoc every function and AGENTS.md requires docs for
+  # feature/schema changes, not a docstring on every symbol.
   pre_merge_checks:
     docstrings:
-      mode: "error"
+      mode: "warning"
       threshold: 100
     title:
       mode: "error"
