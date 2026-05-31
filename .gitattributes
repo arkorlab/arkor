@@ -1,0 +1,6 @@
+# Force LF line endings on checkout regardless of platform. Without this,
+# Windows runners check out with CRLF (default `core.autocrlf=true`) and
+# `oxfmt --check` flags every file because oxfmt's `endOfLine` default is
+# `lf`. `text=auto` lets git auto-detect text vs binary so binary blobs
+# aren't normalised.
+* text=auto eol=lf

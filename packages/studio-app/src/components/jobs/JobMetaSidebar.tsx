@@ -15,12 +15,12 @@ export function JobMetaSidebar({ items }: { items: JobMetaItem[] }) {
     <dl className="divide-y divide-zinc-100 dark:divide-zinc-900">
       {items.map((it, i) => (
         <div key={i} className="flex items-start justify-between gap-3 py-3">
-          <dt className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-500">
+          <dt className="shrink-0 text-xs font-medium tracking-wider text-zinc-500 uppercase dark:text-zinc-500">
             {it.label}
           </dt>
           <dd
             className={cn(
-              "min-w-0 break-all text-right text-sm text-zinc-900 dark:text-zinc-100",
+              "min-w-0 text-right text-sm break-all text-zinc-900 dark:text-zinc-100",
               it.mono && "font-mono text-[12px]",
             )}
           >

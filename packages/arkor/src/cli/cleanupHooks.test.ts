@@ -27,12 +27,10 @@ afterEach(() => {
 
 function mockExit(): number[] {
   const codes: number[] = [];
-  exitSpy = vi
-    .spyOn(process, "exit")
-    .mockImplementation(((code?: number) => {
-      codes.push(code ?? 0);
-      return undefined as never;
-    }) as typeof process.exit);
+  exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+    codes.push(code ?? 0);
+    return undefined as never;
+  }) as typeof process.exit);
   return codes;
 }
 

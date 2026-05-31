@@ -420,9 +420,7 @@ describe("TrainRegistry", () => {
     const a = fakeChild(901);
     a.kill.mockImplementation((sig?: string) => {
       if (sig === "SIGUSR2") {
-        const err = new Error(
-          "kill ENOSYS",
-        ) as Error & { code?: string };
+        const err = new Error("kill ENOSYS") as Error & { code?: string };
         err.code = "ENOSYS";
         throw err;
       }

@@ -14,7 +14,12 @@
     "url": "https://github.com/arkorlab/arkor/issues"
   },
   "license": "MIT",
-  "keywords": ["arkor", "create", "scaffold", "template"],
+  "keywords": [
+    "arkor",
+    "create",
+    "scaffold",
+    "template"
+  ],
   "bin": {
     "create-arkor": "./dist/bin.mjs"
   },
@@ -41,11 +46,11 @@
   },
   "devDependencies": {
     "@arkor/cli-internal": "workspace:*",
-    "@types/node": "^24",
-    "@vitest/coverage-v8": "^4.1.5",
-    "tsdown": "^0.22.0",
-    "typescript": "^5",
-    "vitest": "^4.1.5"
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "publishConfig": {
     "access": "public"

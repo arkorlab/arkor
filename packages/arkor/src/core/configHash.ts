@@ -44,7 +44,11 @@ function stableStringifyRec(
   if (value === null) return "null";
   // Non-representable values: omit (undefined return) so each caller's
   // boundary handler chooses the right substitution per its position.
-  if (value === undefined || typeof value === "function" || typeof value === "symbol") {
+  if (
+    value === undefined ||
+    typeof value === "function" ||
+    typeof value === "symbol"
+  ) {
     return undefined;
   }
   if (typeof value !== "object") return JSON.stringify(value);

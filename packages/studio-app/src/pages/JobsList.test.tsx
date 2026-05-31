@@ -7,7 +7,6 @@ import { jsonResponse } from "../test-utils/responses";
 
 import { JobsList } from "./JobsList";
 
-
 import type { Job } from "../lib/api";
 
 function makeJob(overrides: Partial<Job>): Job {
@@ -64,8 +63,12 @@ describe("<JobsList />", () => {
     render(<JobsList />);
     await screen.findByText("alpha-run");
 
-    const filterGroup = screen.getByRole("group", { name: /filter by status/i });
-    await user.click(within(filterGroup).getByRole("button", { name: "Completed" }));
+    const filterGroup = screen.getByRole("group", {
+      name: /filter by status/i,
+    });
+    await user.click(
+      within(filterGroup).getByRole("button", { name: "Completed" }),
+    );
 
     expect(screen.queryByText("alpha-run")).not.toBeInTheDocument();
     expect(screen.getByText("beta-run")).toBeInTheDocument();
@@ -82,12 +85,13 @@ describe("<JobsList />", () => {
   it("shows the error banner when /api/jobs fails", async () => {
     globalThis.fetch = vi.fn(
       async () =>
-        new Response("nope", { status: 503, statusText: "Service Unavailable" }),
+        new Response("nope", {
+          status: 503,
+          statusText: "Service Unavailable",
+        }),
     ) as typeof fetch;
     render(<JobsList />);
-    expect(
-      await screen.findByText(/failed to load jobs/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/failed to load jobs/i)).toBeInTheDocument();
   });
 
   it("refetches /api/jobs when the Refresh button is clicked", async () => {

@@ -69,9 +69,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       "No credentials on file — bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
     );
   } else {
-    ui.log.info(
-      "No credentials on file — requesting an anonymous token.",
-    );
+    ui.log.info("No credentials on file — requesting an anonymous token.");
   }
   // Scoped to just `requestAnonymousToken` on purpose: this is where we
   // decide whether the network failure is recoverable (transport blip vs

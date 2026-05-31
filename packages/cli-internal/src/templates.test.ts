@@ -43,9 +43,7 @@ describe("templates", () => {
       // expression (`!== null` vs `Number.isFinite(...)` etc.) so the
       // template can change its guard style without breaking the
       // test, as long as the user-visible behavior is preserved.
-      expect(trainer).toMatch(
-        /onLog:\s*\(\{[^}]*\bevalLoss\b[^}]*\}\)/,
-      );
+      expect(trainer).toMatch(/onLog:\s*\(\{[^}]*\bevalLoss\b[^}]*\}\)/);
       expect(trainer).toContain("evalLoss=");
     });
   });

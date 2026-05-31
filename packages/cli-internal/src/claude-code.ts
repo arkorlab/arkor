@@ -232,7 +232,11 @@ export function missingClaudeCodeFlags(
     });
   }
   const pmFlagSet =
-    opts.useNpm || opts.usePnpm || opts.useYarn || opts.useBun || opts.skipInstall;
+    opts.useNpm ||
+    opts.usePnpm ||
+    opts.useYarn ||
+    opts.useBun ||
+    opts.skipInstall;
   if (!pmFlagSet) {
     missing.push({
       flag: "--use-pnpm (or --use-npm / --use-yarn / --use-bun, or --skip-install)",

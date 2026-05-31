@@ -163,10 +163,12 @@ describe("findInspectableTrainer (brand-required path)", () => {
     expect(inspection).toBeNull();
     // And `findTrainerInModule` confirms the runner would pick the
     // unbranded one (proving the precedence we're anchoring to).
-    expect(findTrainerInModule({
-      trainer: unbranded,
-      default: createArkor({ trainer: branded }),
-    })).toBe(unbranded);
+    expect(
+      findTrainerInModule({
+        trainer: unbranded,
+        default: createArkor({ trainer: branded }),
+      }),
+    ).toBe(unbranded);
   });
 });
 

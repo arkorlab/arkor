@@ -101,12 +101,12 @@ describe("installShutdownHandlers", () => {
     for (const [sig, expectedExit] of cases) {
       const trainer = makeTrainer();
       const exitCodes: number[] = [];
-      const exitSpy = vi
-        .spyOn(process, "exit")
-        .mockImplementation(((code?: number) => {
-          exitCodes.push(code ?? 0);
-          return undefined as never;
-        }) as typeof process.exit);
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+        code?: number,
+      ) => {
+        exitCodes.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit);
       const stdoutSpy = vi
         .spyOn(process.stdout, "write")
         .mockImplementation((() => true) as typeof process.stdout.write);
@@ -160,12 +160,12 @@ describe("installShutdownHandlers", () => {
         throw new Error("cloud-api 503");
       });
       const exitCodes: number[] = [];
-      const exitSpy = vi
-        .spyOn(process, "exit")
-        .mockImplementation(((code?: number) => {
-          exitCodes.push(code ?? 0);
-          return undefined as never;
-        }) as typeof process.exit);
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+        code?: number,
+      ) => {
+        exitCodes.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit);
       const stdoutSpy = vi
         .spyOn(process.stdout, "write")
         .mockImplementation((() => true) as typeof process.stdout.write);
@@ -192,12 +192,12 @@ describe("installShutdownHandlers", () => {
   it("second SIGTERM exits 143 without re-invoking requestEarlyStop", async () => {
     const trainer = makeTrainer();
     const exitCodes: number[] = [];
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation(((code?: number) => {
-        exitCodes.push(code ?? 0);
-        return undefined as never;
-      }) as typeof process.exit);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      exitCodes.push(code ?? 0);
+      return undefined as never;
+    }) as typeof process.exit);
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
@@ -295,14 +295,15 @@ describe("installCallbackReloadHandler", () => {
     writeFileSync(file, "export const x = 1;\n");
 
     const realOn = process.on.bind(process);
-    const onSpy = vi
-      .spyOn(process, "on")
-      .mockImplementation(((event: string, listener: (...args: unknown[]) => void) => {
-        if (event === "SIGUSR2") {
-          throw new Error("ENOSYS: function not implemented");
-        }
-        return realOn(event as never, listener as never);
-      }) as typeof process.on);
+    const onSpy = vi.spyOn(process, "on").mockImplementation(((
+      event: string,
+      listener: (...args: unknown[]) => void,
+    ) => {
+      if (event === "SIGUSR2") {
+        throw new Error("ENOSYS: function not implemented");
+      }
+      return realOn(event as never, listener as never);
+    }) as typeof process.on);
 
     let dispose: (() => void) | undefined;
     try {
@@ -381,12 +382,12 @@ describe("installCallbackReloadHandler", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
     const stderrChunks: string[] = [];
-    const stderrSpy = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(((chunk: unknown) => {
-        stderrChunks.push(String(chunk));
-        return true;
-      }) as typeof process.stderr.write);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
     const dispose = installCallbackReloadHandler(trainer, file);
     try {
       process.emit("SIGUSR2", "SIGUSR2");

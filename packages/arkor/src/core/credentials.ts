@@ -86,7 +86,9 @@ export async function readCredentials(): Promise<Credentials | null> {
   return JSON.parse(raw) as Credentials;
 }
 
-export async function writeCredentials(credentials: Credentials): Promise<void> {
+export async function writeCredentials(
+  credentials: Credentials,
+): Promise<void> {
   const dir = credentialsDir();
   const path = credentialsPath();
   await mkdir(dir, { recursive: true });
@@ -175,6 +177,7 @@ export function defaultArkorCloudApiUrl(
  */
 function stripTrailingSlashes(s: string): string {
   let end = s.length;
+  // oxfmt-ignore
   while (end > 0 && s.codePointAt(end - 1) === 0x2F /* "/" */) end--;
   return end === s.length ? s : s.slice(0, end);
 }

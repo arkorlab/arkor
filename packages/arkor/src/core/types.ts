@@ -276,10 +276,7 @@ export interface TrainerCallbacks {
     job: TrainingJob;
     artifacts: unknown[];
   }) => MaybePromise<unknown>;
-  onFailed: (ctx: {
-    job: TrainingJob;
-    error: string;
-  }) => MaybePromise<unknown>;
+  onFailed: (ctx: { job: TrainingJob; error: string }) => MaybePromise<unknown>;
 }
 
 /**

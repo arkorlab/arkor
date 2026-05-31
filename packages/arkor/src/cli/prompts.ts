@@ -91,7 +91,9 @@ export async function promptSelect<T extends string>(
   // Cast at the boundary since our SelectOption is a strict subtype.
   const res = await clack.select<T>({
     message: options.message,
-    options: options.options as unknown as Parameters<typeof clack.select<T>>[0]["options"],
+    options: options.options as unknown as Parameters<
+      typeof clack.select<T>
+    >[0]["options"],
     initialValue: options.initialValue,
   });
   return assertValue(res, "No option selected");

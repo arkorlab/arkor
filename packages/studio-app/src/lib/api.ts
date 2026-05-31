@@ -98,7 +98,10 @@ const ERROR_BODY_MAX_BYTES = 8 * 1024;
  * doesn't keep draining a hostile multi-MB error page in the
  * background.
  */
-async function readBodyCapped(res: Response, maxBytes: number): Promise<string> {
+async function readBodyCapped(
+  res: Response,
+  maxBytes: number,
+): Promise<string> {
   if (!res.body) return "";
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -295,12 +298,20 @@ async function* iterateSseFrames(
       const { value, done } = await reader.read();
       if (done) break;
       parser.feed(decoder.decode(value, { stream: true }));
-      for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
+      for (
+        let next = pending.shift();
+        next !== undefined;
+        next = pending.shift()
+      ) {
         yield next;
       }
     }
     parser.feed(decoder.decode());
-    for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
+    for (
+      let next = pending.shift();
+      next !== undefined;
+      next = pending.shift()
+    ) {
       yield next;
     }
   } finally {

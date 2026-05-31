@@ -2,6 +2,17 @@ packages:
   - "packages/*"
   - "e2e/*"
   - "docs"
+# Embed each published package's README.md into the `readme` field of
+# the manifest it ships: the registry packument that npmjs.com reads to
+# render the package page. The on-disk source `package.json` is not
+# mutated. pnpm 11's native `pnpm publish` (it no longer shells out to
+# the npm CLI) does NOT embed the README by default, which leaves the
+# npmjs.com page blank. The release workflow publishes via `pnpm publish`
+# (see `.github/workflows/build.yaml`), so this setting is what restores
+# the rendered README on the registry. It applies to `pnpm pack` too, so
+# the attested release tarballs and the e2e scaffold tarballs carry the
+# same embedded README as the published packument.
+embedReadme: true
 # Single source of truth for direct third-party dependency versions
 # declared in workspace `package.json` files. Each such `package.json`
 # references entries here as `"<name>": "catalog:"` so a bump is one
@@ -11,21 +22,21 @@ packages:
 # supply-chain guards above. Workspace-internal links (`workspace:*`)
 # stay inline.
 #
-# Excluded: BOTH the runtime `dependencies` AND the `devDependencies`
-# of the published packages (`packages/arkor` and `packages/create-arkor`).
-# Both fields keep literal semver because the release workflow publishes
-# via `npm publish` (chosen so the npm CLI embeds `README.md` into the
-# registry packument's `readme` field; see `.github/workflows/build.yaml`),
-# and `npm publish` does not rewrite the pnpm-specific `catalog:`
-# protocol on any deps field. A published `package.json` carrying
-# `"<dep>": "catalog:"` anywhere would surface as `EUNSUPPORTEDPROTOCOL`
-# the moment a consumer (or any tool / scanner / CI flow) tries to
-# resolve the spec via npm/yarn/bun. `devDependencies` are technically
-# not auto-installed by `npm install <pkg>`, but they ship in the
-# published manifest and ARE resolved by `npm install --include=dev`,
-# `npm ci` inside a clone of the published artifact, `npm audit`, some
-# SCA scanners, and downstream tooling that walks the manifest. Keeping
-# both fields literal sidesteps the entire class of failure modes.
+# Excluded: the published packages' runtime `dependencies`
+# (`packages/arkor` and `packages/create-arkor`). Those keep literal
+# semver. This carve-out predates the switch to `pnpm publish`: under
+# the old `npm publish` release path the `catalog:` protocol was sent
+# to consumers verbatim (npm does not rewrite it) and surfaced as
+# `EUNSUPPORTEDPROTOCOL`. `pnpm publish` (now used by
+# `.github/workflows/build.yaml`) resolves `catalog:`/`workspace:` to
+# concrete versions in the published manifest, so that hazard is gone.
+# We still keep these two runtime-dep sets literal on purpose, so the
+# published manifest mirrors source exactly with no publish-time
+# catalog-expansion step to reason about. Their `devDependencies` are
+# catalog-bound as normal: the field still ships in the published
+# `package.json`, but consumer-side `npm install <pkg>` never installs
+# a dependency's devDependencies, so `catalog:` there is never resolved
+# at install time.
 catalog:
   "@eslint/js": "^10.0.1"
   "@fontsource-variable/geist": "^5.1.0"
@@ -58,6 +69,7 @@ catalog:
   globals: "^17.6.0"
   jsdom: 29.1.1
   mint: 4.2.577
+  oxfmt: 0.52.0
   oxlint: 1.66.0
   react: "^19.0.0"
   react-dom: "^19.0.0"

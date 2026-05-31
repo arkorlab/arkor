@@ -80,7 +80,8 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
   else delete process.env.HOME;
-  if (ORIG_USERPROFILE !== undefined) process.env.USERPROFILE = ORIG_USERPROFILE;
+  if (ORIG_USERPROFILE !== undefined)
+    process.env.USERPROFILE = ORIG_USERPROFILE;
   else delete process.env.USERPROFILE;
   if (ORIG_URL !== undefined) process.env.ARKOR_CLOUD_API_URL = ORIG_URL;
   else delete process.env.ARKOR_CLOUD_API_URL;
@@ -653,9 +654,7 @@ describe("runDev", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
     try {
-      await expect(
-        runDev({ port: 4202, open: true }),
-      ).resolves.toBeUndefined();
+      await expect(runDev({ port: 4202, open: true })).resolves.toBeUndefined();
     } finally {
       stdoutSpy.mockRestore();
     }
@@ -698,12 +697,12 @@ describe("runDev", () => {
     }
     expect(existsSync(studioTokenPath())).toBe(true);
 
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => {
-        // Don't actually exit the worker.
-        return undefined as never;
-      }) as typeof process.exit);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      _code?: number,
+    ) => {
+      // Don't actually exit the worker.
+      return undefined as never;
+    }) as typeof process.exit);
     try {
       // Pull and fire the most-recently-registered SIGINT handler.
       const sigintListeners = process.listeners("SIGINT");
@@ -747,11 +746,11 @@ describe("runDev", () => {
       chmodSync(join(fakeHome, ".arkor"), 0o755);
     }
 
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => {
-        return undefined as never;
-      }) as typeof process.exit);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      _code?: number,
+    ) => {
+      return undefined as never;
+    }) as typeof process.exit);
     try {
       const sigintListeners = process.listeners("SIGINT");
       const handler = sigintListeners.at(-1) as () => void;
@@ -808,11 +807,11 @@ describe("runDev", () => {
       stdoutSpy.mockRestore();
     }
 
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => {
-        return undefined as never;
-      }) as typeof process.exit);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      _code?: number,
+    ) => {
+      return undefined as never;
+    }) as typeof process.exit);
     try {
       // Restore read perms so we can `readFileSync` to verify content.
       chmodSync(path, 0o644);
@@ -857,11 +856,11 @@ describe("runDev", () => {
     const concurrentToken = "concurrent-dev-token-XYZ";
     writeFileSync(path, concurrentToken, { mode: 0o600 });
 
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => {
-        return undefined as never;
-      }) as typeof process.exit);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      _code?: number,
+    ) => {
+      return undefined as never;
+    }) as typeof process.exit);
     try {
       const sigintListeners = process.listeners("SIGINT");
       const handler = sigintListeners.at(-1) as () => void;

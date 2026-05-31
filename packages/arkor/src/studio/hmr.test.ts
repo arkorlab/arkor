@@ -140,11 +140,7 @@ describe("createHmrCoordinator", () => {
       // Same subscriber: no reconnect, no second `subscribe` call.
       mkdirSync(join(cwd, "src/arkor"), { recursive: true });
       writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
-      const ready = await nextEvent(
-        events,
-        (e) => e.type === "ready",
-        4000,
-      );
+      const ready = await nextEvent(events, (e) => e.type === "ready", 4000);
       expect(ready.outFile).toMatch(/index\.mjs$/);
     } finally {
       await hmr.dispose();

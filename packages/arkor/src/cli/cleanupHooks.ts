@@ -113,7 +113,10 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
     void run();
     detach();
   };
-  const signalHandlers = new Map<(typeof TERMINATING_SIGNALS)[number], () => void>();
+  const signalHandlers = new Map<
+    (typeof TERMINATING_SIGNALS)[number],
+    () => void
+  >();
   for (const sig of TERMINATING_SIGNALS) {
     signalHandlers.set(sig, () => {
       // Sync cleanup body fires inside this `run()` call before the

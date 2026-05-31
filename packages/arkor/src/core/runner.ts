@@ -50,7 +50,8 @@ const DEFAULT_ENTRY = "src/arkor/index.ts";
 // supplying `""`.
 const RAW_STARTED_JOB_NONCE = process.env.ARKOR_JOB_ID_MARKER_NONCE;
 const STARTED_JOB_NONCE: string | null =
-  typeof RAW_STARTED_JOB_NONCE === "string" && RAW_STARTED_JOB_NONCE.trim() !== ""
+  typeof RAW_STARTED_JOB_NONCE === "string" &&
+  RAW_STARTED_JOB_NONCE.trim() !== ""
     ? RAW_STARTED_JOB_NONCE
     : null;
 delete process.env.ARKOR_JOB_ID_MARKER_NONCE;
@@ -93,13 +94,18 @@ function extractTrainer(mod: Record<string, unknown>): Trainer {
 
 export async function runTrainer(file?: string): Promise<void> {
   const relative = file ?? DEFAULT_ENTRY;
-  const abs = isAbsolute(relative) ? relative : resolve(process.cwd(), relative);
+  const abs = isAbsolute(relative)
+    ? relative
+    : resolve(process.cwd(), relative);
   if (!existsSync(abs)) {
     throw new Error(
       `Training entry not found: ${abs}. Provide a path or create ${DEFAULT_ENTRY}.`,
     );
   }
-  const mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
+  const mod = (await import(pathToFileURL(abs).href)) as Record<
+    string,
+    unknown
+  >;
   const trainer = extractTrainer(mod);
 
   const removeShutdown = installShutdownHandlers(trainer);

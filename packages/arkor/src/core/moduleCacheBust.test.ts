@@ -3,10 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  moduleCacheBustKey,
-  moduleCacheBustUrl,
-} from "./moduleCacheBust";
+import { moduleCacheBustKey, moduleCacheBustUrl } from "./moduleCacheBust";
 
 let dir: string;
 
@@ -45,7 +42,7 @@ describe("moduleCacheBustKey", () => {
     expect(after).not.toBe(before);
   });
 
-  it("returns a stable fallback (\"0-0-0\") for missing files instead of throwing", () => {
+  it('returns a stable fallback ("0-0-0") for missing files instead of throwing', () => {
     // The eventual `await import(url)` will throw on a missing
     // file; the helper itself should produce a value rather than
     // bubbling the stat error and turning every consumer into a

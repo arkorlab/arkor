@@ -2,7 +2,7 @@ name: Build (reusable)
 
 # SLSA Build L3 trusted builder.
 #
-# Scope (intentionally minimal): install → build → pack → attest → publish.
+# Scope (intentionally minimal): install → build → pack → sbom → attest → publish.
 # Everything that is not strictly required to produce and sign the
 # artifact lives in the caller — tests (which execute arbitrary
 # user-controlled code), tag-shape validation, version reconciliation
@@ -12,7 +12,7 @@ name: Build (reusable)
 # `job_workflow_ref` claim, so a compromise of caller-side checks cannot
 # leak into the publish identity.
 #
-# The npm provenance attached by `npm publish --provenance` is signed via
+# The npm provenance attached by `pnpm publish --provenance` is signed via
 # Sigstore using this job's GitHub OIDC token, whose `job_workflow_ref`
 # claim resolves to this file's path + ref. Verifiers (e.g.
 # `npm audit signatures`, slsa-verifier) can therefore require provenance
@@ -47,7 +47,7 @@ jobs:
       # store restored from a prior run's cache (this is what
       # setup-node's `cache: pnpm` integration does via actions/cache)
       # is an unauthenticated input that would feed straight into the
-      # dist/ shape we then pack, attest, and `npm publish
+      # dist/ shape we then pack, attest, and `pnpm publish
       # --provenance`. The provenance signed under this workflow's
       # OIDC identity must only reflect inputs the caller's
       # source-level checks have actually validated, so install must
@@ -78,30 +78,74 @@ jobs:
             (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
           done
 
+      # Generate the release SBOMs in both formats pnpm emits natively
+      # (CycloneDX 1.7 and SPDX 2.3). `pnpm sbom` writes the JSON document
+      # to stdout (progress goes to stderr), so each format is redirected
+      # to its own file. `--prod` scopes the SBOM to the production /
+      # runtime dependency closure that actually ships (~59 components)
+      # instead of the full workspace graph (~1.4k components dominated by
+      # build/test devDependencies like Playwright, Vite and ESLint that
+      # are never part of a published artifact). The Install step above
+      # populated pnpm's store, so license and author fields resolve
+      # without the `--lockfile-only` fallback. The CycloneDX spec version
+      # is pinned with `--sbom-spec-version 1.7` so a future change to
+      # pnpm's default cannot silently ship a different schema than the one
+      # documented; SPDX has no equivalent flag (pnpm emits 2.3), and
+      # release-dry-run.yaml asserts both versions on every tag push.
+      # Generated inside the trusted builder so the SBOMs reflect the exact
+      # dependency tree installed here and can be attested under this
+      # workflow's OIDC identity in the step below.
+      - name: Generate release SBOMs (CycloneDX + SPDX)
+        run: |
+          SBOM_DIR="$RUNNER_TEMP/sbom"
+          rm -rf "$SBOM_DIR"
+          mkdir -p "$SBOM_DIR"
+
+          pnpm sbom --sbom-format cyclonedx --sbom-spec-version 1.7 --prod > "$SBOM_DIR/sbom.cyclonedx.json"
+          pnpm sbom --sbom-format spdx --prod > "$SBOM_DIR/sbom.spdx.json"
+
       - name: Generate GitHub artifact attestations for release tarballs
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: ${{ runner.temp }}/npm-pack/*.tgz
 
-      # Publish from the package directory (not from the pre-packed tarball)
-      # so npm CLI reads README.md at publish time and embeds it in the
-      # registry packument's `readme` field. `npm publish <tarball>` does
-      # not perform that injection, which leaves the page on npmjs.com
-      # blank.
+      - name: Generate GitHub artifact attestations for SBOMs
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: ${{ runner.temp }}/sbom/*.json
+
+      # Publish from the package directory with `pnpm publish`. pnpm 11's
+      # native publish (it no longer shells out to the npm CLI) honors the
+      # workspace-level `embedReadme: true` in pnpm-workspace.yaml, so
+      # README.md is embedded into the registry packument's `readme` field
+      # and the npmjs.com page renders; that is the job this step used to
+      # delegate to `npm publish` for. Authentication is npm Trusted Publishing
+      # (OIDC): no NPM_TOKEN is set, and the publish-side OIDC fixes
+      # (pnpm/pnpm#11495, #11518, #11513) landed by pnpm 11.1.3, so any
+      # pnpm >= 11.1.3 treats the `_authToken=${NODE_AUTH_TOKEN}` placeholder
+      # that setup-node writes into `.npmrc` as empty and uses OIDC instead
+      # of sending the literal placeholder as a bearer token. (This repo
+      # pins pnpm 11.3.0 via package.json's `packageManager`, well above
+      # that floor.)
+      # `--no-git-checks` skips pnpm's publish-branch / clean-tree
+      # assertions, which don't apply on the detached-tag checkout this
+      # builder runs against.
       - name: Publish arkor to npm
         working-directory: packages/arkor
         run: |
-          npm publish \
+          pnpm publish \
             --access public \
             --tag "${{ inputs.npm_tag }}" \
+            --no-git-checks \
             --provenance
 
       - name: Publish create-arkor to npm
         working-directory: packages/create-arkor
         run: |
-          npm publish \
+          pnpm publish \
             --access public \
             --tag "${{ inputs.npm_tag }}" \
+            --no-git-checks \
             --provenance
 
       - name: Upload release tarballs
@@ -109,5 +153,16 @@ jobs:
         with:
           name: npm-tarballs
           path: ${{ runner.temp }}/npm-pack/*.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+      # SBOMs ride to the caller's postflight as their own artifact (kept
+      # separate from npm-tarballs so each can be globbed independently),
+      # where they are attached to the GitHub Release alongside the tgz files.
+      - name: Upload release SBOMs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom/*.json
           retention-days: 1
           if-no-files-found: error
