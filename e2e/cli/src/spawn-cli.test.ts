@@ -890,7 +890,7 @@ describe("runCli CLAUDECODE env scrub", () => {
 // command -v) + caching. The previous version was un-tested;
 // pin the success / failure / cache / Windows-`.exe`-only
 // branches here so a future refactor that breaks one trips a
-// test rather than silently changing `runCli(runtime: "bun")`'s
+// test rather than silently changing `runCli(..., "bun")`'s
 // availability detection. `spawnSync` is mocked at the
 // module-mock level above (alongside `spawn`); the cache is
 // reset between tests via `__resetBunBinCacheForTest()`.
@@ -1039,8 +1039,8 @@ describe("findBunBin", () => {
   });
 });
 
-// PR #159 Copilot review (follow-up): when `runCli({ runtime:
-// "bun" })` is invoked but `findBunBin()` returns undefined (the
+// PR #159 Copilot review (follow-up): when `runCli(..., "bun")`
+// is invoked but `findBunBin()` returns undefined (the
 // caller forgot to gate on it, or bun became unavailable
 // between the gate check and the spawn), `runCli` must reject
 // with an actionable error rather than falling back to spawning

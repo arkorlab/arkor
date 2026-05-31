@@ -46,7 +46,7 @@ export function __resetBunBinCacheForTest(): void {
  * and coverage-on-bun isn't tracked.
  *
  * Scope note (PR #159 Copilot review): the resolved absolute path
- * is cached and consumed by `runCli(runtime: "bun")` directly, so
+ * is cached and consumed by `runCli(..., "bun")` directly, so
  * the spawned child no longer needs the OS to re-resolve `bun`
  * against the spawned env's PATH (which can differ from the
  * parent's if a caller overrides `extraEnv.PATH`). That keeps
@@ -636,7 +636,7 @@ function runCliOnce(
         cleanup();
         reject(
           new Error(
-            "runCli({ runtime: 'bun' }) was called but `findBunBin()` " +
+            'runCli(..., "bun") was called but `findBunBin()` ' +
               "returned undefined (bun not on PATH, --version probe failed, " +
               "or Windows .cmd-shim-only install). Gate the call site on " +
               "`findBunBin() !== undefined` (e.g. via `describe.skipIf`).",
