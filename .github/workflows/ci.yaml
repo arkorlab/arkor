@@ -11,19 +11,36 @@ jobs:
   # `local/no-em-dash` on source files is the point: this job is one
   # single check that succeeds iff the repo is clean end-to-end, so a
   # future weakening of the rule's include globs cannot silently let an
-  # em dash slip through. Invoked via `node` (against the `.mts`
-  # script, executed with Node's built-in type stripping which is
-  # enabled by default since 22.18 and within the repo's
-  # `engines.node >= 22.22.0` floor) rather than `bash` so the same
-  # step works uniformly across every supported OS, including Windows
-  # hosts that don't carry `bash` on PATH by default. The check is a
-  # single `git grep`, so the job finishes in a few seconds and does
-  # not consume Node / pnpm cache budget.
+  # em dash slip through. The check is a single `git grep`, so the job
+  # finishes in a few seconds and does not consume Node / pnpm cache
+  # budget.
   no_em_dash:
     name: no em dashes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The job runs `git grep` on the checkout but never pushes or
+          # talks to the remote, so the `GITHUB_TOKEN` Actions stashes
+          # in `.git/config` by default is unused. Disabling persistence
+          # keeps it from being shipped in any artifact / log capture
+          # downstream (`zizmor`'s `artipacked` lint). The matching
+          # `excessive-permissions` lint zizmor also emits is *not*
+          # addressed by an explicit `permissions: { contents: read }`
+          # block on this job: this is a public repo on GitHub's
+          # default-restrictive workflow-permissions setting, so the
+          # token already arrives as `contents: read` only, and the
+          # other jobs in this file follow the same pattern (only
+          # `coverage` carries a `permissions:` block, and only
+          # because Codecov OIDC + GitHub native coverage upload
+          # need scopes the default does not include). Adding the
+          # block here would break that pattern without granting any
+          # additional security.
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
       - name: Check no em dashes
         run: node scripts/check-no-em-dash.mts
 

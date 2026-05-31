@@ -47,8 +47,20 @@ const result: SpawnSyncReturns<string> = spawnSync(
     EM_DASH,
     "-e",
     ENTITY,
+    // `:(top)` anchors the pathspec at the repository root rather
+    // than the current working directory, so the same command scans
+    // the entire repo whether the script is invoked from the root
+    // (the standard `pnpm check:no-em-dash` flow) or from a
+    // subdirectory (a contributor running it directly while inside a
+    // package). The previous `:!scripts/check-no-em-dash.mts`
+    // self-exclusion is unnecessary because this file builds both
+    // search needles (the U+2014 glyph and the HTML entity form) at
+    // runtime via `String.fromCharCode(0x2014)` and string
+    // concatenation, so the source contains neither literal and
+    // cannot self-match (the very comment you are reading takes
+    // care not to spell either form out, for the same reason).
     "--",
-    ":!scripts/check-no-em-dash.mts",
+    ":(top)",
   ],
   { encoding: "utf-8" },
 );
