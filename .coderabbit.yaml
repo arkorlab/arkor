@@ -1,0 +1,246 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# CodeRabbit configuration, tuned for the STRICTEST possible review (ENG-801).
+#
+# Every knob below is deliberately set to its most rigorous value:
+#   - assertive profile + request-changes workflow + failing commit status = a hard gate
+#   - all pre-merge checks escalated from "warning" to "error", docstring coverage at 100%
+#   - every linter / security / secret scanner enabled (including ones off by default),
+#     with each tool's own level pushed to its strictest (languagetool picky, phpstan max)
+#   - repo conventions (no em dashes, bilingual EN/JA docs parity, two-linter setup, ...)
+#     are fed from their source of truth via knowledge_base.code_guidelines.filePatterns,
+#     so the reviewer enforces them without us re-encoding nuanced rules here.
+language: "en-US"
+early_access: false
+enable_free_tier: true
+tone_instructions: >-
+  Be rigorous, exhaustive, and uncompromising. Flag every potential bug,
+  security vulnerability, race condition, performance regression, and violation
+  of the repository's documented conventions, no matter how minor. Do not skip
+  nits. Prefer thoroughness over brevity and never approve work that leaves a
+  known issue unaddressed.
+
+reviews:
+  # Most thorough analysis CodeRabbit offers.
+  profile: "assertive"
+  # Use GitHub's blocking "Request changes" state; only approve once resolved.
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: false
+  review_status: true
+  # Emit the full review-detail breakdown rather than the terse status.
+  review_details: true
+  commit_status: true
+  # Fail the PR's commit status when the review surfaces problems.
+  fail_commit_status: true
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  # Cross-check the PR against its linked issues and related work.
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: true
+  auto_assign_reviewers: false
+  enable_prompt_for_ai_agents: true
+  # Stop reviewing as soon as a PR is closed; no wasted runs.
+  abort_on_close: true
+  # Never reuse cached analysis; re-review every change from scratch.
+  disable_cache: false
+  # Keep the review serious and focused, no cosmetic filler.
+  poem: false
+  in_progress_fortune: false
+  path_filters: []
+  path_instructions: []
+
+  # Flag low-effort / AI-slop changes.
+  slop_detection:
+    enabled: true
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    # Effectively never auto-pause: keep reviewing every pushed commit.
+    auto_pause_after_reviewed_commits: 1000
+    # Review draft PRs too, not just ready-for-review ones.
+    drafts: true
+    ignore_title_keywords: []
+    labels: []
+    base_branches: []
+    ignore_usernames: []
+
+  # Surface as many actionable suggestions as possible.
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+    simplify:
+      enabled: true
+
+  # Hard pre-merge gate: every check is an error, docstring coverage must be total.
+  pre_merge_checks:
+    docstrings:
+      mode: "error"
+      threshold: 100
+    title:
+      mode: "error"
+    description:
+      mode: "error"
+    issue_assessment:
+      mode: "error"
+
+  # Every static-analysis, linter, secret, and security tool ON, each at its
+  # strictest level. Explicitly enumerated so an upstream default flip can't
+  # silently relax coverage.
+  tools:
+    ast-grep:
+      essential_rules: true
+    shellcheck:
+      enabled: true
+    ruff:
+      enabled: true
+    markdownlint:
+      enabled: true
+    github-checks:
+      enabled: true
+      timeout_ms: 90000
+    languagetool:
+      enabled: true
+      level: "picky"
+    biome:
+      enabled: true
+    hadolint:
+      enabled: true
+    swiftlint:
+      enabled: true
+    phpstan:
+      enabled: true
+      level: "max"
+    phpmd:
+      enabled: true
+    phpcs:
+      enabled: true
+    golangci-lint:
+      enabled: true
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    checkov:
+      enabled: true
+    tflint:
+      enabled: true
+    detekt:
+      enabled: true
+    eslint:
+      enabled: true
+    flake8:
+      enabled: true
+    fortitudeLint:
+      enabled: true
+    rubocop:
+      enabled: true
+    buf:
+      enabled: true
+    regal:
+      enabled: true
+    actionlint:
+      enabled: true
+    pmd:
+      enabled: true
+    clang:
+      enabled: true
+    cppcheck:
+      enabled: true
+    opengrep:
+      enabled: true
+    semgrep:
+      enabled: true
+    circleci:
+      enabled: true
+    clippy:
+      enabled: true
+    sqlfluff:
+      enabled: true
+    trivy:
+      enabled: true
+    prismaLint:
+      enabled: true
+    pylint:
+      enabled: true
+    oxc:
+      enabled: true
+    shopifyThemeCheck:
+      enabled: true
+    luacheck:
+      enabled: true
+    brakeman:
+      enabled: true
+    dotenvLint:
+      enabled: true
+    htmlhint:
+      enabled: true
+    stylelint:
+      enabled: true
+    checkmake:
+      enabled: true
+    osvScanner:
+      enabled: true
+    # PII detection, off by default; enabled here for maximum scrutiny.
+    presidio:
+      enabled: true
+    blinter:
+      enabled: true
+    smartyLint:
+      enabled: true
+    emberTemplateLint:
+      enabled: true
+    psscriptanalyzer:
+      enabled: true
+
+chat:
+  # No ASCII art; keep responses focused.
+  art: false
+  allow_non_org_members: true
+  auto_reply: true
+  integrations:
+    jira:
+      usage: "auto"
+    linear:
+      usage: "auto"
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  # Enforce the repo's own conventions from their source of truth, so the
+  # reviewer applies them without us duplicating (and risking drift on) the
+  # nuanced rules (em-dash ban, bilingual EN/JA docs parity, supply-chain
+  # guards, two-linter setup, Studio CSRF invariants, ...).
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "CONTRIBUTING.md"
+      - "CONTRIBUTING.ja.md"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+  learnings:
+    scope: "auto"
+  issues:
+    scope: "auto"
+  pull_requests:
+    scope: "auto"
+  jira:
+    usage: "auto"
+  linear:
+    usage: "auto"
+  mcp:
+    usage: "auto"
