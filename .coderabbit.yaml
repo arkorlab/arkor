@@ -94,9 +94,11 @@ reviews:
   # every function and AGENTS.md requires docs for feature/schema changes, not
   # a docstring on every symbol.
   pre_merge_checks:
-    # Only requested reviewers (not the PR author) may override a failing
-    # check, so the author can't self-unblock the hard gate.
-    override_requested_reviewers_only: true
+    # Left at the default (false): restricting overrides to requested reviewers
+    # while auto_assign_reviewers is off can dead-end a PR with no requested
+    # reviewer, where nobody (not even a maintainer) can override a failing
+    # check without first adding one.
+    override_requested_reviewers_only: false
     docstrings:
       mode: "warning"
       threshold: 100
