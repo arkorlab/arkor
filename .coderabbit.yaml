@@ -160,6 +160,11 @@ reviews:
       enabled: true
     flake8:
       enabled: true
+    # Infer static bug analysis. enable_java defaults false (Java analysis can
+    # need a fuller compile), so opt in explicitly to keep coverage maximal.
+    fbinfer:
+      enabled: true
+      enable_java: true
     fortitudeLint:
       enabled: true
     rubocop:
@@ -244,11 +249,11 @@ knowledge_base:
   web_search:
     enabled: true
   # Feed the repo's own documented conventions to the reviewer from their source
-  # of truth, so it applies them without us duplicating (and risking drift on)
-  # the nuanced rules actually written there: bilingual EN/JA docs parity,
-  # supply-chain guards, the two-linter setup, Studio CSRF invariants, etc.
-  # (Only conventions documented in these files are enforced; an unwritten
-  # preference like an em-dash ban is not, so it is not claimed here.)
+  # of truth (bilingual EN/JA docs parity, supply-chain guards, the two-linter
+  # setup, Studio CSRF invariants, ...), so it applies them without us
+  # duplicating and risking drift. CodeRabbit also scans its built-in guideline
+  # filenames; these patterns supplement that list, they don't replace it. Only
+  # what is actually written in these files is enforced.
   code_guidelines:
     enabled: true
     filePatterns:
