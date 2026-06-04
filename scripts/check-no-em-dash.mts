@@ -62,7 +62,22 @@ const result: SpawnSyncReturns<string> = spawnSync(
     "--",
     ":(top)",
   ],
-  { encoding: "utf-8" },
+  {
+    encoding: "utf-8",
+    // Default `maxBuffer` is 1 MiB, which is enough for normal use
+    // (a clean tree returns nothing; a single accidental em dash is
+    // a handful of bytes). The risk it guards against is a future
+    // regression that lands many matches at once (a large doc
+    // refresh, a bulk import of legacy prose) where the combined
+    // output would otherwise overflow the buffer and surface as a
+    // spawn ENOBUFS error instead of the full match list. Raise the
+    // ceiling to 64 MiB so even a pathological "we accidentally
+    // imported a book chapter" surfaces every hit; bytes that far
+    // exceed reality still leave enough headroom to catch a real
+    // ENOBUFS (e.g. someone wires this script up against a non-git
+    // tree by mistake) instead of silently truncating.
+    maxBuffer: 64 * 1024 * 1024,
+  },
 );
 
 if (result.error) {
