@@ -1,0 +1,279 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# CodeRabbit configuration, tuned for the STRICTEST possible review (ENG-801).
+#
+# Every knob below is deliberately set to its most rigorous value:
+#   - assertive profile + request-changes workflow + error-level pre-merge checks
+#     are the hard merge gate (the failing commit status is a signal, not the gate)
+#   - title and linked-issue pre-merge checks escalated to "error"; description
+#     and docstring coverage only warn, to match CONTRIBUTING.md's lenient stance
+#   - every linter / security / secret scanner enabled (including ones off by default),
+#     with each tool's own level pushed to its strictest (languagetool picky, phpstan max)
+#   - documented repo conventions (bilingual EN/JA docs parity, two-linter setup,
+#     supply-chain guards, Studio CSRF invariants, ...) are fed from their source
+#     of truth via knowledge_base.code_guidelines.filePatterns, so the reviewer
+#     applies them without us re-encoding nuanced rules here.
+language: "en-US"
+early_access: false
+enable_free_tier: true
+# Max length is 250 characters; keep this under that or the whole config is
+# rejected and CodeRabbit silently falls back to its (chill) defaults.
+tone_instructions: >-
+  Be rigorous and exhaustive. Flag every bug, security issue, race condition,
+  performance regression, and convention violation, however minor. Do not skip
+  nits; never approve work with a known unresolved issue.
+
+reviews:
+  # Most thorough analysis CodeRabbit offers.
+  profile: "assertive"
+  # Use GitHub's blocking "Request changes" state; only approve once resolved.
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: false
+  review_status: true
+  # Emit the full review-detail breakdown rather than the terse status.
+  review_details: true
+  commit_status: true
+  # Let the CodeRabbit commit status report failure (red) rather than staying
+  # neutral when a review can't complete. The actual merge gate is
+  # request_changes_workflow + the pre_merge_checks below, not this status.
+  fail_commit_status: true
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  # Cross-check the PR against its linked issues and related work.
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: true
+  auto_assign_reviewers: false
+  enable_prompt_for_ai_agents: true
+  # Stop reviewing as soon as a PR is closed; no wasted runs.
+  abort_on_close: true
+  # Never reuse cached analysis; re-review every change from scratch.
+  disable_cache: true
+  # Keep the review serious and focused, no cosmetic filler.
+  poem: false
+  in_progress_fortune: false
+  path_filters: []
+  path_instructions: []
+
+  # Flag low-effort / AI-slop changes.
+  slop_detection:
+    enabled: true
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    # Effectively never auto-pause: keep reviewing every pushed commit.
+    auto_pause_after_reviewed_commits: 1000
+    # Review draft PRs too, not just ready-for-review ones.
+    drafts: true
+    ignore_title_keywords: []
+    labels: []
+    base_branches: []
+    ignore_usernames: []
+
+  # Surface as many actionable suggestions as possible.
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+    simplify:
+      enabled: true
+
+  # Pre-merge gate. Title and linked-issue assessment block merge on failure.
+  # Description only warns: CONTRIBUTING.md explicitly says a sparse PR
+  # description is OK and is handled with review follow-ups, so blocking on it
+  # would contradict the documented contributor promise. Docstring coverage
+  # targets 100% but only warns too, since the existing TS code doesn't JSDoc
+  # every function and AGENTS.md requires docs for feature/schema changes, not
+  # a docstring on every symbol.
+  pre_merge_checks:
+    # Left at the default (false): restricting overrides to requested reviewers
+    # while auto_assign_reviewers is off can dead-end a PR with no requested
+    # reviewer, where nobody (not even a maintainer) can override a failing
+    # check without first adding one.
+    override_requested_reviewers_only: false
+    docstrings:
+      mode: "warning"
+      threshold: 100
+    title:
+      mode: "error"
+    description:
+      mode: "warning"
+    issue_assessment:
+      mode: "error"
+
+  # Every static-analysis, linter, secret, and security tool ON, each at its
+  # strictest level. Explicitly enumerated so an upstream default flip can't
+  # silently relax coverage.
+  tools:
+    ast-grep:
+      essential_rules: true
+    shellcheck:
+      enabled: true
+    ruff:
+      enabled: true
+    markdownlint:
+      enabled: true
+    github-checks:
+      enabled: true
+      # Max the schema allows (15 min). This repo's CI fans install / typecheck
+      # / lint / format / test / build across a large OS x Node matrix, so the
+      # 90s default would time out before CI finishes and the review would miss
+      # failing checks.
+      timeout_ms: 900000
+    languagetool:
+      enabled: true
+      level: "picky"
+    biome:
+      enabled: true
+    hadolint:
+      enabled: true
+    swiftlint:
+      enabled: true
+    phpstan:
+      enabled: true
+      level: "max"
+    phpmd:
+      enabled: true
+    phpcs:
+      enabled: true
+    golangci-lint:
+      enabled: true
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    checkov:
+      enabled: true
+    tflint:
+      enabled: true
+    detekt:
+      enabled: true
+    eslint:
+      enabled: true
+    flake8:
+      enabled: true
+    # Infer static bug analysis. enable_java defaults false (Java analysis can
+    # need a fuller compile), so opt in explicitly to keep coverage maximal.
+    fbinfer:
+      enabled: true
+      enable_java: true
+    fortitudeLint:
+      enabled: true
+    rubocop:
+      enabled: true
+    buf:
+      enabled: true
+    regal:
+      enabled: true
+    actionlint:
+      enabled: true
+    # Static security analyzer for GitHub Actions workflows.
+    zizmor:
+      enabled: true
+    pmd:
+      enabled: true
+    clang:
+      enabled: true
+    cppcheck:
+      enabled: true
+    opengrep:
+      enabled: true
+    semgrep:
+      enabled: true
+    circleci:
+      enabled: true
+    clippy:
+      enabled: true
+    sqlfluff:
+      enabled: true
+    trivy:
+      enabled: true
+    prismaLint:
+      enabled: true
+    pylint:
+      enabled: true
+    oxc:
+      enabled: true
+    shopifyThemeCheck:
+      enabled: true
+    luacheck:
+      enabled: true
+    brakeman:
+      enabled: true
+    dotenvLint:
+      enabled: true
+    htmlhint:
+      enabled: true
+    stylelint:
+      enabled: true
+    checkmake:
+      enabled: true
+    osvScanner:
+      enabled: true
+    # PII detection, off by default; enabled here for maximum scrutiny.
+    presidio:
+      enabled: true
+    blinter:
+      enabled: true
+    smartyLint:
+      enabled: true
+    emberTemplateLint:
+      enabled: true
+    psscriptanalyzer:
+      enabled: true
+
+chat:
+  # No ASCII art; keep responses focused.
+  art: false
+  # Restrict chat to org members. With Jira/Linear integrations on "auto",
+  # letting non-members trigger auto-replies would let external users on a
+  # public PR make the bot query and summarize internal issue context.
+  allow_non_org_members: false
+  auto_reply: true
+  integrations:
+    jira:
+      usage: "auto"
+    linear:
+      usage: "auto"
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  # Feed the repo's own documented conventions to the reviewer from their source
+  # of truth (bilingual EN/JA docs parity, supply-chain guards, the two-linter
+  # setup, Studio CSRF invariants, ...), so it applies them without us
+  # duplicating and risking drift. CodeRabbit also scans its built-in guideline
+  # filenames; these patterns supplement that list, they don't replace it. Only
+  # what is actually written in these files is enforced.
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "CONTRIBUTING.md"
+      - "CONTRIBUTING.ja.md"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+  learnings:
+    scope: "auto"
+  issues:
+    scope: "auto"
+  pull_requests:
+    scope: "auto"
+  jira:
+    usage: "auto"
+  linear:
+    usage: "auto"
+  mcp:
+    usage: "auto"

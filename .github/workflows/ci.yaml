@@ -101,8 +101,8 @@ jobs:
       # pnpm runs on its bundled Node regardless of which matrix Node
       # we switch to next.
       #
-      # Pinning `version: 11.3.0` instead doesn't work: action-setup
-      # compares it against the full `pnpm@11.3.0+sha512.xxx`
+      # Pinning `version: 11.5.0` instead doesn't work: action-setup
+      # compares it against the full `pnpm@11.5.0+sha512.xxx`
       # packageManager string and refuses on mismatch
       # (ERR_PNPM_BAD_PM_VERSION-style error).
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -361,7 +361,7 @@ jobs:
       # that shadows corepack's shim, which would defeat the matrix
       # --activate below: every entry would end up running action-setup's
       # pinned pnpm regardless of which version we asked corepack to
-      # activate. Workspace `pnpm install` still resolves to pnpm 11.3.0
+      # activate. Workspace `pnpm install` still resolves to pnpm 11.5.0
       # because corepack reads `packageManager` from the root
       # package.json; only the matrix pm test runs in tmpdirs (no
       # packageManager field there), so corepack falls back to the
@@ -408,7 +408,7 @@ jobs:
           case "${{ matrix.id }}" in
             pnpm-9)     corepack prepare "pnpm@9.15.9"   --activate ;;
             pnpm-10)    corepack prepare "pnpm@10.33.4"  --activate ;;
-            pnpm-11)    corepack prepare "pnpm@11.3.0"   --activate ;;
+            pnpm-11)    corepack prepare "pnpm@11.5.0"   --activate ;;
             npm)        echo "Using bundled npm $(npm --version)" ;;
             yarn)       corepack prepare "yarn@1.22.22"  --activate ;;
             # yarn classic and berry both use the `yarn` npm package;
@@ -436,13 +436,13 @@ jobs:
       - name: Confirm pm version
         run: |
           # Run from $RUNNER_TEMP, not the workspace cwd. corepack
-          # enforces the workspace's `packageManager: pnpm@11.3.0` and
+          # enforces the workspace's `packageManager: pnpm@11.5.0` and
           # rejects `yarn --version` / `bun --version` with "This project
           # is configured to use pnpm". Stepping out into a directory
           # without a packageManager field lets corepack fall back to the
           # version we just `--activate`d for the matrix pm, which is
           # also more useful diagnostically (it prints the matrix
-          # version, not the workspace's pinned 11.3.0 for pnpm-N
+          # version, not the workspace's pinned 11.5.0 for pnpm-N
           # entries).
           cd "$RUNNER_TEMP"
           case "${{ matrix.id }}" in
@@ -665,7 +665,7 @@ jobs:
       # extra `if:` gating is needed for those cases.
       - name: Upload arkor coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1
         with:
           file: ./packages/arkor/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -674,7 +674,7 @@ jobs:
 
       - name: Upload create-arkor coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1
         with:
           file: ./packages/create-arkor/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -683,7 +683,7 @@ jobs:
 
       - name: Upload cli-internal coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1
         with:
           file: ./packages/cli-internal/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -692,7 +692,7 @@ jobs:
 
       - name: Upload studio-app coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1
         with:
           file: ./packages/studio-app/coverage/cobertura-coverage.xml
           language: TypeScript

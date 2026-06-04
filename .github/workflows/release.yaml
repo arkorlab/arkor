@@ -242,7 +242,7 @@ jobs:
           ARKOR_TELEMETRY_DISABLED: "1"
         run: pnpm run test
 
-  # The trusted builder. Because `npm publish --provenance` runs inside
+  # The trusted builder. Because `pnpm publish --provenance` runs inside
   # build.yaml, the OIDC token Sigstore signs has
   # `job_workflow_ref = .../build.yaml@<ref>` rather than this caller's
   # path, giving SLSA Build L3 verifiers a stable, separately-lockable
@@ -292,16 +292,25 @@ jobs:
           name: npm-tarballs
           path: ${{ runner.temp }}/npm-pack
 
+      # The two SBOMs (CycloneDX + SPDX) build.yaml generated and attested.
+      - name: Download release SBOMs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom
+
       - name: Create draft GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.preflight.outputs.version }}"
           PACK_DIR="$RUNNER_TEMP/npm-pack"
+          SBOM_DIR="$RUNNER_TEMP/sbom"
 
           ARGS=(
             "$GITHUB_REF_NAME"
             "$PACK_DIR"/*.tgz
+            "$SBOM_DIR"/*.json
             --draft
             --verify-tag
             --generate-notes

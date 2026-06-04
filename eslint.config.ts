@@ -527,7 +527,7 @@ export default defineConfig(
   // type-aware off, since they aren't part of any package's narrow build
   // tsconfig include.
   {
-    files: [...CONFIG_TS_FILES, "eslint.config.ts"],
+    files: [...CONFIG_TS_FILES, "eslint.config.ts", "oxlint.config.ts"],
     ...tseslint.configs.disableTypeChecked,
   },
 
