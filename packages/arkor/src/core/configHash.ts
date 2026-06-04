@@ -52,36 +52,58 @@ function stableStringifyRec(
     return undefined;
   }
   if (typeof value !== "object") return JSON.stringify(value);
-  // `JSON.stringify` calls `value.toJSON(key)` first when present
-  // (passing `""` at the top level, the property name in object
-  // positions, the index-as-string in array positions), then
-  // serialises the return value. Canonical example: `Date` → ISO
-  // string. The `key` argument is threaded through recursion so
-  // user-side `toJSON(key)` implementations that branch on the
-  // hosting property/index see the same value JSON.stringify would.
-  // If `toJSON` returns `undefined`, that propagates as the omit
-  // sentinel: the spec-defined "skip me" path.
-  const maybeToJSON = (value as { toJSON?: unknown }).toJSON;
-  if (typeof maybeToJSON === "function") {
-    return stableStringifyRec(
-      (maybeToJSON as (key: string) => unknown).call(value, key),
-      key,
-      seen,
-    );
-  }
+  // Add to `seen` BEFORE the `toJSON` invocation below so a
+  // pathological `{ toJSON() { return this; } }` surfaces as the
+  // same `TypeError("Converting circular structure to JSON")` that
+  // `JSON.stringify` produces, instead of recursing until the call
+  // stack overflows. JSON.stringify's algorithm enters its cycle
+  // detection AFTER calling toJSON (it stringifies the return value),
+  // so a toJSON-returning-self stays in the path and triggers cycle.
+  // We mirror that by inserting the original object into `seen` now,
+  // running both toJSON and the array/object branches inside the
+  // same try/finally so siblings legitimately reusing a value still
+  // serialise correctly (`finally` deletes on the way out).
   if (seen.has(value)) {
     throw new TypeError("Converting circular structure to JSON");
   }
   seen.add(value);
   try {
+    // `JSON.stringify` calls `value.toJSON(key)` first when present
+    // (passing `""` at the top level, the property name in object
+    // positions, the index-as-string in array positions), then
+    // serialises the return value. Canonical example: `Date` → ISO
+    // string. The `key` argument is threaded through recursion so
+    // user-side `toJSON(key)` implementations that branch on the
+    // hosting property/index see the same value JSON.stringify would.
+    // If `toJSON` returns `undefined`, that propagates as the omit
+    // sentinel: the spec-defined "skip me" path.
+    const maybeToJSON = (value as { toJSON?: unknown }).toJSON;
+    if (typeof maybeToJSON === "function") {
+      return stableStringifyRec(
+        (maybeToJSON as (key: string) => unknown).call(value, key),
+        key,
+        seen,
+      );
+    }
     if (Array.isArray(value)) {
       // Array slots: non-representable → "null" (matches JSON spec).
       // Index-as-string keys mirror `JSON.stringify`'s behaviour for
       // array elements (per the ECMAScript spec, `SerializeJSONArray`
       // calls `SerializeJSONProperty` with the index converted to a
       // string).
-      const items = value.map(
-        (v, i) => stableStringifyRec(v, String(i), seen) ?? "null",
+      //
+      // `Array.from({ length })` (not `.map` / `for-of`) so sparse
+      // array holes get substituted with `"null"` like
+      // `JSON.stringify` does. `Array.prototype.map` and `for-of`
+      // both SKIP holes entirely; using either path would render
+      // `[, 1]` as the invalid `[,1]` instead of the JSON-spec
+      // `[null,1]`. The `Array.from({ length: value.length })`
+      // pattern iterates by index 0..length-1, reads each slot via
+      // `value[i]` (which returns `undefined` for holes), and the
+      // `?? "null"` fallback substitutes the spec-correct null.
+      const items = Array.from(
+        { length: value.length },
+        (_, i) => stableStringifyRec(value[i], String(i), seen) ?? "null",
       );
       return `[${items.join(",")}]`;
     }

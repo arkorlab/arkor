@@ -211,25 +211,33 @@ type InspectionResult = {
  *     the tightest bound we can offer without spawning a child
  *     process per inspection.
  *
- * Best-effort: a missing/malformed manifest or a thrown user
- * constructor returns `null` and the caller treats the rebuild as
- * "config-unknown".
+ * Returns `null` ONLY for "imported successfully but the bundle has no
+ * inspectable trainer" (legitimate hand-rolled `{ start, wait, cancel }`
+ * shape or fresh scaffold with an empty manifest). The caller treats
+ * that as "config-unknown" and conservatively SIGTERM-restarts on the
+ * next rebuild.
+ *
+ * Codex P2 (PR #101 round 78): the catch used to swallow ALL throws
+ * (including a thrown top-level `import()` evaluation) and surface
+ * them as `null` too. That masked broken bundles as "rebuild OK,
+ * unbranded trainer", letting `/api/manifest`'s HMR gate stay green
+ * and the registry SIGTERM-restart active runs against an artefact
+ * that `arkor start` cannot import either. The throw now propagates
+ * so `emitBuildSucceeded` can broadcast an `error` frame and route
+ * through the existing manifest-error UI / SIGTERM-restart-suppress
+ * path.
  */
 async function inspectBundle(outFile: string): Promise<InspectionResult> {
-  try {
-    const mod = (await import(moduleCacheBustUrl(outFile))) as Record<
-      string,
-      unknown
-    >;
-    const inspection = findInspectableTrainer(mod);
-    if (!inspection) return null;
-    return {
-      configHash: hashJobConfig(inspection.config),
-      trainerName: inspection.name,
-    };
-  } catch {
-    return null;
-  }
+  const mod = (await import(moduleCacheBustUrl(outFile))) as Record<
+    string,
+    unknown
+  >;
+  const inspection = findInspectableTrainer(mod);
+  if (!inspection) return null;
+  return {
+    configHash: hashJobConfig(inspection.config),
+    trainerName: inspection.name,
+  };
 }
 
 /**
@@ -320,7 +328,34 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
   async function emitBuildSucceeded(): Promise<void> {
     if (disposed) return;
     const seq = ++buildSeq;
-    const inspection = await inspectBundle(resolved.outFile);
+    // Codex P2 (PR #101 round 78): when the rebuilt module THROWS
+    // during top-level evaluation, treat it as an `error` event
+    // instead of broadcasting a successful `ready`/`rebuild` with
+    // `configHash: null`. Rolldown still emits BUNDLE_END for a
+    // bundle whose code throws at import-time (the syntactic compile
+    // succeeded), but the on-disk artefact is unrunnable: `arkor
+    // start` would crash on the same `await import()` we just tried.
+    // Without this branch the SPA stays on the prior "healthy" UI
+    // and the registry SIGTERM-restarts active runs against the
+    // broken artefact, churning into a failed restart instead of
+    // surfacing the build/import failure.
+    let inspection: InspectionResult;
+    try {
+      inspection = await inspectBundle(resolved.outFile);
+    } catch (err) {
+      // Drop stale results AND late-disposed coordinators before
+      // broadcasting the error — same gate the success branch uses.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (seq !== buildSeq || disposed) return;
+      broadcast({
+        type: "error",
+        message:
+          err instanceof Error
+            ? `Failed to import built bundle: ${err.message}`
+            : `Failed to import built bundle: ${String(err)}`,
+      });
+      return;
+    }
     // Drop stale results: a newer rebuild already started (or
     // finished) while our inspection was running. The newer
     // inspection will own the broadcast for the latest state; this

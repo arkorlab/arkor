@@ -1834,8 +1834,16 @@ describe("createTrainer (early stop)", () => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
+        // Override the shared `minimalJobRow.id` ("j-stop") so the
+        // create-job response and the SSE stream URL below agree on
+        // the same `j-falsy` job id. Otherwise wait() would request
+        // `/v1/jobs/j-stop/events/stream` and the fetcher's
+        // `j-falsy` branch would never match — the test would still
+        // see wait() reject, but for the wrong reason ("unexpected
+        // fetch" throw rather than the falsy-throw rethrow under
+        // test).
         return Response.json(
-          { job: minimalJobRow },
+          { job: { ...minimalJobRow, id: "j-falsy" } },
           {
             status: 201,
             headers: { "content-type": "application/json" },

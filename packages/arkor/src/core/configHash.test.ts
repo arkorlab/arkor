@@ -225,6 +225,56 @@ describe("hashJobConfig", () => {
     expect(() => hashJobConfig(indirect)).toThrow(TypeError);
   });
 
+  it("detects a cycle when `toJSON()` returns the object itself (JSON.stringify parity)", () => {
+    // CodeRabbit regression: `toJSON` used to be invoked BEFORE the
+    // current object was inserted into `seen`. A
+    // `{ toJSON() { return this; } }` would then loop forever (each
+    // recursive call re-checked toJSON before the cycle gate could
+    // see the previous frame), crashing with `RangeError: Maximum
+    // call stack size exceeded` rather than the cycle-shaped
+    // `TypeError` `JSON.stringify` produces for the same input. The
+    // fix moves the `seen.add(value)` ahead of the toJSON invocation
+    // so the cycle is caught on the very first recursive re-entry.
+    const selfReturning = {
+      toJSON(): unknown {
+        return this;
+      },
+    };
+    const config: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: selfReturning as unknown,
+    };
+    expect(() => hashJobConfig(config)).toThrow(TypeError);
+    expect(() => hashJobConfig(config)).toThrow(/circular/i);
+  });
+
+  it("substitutes `null` for sparse array holes (JSON.stringify parity)", () => {
+    // CodeRabbit regression: `Array.prototype.map` skips sparse
+    // holes and leaves them as holes in the result array;
+    // `[items...].join(",")` then renders the holes as empty
+    // strings, producing the invalid `[,1]` instead of the
+    // JSON-spec `[null,1]`. The indexed `for` loop reads each slot
+    // via `value[i]` (which returns `undefined` for holes),
+    // recurses to `undefined`, and the `?? "null"` fallback emits
+    // the spec-correct substitution.
+    const sparse = [] as unknown[];
+    sparse[2] = "x"; // creates holes at indices 0 and 1
+    const a: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      datasetFormat: sparse as unknown,
+    };
+    const dense: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      datasetFormat: [null, null, "x"] as unknown,
+    };
+    // Hash equality proves the hole positions were emitted as the
+    // string `"null"` (matching `JSON.stringify`), not skipped.
+    expect(hashJobConfig(a)).toBe(hashJobConfig(dense));
+  });
+
   it("permits a shared (non-cyclic) reference reused across sibling slots", () => {
     // Defensive companion to the cycle test: a value appearing twice
     // as a *sibling* (not as an ancestor) is legitimate JSON, not a

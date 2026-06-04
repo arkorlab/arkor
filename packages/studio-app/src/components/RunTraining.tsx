@@ -85,6 +85,19 @@ export function RunTraining() {
   // the no-restart outcome but long enough to absorb realistic
   // cross-connection delivery skew.
   const restartGraceTimerRef = useRef<number | null>(null);
+  // Monotonic counter bumped on every HMR SSE handler invocation. Each
+  // async `fetchManifest()` started from a `ready`/`rebuild` event
+  // remembers the seq it was kicked off with; when it resolves it only
+  // calls `setManifest` if it's still the latest seq. Without this, a
+  // `ready`/`rebuild` -> async fetch -> newer `error` event sequence
+  // would let the (now-stale) fetch's `.then(setManifest)` overwrite
+  // the `{ error }` state with the last-good manifest, re-enabling
+  // the Run button against broken code until the next 5 s poll
+  // restored the error. The polling effect's own fetches don't need
+  // this because they observe `cancelled` synchronously inside the
+  // `tick()` closure; this counter only protects the cross-handler
+  // SSE-driven fetches.
+  const manifestFetchSeqRef = useRef(0);
   // Tracks "is this React tree still mounted?". The HMR auto-restart
   // path schedules `queueMicrotask(() => run(...))` after the prior
   // run's `finally`. Without this gate, navigating away during the
@@ -191,39 +204,50 @@ export function RunTraining() {
       } catch {
         return;
       }
+      // Bump first so any in-flight async fetch from a prior
+      // `ready`/`rebuild` event is invalidated before we touch
+      // `setManifest` below.
+      const seq = ++manifestFetchSeqRef.current;
       if (payload.type === "error") {
         setManifest({ error: payload.message ?? "Build failed" });
         setHmrStatus("idle");
-        // Cancel any pending HMR auto-restart latched from a
-        // previous successful rebuild. Without this, a sequence
-        // like (rebuild → restartPendingRef=true → user breaks
-        // the source → error event → child eventually exits) would
-        // hit `run()`'s finally branch, see the still-set latch,
-        // and auto-restart from the **previous** artefact even
-        // though the latest source state is broken: silent
-        // stale-code background churn until the user notices.
-        // Clearing here makes the user's broken-state edit the
-        // source of truth: no auto-restart fires until the next
-        // successful rebuild re-arms the latch.
-        restartPendingRef.current = false;
-        // Same hazard via the pre-spawn buffer: a `rebuild` event
-        // that landed before `onSpawn` populated the pid is parked
-        // in `pendingPreSpawnEventsRef`. If the user then breaks
-        // the source and the next event is `error`, `onSpawn`'s
-        // later drain would still find the stale restart target
-        // and latch `restartPendingRef = true` → auto-restart
-        // against the broken state. Drop the buffer alongside the
-        // latch so the error event is the new source of truth.
+        // Codex P2 (PR #101 round 79): do NOT clear `restartPendingRef`
+        // here. An earlier version cleared the latch on error to avoid
+        // "auto-restart against stale code if the child exits before
+        // the user fixes things." But the server's `dispatchRebuild`
+        // skips entries flagged `earlyStopRequested` (already SIGTERMed),
+        // so a subsequent successful rebuild after the user's fix
+        // won't re-emit this child's pid in `restartTargets`. If we'd
+        // already cleared the latch, the fixed-and-ready child has
+        // *no* surviving restart signal and exits to an idle UI; the
+        // user has to click Run manually. Keeping the latch lets the
+        // post-exit auto-spawn pick up the latest artefact on disk
+        // (which is the FIXED build when the user fixed before exit,
+        // or the last-good build when they didn't — the manifest UI
+        // surfaces the error either way, so stale-good-code background
+        // churn is bounded and visible).
+        //
+        // Pre-spawn buffer IS still cleared: those are events for
+        // children whose pid isn't known yet, and the latest known
+        // state is "broken," so the buffer's stale restart targets
+        // shouldn't latch a fresh spawn onto a now-irrelevant
+        // rebuild.
         pendingPreSpawnEventsRef.current = [];
         return;
       }
-      // Always refresh the manifest on ready/rebuild.
+      // Always refresh the manifest on ready/rebuild. Version-gate the
+      // late `setManifest` so a slow `/api/manifest` response from this
+      // event can't overwrite a fresher `error` state.
       void fetchManifest()
-        .then(setManifest)
+        .then((m) => {
+          if (seq === manifestFetchSeqRef.current) setManifest(m);
+        })
         .catch((err: unknown) => {
-          setManifest({
-            error: err instanceof Error ? err.message : String(err),
-          });
+          if (seq === manifestFetchSeqRef.current) {
+            setManifest({
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
         });
       // Per-child decision based on the spawned pid: a single rebuild
       // can produce mixed outcomes (one child hot-swapped, another

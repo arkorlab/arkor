@@ -113,11 +113,19 @@ describe("findInspectableTrainer (brand-required path)", () => {
     });
     expect(inspectionC?.name).toBe("default-arkor");
 
-    const trainerD = brandedTrainer("default-nested");
-    const inspectionD = findInspectableTrainer({
-      default: { trainer: trainerD },
+    // Shape #4: bare default-exported Trainer. The earlier comment
+    // called this out as a regression-prone shape but the assertion
+    // was missing; cover it explicitly so `export default
+    // createTrainer({...})` projects can't silently regress.
+    const trainerD = brandedTrainer("default-direct");
+    const inspectionD = findInspectableTrainer({ default: trainerD });
+    expect(inspectionD?.name).toBe("default-direct");
+
+    const trainerE = brandedTrainer("default-nested");
+    const inspectionE = findInspectableTrainer({
+      default: { trainer: trainerE },
     });
-    expect(inspectionD?.name).toBe("default-nested");
+    expect(inspectionE?.name).toBe("default-nested");
   });
 
   it("returns null when only an unbranded trainer is present", () => {
