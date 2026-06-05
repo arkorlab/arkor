@@ -621,7 +621,7 @@ jobs:
       # extra `if:` gating is needed for those cases.
       - name: Upload arkor coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
         with:
           file: ./packages/arkor/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -630,7 +630,7 @@ jobs:
 
       - name: Upload create-arkor coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
         with:
           file: ./packages/create-arkor/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -639,7 +639,7 @@ jobs:
 
       - name: Upload cli-internal coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
         with:
           file: ./packages/cli-internal/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -648,7 +648,7 @@ jobs:
 
       - name: Upload studio-app coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
         with:
           file: ./packages/studio-app/coverage/cobertura-coverage.xml
           language: TypeScript
