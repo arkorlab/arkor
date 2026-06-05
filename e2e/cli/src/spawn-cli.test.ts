@@ -931,11 +931,16 @@ describe("findBunBin", () => {
   // `stdout`/`stderr` are still Buffers (possibly empty). They're
   // `null` only when the spawn itself failed (file not found, EPERM,
   // etc.), and in that case `status` is `null` and `error` is set.
-  // Model the "ran and exited non-zero" shape here since the
-  // `--version` probe never hits the spawn-failed branch (the spawn
-  // succeeds, the child just exits 1 because there's no usable
-  // `bun`). Keeps the mock honest about which `findBunBin` branch
-  // each test exercises (PR #159 Copilot review).
+  // Both shapes resolve through `findBunBin`'s single
+  // `probe.status !== 0` check (with `status: null` the `!== 0`
+  // strict-inequality is true because the operands have different
+  // types), so we model the "ran and exited non-zero" shape here
+  // and assert the same branch via the cleaner shape. Tests that
+  // specifically need to exercise the spawn-ENOENT path (bun
+  // genuinely not on PATH) would need an `error`-bearing variant;
+  // we don't add one today because the `status !== 0` check makes
+  // the two cases observationally identical from `findBunBin`'s
+  // point of view (PR #159 Copilot review).
   function fail() {
     const empty = Buffer.from("");
     return {
