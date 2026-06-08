@@ -134,7 +134,7 @@ export interface MissingClaudeCodeFlag {
  * fallback only fires when `sanitise()`'s pre-fallback slug is empty,
  * which happens iff the input contains zero `[a-z0-9]` characters
  * (case-insensitive). So an input is "meaningful" iff it has at least
- * one alphanumeric character — this single check captures every silent
+ * one alphanumeric character: this single check captures every silent
  * default we want strict mode to surface (empty strings, whitespace
  * only, punctuation only) without falsely rejecting deliberate names
  * that happen to *sanitise* to `arkor-project` such as `Arkor Project`

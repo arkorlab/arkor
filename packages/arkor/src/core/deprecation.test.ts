@@ -46,7 +46,7 @@ describe("tapDeprecation", () => {
     });
     const res = new Response(null, { status: 200 });
     tapDeprecation(res, "1.4.0");
-    // Untouched — still the baseline we just wrote.
+    // Untouched: still the baseline we just wrote.
     expect(getRecordedDeprecation()?.sdkVersion).toBe("baseline");
   });
 

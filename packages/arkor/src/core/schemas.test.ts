@@ -71,7 +71,7 @@ describe("trainingJobSchema", () => {
   });
 
   it("normalises non-null startedAt/completedAt: strings pass through, Dates ISO-coerce", () => {
-    // Branch coverage for the `toIsoOrNull` transforms — the `null`
+    // Branch coverage for the `toIsoOrNull` transforms: the `null`
     // branch is exercised by every other test in this file (the
     // `valid` fixture has both fields null), but the truthy branch
     // only fires when the field carries an actual timestamp. Strings
@@ -114,7 +114,7 @@ describe("listDeploymentKeysResponseSchema", () => {
   // The list-keys response is documented as the no-plaintext shape
   // (`DeploymentKeyDto` has no `plaintext` field). The parse step has
   // a defensive `.transform` that strips `plaintext` if a regressed
-  // server ever included it — tested here so a future change to the
+  // server ever included it: tested here so a future change to the
   // sanitiser can't silently leak raw API keys to SDK callers.
   const minimalKey = {
     id: "k1",
@@ -148,15 +148,15 @@ describe("listDeploymentKeysResponseSchema", () => {
       ],
     });
     expect(parsed.keys[0]).not.toHaveProperty("plaintext");
-    // Stringifying the parsed payload — the form the SPA / SDK callers
-    // would re-emit — must not contain the secret either.
+    // Stringifying the parsed payload (the form the SPA / SDK callers
+    // would re-emit) must not contain the secret either.
     expect(JSON.stringify(parsed)).not.toContain("LEAKED_SECRET");
   });
 
   it("strips `plaintext` even when other unknown fields are present", () => {
     // The schema is intentionally `looseObject`, so future server-side
     // additions (e.g. a new metadata field) flow through untouched.
-    // The strip targets `plaintext` specifically — make sure it
+    // The strip targets `plaintext` specifically: make sure it
     // doesn't drop unrelated unknown keys as collateral damage.
     const parsed = listDeploymentKeysResponseSchema.parse({
       keys: [

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
+    "check:no-em-dash": "node scripts/check-no-em-dash.mts",
     "dev": "turbo run dev",
     "format": "oxfmt",
     "format:check": "oxfmt --check",

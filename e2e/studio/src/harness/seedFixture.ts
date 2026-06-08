@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export interface FixturePaths {
-  /** Test-scoped HOME — `~/.arkor/credentials.json` lands here. */
+  /** Test-scoped HOME: `~/.arkor/credentials.json` lands here. */
   home: string;
-  /** Project root — holds `src/arkor/index.ts` and `.arkor/state.json`. */
+  /** Project root: holds `src/arkor/index.ts` and `.arkor/state.json`. */
   projectDir: string;
 }
 
@@ -21,7 +21,7 @@ export function cleanup(dir: string): void {
  * Pre-seed an anonymous credential file so `ensureCredentialsForStudio()`
  * in `arkor dev` short-circuits. Without this the CLI would call
  * `fetchCliConfig` + `requestAnonymousToken` against the real cloud-api
- * on launch — which we explicitly want to avoid for hermetic E2E.
+ * on launch, which we explicitly want to avoid for hermetic E2E.
  *
  * Mirrors the pattern in `e2e/cli/src/arkor-whoami.test.ts` (`seedAnonCreds`)
  * with the same wire-format keys (`mode`, `token`, `anonymousId`,
@@ -70,7 +70,7 @@ function seedProjectState(projectDir: string): void {
  * Write a minimal `src/arkor/index.ts` that satisfies
  * `readManifestSummary`'s `isArkor()` guard without importing the
  * runtime `arkor` SDK. Avoiding the import means esbuild's bundle
- * resolves cleanly with no `node_modules` present — we don't need to
+ * resolves cleanly with no `node_modules` present, so we don't need to
  * `pnpm install` the fixture at all.
  *
  * The trainer methods are placeholders: Studio's `/api/manifest` only
@@ -80,7 +80,7 @@ function seedProjectState(projectDir: string): void {
 function seedManifest(projectDir: string): void {
   const dir = join(projectDir, "src", "arkor");
   mkdirSync(dir, { recursive: true });
-  // Plain JS object literal with `_kind: "arkor"` — `isArkor()` only
+  // Plain JS object literal with `_kind: "arkor"`: `isArkor()` only
   // checks that field, so we don't need `Object.freeze` or the real
   // `createArkor` factory.
   writeFileSync(

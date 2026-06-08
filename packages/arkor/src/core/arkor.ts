@@ -3,7 +3,7 @@ import type { Arkor, ArkorInput } from "./types";
 /**
  * Build the project's entry-point manifest.
  *
- * `createArkor` is the entry-point factory — it gathers per-role primitives
+ * `createArkor` is the entry-point factory: it gathers per-role primitives
  * (`trainer`, future: `deploy`, `eval`) under a single value that the CLI
  * (`arkor build` / `arkor start`) and Studio discover from
  * `src/arkor/index.ts`.

@@ -11,7 +11,7 @@ import {
 } from "./route";
 
 // `parseRoute` reads `window.location.hash` directly, so we stub
-// `window` per-test (vitest runs in a node environment by default —
+// `window` per-test (vitest runs in a node environment by default;
 // see vitest.config.ts) instead of pulling in jsdom.
 
 function withHash(hash: string): void {
@@ -22,7 +22,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("parseRoute — home", () => {
+describe("parseRoute: home", () => {
   it("returns home for an empty hash", () => {
     withHash("");
     expect(parseRoute()).toEqual({ kind: "home" });
@@ -39,7 +39,7 @@ describe("parseRoute — home", () => {
   });
 });
 
-describe("parseRoute — jobs index", () => {
+describe("parseRoute: jobs index", () => {
   it("matches `#/jobs`", () => {
     withHash("#/jobs");
     expect(parseRoute()).toEqual({ kind: "jobs" });
@@ -59,7 +59,7 @@ describe("parseRoute — jobs index", () => {
   });
 });
 
-describe("parseRoute — job detail", () => {
+describe("parseRoute: job detail", () => {
   it("extracts the job id from `#/jobs/<id>`", () => {
     withHash("#/jobs/abc123");
     expect(parseRoute()).toEqual({ kind: "job", id: "abc123" });
@@ -71,7 +71,7 @@ describe("parseRoute — job detail", () => {
   });
 });
 
-describe("parseRoute — playground", () => {
+describe("parseRoute: playground", () => {
   it("matches `#/playground` with no adapter id", () => {
     withHash("#/playground");
     expect(parseRoute()).toEqual({
@@ -129,7 +129,7 @@ describe("parseRoute — playground", () => {
   });
 });
 
-describe("parseRoute — endpoints", () => {
+describe("parseRoute: endpoints", () => {
   it("matches `#/endpoints` (list view)", () => {
     withHash("#/endpoints");
     expect(parseRoute()).toEqual({ kind: "endpoints" });
@@ -239,7 +239,7 @@ describe("evaluateHashChange", () => {
 
   it("rollback direction is `forward` for browser-Back navigation (currentSeq < lastSeq)", () => {
     // Browser Back from B (seq=2) lands on A (seq=1). We need to undo
-    // with `history.forward()` — calling `history.back()` here would
+    // with `history.forward()`; calling `history.back()` here would
     // step further back and could eject the user from Studio.
     withHash("#/endpoints");
     const result = evaluateHashChange({
@@ -287,7 +287,7 @@ describe("evaluateHashChange", () => {
     expect(result).toEqual({ kind: "ignore" });
   });
 
-  it("ignores even when guards would block — equality check wins", () => {
+  it("ignores even when guards would block (equality check wins)", () => {
     // Defence-in-depth: the equality check happens before guards are
     // consulted, so a guard that always returns false cannot lock the
     // user into a state where every hashchange (including the rollback)
@@ -376,7 +376,7 @@ describe("evaluateHashChange", () => {
     // global would let `evaluateHashChange` return a route for the
     // wrong hash. Stage the global at a stale value and assert the
     // returned route reflects the explicit `newHash` argument.
-    withHash("#/playground"); // stale — what the global currently says
+    withHash("#/playground"); // stale: what the global currently says
     const result = evaluateHashChange({
       newHash: "#/jobs", // what the hashchange event reported
       lastHash: "#/",
@@ -397,7 +397,7 @@ describe("createHashRouter (integration of side effects)", () => {
   // verify that the side-effect callbacks (`goBack`, `goForward`,
   // `stampSeq`, `setRoute`) are invoked at the right time and in the
   // right order. The hook itself just wires this up to `history` /
-  // `window.location` / React's setRoute, and that wiring is trivial —
+  // `window.location` / React's setRoute, and that wiring is trivial:
   // the meaningful logic is here.
 
   type Recorder = {
@@ -442,7 +442,7 @@ describe("createHashRouter (integration of side effects)", () => {
         // The router reads the new hash off `event.newURL`. We mirror
         // the global `window.location.hash` too so any `parseRoute`
         // that *did* slip through and consult the global doesn't see
-        // a stale value — the production path doesn't read it (the
+        // a stale value (the production path doesn't read it; the
         // event is the source of truth), but a regression that does
         // would surface in this test setup rather than silently
         // pass.
@@ -450,7 +450,7 @@ describe("createHashRouter (integration of side effects)", () => {
         // `HashChangeEvent` isn't a constructor in the bare-Node test
         // environment (no jsdom). The handler only reads `.newURL`
         // and (for the rollback recursion) `.oldURL`, so a plain
-        // shape-compatible object is enough — cast through `unknown`
+        // shape-compatible object is enough; cast through `unknown`
         // because `HashChangeEvent` is a structural superset.
         const event = {
           type: "hashchange" as const,
@@ -504,7 +504,7 @@ describe("createHashRouter (integration of side effects)", () => {
   it("does NOT re-stamp seq when landing on a previously-visited entry", () => {
     // A→B→C visited (seqs 0, 1, 2), then Back to B (seq=1). The hook
     // sees `currentSeq === 1` already on the entry, so it must NOT
-    // call `stampSeq` again — otherwise B would get bumped to 3 and
+    // call `stampSeq` again; otherwise B would get bumped to 3 and
     // direction detection on the next Forward would break.
     const rec = makeRecorder("#/endpoints/c", 2);
     const router = createHashRouter("#/endpoints/c", 2, rec.deps);
@@ -565,7 +565,7 @@ describe("createHashRouter (integration of side effects)", () => {
   it("rolls back a browser-Back press (currentSeq < lastSeq) via goForward", () => {
     // User pressed browser Back from B(seq=2) to A(seq=1). The guard
     // refuses. Calling `goBack()` here would step *further* back and
-    // could eject the user from the SPA — `goForward()` is what
+    // could eject the user from the SPA: `goForward()` is what
     // restores the URL to B.
     const guards: NavigationGuard[] = [() => false];
     const rec = makeRecorder("#/endpoints/b", 2, guards);
@@ -581,7 +581,7 @@ describe("createHashRouter (integration of side effects)", () => {
   it("the rollback hashchange (newHash === lastHash) is a no-op", () => {
     // After `goBack()` runs, the browser fires another hashchange with
     // the URL restored to `lastHash`. That hashchange must NOT re-run
-    // guards or call setRoute — `evaluateHashChange` returns `ignore`
+    // guards or call setRoute: `evaluateHashChange` returns `ignore`
     // and the router does literally nothing.
     let guardCalls = 0;
     const guards: NavigationGuard[] = [
@@ -603,7 +603,7 @@ describe("createHashRouter (integration of side effects)", () => {
     expect(rec.routes).toEqual([]);
   });
 
-  it("uses event.newURL — not the live window.location.hash — to pick the route", () => {
+  it("uses event.newURL (not the live window.location.hash) to pick the route", () => {
     // Regression: a fast back-to-back navigation can leave
     // `window.location.hash` pointing at a *later* URL by the time
     // the listener for the earlier hashchange runs. The handler must
@@ -631,7 +631,7 @@ describe("createHashRouter (integration of side effects)", () => {
 
   it("threads multiple accepted forward navigations and bumps seq each time", () => {
     // A→B→C→D, all forward link clicks. The hook should stamp 1, 2, 3
-    // sequentially, leaving `lastSeq` at 3 — so a later Back from D
+    // sequentially, leaving `lastSeq` at 3, so a later Back from D
     // would land on C(seq=2), `currentSeq(2) < lastSeq(3)` → forward
     // rollback if a guard refuses.
     const rec = makeRecorder("#/", 0);
@@ -655,7 +655,7 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
   // in `navigateBackOr` and the `setTimeout` fallback only fire in the
   // browser, so without coverage here a regression would only surface
   // on a real "Delete endpoint" click. The fake `window` below is the
-  // minimum surface the helpers touch — `location.hash`, `history.*`,
+  // minimum surface the helpers touch: `location.hash`, `history.*`,
   // `addEventListener` / `dispatchEvent`, plus a back-stack so
   // `history.back()` can actually move the URL.
   type StackEntry = { hash: string; state: unknown };
@@ -688,7 +688,7 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
     function fireHashChange(oldHash: string, newHash: string) {
       // `useHashRoute` reads `event.newURL` off the dispatched event,
       // so the synthetic events the fake window emits have to carry
-      // that field — a bare `Event` would feed the handler an empty
+      // that field; a bare `Event` would feed the handler an empty
       // string and miss the navigation. Build a structural event and
       // cast through `unknown`; `HashChangeEvent` isn't a constructor
       // in the Node test env (no jsdom for this file).
@@ -776,7 +776,7 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
     });
 
     it("replaces the URL and dispatches `hashchange` so `useHashRoute` sees it", () => {
-      // `replaceState` doesn't fire `hashchange` on its own — the
+      // `replaceState` doesn't fire `hashchange` on its own; the
       // manual dispatch is what makes the SPA's router pick up the
       // new URL. Without it the address bar would update but the
       // route state would stay at the pre-replace value.
@@ -794,14 +794,14 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
       expect(calls).toContain("dispatch(hashchange)");
       // The listener must have observed the *new* hash, not the old.
       expect(firedFor).toBe("#/bar");
-      // No leaked listener — `navigateReplace` adds none of its own.
+      // No leaked listener: `navigateReplace` adds none of its own.
       expect(listenersFor("hashchange").size).toBe(1);
     });
 
     it("preserves the existing `history.state` (router seq + any other metadata)", () => {
       // Regression: passing `null` to `replaceState` would wipe the
       // router's `seq` stamp and break direction detection on the
-      // very next navigation — Forward / Back would land on entries
+      // very next navigation: Forward / Back would land on entries
       // whose state had been silently reset to null. Forward an
       // arbitrary state shape to prove the helper is opaque about
       // what's stored, beyond the `seq` it cares about.
@@ -818,7 +818,7 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
 
   describe("navigateBackOr", () => {
     it("skips `history.back()` when seq <= 0 and replaces directly", () => {
-      // `seq === 0` is `useHashRoute`'s anchor entry — there's no
+      // `seq === 0` is `useHashRoute`'s anchor entry; there's no
       // earlier in-document predecessor, so `history.back()` would
       // exit the SPA and the post-back `setTimeout` would never get
       // a chance to run the fallback. The pre-check on `seq` is what
@@ -838,7 +838,7 @@ describe("navigateReplace / navigateBackOr (history side effects)", () => {
       // A history entry that doesn't carry our seq tag at all (e.g.
       // an external link landed on an `#/endpoints/...` URL before
       // `useHashRoute` mounted to anchor it) is treated the same as
-      // seq=0 — no in-document predecessor we know of.
+      // seq=0: no in-document predecessor we know of.
       const { fakeWindow, calls } = makeWindow({
         initialHash: "#/endpoints/a",
         initialState: null,

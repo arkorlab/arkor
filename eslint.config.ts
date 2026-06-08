@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import stylistic from "@stylistic/eslint-plugin";
 import vitest from "@vitest/eslint-plugin";
+import type { Rule } from "eslint";
 import { defineConfig } from "eslint/config";
 import { flatConfigs as importXConfigs } from "eslint-plugin-import-x";
 import jsxA11y from "eslint-plugin-jsx-a11y";
@@ -26,6 +27,74 @@ const CONFIG_TS_FILES = [
   "**/playwright.config.ts",
   "**/oxfmt.config.ts",
 ];
+
+// Matches the em-dash glyph (U+2014) and its HTML entity. Built via
+// `new RegExp` from string fragments so this file itself contains
+// neither the U+2014 character (the `\u2014` escape avoids it) nor the
+// matching HTML entity literal (split across the concatenation). The
+// repo-wide guard at `scripts/check-no-em-dash.mts` would otherwise flag
+// the rule's own source. Non-global so the shared instance carries no
+// `lastIndex` state between `.test()` calls.
+const EM_DASH = new RegExp("\\u2014|&" + "mdash;");
+
+// Local rule: ban em dashes in comments, string/template literals, and
+// JSX text. The project writes prose (comments, JSDoc, CLI runtime
+// messages, generated-file template bodies, test names, rendered TSX
+// copy) with a colon, period, comma, parentheses, semicolon, or a
+// spaced hyphen instead. There is no carve-out: this rule is enforced
+// uniformly across every linted file. No autofix: the right
+// replacement is context-dependent (colon vs period vs restructure),
+// so a blind substitution would be wrong.
+const noEmDash: Rule.RuleModule = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Disallow em dashes in comments, string or template literals, and JSX text; prefer a colon, period, comma, parentheses, or ' - '.",
+    },
+    schema: [],
+    messages: {
+      emDash:
+        "Avoid the em dash here. Use a colon, period, comma, parentheses, ' - ', or restructure.",
+    },
+  },
+  create(context) {
+    const { sourceCode } = context;
+    return {
+      Program() {
+        for (const comment of sourceCode.getAllComments()) {
+          if (comment.loc && EM_DASH.test(comment.value)) {
+            context.report({ loc: comment.loc, messageId: "emDash" });
+          }
+        }
+      },
+      Literal(node) {
+        if (typeof node.value === "string" && EM_DASH.test(node.value)) {
+          context.report({ node, messageId: "emDash" });
+        }
+      },
+      TemplateElement(node) {
+        const text = node.value.cooked ?? node.value.raw;
+        if (EM_DASH.test(text)) {
+          context.report({ node, messageId: "emDash" });
+        }
+      },
+      // JSX text content (`<p>Foo {bar}</p>` -> the "Foo " segment).
+      // Without this visitor, an em dash inside rendered TSX prose
+      // (anything between a JSX opening and closing tag, outside
+      // braces) would slip past `eslint .` and only fail the
+      // repo-wide `check:no-em-dash` script, surfacing as a CI-only
+      // failure for a contributor who passed local lint. Catching
+      // it at the AST level keeps local lint and the repo-wide
+      // guard aligned.
+      JSXText(node) {
+        if (EM_DASH.test(node.value)) {
+          context.report({ node, messageId: "emDash" });
+        }
+      },
+    };
+  },
+};
 
 export default defineConfig(
   {
@@ -82,6 +151,21 @@ export default defineConfig(
     },
   },
 
+  // Local em-dash ban (see `noEmDash` above). Applies to every linted file
+  // (no `files` filter) so comments, string / template literals, and
+  // JSX text in TS, TSX, and JS are all covered. Enforced as a hard
+  // ban with no suppressions file and no per-site inline disables: the
+  // pre-existing prose was rewritten contextually rather than
+  // baselined, so any new em dash that lands here is a regression
+  // worth surfacing immediately. The companion
+  // `scripts/check-no-em-dash.mts` (wired into CI as the `no_em_dash`
+  // job) keeps the same zero across non-lint-target files such as
+  // yaml, md, json, html, and root config.
+  {
+    plugins: { local: { rules: { "no-em-dash": noEmDash } } },
+    rules: { "local/no-em-dash": "error" },
+  },
+
   // Pin `n`'s view of the target Node.js to a single concrete version
   // (the lowest we support at runtime) instead of letting it read each
   // package's `engines.node` range. The plugin's `no-unsupported-*`
@@ -89,7 +173,7 @@ export default defineConfig(
   // would include early 23.x releases where APIs like `ReadableStream`
   // (backport range `^22.15`) aren't yet stable, producing false
   // positives. Pinning to "22.22.0" tells the plugin to test against
-  // that one version (which IS in every relevant backport range) —
+  // that one version (which IS in every relevant backport range);
   // future Node API adoption still gets flagged correctly because the
   // minimum-version check is the part we actually care about.
   {
@@ -247,7 +331,7 @@ export default defineConfig(
         },
       ],
       // Skip `||` on boolean primitives. `disabled || isEmpty` reads as
-      // "either of these is true" — semantically *boolean OR*. Rewriting
+      // "either of these is true": semantically *boolean OR*. Rewriting
       // to `??` would change behaviour (`false ?? true === false`), so
       // the rule's suggestion would actively break the logic. Keep the
       // rule on for nullable non-booleans where `??` really is safer.
@@ -270,7 +354,7 @@ export default defineConfig(
       // `strict-type-checked` flips every `allow*` off, but `number` is
       // safe to interpolate (toString is unambiguous) and pervasive in
       // SVG attribute strings, React `key`s, URLs, log lines, etc.
-      // Keep the rest of the rule's defaults — `null` / `undefined` /
+      // Keep the rest of the rule's defaults: `null` / `undefined` /
       // `object` / `RegExp` interpolation stays an error.
       "@typescript-eslint/restrict-template-expressions": [
         "error",

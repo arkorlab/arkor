@@ -86,14 +86,14 @@ describe("Studio server", () => {
         baseUrl: "http://mock",
         assetsDir,
         autoAnonymous: false,
-        // @ts-expect-error — intentionally omitted to assert the runtime guard
+        // @ts-expect-error: intentionally omitted to assert the runtime guard
         studioToken: undefined,
       }),
     ).toThrow(/studioToken/);
   });
 
   it("HTML-escapes special characters in the studio token before injecting", async () => {
-    // Branch coverage for `htmlAttrEscape` — a defensive guard against
+    // Branch coverage for `htmlAttrEscape`: a defensive guard against
     // a token that contains `<`, `>`, `&`, `"`, `'`. randomBytes/base64url
     // never produces these, but the helper must still escape them so a
     // future token strategy can't break index.html parsing or open a
@@ -115,7 +115,7 @@ describe("Studio server", () => {
     expect(html).toContain(
       '<meta name="arkor-studio-token" content="&lt;&gt;&amp;&quot;&#39;-1234567890ab">',
     );
-    // The raw exotic token must not leak into HTML — an attacker who
+    // The raw exotic token must not leak into HTML: an attacker who
     // could influence the token (hypothetical) shouldn't be able to
     // inject markup.
     expect(html).not.toMatch(/content="<>/);
@@ -360,7 +360,7 @@ describe("Studio server", () => {
     expect(res.status).toBe(403);
   });
 
-  // Regression for ENG-404 — `path.resolve` doesn't follow symlinks, so a
+  // Regression for ENG-404: `path.resolve` doesn't follow symlinks, so a
   // link inside the project directory pointing outside it would previously
   // pass the containment check and be handed to `arkor start` (which would
   // then dlopen the link's target).
@@ -437,7 +437,7 @@ describe("Studio server", () => {
     expect(body.error).toMatch(/does not exist/);
   });
 
-  // Regression for ENG-356 — `/api/train` previously resolved the bundled
+  // Regression for ENG-356: `/api/train` previously resolved the bundled
   // bin at `<pkg>/bin.mjs` (one level above `dist/`), which never existed.
   // The DI'd `binPath` lets us assert (a) a working bin streams its stdout
   // through the response, and (b) a missing bin surfaces ENOENT-grade errors
@@ -561,7 +561,7 @@ process.exit(0);
     });
 
     it("acquires + persists an anonymous token on the first /api/credentials hit when autoAnonymous=true", async () => {
-      // No credentials on disk — buildStudioApp's autoAnonymous default
+      // No credentials on disk: buildStudioApp's autoAnonymous default
       // (true) lets the server bootstrap on first hit so a fresh `arkor
       // dev` works even when the up-front bootstrap in dev.ts skipped due
       // to a transient network blip.
@@ -603,7 +603,7 @@ process.exit(0);
       expect(body).toMatchObject({ token: "lazy-anon", mode: "anon" });
       expect(calls).toBe(1);
 
-      // Subsequent calls use the persisted credentials — no re-bootstrap.
+      // Subsequent calls use the persisted credentials: no re-bootstrap.
       const res2 = await app.request("/api/credentials", {
         headers: {
           host: "127.0.0.1:4000",
@@ -681,7 +681,7 @@ process.exit(0);
       // The cloud-api-client wrapper around `onDeprecation` synchronously
       // checks `typeof result.then` on the callback's return value; a plain
       // `void` return throws and gets swallowed with a stderr log. The
-      // wrapper in `createRpc` returns null to short-circuit that check —
+      // wrapper in `createRpc` returns null to short-circuit that check;
       // assert that no such log fires here.
       const errorSpy = vi
         .spyOn(console, "error")
@@ -809,7 +809,7 @@ process.exit(0);
       // production while only the deployments proxy reached the right
       // host. Threading the loaded credentials through
       // `defaultArkorCloudApiUrl(creds)` aligns every route on the
-      // auth-time URL — assert that here by writing creds whose
+      // auth-time URL: assert that here by writing creds whose
       // `arkorCloudApiUrl` is *different* from `build()`'s baseUrl
       // (`http://mock`) and verifying the upstream call goes there.
       await writeCredentials({
@@ -1202,7 +1202,7 @@ process.exit(0);
 
     it("auto-bootstraps project state and proxies base-model inference", async () => {
       await writeCredentials(ANON_CREDS);
-      // No state.json — server should derive a slug from cwd, create the
+      // No state.json: server should derive a slug from cwd, create the
       // project on cloud-api, persist state, and forward the inference call.
 
       const calls: {
@@ -1335,7 +1335,7 @@ process.exit(0);
       });
       expect(res.status).toBe(200);
 
-      // Only the inference call should have hit the network — no project
+      // Only the inference call should have hit the network: no project
       // create/list when state is already present.
       expect(calls.filter((c) => c.url.includes("/v1/projects"))).toHaveLength(
         0,
@@ -1346,7 +1346,7 @@ process.exit(0);
 
     it("forwards upstream Deprecation / Warning / Sunset headers", async () => {
       // The chat handler does raw fetch (bypassing the wrapped client), so
-      // deprecation forwarding has to be wired by hand — same pattern as
+      // deprecation forwarding has to be wired by hand: same pattern as
       // /api/jobs/:id/events. Without this the SPA silently misses sunset /
       // upgrade warnings the cloud-api raised on the chat path.
       clearRecordedDeprecation();
@@ -1404,7 +1404,7 @@ process.exit(0);
 
     it("propagates the cloud-api status when project bootstrap fails", async () => {
       await writeCredentials(ANON_CREDS);
-      // No state.json — bootstrap will hit cloud-api, which returns 503.
+      // No state.json: bootstrap will hit cloud-api, which returns 503.
       // We expect that 503 to be passed through, not collapsed to 400.
 
       globalThis.fetch = (async (
@@ -1469,7 +1469,7 @@ process.exit(0);
   });
 
   // -------------------------------------------------------------------------
-  // Deployments (`/api/deployments/*`) — minimal coverage of the router
+  // Deployments (`/api/deployments/*`): minimal coverage of the router
   // boundary. Cloud-side semantics already have heavy test coverage in
   // `core/client.deployments.test.ts`; here we verify only that the Studio
   // server forwards correctly, returns the empty wrapper when no project
@@ -1589,7 +1589,7 @@ process.exit(0);
       // chars (CR/LF) cannot appear unescaped, otherwise the value
       // either gets truncated by the next double-quote or rejected as
       // a malformed header. The capture / re-emit path here MUST
-      // sanitise — without it, an upstream message containing any of
+      // sanitise: without it, an upstream message containing any of
       // those characters silently produces a malformed response.
       clearRecordedDeprecation();
       await writeCredentials(ANON_CREDS);
@@ -1607,7 +1607,7 @@ process.exit(0);
               Deprecation: "true",
               // The literal source message: a double-quote, a backslash,
               // and a newline. Cloud-api would normally escape these
-              // before sending, but the Studio proxy can't trust that —
+              // before sending, but the Studio proxy can't trust that:
               // it has to defensively sanitise on its own emit too.
               Warning: String.raw`299 - "she said \"hi\" \\ then left"`,
             },
@@ -1626,8 +1626,8 @@ process.exit(0);
       expect(warning).toMatch(/^299 - ".*"$/);
       const inner = warning!.slice('299 - "'.length, -1);
       // Every `"` and `\` inside the quoted-string must be the second
-      // char of a `\X` escape sequence — i.e. preceded by an odd run
-      // of backslashes. A simple unescaped scan suffices: no bare `"`,
+      // char of a `\X` escape sequence (i.e. preceded by an odd run
+      // of backslashes). A simple unescaped scan suffices: no bare `"`,
       // no CR/LF.
       expect(inner).not.toMatch(/(^|[^\\])"/);
       expect(inner).not.toMatch(/[\r\n]/);
@@ -1635,7 +1635,7 @@ process.exit(0);
 
     it("forwards upstream Deprecation / Warning / Sunset headers on success", async () => {
       // The deployment proxy unwraps the upstream Response into a typed
-      // SDK result, then re-serialises it as JSON — that strips the
+      // SDK result, then re-serialises it as JSON: that strips the
       // upstream headers by default. `withDeploymentClient` re-emits
       // `Deprecation` / `Warning` / `Sunset` from the per-request
       // `onDeprecation` capture so the SPA gets the same upgrade /
@@ -1681,7 +1681,7 @@ process.exit(0);
     it("forwards upstream Deprecation headers even on a 4xx error response", async () => {
       // A deprecated cloud-api could surface a sunset header alongside
       // a 4xx (e.g. on an `endpoints` route that's been replaced). The
-      // proxy must re-emit the headers in the error envelope too —
+      // proxy must re-emit the headers in the error envelope too;
       // dropping them on non-2xx would silently hide the deprecation
       // signal from any request that happens to fail.
       clearRecordedDeprecation();
@@ -1800,7 +1800,7 @@ process.exit(0);
 
     it("distinguishes JSON-parse failure from valid-but-falsy bodies", async () => {
       // Codex round 81 P2: `if (!body)` would lump `false`, `0`, `""`
-      // in with parse failures and surface "Invalid JSON" — masking
+      // in with parse failures and surface "Invalid JSON", masking
       // the actual shape problem. Parse failure stays "Invalid JSON
       // body"; valid-but-falsy bodies hit the schema validator and
       // get a useful 400 about the missing fields.
@@ -1856,7 +1856,7 @@ process.exit(0);
       const app = build();
 
       // `null` is added to the matrix because `c.req.json()` *parses*
-      // it successfully — so the parse-failure check (now using a
+      // it successfully, so the parse-failure check (now using a
       // `Symbol` sentinel) doesn't catch it. The shape check has to
       // explicitly reject `null` despite `typeof null === "object"`,
       // otherwise the JS gotcha would forward it as the request body.
@@ -1887,7 +1887,7 @@ process.exit(0);
 
     it("rejects key-create bodies that lack a non-empty `label` string", async () => {
       // The "must include a `label` string" 400 copy has to actually
-      // be true — without the schema check, `{}` and `{ label: 123 }`
+      // be true: without the schema check, `{}` and `{ label: 123 }`
       // would forward upstream and the error would come from cloud-
       // api instead. Guard the contract here so the local 400 message
       // matches the actual reason.
@@ -1938,7 +1938,7 @@ process.exit(0);
         trainCwd,
       );
       const app = build();
-      // PATCH with literal `null` body — well-formed JSON, MUST hit
+      // PATCH with literal `null` body: well-formed JSON, MUST hit
       // the shape error, not the parse-failure copy.
       const patchRes = await app.request("/api/deployments/dep-1", {
         method: "PATCH",
@@ -1950,7 +1950,7 @@ process.exit(0);
       expect(patchBody.error).not.toBe("Invalid JSON body");
       expect(patchBody.error).toMatch(/must be a JSON object/);
 
-      // PATCH with malformed JSON — MUST hit the parse-failure copy.
+      // PATCH with malformed JSON: MUST hit the parse-failure copy.
       const malformedPatch = await app.request("/api/deployments/dep-1", {
         method: "PATCH",
         headers: studioHeaders({ "content-type": "application/json" }),
@@ -1966,7 +1966,7 @@ process.exit(0);
       // semantically invalid bodies like `{ authMode: "bogus" }` or
       // a `target: {}` with no discriminator. On a fresh anonymous
       // workspace those would still enter `ensureProjectState()` and
-      // create + persist a remote project as a side effect — even
+      // create + persist a remote project as a side effect, even
       // though the cloud API would 400 immediately afterwards. The
       // request-body schema rejects those here, before any local /
       // remote scope mutation can happen.
@@ -2011,7 +2011,7 @@ process.exit(0);
           target: { kind: "base_model", baseModel: "m" },
           authMode: "none",
         },
-        // runRetentionMode "bogus" — Codex round 79 P2 evidence:
+        // runRetentionMode "bogus": Codex round 79 P2 evidence:
         // a primitive shape check used to let this through.
         {
           slug: "valid-slug",
@@ -2019,7 +2019,7 @@ process.exit(0);
           authMode: "none",
           runRetentionMode: "bogus",
         },
-        // `runRetentionDays` without `runRetentionMode === "days"` —
+        // `runRetentionDays` without `runRetentionMode === "days"`:
         // the discriminated coupling must reject this here so the
         // server isn't asked to bootstrap a project just to
         // disambiguate.
@@ -2030,7 +2030,7 @@ process.exit(0);
           runRetentionMode: "unlimited",
           runRetentionDays: 7,
         },
-        // mode "days" without runRetentionDays — mirror coupling.
+        // mode "days" without runRetentionDays: mirror coupling.
         {
           slug: "valid-slug",
           target: { kind: "base_model", baseModel: "m" },
@@ -2090,7 +2090,7 @@ process.exit(0);
         method: "POST",
         headers: studioHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({
-          // 2+ chars, matches the slug pattern — the request-body
+          // 2+ chars, matches the slug pattern: the request-body
           // schema must pass so we actually hit the
           // `withDeploymentClient("create", …)` Auth0 branch instead
           // of bouncing on schema validation.

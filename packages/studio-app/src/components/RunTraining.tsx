@@ -155,7 +155,7 @@ export function RunTraining() {
         </div>
         <Button
           // While `running`, the same button doubles as the abort
-          // affordance — clicking aborts the in-flight stream so the
+          // affordance; clicking aborts the in-flight stream so the
           // visible StopCircle icon actually does what the user
           // expects. When idle, it kicks off a new run.
           onClick={running ? stop : run}

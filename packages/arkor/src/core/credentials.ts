@@ -20,7 +20,7 @@ export interface Auth0Credentials {
    * staging / self-hosted control plane on subsequent runs without
    * needing `ARKOR_CLOUD_API_URL` re-set every time. Optional for
    * backward compatibility with credentials persisted before this
-   * field was introduced — `defaultArkorCloudApiUrl` falls through to
+   * field was introduced; `defaultArkorCloudApiUrl` falls through to
    * the production endpoint when it's missing.
    */
   arkorCloudApiUrl?: string;
@@ -42,7 +42,7 @@ export type Credentials = Auth0Credentials | AnonymousCredentials;
  * non-2xx status while requesting an anonymous token.
  *
  * Covers both explicit deployment-side rejection (e.g. anonymous tokens
- * disabled — typically 401/403/404) and other HTTP failures such as
+ * disabled: typically 401/403/404) and other HTTP failures such as
  * transient 5xx server errors. Distinct from transport failures (raw
  * `TypeError("fetch failed")`), schema mismatches (`ZodError`), and
  * local fs errors so callers can pattern-match on "anon endpoint
@@ -107,7 +107,7 @@ export async function getToken(credentials: Credentials): Promise<string> {
  *
  * Priority order:
  *   1. `ARKOR_CLOUD_API_URL` env var (trailing slash stripped). Empty
- *      string is honoured — an operator who set `=""` intentionally
+ *      string is honoured: an operator who set `=""` intentionally
  *      (so a config error surfaces at first fetch instead of silently
  *      hitting production) sees `""` propagated.
  *   2. `arkorCloudApiUrl` from the loaded credentials. Both
@@ -119,7 +119,7 @@ export async function getToken(credentials: Credentials): Promise<string> {
  *      `ARKOR_CLOUD_API_URL` re-set. Empty string is honoured here
  *      too for the same reason as the env var.
  *   3. The production endpoint `https://api.arkor.ai`. This branch
- *      catches missing `arkorCloudApiUrl` only — the legacy case for
+ *      catches missing `arkorCloudApiUrl` only: the legacy case for
  *      OAuth tokens persisted before the field existed. Those
  *      credentials need a re-login (or `ARKOR_CLOUD_API_URL` set
  *      explicitly) to follow a non-production control plane.
@@ -154,7 +154,7 @@ export function defaultArkorCloudApiUrl(
   // field existed) is still safe: the worst outcome there is a 401
   // against the wrong control plane, which is what the operator hits
   // today on those legacy tokens anyway. `typeof === "string"` is the
-  // narrowing check — `readCredentials()` is a raw `JSON.parse` cast
+  // narrowing check: `readCredentials()` is a raw `JSON.parse` cast
   // without schema validation, so a hand-edited or partially-written
   // credentials file can leave the field as `null` at runtime even
   // though the type says `string | undefined`; the typeof guard

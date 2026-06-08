@@ -31,7 +31,7 @@ beforeEach(() => {
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-whoami-test-"));
   process.env.HOME = fakeHome;
   // Mirror HOME into the Windows home-dir env vars so `os.homedir()`
-  // — and therefore the credential helpers — point at the temp dir on
+  // (and therefore the credential helpers) point at the temp dir on
   // every platform.
   process.env.USERPROFILE = fakeHome;
   process.env.HOMEDRIVE = "";
@@ -249,7 +249,7 @@ describe("runWhoami", () => {
 
   it("falls back to production for legacy OAuth credentials with no arkorCloudApiUrl", async () => {
     // Older OAuth tokens persisted before round 67 don't carry the
-    // login-time URL. The graceful fallback there is production —
+    // login-time URL. The graceful fallback there is production;
     // operators on staging would hit a 401 they can recover from by
     // re-running `arkor login` (which now stamps the URL).
     delete process.env.ARKOR_CLOUD_API_URL;
@@ -308,7 +308,7 @@ describe("runWhoami", () => {
   });
 
   it("falls back to org id when an org has no slug", async () => {
-    // Branch coverage for `o.slug ?? o.id` — historic data may have orgs
+    // Branch coverage for `o.slug ?? o.id`: historic data may have orgs
     // without a slug column populated; the helper must still render
     // something rather than `undefined`.
     await writeCredentials({

@@ -139,7 +139,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   // `studio/server.ts` is bundled into `dist/bin.mjs` (it isn't reachable
   // from `src/index.ts`, so tsdown doesn't extract it as a shared chunk).
   // The bin therefore sits *next* to this code at runtime, not one
-  // directory up — `../bin.mjs` would resolve to the package root.
+  // directory up: `../bin.mjs` would resolve to the package root.
   const trainBinPath =
     options.binPath ?? fileURLToPath(new URL("bin.mjs", import.meta.url));
 
@@ -172,7 +172,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   //   1. Per-launch token. CORS is intentionally not configured: the SPA
   //      is same-origin so CORS adds no value, and reflecting `*` would let
   //      "simple" cross-origin POSTs (text/plain, urlencoded) skip preflight
-  //      and reach the handler. The token check rejects those — an attacker
+  //      and reach the handler. The token check rejects those: an attacker
   //      page can't read the SPA's <meta> from another origin.
   //   2. `?studioToken=` is accepted only on the job-event stream route
   //      because `EventSource` cannot send custom headers. Mutation routes
@@ -214,7 +214,7 @@ export function buildStudioApp(options: StudioServerOptions) {
    * env first, then the URL stamped onto the credentials at signup
    * (anonymous) or login (OAuth, since round 67), then production.
    * This is the supported way for every Studio route to follow the
-   * control plane the credentials came from — the closure-captured
+   * control plane the credentials came from: the closure-captured
    * `baseUrl` only knows the env / production fallback (no creds at
    * startup), so an OAuth user who logged in against staging without
    * setting the env var would otherwise see Jobs / Playground /
@@ -348,7 +348,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
     let trainFile: string | undefined;
     if (body.file) {
-      // Resolve symlinks before the containment check — `path.resolve` is purely
+      // Resolve symlinks before the containment check: `path.resolve` is purely
       // lexical, so a symlink under the project directory pointing at e.g.
       // `/etc/passwd` would otherwise pass `startsWith(baseAbs + sep)`. The
       // bin spawned below would then dlopen the link's target.
@@ -421,7 +421,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       state = await ensureProjectState({ cwd: trainCwd, client, credentials });
     } catch (err) {
       // Propagate cloud-api's status verbatim (e.g. 401 / 403 / 5xx) so the
-      // SPA / clients can react appropriately — collapsing everything to 400
+      // SPA / clients can react appropriately; collapsing everything to 400
       // would mis-report upstream outages and auth failures. Anything else
       // (local writeState failures, missing-credentials guard) is treated as
       // a server-side error.
@@ -466,8 +466,8 @@ export function buildStudioApp(options: StudioServerOptions) {
   // Studio-side routes thinly wrap the SDK's `CloudApiClient` so the SPA can
   // manage `*.arkor.app` deployments without re-implementing the cloud API
   // contract. Each request:
-  //   1. Reads the project state to derive `(orgSlug, projectSlug)` scope —
-  //      no scope means no deployments to list, return an empty wrapper.
+  //   1. Reads the project state to derive `(orgSlug, projectSlug)` scope.
+  //      No scope means no deployments to list; return an empty wrapper.
   //   2. Builds a `CloudApiClient` from on-disk credentials (same flow as
   //      `/api/inference/chat`).
   //   3. Calls the corresponding SDK method.
@@ -477,8 +477,8 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   /**
    * Read project state without requiring credentials. Listing deployments
-   * for a fresh workspace (no `.arkor/state.json`) is a local no-op — same
-   * behaviour as `/api/jobs` — so we must NOT call `getCredentials()`
+   * for a fresh workspace (no `.arkor/state.json`) is a local no-op (same
+   * behaviour as `/api/jobs`), so we must NOT call `getCredentials()`
    * first: that path can throw on `autoAnonymous: false` setups or when
    * the anonymous-token bootstrap fails offline, turning the empty-list
    * read into a 500.
@@ -495,21 +495,21 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   /**
    * Intent of the route calling `withDeploymentClient`:
-   *   - `"read"` — pure GET. If `.arkor/state.json` is missing, return
+   *   - `"read"`: pure GET. If `.arkor/state.json` is missing, return
    *     404 without provisioning a remote project. Bookmarked detail
    *     pages and `/keys` lookups must NOT silently create empty cloud
    *     projects as a side effect.
-   *   - `"create"` — `POST /api/deployments` only. This is the one
+   *   - `"create"`: `POST /api/deployments` only. This is the one
    *     route that can legitimately bootstrap a fresh workspace: an
    *     anonymous user clicks "New endpoint", we lazily run
    *     `ensureProjectState()`, persist `.arkor/state.json`, and
    *     forward the deployment create. Auth0 callers without state get
    *     a 400 with the manual-state remediation.
-   *   - `"mutate"` — PATCH / DELETE on `:id`, key CRUD. These need an
+   *   - `"mutate"`: PATCH / DELETE on `:id`, key CRUD. These need an
    *     existing deployment, which by definition needs an existing
    *     scope. If `.arkor/state.json` is missing, the deployment id in
    *     the URL cannot resolve to anything in a project that doesn't
-   *     exist yet, so we 404 *without bootstrapping* — provisioning a
+   *     exist yet, so we 404 *without bootstrapping*; provisioning a
    *     fresh project here would leave it orphaned (the PATCH /
    *     DELETE / key request would still 404 against the empty
    *     project). Adding a deployment first via the create flow is the
@@ -526,8 +526,8 @@ export function buildStudioApp(options: StudioServerOptions) {
   ): Promise<Response> {
     // Read scope from local FS first. `readScopeFromState` does not touch
     // credentials or the network, so on a fresh workspace we can answer
-    // read-only routes with a clean 404 *without* tripping `getCredentials()`
-    // — the latter throws when no token is on disk and `autoAnonymous` is
+    // read-only routes with a clean 404 *without* tripping `getCredentials()`:
+    // the latter throws when no token is on disk and `autoAnonymous` is
     // off, which would otherwise turn a documented "no deployments yet"
     // into an opaque 500.
     const scope0 = await readScopeFromState().catch(() => null);
@@ -538,7 +538,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       // may be remote deployments that just aren't reachable until the
       // operator restores the state file by hand. Phrasing this as
       // "no deployments yet" misdiagnoses bookmarked detail / keys
-      // URLs hit by an Auth0 user — the actual fix is to put
+      // URLs hit by an Auth0 user; the actual fix is to put
       // `.arkor/state.json` back in place.
       //
       // `"mutate"` lands here for the same reason: a PATCH / DELETE /
@@ -570,7 +570,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     // request so we can re-emit it as `Deprecation` / `Warning` /
     // `Sunset` headers on the outgoing Response. Without this the
     // deployment proxy would silently swallow upstream deprecation
-    // signals — `/api/jobs` and `/api/inference/chat` stream the
+    // signals: `/api/jobs` and `/api/inference/chat` stream the
     // headers through verbatim, and we want browser callers to see
     // the same warnings here.
     let deprecationNotice: DeprecationNotice | null = null;
@@ -583,7 +583,7 @@ export function buildStudioApp(options: StudioServerOptions) {
      * free by virtue of streaming the upstream Response straight
      * through. Hoisted to the top of the handler body so the
      * setup-side error returns below can also forward any deprecation
-     * captured during `ensureProjectState()` — without this, a 4xx /
+     * captured during `ensureProjectState()`; without this, a 4xx /
      * 5xx during bootstrap would silently drop a sunset notice the
      * cloud-api just raised.
      */
@@ -658,7 +658,7 @@ export function buildStudioApp(options: StudioServerOptions) {
             projectSlug: state.projectSlug,
           };
         } else {
-          // Auth0 callers cannot bootstrap automatically — we don't know
+          // Auth0 callers cannot bootstrap automatically: we don't know
           // which org / project the logged-in user wants the deployment in,
           // and neither `arkor login` nor `arkor init` populates
           // `.arkor/state.json` today (see docs/concepts/project-structure).
@@ -681,7 +681,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       // unavailable" envelope. Route it through `jsonWithDeprecation`
       // so any `Deprecation` / `Warning` / `Sunset` headers the
       // bootstrap upstream emitted alongside its 4xx / 5xx still
-      // surface to the SPA — `/api/jobs` and friends pass these
+      // surface to the SPA: `/api/jobs` and friends pass these
       // through verbatim, and we want the deployment proxy's failure
       // path to match. This mirrors the handler-side catch below.
       if (err instanceof CloudApiError) {
@@ -691,7 +691,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       // recoverable setup problem (the operator just needs to log in or
       // enable autoAnonymous). Surface its message verbatim with a 401
       // so the SPA can render a "Run `arkor login`" hint instead of an
-      // opaque 500 — `Endpoints.tsx` shows `err.message` directly in
+      // opaque 500: `Endpoints.tsx` shows `err.message` directly in
       // its error envelopes. This text is user-facing copy from
       // `studio/server.ts`'s own throw, not user input or a filesystem
       // path, so forwarding it carries no info-leak risk.
@@ -714,7 +714,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       return jsonWithDeprecation(result, 200);
     } catch (err) {
       if (err instanceof CloudApiError) {
-        // Cloud API errors are intentionally forwarded — `err.message` is
+        // Cloud API errors are intentionally forwarded: `err.message` is
         // the structured `{ error }` body cloud-api returned, which is
         // already user-facing copy ("Slug already taken", etc.).
         return jsonWithDeprecation({ error: err.message }, err.status);
@@ -728,12 +728,12 @@ export function buildStudioApp(options: StudioServerOptions) {
   }
 
   app.get("/api/deployments", async () => {
-    // List view doesn't require credentials when there's no scope yet —
+    // List view doesn't require credentials when there's no scope yet:
     // mirror `/api/jobs`'s local-only empty-list path so the Endpoints
     // tab loads cleanly on fresh workspaces and offline. Surface
     // `scopeMissing: true` so the SPA can distinguish "this project
     // genuinely has no deployments" from "we don't know which project
-    // to look at" — the latter needs different remediation copy
+    // to look at": the latter needs different remediation copy
     // ("create your first endpoint" for anonymous; "restore
     // .arkor/state.json" for Auth0).
     const scope = await readScopeFromState();
@@ -754,11 +754,11 @@ export function buildStudioApp(options: StudioServerOptions) {
   // `c.req.json()` happily parses every well-formed JSON value,
   // including the literal `null`, so a `.catch(() => null)` would
   // collapse both "parse failed" and "valid `null` body" into the
-  // same case. Use a `Symbol` sentinel — Symbols can't appear in JSON
-  // — so the parse-failure branch catches *only* the syntax error and
-  // every well-formed JSON value (including `null`, `false`, `0`,
-  // `""`, arrays) flows through to the schema check that knows how
-  // to reject the wrong shape with an accurate error message.
+  // same case. Use a `Symbol` sentinel; Symbols can't appear in JSON, so
+  // the parse-failure branch catches *only* the syntax error and every
+  // well-formed JSON value (including `null`, `false`, `0`, `""`, arrays)
+  // flows through to the schema check that knows how to reject the wrong
+  // shape with an accurate error message.
   const PARSE_FAILED: unique symbol = Symbol("studio.body-parse-failed");
   type ParseFailed = typeof PARSE_FAILED;
   const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -777,7 +777,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     // `{ slug: "x", authMode: "bogus", target: {} }`), and on a fresh
     // anonymous workspace `ensureProjectState()` would still run and
     // persist `.arkor/state.json` + a remote project as a side
-    // effect — even though `createDeployment` would immediately 400
+    // effect, even though `createDeployment` would immediately 400
     // afterwards. Validating with the same schema the cloud API
     // applies (slug pattern + length, target discriminated union,
     // authMode closed enum) catches those cases here, *before*
@@ -819,7 +819,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       return c.json({ error: "Invalid JSON body" }, 400);
     }
     // Parse succeeded but the value isn't a settings-bag object.
-    // `typeof null === "object"` is the historical JS gotcha — without
+    // `typeof null === "object"` is the historical JS gotcha: without
     // the explicit `!== null` here, a literal `null` body would slip
     // past the shape check and forward as `undefined`-equivalent.
     // Cloud-api would 400 these too, but reporting the shape problem

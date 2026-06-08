@@ -18,7 +18,11 @@ import {
 } from "../components/ui/Card";
 import { StatusBadge } from "../components/ui/StatusBadge";
 import { fetchJobs, openJobEvents, type Job } from "../lib/api";
-import { formatDuration, truncateMiddle } from "../lib/format";
+import {
+  formatDuration,
+  NO_VALUE_PLACEHOLDER,
+  truncateMiddle,
+} from "../lib/format";
 
 const MAX_LOSS_POINTS = 2000;
 
@@ -56,7 +60,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
           setJob(jobs.find((j) => j.id === jobId) ?? null);
         }
       } catch {
-        // ignore — events stream is the source of truth for live status
+        // ignore: events stream is the source of truth for live status
       } finally {
         if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
@@ -104,17 +108,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
         const p = parsed as Record<string, unknown>;
         switch (event) {
           case "training.log": {
-            // Omit each `key=…` segment when the corresponding field is
-            // missing/non-numeric so eval-only frames render cleanly as
-            // `step=<n> evalLoss=…` instead of being padded with a noisy
-            // `loss=—` placeholder. `Number.isFinite` additionally
-            // rejects non-finite numerics — `JSON.parse` overflows
-            // out-of-range exponent forms like `1e309` to `Infinity`
-            // (RFC 8259 grammar can't express `NaN`, so it can't arrive
-            // from the wire), and we keep the `NaN` rejection as cheap
-            // defense for in-process computation. The
-            // `typeof === "number"` precondition lets TypeScript narrow
-            // `p.loss` / `p.evalLoss` from `unknown` (the
+            // Omit each numeric `key=…` segment outright when the
+            // corresponding field is missing/non-numeric so eval-only
+            // frames render cleanly as `step=<n> evalLoss=…` (with
+            // `loss=…` simply absent) rather than padded with a
+            // placeholder. The only placeholder this branch can emit
+            // is `step=-` when the frame did not carry a numeric
+            // `step` (see line 132); `loss` and `evalLoss` are either
+            // formatted with `.toFixed(4)` or dropped entirely.
+            // `Number.isFinite` additionally rejects non-finite
+            // numerics: `JSON.parse` overflows out-of-range exponent
+            // forms like `1e309` to `Infinity` (RFC 8259 grammar
+            // can't express `NaN`, so it can't arrive from the wire),
+            // and we keep the `NaN` rejection as cheap defense for
+            // in-process computation. The `typeof === "number"`
+            // precondition lets TypeScript narrow `p.loss` /
+            // `p.evalLoss` from `unknown` (the
             // `Record<string, unknown>` cast above) so `.toFixed` is
             // called on a typed `number` without an `as` assertion.
             const lossPart =
@@ -125,7 +134,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
               typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss)
                 ? ` evalLoss=${p.evalLoss.toFixed(4)}`
                 : "";
-            message = `step=${typeof p.step === "number" ? p.step : "—"}${lossPart}${evalPart}`;
+            message = `step=${typeof p.step === "number" ? p.step : "-"}${lossPart}${evalPart}`;
 
             break;
           }
@@ -141,7 +150,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
             break;
           }
           case "checkpoint.saved": {
-            message = `step=${typeof p.step === "number" ? p.step : "—"}`;
+            message = `step=${typeof p.step === "number" ? p.step : "-"}`;
 
             break;
           }
@@ -152,7 +161,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
         ...prev.slice(-499),
         { id, ts: Date.now(), event, message },
       ]);
-      // Any received frame means the EventSource is alive again — drop
+      // Any received frame means the EventSource is alive again; drop
       // any stale "stream interrupted" banner from the prior disconnect.
       setEventErr(null);
     }
@@ -204,7 +213,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
         // Skip frames that carry neither a numeric loss nor a numeric
         // evalLoss. LossChart's `unified` filter would drop them on
         // render anyway, but they'd still consume a `MAX_LOSS_POINTS`
-        // retention slot here — a long stream of no-loss frames could
+        // retention slot here; a long stream of no-loss frames could
         // evict earlier real loss points and degrade chart/stats
         // fidelity.
         if (safeLoss === null && safeEvalLoss === null) return;
@@ -270,8 +279,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
   // Status precedence:
   //   1. SSE terminal frame (training.completed / training.failed) we
-  //      observed in this session — most authoritative.
-  //   2. Polled terminal status from /api/jobs — also authoritative,
+  //      observed in this session: most authoritative.
+  //   2. Polled terminal status from /api/jobs: also authoritative,
   //      and crucially it preempts a stale `liveStatus = "running"`
   //      that can linger if the SSE stream dropped before the
   //      terminal frame arrived.
@@ -301,19 +310,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
     { label: "Status", value: <StatusBadge status={status} size="sm" /> },
     {
       label: "Duration",
-      value: duration === null ? "—" : formatDuration(duration),
+      value:
+        duration === null ? NO_VALUE_PLACEHOLDER : formatDuration(duration),
       mono: true,
     },
     {
       label: "Created",
-      value: job?.createdAt ? formatAbsoluteTime(job.createdAt) : "—",
+      value: job?.createdAt
+        ? formatAbsoluteTime(job.createdAt)
+        : NO_VALUE_PLACEHOLDER,
       mono: true,
     },
     {
       label: "Started",
       value: (() => {
         const at = job?.startedAt ?? liveStartedAt;
-        return at ? formatAbsoluteTime(at) : "—";
+        return at ? formatAbsoluteTime(at) : NO_VALUE_PLACEHOLDER;
       })(),
       mono: true,
     },
@@ -321,23 +333,23 @@ export function JobDetail({ jobId }: { jobId: string }) {
       label: "Completed",
       value: (() => {
         const at = job?.completedAt ?? terminal?.completedAt;
-        return at ? formatAbsoluteTime(at) : "—";
+        return at ? formatAbsoluteTime(at) : NO_VALUE_PLACEHOLDER;
       })(),
       mono: true,
     },
     {
       label: "Base model",
-      value: getConfigString(job?.config, ["model"]) ?? "—",
+      value: getConfigString(job?.config, ["model"]) ?? NO_VALUE_PLACEHOLDER,
       mono: true,
     },
     {
       label: "Dataset",
-      value: getDatasetLabel(job?.config) ?? "—",
+      value: getDatasetLabel(job?.config) ?? NO_VALUE_PLACEHOLDER,
       mono: true,
     },
     {
       label: "Artifacts",
-      value: terminal ? terminal.artifacts : "—",
+      value: terminal ? terminal.artifacts : NO_VALUE_PLACEHOLDER,
       mono: true,
     },
     {
@@ -500,7 +512,7 @@ function computeDuration(
 
   // Prefer terminal end-times (polled `completedAt` first, then the
   // SSE-supplied one) so duration freezes the moment the job finishes
-  // even if /api/jobs is lagging — otherwise the ticker would keep
+  // even if /api/jobs is lagging; otherwise the ticker would keep
   // climbing past completion until the next poll succeeds.
   const completedAt = job?.completedAt ?? terminal?.completedAt;
   if (completedAt) {
@@ -511,17 +523,18 @@ function computeDuration(
 
   // If we know the job is terminal (SSE terminal frame OR polled
   // status reached completed/failed/cancelled) but we don't have a
-  // `completedAt` to anchor against, render `—` rather than tick `now`
-  // — otherwise a cancelled/failed job whose backend never recorded a
-  // completion timestamp would show an ever-growing duration as if it
-  // were still running.
+  // `completedAt` to anchor against, return null so the caller can
+  // render the shared `NO_VALUE_PLACEHOLDER` ("N/A") in the metadata
+  // sidebar rather than tick `now`; otherwise a cancelled/failed
+  // job whose backend never recorded a completion timestamp would
+  // show an ever-growing duration as if it were still running.
   const polledIsTerminal =
     job?.status === "completed" ||
     job?.status === "failed" ||
     job?.status === "cancelled";
   if (terminal || polledIsTerminal) return null;
 
-  // Running phase — tick `now`. Either the polled status is already
+  // Running phase: tick `now`. Either the polled status is already
   // "running", or SSE flipped us live before /api/jobs caught up.
   if (job?.status === "running" || liveStartedAt) {
     return Math.max(0, now - start);
@@ -531,7 +544,7 @@ function computeDuration(
 
 function formatAbsoluteTime(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return NO_VALUE_PLACEHOLDER;
   const Y = d.getFullYear();
   const M = String(d.getMonth() + 1).padStart(2, "0");
   const D = String(d.getDate()).padStart(2, "0");

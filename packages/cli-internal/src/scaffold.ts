@@ -14,11 +14,11 @@ import { detectYarnMajor } from "./yarn-version";
 import type { PackageManager } from "./package-manager";
 
 /**
- * - `created` — file was missing; the scaffolder wrote a new one.
- * - `kept` — file existed; the scaffolder left it untouched on disk.
- * - `patched` — file existed; the scaffolder modified it in place.
- * - `ok` — file existed and already matched the desired state; no write.
- * - `skipped` — the scaffolder declined to create or modify the file
+ * - `created`: file was missing; the scaffolder wrote a new one.
+ * - `kept`: file existed; the scaffolder left it untouched on disk.
+ * - `patched`: file existed; the scaffolder modified it in place.
+ * - `ok`: file existed and already matched the desired state; no write.
+ * - `skipped`: the scaffolder declined to create or modify the file
  *   because some upstream guard tripped (currently: `CLAUDE.md` when
  *   `AGENTS.md` contains duplicate managed blocks). The file is **not**
  *   on disk afterwards, distinguishing this from `kept`.
@@ -26,7 +26,7 @@ import type { PackageManager } from "./package-manager";
 export type FileAction = "created" | "kept" | "patched" | "ok" | "skipped";
 
 export interface ScaffoldOptions {
-  /** Destination directory — created if it does not already exist. */
+  /** Destination directory, created if it does not already exist. */
   cwd: string;
   /** Project name used in package.json + README. */
   name: string;
@@ -135,14 +135,14 @@ const AGENTS_MD_PATH = "AGENTS.md";
 const CLAUDE_MD_PATH = "CLAUDE.md";
 const DEFAULT_ARKOR_SPEC = "^0.0.2-alpha.2";
 
-// Marker pair scoped to arkor — do not reuse Next.js's `nextjs-` markers.
+// Marker pair scoped to arkor; do not reuse Next.js's `nextjs-` markers.
 // Anything between these markers is treated as canonical and replaced on
 // re-scaffold; anything outside is preserved.
 const AGENTS_BLOCK_BEGIN = "<!-- BEGIN:arkor-agent-rules -->";
 const AGENTS_BLOCK_END = "<!-- END:arkor-agent-rules -->";
 
 // Distinctive first content line of the canonical body. Used as a
-// secondary signature when locating the managed block — see
+// secondary signature when locating the managed block; see
 // `findManagedBlock`. Treat as part of the on-wire contract: changing
 // this string is a breaking change that orphans every existing
 // AGENTS.md (the old block will no longer be detected and a fresh one
@@ -158,40 +158,40 @@ arkor was released recently and is likely not present in your model training dat
 
 Before writing or changing any arkor code, consult one of these sources of truth (in order of preference):
 
-1. \`node_modules/arkor/docs/\` — installed copy of the docs, present after \`npm install\` / \`pnpm install\` / \`yarn\` / \`bun install\`.
-2. \`node_modules/arkor/dist/index.d.mts\` — installed type definitions for the public SDK exports.
-3. <https://docs.arkor.ai> — public docs site. Use **only** when no installed copy is available locally (fresh scaffold without \`install\`, install failure, Yarn PnP). When \`node_modules/arkor/\` exists, prefer it: this project may be pinned to an older SDK version and the public site can document APIs that aren't in the installed release yet — code written against the public site can fail to compile against the pinned SDK.
-4. <https://github.com/arkorlab/arkor> — source repository.
+1. \`node_modules/arkor/docs/\`: installed copy of the docs, present after \`npm install\` / \`pnpm install\` / \`yarn\` / \`bun install\`.
+2. \`node_modules/arkor/dist/index.d.mts\`: installed type definitions for the public SDK exports.
+3. <https://docs.arkor.ai>: public docs site. Use **only** when no installed copy is available locally (fresh scaffold without \`install\`, install failure, Yarn PnP). When \`node_modules/arkor/\` exists, prefer it: this project may be pinned to an older SDK version and the public site can document APIs that aren't in the installed release yet, so code written against the public site can fail to compile against the pinned SDK.
+4. <https://github.com/arkorlab/arkor>: source repository.
 
 If the docs and your assumptions disagree, the docs win.
 
 Key project files:
 - \`src/arkor/index.ts\` registers arkor primitives.
 - \`src/arkor/trainer.ts\` defines the trainer; training settings (\`maxSteps\`, \`lora\`, etc.) live on the Trainer itself.
-- \`arkor.config.ts\` is currently a placeholder — the runtime does not read it yet.
+- \`arkor.config.ts\` is currently a placeholder; the runtime does not read it yet.
 ${AGENTS_BLOCK_END}`;
 
 // pnpm 11 errors out (`ERR_PNPM_IGNORED_BUILDS`, exit 1) on packages
 // with postinstall scripts unless the project either approves or
 // explicitly denies the dep. arkor's only flagged build script is
 // esbuild's, which downloads/verifies the platform-specific binary
-// — but pnpm already installs `@esbuild/<platform>` as an
+// but pnpm already installs `@esbuild/<platform>` as an
 // optionalDependency, so `arkor build` works *without* the
 // postinstall in the common case. We therefore pin the scaffolded
-// default to "deny" rather than "allow" — running arbitrary install
+// default to "deny" rather than "allow": running arbitrary install
 // scripts is a supply-chain hazard pnpm 11 deliberately makes the
 // user opt into.
 //
 // Allow-list location across pnpm versions:
 //
-//   - pnpm 9:  no allow-list — runs build scripts unconditionally.
+//   - pnpm 9:  no allow-list; runs build scripts unconditionally.
 //              REQUIRES `packages:` if `pnpm-workspace.yaml` exists,
 //              else errors "packages field missing or empty".
 //   - pnpm 10: warns (but exits 0) on ignored builds. Honours
 //              `package.json#pnpm.onlyBuiltDependencies` AND
 //              `pnpm-workspace.yaml#allowBuilds`.
 //   - pnpm 11: ERRORS on ignored builds. Does NOT honour
-//              `package.json#pnpm.onlyBuiltDependencies` —
+//              `package.json#pnpm.onlyBuiltDependencies`:
 //              configuration moved to `pnpm-workspace.yaml#allowBuilds`
 //              (map form: `{ <pkg>: true | false }`, what `pnpm
 //              approve-builds` writes). The package.json field is
@@ -199,11 +199,11 @@ ${AGENTS_BLOCK_END}`;
 //              suppresses the error.
 //
 // Hence: write `pnpm-workspace.yaml` with both `packages: []` (for
-// pnpm-9 compat — pnpm 10/11 don't require it but tolerate it) and
+// pnpm-9 compat; pnpm 10/11 don't require it but tolerate it) and
 // `allowBuilds: { esbuild: false }` (silences pnpm 11's error
 // without granting esbuild the right to run code at install time).
 // Tested against pnpm 9.15.9, 10.33.4, and 11.5.0. (PR #99 round
-// 36 — CI run 25351227697 showed `package.json#pnpm
+// 36: CI run 25351227697 showed `package.json#pnpm
 // .onlyBuiltDependencies` had no effect on pnpm 11.)
 //
 // yarn / npm / bun do not read `pnpm-workspace.yaml`, so the file is
@@ -216,7 +216,7 @@ function pnpmWorkspaceContent(allowEsbuild: boolean): string {
 # \`allowBuilds\` is pnpm 11's allow-list for postinstall scripts.
 # pnpm already installs esbuild's platform-specific binary as an
 # \`optionalDependency\`, so the postinstall script is unnecessary
-# in normal use — the scaffold defaults to \`false\` (deny) as a
+# in normal use; the scaffold defaults to \`false\` (deny) as a
 # supply-chain precaution. Pass \`--allow-builds\` to \`arkor init\` /
 # \`create-arkor\` (or flip the entry to \`true\` here) if you hit a
 # case where esbuild fails to find its binary (rare; usually a
@@ -235,7 +235,7 @@ const YARNRC_YML_CONTENT = "nodeLinker: node-modules\n";
 // .gitignore entries that yarn-berry generates inside `.yarn/` regardless
 // of nodeLinker. `.yarn/cache/` holds zipped tarballs of every dependency
 // (typically tens of MB) and `.yarn/install-state.gz` is a per-install
-// state file — neither belongs in git. yarn classic (1.x) doesn't create
+// state file; neither belongs in git. yarn classic (1.x) doesn't create
 // `.yarn/` at all so these entries are harmless on that line.
 const YARN_GITIGNORE_LINES = [".yarn/cache", ".yarn/install-state.gz"];
 
@@ -309,12 +309,12 @@ async function patchGitignore(
   // Two distinct entry sets:
   //
   //   - On CREATE (no pre-existing `.gitignore`): write a complete
-  //     starter — `node_modules/`, `dist/`, `.arkor/`, plus the
+  //     starter: `node_modules/`, `dist/`, `.arkor/`, plus the
   //     yarn-cache lines under the round-14 #2 / 15 gate. We own
   //     the file in this case, so a sensible baseline is fine.
   //     This branch ALSO fires when scaffolding into an existing
   //     repo that simply has no `.gitignore` yet (e.g. a fresh
-  //     `git init` + README pre-existing project — round-15
+  //     `git init` + README pre-existing project, round-15
   //     widening's `isExistingProject=true`). That's intentional:
   //     the round-16 conservatism applies to the PATCH path's
   //     "don't flip an existing ignore policy"; if there's no
@@ -326,11 +326,11 @@ async function patchGitignore(
   //     PATCH path and leaves their policy alone. The
   //     yarn-cache extras are still gated by `isExistingProject`
   //     so we don't add them when merging into someone else's
-  //     repo (round 14 #2 / 15 — even on the CREATE branch).
+  //     repo (round 14 #2 / 15: even on the CREATE branch).
   //
   //   - On PATCH (pre-existing `.gitignore`): only ensure
   //     `.arkor/` is present. `node_modules/` and `dist/` are NOT
-  //     touched — Copilot (PR #99 round 16) flagged that existing
+  //     touched: Copilot (PR #99 round 16) flagged that existing
   //     repos may intentionally track them (publish forks of
   //     build outputs, static-site `dist/` checked into a deploy
   //     branch, etc), and silently flipping the ignore policy
@@ -338,7 +338,7 @@ async function patchGitignore(
   //     the user opting in. The yarn-cache lines aren't touched
   //     either; round-14 #2 already kept them out of pre-existing
   //     repos. Only `.arkor/` is arkor-specific enough that we're
-  //     confident the user wants it ignored — otherwise their
+  //     confident the user wants it ignored; otherwise their
   //     trainer cache, build cache, and credentials would all
   //     leak into commits.
   //
@@ -397,11 +397,11 @@ function stripBom(s: string): string {
  *   nodeLinker: node-modules # comment  # trailing comment
  *   nodeLinker:    node-modules         # extra whitespace
  *     nodeLinker: node-modules          # indented root mapping
- *   parent:                             # NESTED — must NOT match
+ *   parent:                             # NESTED, must NOT match
  *     nodeLinker: pnp                   #   (this is parent.nodeLinker)
  *
  * Strategy: find the indentation of the first content (non-blank,
- * non-comment) line in the document — that establishes the root
+ * non-comment) line in the document: that establishes the root
  * indent. Then accept `nodeLinker:` only when it appears at exactly
  * that indent (so a deeper-indented `nodeLinker:` nested under
  * another key isn't mistaken for the root value). Within the value
@@ -414,7 +414,7 @@ function readNodeLinkerValue(yarnrc: string): string | undefined {
   let rootIndent: number | undefined;
   for (const line of yarnrc.split(/\r?\n/)) {
     if (!line.trim() || /^\s*#/.test(line)) continue;
-    // Skip YAML structural markers — directives (`%YAML 1.2`,
+    // Skip YAML structural markers: directives (`%YAML 1.2`,
     // `%TAG …`) and document boundaries (`---`, `...`, each
     // optionally with a trailing `# comment`). They aren't
     // mapping entries, so anchoring `rootIndent` at their column
@@ -451,7 +451,7 @@ interface YarnConfigPatchResult {
   /**
    * Set when the existing `.yarnrc.yml` had `nodeLinker:` pinned to
    * a value other than `node-modules` and we elected to keep it.
-   * `scaffold()` turns this into a user-facing warning — the project
+   * `scaffold()` turns this into a user-facing warning: the project
    * will install but `arkor dev` / `arkor train` will fail until the
    * linker is changed.
    */
@@ -461,7 +461,7 @@ interface YarnConfigPatchResult {
    * existing project (round 14: explicit `--use-yarn` shouldn't flip
    * the install mode of a surrounding yarn-berry workspace, even
    * when `.yarnrc.yml` is missing or has no `nodeLinker:` key).
-   * `scaffold()` turns this into the yarn-berry caveat advisory —
+   * `scaffold()` turns this into the yarn-berry caveat advisory:
    * same copy as the `inspectYarnConfig` path's `berry-without-linker`
    * outcome, just reached from the explicit-yarn arm.
    */
@@ -472,7 +472,7 @@ interface YarnConfigPatchResult {
 // linker" advisory. Centralised so the patch path (which discovers the
 // conflict while attempting to write) and the inspect-only path (which
 // runs when scaffold has elected NOT to mutate yarn config but still
-// wants to flag the same hazard — see scaffold() comment for the
+// wants to flag the same hazard; see scaffold() comment for the
 // undefined-pm + existing-project case) emit identical wording.
 // Remediation says "change to node-modules" rather than "remove the
 // line": yarn 4 falls back to PnP when `nodeLinker:` is absent, which
@@ -481,7 +481,7 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
   return (
     `Existing .yarnrc.yml pins \`nodeLinker: ${existingValue}\`. ` +
     `arkor's runtime can't resolve dependencies through anything ` +
-    `other than \`nodeLinker: node-modules\` — \`arkor dev\` and ` +
+    `other than \`nodeLinker: node-modules\`. \`arkor dev\` and ` +
     `\`arkor train\` will fail until you change the value to ` +
     `\`node-modules\`.`
   );
@@ -493,7 +493,7 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
 // (yarn-berry's default), so `yarn install` would land on PnP and
 // `arkor dev` / `arkor train` would break.
 //
-// Path-agnostic copy — emitted from BOTH the explicit `--use-yarn`
+// Path-agnostic copy: emitted from BOTH the explicit `--use-yarn`
 // patch path (via `needsBerryCaveat`) AND the
 // `pm === undefined && isExistingProject` inspect path (when the
 // inspect helpers find positive yarn-berry signal).
@@ -501,7 +501,7 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
 // Round 29 (Copilot, PR #99) trimmed the round-9 `.yarn/cache` /
 // `.yarn/install-state.gz` `.gitignore` recommendation: the
 // surrounding `patchGitignore` deliberately doesn't add those
-// entries to existing repos (round-14 #2 / 15 — Yarn zero-install
+// entries to existing repos (round-14 #2 / 15: Yarn zero-install
 // setups commit `.yarn/cache/` on purpose), so prescribing them
 // in the advisory contradicted our own patch policy. The user
 // keeps full control over their `.yarn/` policy; the advisory
@@ -523,13 +523,13 @@ function buildYarnBerryCaveatAdvisory(): string {
 }
 
 type YarnConfigStatus =
-  // file exists & nodeLinker:node-modules — nothing to flag
+  // file exists & nodeLinker:node-modules: nothing to flag
   | { kind: "ok" }
-  // no .yarnrc.yml at all — can't tell if project is yarn-berry
+  // no .yarnrc.yml at all: can't tell if project is yarn-berry
   // from this signal alone; caller must consult corepack
   // declaration (round 10 noise reduction)
   | { kind: "no-config" }
-  // .yarnrc.yml exists but has no nodeLinker key — file's mere
+  // .yarnrc.yml exists but has no nodeLinker key: file's mere
   // existence is yarn-berry evidence (yarn 1 reads `.yarnrc`,
   // not `.yarnrc.yml`), so caller can warn unconditionally
   // (round 11 review)
@@ -546,7 +546,7 @@ type YarnConfigStatus =
  * hazard if the user later runs `yarn install` via the manual install
  * hint.
  *
- * Four outcomes — see the union above for the meaning of each.
+ * Four outcomes; see the union above for the meaning of each.
  * Round 11 split the prior `needs-setup` outcome into `no-config`
  * vs `berry-without-linker` because they need different gating in
  * the caller: `.yarnrc.yml` is a yarn 2+ artifact (yarn 1 uses
@@ -589,8 +589,8 @@ async function readPackageManagerField(
 /**
  * Walk from `cwd` up toward filesystem root checking whether any
  * ancestor (including `cwd` itself) contains an entry named
- * `name`. Used to detect yarn-berry workspace artefacts —
- * `.yarnrc.yml` and `.yarn/` — that yarn itself walks up to find
+ * `name`. Used to detect yarn-berry workspace artefacts
+ * (`.yarnrc.yml` and `.yarn/`) that yarn itself walks up to find
  * during resolution. Delegates to `findEnclosingPath`, which
  * walks until the `dirname()` self-loop (filesystem root) with
  * no iteration cap. An earlier round had a defensive 20-iteration
@@ -598,7 +598,7 @@ async function readPackageManagerField(
  * as having no enclosing config (PR #99 round 39 Codex P2);
  * `dirname` is purely syntactic and terminates naturally.
  *
- * (PR #99 round 34 — Copilot flagged that the cwd-only check
+ * (PR #99 round 34: Copilot flagged that the cwd-only check
  * missed monorepo-subdir scaffolds whose workspace root pins the
  * yarn-berry config: `monorepo/packages/foo` has neither
  * `.yarnrc.yml` nor `.yarn/` locally but inherits both from
@@ -611,12 +611,12 @@ function hasEnclosingPath(cwd: string, name: string): boolean {
 /**
  * Like `hasEnclosingPath` but returns the absolute path of the
  * matched ancestor (or `undefined`). Lets callers inspect the
- * matched file's contents — round-38 Codex P2 needs this to read
+ * matched file's contents: round-38 Codex P2 needs this to read
  * the enclosing `.yarnrc.yml`'s `nodeLinker:` value before deciding
  * whether the yarn-berry caveat should fire.
  *
- * Walks until `dirname()` returns the same path it was given —
- * the canonical "reached filesystem root" signal — instead of
+ * Walks until `dirname()` returns the same path it was given,
+ * the canonical "reached filesystem root" signal, instead of
  * capping at an arbitrary depth. The earlier 20-iteration limit
  * was a defensive guard against pathological symlinks, but
  * `dirname` is purely syntactic (doesn't follow links) so it
@@ -682,7 +682,7 @@ async function readEnclosingYarnrcNodeLinker(
 /**
  * Walk from `cwd`'s parent up toward filesystem root looking for the
  * first `package.json` that declares a `packageManager` field. Walks
- * until `dirname()` returns the same path it was given — the
+ * until `dirname()` returns the same path it was given: the
  * canonical "reached filesystem root" signal. (PR #99 round 39
  * Codex P2 removed the earlier 20-iteration cap, which was
  * misclassifying real deeply-nested monorepo subdirs as having no
@@ -701,7 +701,7 @@ async function findEnclosingPackageManagerField(
   cwd: string,
 ): Promise<string | undefined> {
   let dir = dirname(cwd);
-  // Walk to filesystem root via `dirname() === self` — same
+  // Walk to filesystem root via `dirname() === self`: same
   // termination signal as `findEnclosingPath`. The earlier
   // 20-iteration cap was rejecting real deep monorepo layouts
   // (PR #99 round 39 Codex P2).
@@ -732,13 +732,13 @@ async function findEnclosingPackageManagerField(
  *   2. The closest enclosing parent's
  *      `package.json#packageManager`. Covers the
  *      "yarn-berry monorepo subdir without a local package.json"
- *      case Copilot called out — without this walk-up the round-15
+ *      case Copilot called out: without this walk-up the round-15
  *      `isExistingProject` widening would silently suppress the
  *      caveat for those users.
  *
  * Returns `undefined` when no declaration is found anywhere up the
  * tree. The caller decides what to do with that (currently:
- * suppress the yarn-berry caveat — see
+ * suppress the yarn-berry caveat; see
  * `pm === undefined && isExistingProject` arm).
  */
 async function resolveEnclosingPackageManagerField(
@@ -798,15 +798,15 @@ async function patchYarnConfig(
   }
   // Sub-cases for an existing `.yarnrc.yml`:
   //
-  //   1. `nodeLinker: node-modules` already pinned — no-op.
-  //   2. Some other explicit value (e.g. `nodeLinker: pnp`) — the
+  //   1. `nodeLinker: node-modules` already pinned: no-op.
+  //   2. Some other explicit value (e.g. `nodeLinker: pnp`): the
   //      user MADE a deliberate choice. Leave the file untouched
   //      and surface a conflict warning. (Round 5 + 8.)
-  //   3. No `nodeLinker:` key at all — yarn 4 silently defaults to
+  //   3. No `nodeLinker:` key at all: yarn 4 silently defaults to
   //      PnP. We *always* end up here with `isExistingProject=true`
   //      under round-15 semantics: a `.yarnrc.yml` on disk means
   //      `readdir(cwd)` returned at least one entry. So this
-  //      branch never appends — it surfaces the same yarn-berry
+  //      branch never appends; it surfaces the same yarn-berry
   //      caveat as the no-file case. The earlier append path
   //      (round 12 had an `insertNodeLinkerIntoYarnrc` helper for
   //      YAML edge cases like trailing `...` terminators and
@@ -854,7 +854,7 @@ type ManagedBlockLookup =
  * (or pasted documentation) as the managed block:
  *
  *   1. **Line-anchored markers.** BEGIN and END must each sit at the
- *      start of a line — at file start (optionally after a UTF-8 BOM),
+ *      start of a line: at file start (optionally after a UTF-8 BOM),
  *      or after a CR/LF newline. Inline mentions inside backticks
  *      (e.g. "delimited by `<!-- BEGIN:arkor-agent-rules -->`")
  *      therefore do not register.
@@ -869,7 +869,7 @@ type ManagedBlockLookup =
  *   3. **Single match required.** When several signature-matching pairs
  *      exist we refuse to patch and surface a warning to the caller.
  *      Earlier rounds tried "pick the first" / "pick the last", but both
- *      are unsafe — `writeAgentsMd` preserves user content on either side
+ *      are unsafe: `writeAgentsMd` preserves user content on either side
  *      of the managed block, so a user can legitimately put the block at
  *      the top, middle, or bottom of their file. Auto-picking either end
  *      would update the wrong copy and silently leave a stale set of
@@ -881,7 +881,7 @@ function findManagedBlock(s: string): ManagedBlockLookup {
   // All inter-line breaks accept either LF or CRLF. Hard-coding `\n`
   // would cause re-scaffolds of a CRLF AGENTS.md to miss the previously
   // inserted block (its line breaks are `\r\n`), fall through to the
-  // append path, and stack a second canonical block on every run —
+  // append path, and stack a second canonical block on every run,
   // breaking idempotency on Windows checkouts. The leading anchor also
   // skips an optional UTF-8 BOM (U+FEFF) at the file start so AGENTS.md
   // saved by editors that prepend a BOM (Windows Notepad's pre-2019
@@ -933,7 +933,7 @@ async function writeAgentsMd(
   const found = findManagedBlock(current);
   if (found.kind === "ambiguous") {
     // Conservative: don't guess which copy is canonical. Auto-picking
-    // first/last is unsafe — `writeAgentsMd` lets users put content on
+    // first/last is unsafe: `writeAgentsMd` lets users put content on
     // either side of the managed block, so a duplicate could be a real
     // earlier block + a user-pasted example below it (or vice versa).
     // Patching the wrong one silently leaves stale rules in the file.
@@ -941,7 +941,7 @@ async function writeAgentsMd(
     // will patch in place.
     return {
       action: "kept",
-      warning: `${AGENTS_MD_PATH} contains ${found.count} arkor-managed blocks (delimited by ${AGENTS_BLOCK_BEGIN} / ${AGENTS_BLOCK_END} with the canonical signature line). Refusing to patch automatically — remove the duplicate(s) and re-run.`,
+      warning: `${AGENTS_MD_PATH} contains ${found.count} arkor-managed blocks (delimited by ${AGENTS_BLOCK_BEGIN} / ${AGENTS_BLOCK_END} with the canonical signature line). Refusing to patch automatically. Remove the duplicate(s) and re-run.`,
     };
   }
   if (found.kind === "single") {
@@ -953,7 +953,7 @@ async function writeAgentsMd(
     await writeFile(path, next);
     return { action: "patched" };
   }
-  // No markers yet — append the block at the end. Preserve the user's
+  // No markers yet: append the block at the end. Preserve the user's
   // existing trailing-newline pattern verbatim (a previous version
   // collapsed any trailing run of newlines, which destroyed the user's
   // intentional formatting and broke the non-destructive guarantee).
@@ -964,7 +964,7 @@ async function writeAgentsMd(
   if (current.length === 0) {
     separator = "";
   } else if (current.endsWith(`${eol}${eol}`)) {
-    // Already ends with at least one blank line — no separator needed.
+    // Already ends with at least one blank line: no separator needed.
     separator = "";
   } else if (current.endsWith(eol)) {
     // Single trailing newline → one more makes the blank line.
@@ -980,7 +980,7 @@ async function writeAgentsMd(
 async function writeClaudeMd(cwd: string): Promise<FileAction> {
   // Claude Code auto-loads CLAUDE.md; the `@AGENTS.md` directive imports the
   // shared instructions so the two files stay in sync without duplication.
-  // Never overwrite an existing CLAUDE.md — users may have project-specific
+  // Never overwrite an existing CLAUDE.md: users may have project-specific
   // instructions there already.
   const path = join(cwd, CLAUDE_MD_PATH);
   if (existsSync(path)) return "kept";
@@ -1045,14 +1045,14 @@ async function patchPackageJson(
 // (key-value pairs at top level), and we only need to detect the
 // **top-level** `allowBuilds:` (block / inline / scalar) and merge
 // `esbuild: <value>` into it. If the user has already pinned an
-// explicit value — per-key OR a top-level scalar like
-// `allowBuilds: false` — we leave the file alone: overriding their
+// explicit value (per-key OR a top-level scalar like
+// `allowBuilds: false`), we leave the file alone: overriding their
 // decision either way would silently change the install-time threat
 // model of their project, and a scalar form is a deliberate global
 // pin we must not stomp on.
 //
 // All regexes anchor with `^${rootIndent}` (start-of-line + the
-// document's detected root indent — see `detectYamlRootIndent`)
+// document's detected root indent: see `detectYamlRootIndent`)
 // so a nested `allowBuilds:` under some other key (round-37
 // Copilot review) can't be mistaken for the top-level pnpm
 // setting that pnpm 11 actually consults. `rootIndent` is `""`
@@ -1073,7 +1073,7 @@ async function patchPnpmWorkspace(
   let patched = current;
   // Already pinned per-key → trust the user.
   // Top-level `allowBuilds: <bool>` (scalar) → also a deliberate user
-  // pin (global allow / deny). Don't append a sibling block — that'd
+  // pin (global allow / deny). Don't append a sibling block: that'd
   // produce two top-level `allowBuilds` keys, ambiguous YAML.
   const esbuildAlreadyPinned =
     readAllowBuildsValue(current, "esbuild") !== undefined ||
@@ -1120,7 +1120,7 @@ const TRAILING_COMMENT_AND_EOL_CAPTURED = String.raw`([ \t]*(?:#[^\r\n]*)?\r?)$`
 
 // True when `trimmed` is a YAML document-boundary marker. Per
 // the YAML 1.2 spec a marker line can be `---` (or `...`)
-// followed by optional whitespace and a `#` comment — e.g.
+// followed by optional whitespace and a `#` comment, e.g.
 // `--- # pnpm config`. The exact-string check the previous
 // rounds used would treat the commented form as a real content
 // line, mis-anchoring `rootIndent` to the marker's column and
@@ -1167,21 +1167,21 @@ function detectYamlRootIndent(contents: string): string {
 //
 //   allowBuilds: { esbuild: false }
 //
-// Top-level only — anchored at `^${rootIndent}` (start-of-line
+// Top-level only: anchored at `^${rootIndent}` (start-of-line
 // + the document's detected root indent, see
 // `detectYamlRootIndent`) so a nested `allowBuilds:` under
 // another key can't be mistaken for the top-level pnpm setting
 // pnpm itself reads. `rootIndent` is `""` for canonical column-0
 // YAML and a leading-whitespace string for indented document
 // roots; the anchor encodes "starts at root mapping column",
-// NOT "starts at column 0" — important because round-39
+// NOT "starts at column 0": important because round-39
 // surfaced real `pnpm-workspace.yaml` files with indented roots
 // that the column-0-only matchers had been silently writing
 // duplicate blocks into (round-37 / round-39 Copilot review).
 //
 // Tolerates CRLF line endings and trailing `# comment`s on entries
 // (round-38 reviewer feedback). Scalar form (`allowBuilds: false`)
-// is intentionally NOT detected here — it's a global pin not
+// is intentionally NOT detected here: it's a global pin not
 // specifically about esbuild. `hasTopLevelAllowBuildsScalar`
 // handles that.
 function readAllowBuildsValue(
@@ -1242,7 +1242,7 @@ function readAllowBuildsValue(
 }
 
 // True when the file pins `allowBuilds` to a **document-root scalar**
-// (`allowBuilds: true` / `allowBuilds: false`) — pnpm's "approve all"
+// (`allowBuilds: true` / `allowBuilds: false`): pnpm's "approve all"
 // / "deny all" global form. The append path must bail in that case;
 // blindly writing a fresh `allowBuilds:` block would leave two
 // root-level `allowBuilds` keys (round-37 Copilot review).
@@ -1259,7 +1259,7 @@ function hasTopLevelAllowBuildsScalar(contents: string): boolean {
 }
 
 // True when the file declares a document-root `packages:` key (in
-// any form — inline `[]`, inline list, or block list). pnpm 9
+// any form: inline `[]`, inline list, or block list). pnpm 9
 // errors "packages field missing or empty" whenever
 // `pnpm-workspace.yaml` exists without it, so the patch path must
 // backfill `packages: []` when the user's existing file omits it
@@ -1314,23 +1314,23 @@ function prependPackagesEmptyList(contents: string): string {
 // Append `esbuild: <value>` to an existing pnpm-workspace.yaml
 // without destructive rewrites. Three branches:
 //
-//   1. Inline `allowBuilds: { ... }` (top-level) — splice
+//   1. Inline `allowBuilds: { ... }` (top-level): splice
 //      `esbuild: <value>` into the mapping.
-//   2. Block `allowBuilds:` (top-level) with no esbuild entry —
+//   2. Block `allowBuilds:` (top-level) with no esbuild entry:
 //      append an `  esbuild: <value>` line at the end of the
 //      block, keeping the block's indentation.
-//   3. No top-level `allowBuilds:` key (and no scalar pin —
+//   3. No top-level `allowBuilds:` key (and no scalar pin;
 //      `patchPnpmWorkspace` already gates that out via
-//      `hasTopLevelAllowBuildsScalar`) — append a fresh block.
+//      `hasTopLevelAllowBuildsScalar`): append a fresh block.
 //
 // All matchers anchor with `^${rootIndent}` (start-of-line +
-// the document's detected root indent — see
+// the document's detected root indent, see
 // `detectYamlRootIndent`) so a nested `allowBuilds:` under some
 // other key can't be edited; that file would falsely report
 // "patched" while pnpm 11 keeps erroring (round-37 Copilot
 // review). `rootIndent` is `""` for canonical column-0 YAML and
 // a fixed leading-whitespace string for indented document
-// roots — the anchor identifies "starts at root mapping
+// roots; the anchor identifies "starts at root mapping
 // column", not "starts at column 0", which is what lets the
 // patcher correctly handle `pnpm-workspace.yaml` files whose
 // root mapping is indented (round-39 Copilot review).
@@ -1375,7 +1375,7 @@ function appendEsbuildToAllowBuilds(
     // Round 39 (Codex P2, PR #99): a hand-written
     // `allowBuilds: { sharp: true, }` (trailing comma) would
     // otherwise produce `sharp: true,, esbuild: false` after
-    // the merge — invalid YAML pnpm rejects on parse. Strip a
+    // the merge: invalid YAML pnpm rejects on parse. Strip a
     // trailing comma (with optional whitespace) before joining
     // so the result is well-formed regardless of how the
     // original was written.
@@ -1586,29 +1586,29 @@ export async function scaffold(
   //
   //   (1) Should we *handle* the file at all (patch existing or
   //       create fresh)? Skip when the chosen pm is explicitly NOT
-  //       pnpm — user picked a different toolchain, leave their
+  //       pnpm: user picked a different toolchain, leave their
   //       (or our) pnpm config untouched.
   //   (2) Should we *create* the file when it's missing at cwd?
   //       Mirror the yarn-config gating: `pm === "pnpm"` always,
   //       OR `pm === undefined && !isExistingProject` (fresh
-  //       scaffold of unknown pm — emit defensively, yarn / npm /
+  //       scaffold of unknown pm: emit defensively, yarn / npm /
   //       bun ignore the file). Plus an extra "no ancestor
   //       pnpm-workspace.yaml" guard so we never shadow a parent
   //       monorepo: dropping `packages: []` into a pnpm subdir
   //       redirects pnpm's workspace root and breaks
   //       `workspace:*` resolution above (round-37 multi-reviewer
   //       P1: Codex + Copilot 2x). `dirname(cwd)` walks strictly
-  //       ancestors — a pre-existing file at cwd is handled by
+  //       ancestors; a pre-existing file at cwd is handled by
   //       the patch path below, not this guard.
   //
   // When axis (1) admits handling (pm is pnpm or undefined) AND
-  // cwd already has the file, we patch it regardless of axis (2)
-  // — the user clearly has pnpm config locally and we just need
+  // cwd already has the file, we patch it regardless of axis (2):
+  // the user clearly has pnpm config locally and we just need
   // to ensure `esbuild` is allow-listed, OR observe that the user
   // already pinned a value and bow out. Round 40 (Copilot, PR
   // #99): the previous wording said "we ALWAYS patch it
   // (regardless of (2))", which read as if the patch path
-  // bypassed axis (1) too — but it doesn't. An explicit
+  // bypassed axis (1) too, but it doesn't. An explicit
   // `--use-npm` / `--use-yarn` / `--use-bun` keeps the existing
   // `pnpm-workspace.yaml` untouched (per axis (1): "leave their
   // (or our) pnpm config untouched"); axis (2) is the only gate
@@ -1634,7 +1634,7 @@ export async function scaffold(
   }
   // Yarn-config emission rules:
   //
-  //   - `pm === "yarn"` — the user explicitly opted into yarn.
+  //   - `pm === "yarn"`: the user explicitly opted into yarn.
   //     Run `patchYarnConfig` so it can either:
   //       (a) Create `.yarnrc.yml` with `nodeLinker: node-modules`
   //           when the cwd was empty pre-scaffold (`!isExistingProject`).
@@ -1653,7 +1653,7 @@ export async function scaffold(
   //           needsBerryCaveat` and the caller surfaces the
   //           caveat instead of an emitted file.
   //   - `pm === undefined` and the cwd was EMPTY pre-scaffold
-  //     (`!isExistingProject`) — this is a fresh scaffold where
+  //     (`!isExistingProject`): this is a fresh scaffold where
   //     we don't yet know which pm the user will pick. The
   //     manual-install hint says "yarn / bun install", so a
   //     yarn-berry user reading it and running `yarn install`
@@ -1661,18 +1661,18 @@ export async function scaffold(
   //     yarn 1 / npm / pnpm / bun all ignore `.yarnrc.yml`, so
   //     it's harmless for non-yarn flows.
   //   - `pm === undefined` and the cwd had any pre-existing
-  //     content (`isExistingProject`) — this is a merge into
+  //     content (`isExistingProject`): this is a merge into
   //     someone else's project. We can't tell whether the
   //     surrounding workspace is a yarn-berry repo deliberately
   //     on the PnP default, so silently writing `.yarnrc.yml`
   //     would flip the install mode for the whole repo. Don't
-  //     touch yarn config — defer to the user (Copilot review on
+  //     touch yarn config; defer to the user (Copilot review on
   //     PR #99). Same skip applies when the user *explicitly*
   //     picked a non-yarn pm. The `isExistingProject` snapshot is
   //     a "non-empty directory entries" check captured at the top
   //     of `scaffold()` before `patchPackageJson()` runs (round
   //     15 widened the check from `existsSync(package.json)` for
-  //     exactly this reason — a fresh git-init'd repo with only
+  //     exactly this reason: a fresh git-init'd repo with only
   //     a README would have been misclassified as fresh under
   //     the package.json predicate). (Round-39 Copilot review:
   //     the older comment still described the predicate as
@@ -1689,7 +1689,7 @@ export async function scaffold(
     // pushing it anyway makes both CLIs print "kept .yarnrc.yml"
     // for a file that doesn't exist, which is a confusing lie.
     // (Copilot, PR #99 round 18.) The `berry-without-linker` case
-    // — file exists on disk, we declined to mutate — is still
+    // (file exists on disk, we declined to mutate) is still
     // legitimately `kept` and gets recorded.
     if (existsSync(join(cwd, YARNRC_YML_PATH))) {
       files.push({ path: YARNRC_YML_PATH, action: yarn.action });
@@ -1700,7 +1700,7 @@ export async function scaffold(
     } else if (yarn.needsBerryCaveat) {
       // Round 14: explicit `--use-yarn` against an existing project
       // where `.yarnrc.yml` is missing (or has no `nodeLinker:` key)
-      // — patch path declined to mutate. Whether to surface the
+      // (patch path declined to mutate). Whether to surface the
       // caveat depends on whether the project is actually on
       // yarn-berry, gated on layered signals:
       //
@@ -1724,7 +1724,7 @@ export async function scaffold(
       //      silent break for the yarn 4 bootstrap case.
       //      `detectYarnMajor` shells out to `yarn --version`
       //      and returns `undefined` if yarn isn't on PATH /
-      //      errors out — that fallback keeps the yarn 1 happy
+      //      errors out; that fallback keeps the yarn 1 happy
       //      path intact when detection isn't possible.
       // Round 34 (Copilot, PR #99): walk up the ancestor tree
       // for `.yarnrc.yml` and `.yarn/` rather than checking only
@@ -1765,7 +1765,7 @@ export async function scaffold(
         // fail-closed (treat undefined as yarn 2+) for safety,
         // but round 33 pushed back: conflating probe-failure
         // with PnP hazard misleads users whose actual failure
-        // mode is something else — yarn missing, corepack
+        // mode is something else: yarn missing, corepack
         // blocked by an enclosing non-yarn `packageManager`,
         // etc. Telling those users to "edit `.yarnrc.yml`" when
         // the real fix is "install yarn" or "fix corepack" is
@@ -1792,22 +1792,22 @@ export async function scaffold(
     // unknown-pm merge into a pre-existing project mustn't flip
     // the install mode of a surrounding yarn-berry workspace), but
     // the manual install hint still tells the user "yarn / bun
-    // install" — so if they're on yarn-berry with `nodeLinker:
+    // install"; so if they're on yarn-berry with `nodeLinker:
     // pnp` already pinned, `arkor dev` will fail just the same as
     // in the patch path. Read the existing config and surface the
     // appropriate advisory without touching the file:
     //
-    //   - `conflict` (`nodeLinker: pnp` etc) — round 8. ALWAYS
+    //   - `conflict` (`nodeLinker: pnp` etc): round 8. ALWAYS
     //     surface; an existing yarnrc with a non-default linker is
     //     unambiguous evidence the project uses yarn-berry,
     //     regardless of corepack declaration.
     //   - `berry-without-linker` (`.yarnrc.yml` exists but has no
-    //     `nodeLinker:` key) — round 11. ALSO unconditional: yarn 1
+    //     `nodeLinker:` key): round 11. ALSO unconditional: yarn 1
     //     reads `.yarnrc` (no `.yml`), so the file's mere existence
     //     is yarn-berry evidence even when `package.json#packageManager`
     //     is absent. yarn 4 would silently default to PnP here, so
     //     the user needs the same caveat as the no-file case.
-    //   - `no-config` (no `.yarnrc.yml` at all) — round 9 hazard,
+    //   - `no-config` (no `.yarnrc.yml` at all): round 9 hazard,
     //     gated by round 10 noise reduction. yarn-berry would
     //     default to PnP and the `.gitignore` we wrote doesn't
     //     cover the `.yarn/` artifacts. Only warn when the existing
@@ -1825,7 +1825,7 @@ export async function scaffold(
       }
       case "berry-without-linker": {
         // Round 39 (Copilot, PR #99): cwd's yarnrc has no
-        // `nodeLinker:` key, but yarn merges configs up the tree —
+        // `nodeLinker:` key, but yarn merges configs up the tree;
         // an ancestor workspace root pinning `nodeLinker: node-modules`
         // is the safe case the caveat is supposed to nudge users
         // toward. `readEnclosingYarnrcNodeLinker` walks ancestor
@@ -1849,7 +1849,7 @@ export async function scaffold(
         // monorepo-subdir case round 15 widened us into.
         //
         // Round 31 (Copilot, PR #99): also consult `.yarn/` on
-        // disk — the patch path adopted that as a positive
+        // disk: the patch path adopted that as a positive
         // yarn-berry signal in round 29 (yarn 1 doesn't create
         // that tree, so its existence is unambiguous yarn-berry
         // evidence) but the inspect path was still narrower,
@@ -1873,7 +1873,7 @@ export async function scaffold(
         // Round 38 (Codex P2, PR #99): same enclosing-linker
         // short-circuit as the patch path above. An ancestor
         // workspace root that already pins `nodeLinker: node-modules`
-        // is the safe case — no caveat needed.
+        // is the safe case; no caveat needed.
         const enclosingNodeLinker = await readEnclosingYarnrcNodeLinker(cwd);
         if (enclosingNodeLinker !== "node-modules") {
           const yarnrcInTree = hasEnclosingPath(cwd, YARNRC_YML_PATH);

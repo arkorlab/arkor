@@ -14,7 +14,7 @@ export interface StartStudioOptions {
 }
 
 export interface StudioHandle {
-  /** `http://127.0.0.1:<port>` — the live Studio. */
+  /** `http://127.0.0.1:<port>`: the live Studio. */
   url: string;
   /** Per-launch CSRF token, parsed out of the served `index.html`. */
   token: string;
@@ -36,13 +36,13 @@ const STDIO_BUFFER_CAP = 4096;
 
 /**
  * Rolling string buffer with a bounded memory footprint. Memory is
- * capped at ~`2 * cap` bytes — every time `append` lifts the buffer
+ * capped at ~`2 * cap` bytes: every time `append` lifts the buffer
  * past `2 * cap` it slices back to the most-recent `cap`, so
  * `toString()` may return up to ~`2 * cap` bytes. Total append work
  * is linear in the bytes written (the lazy truncation amortises the
  * O(cap) slice across `cap` worth of appends). Used in place of an
- * unbounded `string[]` so the ready-line detector — which runs on
- * every stdout chunk — avoids the O(n²) cost of `Array.join("")`
+ * unbounded `string[]` so the ready-line detector (which runs on
+ * every stdout chunk) avoids the O(n²) cost of `Array.join("")`
  * over a growing chunk list.
  */
 class TailBuffer {
@@ -72,7 +72,7 @@ class TailBuffer {
  * line *before* the underlying `http.Server.listen()` settles, so a fetch
  * fired in the small window between stdout flush and bound socket gets
  * `ECONNREFUSED`. The window is sub-millisecond on a warm Node process but
- * grows on a cold one. Poll a bare TCP connect until the kernel accepts —
+ * grows on a cold one. Poll a bare TCP connect until the kernel accepts:
  * cheaper than retrying every test's fetch and keeps the contract local
  * to the harness so spec authors can fetch immediately after `studio.url`.
  */
@@ -118,7 +118,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
   // Track `close` from the moment `makeKill` is constructed so a
   // late `kill()` call (e.g. teardown invoked after a spawn error)
   // doesn't attach a fresh listener for an event that's already
-  // fired and never returns. `close` is universal — it follows
+  // fired and never returns. `close` is universal: it follows
   // `exit` for normal terminations and `error` for spawn failures,
   // and always fires exactly once per child.
   let closed = false;
@@ -140,8 +140,8 @@ function makeKill(child: ChildProcess): () => Promise<void> {
       // Wait on `close`, not `exit`: Node skips `exit` when the
       // process fails to spawn (it emits `error` then `close`) and
       // some failure paths skip `exit` while still emitting `close`.
-      // `close` always fires after stdio is fully drained — once for
-      // every spawn outcome (success, error, signal-killed) — so it
+      // `close` always fires after stdio is fully drained, once for
+      // every spawn outcome (success, error, signal-killed), so it
       // is the only universally reliable teardown signal.
       const onClose = () => {
         clearTimeout(fallback);
@@ -151,7 +151,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
       // Race-free closed check: the listener is attached *before*
       // we read the flag. If `close` already fired (`closed === true`,
       // set by the constructor-time tracker above), our listener
-      // can't re-fire — detach it and resolve immediately. If
+      // can't re-fire: detach it and resolve immediately. If
       // `close` hasn't fired yet, the listener is in place and will
       // catch the event whenever it does. Checking the flag *after*
       // the attach (instead of returning early before `new Promise`)
@@ -181,7 +181,7 @@ function makeKill(child: ChildProcess): () => Promise<void> {
 interface SpawnedStudio {
   child: ChildProcess;
   url: string;
-  /** Idempotent teardown for `child` — exposed so `startStudio` reuses
+  /** Idempotent teardown for `child`, exposed so `startStudio` reuses
    *  the same instance instead of allocating a second wrapper around
    *  the same process. */
   kill: () => Promise<void>;
@@ -214,8 +214,8 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
         CI: "1",
         HOME: opts.home,
         // Mirror HOME onto USERPROFILE so the spawned CLI's `os.homedir()`
-        // resolves to the test temp dir on Windows too — see the matching
-        // comment in e2e/cli/src/spawn-cli.ts.
+        // resolves to the test temp dir on Windows too (see the matching
+        // comment in e2e/cli/src/spawn-cli.ts).
         USERPROFILE: opts.home,
         ARKOR_CLOUD_API_URL: opts.cloudApiUrl,
         // Defence in depth: if anything anonymous-bootstrapped slips
@@ -234,7 +234,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
   // something to inspect without paying O(n²) for repeated
   // `Array.join("")` over a growing chunk array. Mirroring the buffers
   // to the parent's stderr is opt-in via `STUDIO_E2E_DEBUG` to keep CI
-  // logs quiet by default — set the env var while iterating on the
+  // logs quiet by default; set the env var while iterating on the
   // harness or chasing a flake; turbo.json declares it so toggling
   // busts the task cache.
   child.stderr.setEncoding("utf8");
@@ -268,7 +268,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
   // Settling cleanup applies to all three exits: success, timeout,
   // premature child exit. Listeners are removed every time so the
   // already-settled promise can't fire again, and on rejection we
-  // tear the child down via `makeKill` — otherwise a timeout would
+  // tear the child down via `makeKill`; otherwise a timeout would
   // throw out of `spawnStudio()` before the caller could obtain a
   // handle, leaving an orphaned `arkor dev` running on the runner.
   const kill = makeKill(child);
@@ -300,7 +300,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
         );
       };
       // `ChildProcess` emits `error` for spawn-time failures (ENOENT,
-      // EACCES, EINVAL on the bin path) — these don't trigger `exit`
+      // EACCES, EINVAL on the bin path): these don't trigger `exit`
       // and would otherwise become an unhandled exception that kills
       // the Playwright worker. Reject with the OS error so the
       // failure surfaces as a useful message instead of a 30s
@@ -339,7 +339,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
       child.on("error", onError);
       // The buffering `child.stdout.on("data", …)` listener attached
       // earlier may have already absorbed the "Arkor Studio running
-      // on …" line by the time we get here — when the child writes
+      // on …" line by the time we get here: when the child writes
       // it on the very first event-loop tick after spawn, the data
       // can land in `stdout` before this promise body runs. If no
       // further stdout follows (the steady-state for `arkor dev`),
@@ -364,7 +364,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
  * Fetch the served index.html once, parse the per-launch token out of
  * the injected `<meta name="arkor-studio-token" content="...">` tag,
  * and return it. The Studio server side-effects the meta tag at
- * request time (`server.ts:85-90`) — reading
+ * request time (`server.ts:85-90`); reading
  * `~/.arkor/studio-token` directly would couple to a persistence path
  * that's allowed to fail (CLI swallows errors when HOME is read-only).
  */
@@ -395,7 +395,7 @@ export async function startStudio(
   let token: string;
   try {
     // `arkor dev` writes the ready line before `http.Server.listen()`
-    // finishes binding — wait for the port to actually accept TCP
+    // finishes binding; wait for the port to actually accept TCP
     // connections before any fetch. See `waitForPort` comment.
     const port = Number(new URL(url).port);
     await waitForPort(port);

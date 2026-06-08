@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # All source-level validation lives here so build.yaml stays minimal —
+  # All source-level validation lives here so build.yaml stays minimal;
   # see the comment at the top of build.yaml. preflight is the gate that
   # decides whether the rest of the workflow may proceed; if any check
   # fails nothing else runs.
@@ -180,7 +180,7 @@ jobs:
       - name: Install
         # Belt-and-suspenders: pnpm-workspace.yaml's `allowBuilds`
         # already gates which packages may run postinstall, and
-        # `playwright` is not in that list — so `pnpm install` won't
+        # `playwright` is not in that list, so `pnpm install` won't
         # invoke Playwright's browser-download script today. Setting
         # `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` keeps that contract
         # explicit so a future `allowBuilds` change can't silently
@@ -247,7 +247,7 @@ jobs:
   # The trusted builder. Because `pnpm publish --provenance` runs inside
   # build.yaml, the OIDC token Sigstore signs has
   # `job_workflow_ref = .../build.yaml@<ref>` rather than this caller's
-  # path — giving SLSA Build L3 verifiers a stable, separately-lockable
+  # path, giving SLSA Build L3 verifiers a stable, separately-lockable
   # identity to pin.
   build:
     needs: [preflight, test]

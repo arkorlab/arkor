@@ -4,7 +4,7 @@ name: Build (reusable)
 #
 # Scope (intentionally minimal): install → build → pack → sbom → attest → publish.
 # Everything that is not strictly required to produce and sign the
-# artifact lives in the caller — tests (which execute arbitrary
+# artifact lives in the caller: tests (which execute arbitrary
 # user-controlled code), tag-shape validation, version reconciliation
 # against package.json, the npm-not-yet-published guard, and the dry-run
 # verification path. Keeping those out of the reusable workflow shrinks
@@ -17,7 +17,7 @@ name: Build (reusable)
 # claim resolves to this file's path + ref. Verifiers (e.g.
 # `npm audit signatures`, slsa-verifier) can therefore require provenance
 # signed by this exact reusable workflow as a separately-lockable trust
-# principal — branch-protect this file and the publish identity is safe
+# principal; branch-protect this file and the publish identity is safe
 # even if a caller workflow is compromised.
 
 on:

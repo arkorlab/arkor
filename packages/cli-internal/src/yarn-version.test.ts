@@ -186,7 +186,7 @@ describe("detectYarnMajor", () => {
   // exact window between the close-listener and the timeout
   // callback firing, `kill("SIGKILL")` can throw. Without the
   // try/catch around kill, that throw escapes into Node's
-  // setTimeout scope as an uncaughtException — crashing the
+  // setTimeout scope as an uncaughtException, crashing the
   // process AND leaving the promise unresolved. Lock down the
   // contract: kill() throwing must NOT prevent the timeout
   // from settling the promise to undefined.
@@ -201,7 +201,7 @@ describe("detectYarnMajor", () => {
           throw new Error("ESRCH no such process");
         }),
       });
-      // Never emit close or error — force the timeout path.
+      // Never emit close or error; force the timeout path.
       return child;
     });
 

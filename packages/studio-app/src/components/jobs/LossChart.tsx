@@ -10,7 +10,7 @@ export interface LossPoint {
 
 // One vertex on the chart. At least one of `loss` / `evalLoss` is
 // non-null (the union pass below drops points that contribute
-// neither), but either may be missing on a given step — the trainer
+// neither), but either may be missing on a given step: the trainer
 // is allowed to log eval-only or train-only frames.
 type ChartPoint = {
   step: number;
@@ -39,7 +39,7 @@ export function LossChart({
     const el = wrapperRef.current;
     if (!el) return;
     // ResizeObserver is missing on older WebViews and on the SSR
-    // pre-paint pass — degrade to a one-shot width read instead of
+    // pre-paint pass; degrade to a one-shot width read instead of
     // throwing on construction. The chart won't follow viewport
     // resizes there, but it still renders.
     if (typeof ResizeObserver === "undefined") {
@@ -57,7 +57,7 @@ export function LossChart({
 
   // Unified series keyed by step. Building this from `points` (rather
   // than from the training-loss subset) is what lets eval-only frames
-  // — `training.log` events that omit `loss` but carry `evalLoss` —
+  // (`training.log` events that omit `loss` but carry `evalLoss`)
   // still appear in the eval line, legend, hover, and stats. Training
   // and eval series are derived from this union so both views agree
   // on which steps exist.
@@ -163,7 +163,7 @@ export function LossChart({
   const maxLoss = Math.max(...allLossValues);
   const span = Math.max(0.0001, maxLoss - minLoss);
   // Anchor the x-axis on the observed step range (firstStep..lastStep),
-  // not 0..lastStep — otherwise a trainer that emits its first
+  // not 0..lastStep; otherwise a trainer that emits its first
   // training.log at step 1 leaves an empty gap from PADDING.left to
   // the line's first vertex and tick labels at the left edge would
   // disagree with where the line actually starts.
@@ -237,7 +237,7 @@ export function LossChart({
       Math.min(1, (e.clientX - rect.left) / rect.width),
     );
     const targetStep = Math.round(firstStep + fraction * xSpan);
-    // `unified` is sorted by step (see useMemo above) — binary search
+    // `unified` is sorted by step (see useMemo above); binary search
     // for the insertion point and pick whichever neighbour is closer.
     // O(log n) vs the previous O(n) sweep that was running on every
     // mousemove against up to MAX_LOSS_POINTS=2000 entries.

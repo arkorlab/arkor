@@ -167,7 +167,7 @@ describe("defaultArkorCloudApiUrl", () => {
   });
   it("falls back to production for legacy OAuth credentials with no baseUrl", () => {
     // Credentials persisted before `Auth0Credentials.arkorCloudApiUrl`
-    // was added (round 67). The graceful fallback is production —
+    // was added (round 67). The graceful fallback is production:
     // operators on staging / self-hosted who hit this would have to
     // re-run `arkor login` to repopulate the field, or set
     // `ARKOR_CLOUD_API_URL` to bridge.
@@ -221,7 +221,7 @@ describe("defaultArkorCloudApiUrl", () => {
     expect(url).toBe("");
   });
   it("env wins over credentials-derived URL", () => {
-    // Operator override stays authoritative — useful for pointing a
+    // Operator override stays authoritative: useful for pointing a
     // production-credentials script at a staging mirror for a one-off
     // debug session without re-issuing the token.
     process.env.ARKOR_CLOUD_API_URL = "https://override.example.com";
@@ -290,7 +290,7 @@ describe("requestAnonymousToken", () => {
   });
 
   it("falls back to an empty body snippet when reading the response text throws", async () => {
-    // Branch coverage for the `.catch(() => "")` defensive arm — a
+    // Branch coverage for the `.catch(() => "")` defensive arm: a
     // proxied response whose body errors mid-read shouldn't crash the
     // bootstrap with a confusing TypeError instead of a clean
     // AnonymousTokenRejectedError.
@@ -340,7 +340,7 @@ describe("ensureCredentials", () => {
     };
     await writeCredentials(creds);
 
-    // No fetch mock — the function must early-return without calling out.
+    // No fetch mock: the function must early-return without calling out.
     globalThis.fetch = (async () => {
       throw new Error("fetch should not be called");
     }) as typeof fetch;

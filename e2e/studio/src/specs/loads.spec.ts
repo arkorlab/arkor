@@ -7,7 +7,7 @@ import { expect, test } from "../harness/fixture";
  * undici resets Host to match the connection target for security, which
  * is exactly what we *don't* want when testing the Studio server's
  * DNS-rebinding guard. `node:http.request` honours whatever Host we
- * pass — perfect for forging a non-loopback Host while staying on
+ * pass: perfect for forging a non-loopback Host while staying on
  * 127.0.0.1.
  */
 function rawGet(
@@ -77,8 +77,8 @@ test.describe("Studio boot + auth contract", () => {
   test("/api/credentials returns 403 without the token header", async ({
     studio,
   }) => {
-    // Regression guard for packages/arkor/src/studio/server.ts middleware
-    // — a missing or wrong token must reject before any handler runs.
+    // Regression guard for packages/arkor/src/studio/server.ts middleware:
+    // a missing or wrong token must reject before any handler runs.
     const res = await fetch(`${studio.url}/api/credentials`);
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string };

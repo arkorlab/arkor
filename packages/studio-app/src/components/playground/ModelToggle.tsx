@@ -73,7 +73,7 @@ function Segment({
     </button>
   );
   // Wrap a real `disabled` button (which keeps it out of the tab order
-  // and properly inert) in a tooltip-carrying span — most browsers
+  // and properly inert) in a tooltip-carrying span: most browsers
   // suppress hover events on the disabled button itself, but they
   // still bubble up to the wrapper, so the `title` hint stays
   // reachable.
