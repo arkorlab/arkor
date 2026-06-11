@@ -118,9 +118,12 @@ async function awaitSseFrame(
     res = await fetch(url, { signal: controller.signal });
   } catch (err) {
     clearTimeout(timeout);
-    throw new Error(`SSE connect failed for ${url}: ${(err as Error).message}`, {
-      cause: err,
-    });
+    throw new Error(
+      `SSE connect failed for ${url}: ${(err as Error).message}`,
+      {
+        cause: err,
+      },
+    );
   }
   if (!res.ok || !res.body) {
     clearTimeout(timeout);
