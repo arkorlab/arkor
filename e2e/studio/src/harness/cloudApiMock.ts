@@ -11,7 +11,7 @@ export type CloudApiHandler = (
 ) => void;
 
 export interface CloudApiMock {
-  /** `http://127.0.0.1:<port>` — pass to `arkor dev` as `ARKOR_CLOUD_API_URL`. */
+  /** `http://127.0.0.1:<port>`: pass to `arkor dev` as `ARKOR_CLOUD_API_URL`. */
   baseUrl: string;
   /** Replace the catch-all handler. Useful for case-by-case overrides. */
   setHandler: (handler: CloudApiHandler) => void;
@@ -44,8 +44,8 @@ function keyOf(req: IncomingMessage): RouteKey {
 }
 
 /**
- * The scope the seeded `.arkor/state.json` carries — see
- * `seedFixture.ts`. `arkor dev`'s Studio proxy threads these through
+ * The scope the seeded `.arkor/state.json` carries (see
+ * `seedFixture.ts`). `arkor dev`'s Studio proxy threads these through
  * scope-dependent cloud-api calls as `?orgSlug=…&projectSlug=…`:
  * `/v1/jobs`, `/v1/jobs/:id/events/stream`, and `/v1/inference/chat`.
  * Account-level routes like `/v1/me` proxy without scope. The default
@@ -60,7 +60,7 @@ function readScope(req: IncomingMessage): {
   orgSlug: string | null;
   projectSlug: string | null;
 } {
-  // The base URL is throw-away — `URL` requires an absolute reference
+  // The base URL is throw-away: `URL` requires an absolute reference
   // for parsing relative paths but we only need `searchParams`.
   const url = new URL(req.url ?? "", "http://x");
   return {
@@ -71,7 +71,7 @@ function readScope(req: IncomingMessage): {
 
 /**
  * Returns true when the scope query params match the seeded fixture.
- * Writes a 400 response and returns false otherwise — caller should
+ * Writes a 400 response and returns false otherwise; caller should
  * just `return` after a false result.
  */
 function requireExpectedScope(
@@ -201,8 +201,8 @@ export async function startFakeCloudApi(): Promise<CloudApiMock> {
     // The `Map<string, CloudApiHandler>` type already guarantees `route`
     // is a function when present, but the lookup key derives from
     // request-controlled `req.method` / `req.url`. CodeQL flags any
-    // dispatch through that path as "unvalidated dynamic method call"
-    // — the explicit `typeof === "function"` guard is the documented
+    // dispatch through that path as "unvalidated dynamic method call":
+    // the explicit `typeof === "function"` guard is the documented
     // remediation and clarifies the contract for readers.
     if (typeof route === "function") {
       route(req, res);

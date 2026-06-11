@@ -59,8 +59,8 @@ There are two private E2E suites, with different scopes:
 
 | Suite | Scope | Tooling |
 | --- | --- | --- |
-| [`e2e/cli`](e2e/cli) | The `arkor` and `create-arkor` CLI surfaces — spawning, scaffolding, build, exit codes, stdout/stderr | vitest spawning the built `dist/bin.mjs` |
-| [`e2e/studio`](e2e/studio) | The Studio SPA served by `arkor dev` — `<meta>` token injection, `/api/*` auth contract, page-level rendering, SSE streaming | Playwright driving Chromium against a real `arkor dev` + an in-process fake cloud-api |
+| [`e2e/cli`](e2e/cli) | The `arkor` and `create-arkor` CLI surfaces: spawning, scaffolding, build, exit codes, stdout/stderr | vitest spawning the built `dist/bin.mjs` |
+| [`e2e/studio`](e2e/studio) | The Studio SPA served by `arkor dev`: `<meta>` token injection, `/api/*` auth contract, page-level rendering, SSE streaming | Playwright driving Chromium against a real `arkor dev` + an in-process fake cloud-api |
 
 Both suites consume the built `dist/bin.mjs` of `arkor` (and, for `e2e/cli`, `create-arkor`). When you run `pnpm test` from the repo root, Turbo's `^build` already produces those artifacts, but standalone (`pnpm --filter @arkor/e2e-* test`) needs them up front.
 
@@ -98,18 +98,30 @@ cd my-arkor-app && pnpm dev
 
 Studio runs at `http://127.0.0.1:4000` with a CSRF token injected per launch.
 
+## Style conventions
+
+We avoid the em dash (U+2014) anywhere in code. Reach for a colon, a period, a comma, parentheses, a spaced hyphen (`" - "`), or a reworded sentence instead. A local ESLint rule, `local/no-em-dash`, enforces this across comments and string or template literals in every package, with no carve-out: CLI runtime messages, generated-file template bodies, and test names all follow the same rule.
+
+Markdown (including this file) is not linted by the rule. To extend the same convention to yaml, md, json, html, and root-level config, the [`scripts/check-no-em-dash.mts`](scripts/check-no-em-dash.mts) repo-wide guard scans every tracked file via `git grep` and fails on the em-dash glyph or its HTML entity. Run it locally with:
+
+```bash
+pnpm check:no-em-dash
+```
+
+CI runs the same script as a dedicated job (`no em dashes`) ahead of the build matrix, so a regression in a non-lint-target file blocks the PR before the rest of the workflow burns runner minutes.
+
 ## Pull request guidelines
 
-We err on the side of accepting PRs, even rough ones. Tiny contributions — a typo fix, a smoother sentence, a clearer error message — are genuinely welcome and never too small to send. **Please don't let any of the following stop you from opening one:**
+We err on the side of accepting PRs, even rough ones. Tiny contributions (a typo fix, a smoother sentence, a clearer error message) are genuinely welcome and never too small to send. **Please don't let any of the following stop you from opening one:**
 
-- **Size doesn't matter.** Huge diffs are fine — please don't hold back on opening a PR because it grew. We'd much rather read a sprawling PR than have you not send it, and we're happy to split it up on our side if that helps review.
+- **Size doesn't matter.** Huge diffs are fine; please don't hold back on opening a PR because it grew. We'd much rather read a sprawling PR than have you not send it, and we're happy to split it up on our side if that helps review.
 - **Unclear description is OK.** A messy or sparse PR description is better than no PR. We'll ask follow-ups in review rather than bouncing the patch.
 - **Tests aren't required.** A vitest case for SDK / CLI / scaffolder logic, a jsdom-based Testing Library case for Studio components (run with `pnpm --filter @arkor/studio-app test`), or a screenshot / short clip for visual UI tweaks: any of them is appreciated, none are blockers. We're happy to add tests ourselves as part of merging.
 - **Breaking changes are fine** during alpha. We don't ship compatibility shims between `0.0.x` versions, so just note them in the PR description and the [release notes](https://github.com/arkorlab/arkor/releases) stay honest.
 
 ## Reporting bugs and security issues
 
-- **Bugs**: [GitHub Issues](https://github.com/arkorlab/arkor/issues/new). Steps to reproduce, expected vs actual, and your Node + pnpm versions go a long way — but a one-line "this is broken" is still better than not reporting it. If we can't reproduce what you're seeing, we'll ask follow-up questions on the issue; please reply when you can. Most stalled bugs aren't ignored, just stuck waiting on context only the reporter has.
+- **Bugs**: [GitHub Issues](https://github.com/arkorlab/arkor/issues/new). Steps to reproduce, expected vs actual, and your Node + pnpm versions go a long way, but a one-line "this is broken" is still better than not reporting it. If we can't reproduce what you're seeing, we'll ask follow-up questions on the issue; please reply when you can. Most stalled bugs aren't ignored, just stuck waiting on context only the reporter has.
 - **Security**: please email security@arkor.ai instead of filing a public issue. We'll acknowledge within 48 hours.
 
 ## Code of conduct

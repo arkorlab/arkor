@@ -223,7 +223,7 @@ export function RunTraining() {
         // user has to click Run manually. Keeping the latch lets the
         // post-exit auto-spawn pick up the latest artefact on disk
         // (which is the FIXED build when the user fixed before exit,
-        // or the last-good build when they didn't — the manifest UI
+        // or the last-good build when they didn't; the manifest UI
         // surfaces the error either way, so stale-good-code background
         // churn is bounded and visible).
         //
@@ -572,7 +572,7 @@ export function RunTraining() {
         </div>
         <Button
           // While `running`, the same button doubles as the abort
-          // affordance: clicking aborts the in-flight stream so the
+          // affordance; clicking aborts the in-flight stream so the
           // visible StopCircle icon actually does what the user
           // expects. When idle, it kicks off a new run.
           onClick={running ? stop : () => run(lastTrainFileRef.current)}

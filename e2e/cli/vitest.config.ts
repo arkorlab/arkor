@@ -19,9 +19,9 @@ export default defineConfig({
     // `testTimeout` does NOT cover hooks, so it has to be set separately
     // even though the value is similar in spirit.
     hookTimeout: 30_000,
-    // ENG-632 retry lives in `spawn-cli.ts` — see `runCli` and the pure
-    // gate `shouldRetryAfterSigkill`. A vitest-level `retry` would rerun
-    // on every assertion failure on every platform — too broad. The
+    // ENG-632 retry lives in `spawn-cli.ts` (see `runCli` and the pure
+    // gate `shouldRetryAfterSigkill`). A vitest-level `retry` would rerun
+    // on every assertion failure on every platform, which is too broad. The
     // harness gate only fires when ALL of these hold for the previous
     // attempt:
     //
@@ -42,7 +42,7 @@ export default defineConfig({
     // `default` keeps normal CLI output; `junit` writes the XML that
     // codecov-action consumes for Test Analytics. E2E coverage itself is
     // collected via c8 (NODE_V8_COVERAGE) wrapping vitest in the
-    // `test:coverage` script — vitest's own coverage option is not used
+    // `test:coverage` script; vitest's own coverage option is not used
     // here because v8 coverage of *child* CLI processes is what we want.
     reporters: ["default", "junit"],
     outputFile: {

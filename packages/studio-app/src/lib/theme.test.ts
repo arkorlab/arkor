@@ -4,7 +4,7 @@ import { getCurrentTheme, getInitialTheme, setTheme } from "./theme";
 
 // theme.ts inspects `window` / `document` at call time, so we stub
 // both per-test instead of relying on a jsdom environment (which the
-// rest of the suite intentionally avoids — see vitest.config.ts).
+// rest of the suite intentionally avoids; see vitest.config.ts).
 
 interface FakeStorage {
   getItem: (key: string) => string | null;

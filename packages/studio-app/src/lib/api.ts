@@ -174,7 +174,7 @@ export async function fetchJobs(): Promise<{ jobs: Job[] }> {
 /**
  * Fetch a serialisable summary of the user's `createArkor({...})` manifest.
  * Returns `{ error }` (not a thrown exception) on 4xx so the SPA can render a
- * targeted hint, typically "no src/arkor/index.ts yet" right after scaffold.
+ * targeted hint (typically "no src/arkor/index.ts yet" right after scaffold).
  */
 export async function fetchManifest(): Promise<ManifestResult> {
   const res = await apiFetch("/api/manifest");
@@ -261,7 +261,7 @@ export async function* streamInferenceContent(
   }
   // `iterateSseFrames` mirrors cloud-api-client's `iterateEvents` and silently
   // exits when there's no body. That's fine for the SDK but in the Playground
-  // it would leave an empty assistant bubble with no error surfaced. Make
+  // it would leave an empty assistant bubble with no error surfaced; make
   // the missing-body case loud here instead.
   if (!res.body) {
     throw new Error("Inference response has no body");
@@ -413,7 +413,7 @@ export async function streamTraining(
   const onAbort = () => void reader.cancel().catch(() => {});
   // Cover the case where the signal was already aborted before we
   // got here (or aborted in the small window between `getReader()`
-  // and `addEventListener`): `addEventListener("abort", ...)` won't
+  // and `addEventListener`); `addEventListener("abort", ...)` won't
   // fire after the fact, so the trainer process spawned upstream
   // would never be killed. Cancel synchronously instead.
   if (signal?.aborted) {
@@ -448,7 +448,7 @@ export async function streamTraining(
 //
 // Wire-shape DTOs used by the SPA. They mirror the SDK's public types
 // (re-declared here so the studio-app bundle stays decoupled from the
-// `arkor` package — shipping an `import { DeploymentDto } from "arkor"`
+// `arkor` package: shipping an `import { DeploymentDto } from "arkor"`
 // would pull the SDK + its deps into the Vite bundle).
 
 export type DeploymentTarget =
@@ -478,7 +478,7 @@ export interface Deployment {
    * cloud-api builds can introduce additional modes (e.g. `"hours"`)
    * without breaking older clients. The `(string & {})` intersection
    * preserves autocomplete on the known literals while letting
-   * unknown strings flow through at runtime — match the SDK's
+   * unknown strings flow through at runtime; match the SDK's
    * `DeploymentRunRetentionMode` shape so any future UI switch logic
    * has a `default` branch to handle in.
    */
@@ -509,7 +509,7 @@ export interface CreatedDeploymentKey {
 /**
  * Mirror of the SDK's `RunRetentionFields` discriminated union (see
  * `packages/arkor/src/core/deployments.ts`). `runRetentionDays` is required
- * when `runRetentionMode === "days"` and disallowed otherwise — model that
+ * when `runRetentionMode === "days"` and disallowed otherwise; model that
  * coupling here so SPA call sites cannot construct an invalid combination
  * the backend would reject with a 400. Omit both for server defaults.
  */

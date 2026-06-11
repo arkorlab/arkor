@@ -477,7 +477,7 @@ describe("streamTraining", () => {
       cancel() {
         cancelled = true;
       },
-      // intentionally no enqueue / no close; would block on read()
+      // intentionally no enqueue / no close (would block on read())
     });
     globalThis.fetch = vi.fn(
       async () =>

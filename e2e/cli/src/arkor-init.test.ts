@@ -91,7 +91,7 @@ describe("arkor init (E2E)", () => {
     expect(result.code).toBe(0);
     expect(existsSync(join(cwd, "src/arkor/index.ts"))).toBe(true);
     expect(existsSync(join(cwd, "arkor.config.ts"))).toBe(true);
-    // AGENTS.md / CLAUDE.md ship by default — must match `create-arkor`
+    // AGENTS.md / CLAUDE.md ship by default and must match `create-arkor`
     // so users get the same project layout regardless of entry point.
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(true);
     expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(true);
@@ -261,7 +261,7 @@ describe("arkor init (E2E)", () => {
     expect(pkg.name).toBe("no-prompt-app");
   });
 
-  // Regression for ENG-357 — `--name "Foo Bar"` previously fell through to
+  // Regression for ENG-357: `--name "Foo Bar"` previously fell through to
   // package.json verbatim because sanitisation only ran inside the
   // interactive branch.
   it("sanitises --name when prompts are skipped", async () => {
@@ -416,7 +416,7 @@ describe("arkor init (E2E)", () => {
     );
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      "Directory is already inside a git repository — skipping git init.",
+      "Directory is already inside a git repository. Skipping git init.",
     );
 
     // No commit should have been added (the pre-seeded repo has no HEAD yet).
@@ -453,13 +453,13 @@ describe("arkor init (E2E)", () => {
   //      tarball must therefore live OUTSIDE the project dir.
   //   3. bun on Windows skips `bun.lock` generation for `file:`
   //      deps with multi-segment relative paths
-  //      (`file:../<dir>/<tgz>` — observed in CI run 25326609066).
+  //      (`file:../<dir>/<tgz>`, observed in CI run 25326609066).
   //      A single-segment `file:../<tgz>` works (the create-arkor
   //      lane has been passing on Windows × bun all along with
   //      this exact shape). So the tarball must be a sibling
   //      FILE of the project, not a sibling DIRECTORY entry.
   //
-  // The global `cwd` from beforeEach is unused by these tests —
+  // The global `cwd` from beforeEach is unused by these tests:
   // afterEach still cleans it up, and the per-test `parentDir`
   // is cleaned up in the `finally` block below.
   //
@@ -478,12 +478,12 @@ describe("arkor init (E2E)", () => {
   // install.ts` → `spawn("bun", ["install"], {stdio: "inherit"})`),
   // but produces it reliably for the IDENTICAL fixture under
   // create-arkor (same bun 1.3.13, same `file:../<tgz>` spec,
-  // same parentDir+project layout — verified passing on the
+  // same parentDir+project layout, verified passing on the
   // same CI runs that fail this lane). Rounds 22 → 23 → 25
   // narrowed the divergence to the CLI-binary axis with no other
   // observable difference.
   //
-  // Round 40 (Copilot, PR #99) — final answer. Earlier rounds
+  // Round 40 (Copilot, PR #99): final answer. Earlier rounds
   // tried (a) assertion-skip with `console.warn`, (b) test-level
   // `it.skipIf`, then (c) `it.fails` as a forcing-function
   // expected-failure. Copilot escalated each one in turn:
@@ -491,7 +491,7 @@ describe("arkor init (E2E)", () => {
   //   - (b) made the gap visible to the runner but Copilot still
   //     flagged the silent skip.
   //   - (c) turned the matrix green precisely when `arkor init
-  //     --use-bun --git` is broken on Windows — Copilot's
+  //     --use-bun --git` is broken on Windows; Copilot's
   //     pushback was "fix the bug or gate outside the supported
   //     matrix, don't expected-fail it".
   //
@@ -515,7 +515,7 @@ describe("arkor init (E2E)", () => {
       shouldSkipInstallCase(label) || isBunOnWindows(flag) ? it.skip : it;
     testFn(
       isBunOnWindows(flag)
-        ? `runs real ${label} install + git commit (NOT IN SUPPORTED MATRIX on Windows × bun — see the block comment above)`
+        ? `runs real ${label} install + git commit (NOT IN SUPPORTED MATRIX on Windows × bun: see the block comment above)`
         : `runs real ${label} install + git commit (gated by SKIP_E2E_INSTALL)`,
       async () => {
         if (!arkorTarball) {
@@ -535,7 +535,7 @@ describe("arkor init (E2E)", () => {
             { ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC: `file:../${tarballName}` },
           );
           // arkor init swallows `<pm> install` failures into a one-line
-          // warning so the user can retry manually — that means a broken
+          // warning so the user can retry manually: that means a broken
           // pm setup leaves us with `result.code === 0` but no
           // node_modules and only a warn buried in stderr. Surface the
           // captured stdout/stderr eagerly when an assertion is about to
@@ -546,7 +546,7 @@ describe("arkor init (E2E)", () => {
           // can throw AFTER writing node_modules (pnpm 11 + bun on
           // Windows have been observed exiting non-zero post-install),
           // arkor init's catch fires, and git is now also skipped
-          // (per round 35) — leaving result.code===0 + node_modules
+          // (per round 35), leaving result.code===0 + node_modules
           // present + .git/HEAD missing. Trigger the diagnostic dump
           // for that combination too.
           const expectedGit = existsSync(join(projectDir, ".git/HEAD"));
@@ -565,7 +565,7 @@ describe("arkor init (E2E)", () => {
             );
           }
           expect(result.code).toBe(0);
-          // Every pm — including yarn-berry — produces a real node_modules
+          // Every pm (including yarn-berry) produces a real node_modules
           // tree because the scaffold writes `.yarnrc.yml` with
           // `nodeLinker: node-modules` whenever the user picked yarn (see
           // packages/cli-internal/src/scaffold.ts). Without that pin
@@ -579,7 +579,7 @@ describe("arkor init (E2E)", () => {
 
           // Lockfile-in-initial-commit invariant: the git-init prompt
           // is surfaced *before* install so the user can walk away, but
-          // git init execution still happens *after* install — otherwise
+          // git init execution still happens *after* install; otherwise
           // the lockfile wouldn't be tracked and the bootstrap commit
           // wouldn't be reproducible. The Windows × bun sub-case is
           // skipped at the `testFn` selection above (gated outside the

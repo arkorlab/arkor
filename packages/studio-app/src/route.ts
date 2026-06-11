@@ -10,7 +10,7 @@ export type Route =
 
 /**
  * Parse a hash fragment (e.g. `"#/endpoints/foo"`) into a `Route`. The
- * argument is optional — when omitted, the function falls back to
+ * argument is optional; when omitted, the function falls back to
  * `window.location.hash` for the legacy "snapshot the live URL" call
  * sites (initial mount, callers that don't track their own URL state).
  * `evaluateHashChange` always passes the `newHash` it received from
@@ -47,7 +47,7 @@ export function parseRoute(hash: string = window.location.hash): Route {
   }
   if (path === "endpoints") return { kind: "endpoints" };
   if (path.startsWith("endpoints/")) {
-    // The hash segment is URL-encoded — links are constructed via
+    // The hash segment is URL-encoded: links are constructed via
     // `#/endpoints/${encodeURIComponent(id)}` to keep slashes / reserved
     // chars from breaking the path split. Decode once here so the SPA
     // hands the raw id to `fetchDeployment(id)`, which encodes again on
@@ -72,14 +72,14 @@ export function parseRoute(hash: string = window.location.hash): Route {
  * A guard returns `false` to *block* a pending hash navigation. The
  * router then rolls the address bar back to the previous hash via
  * `history.back()` and skips the route update. Used by pages that hold
- * un-recoverable state — the `EndpointDetail` page registers a guard
+ * un-recoverable state: the `EndpointDetail` page registers a guard
  * while a one-time API key `plaintext` response is in flight (or
  * displayed but not yet acknowledged), so any nav-tab click / back
  * button has to confirm before losing the secret.
  *
  * Guards run inside the same `hashchange` handler that drives
  * `useHashRoute`, so they fire *before* the route state updates and
- * before any per-page `hashchange` listener — that ordering is what
+ * before any per-page `hashchange` listener; that ordering is what
  * makes the block effective. A per-page listener registered separately
  * runs after `setRoute()` has already torn its component down.
  */
@@ -127,7 +127,7 @@ export function evaluateHashChange(opts: {
 }): HashChangeDecision {
   // The rollback fires another `hashchange`. By the time it lands, the
   // URL has returned to `lastHash` so this branch resolves to `ignore`
-  // and the handler does nothing — no manual recursion flag needed.
+  // and the handler does nothing (no manual recursion flag needed).
   if (opts.newHash === opts.lastHash) return { kind: "ignore" };
   for (const guard of opts.guards) {
     if (!guard()) {
@@ -151,7 +151,7 @@ export function evaluateHashChange(opts: {
   //     stamped, and the next Back/Forward would compute the wrong
   //     direction.
   //   - otherwise (`< lastSeq` Back, `> lastSeq` Forward) → revisit of a
-  //     previously-stamped entry. Preserve `currentSeq` — re-stamping `B`
+  //     previously-stamped entry. Preserve `currentSeq`: re-stamping `B`
   //     with a higher number than `C` after an A→B→C→Back-to-B sequence
   //     would corrupt direction detection on the next Forward and turn
   //     the rollback into another `forward()`, ejecting the user further
@@ -162,7 +162,7 @@ export function evaluateHashChange(opts: {
   // `window.location.hash` happens to be when the parse runs. Without
   // this thread-through, the helper would silently couple to global
   // state and a fast back-to-back navigation could feed a route for a
-  // *later* hash to the SPA — exactly the kind of bug this extraction
+  // *later* hash to the SPA, exactly the kind of bug this extraction
   // was meant to remove.
   const newSeq =
     opts.currentSeq !== null && opts.currentSeq !== opts.lastSeq
@@ -177,7 +177,7 @@ export function evaluateHashChange(opts: {
 
 function readSeqFromState(): number | null {
   // Use `window.history` (rather than the bare `history` global) so
-  // tests that stub `window` see their stubbed history — `vi.stubGlobal`
+  // tests that stub `window` see their stubbed history; `vi.stubGlobal`
   // only redefines the named global, and `history` and `window.history`
   // resolve to different bindings under that stub.
   const state = (window.history.state ?? null) as { seq?: unknown } | null;
@@ -187,14 +187,14 @@ function readSeqFromState(): number | null {
 /**
  * Side-effect surface used by the hash router. Extracted into an
  * interface so the per-`hashchange` handler can be unit-tested with
- * mocks for `back` / `forward` / `replaceState` / `setRoute` — the
+ * mocks for `back` / `forward` / `replaceState` / `setRoute`: the
  * actual integration-level logic that protects one-time API keys.
  *
  * The new hash is read off the dispatched `HashChangeEvent` (whose
  * `newURL` reflects the URL that triggered the event), not from
  * `window.location.hash`. That keeps the handler deterministic when a
  * fast back-to-back navigation has already advanced the global URL by
- * the time the listener runs — see `evaluateHashChange`'s docstring.
+ * the time the listener runs; see `evaluateHashChange`'s docstring.
  */
 export interface HashRouterDeps {
   /** Read `history.state?.seq`, or `null` if absent. */
@@ -216,7 +216,7 @@ export interface HashRouterDeps {
  * `HashChangeEvent.newURL` / `event.oldURL` deliver them. `URL` is a
  * Node + browser global since at least Node 18 / Chromium 80, so we
  * can lean on it without a polyfill. Falls back to a manual split for
- * any malformed URL the test stubs might pass — defensive but cheap.
+ * any malformed URL the test stubs might pass: defensive but cheap.
  */
 function hashFromUrl(url: string): string {
   try {
@@ -280,8 +280,8 @@ export function createHashRouter(
       //      reads the right neighbour seq for direction detection.
       // Revisits (Back/Forward landing on a previously-stamped entry)
       // resolve `decision.newSeq === currentSeq`, so this guard skips
-      // the redundant write — see the comment in `evaluateHashChange`
-      // for the A→B→C→Back→Forward example that needs that.
+      // the redundant write (see the comment in `evaluateHashChange`
+      // for the A→B→C→Back→Forward example that needs that).
       if (deps.getCurrentSeq() !== decision.newSeq) {
         deps.stampSeq(decision.newSeq);
       }
@@ -299,7 +299,7 @@ export function createHashRouter(
  * `pushState`-style navigation would leave the now-404 detail entry
  * one Back press behind the user.
  *
- * `replaceState` does not fire `hashchange` on its own — the manual
+ * `replaceState` does not fire `hashchange` on its own; the manual
  * dispatch is what makes the SPA's router pick up the new URL.
  *
  * Forwards the existing `history.state` (which carries the router's
@@ -310,7 +310,7 @@ export function createHashRouter(
 export function navigateReplace(hash: string): void {
   if (window.location.hash === hash) return;
   // Snapshot the URL *before* the replace so the synthetic
-  // `hashchange` carries an accurate `oldURL` — `useHashRoute`'s
+  // `hashchange` carries an accurate `oldURL`: `useHashRoute`'s
   // handler reads `event.newURL` (and tests can read `oldURL` for
   // direction detection), so dispatching a bare `Event("hashchange")`
   // without those fields would feed the handler a `newURL` of `""`
@@ -321,7 +321,7 @@ export function navigateReplace(hash: string): void {
   // Browsers expose `HashChangeEvent` as a constructor; the bare-Node
   // test environment doesn't (`Event` is a global since Node 15, but
   // `HashChangeEvent` is not). Feature-detect and fall back to a
-  // plain `Event` with the URL fields attached — listeners only read
+  // plain `Event` with the URL fields attached; listeners only read
   // those properties, and `dispatchEvent` doesn't care about the
   // exact constructor.
   const HashChangeEventCtor =
@@ -343,7 +343,7 @@ export function navigateReplace(hash: string): void {
  * browser Back press would land on the same `fallbackHash` URL and
  * appear to do nothing.
  *
- * Predecessor detection uses `history.state.seq` — `useHashRoute`
+ * Predecessor detection uses `history.state.seq`: `useHashRoute`
  * stamps `seq: 0` onto the SPA's anchor entry on mount and bumps it
  * by 1 on every accepted in-document navigation. So `seq <= 0` (or
  * unset) means we're sitting on that anchor and `history.back()`
@@ -365,7 +365,7 @@ export function navigateBackOr(fallbackHash: string): void {
   const startHash = window.location.hash;
   window.history.back();
   // 50 ms is comfortably longer than any browser's `hashchange`
-  // dispatch latency after `history.back()` — long enough to confirm
+  // dispatch latency after `history.back()`: long enough to confirm
   // the navigation actually happened, short enough that the user
   // doesn't perceive a stutter in the post-delete redirect.
   setTimeout(() => {
@@ -384,7 +384,7 @@ export function useHashRoute(): Route {
     //
     // Use `window.history.*` (not the bare `history` global) for every
     // read and write so tests that `vi.stubGlobal("window", …)` see
-    // their stubbed history — `vi.stubGlobal` only redefines the
+    // their stubbed history; `vi.stubGlobal` only redefines the
     // named global, and `history` and `window.history` resolve to
     // different bindings under the stub. Mixing the two would let
     // production code drift away from what the tests can observe.

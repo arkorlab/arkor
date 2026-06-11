@@ -105,10 +105,10 @@ export interface HmrCoordinator {
   /**
    * Close the rolldown watcher and drop all subscribers. **Does not
    * (and cannot) evict the user-module records that `inspectBundle`
-   * loaded into Node's ESM cache** — Node's loader exposes no
+   * loaded into Node's ESM cache** (Node's loader exposes no
    * eviction API, so for `arkor dev` sessions that go through many
    * rebuilds before exit, the cache retains one record per distinct
-   * artefact content hash for the rest of the process lifetime.
+   * artefact content hash for the rest of the process lifetime).
    * The mtime/ctime/size cache-bust key (`moduleCacheBustUrl`)
    * collapses identical-byte rebuilds onto the same record, bounding
    * the retention to "one entry per real edit", which is the tightest
@@ -344,7 +344,7 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       inspection = await inspectBundle(resolved.outFile);
     } catch (err) {
       // Drop stale results AND late-disposed coordinators before
-      // broadcasting the error — same gate the success branch uses.
+      // broadcasting the error: same gate the success branch uses.
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (seq !== buildSeq || disposed) return;
       broadcast({

@@ -41,7 +41,7 @@ export async function detectYarnMajor(
     try {
       child = spawn("yarn", ["--version"], {
         cwd,
-        // `yarn` is a `.cmd` shim on Windows — same `shell: true`
+        // `yarn` is a `.cmd` shim on Windows; same `shell: true`
         // policy as `cli-internal/install.ts`'s `spawn` call.
         shell: process.platform === "win32",
         stdio: ["ignore", "pipe", "ignore"],
@@ -54,7 +54,7 @@ export async function detectYarnMajor(
       return;
     }
     // Hard timeout against a yarn that hangs on stdin or version
-    // probe (defensive — not observed in practice but cheap).
+    // probe (defensive: not observed in practice but cheap).
     //
     // Round 40 (Copilot, PR #99): wrap `kill()` in try/catch.
     // `ChildProcess#kill` can throw on Windows when the signal
@@ -62,7 +62,7 @@ export async function detectYarnMajor(
     // exits between scheduling this timer and its callback
     // firing (POSIX `EPERM`/`ESRCH`). A throw inside a
     // `setTimeout` callback escapes the Promise executor's
-    // scope — by then the executor has already returned — so it
+    // scope (by then the executor has already returned), so it
     // becomes an `uncaughtException` that crashes the process
     // AND leaves the promise unresolved. The timeout's whole
     // purpose is "give up, return undefined", so any kill

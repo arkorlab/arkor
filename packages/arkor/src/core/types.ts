@@ -27,7 +27,7 @@ export interface BlobDatasetSource {
 export type DatasetSource = HuggingfaceDatasetSource | BlobDatasetSource;
 
 /**
- * Wire shape sent to the cloud API's job-create endpoint. Internal — users
+ * Wire shape sent to the cloud API's job-create endpoint. Internal: users
  * compose a `TrainerInput` and the SDK translates to this.
  */
 export interface JobConfig {
@@ -102,7 +102,7 @@ export interface ToolCall {
   type: "function";
   function: {
     name: string;
-    /** JSON-encoded arguments string — partial deltas may be streamed. */
+    /** JSON-encoded arguments string; partial deltas may be streamed. */
     arguments: string;
   };
 }
@@ -113,7 +113,7 @@ export interface ToolCall {
  * and are paired with the originating `tool_call_id`.
  *
  * The assistant role is split across two sub-shapes so that
- * `{ role: "assistant" }` (no content, no tool_calls — a meaningless
+ * `{ role: "assistant" }` (no content, no tool_calls: a meaningless
  * empty turn) does NOT type-check: at least one of `content` (string) or
  * a non-empty `tool_calls` tuple must be present. `[ToolCall, ...ToolCall[]]`
  * encodes the non-empty constraint at the type level. This mirrors the
@@ -189,7 +189,7 @@ interface StructuredOutputsCommon {
 }
 
 /**
- * vLLM's `StructuredOutputsParams` — used for constraints that
+ * vLLM's `StructuredOutputsParams`, used for constraints that
  * `response_format` can't express (regex, choice lists, custom grammars).
  * Exactly one of `json` / `regex` / `choice` / `grammar` / `json_object`
  * must be set; vLLM's `__post_init__` raises if zero or more than one
@@ -202,7 +202,7 @@ interface StructuredOutputsCommon {
  * doesn't accept the rest until they have a working use case):
  * - `json`: object only (the pre-serialized-string form was untyped
  *   at ingress and rejected upstream by vLLM if malformed).
- * - `json_object`: only `true` is meaningful — vLLM activates JSON-
+ * - `json_object`: only `true` is meaningful; vLLM activates JSON-
  *   object mode on a truthy value.
  * - `structural_tag` is intentionally absent. It's a vLLM extension
  *   for Llama-style inline tool-call framing; arkor's curated path
@@ -353,7 +353,7 @@ export interface Trainer {
 
 /**
  * Project entry-point manifest produced by `createArkor`. Currently a frozen descriptor
- * of the project's primitives. The shape is intentionally opaque — operation
+ * of the project's primitives. The shape is intentionally opaque: operation
  * methods may be added later without breaking the user-facing API.
  */
 export interface Arkor {

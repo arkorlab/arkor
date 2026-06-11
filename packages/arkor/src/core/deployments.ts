@@ -2,12 +2,12 @@
  * Public types for the Arkor inference-deployment API surface.
  *
  * Mirrors the cloud `/v1/endpoints/*` schemas structurally but is declared
- * locally so this submodule's public type surface stays self-contained —
+ * locally so this submodule's public type surface stays self-contained:
  * no internal / private package types leak into the published tarball.
  * An external preflight grep enforces that constraint at release time.
  *
  * Runtime parsing of server responses lives in `schemas.ts` as `z.looseObject`
- * — fields the server adds in the future will pass through unchanged.
+ * (fields the server adds in the future will pass through unchanged).
  */
 
 /**
@@ -55,7 +55,7 @@ export interface DeploymentDto {
   /** Currently always `"openai_compat"`; reserved for future native formats. */
   urlFormat: "openai_compat";
   enabled: boolean;
-  /** Reserved for future custom-domain support — `null` for now. */
+  /** Reserved for future custom-domain support; `null` for now. */
   customDomain: string | null;
   /**
    * Documented values are `unlimited` / `disabled` / `days`; future server
@@ -127,7 +127,7 @@ export interface CreateDeploymentKeyInput {
 
 /**
  * Response from `createDeploymentKey`. The `plaintext` field is the **only**
- * time the server returns the raw key — store it immediately; subsequent
+ * time the server returns the raw key: store it immediately. Subsequent
  * `listDeploymentKeys` calls only return the label + display prefix.
  */
 export interface CreateDeploymentKeyResult {

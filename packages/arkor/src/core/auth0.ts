@@ -112,11 +112,16 @@ function bindOnPort(port: number): Promise<LoopbackServerResult> {
         sendPlain(
           res,
           400,
-          `Authentication failed: ${error} — ${errorDescription ?? ""}`,
+          `Authentication failed: ${error}${errorDescription ? `. ${errorDescription}` : ""}`,
         );
+        // Keep the Error.message punctuation in lockstep with the
+        // sendPlain body above so logs / UI surfaces / structured
+        // error reports all read with the same separator (and the
+        // empty-description case ends cleanly at the error code in
+        // both rather than leaving a stray trailing space).
         rejectCallback(
           new Error(
-            `Authentication failed: ${error} ${errorDescription ?? ""}`,
+            `Authentication failed: ${error}${errorDescription ? `. ${errorDescription}` : ""}`,
           ),
         );
         return;
@@ -233,7 +238,7 @@ export function credentialsFromExchange(
      * (and the SDK's `defaultArkorCloudApiUrl(credentials)`) target
      * the same staging / self-hosted control plane without needing
      * `ARKOR_CLOUD_API_URL` re-set every time. Optional only for
-     * defensive call sites that don't have the URL handy yet — the
+     * defensive call sites that don't have the URL handy yet; the
      * `arkor login` flow always passes it.
      */
     arkorCloudApiUrl?: string;
@@ -254,7 +259,7 @@ export function credentialsFromExchange(
     // back to production) round-trips through the persisted
     // credentials. A truthy check would drop the field, and on the
     // next run `defaultArkorCloudApiUrl(creds)` would silently fall
-    // through to the production endpoint — exactly the masking
+    // through to the production endpoint: exactly the masking
     // behaviour the empty env var is configured to avoid.
     ...(config.arkorCloudApiUrl !== undefined
       ? { arkorCloudApiUrl: config.arkorCloudApiUrl }

@@ -25,13 +25,13 @@ describe("templates", () => {
       // `evalLoss` series up without the user needing to know about
       // the field. The exact cadence (25) doesn't matter for the
       // contract, but having SOME `evalSteps` set is what surfaces
-      // eval to the UI — leaving it out would silently regress the
+      // eval to the UI; leaving it out would silently regress the
       // out-of-the-box eval experience.
       //
       // Match `evalSteps: <number>` anywhere it appears so a future
       // formatter or refactor (changed indentation, trailing comma
       // dropped, fields reordered) doesn't break the test as long as
-      // the contract — "some numeric evalSteps is configured" — is
+      // the contract ("some numeric evalSteps is configured") is
       // preserved.
       expect(trainer).toMatch(/\bevalSteps:\s*\d+/);
     });

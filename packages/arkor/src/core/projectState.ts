@@ -25,7 +25,7 @@ export const AUTH0_MISSING_STATE_MESSAGE =
 /**
  * Resolve the project scope (`orgSlug` / `projectSlug`) used to address
  * cloud-api endpoints. Returns existing `.arkor/state.json` if present;
- * otherwise — for anonymous credentials only — derives a slug from the cwd
+ * otherwise (for anonymous credentials only) derives a slug from the cwd
  * basename, creates (or reuses on 409) the project, persists state, and
  * returns it. Auth0 callers without state cannot bootstrap automatically
  * (we don't know which org / project they want); they must write
@@ -35,7 +35,7 @@ export const AUTH0_MISSING_STATE_MESSAGE =
  * write-path that needs a scope: `/api/inference/chat` (Playground), and
  * the deployment-create route used by the Endpoints page (the
  * `withDeploymentClient("create", …)` helper in `studio/server.ts`).
- * Other deployment write paths (`"mutate"` — PATCH / DELETE / key
+ * Other deployment write paths (`"mutate"`: PATCH / DELETE / key
  * CRUD) intentionally do NOT bootstrap; they 404 if the workspace has
  * no scope yet. That way a fresh anonymous launch can either chat
  * with a base model or publish its first `*.arkor.app` URL without
@@ -56,7 +56,7 @@ export async function ensureProjectState(
     // docs/concepts/project-structure), so the only working path is to
     // write the file by hand. The exact copy lives in the
     // `AUTH0_MISSING_STATE_MESSAGE` constant above so Studio's
-    // server-side guard reuses the *same string* — in past rounds the
+    // server-side guard reuses the *same string*: in past rounds the
     // two strings drifted ("use" vs "manage"), which made the same
     // setup problem look like two different bugs depending on which
     // path the user hit.

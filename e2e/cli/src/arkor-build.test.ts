@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 // Self-contained manifest source so the bundle has no `import` statements
-// to resolve at runtime — keeps the e2e test independent of whether `arkor`
+// to resolve at runtime, keeping the e2e test independent of whether `arkor`
 // is installed in the temp project.
 const FAKE_MANIFEST = `export const arkor = Object.freeze({
   _kind: "arkor",

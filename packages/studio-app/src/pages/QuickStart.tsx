@@ -61,7 +61,7 @@ const SAMPLE_PROMPT = "Hello!";
 /**
  * Strip the operation segment off `endpointUrl` so the OpenAI SDK can
  * append its own routing. Hand the SDK `https://…/v1`, not the full
- * per-operation URL — otherwise the SDK appends `/chat/completions`
+ * per-operation URL; otherwise the SDK appends `/chat/completions`
  * itself and we'd POST to `/v1/chat/completions/chat/completions`.
  *
  * Use `URL` parsing (not a hard-coded suffix-strip) so a future
@@ -75,7 +75,7 @@ function deriveSdkBaseUrl(endpointUrl: string): string {
     parsed.search = "";
     parsed.hash = "";
     // Setting `pathname` to a non-empty value ("/v1") makes
-    // `toString()` emit `https://host/v1` with no trailing slash —
+    // `toString()` emit `https://host/v1` with no trailing slash:
     // exactly the shape the OpenAI SDK expects, so no extra
     // normalisation is needed here.
     return parsed.toString();
@@ -119,7 +119,7 @@ export function buildQuickStartSample(opts: {
     );
     return lines.join("\n");
   }
-  // Both SDK languages need the bare `/v1` base URL — derive it once
+  // Both SDK languages need the bare `/v1` base URL: derive it once
   // for either branch. (Same sample for both Python and JS today, but
   // each branch may diverge with new operations / SDK options.)
   const baseUrl = deriveSdkBaseUrl(endpointUrl);
@@ -156,7 +156,7 @@ export function buildQuickStartSample(opts: {
     ? `  apiKey: "YOUR_API_KEY",`
     : `  // auth_mode=none on this deployment; the OpenAI SDK still\n  // requires a non-empty value but the server ignores it.\n  apiKey: "not-required",`;
   return [
-    `// Requires ESM — save as .mjs, or set "type": "module" in package.json.`,
+    `// Requires ESM. Save as .mjs, or set "type": "module" in package.json.`,
     `import OpenAI from "openai";`,
     ``,
     `const client = new OpenAI({`,
@@ -231,7 +231,7 @@ export function QuickStart({
             <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
               /v1
             </code>
-            (the samples below cover both shapes — pointing an SDK at the full
+            (the samples below cover both shapes: pointing an SDK at the full
             <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
               /v1/chat/completions
             </code>
@@ -290,7 +290,7 @@ export function QuickStart({
 
           <a
             // Canonical docs host is `docs.arkor.ai` (Mintlify-hosted).
-            // `arkor.ai` is the marketing site — its `/studio/endpoints`
+            // `arkor.ai` is the marketing site; its `/studio/endpoints`
             // path doesn't exist, so linking there from the Quick start
             // panel would 404. (The Overview "Documentation" tile
             // points at the marketing root deliberately, since the
@@ -298,7 +298,7 @@ export function QuickStart({
             // deep-link.)
             href="https://docs.arkor.ai/studio/endpoints"
             target="_blank"
-            // `noopener` defends against tabnabbing — without it, the
+            // `noopener` defends against tabnabbing: without it, the
             // opened docs page could read `window.opener` and navigate
             // the Studio tab somewhere malicious. `noreferrer` is kept
             // for `Referer`-header privacy. Modern browsers imply

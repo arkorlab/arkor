@@ -26,7 +26,7 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 // Mock the cli-internal helpers so we don't actually scaffold files,
-// run install, or hit git on disk for every branch — the helpers have
+// run install, or hit git on disk for every branch: the helpers have
 // their own tests in @arkor/cli-internal. We only verify the
 // orchestration logic in init.ts itself.
 vi.mock("@arkor/cli-internal", () => {
@@ -118,7 +118,7 @@ beforeEach(async () => {
   process.env.CI = "1";
   delete process.env.CLAUDECODE;
   // `vi.mock()`-created mocks (`@clack/prompts.log.warn`, etc.) aren't
-  // reset by `restoreAllMocks` in afterEach — that only undoes
+  // reset by `restoreAllMocks` in afterEach: that only undoes
   // `vi.spyOn` patches. Without `clearAllMocks` here, call lists from
   // earlier tests leak into the new warning-surface assertions.
   // `clearAllMocks` also covers the explicit `scaffold` / `install` /
@@ -144,7 +144,7 @@ afterEach(() => {
   else process.env.CI = ORIG_CI;
   if (ORIG_CLAUDECODE === undefined) delete process.env.CLAUDECODE;
   else process.env.CLAUDECODE = ORIG_CLAUDECODE;
-  // Restore the TTY flag in case an interactive test mutated it —
+  // Restore the TTY flag in case an interactive test mutated it;
   // otherwise a later test that unsets CI would unexpectedly enter
   // interactive prompt paths.
   Object.defineProperty(process.stdout, "isTTY", {
@@ -274,7 +274,7 @@ describe("runInit", () => {
 
   it("falls back to undefined skipWith for template when not --yes and no --template", async () => {
     // Branch coverage for the `options.template ?? (options.yes ? "triage" : undefined)`
-    // chain — the `undefined` arm fires when neither flag is set. The
+    // chain: the `undefined` arm fires when neither flag is set. The
     // promptSelect helper falls back to `initialValue: "triage"` under
     // CI=1, so the resolved template still lands on triage even though
     // skipWith is undefined.
@@ -299,7 +299,7 @@ describe("runInit", () => {
   });
 
   it("skips install when no packageManager could be detected", async () => {
-    // Branch coverage for `pm` undefined — the user gets the manual-install
+    // Branch coverage for `pm` undefined: the user gets the manual-install
     // hint in the outro instead of a silent guess.
     await runInit({
       yes: true,
@@ -383,7 +383,7 @@ describe("runInit", () => {
 
   it("skips git init when the directory becomes a git repo during install", async () => {
     // TOCTOU defence: `decideGitInit` runs before the long-running install
-    // step, so the user (or another tool — editor, autosave hook, parallel
+    // step, so the user (or another tool: editor, autosave hook, parallel
     // shell) can run `git init` themselves while install is going. Without
     // the post-install re-check, we'd silently add a second commit on top
     // of their repo. Mock isInGitRepo to return false on the pre-install
@@ -493,7 +493,7 @@ describe("runInit", () => {
   // The `warnings` loop in `runInit` is the only place the
   // scaffold's non-fatal advisories (currently the conflicting-
   // `nodeLinker:` notice) reach the user. A regression that drops
-  // it would silently swallow important guidance — Copilot's
+  // it would silently swallow important guidance: Copilot's
   // round-6 review on PR #99 flagged the missing coverage.
   it("surfaces every scaffold warning via ui.log.warn", async () => {
     const advisories = [
@@ -514,7 +514,7 @@ describe("runInit", () => {
       skipGit: true,
     });
     // Each warning surfaces verbatim, in order, via the mocked
-    // ui.log (which is just clack.log under the hood — see
+    // ui.log (which is just clack.log under the hood; see
     // ../prompts.ts).
     expect(vi.mocked(clack.log.warn).mock.calls.map((c) => c[0])).toEqual(
       advisories,
@@ -577,7 +577,7 @@ describe("runInit", () => {
       skipGit: true,
     });
     expect(vi.mocked(install)).not.toHaveBeenCalled();
-    // The fix-then-retry hint surfaces via ui.log.info — assert it
+    // The fix-then-retry hint surfaces via ui.log.info: assert it
     // mentions the install command so the user knows what to retry.
     const infoMessages = vi
       .mocked(clack.log.info)
@@ -591,7 +591,7 @@ describe("runInit", () => {
   // skipped install above; running git init at this point would
   // commit a tree without `node_modules`/lockfile, breaking the
   // "lockfile lands in the initial commit" invariant. Skip git
-  // too — the user re-runs `arkor init` after fixing the advisory
+  // too: the user re-runs `arkor init` after fixing the advisory
   // and the next run produces a single bootstrap commit with the
   // lockfile included.
   it("skips git init when scaffold returns blockInstall=true (preserves lockfile-in-initial-commit invariant)", async () => {
@@ -608,13 +608,13 @@ describe("runInit", () => {
       git: true, // explicit --git → would normally trigger runGitInit
     });
     expect(vi.mocked(install)).not.toHaveBeenCalled();
-    // The git init step is also skipped — the lockfile-in-initial-
+    // The git init step is also skipped: the lockfile-in-initial-
     // commit invariant requires install to land first.
     expect(vi.mocked(gitInitialCommit)).not.toHaveBeenCalled();
     // The user is told why git was skipped. Round 21 (Copilot, PR
     // #99) dropped the prescriptive `arkor init` rerun copy
     // (the local bin isn't installed yet, and the original flags
-    // would be lost) — just point at the advisory.
+    // would be lost); just point at the advisory.
     const infoMessages = vi
       .mocked(clack.log.info)
       .mock.calls.map((c) => c[0])
@@ -622,13 +622,13 @@ describe("runInit", () => {
     expect(infoMessages).toMatch(/Skipping git init/);
     expect(infoMessages).toMatch(/re-run this command/);
     // Specifically NOT the prescriptive "arkor init" rerun the
-    // round-19 hint had — the local bin isn't on PATH yet.
+    // round-19 hint had: the local bin isn't on PATH yet.
     expect(infoMessages).not.toMatch(/`arkor init`/);
   });
 
   // Round 21 (Codex P2, PR #99): when the user explicitly opted
   // out of install (`--skip-install`), the lockfile-ordering
-  // rationale doesn't apply — there's no lockfile to wait for.
+  // rationale doesn't apply: there's no lockfile to wait for.
   // Honor an explicit `--git` request even when scaffold returns
   // blockInstall=true. This restores the historical behaviour
   // for the `--skip-install --git` combo that round 19's broader
@@ -649,7 +649,7 @@ describe("runInit", () => {
     // No install attempted (user opted out), no install gate
     // skip-message either.
     expect(vi.mocked(install)).not.toHaveBeenCalled();
-    // git init runs as the user requested — no lockfile to land
+    // git init runs as the user requested: no lockfile to land
     // anyway, so the invariant is moot here.
     expect(vi.mocked(gitInitialCommit)).toHaveBeenCalled();
   });

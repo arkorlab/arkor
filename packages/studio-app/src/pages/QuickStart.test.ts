@@ -4,7 +4,7 @@ import { buildQuickStartSample } from "./QuickStart";
 
 // `buildQuickStartSample` powers the QuickStart card on the Endpoint
 // detail page. The function itself is a plain string-templating helper
-// — it doesn't render anything or call into React — so unit testing it
+// (it doesn't render anything or call into React), so unit testing it
 // directly covers the language / authMode / URL-shaping permutations
 // without standing up the SPA. (The module it lives in does import
 // React for the `<QuickStart>` component sibling, so this test pulls
@@ -17,7 +17,7 @@ import { buildQuickStartSample } from "./QuickStart";
 // intent clear and avoids future-refactor surprises.
 const ENDPOINT_URL = "https://mymodel.arkor.app/v1/chat/completions";
 
-describe("buildQuickStartSample — cURL", () => {
+describe("buildQuickStartSample: cURL", () => {
   it("includes the Authorization header when authMode is fixed_api_key", () => {
     const out = buildQuickStartSample({
       language: "curl",
@@ -66,7 +66,7 @@ describe("buildQuickStartSample — cURL", () => {
   });
 });
 
-describe("buildQuickStartSample — Python (openai SDK)", () => {
+describe("buildQuickStartSample: Python (openai SDK)", () => {
   it("strips the chat-completions path so the SDK can route", () => {
     // The OpenAI SDK appends `/chat/completions` itself; if we left the
     // suffix on `base_url`, the SDK would POST to `/v1/chat/completions
@@ -100,7 +100,7 @@ describe("buildQuickStartSample — Python (openai SDK)", () => {
   });
 });
 
-describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
+describe("buildQuickStartSample: JavaScript (openai SDK)", () => {
   it("strips the chat-completions path and includes apiKey when required", () => {
     const out = buildQuickStartSample({
       language: "javascript",
@@ -162,7 +162,7 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
     expect(out).toContain("main();");
     // Defensive: catch a future regression that re-introduces TLA.
     // The only `await` in the sample MUST live inside `async function
-    // main()` — i.e. it must come *after* the wrapper line.
+    // main()`, i.e. it must come *after* the wrapper line.
     const wrapperIdx = out.indexOf("async function main()");
     const awaitIdx = out.indexOf("await ");
     expect(wrapperIdx).toBeGreaterThan(-1);
@@ -170,9 +170,9 @@ describe("buildQuickStartSample — JavaScript (openai SDK)", () => {
   });
 });
 
-describe("buildQuickStartSample — base URL derivation", () => {
+describe("buildQuickStartSample: base URL derivation", () => {
   // The SDK languages (Python/JS) need `/v1`, not the full per-operation
-  // URL — the OpenAI SDK appends its own path. Derive that from `URL`
+  // URL (the OpenAI SDK appends its own path). Derive that from `URL`
   // parsing rather than a hard-coded suffix-strip so a future operation
   // landing on a different path (e.g. `/v1/embeddings`) doesn't silently
   // ship a 404-ing sample.
@@ -183,7 +183,7 @@ describe("buildQuickStartSample — base URL derivation", () => {
       // Imagine a future deployment shape where the dropdown also picks
       // operation, and the operation's endpoint URL is e.g.
       // `/v1/embeddings`. The base-URL derivation must still produce
-      // `/v1` — not leave the operation suffix in place.
+      // `/v1`, not leave the operation suffix in place.
       endpointUrl: "https://mymodel.arkor.app/v1/embeddings",
       authMode: "fixed_api_key",
     });
@@ -207,7 +207,7 @@ describe("buildQuickStartSample — base URL derivation", () => {
   it("falls back to suffix-strip when the input URL is malformed", () => {
     // Defence-in-depth: if `endpointUrl` somehow isn't parseable by the
     // browser's URL constructor, the function must not throw and crash
-    // the SPA — it should return a usable string built from the
+    // the SPA; it should return a usable string built from the
     // previous suffix-strip approach.
     const out = buildQuickStartSample({
       language: "python",

@@ -30,7 +30,7 @@ Two client-side reducers narrow what the table renders:
 - **Search** (name or ID, case-insensitive). The text input filters rows where `Job.name` or `Job.id` contains the query.
 - **Status filter** chips: `All` / `Running` / `Completed` / `Queued` / `Failed` / `Cancelled`. Exactly one is active at a time.
 
-The empty state distinguishes the two cases: `No jobs yet` (the project genuinely has no runs — the description points you at Overview as plain text, since the trigger lives there) vs `No matches` (the active search / filter hides every row — relax the filter or clear the query).
+The empty state distinguishes the two cases: `No jobs yet` (the project genuinely has no runs; the description points you at Overview as plain text, since the trigger lives there) vs `No matches` (the active search / filter hides every row; relax the filter or clear the query).
 
 | Column | Source |
 | --- | --- |
@@ -39,7 +39,7 @@ The empty state distinguishes the two cases: `No jobs yet` (the project genuinel
 | Created | `new Date(Job.createdAt).toLocaleString()`. |
 | ID | `Job.id`, monospaced. |
 
-The list shows whatever order the backend returned. There is no client-side pagination — the visible-rows reducer relies on the server returning a complete list.
+The list shows whatever order the backend returned. There is no client-side pagination; the visible-rows reducer relies on the server returning a complete list.
 
 ## Job detail
 
@@ -50,7 +50,7 @@ In every row below, the event log renders the event name in its own column next 
 | Event | Effect on the page |
 | --- | --- |
 | `training.started` | Status flips to `running`. The event log row's message is the raw JSON payload (no per-event formatting). |
-| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The event log message starts with `step=<n>` and appends ` loss=<value>` and/or ` evalLoss=<value>` for whichever fields are numeric on that step — either segment is omitted when its field is null/missing, so eval-only frames render as `step=<n> evalLoss=<value>`. |
+| `training.log` | The `step`, `loss`, and (when present) `evalLoss` are appended to the loss chart's data array. The event log message starts with `step=<n>` and appends ` loss=<value>` and/or ` evalLoss=<value>` for whichever fields are numeric on that step; either segment is omitted when its field is null/missing, so eval-only frames render as `step=<n> evalLoss=<value>`. |
 | `checkpoint.saved` | The event log message is `step=<n>`. The chart is not affected. |
 | `training.completed` | Status flips to `completed`. The event log message is `<n> artifact[s]`; the artifact count itself is rendered in the Metadata sidebar's `Artifacts` row. |
 | `training.failed` | Status flips to `failed`. The event log message is the `error` string from the payload, and a red banner with the same text is rendered above the chart. |
@@ -62,18 +62,18 @@ The event log keeps only the **last 500 entries** (older entries drop off as new
 
 The loss chart is an SVG plot drawn from `training.log` events. It uses min-max scaling on the y-axis and the step number on the x-axis, and shows up to two series:
 
-- **Training loss** — solid teal line, one vertex per event with a numeric `loss`.
-- **Eval loss** — dashed pink line with point markers, drawn from events that carry a numeric `evalLoss` (typically every `evalSteps` ticks). The series is built from the events directly, so eval-only frames (numeric `evalLoss` with `loss` omitted) still appear in the line, legend, and stats. The legend hides this entry until at least one eval point arrives.
+- **Training loss**: solid teal line, one vertex per event with a numeric `loss`.
+- **Eval loss**: dashed pink line with point markers, drawn from events that carry a numeric `evalLoss` (typically every `evalSteps` ticks). The series is built from the events directly, so eval-only frames (numeric `evalLoss` with `loss` omitted) still appear in the line, legend, and stats. The legend hides this entry until at least one eval point arrives.
 
-Hovering shows the nearest step and whichever of `loss` / `evalLoss` are present at that step (eval-only steps don't show a `loss` value, and vice-versa). The chart shows the `Waiting for training.log events…` placeholder until at least one event with a numeric `loss` or `evalLoss` arrives — `training.log` frames where both fields are null/omitted don't count.
+Hovering shows the nearest step and whichever of `loss` / `evalLoss` are present at that step (eval-only steps don't show a `loss` value, and vice-versa). The chart shows the `Waiting for training.log events…` placeholder until at least one event with a numeric `loss` or `evalLoss` arrives; `training.log` frames where both fields are null/omitted don't count.
 
 ### Advanced metrics
 
 The **Advanced** toggle in the chart's header reveals a per-series statistics panel. Each card reports:
 
-- **Mean loss ± 95% CI** — sample mean of the loss values together with the half-width of the 95% confidence interval (Student's t-distribution; falls back to z = 1.96 for n > 31).
-- **Std dev** and **Variance** — Bessel-corrected sample estimates (`ddof=1`).
-- **p90** and **p95** — linearly interpolated percentiles, matching numpy's default convention.
+- **Mean loss ± 95% CI**: sample mean of the loss values together with the half-width of the 95% confidence interval (Student's t-distribution; falls back to z = 1.96 for n > 31).
+- **Std dev** and **Variance**: Bessel-corrected sample estimates (`ddof=1`).
+- **p90** and **p95**: linearly interpolated percentiles, matching numpy's default convention.
 
 The eval card stays empty until a `training.log` event with a numeric `evalLoss` arrives.
 

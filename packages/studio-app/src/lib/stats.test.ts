@@ -15,7 +15,7 @@ describe("stats", () => {
       expect(mean([1, 2, 3, 4])).toBe(2.5);
     });
 
-    it("returns NaN for an empty array — caller must filter", () => {
+    it("returns NaN for an empty array (caller must filter)", () => {
       // Caller-side responsibility: stats are gated on at-least-one
       // numeric loss point, so we don't fabricate a value here.
       expect(Number.isNaN(mean([]))).toBe(true);
@@ -38,7 +38,7 @@ describe("stats", () => {
       expect(stddev([1.5])).toBe(0);
     });
 
-    it("returns NaN for an empty array — consistent with mean([])", () => {
+    it("returns NaN for an empty array (consistent with mean([]))", () => {
       // Returning 0 here would silently mask "no data" as "no spread";
       // NaN is the same convention `mean` and `percentile` use, so all
       // three short-circuit the same way.
@@ -97,7 +97,7 @@ describe("stats", () => {
       expect(ci).toBeCloseTo(1.96 * (sd / Math.sqrt(xs.length)), 6);
     });
 
-    it("returns NaN for an empty array — consistent with mean / variance / percentile", () => {
+    it("returns NaN for an empty array (consistent with mean / variance / percentile)", () => {
       // A CI is undefined with no samples; reporting `0` would read as
       // "zero uncertainty" and silently mask missing-data bugs. The
       // single-sample case below keeps `0` because the mean is defined

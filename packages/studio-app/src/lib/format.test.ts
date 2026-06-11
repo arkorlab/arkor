@@ -1,12 +1,23 @@
 import { describe, it, expect } from "vitest";
 
-import { formatDuration, formatRelativeTime, truncateMiddle } from "./format";
+import {
+  formatDuration,
+  formatRelativeTime,
+  NO_VALUE_PLACEHOLDER,
+  truncateMiddle,
+} from "./format";
 
 describe("formatDuration", () => {
-  it("returns em-dash for invalid input", () => {
-    expect(formatDuration(Number.NaN)).toBe("—");
-    expect(formatDuration(-1)).toBe("—");
-    expect(formatDuration(Infinity)).toBe("—");
+  it("returns the shared placeholder for invalid input", () => {
+    // Import the placeholder constant rather than hardcoding the string
+    // so the test stays aligned with `format.ts` if the policy is
+    // revisited (em dash -> hyphen -> en dash -> N/A, and any future
+    // iteration). The contract the test asserts is "this helper
+    // returns `NO_VALUE_PLACEHOLDER` on bad input", not "this helper
+    // returns the literal string N/A".
+    expect(formatDuration(Number.NaN)).toBe(NO_VALUE_PLACEHOLDER);
+    expect(formatDuration(-1)).toBe(NO_VALUE_PLACEHOLDER);
+    expect(formatDuration(Infinity)).toBe(NO_VALUE_PLACEHOLDER);
   });
 
   it("renders sub-minute durations as seconds", () => {
@@ -36,8 +47,8 @@ describe("formatRelativeTime", () => {
   // Pin "now" so the test is reproducible regardless of when it runs.
   const NOW = Date.parse("2026-05-02T12:00:00.000Z");
 
-  it("returns em-dash for unparseable input", () => {
-    expect(formatRelativeTime("not-a-date", NOW)).toBe("—");
+  it("returns the shared placeholder for unparseable input", () => {
+    expect(formatRelativeTime("not-a-date", NOW)).toBe(NO_VALUE_PLACEHOLDER);
   });
 
   it("formats past timestamps with 'ago' phrasing", () => {

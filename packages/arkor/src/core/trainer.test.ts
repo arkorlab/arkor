@@ -276,7 +276,7 @@ describe("createTrainer (credentials defaulting)", () => {
             model: "m",
             dataset: { type: "huggingface", name: "x" },
           },
-          // Note: NO `credentials` here, so trainer must call ensureCredentials.
+          // Note: NO `credentials` here; trainer must call ensureCredentials.
           {
             baseUrl: "http://mock",
             cwd: localCwd,
@@ -671,7 +671,7 @@ describe("createTrainer (SSE event stream)", () => {
       unknown
     >;
     // The trainer's infer() helper is the path users plug their tool /
-    // structured-output knobs into during a run — pin that nothing gets
+    // structured-output knobs into during a run; pin that nothing gets
     // dropped before reaching cloud-api.
     expect(body.tools).toEqual(tools);
     expect(body.toolChoice).toEqual({
@@ -853,9 +853,9 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
   // saturated `exp` could still wait up to 1.25 × the documented cap
   // when `Math.random()` lands near 1.
   // Codex review on PR #13 (round 3) flagged that a 200-OK stream that
-  // EOFs without emitting any frame would loop forever at the base delay
-  // because `maxReconnectAttempts` was bypassed (clean closes never
-  // touched the failure counter). Misconfigured proxies / load-balancers
+  // EOFs without emitting any frame would loop forever at the base delay:
+  // `maxReconnectAttempts` was bypassed because clean closes never
+  // touched the failure counter. Misconfigured proxies / load-balancers
   // that accept the connection and immediately drop it would hang
   // `wait()` indefinitely.
   it("counts clean closes with no frames toward maxReconnectAttempts", async () => {
@@ -1838,7 +1838,7 @@ describe("createTrainer (early stop)", () => {
         // create-job response and the SSE stream URL below agree on
         // the same `j-falsy` job id. Otherwise wait() would request
         // `/v1/jobs/j-stop/events/stream` and the fetcher's
-        // `j-falsy` branch would never match — the test would still
+        // `j-falsy` branch would never match: the test would still
         // see wait() reject, but for the wrong reason ("unexpected
         // fetch" throw rather than the falsy-throw rethrow under
         // test).

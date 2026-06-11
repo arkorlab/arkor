@@ -18,7 +18,7 @@ export async function runWhoami(): Promise<void> {
     return;
   }
   // Pass the loaded credentials so `/v1/me` lands on the same control
-  // plane the user authenticated against — anonymous tokens carry the
+  // plane the user authenticated against: anonymous tokens carry the
   // signup URL, OAuth tokens carry the login URL since round 67.
   // Without this, an OAuth user who signed in against staging would
   // see `arkor whoami` 401 against production unless they also kept
@@ -30,7 +30,7 @@ export async function runWhoami(): Promise<void> {
     baseUrl,
     token: () => (creds.mode === "anon" ? creds.token : creds.accessToken),
     clientVersion: SDK_VERSION,
-    // Wrap the deprecation callback so we return `null` (not `void`) —
+    // Wrap the deprecation callback so we return `null` (not `void`):
     // `@arkor/cloud-api-client` alpha.2 feeds the handler's return into
     // `typeof result.then === 'function'`, which throws on a `void`
     // return and logs `[@arkor/cloud-api-client] onDeprecation handler

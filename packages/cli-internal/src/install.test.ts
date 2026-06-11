@@ -31,7 +31,7 @@ const ORIG_PATH = process.env.PATH;
 function makeFakePm(name: string, exitCode: number, marker: string): string {
   const path = join(fakeBin, name);
   // No `set -e`: `printenv VAR` returns 1 when VAR is unset, and the
-  // round-17 split made YARN_ENABLE_IMMUTABLE_INSTALLS conditional —
+  // round-17 split made YARN_ENABLE_IMMUTABLE_INSTALLS conditional;
   // the shim must tolerate the absent case without aborting before
   // the trailing `exit ${exitCode}` runs.
   //
@@ -92,7 +92,7 @@ describe("install", () => {
       const log = fs.readFileSync(marker, "utf8");
       // First line: the args we passed.
       expect(log).toContain("fake install");
-      // Env was forwarded to the child — these are the flags that matter
+      // Env was forwarded to the child: these are the flags that matter
       // for production behaviour:
       //   - ADBLOCK silences create-* promo output (= "1")
       //   - NODE_ENV stops pnpm dropping devDependencies (= "development")
@@ -102,7 +102,7 @@ describe("install", () => {
   );
 
   // YARN_ENABLE_IMMUTABLE_INSTALLS gating splits along yarn-only +
-  // no-pre-existing-lockfile (PR #99 round 17 — Copilot flagged that
+  // no-pre-existing-lockfile (PR #99 round 17: Copilot flagged that
   // an unconditional override would let `arkor init` rewrite a
   // committed lockfile in an existing yarn-berry workspace).
   onPosix(
@@ -129,7 +129,7 @@ describe("install", () => {
       makeFakePm("yarn", 0, marker);
       // Pre-seed a lockfile to simulate an existing yarn-berry workspace
       // we're being merged into. Bypassing immutability here would let
-      // the install silently rewrite the committed lockfile — exactly
+      // the install silently rewrite the committed lockfile: exactly
       // the round-17 hazard we're guarding against.
       writeFileSync(join(cwd, "yarn.lock"), "# pre-existing\n");
 
@@ -139,14 +139,14 @@ describe("install", () => {
       // The override env var is absent, so `printenv` writes the empty
       // string. Surrounding sentinel lines confirm the script ran;
       // we just want to be sure "false" doesn't appear on the
-      // YARN_ENABLE_IMMUTABLE_INSTALLS line — match the empty value
+      // YARN_ENABLE_IMMUTABLE_INSTALLS line: match the empty value
       // explicitly via the line shape.
       expect(log).not.toContain("\nfalse\n");
     },
   );
 
   // Round 27 (Copilot, PR #99): yarn-berry workspace subdirs share
-  // the root's lockfile — `yarn install` from the subdir writes to
+  // the root's lockfile: `yarn install` from the subdir writes to
   // the ancestor lockfile, so the cwd-only round-17 check would
   // miss this case and bypass immutable installs in the workspace
   // subdir scaffold flow. The check now walks up the ancestor tree.
@@ -165,7 +165,7 @@ describe("install", () => {
 
       const log = (await import("node:fs")).readFileSync(marker, "utf8");
       // The walk-up finds the ancestor `yarn.lock` and refuses to
-      // disable immutability — yarn 4 will then refuse to rewrite
+      // disable immutability; yarn 4 will then refuse to rewrite
       // the committed root lockfile in CI mode (correct behaviour).
       expect(log).not.toContain("\nfalse\n");
     },
@@ -184,7 +184,7 @@ describe("install", () => {
       // Pre-existing lockfile in cwd.
       writeFileSync(join(cwd, "yarn.lock"), "# pre-existing\n");
       // Simulate a parent shell that exported the override
-      // globally — install() would otherwise inherit this
+      // globally; install() would otherwise inherit this
       // through the wholesale `process.env` spread.
       const ORIG = process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
       process.env.YARN_ENABLE_IMMUTABLE_INSTALLS = "false";
@@ -197,7 +197,7 @@ describe("install", () => {
         const log = (await import("node:fs")).readFileSync(marker, "utf8");
         // The variable is explicitly deleted in the lockfile-
         // present branch, so `printenv` writes the empty
-        // string — yarn 4 sees no override and falls back to
+        // string; yarn 4 sees no override and falls back to
         // its CI=1 default of `enableImmutableInstalls=true`,
         // which is exactly what protects the committed
         // lockfile.
@@ -211,7 +211,7 @@ describe("install", () => {
   );
 
   // Round 39 (Codex P2, PR #99): on Windows, env-var lookup is
-  // case-insensitive — `YARN_ENABLE_IMMUTABLE_INSTALLS` and
+  // case-insensitive: `YARN_ENABLE_IMMUTABLE_INSTALLS` and
   // `yarn_enable_immutable_installs` are the same variable to
   // the OS, and Node passes through whatever casing the parent
   // shell used. A case-exact `delete env.YARN_ENABLE_IMMUTABLE_INSTALLS`
@@ -219,7 +219,7 @@ describe("install", () => {
   // through `{ ...process.env }`, so install.ts loops every key
   // and deletes any case-insensitive match. POSIX env vars are
   // case-sensitive so we can simulate the leak by exporting the
-  // lowercase variant directly — if the strip is correct, the
+  // lowercase variant directly: if the strip is correct, the
   // child's `printenv yarn_enable_immutable_installs` returns
   // empty when an enclosing yarn.lock is present.
   onPosix(
@@ -314,7 +314,7 @@ describe("install", () => {
         await install("pnpm", cwd);
 
         const log = (await import("node:fs")).readFileSync(marker, "utf8");
-        // The variable leaked through to the non-yarn spawn —
+        // The variable leaked through to the non-yarn spawn;
         // that's fine, pnpm ignores it. The contract: install()
         // does NOT strip non-yarn env, only yarn env.
         expect(log).toContain("\nfalse\n");
@@ -380,8 +380,8 @@ describe("install", () => {
 
   // Counterpart: even with a `yarn.lock` present, an EXPLICIT
   // `=false` from the parent still gets stripped (round-32 anti-
-  // leak invariant). The asymmetry — preserve truthy, strip
-  // falsy — is what addresses both Copilot reviews (round-32:
+  // leak invariant). The asymmetry (preserve truthy, strip
+  // falsy) is what addresses both Copilot reviews (round-32:
   // anti-leak; round-40: don't override user's immutable opt-in).
   onPosix(
     "still STRIPS YARN_ENABLE_IMMUTABLE_INSTALLS=false when yarn.lock exists (round-32 anti-leak)",
@@ -402,13 +402,13 @@ describe("install", () => {
         await install("yarn", cwd);
 
         const log = (await import("node:fs")).readFileSync(marker, "utf8");
-        // The `=false` did NOT survive — yarn falls back to its
+        // The `=false` did NOT survive; yarn falls back to its
         // CI default (immutable=true), protecting the lockfile.
         expect(log).not.toContain("\nfalse\n");
       } finally {
         // Delete-then-restore order matters: see the "FORWARDS"
         // test's finally for the rationale (round 40 Copilot,
-        // PR #99 — deleting after restore drops any original
+        // PR #99: deleting after restore drops any original
         // canonical value the dev/CI shell had set).
         delete process.env.YARN_ENABLE_IMMUTABLE_INSTALLS;
         for (const [key, value] of Object.entries(saved)) {
@@ -474,7 +474,7 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
       // `exists === false` guard would be flaky if an ambient
       // lockfile sits in `/tmp/` or above. Instead, after writing
       // the fixture's lockfile, assert the resolved path equals
-      // the file we just wrote — that proves the walk found
+      // the file we just wrote: that proves the walk found
       // OUR lockfile, regardless of ambient state above.
       writeFileSync(join(dir, file), "");
       const snap = snapshotLockfile(dir, pm);
@@ -492,7 +492,7 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
     expect(yarnSnap.path).toBe(join(dir, "yarn.lock"));
     // For npm, the fixture has no `package-lock.json`, but an
     // ambient ancestor (e.g. `/tmp/package-lock.json`) might.
-    // Assert that — if anything is found — it's NOT the fixture's
+    // Assert that, if anything is found, it's NOT the fixture's
     // file. The contract under test is "this fixture's yarn.lock
     // doesn't satisfy the npm lookup", which holds regardless of
     // ambient state.
@@ -541,7 +541,7 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
     // The `snapshotLockfile` walk may resolve to an ambient
     // ancestor lockfile (e.g. `/tmp/pnpm-lock.yaml`), so we
     // can't assert `before.exists === false` directly. Instead,
-    // capture the BEFORE state — whatever it found — and verify
+    // capture the BEFORE state (whatever it found) and verify
     // the AFTER state reports a forward-moving change once we
     // write a CLOSER lockfile under the fixture.
     const before: LockfileSnapshot = snapshotLockfile(dir, "pnpm");
@@ -550,14 +550,14 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
     expect(after.path).toBe(join(dir, "pnpm-lock.yaml"));
     // EITHER the BEFORE snap saw nothing (clean ancestor chain,
     // appearance counts) OR it resolved to a farther ancestor
-    // (closer one now wins — path change counts).
+    // (closer one now wins: path change counts).
     expect(lockfileChangedSince(dir, "pnpm", before)).toBe(true);
   });
 
   it("lockfileChangedSince returns true when the lockfile mtime advances", () => {
     writeFileSync(join(dir, "pnpm-lock.yaml"), "v1\n");
     const before: LockfileSnapshot = snapshotLockfile(dir, "pnpm");
-    // Advance the file's mtime explicitly — `writeFileSync` on the
+    // Advance the file's mtime explicitly: `writeFileSync` on the
     // same path within the same millisecond can leave mtime
     // unchanged on coarse-resolution filesystems, which would mask
     // the assertion. Using `utimesSync` is deterministic.
@@ -588,7 +588,7 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
     expect(before.path).toBe(join(dir, "pnpm-lock.yaml"));
     // AFTER: install creates a cwd-local lockfile. The closer
     // one now wins the walk, so `after.path` differs from
-    // `before.path` — that's the install-touched-something
+    // `before.path`: that's the install-touched-something
     // signal even though `after.mtimeMs < before.mtimeMs`.
     writeFileSync(join(sub, "pnpm-lock.yaml"), "local\n");
     expect(lockfileChangedSince(sub, "pnpm", before)).toBe(true);
@@ -610,7 +610,7 @@ describe("snapshotLockfile + lockfileChangedSince", () => {
 //        already existed).
 // The earlier round-39 #3 design tracked just the closest-
 // enclosing path captured BEFORE install, so it missed cases
-// (4) — Codex P2 (round 40) flagged three flavours of that
+// (4); Codex P2 (round 40) flagged three flavours of that
 // false-negative. The current design records the FULL chain of
 // existing ancestor `node_modules` paths in a Map, then
 // re-walks AFTER install: any new path OR forward-moving mtime
@@ -628,7 +628,7 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
     // The `snapshot` walk goes all the way to the filesystem
     // root, so `enclosing.size` can be non-zero if any ancestor
     // (e.g. a developer's `/tmp/node_modules`) is on disk. The
-    // assertion under test is the cwd slot — the fixture has no
+    // assertion under test is the cwd slot; the fixture has no
     // local `node_modules` until we create one.
     const snap = snapshotNodeModules(dir);
     expect(snap.cwd).toEqual({ exists: false, mtimeMs: 0 });
@@ -703,7 +703,7 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
 
   // Topology #4a (Codex P2, round 40): a NEW closer ancestor
   // appears during install. Previously regressed by the round-39
-  // #3 design that pinned to a single captured path —
+  // #3 design that pinned to a single captured path:
   // `before.enclosing.path === null` short-circuited the probe
   // entirely. The fixture demonstrates the closer-ancestor case
   // by creating `dir/node_modules` AFTER snapshotting from
@@ -752,7 +752,7 @@ describe("snapshotNodeModules + nodeModulesChangedSince", () => {
     mkdirSync(sub, { recursive: true });
     mkdirSync(join(dir, "node_modules"));
     const before: NodeModulesSnapshot = snapshotNodeModules(sub);
-    // Don't touch the parent's node_modules — simulate a
+    // Don't touch the parent's node_modules; simulate a
     // failed install that never wrote to disk.
     expect(nodeModulesChangedSince(sub, before)).toBe(false);
   });

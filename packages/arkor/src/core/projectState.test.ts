@@ -40,7 +40,7 @@ function fakeClient(
   // Construct a real CloudApiClient (so type-compatibility holds), then
   // monkey-patch only the methods exercised by ensureProjectState. The
   // other methods would throw on first use because no fetcher is wired,
-  // which is fine; projectState should never reach them.
+  // which is fine: projectState should never reach them.
   const client = new CloudApiClient({
     baseUrl: "http://mock",
     credentials: anonCreds,
@@ -88,7 +88,7 @@ describe("ensureProjectState", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
-  it("throws for auth0 callers without state: they must write .arkor/state.json by hand", async () => {
+  it("throws for auth0 callers without state (they must write .arkor/state.json by hand)", async () => {
     const client = fakeClient();
     await expect(
       ensureProjectState({ cwd, client, credentials: auth0Creds }),

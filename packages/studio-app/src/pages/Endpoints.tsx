@@ -109,7 +109,7 @@ export function EndpointsList() {
    * `pollDeploymentsForSlug` (`./Endpoints.helpers.ts`) so it can be
    * unit-tested without React; this wrapper just wires up the
    * AbortController and the React state setters. 6 attempts × 500 ms
-   * ≈ 3 s — long enough for a reasonable server commit window, short
+   * ≈ 3 s: long enough for a reasonable server commit window, short
    * enough that a forgotten poll doesn't keep hammering the cloud API
    * forever.
    */
@@ -172,7 +172,7 @@ export function EndpointsList() {
             // The form was unmounted (Cancel button, navigation) while a
             // POST was in flight. The server may already have committed
             // the row even though the client aborted, but the commit can
-            // land a few hundred ms after our abort fires — a single
+            // land a few hundred ms after our abort fires; a single
             // immediate reload would return the pre-create snapshot and
             // the user would still hit a confusing 409 on retry. Poll
             // for the specific slug (or give up after a few seconds).
@@ -208,20 +208,20 @@ export function EndpointsList() {
           // deployments" vs "we don't know which project this Studio
           // session is scoped to (no `.arkor/state.json`)". The
           // unscoped branch covers three operator configurations and
-          // each needs a different next step — anonymous (the create
+          // each needs a different next step: anonymous (the create
           // path will bootstrap), Auth0 (must restore state.json), or
           // not-signed-in / autoAnonymous=false (must `arkor login`
           // first; the create attempt would otherwise 401 with a
           // hint that's identical to what we surface here). The list
           // route itself doesn't see the credentials state, so the
           // copy has to enumerate all three remediations rather than
-          // single one out — the actual error you hit on the next
+          // single one out; the actual error you hit on the next
           // create attempt narrows it down.
           scopeMissing ? (
             <EmptyState
               icon={<Inbox />}
               title="Workspace not scoped to a project yet"
-              description="The next endpoint create will bootstrap this for an anonymous session. If you're signed in with OAuth, restore .arkor/state.json by hand to point this Studio session at the project you want to manage. If neither applies (no credentials on disk), run `arkor login` first — Studio cannot reach the cloud API without one."
+              description="The next endpoint create will bootstrap this for an anonymous session. If you're signed in with OAuth, restore .arkor/state.json by hand to point this Studio session at the project you want to manage. If neither applies (no credentials on disk), run `arkor login` first. Studio cannot reach the cloud API without one."
             />
           ) : (
             <EmptyState
@@ -291,7 +291,7 @@ function NewEndpointForm({
   // toggle hides this component, route changes, etc.). Aborting only
   // stops the *client* from waiting; the server may already have
   // committed the row, so we tell the parent to refresh the list via
-  // `onMaybeCreated` — otherwise the user clicks Cancel, retries with
+  // `onMaybeCreated`; otherwise the user clicks Cancel, retries with
   // the same slug, and sees a confusing 409 collision instead of the
   // row that was actually created. The slug we attempted is captured
   // in a ref so the unmount cleanup hands the parent the exact value
@@ -354,7 +354,7 @@ function NewEndpointForm({
     // double-click would otherwise abort the first POST and start a
     // second one. If the first POST has already committed server-side
     // by the time the abort arrives, the second submit gets a 409 for
-    // a slug that *did* land — a confusing failure for an action the
+    // a slug that *did* land: a confusing failure for an action the
     // user perceives as a single click.
     if (inFlightRef.current) return;
     const trimmedSlug = slug.trim();
@@ -374,7 +374,7 @@ function NewEndpointForm({
       // Mark the request as completed *before* `onCreated()` runs.
       // `onCreated()` flips parent state that unmounts this form, and
       // depending on React batching the unmount cleanup may run before
-      // we fall through to `finally` — which would see `inFlightRef`
+      // we fall through to `finally`, which would see `inFlightRef`
       // still true, mistake a successful create for an aborted one, and
       // kick off the fallback poll on every successful submission.
       inFlightRef.current = false;
@@ -424,7 +424,7 @@ function NewEndpointForm({
               (`focus-visible:outline-none`) so the suffix span stays
               flush with the input. The wrapper picks the focus ring
               up via `focus-within:*` so keyboard users still see a
-              visible focus indicator on the whole control — without
+              visible focus indicator on the whole control; without
               this they get *no* focus signal at all.
             */}
             <div className="mt-1 flex items-center rounded-lg border border-zinc-200 bg-white focus-within:border-teal-400 focus-within:ring-2 focus-within:ring-teal-500/30 dark:border-zinc-800 dark:bg-zinc-950">
@@ -565,15 +565,15 @@ export function EndpointDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   // Synchronous mirror of `busy` so re-entrancy guards in `withBusy`
   // can fire inside the same task as the click that started a mutation
-  // — the `busy` state itself only re-renders the controls disabled on
-  // the next React tick, which is too late to block a fast double-click.
+  // (the `busy` state itself only re-renders the controls disabled on
+  // the next React tick, which is too late to block a fast double-click).
   const busyRef = useRef(false);
   const [revealed, setRevealed] = useState<CreatedDeploymentKey | null>(null);
   const [newKeyLabel, setNewKeyLabel] = useState("");
 
   // Per-`id` request guard. When the user navigates from endpoint A to
   // endpoint B quickly, the in-flight A fetch can settle after B's and
-  // overwrite B's state — leaving the page showing A while every action
+  // overwrite B's state, leaving the page showing A while every action
   // handler calls the API for B (the value of `id` from props). We tag
   // every load with the id it was started for and ignore results whose
   // tag no longer matches the current `id` prop.
@@ -595,14 +595,14 @@ export function EndpointDetail({ id }: { id: string }) {
   // Track in-flight `createDeploymentKey` calls separately from the rest
   // of the mutations because the response carries the *one-time*
   // plaintext: if the user navigates away or closes the tab while it's
-  // pending — or before they acknowledge the displayed plaintext — the
+  // pending (or before they acknowledge the displayed plaintext), the
   // server may still commit the row but we lose the only chance to
   // surface the secret. Three layers of defence:
   //   1. `pendingKeyIssueRef` tracks "is there an un-recoverable secret
-  //      to protect?" — true while the POST is in flight AND while the
+  //      to protect?": true while the POST is in flight AND while the
   //      plaintext is on screen but not yet acknowledged. Used to gate
   //      the `beforeunload` warning and the navigation guard below.
-  //   2. `keyPostInFlightRef` is the narrower flag — true only while
+  //   2. `keyPostInFlightRef` is the narrower flag: true only while
   //      the POST is *actively running*. Used to pick the right confirm
   //      copy ("being issued" vs "shown but not yet saved").
   //   3. `keyIssueControllerRef` lets the unmount cleanup abort the
@@ -723,7 +723,7 @@ export function EndpointDetail({ id }: { id: string }) {
    * page is still showing the same endpoint when the response lands.
    *
    * `busyRef` is a synchronous mirror of the `busy` React state. We
-   * gate re-entry on the *ref*, not the state — `setBusy(true)` only
+   * gate re-entry on the *ref*, not the state: `setBusy(true)` only
    * re-renders on the next tick, so two clicks that fire inside the
    * same task (a fast double-click on Delete, a quick auth-mode select
    * change) would both see `busy === false` and run concurrently. The
@@ -746,7 +746,7 @@ export function EndpointDetail({ id }: { id: string }) {
       return undefined;
     } finally {
       // Always release the synchronous ref, even when the user has
-      // navigated away — otherwise the *next* endpoint's first
+      // navigated away; otherwise the *next* endpoint's first
       // mutation would think a request is already in flight and
       // silently no-op.
       busyRef.current = false;
@@ -802,7 +802,7 @@ export function EndpointDetail({ id }: { id: string }) {
     // secret, and we'd be stuck on a stale detail view for a deployment
     // that no longer exists server-side.
     const message = revealed
-      ? `Delete endpoint ${deployment.slug}.arkor.app? The just-issued API key plaintext on screen will also be lost — copy it first if you still need it.`
+      ? `Delete endpoint ${deployment.slug}.arkor.app? The just-issued API key plaintext on screen will also be lost; copy it first if you still need it.`
       : `Delete endpoint ${deployment.slug}.arkor.app?`;
     if (!window.confirm(message)) return;
     const myId = id;
@@ -875,7 +875,7 @@ export function EndpointDetail({ id }: { id: string }) {
         );
         if (activeIdRef.current !== myId) return;
         setRevealed(key);
-        // The POST has settled — switch the nav-guard copy from
+        // The POST has settled: switch the nav-guard copy from
         // "being issued" to "shown but not yet saved" *now*, before
         // the await on `refreshKeysIfStale` below. Without this, a
         // user who navigates during the keys refetch sees the wrong
@@ -913,12 +913,12 @@ export function EndpointDetail({ id }: { id: string }) {
         // user navigated A→B) or a fresh submit on this page would
         // have replaced `keyIssueControllerRef.current` with a newer
         // controller; in that case our finally is unwinding a
-        // superseded request and must NOT touch the shared state — B's
+        // superseded request and must NOT touch the shared state; B's
         // own `onCreateKey` already set `keyPostInFlightRef = true` /
         // `pendingKeyIssueRef = true`, and clearing them here would
         // silently drop B's beforeunload + hash-navigation guard.
         if (keyIssueControllerRef.current === controller) {
-          // The POST is no longer running regardless of outcome —
+          // The POST is no longer running regardless of outcome;
           // switch the confirm-copy ref so any subsequent nav guard
           // prompts use the "shown on screen" wording rather than
           // "being issued".
@@ -1125,7 +1125,7 @@ export function EndpointDetail({ id }: { id: string }) {
           {revealed && (
             <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700/50 dark:bg-amber-900/20">
               <p className="font-medium text-amber-900 dark:text-amber-200">
-                Copy this key now — it cannot be shown again.
+                Copy this key now. It cannot be shown again.
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <code className="flex-1 rounded bg-white px-2 py-1 font-mono text-xs break-all dark:bg-zinc-950">

@@ -168,7 +168,7 @@ describe("runTrainer: entry extraction", () => {
     // index.mjs in tests where TS isn't stripped. Emulate by writing a
     // re-export at the .ts path that points at the .mjs sibling.
     writeFileSync(join(arkorDir, "index.ts"), `export * from "./index.mjs";\n`);
-    // Pass undefined explicitly to exercise the `?? DEFAULT_ENTRY` branch:
+    // Pass undefined explicitly to exercise the `?? DEFAULT_ENTRY` branch.
     // Node's built-in TypeScript stripping handles the .ts extension at
     // runtime. (vitest also strips TS so this works under test too.)
     await expect(runTrainer()).resolves.toBeUndefined();

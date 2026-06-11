@@ -48,7 +48,7 @@ interface InferArgs {
 
 | フィールド | 型 | 補足 |
 | --- | --- | --- |
-| `messages` | `ChatMessage[]` | チャット履歴。`system` / `user` / `assistant`（任意の `tool_calls` 付き）/ `tool`（`tool_call_id` 付き）の判別共用体で、OpenAI のメッセージ形と完全互換 — Function Calling を含む履歴をそのまま往復できます。 |
+| `messages` | `ChatMessage[]` | チャット履歴。`system` / `user` / `assistant`（任意の `tool_calls` 付き）/ `tool`（`tool_call_id` 付き）の判別共用体で、OpenAI のメッセージ形と完全互換。Function Calling を含む履歴をそのまま往復できます。 |
 | `temperature` | `number?` | サンプリング温度。省略時はバックエンドのデフォルト。 |
 | `topP` | `number?` | Nucleus サンプリング。省略時はバックエンドのデフォルト。 |
 | `maxTokens` | `number?` | 応答トークンの最大値。省略時はバックエンドのデフォルト。 |
@@ -122,7 +122,7 @@ const res = await infer({
 
 ### `structuredOutputs` の例
 
-vLLM 固有の拡張。1 回の呼び出しで `json` / `regex` / `choice` / `grammar` / `json_object` のうち**ちょうど 1 つ**だけ — TypeScript 型システムが 2 つ同時を拒否します。`responseFormat` の constraint との併用も避けてください: vLLM の sampling params に 2 つ制約が入って ingress で拒否されます。
+vLLM 固有の拡張。1 回の呼び出しで `json` / `regex` / `choice` / `grammar` / `json_object` のうち**ちょうど 1 つ**だけ。TypeScript 型システムが 2 つ同時を拒否します。`responseFormat` の constraint との併用も避けてください: vLLM の sampling params に 2 つ制約が入って ingress で拒否されます。
 
 **固定 choice。** 出力を小さな enumerated 集合のいずれかに強制します。余計な前置きを許したくない分類タスクのプロンプトに有用です。
 
@@ -144,7 +144,7 @@ const res = await infer({
 });
 ```
 
-**EBNF グラマー。** 完全カスタムな形のための EBNF グラマー。文字列は vLLM にそのまま転送されます — サポートされるグラマー構文は [vLLM の structured outputs ドキュメント](https://docs.vllm.ai/) を参照。
+**EBNF グラマー。** 完全カスタムな形のための EBNF グラマー。文字列は vLLM にそのまま転送されます。サポートされるグラマー構文は [vLLM の structured outputs ドキュメント](https://docs.vllm.ai/) を参照。
 
 ```ts
 const res = await infer({
@@ -208,7 +208,7 @@ if (reply.role === "assistant" && reply.tool_calls?.length) {
 }
 ```
 
-`tool_calls[i].function.arguments` は **JSON エンコードされた文字列** であり、パース済みオブジェクトではありません — 受け取ったら `JSON.parse` してください。`tool` メッセージの `tool_call_id` は、直前の assistant ターンの `tool_calls[i].id` と一致している必要があります（モデルが結果を正しいツール呼び出しに紐付けるため）。
+`tool_calls[i].function.arguments` は **JSON エンコードされた文字列** であり、パース済みオブジェクトではありません。受け取ったら `JSON.parse` してください。`tool` メッセージの `tool_call_id` は、直前の assistant ターンの `tool_calls[i].id` と一致している必要があります（モデルが結果を正しいツール呼び出しに紐付けるため）。
 
 ## 型定義
 
@@ -232,7 +232,7 @@ export interface ToolCall {
   type: "function";
   function: {
     name: string;
-    /** JSON エンコードされた引数文字列 — 部分デルタがストリームされ得る。 */
+    /** JSON エンコードされた引数文字列。部分デルタがストリームされ得る。 */
     arguments: string;
   };
 }
@@ -293,7 +293,7 @@ export type StructuredOutputs = ExactlyOne<{
 };
 ```
 
-assistant ロールは 2 つのサブシェイプに分かれており、`{ role: "assistant" }` で `content` も `tool_calls` も無いものは型チェックを **通りません** — 少なくとも一方が必須。`[ToolCall, ...ToolCall[]]` の形で「`tool_calls` を持つときは非空」を型レベルで強制しています。
+assistant ロールは 2 つのサブシェイプに分かれており、`{ role: "assistant" }` で `content` も `tool_calls` も無いものは型チェックを **通りません**。少なくとも一方が必須。`[ToolCall, ...ToolCall[]]` の形で「`tool_calls` を持つときは非空」を型レベルで強制しています。
 
 ## 戻り値
 
@@ -335,11 +335,11 @@ const data = await res.json();
 
 実体がどこに入るかは指定した制約で変わります:
 
-- **制約なし** または **`responseFormat: { type: "text" }`** — `choices[0].message.content` はプレーンテキスト。
-- **`responseFormat: { type: "json_object" }`** または **`type: "json_schema"`** — `choices[0].message.content` は JSON を含む **文字列**。`JSON.parse` は自分で呼びます（SDK は事前にパースしません）。
-- **`structuredOutputs: { json }` または `{ json_object: true }`** — 同様。`choices[0].message.content` は JSON 文字列なので `JSON.parse` する。
-- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }`** — `choices[0].message.content` は制約に合致する文字列。JSON ではないのでパースしないこと。
-- **`tools` 付きで tool call が返ったケース** — `choices[0].message.tool_calls` が埋まり、`content` は省略 / `null`。各 `tool_calls[i].function.arguments` 自体が JSON エンコードされた文字列。
+- **制約なし** または **`responseFormat: { type: "text" }`**: `choices[0].message.content` はプレーンテキスト。
+- **`responseFormat: { type: "json_object" }`** または **`type: "json_schema"`**: `choices[0].message.content` は JSON を含む **文字列**。`JSON.parse` は自分で呼びます（SDK は事前にパースしません）。
+- **`structuredOutputs: { json }` または `{ json_object: true }`**: 同様。`choices[0].message.content` は JSON 文字列なので `JSON.parse` する。
+- **`structuredOutputs: { choice }` / `{ regex }` / `{ grammar }`**: `choices[0].message.content` は制約に合致する文字列。JSON ではないのでパースしないこと。
+- **`tools` 付きで tool call が返ったケース**: `choices[0].message.tool_calls` が埋まり、`content` は省略 / `null`。各 `tool_calls[i].function.arguments` 自体が JSON エンコードされた文字列。
 
 `finish_reason: "tool_calls"` は「最終回答を出さずツールを呼びたい」というモデルからのシグナルです。[Function Calling のラウンドトリップ](#function-calling-のラウンドトリップ) で次のターンを回します。
 

@@ -49,7 +49,7 @@ export async function main(argv: string[]): Promise<void> {
     .option("--skip-git", "Skip the git init prompt and do not initialise git")
     .option(
       "--allow-builds",
-      "Opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny — pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
+      "Opt esbuild's postinstall script into running on `pnpm install` (pnpm-only; default: deny, since pnpm 11 errors on ignored builds and the scaffold writes `allowBuilds: { esbuild: false }` to silence it)",
     )
     .option(
       "--agents-md",
@@ -82,7 +82,7 @@ export async function main(argv: string[]): Promise<void> {
           // Commander treats `--agents-md` and `--no-agents-md` as the same
           // option (last-wins), so it will not surface a conflict on its
           // own. Mirror the `--git` / `--skip-git` check by inspecting the
-          // raw argv passed to `main()` — using `process.argv` directly
+          // raw argv passed to `main()`: using `process.argv` directly
           // would miss the conflict when called from tests via
           // `main([...])` and could false-positive on the parent process's
           // own arguments. Stop scanning at the POSIX `--` end-of-options

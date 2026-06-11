@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
  * additionally need `create-arkor`'s tsdown to emit sourcemaps so c8
  * can remap V8 hits back to `src/`; that's gated on
  * `CREATE_ARKOR_BUILD_SOURCEMAP=1`, which is *not* set by this
- * package's `test:coverage` script — CI's coverage job (or an
+ * package's `test:coverage` script; CI's coverage job (or an
  * explicit caller, see `CONTRIBUTING.md`) sets it on the parent
  * environment, and turbo.json's `build`/`test:coverage` env
  * allowlist propagates it into `create-arkor#build`. For standalone

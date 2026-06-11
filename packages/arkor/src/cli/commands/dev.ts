@@ -66,10 +66,10 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     // to follow up is to upgrade to OAuth, so the interactive picker
     // would just add friction. Surface the fast path directly.
     ui.log.info(
-      "No credentials on file — bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
+      "No credentials on file. Bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
     );
   } else {
-    ui.log.info("No credentials on file — requesting an anonymous token.");
+    ui.log.info("No credentials on file. Requesting an anonymous token.");
   }
   // Scoped to just `requestAnonymousToken` on purpose: this is where we
   // decide whether the network failure is recoverable (transport blip vs
@@ -118,7 +118,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     // wrap fires only for genuine deployment rejection (401/403/404 et
     // al). 5xx is a transient cloud-api failure where retrying makes
     // sense, ZodErrors signal a malformed response (server bug), and fs
-    // failures are out of scope for the anon endpoint entirely; none of
+    // failures are out of scope for the anon endpoint entirely: none of
     // these should be mislabelled as a sign-in requirement.
     if (
       err instanceof AnonymousTokenRejectedError &&
@@ -132,7 +132,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       // wrap and risk leaking noisy HTML/JSON error pages. The full
       // detail is preserved on `cause` for debugging.
       throw new Error(
-        `Failed to bootstrap an anonymous session (HTTP ${err.status}). This deployment may require sign-in — run \`arkor login --oauth\` and try again.`,
+        `Failed to bootstrap an anonymous session (HTTP ${err.status}). This deployment may require sign-in. Run \`arkor login --oauth\` and try again.`,
         { cause: err },
       );
     }
@@ -148,7 +148,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
   };
   await writeCredentials(creds);
   ui.log.info(
-    `Anonymous id: ${anon.anonymousId} — Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
+    `Anonymous id: ${anon.anonymousId}. Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
   );
   // see ../anonymous.ts for wording rationale and gating contract.
   if (oauthAvailable) {
@@ -317,7 +317,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // attempt above failed (e.g. cloud-api was unreachable at launch).
   const app = buildStudioApp({ studioToken, hmr });
   // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
-  // only; `@hono/node-server` passes hostname to `net.Server.listen`, which
+  // only: `@hono/node-server` passes hostname to `net.Server.listen`, which
   // calls `dns.lookup`. On hosts where `/etc/hosts` orders `::1 localhost`
   // before `127.0.0.1 localhost`, a "localhost" bind would refuse IPv4
   // connections, breaking the studio-app Vite proxy (hardcoded to

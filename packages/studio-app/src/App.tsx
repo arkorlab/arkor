@@ -45,7 +45,7 @@ export function App() {
         routes. Without it React would reuse the existing component
         across `#/endpoints/A` → `#/endpoints/B` and the new id render
         once with B's action handlers but A's stale `deployment` /
-        `keys` / `revealed` state — a fast Enable / Delete / Revoke
+        `keys` / `revealed` state; a fast Enable / Delete / Revoke
         click landing in that window would mutate the wrong deployment.
         The per-id `useEffect` already clears state, but it runs *after*
         the first paint of the new id, so the visible window of stale

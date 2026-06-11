@@ -4,7 +4,7 @@ name: Build (reusable)
 #
 # Scope (intentionally minimal): install → build → pack → sbom → attest → publish.
 # Everything that is not strictly required to produce and sign the
-# artifact lives in the caller — tests (which execute arbitrary
+# artifact lives in the caller: tests (which execute arbitrary
 # user-controlled code), tag-shape validation, version reconciliation
 # against package.json, the npm-not-yet-published guard, and the dry-run
 # verification path. Keeping those out of the reusable workflow shrinks
@@ -17,7 +17,7 @@ name: Build (reusable)
 # claim resolves to this file's path + ref. Verifiers (e.g.
 # `npm audit signatures`, slsa-verifier) can therefore require provenance
 # signed by this exact reusable workflow as a separately-lockable trust
-# principal — branch-protect this file and the publish identity is safe
+# principal; branch-protect this file and the publish identity is safe
 # even if a caller workflow is compromised.
 
 on:
@@ -39,7 +39,9 @@ jobs:
     environment: npm-publish
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
@@ -125,7 +127,7 @@ jobs:
       # pnpm >= 11.1.3 treats the `_authToken=${NODE_AUTH_TOKEN}` placeholder
       # that setup-node writes into `.npmrc` as empty and uses OIDC instead
       # of sending the literal placeholder as a bearer token. (This repo
-      # pins pnpm 11.3.0 via package.json's `packageManager`, well above
+      # pins pnpm 11.5.0 via package.json's `packageManager`, well above
       # that floor.)
       # `--no-git-checks` skips pnpm's publish-branch / clean-tree
       # assertions, which don't apply on the detached-tag checkout this
