@@ -1,6 +1,7 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -660,15 +661,17 @@ describe("runDev", () => {
     }
   });
 
-  it("warns but still starts when persisting the studio token fails (read-only HOME)", async () => {
-    // Branch coverage for the writeCredentials/persist try/catch. Make
-    // ~/.arkor read-only after writeCredentials (so readCredentials still
-    // works) so the per-launch token write hits EACCES.
-    if (typeof process.getuid === "function" && process.getuid() === 0) {
-      // Root bypasses chmod permission checks; skip on root containers.
-      return;
-    }
-    chmodSync(join(fakeHome, ".arkor"), 0o555);
+  it("warns but still starts when persisting the studio token fails (token path unwritable)", async () => {
+    // Branch coverage for the writeCredentials/persist try/catch.
+    // Platform-neutral failure trigger (CodeRabbit, round 81): the
+    // previous `chmod 0o555` on `~/.arkor` only blocks directory
+    // writes on POSIX as a non-root user; NTFS doesn't enforce the
+    // read-only attribute on directories, so the Windows CI matrix
+    // ran this test without ever hitting the catch path. Creating a
+    // DIRECTORY at the token path itself makes `writeFile` fail
+    // everywhere (EISDIR on POSIX, EPERM on Windows) with no root
+    // caveat either.
+    mkdirSync(studioTokenPath(), { recursive: true });
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
@@ -677,8 +680,7 @@ describe("runDev", () => {
       expect(serve).toHaveBeenCalledTimes(1);
     } finally {
       stdoutSpy.mockRestore();
-      // Restore writable for afterEach rmSync.
-      chmodSync(join(fakeHome, ".arkor"), 0o755);
+      // afterEach's recursive rmSync(fakeHome) reaps the directory.
     }
   });
 
@@ -731,11 +733,11 @@ describe("runDev", () => {
     // dev server would idle in the foreground forever. The fix
     // registers the token cleanup unconditionally; here we make
     // persist throw and verify SIGINT still terminates.
-    if (typeof process.getuid === "function" && process.getuid() === 0) {
-      // Root bypasses chmod permission checks; skip on root containers.
-      return;
-    }
-    chmodSync(join(fakeHome, ".arkor"), 0o555);
+    // Same platform-neutral persist-failure trigger as the
+    // "warns but still starts" test above: a directory at the token
+    // path makes `writeFile` throw on every OS, no chmod / root
+    // caveats.
+    mkdirSync(studioTokenPath(), { recursive: true });
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
@@ -743,7 +745,6 @@ describe("runDev", () => {
       await runDev({ port: 4206 });
     } finally {
       stdoutSpy.mockRestore();
-      chmodSync(join(fakeHome, ".arkor"), 0o755);
     }
 
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((

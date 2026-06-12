@@ -347,6 +347,34 @@ describe("streamTraining", () => {
     expect(received.join("")).toBe("one two three");
   });
 
+  it("returns the exit code parsed off the trailing `exit=` marker", async () => {
+    // Codex P1 (round 80): the SPA suppresses HMR auto-restart when
+    // the child exited nonzero (143 = early-stop whose cancel POST
+    // rejected). The exit code rides the stream as the server's
+    // trailing `\n---\nexit=<code>\n` marker; streamTraining parses
+    // it from the tail and returns it so `run()` can gate the
+    // restart. Split the marker across chunks to prove the rolling
+    // tail buffer reassembles it.
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["trainer says hi\n", "\n---\nexit", "=143\n"]),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).resolves.toBe(143);
+  });
+
+  it("returns 0 for a clean exit marker", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["done\n", "\n---\nexit=0\n"]),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).resolves.toBe(0);
+  });
+
+  it("returns null when no exit marker is present (error= path / truncated body)", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["partial output, no marker"]),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).resolves.toBeNull();
+  });
+
   it("forwards the file argument to /api/train when supplied", async () => {
     let captured: { url: string; body: string } = { url: "", body: "" };
     globalThis.fetch = vi.fn(async (input, init) => {

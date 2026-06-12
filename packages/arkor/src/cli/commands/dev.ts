@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -198,38 +198,90 @@ function scheduleStudioTokenCleanup(
 ): void {
   registerCleanupHook({
     cleanup: () => {
-      // Token-identity check is the sole gate. Three cases collapse
-      // into "the file isn't ours, leave it alone":
+      // Rename-then-inspect reap (CodeRabbit, round 81). The previous
+      // read → compare → unlink sequence was a TOCTOU pair: another
+      // `arkor dev` could rewrite the shared `~/.arkor/studio-token`
+      // BETWEEN our successful read (bytes matched ours) and our
+      // unlink, so we'd delete THEIR fresh token anyway. `rename` is
+      // atomic, so claiming the file first closes that window:
       //
-      //   - ENOENT (file gone): readFileSync throws → return. Covers
-      //     the failed-persist path (writeFile never created the
-      //     file) AND the "another shutdown already cleaned up" path.
-      //   - Foreign token: another `arkor dev` launched in the same
-      //     `$HOME` overwrote the shared `~/.arkor/studio-token`
-      //     path before our shutdown. Unlinking unconditionally would
-      //     break their Vite SPA dev workflow with mystery 403s on
-      //     /api/*; the identity check makes our cleanup a no-op.
-      //   - Our token: bytes match → safe to unlink.
+      //   1. rename(path → private reap path). Whatever file is at
+      //      `path` at the syscall instant moves; concurrent writers
+      //      that land after the rename create a NEW file at `path`
+      //      which we never touch.
+      //   2. Inspect the claimed file. Ours (bytes match) → unlink
+      //      the claimed copy; done.
+      //   3. Foreign token claimed by mistake → rename it BACK to
+      //      `path` to restore it. If the rename-back fails because
+      //      the other process re-wrote `path` meanwhile, their
+      //      newer token wins and our claimed copy (their older
+      //      token) is deleted: the live file is always the newest
+      //      writer's.
       //
-      // The identity check supersedes any earlier "did persist
-      // succeed?" gate. A previous design tracked `tokenPersisted`
-      // as a boolean set after `await persistStudioToken(...)`, but
-      // that introduced a race window: a signal arriving AFTER
-      // writeFile created the file but BEFORE the boolean flipped
-      // would skip the unlink and leave our token on disk. Reading
-      // the file's actual contents at cleanup time is race-free
-      // because the bytes are the source of truth.
-      let current: string;
+      // The reap path carries our pid so two arkor dev processes
+      // shutting down simultaneously can't collide on the temp name.
+      //
+      // Identity-vs-persist-flag rationale (unchanged from the prior
+      // revision): a `tokenPersisted` boolean set after
+      // `await persistStudioToken(...)` had its own race (signal
+      // landing between writeFile completing and the flag flipping
+      // would leak our token); the file's bytes are the source of
+      // truth, now claimed atomically before inspection.
+      const reapPath = `${path}.reap-${process.pid}`;
       try {
-        current = readFileSync(path, "utf8").trim();
+        renameSync(path, reapPath);
       } catch {
+        // ENOENT: failed-persist run, or another shutdown already
+        // cleaned up. Nothing to reap.
         return;
       }
-      if (!tokensEqual(current, expectedToken)) return;
+      let claimed: string;
       try {
-        unlinkSync(path);
+        claimed = readFileSync(reapPath, "utf8").trim();
       } catch {
-        // best-effort
+        // Claimed file unreadable: delete the claim best-effort so we
+        // don't leave a stray reap file behind.
+        try {
+          unlinkSync(reapPath);
+        } catch {
+          // best-effort
+        }
+        return;
+      }
+      if (tokensEqual(claimed, expectedToken)) {
+        // Ours: the rename already removed it from the shared path;
+        // just delete the claimed copy.
+        try {
+          unlinkSync(reapPath);
+        } catch {
+          // best-effort
+        }
+        return;
+      }
+      // Foreign token: restore it, UNLESS the other process already
+      // re-wrote `path` after our rename claimed the old copy. Rename
+      // REPLACES an existing destination rather than failing, so a
+      // bare rename-back would clobber that fresher token with the
+      // older claimed one. The existence probe shrinks the clobber
+      // window from "read → unlink" (previous design, milliseconds
+      // spanning a token comparison) to the few instructions between
+      // existsSync and renameSync, and the losing outcome in that
+      // residual window is restore-the-older-token (the other dev
+      // server 403s until its own next rewrite), not delete-the-token
+      // outright.
+      try {
+        if (existsSync(path)) {
+          // Newest writer wins: discard the claimed older copy.
+          unlinkSync(reapPath);
+        } else {
+          renameSync(reapPath, path);
+        }
+      } catch {
+        try {
+          unlinkSync(reapPath);
+        } catch {
+          // best-effort
+        }
       }
     },
     // Outermost cleanup: responsible for terminating the process after

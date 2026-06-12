@@ -146,16 +146,24 @@ export function RunTraining() {
     // Chained setTimeout (not setInterval) so a slow /api/manifest
     // can't pile up overlapping in-flight calls.
     async function tick() {
+      // Participate in the same seq fencing the SSE handler uses: a
+      // poll that started BEFORE an HMR `error` frame landed must not
+      // overwrite the `{ error }` state when its (slow) fetch resolves
+      // afterwards. Bumping here also invalidates any older in-flight
+      // SSE-driven fetch, which is correct: this poll is newer.
+      const seq = ++manifestFetchSeqRef.current;
       try {
         const m = await fetchManifest();
-        if (!cancelled) setManifest(m);
+        if (!cancelled && seq === manifestFetchSeqRef.current) setManifest(m);
       } catch (err: unknown) {
-        if (!cancelled) {
+        if (!cancelled && seq === manifestFetchSeqRef.current) {
           setManifest({
             error: err instanceof Error ? err.message : String(err),
           });
         }
       } finally {
+        // Always re-arm the poll (seq-stale only suppresses the state
+        // write, not the polling loop itself).
         if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
@@ -344,8 +352,11 @@ export function RunTraining() {
     const ac = new AbortController();
     trainingAbortRef.current?.abort();
     trainingAbortRef.current = ac;
+    // Exit code parsed off the train stream's trailing `exit=` marker.
+    // `null` = unknown (aborted stream, spawn failure, marker missing).
+    let exitCode: number | null = null;
     try {
-      await streamTraining(
+      exitCode = await streamTraining(
         (chunk) => {
           if (ac.signal.aborted) return;
           setLog((prev) => appendCapped(prev, chunk));
@@ -446,6 +457,34 @@ export function RunTraining() {
         clearTimeout(restartGraceTimerRef.current);
         restartGraceTimerRef.current = null;
       }
+      return;
+    }
+
+    // Codex P1 (PR #101 round 80): a NONZERO exit suppresses auto-
+    // restart. The runner exits 143 when an HMR-triggered early-stop
+    // failed to cancel the cloud job (cancel POST rejected); spawning
+    // a fresh run on top of that would overlap a new cloud job with
+    // the one whose cancel never landed (double GPU spend, no
+    // operator signal). Any other nonzero exit is a crash, and
+    // restarting a crashing run in a loop would churn cloud jobs
+    // with the same broken artefact. Exit 0 (graceful early-stop
+    // succeeded) and `null` (no marker parsed: spawn failure path
+    // already surfaced its own error) keep the existing restart
+    // behaviour.
+    if (exitCode !== null && exitCode !== 0) {
+      restartPendingRef.current = false;
+      currentPidRef.current = null;
+      setHmrStatus("idle");
+      if (restartGraceTimerRef.current !== null) {
+        clearTimeout(restartGraceTimerRef.current);
+        restartGraceTimerRef.current = null;
+      }
+      setLog((prev) =>
+        appendCapped(
+          prev,
+          `\n[hmr] run exited with code ${exitCode}; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`,
+        ),
+      );
       return;
     }
 

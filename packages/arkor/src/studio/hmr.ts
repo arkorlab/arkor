@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync } from "node:fs";
 
 import { watch, type RolldownWatcher } from "rolldown";
 
@@ -428,21 +428,73 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       clearInterval(entryWaitTimer);
       entryWaitTimer = null;
     }
+    // The watcher writes to a STAGING file beside the real artefact,
+    // which BUNDLE_END atomically renames onto `outFile` (Codex P2,
+    // round 81). Writing `outFile` directly would let a concurrent
+    // `/api/train` spawn race the watcher's non-atomic write:
+    // `runStart` skips its own rebuild whenever the artefact exists,
+    // so a Run click landing inside the write window would
+    // dynamic-import a partially-written bundle and crash the run.
+    // `renameSync` within the same directory is atomic on POSIX and
+    // uses MoveFileEx(MOVEFILE_REPLACE_EXISTING) on Windows, so
+    // readers only ever observe the previous complete artefact or
+    // the new complete artefact, never a torn write. Bonus: a build
+    // that errors before BUNDLE_END leaves the last-good artefact
+    // in place instead of clobbering it with partial output.
+    const stagingFile = `${resolved.outFile}.hmr-staging`;
     watcher = watch({
       ...rolldownInputOptions(resolved),
-      output: { file: resolved.outFile, format: "esm" },
+      output: { file: stagingFile, format: "esm" },
     });
     watcher.on("event", (event) => {
-      if (event.code === "BUNDLE_END") {
+      switch (event.code) {
+      case "BUNDLE_START": {
+        // Invalidate any still-in-flight `emitBuildSucceeded` from the
+        // PREVIOUS BUNDLE_END as soon as a newer compile starts (Codex
+        // P2, round 81). The seq guard inside `emitBuildSucceeded`
+        // previously only advanced when the newer build *finished*
+        // (BUNDLE_END / ERROR), so a slow inspection (user top-level
+        // await inside the imported bundle) could still pass
+        // `seq === buildSeq` while a newer edit was already compiling
+        // and broadcast/SIGTERM children for stale source.
+        buildSeq += 1;
+
+      break;
+      }
+      case "BUNDLE_END": {
         // rolldown requires the per-build result to be closed to avoid leaks.
         event.result.close().catch(() => undefined);
+        // Publish the staged bundle atomically before inspection so
+        // `emitBuildSucceeded` (and every concurrent reader:
+        // `/api/train` spawns, `/api/manifest` fast path, fingerprint
+        // getters) sees the complete new artefact at `outFile`.
+        try {
+          renameSync(stagingFile, resolved.outFile);
+        } catch (err) {
+          // Rename failure (staging file missing, EPERM on a locked
+          // target, cross-device surprise) means there's no coherent
+          // new artefact to publish; surface as an error frame rather
+          // than inspecting whatever is currently at `outFile` and
+          // mislabelling it as the new build.
+          buildSeq += 1;
+          broadcast({
+            type: "error",
+            message: `Failed to publish rebuilt bundle: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          });
+          return;
+        }
         // The event type ("ready" vs "rebuild") is decided inside
         // `emitBuildSucceeded` *after* the inspection await, based on
         // whether any prior broadcast actually landed (see the
         // `firstBroadcast` comment for why pinning the type at this
         // schedule point would be wrong under inspection races).
         void emitBuildSucceeded();
-      } else if (event.code === "ERROR") {
+
+      break;
+      }
+      case "ERROR": {
         // Rolldown's ERROR events don't always carry a `result`:
         // when the failure is in the parse/resolve phase there's
         // no per-build output to close, so `event.result` is
@@ -474,6 +526,10 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
               ? event.error.message
               : String(event.error),
         });
+
+      break;
+      }
+      // No default
       }
     });
   }

@@ -352,6 +352,18 @@ export function extractInferenceDelta(data: string): string | null {
   return null;
 }
 
+/**
+ * Trailing exit marker the Studio server appends to the train stream
+ * when the subprocess closes: `\n---\nexit=<code>\n`. Parsed off the
+ * stream tail so callers can distinguish a clean exit (0; e.g. a
+ * successful HMR graceful early-stop) from a failed one (143 when the
+ * early-stop cancel POST rejected, any other nonzero crash). The SPA
+ * suppresses HMR auto-restart for nonzero exits: restarting on top of
+ * a run whose cloud cancel may NOT have landed would overlap two
+ * live cloud jobs (double GPU spend) with no operator signal.
+ */
+const EXIT_MARKER_PATTERN = /\n---\nexit=(-?\d+)\n?$/;
+
 export async function streamTraining(
   onChunk: (text: string) => void,
   file?: string,
@@ -364,7 +376,7 @@ export async function streamTraining(
    * doesn't latch onto a sibling tab's restart broadcast.
    */
   onSpawn?: (pid: number | null) => void,
-): Promise<void> {
+): Promise<number | null> {
   const res = await apiFetch("/api/train", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -401,7 +413,7 @@ export async function streamTraining(
     const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
     onSpawn(Number.isFinite(parsed) ? parsed : null);
   }
-  if (!res.body) return;
+  if (!res.body) return null;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   // Cancel the underlying body when the caller aborts so we don't
@@ -420,14 +432,24 @@ export async function streamTraining(
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     void reader.cancel().catch(() => {});
     reader.releaseLock();
-    return;
+    return null;
   }
+  // Rolling tail of decoded output, kept just long enough to match
+  // the server's exit marker even when the final chunks split it.
+  // Bounded so a multi-MB log can't grow this string.
+  let tailBuf = "";
+  const TAIL_MAX = 64;
+  const trackTail = (text: string): void => {
+    tailBuf = (tailBuf + text).slice(-TAIL_MAX);
+  };
   signal?.addEventListener("abort", onAbort);
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      onChunk(decoder.decode(value, { stream: true }));
+      const text = decoder.decode(value, { stream: true });
+      trackTail(text);
+      onChunk(text);
     }
     // Flush any bytes the streaming decoder buffered for a multi-byte
     // UTF-8 sequence that landed split across the final two chunks.
@@ -435,13 +457,21 @@ export async function streamTraining(
     // silently dropped when it happens to be non-ASCII (Japanese log
     // lines, emoji progress bars, etc.).
     const tail = decoder.decode();
-    if (tail) onChunk(tail);
+    if (tail) {
+      trackTail(tail);
+      onChunk(tail);
+    }
   } finally {
     signal?.removeEventListener("abort", onAbort);
     // Release the reader lock so a subsequent caller can re-acquire
     // the body if needed. Mirrors `iterateSseFrames`'s finally clause.
     reader.releaseLock();
   }
+  // `null` when no marker was found: aborted streams, `error=` paths,
+  // truncated bodies. Callers treat null as "unknown" and apply their
+  // own conservative default.
+  const m = EXIT_MARKER_PATTERN.exec(tailBuf);
+  return m?.[1] === undefined ? null : Number.parseInt(m[1], 10);
 }
 
 // ---- Deployments (`*.arkor.app` URL management) -------------------------

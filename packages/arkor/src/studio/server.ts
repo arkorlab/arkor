@@ -543,6 +543,28 @@ export function buildStudioApp(options: StudioServerOptions) {
     const spawnScope = spawnState
       ? { orgSlug: spawnState.orgSlug, projectSlug: spawnState.projectSlug }
       : null;
+    // Capture credentials + base URL at spawn time too (Codex P2,
+    // round 80): the child creates the cloud job with whatever
+    // credentials it loads at `trainer.start()`, milliseconds after
+    // this spawn. If the user logs in/out (or switches control
+    // planes) while the run is in flight, a cancel-time credentials
+    // read would address the cancel POST to the NEW account/host;
+    // the POST 404s (or cancels an unrelated job), the failure is
+    // swallowed as best-effort, and the ORIGINAL cloud job keeps
+    // running after the SIGKILL. Snapshotting here pins the cancel
+    // to the same identity the child used. Read directly via
+    // `readCredentials()` (not `getCredentials()`) so a fresh
+    // machine without credentials doesn't trigger a blocking
+    // anonymous-bootstrap network call on the spawn path; the
+    // cancel handler falls back to a cancel-time resolve when this
+    // capture is null.
+    const spawnCreds = await readCredentials();
+    const spawnRpc = spawnCreds
+      ? {
+          baseUrl: defaultArkorCloudApiUrl(spawnCreds),
+          token: tokenFromCredentials(spawnCreds),
+        }
+      : null;
     const args = [trainBinPath, "start"];
     if (trainFile) args.push(trainFile);
     // Per-spawn 16-byte nonce passed via env var so the runner can
@@ -904,12 +926,15 @@ export function buildStudioApp(options: StudioServerOptions) {
           }
           if (!scopeForCancel) return;
           try {
-            // `createRpc` now needs (baseUrl, token) explicitly; main's
-            // refactor moved off the closure-based getter so the per-
-            // request credentials read happens once here rather than
-            // twice via the SDK's lazy token callback.
+            // Prefer the spawn-time credential snapshot so the cancel
+            // POST hits the same account/control-plane the child used
+            // for createJob (see `spawnRpc` capture above). Fall back
+            // to a cancel-time resolve only when there were no
+            // credentials on disk at spawn (first-run anon flow: the
+            // child bootstrapped them itself, and the file the
+            // resolve reads here is the one that child wrote).
             const { baseUrl: rpcBaseUrl, token: rpcToken } =
-              await resolveCredentialsAndBaseUrl();
+              spawnRpc ?? (await resolveCredentialsAndBaseUrl());
             const rpc = createRpc(rpcBaseUrl, rpcToken);
             await rpc.v1.jobs[":id"].cancel.$post({
               param: { id: parsedJobId },
@@ -1046,10 +1071,56 @@ export function buildStudioApp(options: StudioServerOptions) {
         // match means the child's loaded bytes ARE what the new
         // configHash describes.
         const nextArtifactContentHash = event.contentHash ?? null;
+        // win32 (Codex P1, round 81): Node's `subprocess.kill("SIGTERM")`
+        // on Windows terminates the child "forcefully and abruptly"
+        // (per Node's child_process docs), so the runner's
+        // `installShutdownHandlers` never runs and the child can't
+        // issue its own graceful `cancel()` POST. Snapshot each active
+        // child's parsed jobId + spawn scope BEFORE dispatch (after
+        // dispatch the kill may already be reaping entries via close
+        // handlers) so the server can fire the cloud cancel on the
+        // child's behalf for every restart target.
+        const win32CancelSnapshots =
+          process.platform === "win32"
+            ? activeTrains.list().map((entry) => ({
+                pid: entry.child.pid,
+                jobId: entry.jobId,
+                scope: entry.scope,
+              }))
+            : [];
         const { hotSwapTargets, restartTargets } = activeTrains.dispatchRebuild(
           nextHash,
           nextArtifactContentHash,
         );
+        if (process.platform === "win32" && restartTargets.length > 0) {
+          for (const target of restartTargets) {
+            const snap = win32CancelSnapshots.find(
+              (s) => s.pid === target.pid,
+            );
+            if (!snap?.jobId || !snap.scope) continue;
+            const { jobId: snapJobId, scope: snapScope } = snap;
+            // Fire-and-forget per child, mirroring the manual-Stop
+            // cancel path: SIGTERM-as-forceful-kill on win32 means
+            // nobody else will release the cloud job. Best-effort;
+            // cloud reaper / TTL is the safety net on failure.
+            void (async () => {
+              try {
+                const { baseUrl: rpcBaseUrl, token: rpcToken } =
+                  await resolveCredentialsAndBaseUrl();
+                const rpc = createRpc(rpcBaseUrl, rpcToken);
+                await rpc.v1.jobs[":id"].cancel.$post({
+                  param: { id: snapJobId },
+                  query: {
+                    orgSlug: snapScope.orgSlug,
+                    projectSlug: snapScope.projectSlug,
+                  },
+                });
+              } catch {
+                // best-effort
+              }
+            })();
+          }
+        }
         augmented = {
           ...event,
           hotSwap: hotSwapTargets.length > 0,
@@ -1617,10 +1688,29 @@ export function buildStudioApp(options: StudioServerOptions) {
     map: "application/json",
   };
 
+  // Resolved once so the containment check below compares against a
+  // canonical absolute base even when `assetsDir` was passed relative.
+  const assetsBase = resolve(assetsDir);
+
   async function readAsset(relPath: string): Promise<Response | null> {
     const cleaned = relPath.replace(/^\/+/, "");
+    // Containment guard (CodeRabbit, round 81): `join(assetsDir, ...)`
+    // is purely lexical, so any traversal sequence that survives the
+    // router's normalisation (`..%2f..` variants, weird platform
+    // separators) would walk OUT of the bundled assets tree and read
+    // arbitrary local files. These GETs are host-guarded but NOT
+    // studio-token gated (the SPA shell must load before the token
+    // exists client-side), so without this check the static handler
+    // is a local file-disclosure primitive. Resolve to an absolute
+    // path and require it to stay under `assetsBase`. Null bytes are
+    // rejected up front: they truncate paths in some libuv syscalls.
+    if (cleaned.includes("\0")) return null;
+    const target = resolve(assetsBase, cleaned);
+    if (target !== assetsBase && !target.startsWith(`${assetsBase}${sep}`)) {
+      return null;
+    }
     try {
-      const file = await readFile(join(assetsDir, cleaned));
+      const file = await readFile(target);
       const ext = cleaned.slice(cleaned.lastIndexOf(".") + 1);
       if (ext === "html") {
         const html = injectStudioMeta(
