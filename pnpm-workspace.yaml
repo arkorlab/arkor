@@ -78,7 +78,7 @@ catalog:
   turbo: "^2.9.14"
   typescript: "^5"
   typescript-eslint: "^8.59.4"
-  vite: "^6.0.0"
+  vite: "^8.0.16"
   vitest: "^4.1.5"
 minimumReleaseAge: 1440
 # Narrow exemption from the 24h release-age gate. Scope is intentionally
