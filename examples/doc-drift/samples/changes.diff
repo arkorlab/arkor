@@ -2,7 +2,7 @@ diff --git a/src/cli.ts b/src/cli.ts
 index 3f1c2aa..9d84b01 100644
 --- a/src/cli.ts
 +++ b/src/cli.ts
-@@ -12,9 +12,9 @@ export interface SendOptions {
+@@ -12,7 +12,7 @@ export interface SendOptions {
    artifact: string;
 -  /** Retry a failed upload up to this many times. Default: 3. */
 -  maxRetries: number;

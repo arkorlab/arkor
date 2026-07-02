@@ -3,11 +3,16 @@
 #
 # To use it in YOUR repository:
 #   1. Copy this file to .github/workflows/doc-drift.yaml
-#   2. Copy src/check.ts (from this example) to scripts/doc-drift-check.ts
+#   2. Copy src/check.ts (from this example) to scripts/doc-drift-check.mts
+#      (the .mts extension keeps the script ESM even when your package.json
+#      declares "type": "commonjs")
 #   3. Configure, under Settings > Secrets and variables > Actions:
 #        - Variable ARKOR_BASE_URL  e.g. https://your-model.arkor.app/v1
 #        - Secret   ARKOR_API_KEY   only when the deployment requires a key
 #        - Variable ARKOR_MODEL     optional, defaults to gemma-4-31b-it
+#
+# Note: secrets are not available to pull requests from forks, so keyed
+# deployments will fail there; public repos may want continue-on-error.
 #
 # Prefer zero setup? Install the drift-check GitHub App instead:
 # https://github.com/apps/drift-check
@@ -53,4 +58,4 @@ jobs:
           ARKOR_BASE_URL: ${{ vars.ARKOR_BASE_URL }}
           ARKOR_API_KEY: ${{ secrets.ARKOR_API_KEY }}
           ARKOR_MODEL: ${{ vars.ARKOR_MODEL }}
-        run: node scripts/doc-drift-check.ts changes.diff README.md
+        run: node scripts/doc-drift-check.mts changes.diff README.md

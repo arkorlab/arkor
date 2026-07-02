@@ -77,7 +77,7 @@ function usage(): string {
 }
 
 function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max) : text;
+  return text.length > max ? `${text.slice(0, max)}\n...[truncated]` : text;
 }
 
 async function readText(path: string, kind: string): Promise<string> {
@@ -101,7 +101,7 @@ function isVerdict(value: unknown): value is Verdict {
 
 /** Extract choices[0].message.content from an OpenAI-compatible response. */
 function extractContent(payload: unknown): string {
-  const typed = payload as {
+  const typed = (payload ?? {}) as {
     choices?: { message?: { content?: unknown } }[];
   };
   const content = typed.choices?.[0]?.message?.content;
@@ -167,6 +167,18 @@ function here(relative: string): string {
   return fileURLToPath(new URL(relative, import.meta.url));
 }
 
+/**
+ * Make a model- or user-controlled string safe inside one Markdown table cell:
+ * bounded length, no newlines (they would end the row), no pipes (they would
+ * split the cell), no backticks (they could break the inline-code span).
+ */
+function tableCell(text: string): string {
+  return truncate(text, 500)
+    .replaceAll(/\r?\n/g, " ")
+    .replaceAll("|", String.raw`\|`)
+    .replaceAll("`", "'");
+}
+
 /** Append a Markdown result table to the GitHub Actions job summary, if any. */
 async function writeStepSummary(
   results: { path: string; verdict: Verdict }[],
@@ -176,9 +188,9 @@ async function writeStepSummary(
 
   const rows = results.map(
     ({ path, verdict }) =>
-      `| \`${path}\` | ${verdict.drifted ? "drifted" : "ok"} | ${
+      `| \`${tableCell(path)}\` | ${verdict.drifted ? "drifted" : "ok"} | ${
         verdict.severity
-      } | ${verdict.drifted ? verdict.explanation : ""} |`,
+      } | ${verdict.drifted ? tableCell(verdict.explanation) : ""} |`,
   );
   const table = [
     "## Documentation drift check",
@@ -198,18 +210,34 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // Treat empty env values as unset: in GitHub Actions an unconfigured
+  // `vars.*` interpolates to an empty string, not to a missing variable.
+  const modelEnv = process.env.ARKOR_MODEL;
   const config = {
     baseUrl,
     apiKey: process.env.ARKOR_API_KEY ?? "",
-    model: process.env.ARKOR_MODEL ?? DEFAULT_MODEL,
+    model: modelEnv !== undefined && modelEnv !== "" ? modelEnv : DEFAULT_MODEL,
   };
 
+  // All-or-nothing arguments: pairing a caller's diff with the bundled sample
+  // doc would only ever produce a nonsense verdict.
   const args = process.argv.slice(2);
+  if (args.length === 1) {
+    console.error("Pass both a diff file and at least one doc file.\n");
+    console.error(usage());
+    process.exitCode = 1;
+    return;
+  }
   const diffPath = args.length > 0 ? args[0] : here("../samples/changes.diff");
   const docPaths =
     args.length > 1 ? args.slice(1) : [here("../samples/doc.md")];
 
   const diffText = await readText(diffPath, "diff");
+  if (diffText.length > MAX_TEXT_CHARS) {
+    console.error(
+      `note: diff exceeds ${String(MAX_TEXT_CHARS)} chars and was truncated`,
+    );
+  }
   if (diffText.trim() === "") {
     console.log("No code changes to check; done.");
     return;
@@ -218,6 +246,11 @@ async function main(): Promise<void> {
   const results: { path: string; verdict: Verdict }[] = [];
   for (const docPath of docPaths) {
     const docText = await readText(docPath, "documentation");
+    if (docText.length > MAX_TEXT_CHARS) {
+      console.error(
+        `note: ${docPath} exceeds ${String(MAX_TEXT_CHARS)} chars and was truncated`,
+      );
+    }
     const verdict = await requestVerdict(config, docText, diffText);
     results.push({ path: docPath, verdict });
 

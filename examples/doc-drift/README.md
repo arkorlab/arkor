@@ -31,7 +31,8 @@ little code an Arkor deployment needs.
 Two files, copied into your repository, turn this into a PR check:
 
 1. Copy [`workflow.yaml`](./workflow.yaml) to `.github/workflows/doc-drift.yaml`.
-2. Copy [`src/check.ts`](./src/check.ts) to `scripts/doc-drift-check.ts`.
+2. Copy [`src/check.ts`](./src/check.ts) to `scripts/doc-drift-check.mts`
+   (the `.mts` extension keeps it ESM even in `"type": "commonjs"` projects).
 3. In Settings > Secrets and variables > Actions, set:
    - `ARKOR_BASE_URL` (variable): your deployment URL, e.g.
      `https://your-model.arkor.app/v1`
@@ -55,18 +56,18 @@ pnpm --filter @arkor/example-doc-drift check
 With no arguments the script checks the bundled samples: a fictional CLI
 README ([`samples/doc.md`](./samples/doc.md)) against a diff that renames the
 documented `--max-retries` flag ([`samples/changes.diff`](./samples/changes.diff)),
-so it reports drift and exits 1. Pass your own files as
+so it reports drift and exits 1. Pass your own files (from this directory) as
 `node src/check.ts <diff-file> <doc-file...>`.
 
-Requires Node.js 24+ (Node 22.7+ works with `--experimental-strip-types`).
-To create a deployment of your own model, see the
-[Arkor docs](https://docs.arkor.ai).
+Requires Node.js 22.18+ (24 recommended); on Node 22.6 to 22.17, pass
+`--experimental-strip-types`. To create a deployment of your own model, see
+the [Arkor docs](https://docs.arkor.ai).
 
 ## How it works
 
-The whole check is one request. The script asks the model for a strict JSON
-verdict using structured outputs (`response_format: json_schema`), so the
-response always parses:
+The whole check is one request per document. The script asks the model for a
+strict JSON verdict using structured outputs (`response_format: json_schema`),
+so the response always parses:
 
 - `drifted`: whether this diff makes the document inaccurate
 - `severity`: `info`, `warning`, or `error`

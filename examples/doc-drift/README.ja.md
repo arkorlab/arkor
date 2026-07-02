@@ -30,7 +30,9 @@ chat-completions API で送り、構造化された判定を受け取ります:
 2 ファイルをコピーするだけで PR チェックになります:
 
 1. [`workflow.yaml`](./workflow.yaml) を `.github/workflows/doc-drift.yaml` にコピー。
-2. [`src/check.ts`](./src/check.ts) を `scripts/doc-drift-check.ts` にコピー。
+2. [`src/check.ts`](./src/check.ts) を `scripts/doc-drift-check.mts` にコピー
+   (`.mts` 拡張子にすると `"type": "commonjs"` のプロジェクトでも ESM として
+   動作します)。
 3. Settings > Secrets and variables > Actions で次を設定:
    - `ARKOR_BASE_URL` (variable): デプロイメントの URL。例
      `https://your-model.arkor.app/v1`
@@ -54,16 +56,16 @@ pnpm --filter @arkor/example-doc-drift check
 ([`samples/doc.md`](./samples/doc.md)) と、ドキュメントに載っている
 `--max-retries` フラグを改名する diff
 ([`samples/changes.diff`](./samples/changes.diff)) の組なので、ドリフトが報告
-され exit 1 になります。自分のファイルは
+され exit 1 になります。自分のファイルは、このディレクトリで
 `node src/check.ts <diff-file> <doc-file...>` のように渡します。
 
-Node.js 24+ が必要です (Node 22.7+ は `--experimental-strip-types` で動作)。
-自分のモデルのデプロイメント作成は [Arkor docs](https://docs.arkor.ai) を参照
-してください。
+Node.js 22.18+ が必要です (24 推奨)。Node 22.6 から 22.17 では
+`--experimental-strip-types` を付けてください。自分のモデルのデプロイメント
+作成は [Arkor docs](https://docs.arkor.ai) を参照してください。
 
 ## 仕組み
 
-チェック全体がリクエスト 1 回です。構造化出力
+チェックはドキュメントごとにリクエスト 1 回です。構造化出力
 (`response_format: json_schema`) で厳密な JSON 判定を要求するため、応答は常に
 パースできます:
 
