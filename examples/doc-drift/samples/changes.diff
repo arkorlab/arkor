@@ -1,0 +1,30 @@
+diff --git a/src/cli.ts b/src/cli.ts
+index 3f1c2aa..9d84b01 100644
+--- a/src/cli.ts
++++ b/src/cli.ts
+@@ -12,9 +12,9 @@ export interface SendOptions {
+   artifact: string;
+-  /** Retry a failed upload up to this many times. Default: 3. */
+-  maxRetries: number;
++  /** Retry a failed upload up to this many times. Default: 5. */
++  retryLimit: number;
+   /** Abort an upload attempt after this many seconds. Default: 30. */
+   timeoutSeconds: number;
+   quiet: boolean;
+ }
+@@ -34,12 +34,12 @@ export function parseArgs(argv: string[]): SendOptions {
+   const options: SendOptions = {
+     artifact: "",
+-    maxRetries: 3,
++    retryLimit: 5,
+     timeoutSeconds: 30,
+     quiet: false,
+   };
+   for (const arg of argv) {
+-    if (arg.startsWith("--max-retries=")) {
+-      options.maxRetries = Number(arg.slice("--max-retries=".length));
++    if (arg.startsWith("--retry-limit=")) {
++      options.retryLimit = Number(arg.slice("--retry-limit=".length));
+     } else if (arg.startsWith("--timeout=")) {
+       options.timeoutSeconds = Number(arg.slice("--timeout=".length));
+     }

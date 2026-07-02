@@ -1,0 +1,56 @@
+# Documentation drift check for pull requests, powered by an Arkor-hosted
+# model. This is a copy-me example, not an active workflow of this repository.
+#
+# To use it in YOUR repository:
+#   1. Copy this file to .github/workflows/doc-drift.yaml
+#   2. Copy src/check.ts (from this example) to scripts/doc-drift-check.ts
+#   3. Configure, under Settings > Secrets and variables > Actions:
+#        - Variable ARKOR_BASE_URL  e.g. https://your-model.arkor.app/v1
+#        - Secret   ARKOR_API_KEY   only when the deployment requires a key
+#        - Variable ARKOR_MODEL     optional, defaults to gemma-4-31b-it
+#
+# Prefer zero setup? Install the drift-check GitHub App instead:
+# https://github.com/apps/drift-check
+name: Doc Drift
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Cancel a superseded check when a newer commit is pushed to the same PR.
+concurrency:
+  group: doc-drift-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  doc-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # Full history so the merge base with the target branch exists.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+
+      - name: Collect the pull request diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git diff --merge-base "origin/$BASE_REF" HEAD > changes.diff
+
+      # List the documentation files to guard after the diff file. The verdict
+      # for each document lands in the job summary. The step fails when drift
+      # is detected; add `continue-on-error: true` to make it advisory.
+      - name: Check documentation drift
+        env:
+          ARKOR_BASE_URL: ${{ vars.ARKOR_BASE_URL }}
+          ARKOR_API_KEY: ${{ secrets.ARKOR_API_KEY }}
+          ARKOR_MODEL: ${{ vars.ARKOR_MODEL }}
+        run: node scripts/doc-drift-check.ts changes.diff README.md
