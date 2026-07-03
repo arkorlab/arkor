@@ -391,8 +391,19 @@ describe("installCallbackReloadHandler", () => {
     const dispose = installCallbackReloadHandler(trainer, file);
     try {
       process.emit("SIGUSR2", "SIGUSR2");
-      // Give the dynamic import a few ticks.
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Poll for the warning instead of a fixed wait: the message is
+      // written asynchronously after the handler's `await import()`
+      // settles, and on slow CI runners (Windows disk + Defender
+      // scanning the fresh temp file) the import alone can take
+      // longer than any fixed small budget. Bounded at 2 s so a
+      // genuinely missing warning still fails fast.
+      const deadline = Date.now() + 2000;
+      while (
+        !/no inspectable trainer/i.test(stderrChunks.join("")) &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
       expect(stderrChunks.join("")).toMatch(/no inspectable trainer/i);
       expect(trainer.__replace.lastCallbacks).toBeNull();
     } finally {

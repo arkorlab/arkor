@@ -41,19 +41,54 @@ describe("findTrainerInModule (trainer-shape walk)", () => {
     expect(found).toBe(trainer);
   });
 
-  it("finds shape #2: bare `trainer` named export", () => {
+  it("finds shape #2: `arkor` named export that IS a Trainer", () => {
+    // Regression: `runner.ts`'s `trainerFromValue(mod.arkor)` accepts
+    // a bare Trainer under the `arkor` name (falls through `isArkor`
+    // to `isTrainer`) and EXECUTES it with top precedence, but the
+    // inspection walk previously only looked at `mod.arkor.trainer`
+    // behind an `isArkor` guard. A project with
+    // `export const arkor = createTrainer(...)` therefore ran fine
+    // under `arkor start` but showed as "no trainer" in Studio with
+    // `configHash: null` forcing SIGTERM-restart on every rebuild.
+    const trainer = brandedTrainer("a-bare");
+    const found = findTrainerInModule({ arkor: trainer });
+    expect(found).toBe(trainer);
+  });
+
+  it("shape #2 wins precedence over a competing `trainer` named export (runTrainer parity)", () => {
+    // Worse than the display bug above: with BOTH a bare-Trainer
+    // `arkor` export and a different `trainer` export, the runner
+    // executes `mod.arkor` but the old walk's first candidate was
+    // `mod.trainer`. HMR would then hash / hot-swap against the
+    // trainer that is NOT running, injecting trainer B's callbacks
+    // into trainer A's live run on a hash-match SIGUSR2.
+    const runnerPick = brandedTrainer("runner-pick");
+    const bystander = brandedTrainer("bystander");
+    const found = findTrainerInModule({
+      arkor: runnerPick,
+      trainer: bystander,
+    });
+    expect(found).toBe(runnerPick);
+    const inspection = findInspectableTrainer({
+      arkor: runnerPick,
+      trainer: bystander,
+    });
+    expect(inspection?.name).toBe("runner-pick");
+  });
+
+  it("finds shape #3: bare `trainer` named export", () => {
     const trainer = brandedTrainer("b");
     const found = findTrainerInModule({ trainer });
     expect(found).toBe(trainer);
   });
 
-  it("finds shape #3: default-export Arkor manifest", () => {
+  it("finds shape #4: default-export Arkor manifest", () => {
     const trainer = brandedTrainer("c");
     const found = findTrainerInModule({ default: createArkor({ trainer }) });
     expect(found).toBe(trainer);
   });
 
-  it("finds shape #4: default IS the Trainer", () => {
+  it("finds shape #5: default IS the Trainer", () => {
     // Regression: `runner.ts`'s `extractTrainer` accepts
     // `export default createTrainer(...)` directly (the trainer
     // object itself becomes `mod.default`), but Studio's manifest /
@@ -66,14 +101,15 @@ describe("findTrainerInModule (trainer-shape walk)", () => {
     expect(found).toBe(trainer);
   });
 
-  it("finds shape #5: default.trainer nested", () => {
+  it("finds shape #6: default.trainer nested", () => {
     const trainer = brandedTrainer("e");
     const found = findTrainerInModule({ default: { trainer } });
     expect(found).toBe(trainer);
   });
 
-  it("works for hand-rolled (unbranded) trainers in any of the five shapes", () => {
+  it("works for hand-rolled (unbranded) trainers in any of the six shapes", () => {
     const trainer = unbrandedTrainer("manual");
+    expect(findTrainerInModule({ arkor: trainer })?.name).toBe("manual");
     expect(findTrainerInModule({ trainer })?.name).toBe("manual");
     expect(findTrainerInModule({ default: trainer })?.name).toBe("manual");
     expect(findTrainerInModule({ default: { trainer } })?.name).toBe("manual");

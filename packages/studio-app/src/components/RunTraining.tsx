@@ -347,6 +347,17 @@ export function RunTraining() {
     // window between this assignment and `streamTraining` invoking
     // `onSpawn`.
     currentPidRef.current = null;
+    // Drop any restart latch left over from a PRIOR run's lifecycle.
+    // The leak path: run A exits, its 250 ms grace timer is armed, a
+    // late restart event for A's pid latches, and the user manually
+    // clicks Run before the timer fires. The timer's disown branch
+    // (`currentPidRef !== pidAtExit`) then returns without clearing
+    // the latch, so run B would inherit A's stale restart intent and
+    // auto-spawn an unrequested third run when B eventually finishes
+    // hours later. Every legitimate latch for THIS run is set after
+    // this point (SSE handler / onSpawn drain), so clearing here can
+    // never lose a real signal.
+    restartPendingRef.current = false;
     setRunning(true);
     setLog("");
     const ac = new AbortController();
@@ -488,6 +499,14 @@ export function RunTraining() {
       return;
     }
 
+    // `restartPendingRef.current` is set to `false` at run() entry and
+    // flipped back to `true` by the SSE handler / onSpawn drain while
+    // the `streamTraining` await above is in flight. TS's control-flow
+    // narrowing can't see those cross-closure writes across the await
+    // and pins the property to `false` here, so
+    // `no-unnecessary-condition` mis-reports the check as always
+    // falsy. The runtime branch is real: it IS the fast-path restart.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (restartPendingRef.current) {
       // Fast path: SSE event already landed before exit. Fire the
       // restart synchronously without waiting for the grace

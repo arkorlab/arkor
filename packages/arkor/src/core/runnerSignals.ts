@@ -146,7 +146,7 @@ export function installCallbackReloadHandler(
   let loadSeq = 0;
   const handler = (): void => {
     const seq = ++loadSeq;
-    // mtime+ctime+size cache-bust (vs `Date.now()`): Node's ESM
+    // Content-hash cache-bust (vs `Date.now()`): Node's ESM
     // loader never evicts module records, so a long `arkor start`
     // session with frequent SIGUSR2 reloads would accumulate one
     // record per signal forever. Keying on the actual artefact bytes

@@ -53,9 +53,14 @@ const TRAIN_PID_HEADER = "x-arkor-train-pid";
  * *before* the runner's real line and we'd record the wrong id, so
  * Stop-training would then POST `/v1/jobs/:attacker-id/cancel`
  * against a job the attacker chose. Anchoring on a 32-hex nonce
- * known only to the server + runner (the env var is deleted by
+ * shared by the server + runner (the env var is deleted by
  * runner.ts BEFORE the user module is dynamically imported, so the
- * user can't read it) closes that hole.
+ * user can't read it via `process.env`) closes the casual-spoof
+ * hole. Not hermetic, though: the exec-time environment block is
+ * still recoverable in-process via `/proc/self/environ` (or `ps
+ * eww` by any same-user process) on Linux, so a determined
+ * malicious dependency could reconstruct the prefix; see the
+ * threat-model note on `STARTED_JOB_NONCE` in `core/runner.ts`.
  *
  * Pattern is per-spawn because the nonce is per-spawn.
  *
@@ -495,9 +500,24 @@ export function buildStudioApp(options: StudioServerOptions) {
     //
     // When HMR is disabled the field is irrelevant (no rebuilds will
     // happen) so we leave it null without paying for a build.
-    const configHash: string | null = options.hmr
-      ? options.hmr.getCurrentConfigHash()
-      : null;
+    //
+    // CUSTOM-ENTRY GUARD: when `body.file` was provided, both hashes
+    // below are forced to null even under HMR. The coordinator's
+    // hashes describe the DEFAULT entry's bundle, but `arkor start
+    // <file>` rebuilds `.arkor/build/index.mjs` from the custom entry
+    // and runs THAT trainer. Recording the default entry's configHash
+    // as this child's baseline would let a later same-hash rebuild
+    // SIGUSR2 a hot-swap that injects the default trainer's callbacks
+    // into the custom trainer's live run. Null baselines route every
+    // rebuild through the conservative SIGTERM-restart path instead.
+    // (This route is currently unreachable from the SPA, which never
+    // sets `file`; direct API users get the safe behaviour.) Known
+    // residual wart, accepted for now: the custom-entry rebuild still
+    // writes the watcher-owned outFile, so the manifest fast path can
+    // transiently describe the custom bundle until the watcher's next
+    // publish restores the default artefact.
+    const configHash: string | null =
+      options.hmr && !trainFile ? options.hmr.getCurrentConfigHash() : null;
     // Spawn-time CONTENT-hash of the on-disk build artefact. Only
     // the pre-ready-spawn case in `dispatchRebuild` consults it:
     // when a rebuild lands while the child's `configHash` is still
@@ -515,9 +535,14 @@ export function buildStudioApp(options: StudioServerOptions) {
     // mtime/ctime, forcing a spurious cancel+restart cycle on a
     // pre-ready spawn even though the child's loaded bytes
     // actually matched the new build. Content-hash is precise.
-    const spawnArtifactContentHash: string | null = options.hmr
-      ? options.hmr.getCurrentArtifactContentHash()
-      : null;
+    //
+    // Same custom-entry guard as `configHash` above: a non-null
+    // content hash would arm the pre-ready-spawn backfill, which is
+    // only sound when the child loaded the default entry's artefact.
+    const spawnArtifactContentHash: string | null =
+      options.hmr && !trainFile
+        ? options.hmr.getCurrentArtifactContentHash()
+        : null;
     // Capture the cloud-api scope NOW (at spawn time) so the cancel
     // handler can POST `/v1/jobs/:id/cancel` without re-reading
     // `.arkor/state.json` at stop time. If the user removed or made
@@ -1094,9 +1119,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         );
         if (process.platform === "win32" && restartTargets.length > 0) {
           for (const target of restartTargets) {
-            const snap = win32CancelSnapshots.find(
-              (s) => s.pid === target.pid,
-            );
+            const snap = win32CancelSnapshots.find((s) => s.pid === target.pid);
             if (!snap?.jobId || !snap.scope) continue;
             const { jobId: snapJobId, scope: snapScope } = snap;
             // Fire-and-forget per child, mirroring the manual-Stop

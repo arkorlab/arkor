@@ -227,6 +227,19 @@ function scheduleStudioTokenCleanup(
       // landing between writeFile completing and the flag flipping
       // would leak our token); the file's bytes are the source of
       // truth, now claimed atomically before inspection.
+      //
+      // Known residual windows, accepted as-is (both benign):
+      //   - A signal landing mid-`writeFile` leaves a PARTIAL token
+      //     at `path`. This cleanup then claims it, the byte compare
+      //     fails (looks foreign), and the rename-back restores the
+      //     partial file, which persists until the next `arkor dev`
+      //     overwrites it. Harmless: the server that wrote it is
+      //     already exiting, and a partial token authorises nothing
+      //     (`tokensEqual` is length-gated + timing-safe).
+      //   - The existsSync → renameSync pair in the foreign-token
+      //     branch below is itself an instruction-scale TOCTOU; the
+      //     losing outcome there is restore-the-older-token, never
+      //     delete-the-live-token. See that branch's comment.
       const reapPath = `${path}.reap-${process.pid}`;
       try {
         renameSync(path, reapPath);

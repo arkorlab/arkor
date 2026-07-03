@@ -15,13 +15,27 @@ const DEFAULT_ENTRY = "src/arkor/index.ts";
 /**
  * Per-spawn nonce that `/api/train` injects via env so the server can
  * recognise the runner's `Started job <id>` line without it being
- * forgeable from user code. Captured at module load (i.e. BEFORE
- * `runTrainer` does its `await import(userEntry)`) and the env var
- * is deleted right after so the dynamically-imported user module
- * cannot read it via `process.env`. If a user callback then writes
- * `Started job <token>` to stdout, the line won't carry the nonce
- * prefix and the server's anchored regex will reject it: no
+ * casually forgeable from user code. Captured at module load (i.e.
+ * BEFORE `runTrainer` does its `await import(userEntry)`) and the
+ * env var is deleted right after so the dynamically-imported user
+ * module cannot read it via `process.env`. If a user callback then
+ * writes `Started job <token>` to stdout, the line won't carry the
+ * nonce prefix and the server's anchored regex will reject it: no
  * spoofed cloud `cancel()` POST against an attacker-chosen job id.
+ *
+ * Scope honestly: the `delete` closes the `process.env` read, but it
+ * is NOT a hermetic secret. The exec-time environment block survives
+ * the delete at the OS level: on Linux, in-process user code can
+ * still recover it from `/proc/self/environ` (and any same-user
+ * process via `ps eww`). A determined malicious dependency running
+ * inside `trainer.start()` could therefore reconstruct the prefix
+ * and forge the marker. Within the threat model here (local dev,
+ * everything already runs as the same user, and the imported user
+ * module is arbitrary code anyway) that's a defence-in-depth
+ * degradation, not a boundary break; closing it fully would mean
+ * passing the nonce over an inherited fd / IPC channel instead of
+ * env. Revisit if the marker ever gates anything stronger than the
+ * best-effort cancel POST.
  *
  * Null when the runner was launched directly (e.g. `arkor start` from
  * a shell), in which case the runner falls back to the plain

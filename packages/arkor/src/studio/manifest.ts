@@ -42,7 +42,7 @@ const EMPTY: ManifestSummary = { trainer: null, configHash: null };
 export async function summariseBuiltManifest(
   outFile: string,
 ): Promise<ManifestSummary> {
-  // mtime+ctime+size cache-bust (vs `Date.now()`): the SPA polls
+  // Content-hash cache-bust (vs `Date.now()`): the SPA polls
   // `/api/manifest` every ~5 s, so a `Date.now()` suffix would
   // accumulate one ESM module record per poll across a long
   // `arkor dev` session: Node's loader has no eviction. Keying on
@@ -111,23 +111,21 @@ export async function readManifestSummary(
   opts: ReadManifestOptions = {},
 ): Promise<ManifestSummary> {
   if (opts.prebuiltOutFile && existsSync(opts.prebuiltOutFile)) {
-    // Race recovery: rolldown's watcher writes
-    // `.arkor/build/index.mjs` non-atomically. `existsSync` flips to
-    // `true` the instant the file is created, but a `/api/manifest`
-    // poll landing during the flush window would then try to
-    // `await import(...)` partial bytes and surface as a 500
-    // SyntaxError in the UI. The legacy `runBuild()` path was
-    // synchronous and self-contained, so this race didn't exist
-    // there. Fall through to a fresh `runBuild()` on import failure
-    // (which produces a coherent artifact under our control). The
-    // fallback is best-effort: if `runBuild()` itself also throws
-    // (real user syntax error), rethrowing IS the right surface for
-    // `/api/manifest` to render the error inline.
-    try {
-      return await summariseBuiltManifest(opts.prebuiltOutFile);
-    } catch {
-      // fall through to runBuild()
-    }
+    // No `runBuild()` fallback on import failure here, deliberately.
+    // An earlier revision fell through to a fresh `runBuild()` to
+    // recover from the watcher's then-non-atomic artefact writes
+    // (a poll could `import()` partial bytes). The watcher now
+    // publishes via staging-file + `renameSync` (atomic), so an
+    // import failure of an EXISTING artefact means the bundle is
+    // genuinely broken (throws at import time): rebuilding the same
+    // source can't fix that, and the fallback build would race the
+    // watcher by writing the same watcher-owned
+    // `.arkor/build/index.mjs` outside the atomic-publish protocol,
+    // exposing concurrent `/api/train` imports to torn reads.
+    // Rethrowing lets `/api/manifest` surface the import error as a
+    // 400 (the HMR coordinator broadcasts its own matching `error`
+    // frame for the same broken bundle, so both channels agree).
+    return summariseBuiltManifest(opts.prebuiltOutFile);
   }
   const { outFile } = await runBuild({ cwd, quiet: true });
   return summariseBuiltManifest(outFile);

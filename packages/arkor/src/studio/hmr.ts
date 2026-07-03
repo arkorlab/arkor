@@ -19,9 +19,11 @@ export interface HmrEvent {
   type: HmrEventType;
   outFile?: string;
   /**
-   * Short fingerprint of the bundle artefact (mtime + ctime + size,
-   * mirroring `core/moduleCacheBust.ts`'s key shape). Subscribers use
-   * this to dedupe replays of the same successful build.
+   * Short fingerprint of the bundle artefact (mtime + ctime + size).
+   * Subscribers use this to dedupe replays of the same successful
+   * build. Deliberately timestamp-based (NOT the content key
+   * `core/moduleCacheBust.ts` uses): SSE dedup wants "a new publish
+   * happened", which identical-bytes rebuilds still are.
    */
   hash?: string;
   /**
@@ -109,7 +111,7 @@ export interface HmrCoordinator {
    * eviction API, so for `arkor dev` sessions that go through many
    * rebuilds before exit, the cache retains one record per distinct
    * artefact content hash for the rest of the process lifetime).
-   * The mtime/ctime/size cache-bust key (`moduleCacheBustUrl`)
+   * The content-derived cache-bust key (`moduleCacheBustUrl`)
    * collapses identical-byte rebuilds onto the same record, bounding
    * the retention to "one entry per real edit", which is the tightest
    * we can offer here. Tests that loop `createHmrCoordinator` →
@@ -191,7 +193,7 @@ type InspectionResult = {
  * null` and the SPA would unnecessarily SIGTERM-restart on every
  * rebuild.
  *
- * Cache-bust by file mtime+ctime+size (via `moduleCacheBustUrl`)
+ * Cache-bust by artefact content hash (via `moduleCacheBustUrl`)
  * rather than `Date.now()`:
  *
  *   - Node's ESM loader caches every dynamically-imported URL for the
@@ -199,17 +201,20 @@ type InspectionResult = {
  *     suffix produces a unique URL per call, so a long `arkor dev`
  *     session would accumulate one module record per BUNDLE_END:
  *     unbounded memory growth.
- *   - The composite key (`mtimeMs-ctimeMs-size`) keys the cache to
- *     "the actual bytes in this file", so spurious watcher events
- *     that don't change content reuse the prior module record. The
- *     leak shrinks from "one entry per keystroke" to "one entry per
- *     actual rebuild", which for a realistic dev session (hundreds
- *     of saves over hours) is bounded by the number of distinct file
- *     states the user produces, and that's fundamentally what HMR
- *     has to track to surface up-to-date trainer state. There's no
- *     public Node API for evicting an ESM module record, so this is
- *     the tightest bound we can offer without spawning a child
- *     process per inspection.
+ *   - The content-derived key (truncated sha256 of the bytes) keys
+ *     the cache to "the actual bytes in this file", so spurious
+ *     watcher events that don't change content reuse the prior module
+ *     record, and same-size edits landing within one kernel timestamp
+ *     tick (which collided under the previous `mtimeMs-ctimeMs-size`
+ *     stat key and served a STALE module / wrong configHash) get
+ *     distinct keys. The leak shrinks from "one entry per keystroke"
+ *     to "one entry per distinct bundle content", which for a
+ *     realistic dev session (hundreds of saves over hours) is bounded
+ *     by the number of distinct file states the user produces, and
+ *     that's fundamentally what HMR has to track to surface
+ *     up-to-date trainer state. There's no public Node API for
+ *     evicting an ESM module record, so this is the tightest bound we
+ *     can offer without spawning a child process per inspection.
  *
  * Returns `null` ONLY for "imported successfully but the bundle has no
  * inspectable trainer" (legitimate hand-rolled `{ start, wait, cancel }`
@@ -328,6 +333,22 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
   async function emitBuildSucceeded(): Promise<void> {
     if (disposed) return;
     const seq = ++buildSeq;
+    // Capture both artefact fingerprints SYNCHRONOUSLY, before the
+    // inspection await below. This call runs in the same synchronous
+    // turn as the BUNDLE_END handler's `renameSync` publish, so the
+    // values are guaranteed to describe the artefact this very build
+    // just renamed into place. Capturing them after the await (the
+    // previous shape) let a faster next build's rename land in
+    // between, broadcasting a torn event that paired build N's
+    // `configHash` with build N+1's `hash`/`contentHash`; the
+    // registry's pre-ready-spawn backfill gate could then
+    // SIGTERM-restart a healthy run off the mismatched pair. (The
+    // inverse tear, inspection importing N+1 bytes under N's
+    // fingerprints, is already impossible: N+1's rename and its seq
+    // bump happen in one synchronous block, so this emit's
+    // `seq !== buildSeq` check below drops the broadcast.)
+    const hash = fingerprint(resolved.outFile);
+    const contentHash = contentHashOrNull(resolved.outFile);
     // Codex P2 (PR #101 round 78): when the rebuilt module THROWS
     // during top-level evaluation, treat it as an `error` event
     // instead of broadcasting a successful `ready`/`rebuild` with
@@ -382,12 +403,12 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     broadcast({
       type,
       outFile: resolved.outFile,
-      hash: fingerprint(resolved.outFile),
-      // Content hash powers the registry's pre-ready-spawn equality
-      // gate (timestamp-only would over-trigger SIGTERM-restart on
-      // identical-bytes rebuilds). Read once here so the broadcast
-      // and any spawn-time capture reference the same on-disk state.
-      contentHash: contentHashOrNull(resolved.outFile),
+      // Both fingerprints were captured synchronously at the top of
+      // this function (before the inspection await) so they're
+      // guaranteed to describe the same artefact the configHash
+      // does; see the capture-site comment for the tear this closes.
+      hash,
+      contentHash,
       configHash,
       trainerName: inspection?.trainerName ?? null,
     });
@@ -448,88 +469,88 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     });
     watcher.on("event", (event) => {
       switch (event.code) {
-      case "BUNDLE_START": {
-        // Invalidate any still-in-flight `emitBuildSucceeded` from the
-        // PREVIOUS BUNDLE_END as soon as a newer compile starts (Codex
-        // P2, round 81). The seq guard inside `emitBuildSucceeded`
-        // previously only advanced when the newer build *finished*
-        // (BUNDLE_END / ERROR), so a slow inspection (user top-level
-        // await inside the imported bundle) could still pass
-        // `seq === buildSeq` while a newer edit was already compiling
-        // and broadcast/SIGTERM children for stale source.
-        buildSeq += 1;
+        case "BUNDLE_START": {
+          // Invalidate any still-in-flight `emitBuildSucceeded` from the
+          // PREVIOUS BUNDLE_END as soon as a newer compile starts (Codex
+          // P2, round 81). The seq guard inside `emitBuildSucceeded`
+          // previously only advanced when the newer build *finished*
+          // (BUNDLE_END / ERROR), so a slow inspection (user top-level
+          // await inside the imported bundle) could still pass
+          // `seq === buildSeq` while a newer edit was already compiling
+          // and broadcast/SIGTERM children for stale source.
+          buildSeq += 1;
 
-      break;
-      }
-      case "BUNDLE_END": {
-        // rolldown requires the per-build result to be closed to avoid leaks.
-        event.result.close().catch(() => undefined);
-        // Publish the staged bundle atomically before inspection so
-        // `emitBuildSucceeded` (and every concurrent reader:
-        // `/api/train` spawns, `/api/manifest` fast path, fingerprint
-        // getters) sees the complete new artefact at `outFile`.
-        try {
-          renameSync(stagingFile, resolved.outFile);
-        } catch (err) {
-          // Rename failure (staging file missing, EPERM on a locked
-          // target, cross-device surprise) means there's no coherent
-          // new artefact to publish; surface as an error frame rather
-          // than inspecting whatever is currently at `outFile` and
-          // mislabelling it as the new build.
+          break;
+        }
+        case "BUNDLE_END": {
+          // rolldown requires the per-build result to be closed to avoid leaks.
+          event.result.close().catch(() => undefined);
+          // Publish the staged bundle atomically before inspection so
+          // `emitBuildSucceeded` (and every concurrent reader:
+          // `/api/train` spawns, `/api/manifest` fast path, fingerprint
+          // getters) sees the complete new artefact at `outFile`.
+          try {
+            renameSync(stagingFile, resolved.outFile);
+          } catch (err) {
+            // Rename failure (staging file missing, EPERM on a locked
+            // target, cross-device surprise) means there's no coherent
+            // new artefact to publish; surface as an error frame rather
+            // than inspecting whatever is currently at `outFile` and
+            // mislabelling it as the new build.
+            buildSeq += 1;
+            broadcast({
+              type: "error",
+              message: `Failed to publish rebuilt bundle: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            });
+            return;
+          }
+          // The event type ("ready" vs "rebuild") is decided inside
+          // `emitBuildSucceeded` *after* the inspection await, based on
+          // whether any prior broadcast actually landed (see the
+          // `firstBroadcast` comment for why pinning the type at this
+          // schedule point would be wrong under inspection races).
+          void emitBuildSucceeded();
+
+          break;
+        }
+        case "ERROR": {
+          // Rolldown's ERROR events don't always carry a `result`:
+          // when the failure is in the parse/resolve phase there's
+          // no per-build output to close, so `event.result` is
+          // `undefined`. Calling `.close()` then would throw
+          // synchronously, escape this listener, and permanently
+          // wedge the watcher so the SPA stays on the prior `error`
+          // state forever even after the user fixes their code.
+          // Optional-chain so we still close any result that *is*
+          // present (avoiding the leak rolldown warns about) without
+          // blowing up the watcher when none is. Rolldown's types mark
+          // `event.result` non-nullable, so `no-unnecessary-condition`
+          // flags the `?.`, but the parse/resolve-phase ERROR events
+          // genuinely omit it at runtime; keep the guard.
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          event.result?.close().catch(() => undefined);
+          // Bump the seq so a still-in-flight `emitBuildSucceeded`
+          // from a *prior* BUNDLE_END drops its broadcast when its
+          // inspection finally resolves. Without this, the older
+          // success would land on top of this error and clobber
+          // `lastEvent`/`configHash`, leaving the SPA showing a
+          // healthy rebuild while the actual latest build state is
+          // a compile error. The successful-rebuild path bumps the
+          // same counter inside `emitBuildSucceeded`.
           buildSeq += 1;
           broadcast({
             type: "error",
-            message: `Failed to publish rebuilt bundle: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+            message:
+              event.error instanceof Error
+                ? event.error.message
+                : String(event.error),
           });
-          return;
+
+          break;
         }
-        // The event type ("ready" vs "rebuild") is decided inside
-        // `emitBuildSucceeded` *after* the inspection await, based on
-        // whether any prior broadcast actually landed (see the
-        // `firstBroadcast` comment for why pinning the type at this
-        // schedule point would be wrong under inspection races).
-        void emitBuildSucceeded();
-
-      break;
-      }
-      case "ERROR": {
-        // Rolldown's ERROR events don't always carry a `result`:
-        // when the failure is in the parse/resolve phase there's
-        // no per-build output to close, so `event.result` is
-        // `undefined`. Calling `.close()` then would throw
-        // synchronously, escape this listener, and permanently
-        // wedge the watcher so the SPA stays on the prior `error`
-        // state forever even after the user fixes their code.
-        // Optional-chain so we still close any result that *is*
-        // present (avoiding the leak rolldown warns about) without
-        // blowing up the watcher when none is. Rolldown's types mark
-        // `event.result` non-nullable, so `no-unnecessary-condition`
-        // flags the `?.`, but the parse/resolve-phase ERROR events
-        // genuinely omit it at runtime; keep the guard.
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        event.result?.close().catch(() => undefined);
-        // Bump the seq so a still-in-flight `emitBuildSucceeded`
-        // from a *prior* BUNDLE_END drops its broadcast when its
-        // inspection finally resolves. Without this, the older
-        // success would land on top of this error and clobber
-        // `lastEvent`/`configHash`, leaving the SPA showing a
-        // healthy rebuild while the actual latest build state is
-        // a compile error. The successful-rebuild path bumps the
-        // same counter inside `emitBuildSucceeded`.
-        buildSeq += 1;
-        broadcast({
-          type: "error",
-          message:
-            event.error instanceof Error
-              ? event.error.message
-              : String(event.error),
-        });
-
-      break;
-      }
-      // No default
+        // No default
       }
     });
   }

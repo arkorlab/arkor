@@ -53,16 +53,22 @@ function stableStringifyRec(
   }
   if (typeof value !== "object") return JSON.stringify(value);
   // Add to `seen` BEFORE the `toJSON` invocation below so a
-  // pathological `{ toJSON() { return this; } }` surfaces as the
-  // same `TypeError("Converting circular structure to JSON")` that
-  // `JSON.stringify` produces, instead of recursing until the call
-  // stack overflows. JSON.stringify's algorithm enters its cycle
-  // detection AFTER calling toJSON (it stringifies the return value),
-  // so a toJSON-returning-self stays in the path and triggers cycle.
-  // We mirror that by inserting the original object into `seen` now,
-  // running both toJSON and the array/object branches inside the
-  // same try/finally so siblings legitimately reusing a value still
-  // serialise correctly (`finally` deletes on the way out).
+  // pathological `{ toJSON() { return this; } }` surfaces as a
+  // cycle-shaped `TypeError` instead of recursing until the call
+  // stack overflows. This is a DELIBERATE divergence from
+  // `JSON.stringify`, which serialises the toJSON return value
+  // without re-invoking toJSON on it and therefore quietly yields
+  // `"{}"` for the same input (verified: `JSON.stringify({toJSON(){
+  // return this}}) === "{}"`). Our recursion re-enters the full
+  // pipeline (toJSON included) on the returned value, so without
+  // this guard the self-returning case would loop forever; throwing
+  // is the fail-safe choice for a hash input this pathological
+  // (upstream treats the throw as "config not diffable" and routes
+  // HMR through the conservative SIGTERM-restart path). The insert
+  // happens now, with both the toJSON call and the array/object
+  // branches inside the same try/finally, so siblings legitimately
+  // reusing a value still serialise correctly (`finally` deletes on
+  // the way out).
   if (seen.has(value)) {
     throw new TypeError("Converting circular structure to JSON");
   }

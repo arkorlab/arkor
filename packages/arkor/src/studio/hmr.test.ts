@@ -105,7 +105,18 @@ describe("createHmrCoordinator", () => {
         join(cwd, "src/arkor/index.ts"),
         FAKE_MANIFEST.replace(`"alpha"`, `"beta"`),
       );
-      const rebuild = await nextEvent(events, (e) => e.type === "rebuild");
+      // Select the rebuild by CONTENT change, not by "first rebuild
+      // event": rolldown's macOS watcher occasionally fires a spurious
+      // extra BUNDLE_END for the unchanged source (FSEvents coalescing;
+      // see the late-subscriber test below), which broadcasts a
+      // `rebuild` whose bytes equal `ready`'s. Grabbing that one first
+      // made the timestamp assertion below flake on macOS CI. The real
+      // edit changes the bundle bytes, so a differing `contentHash`
+      // uniquely identifies it.
+      const rebuild = await nextEvent(
+        events,
+        (e) => e.type === "rebuild" && e.contentHash !== ready.contentHash,
+      );
       expect(rebuild.outFile).toBe(ready.outFile);
       expect(rebuild.hash).not.toBe(ready.hash);
     } finally {
@@ -168,8 +179,11 @@ describe("createHmrCoordinator", () => {
       // way.
       //
       // Confirmed still present in rolldown@1.0.2 (the first GA after the
-      // 1.0.0-rc.17 series). Re-check on the next rolldown release: if
-      // the spurious BUNDLE_END is gone on macOS, tighten this back to
+      // 1.0.0-rc.17 series); not yet re-verified on 1.1.1 (the bump
+      // landed without macOS hardware to check on, and the loose
+      // assertion is harmless when the quirk is absent). If a future
+      // macOS CI run shows the spurious BUNDLE_END gone, tighten this
+      // back to
       //   expect(lateEvents[0]?.type).toBe("ready");
       // See PR #101 CI run 26403769331 (macos-latest) for the assertion
       // diff that surfaced the macOS-only mismatch when this was

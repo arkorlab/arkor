@@ -223,23 +223,31 @@ function isTrainerLike(value: unknown): value is TrainerLike {
  * every *distinct* trainer-shaped value found. The walk is
  * de-duplicated because the common `createArkor({ trainer })`
  * default-export shape would otherwise surface the same trainer up
- * to three times (case 3 pushes `mod.default.trainer`; case 4
+ * to three times (case 4 pushes `mod.default.trainer`; case 5
  * pushes the manifest object itself which is filtered out by
- * `isTrainerLike`; case 5 pushes `mod.default.trainer` a second
+ * `isTrainerLike`; case 6 pushes `mod.default.trainer` a second
  * time). Callers iterate in precedence order, so this preserves
  * the "first match wins" contract.
  *
- * The five supported shapes (mirroring `runner.ts`'s `extractTrainer`):
+ * The six supported shapes (mirroring `runner.ts`'s `extractTrainer`):
  *   1. `export const arkor = createArkor({ trainer })`
- *   2. `export const trainer = createTrainer(...)`  (bare named export)
- *   3. `export default createArkor({ trainer })`
- *   4. `export default createTrainer(...)`           (default IS a Trainer)
- *   5. `export default { trainer: createTrainer(...) }`
+ *   2. `export const arkor = createTrainer(...)`     (`arkor` IS a Trainer)
+ *   3. `export const trainer = createTrainer(...)`   (bare named export)
+ *   4. `export default createArkor({ trainer })`
+ *   5. `export default createTrainer(...)`           (default IS a Trainer)
+ *   6. `export default { trainer: createTrainer(...) }`
  *
- * Without shape #4 a project that default-exports a Trainer would run
+ * Without shape #5 a project that default-exports a Trainer would run
  * fine under `arkor start` but show as "no trainer" in Studio's
  * manifest, with `configHash: null` forcing every HMR rebuild down the
- * SIGTERM-restart path instead of the SIGUSR2 hot-swap path.
+ * SIGTERM-restart path instead of the SIGUSR2 hot-swap path. Shape #2
+ * matters even more: `runner.ts`'s `trainerFromValue(mod.arkor)`
+ * accepts a bare Trainer under the `arkor` name and EXECUTES it with
+ * top precedence, so omitting it here didn't just lose the manifest
+ * display: with a competing `trainer` named export the inspection's
+ * first candidate diverged from the trainer the runner actually runs,
+ * and a hash-match SIGUSR2 could hot-swap one trainer's callbacks
+ * into the *other* trainer's running instance.
  */
 function findTrainerCandidates(mod: Record<string, unknown>): TrainerLike[] {
   const trainers: TrainerLike[] = [];
@@ -252,15 +260,21 @@ function findTrainerCandidates(mod: Record<string, unknown>): TrainerLike[] {
   };
   // 1: createArkor named export
   if (isArkor(mod.arkor)) push((mod.arkor as Arkor).trainer);
-  // 2: bare `trainer` named export
+  // 2: `arkor` named export that IS a Trainer (runner.ts's
+  // `trainerFromValue` falls through `isArkor` to `isTrainer` for the
+  // same value, so the runner executes this shape with top
+  // precedence). `isTrainerLike` filters out the manifest case
+  // already handled above.
+  push(mod.arkor);
+  // 3: bare `trainer` named export
   push(mod.trainer);
-  // 3: default-export holding an Arkor manifest
+  // 4: default-export holding an Arkor manifest
   if (isArkor(mod.default)) push((mod.default as Arkor).trainer);
-  // 4: default IS the Trainer itself. `isTrainerLike` filters out
-  // cases 3/5 (an Arkor manifest doesn't have `start`/`wait`/
+  // 5: default IS the Trainer itself. `isTrainerLike` filters out
+  // cases 4/6 (an Arkor manifest doesn't have `start`/`wait`/
   // `cancel`, nor does a plain `{ trainer }` wrapper).
   push(mod.default);
-  // 5: default.trainer nested
+  // 6: default.trainer nested
   if (mod.default && typeof mod.default === "object") {
     push((mod.default as Record<string, unknown>).trainer);
   }

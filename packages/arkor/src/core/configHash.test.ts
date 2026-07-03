@@ -225,16 +225,22 @@ describe("hashJobConfig", () => {
     expect(() => hashJobConfig(indirect)).toThrow(TypeError);
   });
 
-  it("detects a cycle when `toJSON()` returns the object itself (JSON.stringify parity)", () => {
+  it("rejects a `toJSON()` that returns the object itself (deliberate divergence from JSON.stringify)", () => {
     // CodeRabbit regression: `toJSON` used to be invoked BEFORE the
     // current object was inserted into `seen`. A
     // `{ toJSON() { return this; } }` would then loop forever (each
     // recursive call re-checked toJSON before the cycle gate could
     // see the previous frame), crashing with `RangeError: Maximum
-    // call stack size exceeded` rather than the cycle-shaped
-    // `TypeError` `JSON.stringify` produces for the same input. The
-    // fix moves the `seen.add(value)` ahead of the toJSON invocation
-    // so the cycle is caught on the very first recursive re-entry.
+    // call stack size exceeded`. The fix moves the `seen.add(value)`
+    // ahead of the toJSON invocation so the cycle is caught on the
+    // very first recursive re-entry.
+    //
+    // Note this is NOT JSON.stringify parity: `JSON.stringify`
+    // serialises the toJSON return value without re-invoking toJSON
+    // on it, so it returns `"{}"` for this input rather than
+    // throwing. We throw on purpose (fail-safe: a config this
+    // pathological shouldn't silently hash as an empty object and
+    // hot-swap-match a config it doesn't describe).
     const selfReturning = {
       toJSON(): unknown {
         return this;

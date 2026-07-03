@@ -73,6 +73,19 @@ const attachedHandlers = new Set<() => void>();
  * call site re-implementing the same idempotent-guard + per-signal
  * registration boilerplate.
  *
+ * **Exit-owner contract.** Exactly one registration per process
+ * should set `exitOnSignal: true` (in `arkor dev` that's
+ * `scheduleStudioTokenCleanup`). A process whose registrations are
+ * ALL `exitOnSignal: false` swallows the first terminating signal
+ * entirely: every cleanup runs and every handler self-detaches, but
+ * nothing calls `process.exit`, so the process keeps running until a
+ * second signal hits Node's (now-restored) default handling. That
+ * mode is never what a caller wants; this module doesn't enforce the
+ * contract programmatically (registrations happen at different call
+ * sites and a central count would false-positive on the multi-
+ * `runDev` test pattern), so it's on new call sites to designate an
+ * owner.
+ *
  * Per-registration signal listeners (rather than a singleton): each
  * `runDev()` invocation gets its own listener wired to its own
  * `done` latch. Listeners auto-detach as soon as their handler fires
@@ -155,10 +168,29 @@ export function registerCleanupHook(options: CleanupHookOptions): void {
       // single microtask, so a process whose hooks are all
       // synchronous still exits effectively immediately (one extra
       // microtask round-trip).
-      queueMicrotask(() => {
-        void Promise.allSettled(inFlightCleanups).then(() =>
-          process.exit(exitCode),
+      //
+      // Watchdog: the wait below is unbounded by design (cutting a
+      // slow-but-progressing cleanup short would leak the very
+      // resources the hooks exist to release), but an outright HUNG
+      // async cleanup (`hmr.dispose()` → rolldown `watcher.close()`
+      // wedging in native code is the realistic case) would
+      // otherwise leave the operator staring at a silent,
+      // non-exiting process after Ctrl-C. Surface what's happening
+      // and point at the escape hatch: all signal handlers detach
+      // when they fire, so a second Ctrl-C reaches Node's default
+      // handling and force-kills. `unref()` so the timer itself
+      // never holds the process open once the cleanups do settle.
+      const watchdog = setTimeout(() => {
+        process.stderr.write(
+          "Cleanup is taking longer than expected; press Ctrl-C again (or re-send the signal) to force exit.\n",
         );
+      }, 5000);
+      watchdog.unref();
+      queueMicrotask(() => {
+        void Promise.allSettled(inFlightCleanups).then(() => {
+          clearTimeout(watchdog);
+          process.exit(exitCode);
+        });
       });
     });
   }

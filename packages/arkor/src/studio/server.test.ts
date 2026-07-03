@@ -648,6 +648,63 @@ process.exit(0);
       expect(getCurrentCalls).toBe(1);
     });
 
+    it("skips the coordinator hash capture entirely for a custom body.file spawn", async () => {
+      // Regression guard for the custom-entry HMR hazard: the
+      // coordinator's configHash / artefact content hash describe the
+      // DEFAULT entry's bundle, but `arkor start <file>` rebuilds and
+      // runs the CUSTOM entry's trainer. Capturing the default
+      // entry's hashes as this child's baseline would let a later
+      // same-hash rebuild hot-swap (SIGUSR2) the default trainer's
+      // callbacks into the custom trainer's live run. The server must
+      // register null baselines instead (which `dispatchRebuild`
+      // routes through the conservative SIGTERM-restart path), so
+      // neither getter may even be consulted.
+      await writeCredentials(ANON_CREDS);
+      let configHashCalls = 0;
+      let contentHashCalls = 0;
+      const fakeHmr = {
+        subscribe: () => () => undefined,
+        getCurrentConfigHash: () => {
+          configHashCalls += 1;
+          return "default-entry-hash";
+        },
+        getCurrentArtifactHash: () => "default-artefact-hash",
+        getCurrentArtifactContentHash: () => {
+          contentHashCalls += 1;
+          return "default-artefact-content-hash";
+        },
+        getLastEventType: () => null,
+        async dispose() {},
+      };
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      writeFileSync(fakeBin, `process.exit(0);\n`);
+      const customEntry = join(trainCwd, "src", "arkor", "custom.ts");
+      mkdirSync(join(trainCwd, "src", "arkor"), { recursive: true });
+      writeFileSync(customEntry, "// custom trainer source\n");
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: fakeBin,
+        hmr: fakeHmr,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ file: "src/arkor/custom.ts" }),
+      });
+      expect(res.status).toBe(200);
+      await res.text();
+      expect(configHashCalls).toBe(0);
+      expect(contentHashCalls).toBe(0);
+    });
+
     it("/api/train job-id parser ignores stderr so a `Started job <token>` line on stderr can't hijack the cancel POST", async () => {
       // Regression: the job-id detector used to consume both
       // stdout AND stderr through a shared `onChunk` + shared
@@ -2226,6 +2283,66 @@ process.exit(0);
         trainer: { name: string } | null;
       };
       expect(body.trainer).toEqual({ name: "fallback-build" });
+    });
+
+    it("surfaces a broken prebuilt artefact as 400 instead of rebuilding over the watcher's outFile", async () => {
+      // Pin for the removed import-failure → `runBuild()` fallback.
+      // The watcher publishes atomically (staging + rename), so an
+      // import failure of an EXISTING artefact means the bundle
+      // genuinely throws at import time; the old fallback would
+      // rebuild the same source ANYWAY and write the watcher-owned
+      // `.arkor/build/index.mjs` outside the atomic-publish
+      // protocol, racing concurrent `/api/train` imports. The new
+      // behaviour rethrows so `/api/manifest` 400s with the import
+      // error (matching the HMR error frame the coordinator emits
+      // for the same broken bundle). If the fallback regressed,
+      // this test would see a 200 with the healthy source's trainer
+      // (the valid `src/arkor/index.ts` written below rebuilds
+      // cleanly), so the 400 assertion is discriminating.
+      await writeCredentials(ANON_CREDS);
+      mkdirSync(join(trainCwd, "src/arkor"), { recursive: true });
+      writeFileSync(
+        join(trainCwd, "src/arkor/index.ts"),
+        `export const arkor = Object.freeze({
+          _kind: "arkor",
+          trainer: {
+            name: "healthy-source",
+            start: async () => ({ jobId: "j" }),
+            wait: async () => ({ job: {}, artifacts: [] }),
+            cancel: async () => {},
+          },
+        });`,
+      );
+      mkdirSync(join(trainCwd, ".arkor/build"), { recursive: true });
+      writeFileSync(
+        join(trainCwd, ".arkor/build/index.mjs"),
+        `throw new Error("boom at import");\n`,
+      );
+      const fakeHmr = {
+        subscribe: () => () => undefined,
+        getCurrentConfigHash: () => null,
+        getCurrentArtifactHash: () => null,
+        getCurrentArtifactContentHash: () => null,
+        getLastEventType: () => null,
+        async dispose() {},
+      };
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        hmr: fakeHmr,
+      });
+      const res = await app.request("/api/manifest", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(/boom at import/);
     });
 
     it("returns 400 (not stale 200) while the HMR watcher is in error state", async () => {

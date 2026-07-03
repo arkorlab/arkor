@@ -336,6 +336,41 @@ describe("<RunTraining /> HMR restart state machine", () => {
     await waitFor(() => expect(streamTraining).toHaveBeenCalledTimes(2));
   });
 
+  it("a manual Run during the grace window does not inherit the prior run's restart latch (no phantom auto-restart)", async () => {
+    // Leak path under test: run A exits → grace timer armed → a late
+    // restart event for A's pid latches → the user clicks Run before
+    // the timer fires. The timer's disown branch sees a different
+    // current pid and returns; without the run()-entry latch clear,
+    // run B would inherit A's stale restart intent and auto-spawn an
+    // unrequested job when B finishes (potentially hours later).
+    const user = userEvent.setup();
+    const first = await startRun(111);
+    await first.finish(0);
+
+    // Late event lands inside the 250 ms grace window and latches for
+    // run A's pid. The manual click below must land inside the same
+    // window (both steps are immediate; the suite's other grace-window
+    // tests rely on the same real-timer margin).
+    sse.emit("rebuild", restartEvent(111));
+    await user.click(screen.getByRole("button", { name: /run training/i }));
+    await waitFor(() => expect(streams.length).toBe(2));
+    const second = streams[1];
+    second.spawn(222);
+
+    // Let A's grace timer fire (disown branch) and settle.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    await second.finish(0);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    // Exactly two runs: A (manual) and B (manual). A latched restart
+    // bleeding into B would have spawned a third.
+    expect(streamTraining).toHaveBeenCalledTimes(2);
+  });
+
   it("does not let a stale manifest fetch overwrite a newer HMR error", async () => {
     // First resolve (initial poll) returns the good manifest; the
     // second (rebuild-triggered) is held open so the error frame can

@@ -255,4 +255,50 @@ describe("registerCleanupHook", () => {
     // cleanupHooks.ts.
     expect(codes).toEqual([130]);
   });
+
+  it("warns on stderr (without exiting) when an async cleanup hangs past the watchdog window", async () => {
+    // Regression: a hung async cleanup (`hmr.dispose()` →
+    // rolldown `watcher.close()` wedging in native code) used to
+    // leave Ctrl-C with NO feedback at all: handlers detach, the
+    // exit-owning hook awaits the never-settling promise forever,
+    // and the operator stares at a silent process. The watchdog
+    // surfaces what's happening and points at the second-Ctrl-C
+    // escape hatch. It must NOT exit on its own: cutting a
+    // slow-but-progressing cleanup short would leak the resources
+    // the hooks exist to release.
+    vi.useFakeTimers();
+    const stderrChunks: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      registerCleanupHook({
+        // Never settles: simulates the wedged native dispose.
+        cleanup: () => new Promise<void>(() => undefined),
+        exitOnSignal: true,
+      });
+      const codes = mockExit();
+      process.emit("SIGINT", "SIGINT");
+
+      // Before the window elapses: silent, still waiting.
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(stderrChunks.join("")).toBe("");
+      expect(codes).toEqual([]);
+
+      // Window elapses: one warning, still no exit (the hung cleanup
+      // owns the decision; a second Ctrl-C hits Node's default
+      // handling because the handlers already detached).
+      await vi.advanceTimersByTimeAsync(1);
+      expect(stderrChunks.join("")).toMatch(
+        /taking longer than expected.*Ctrl-C again/i,
+      );
+      expect(codes).toEqual([]);
+    } finally {
+      stderrSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
