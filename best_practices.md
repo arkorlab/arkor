@@ -20,8 +20,11 @@ oxlint/ESLint/oxfmt).
 
 ## Writing style
 
-- No em dashes in prose, docs, comments, or READMEs. The only exception is
-  user-facing CLI runtime strings (info/warn/error one-liners).
+- No em dashes anywhere: prose, docs, comments, READMEs, and CLI runtime
+  user-facing strings alike. The `local/no-em-dash` ESLint rule plus the
+  repo-wide `scripts/check-no-em-dash.mts` guard enforce this with no carve-out
+  (CLI runtime messages, generated-file template bodies, and test names all
+  follow the same rule).
 
 ## Review pitfalls (do not "fix" these)
 

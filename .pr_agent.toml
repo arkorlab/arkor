@@ -8,19 +8,18 @@
 #   https://docs.qodo.ai/install-and-configure/configuration-overview/configuration-and-command-reference
 
 # --- What runs automatically -------------------------------------------------
-# /agentic_review folds in the old /review, /improve, and /compliance, so a single
-# command per event gives description + review + code suggestions. Labels come from
-# the dedicated /generate_labels command. Re-run describe + review on every push so
-# the persistent output tracks the latest commit.
+# /agentic_review folds in the old /review, /improve, and /compliance, so with
+# /agentic_describe a PR open gets description + review + code suggestions. On push,
+# re-run /agentic_review only: that is the documented persistent-review trigger and
+# it refreshes the single evolving review comment. (/generate_labels is a manual
+# PR-comment command in v2, not an auto pr_commands entry, so it is not listed.)
 [github_app]
 pr_commands = [
   "/agentic_describe",
   "/agentic_review",
-  "/generate_labels",
 ]
 handle_push_trigger = true
 push_commands = [
-  "/agentic_describe",
   "/agentic_review",
 ]
 
@@ -52,8 +51,9 @@ Prioritise these Arkor-specific risks:
 compliance_user_guidelines = """
 - Bilingual docs move together in the same PR: README.md with README.ja.md,
   CONTRIBUTING.md with CONTRIBUTING.ja.md, docs/ with docs/ja/.
-- No em dashes in prose, docs, comments, or READMEs (CLI runtime user-facing
-  strings are the only exception).
+- No em dashes anywhere, including CLI runtime user-facing strings: the
+  local/no-em-dash ESLint rule and the repo-wide check-no-em-dash guard have no
+  carve-out.
 - Respect the known review-bot pitfalls in best_practices.md that must NOT be
   "fixed": the npm CodeGroup tab (npm arkor init), Mintlify heading slugs (which
   keep /, =, and full-width parens), and HuggingFace model-name existence.
