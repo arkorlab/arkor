@@ -14,14 +14,9 @@
 # it refreshes the single evolving review comment. (/generate_labels is a manual
 # PR-comment command in v2, not an auto pr_commands entry, so it is not listed.)
 [github_app]
-pr_commands = [
-  "/agentic_describe",
-  "/agentic_review",
-]
+pr_commands = ["/agentic_describe", "/agentic_review"]
 handle_push_trigger = true
-push_commands = [
-  "/agentic_review",
-]
+push_commands = ["/agentic_review"]
 
 # --- Review agent ------------------------------------------------------------
 [review_agent]
