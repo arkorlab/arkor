@@ -23,11 +23,12 @@ arkor/
 │   └── studio-app/         # `arkor` にバンドルされる Vite + React SPA
 ├── e2e/cli/                # スキャフォルダー & ビルドの vitest ベース E2E スイート
 ├── e2e/studio/             # Studio SPA 用の Playwright E2E スイート
+├── examples/doc-drift/     # Arkor デプロイメントで行うドキュメントドリフト検知の例
 ├── assets/                 # README / OG 画像
 └── turbo.json              # ビルド / テストのオーケストレーション
 ```
 
-`cli-internal`、`studio-app`、`e2e/cli`、`e2e/studio` はプライベートで、公開されることはありません。
+`cli-internal`、`studio-app`、`e2e/cli`、`e2e/studio`、および `examples/` 配下はプライベートで、公開されることはありません。
 
 ## 開発セットアップ
 
