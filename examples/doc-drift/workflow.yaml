@@ -11,8 +11,13 @@
 #        - Secret   ARKOR_API_KEY   only when the deployment requires a key
 #        - Variable ARKOR_MODEL     optional, defaults to gemma-4-31b-it
 #
-# Note: secrets are not available to pull requests from forks, so keyed
-# deployments will fail there; public repos may want continue-on-error.
+# Security notes:
+#   - Secrets are not available to pull requests from forks, so keyed
+#     deployments will fail there; public repos may want continue-on-error.
+#   - The checker step below runs the BASE branch copy of the script, so a
+#     pull request cannot edit the script that receives ARKOR_API_KEY. Only
+#     the diff and the doc files come from the PR. For repos where anyone
+#     can open branch PRs, prefer a keyless (authMode "none") deployment.
 #
 # Prefer zero setup? Install the drift-check GitHub App instead:
 # https://github.com/apps/drift-check
@@ -50,6 +55,17 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: git diff --merge-base "origin/$BASE_REF" HEAD > changes.diff
 
+      # Take the checker from the base branch, NOT from the PR checkout, so a
+      # pull request cannot modify the code that receives ARKOR_API_KEY.
+      # Caveat: the very first PR that introduces the script has no base copy
+      # yet; merge it first (or run that one PR keyless).
+      - name: Materialize the checker from the base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git show "origin/$BASE_REF:scripts/doc-drift-check.mts" \
+            > "$RUNNER_TEMP/doc-drift-check.mts"
+
       # List the documentation files to guard after the diff file. The verdict
       # for each document lands in the job summary. The step fails when drift
       # is detected; add `continue-on-error: true` to make it advisory.
@@ -58,4 +74,4 @@ jobs:
           ARKOR_BASE_URL: ${{ vars.ARKOR_BASE_URL }}
           ARKOR_API_KEY: ${{ secrets.ARKOR_API_KEY }}
           ARKOR_MODEL: ${{ vars.ARKOR_MODEL }}
-        run: node scripts/doc-drift-check.mts changes.diff README.md
+        run: node "$RUNNER_TEMP/doc-drift-check.mts" changes.diff README.md

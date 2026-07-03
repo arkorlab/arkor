@@ -8,7 +8,8 @@
 // (https://github.com/apps/drift-check).
 //
 // Usage: node src/check.ts [diff-file] [doc-file...]
-// Env:   ARKOR_BASE_URL (required), ARKOR_API_KEY, ARKOR_MODEL
+// Env:   ARKOR_BASE_URL (required), ARKOR_API_KEY, ARKOR_MODEL,
+//        ARKOR_TIMEOUT_MS
 
 import { appendFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -80,6 +81,15 @@ function usage(): string {
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n...[truncated]` : text;
+}
+
+/**
+ * Flatten untrusted text to one bounded line before writing it to the runner
+ * log. GitHub Actions interprets any log line starting with "::" as a workflow
+ * command, so model-controlled output must never introduce its own lines.
+ */
+function logLine(text: string): string {
+  return truncate(text, 500).replaceAll(/\r?\n/g, " ");
 }
 
 async function readText(path: string, kind: string): Promise<string> {
@@ -291,8 +301,9 @@ async function main(): Promise<void> {
 
     if (verdict.drifted) {
       console.log(`DRIFT ${docPath} [${verdict.severity}]`);
-      console.log(`  why: ${verdict.explanation}`);
-      if (verdict.suggestion) console.log(`  fix: ${verdict.suggestion}`);
+      console.log(`  why: ${logLine(verdict.explanation)}`);
+      if (verdict.suggestion)
+        console.log(`  fix: ${logLine(verdict.suggestion)}`);
     } else {
       console.log(`ok    ${docPath}`);
     }
@@ -308,6 +319,9 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  // Error messages can embed upstream response text; keep them to one line.
+  console.error(
+    logLine(error instanceof Error ? error.message : String(error)),
+  );
   process.exitCode = 1;
 }
