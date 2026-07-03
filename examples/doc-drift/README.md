@@ -60,8 +60,9 @@ so it reports drift and exits 1. Pass your own files (from this directory) as
 `node src/check.ts <diff-file> <doc-file...>`.
 
 Requires Node.js 22.18+ (24 recommended); on Node 22.6 to 22.17, pass
-`--experimental-strip-types`. To create a deployment of your own model, see
-the [Arkor docs](https://docs.arkor.ai).
+`--experimental-strip-types`. Requests time out after 60 seconds; set
+`ARKOR_TIMEOUT_MS` to change that. To create a deployment of your own model,
+see the [Arkor docs](https://docs.arkor.ai).
 
 ## How it works
 

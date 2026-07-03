@@ -14,6 +14,7 @@ import { appendFile, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_MODEL = "gemma-4-31b-it";
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 // Keep prompts well under typical context limits; a real product would chunk
 // instead of truncating (the drift-check App does).
@@ -68,8 +69,9 @@ function usage(): string {
     "  ARKOR_BASE_URL  OpenAI-compatible base URL of your Arkor deployment,",
     "                  e.g. https://your-model.arkor.app/v1",
     "Optional environment:",
-    "  ARKOR_API_KEY   API key, when the deployment uses fixed_api_key auth",
-    `  ARKOR_MODEL     Model name (default: ${DEFAULT_MODEL})`,
+    "  ARKOR_API_KEY     API key, when the deployment uses fixed_api_key auth",
+    `  ARKOR_MODEL       Model name (default: ${DEFAULT_MODEL})`,
+    `  ARKOR_TIMEOUT_MS  Per-request timeout (default: ${String(DEFAULT_TIMEOUT_MS)})`,
     "",
     "Prefer zero setup? Install the drift-check GitHub App instead:",
     "  https://github.com/apps/drift-check",
@@ -112,13 +114,15 @@ function extractContent(payload: unknown): string {
 }
 
 async function requestVerdict(
-  config: { baseUrl: string; apiKey: string; model: string },
+  config: { baseUrl: string; apiKey: string; model: string; timeoutMs: number },
   docText: string,
   diffText: string,
 ): Promise<Verdict> {
   const endpoint = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  const response = await fetch(endpoint, {
+  const request: RequestInit = {
     method: "POST",
+    // Fail fast instead of hanging a CI job when the endpoint stalls.
+    signal: AbortSignal.timeout(config.timeoutMs),
     headers: {
       "content-type": "application/json",
       ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
@@ -148,7 +152,20 @@ async function requestVerdict(
         },
       ],
     }),
-  });
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, request);
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new Error(
+        `Request timed out after ${String(config.timeoutMs)}ms: ${endpoint}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const body = truncate(await response.text(), 300);
@@ -186,12 +203,17 @@ async function writeStepSummary(
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (!summaryPath) return;
 
-  const rows = results.map(
-    ({ path, verdict }) =>
-      `| \`${tableCell(path)}\` | ${verdict.drifted ? "drifted" : "ok"} | ${
-        verdict.severity
-      } | ${verdict.drifted ? tableCell(verdict.explanation) : ""} |`,
-  );
+  // Both variable cells are rendered as inline code: tableCell() strips
+  // backticks, so model-controlled text cannot escape the span, and inside a
+  // code span Markdown (links, images, emphasis) does not render at all.
+  const rows = results.map(({ path, verdict }) => {
+    const explanation =
+      verdict.drifted && verdict.explanation.trim() !== ""
+        ? `\`${tableCell(verdict.explanation)}\``
+        : "";
+    const status = verdict.drifted ? "drifted" : "ok";
+    return `| \`${tableCell(path)}\` | ${status} | ${verdict.severity} | ${explanation} |`;
+  });
   const table = [
     "## Documentation drift check",
     "",
@@ -213,10 +235,23 @@ async function main(): Promise<void> {
   // Treat empty env values as unset: in GitHub Actions an unconfigured
   // `vars.*` interpolates to an empty string, not to a missing variable.
   const modelEnv = process.env.ARKOR_MODEL;
+  const timeoutEnv = process.env.ARKOR_TIMEOUT_MS;
+  const timeoutMs =
+    timeoutEnv !== undefined && timeoutEnv !== ""
+      ? Number(timeoutEnv)
+      : DEFAULT_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    console.error(
+      `ARKOR_TIMEOUT_MS must be a positive integer, got: ${timeoutEnv ?? ""}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   const config = {
     baseUrl,
     apiKey: process.env.ARKOR_API_KEY ?? "",
     model: modelEnv !== undefined && modelEnv !== "" ? modelEnv : DEFAULT_MODEL,
+    timeoutMs,
   };
 
   // All-or-nothing arguments: pairing a caller's diff with the bundled sample

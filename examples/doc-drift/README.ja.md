@@ -60,8 +60,9 @@ pnpm --filter @arkor/example-doc-drift check
 `node src/check.ts <diff-file> <doc-file...>` のように渡します。
 
 Node.js 22.18+ が必要です (24 推奨)。Node 22.6 から 22.17 では
-`--experimental-strip-types` を付けてください。自分のモデルのデプロイメント
-作成は [Arkor docs](https://docs.arkor.ai) を参照してください。
+`--experimental-strip-types` を付けてください。リクエストは 60 秒で
+タイムアウトします (`ARKOR_TIMEOUT_MS` で変更可)。自分のモデルの
+デプロイメント作成は [Arkor docs](https://docs.arkor.ai) を参照してください。
 
 ## 仕組み
 

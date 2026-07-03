@@ -6,7 +6,7 @@ against a code diff and reports statements that the diff makes stale.
 
 ## Usage
 
-```
+```text
 relay send <artifact>
 ```
 
