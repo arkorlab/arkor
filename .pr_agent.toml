@@ -1,82 +1,66 @@
-# Qodo Merge / Qodo Code Review (Qodo v2, the "Qodo Platform" generation) config.
-# Repo-level overrides; precedence is wiki > this file > org-wide pr-agent-settings.
-# Kept focused: lists settings we deliberately set, including some that match a
-# current Qodo default but are pinned on purpose so a future default flip cannot
-# silently weaken review coverage. We do not copy the full default file. See
-# https://docs.qodo.ai/qodo-documentation/qodo-merge/configuration/configuration-file
-
-[config]
-# Surface which configs actually took effect, so drift between this file and
-# Qodo's defaults is visible in each run.
-output_relevant_configurations = true
+# Qodo Review (v2, the "Qodo Platform" generation) repo-level config.
+# File name and location (.pr_agent.toml at the repo root of the default branch)
+# are unchanged from v1, but v2 uses the agentic commands and the [review_agent] /
+# [qodo_describe_agent] sections rather than the legacy /review, /describe,
+# /improve tools and [pr_reviewer] / [pr_description] sections. Every key below is
+# taken from the current v2 docs; we do not copy the full default file.
+#   https://docs.qodo.ai/install-and-configure/migrating-to-qodo-v2
+#   https://docs.qodo.ai/install-and-configure/configuration-overview/configuration-and-command-reference
 
 # --- What runs automatically -------------------------------------------------
-# Full pipeline on every new PR, and a re-review + fresh suggestions on each push.
+# /agentic_review folds in the old /review, /improve, and /compliance, so a single
+# command per event gives description + review + code suggestions. Labels come from
+# the dedicated /generate_labels command. Re-run describe + review on every push so
+# the persistent output tracks the latest commit.
 [github_app]
 pr_commands = [
-  "/describe",
-  "/review",
-  "/improve",
+  "/agentic_describe",
+  "/agentic_review",
+  "/generate_labels",
 ]
 handle_push_trigger = true
 push_commands = [
-  "/describe",
-  "/review",
+  "/agentic_describe",
+  "/agentic_review",
 ]
 
-# --- Review tool -------------------------------------------------------------
-[pr_reviewer]
-# Update one persistent comment instead of stacking a new one per push.
-persistent_comment = true
-final_update_message = true
-# Maximise signal: keep all the optional review sections on.
-require_score_review = true
-require_tests_review = true
-require_estimate_effort_to_review = true
-require_can_be_split_review = true
-require_security_review = true
-require_todo_scan = true
-# Visible at-a-glance labels for risk and effort.
-enable_review_labels_security = true
-enable_review_labels_effort = true
-num_max_findings = 6
-extra_instructions = """
-This is the Arkor pnpm + Turbo monorepo. When reviewing, weight these
-project-specific concerns highly:
-- Studio dev server security invariants: per-launch CSRF token via
-  X-Arkor-Studio-Token header (query param only for EventSource), timingSafeEqual
-  comparison, host-header allow-list, and the deliberate absence of CORS. Flag any
-  change that weakens these or adds a mutation route to eventStreamPathPattern.
-- HMR primitives (requestEarlyStop, replaceCallbacks) must stay behind
-  Symbol.for(...) brands and never leak onto the public Trainer interface.
-- Bilingual docs must move together: README.md with README.ja.md, docs/ with
-  docs/ja/, CONTRIBUTING.md with CONTRIBUTING.ja.md.
-- No em dashes in prose, docs, comments, or READMEs.
-- Dependency versions go through the pnpm-workspace.yaml catalog, not literal
-  semver in package.json (except the two published packages' runtime deps).
+# --- Review agent ------------------------------------------------------------
+[review_agent]
+# Post both a summary and inline comments (this is the default; pinned so a future
+# default flip cannot silently drop inline coverage).
+comments_location_policy = "both"
+# Surface medium-and-higher severity inline, not just the highest (docs values are
+# 1-3, default 3); lower threshold = more inline findings.
+inline_comments_severity_threshold = 2
+# Bug / security / performance focus for the Issues agent.
+issues_user_guidelines = """
+Prioritise these Arkor-specific risks:
+- Studio dev server (packages/arkor/src/studio/server.ts): every /api/* request
+  must stay authenticated by the per-launch CSRF token (X-Arkor-Studio-Token
+  header for fetch; ?studioToken= query only for the GET job-events SSE stream,
+  jobEventsPathPattern). Keep the timingSafeEqual comparison, the
+  127.0.0.1/localhost host-header allow-list, and the deliberate absence of CORS.
+  Flag any change that weakens these or extends the query-token exception to a
+  mutation route.
+- Dependency versions must go through the pnpm-workspace.yaml catalog (catalog:),
+  not literal semver, except the two published packages' runtime dependencies.
+- Do not suggest formatting or import-order changes: oxfmt owns formatting and
+  ESLint import-x/order owns import order.
+"""
+# Standards / rules for the Compliance agent. Full standard lives in
+# best_practices.md at the repo root.
+compliance_user_guidelines = """
+- Bilingual docs move together in the same PR: README.md with README.ja.md,
+  CONTRIBUTING.md with CONTRIBUTING.ja.md, docs/ with docs/ja/.
+- No em dashes in prose, docs, comments, or READMEs (CLI runtime user-facing
+  strings are the only exception).
+- Respect the known review-bot pitfalls in best_practices.md that must NOT be
+  "fixed": the npm CodeGroup tab (npm arkor init), Mintlify heading slugs (which
+  keep /, =, and full-width parens), and HuggingFace model-name existence.
 """
 
-# --- Code suggestions tool ---------------------------------------------------
-[pr_code_suggestions]
-persistent_comment = true
-# Cast a wide net, then let the score threshold and best_practices.md filter.
-# The repo-root best_practices.md is honoured automatically: for a single repo,
-# the file's presence is the trigger, so no enable key is needed here. The
-# [best_practices] section / enable_global_best_practices is only for the
-# org-wide pr-agent-settings repo, which we do not use.
-auto_extended_mode = true
-suggestions_score_threshold = 5
-extra_instructions = """
-Prefer suggestions that protect the invariants in best_practices.md. Do not
-suggest formatting or import-ordering changes: oxfmt owns formatting and ESLint
-import-x/order owns import order.
-"""
-
-# --- Description tool --------------------------------------------------------
-[pr_description]
-generate_ai_title = true
-publish_labels = true
-enable_pr_type = true
-enable_pr_diagram = true
-use_bullet_points = true
-collapsible_file_list = "adaptive"
+# --- Describe agent ----------------------------------------------------------
+[qodo_describe_agent]
+# Post the generated summary as a comment rather than overwriting a human-authored
+# PR body. Allowed: "comment" (default), "pr_description", "dynamic".
+publish_mode = "comment"

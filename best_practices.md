@@ -1,10 +1,11 @@
 # Arkor best practices
 
-Qodo (Qodo Code Review / Qodo Merge) reads this file and raises extra
-suggestions, labelled "Organization best practices", when a PR violates any of
-the points below. Keep
-each point short, actionable, and specific to this repo (general style is already
-covered by oxlint/ESLint/oxfmt).
+This file is the Arkor coding standard. The repo-level Qodo config
+(`.pr_agent.toml`) points its compliance agent here via
+`compliance_user_guidelines`, and Qodo also reads a root `best_practices.md`
+when raising best-practice findings on a PR. Keep each point short, actionable,
+and specific to this repo (general style is already covered by
+oxlint/ESLint/oxfmt).
 
 ## Bilingual docs
 
@@ -40,21 +41,13 @@ mistakes, so do not suggest "fixing" them.
 - Every `/api/*` request must be authenticated with the per-launch CSRF token:
   `X-Arkor-Studio-Token` header for `fetch`, `?studioToken=` query only for
   `EventSource`. Comparison must stay `timingSafeEqual`.
-- `eventStreamPathPattern` may only list GET stream-only routes. Never add a
-  mutation endpoint to it.
+- The `?studioToken=` query-param exception is limited to the GET job-events SSE
+  stream, matched by `jobEventsPathPattern` in
+  `packages/arkor/src/studio/server.ts`. Never extend that allow-list to a
+  mutation route.
 - Keep the host-header allow-list (`127.0.0.1`/`localhost`) and do NOT add CORS.
 - Token persistence to `~/.arkor/studio-token` may fail (read-only $HOME); a
   failure must warn, not block server start.
-
-## HMR primitives stay private
-
-- `requestEarlyStop()` and `replaceCallbacks()` are dev-only HMR primitives kept
-  behind `Symbol.for("arkor.trainer.*")` brands. Do not surface them on the
-  public `Trainer` interface.
-- The server's stale-bundle path must SIGTERM and let the child run `cancel()`.
-  Do not escalate to SIGKILL server-side (it would orphan Cloud-side jobs).
-- Do not widen the SIGUSR2 hot-swap path to "always hot-swap"; the `configHash`
-  match is what prevents a child running with a stale `JobConfig`.
 
 ## Dependencies and supply chain
 
