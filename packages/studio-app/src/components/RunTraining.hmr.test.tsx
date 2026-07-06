@@ -78,13 +78,19 @@ interface StreamHandle {
   signal: AbortSignal | undefined;
   spawn: (pid: number | null) => void;
   finish: (exitCode: number | null) => Promise<void>;
+  /**
+   * Settle the stream with a rejection, the way the real
+   * `streamTraining` now rejects on the server's `error=` marker
+   * (spawn failure) or a non-2xx `/api/train` response.
+   */
+  fail: (message: string) => Promise<void>;
 }
 
 function installStreamMock(): StreamHandle[] {
   const handles: StreamHandle[] = [];
   vi.mocked(streamTraining).mockImplementation(
     (_onChunk, file, signal, onSpawn) =>
-      new Promise<number | null>((resolve) => {
+      new Promise<number | null>((resolve, reject) => {
         const handle: StreamHandle = {
           file,
           signal,
@@ -96,6 +102,12 @@ function installStreamMock(): StreamHandle[] {
               resolve(exitCode);
               // Let run()'s continuation (post-await cleanup + the
               // queueMicrotask restart hop) drain before returning.
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            });
+          },
+          fail: async (message) => {
+            await act(async () => {
+              reject(new Error(message));
               await new Promise((resolve) => setTimeout(resolve, 0));
             });
           },
@@ -292,6 +304,28 @@ describe("<RunTraining /> HMR restart state machine", () => {
     expect(
       await screen.findByText(/auto-restart suppressed/i),
     ).toBeInTheDocument();
+  });
+
+  it("suppresses auto-restart when the stream rejects (spawn failure via error= marker)", async () => {
+    // qodo (round 83): `streamTraining` now REJECTS on the server's
+    // trailing `error=` marker (child spawn failure) instead of
+    // resolving `null`. A latched restart must not survive that:
+    // re-spawning would just re-run the same failing spawn in a loop.
+    const first = await startRun(111);
+
+    sse.emit("rebuild", restartEvent(111));
+    expect(
+      await screen.findByText(/stopping at next checkpoint/i),
+    ).toBeInTheDocument();
+
+    await first.fail("training subprocess failed to start: spawn ENOENT");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    expect(streamTraining).toHaveBeenCalledTimes(1);
+    // Both the raw error and the suppression note are surfaced.
+    expect(screen.getByText(/spawn ENOENT/)).toBeInTheDocument();
+    expect(screen.getByText(/auto-restart suppressed/i)).toBeInTheDocument();
   });
 
   it("restarts when the matching SSE event lands inside the post-exit grace window", async () => {

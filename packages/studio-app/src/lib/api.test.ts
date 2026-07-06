@@ -368,11 +368,31 @@ describe("streamTraining", () => {
     await expect(streamTraining(() => undefined)).resolves.toBe(0);
   });
 
-  it("returns null when no exit marker is present (error= path / truncated body)", async () => {
+  it("returns null when no marker is present (aborted / truncated body)", async () => {
     globalThis.fetch = vi.fn(async () =>
       mockChunkedResponse(["partial output, no marker"]),
     ) as typeof fetch;
     await expect(streamTraining(() => undefined)).resolves.toBeNull();
+  });
+
+  it("rejects with the spawn error when the stream ends with the `error=` marker", async () => {
+    // qodo (round 83): the server terminates the stream with
+    // `\n---\nerror=<msg>\n` (no `exit=`) when the child's async
+    // spawn machinery fails (bin ENOENT, EACCES). Resolving `null`
+    // there made spawn failures indistinguishable from aborted
+    // streams, and RunTraining's nonzero-exit suppression gate
+    // treated them as non-failures. The marker now rejects so
+    // callers land in their existing error path. The message is
+    // long on purpose: the old 64-byte tail buffer would have
+    // sliced off the marker prefix for any realistic ENOENT path.
+    const reason =
+      "spawn ENOENT: /home/user/some/deeply/nested/project/dir/node_modules/.bin/arkor-training-binary";
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["boot log\n", `\n---\nerror=${reason}\n`]),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).rejects.toThrow(
+      /failed to start.*arkor-training-binary/,
+    );
   });
 
   it("forwards the file argument to /api/train when supplied", async () => {

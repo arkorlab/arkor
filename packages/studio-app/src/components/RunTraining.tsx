@@ -93,10 +93,12 @@ export function RunTraining() {
   // would let the (now-stale) fetch's `.then(setManifest)` overwrite
   // the `{ error }` state with the last-good manifest, re-enabling
   // the Run button against broken code until the next 5 s poll
-  // restored the error. The polling effect's own fetches don't need
-  // this because they observe `cancelled` synchronously inside the
-  // `tick()` closure; this counter only protects the cross-handler
-  // SSE-driven fetches.
+  // restored the error. The 5 s polling effect participates in the
+  // same fence (each `tick()` bumps the counter and gates its own
+  // `setManifest` on still being the latest seq), so a poll that
+  // started before an `error` frame landed can't overwrite the error
+  // state either; `cancelled` inside `tick()` only covers effect
+  // teardown, not cross-channel ordering.
   const manifestFetchSeqRef = useRef(0);
   // Tracks "is this React tree still mounted?". The HMR auto-restart
   // path schedules `queueMicrotask(() => run(...))` after the prior
@@ -364,8 +366,16 @@ export function RunTraining() {
     trainingAbortRef.current?.abort();
     trainingAbortRef.current = ac;
     // Exit code parsed off the train stream's trailing `exit=` marker.
-    // `null` = unknown (aborted stream, spawn failure, marker missing).
+    // `null` = unknown (aborted stream, marker missing). Spawn
+    // failures (`error=` marker) REJECT out of `streamTraining` and
+    // are tracked via `streamFailed` below.
     let exitCode: number | null = null;
+    // Set when the stream threw for a reason other than our own
+    // abort: spawn failure (`error=` marker), /api/train non-2xx,
+    // network drop. Treated like a nonzero exit by the suppression
+    // gate below so a failed-to-start run can't be auto-restarted
+    // into a loop of identical failures.
+    let streamFailed = false;
     try {
       exitCode = await streamTraining(
         (chunk) => {
@@ -429,6 +439,7 @@ export function RunTraining() {
       // a normal post-try/catch sequence, which has the same effect
       // here because the `catch` block above never re-throws.
       if (!ac.signal.aborted) {
+        streamFailed = true;
         setLog((prev) =>
           appendCapped(
             prev,
@@ -482,7 +493,13 @@ export function RunTraining() {
     // succeeded) and `null` (no marker parsed: spawn failure path
     // already surfaced its own error) keep the existing restart
     // behaviour.
-    if (exitCode !== null && exitCode !== 0) {
+    // `streamFailed` (spawn failure / non-2xx / network drop) takes
+    // the same suppression branch (qodo, round 83): before the
+    // `error=` marker rejected out of `streamTraining`, a
+    // failed-to-start run resolved `null` and slipped past this gate
+    // as "non-failure", leaving a latched restart free to re-spawn
+    // the same failing configuration.
+    if (streamFailed || (exitCode !== null && exitCode !== 0)) {
       restartPendingRef.current = false;
       currentPidRef.current = null;
       setHmrStatus("idle");
@@ -493,7 +510,9 @@ export function RunTraining() {
       setLog((prev) =>
         appendCapped(
           prev,
-          `\n[hmr] run exited with code ${exitCode}; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`,
+          streamFailed
+            ? `\n[hmr] run did not complete cleanly; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`
+            : `\n[hmr] run exited with code ${exitCode}; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`,
         ),
       );
       return;

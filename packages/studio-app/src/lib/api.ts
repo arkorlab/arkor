@@ -364,6 +364,20 @@ export function extractInferenceDelta(data: string): string | null {
  */
 const EXIT_MARKER_PATTERN = /\n---\nexit=(-?\d+)\n?$/;
 
+/**
+ * Trailing error marker the server appends instead of `exit=` when
+ * the subprocess's async spawn machinery fails (`error` event:
+ * executable ENOENT, EACCES, EAGAIN under resource exhaustion):
+ * `\n---\nerror=<message>\n`. The two markers are mutually exclusive
+ * (the server's `closed` flag seals the stream after whichever fires
+ * first). `streamTraining` throws on this one so spawn failures land
+ * in the caller's existing error path instead of resolving `null`,
+ * which callers document as "unknown/aborted" and treat as
+ * non-failure (the SPA's nonzero-exit restart suppression would
+ * otherwise never engage for a run that failed to start).
+ */
+const ERROR_MARKER_PATTERN = /\n---\nerror=([^\n]*)\n?$/;
+
 export async function streamTraining(
   onChunk: (text: string) => void,
   file?: string,
@@ -434,11 +448,17 @@ export async function streamTraining(
     reader.releaseLock();
     return null;
   }
-  // Rolling tail of decoded output, kept just long enough to match
-  // the server's exit marker even when the final chunks split it.
-  // Bounded so a multi-MB log can't grow this string.
+  // Rolling tail of decoded output, kept long enough to match the
+  // server's trailing markers even when the final chunks split them.
+  // 4 KiB (vs the previous 64 bytes, which only had to fit
+  // `exit=<code>`) because the `error=` marker embeds a spawn error
+  // message of arbitrary length: a 64-byte window would slice off
+  // the `\n---\nerror=` prefix for any message longer than ~50
+  // chars (ENOENT with a full bin path easily exceeds that) and
+  // silently downgrade the failure to a `null` resolve. Bounded so
+  // a multi-MB log can't grow this string.
   let tailBuf = "";
-  const TAIL_MAX = 64;
+  const TAIL_MAX = 4096;
   const trackTail = (text: string): void => {
     tailBuf = (tailBuf + text).slice(-TAIL_MAX);
   };
@@ -467,9 +487,22 @@ export async function streamTraining(
     // the body if needed. Mirrors `iterateSseFrames`'s finally clause.
     reader.releaseLock();
   }
-  // `null` when no marker was found: aborted streams, `error=` paths,
-  // truncated bodies. Callers treat null as "unknown" and apply their
-  // own conservative default.
+  // Spawn-failure marker → throw so the caller's error path runs
+  // (log the reason, suppress auto-restart). Checked before `exit=`;
+  // the two are mutually exclusive on the wire, so order is only
+  // defensive.
+  const errorMatch = ERROR_MARKER_PATTERN.exec(tailBuf);
+  if (errorMatch) {
+    const reason = errorMatch[1].trim();
+    throw new Error(
+      reason
+        ? `training subprocess failed to start: ${reason}`
+        : "training subprocess failed to start",
+    );
+  }
+  // `null` when no marker was found: aborted streams, truncated
+  // bodies. Callers treat null as "unknown" and apply their own
+  // conservative default.
   const m = EXIT_MARKER_PATTERN.exec(tailBuf);
   return m?.[1] === undefined ? null : Number.parseInt(m[1], 10);
 }

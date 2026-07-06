@@ -84,6 +84,22 @@ export interface ActiveTrain {
    * subprocess.
    */
   scope: { orgSlug: string; projectSlug: string } | null;
+  /**
+   * Cloud-api endpoint + bearer token snapshotted at spawn time
+   * (same capture as `/api/train`'s `spawnRpc` closure). The win32
+   * HMR-restart cancel path reads this so its fire-and-forget cancel
+   * POST hits the same account / control plane the child used for
+   * createJob: a login/logout or control-plane switch mid-run would
+   * otherwise make a cancel-time credentials read address the POST
+   * to the wrong host (404s or cancels an unrelated job) while the
+   * original cloud job keeps running. On win32 that matters doubly,
+   * because `kill("SIGTERM")` is an abrupt termination there and the
+   * child never gets to issue its own cancel. Null when no
+   * credentials were on disk at spawn (first-run anon bootstrap
+   * happens inside the child); consumers fall back to a cancel-time
+   * resolve then.
+   */
+  rpc: { baseUrl: string; token: string } | null;
 }
 
 export interface RestartTarget {
@@ -162,6 +178,7 @@ export class TrainRegistry {
       | "spawnArtifactContentHash"
       | "jobId"
       | "scope"
+      | "rpc"
     > & {
       // Optional in the signature so tests / future callers that
       // don't track the on-disk artefact content hash (e.g. an
@@ -179,6 +196,12 @@ export class TrainRegistry {
       // cancel POST can address the cloud job without re-reading
       // the filesystem at stop time.
       scope?: { orgSlug: string; projectSlug: string } | null;
+      // Optional like `scope`: tests exercising HMR routing don't
+      // need a credentials snapshot. Real `/api/train` calls pass
+      // the spawn-time `spawnRpc` capture so the win32 HMR cancel
+      // path can address the cloud POST with the same identity the
+      // child used.
+      rpc?: { baseUrl: string; token: string } | null;
     },
   ): void {
     if (typeof child.pid !== "number") return;
@@ -187,6 +210,7 @@ export class TrainRegistry {
       ...init,
       spawnArtifactContentHash: init.spawnArtifactContentHash ?? null,
       scope: init.scope ?? null,
+      rpc: init.rpc ?? null,
       earlyStopRequested: false,
       // `jobId` starts null; populated later by `recordJobId(pid,
       // id)` when the server's stdout parser sees the runner's

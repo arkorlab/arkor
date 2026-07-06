@@ -257,9 +257,13 @@ export function buildStudioApp(options: StudioServerOptions) {
   //      "simple" cross-origin POSTs (text/plain, urlencoded) skip preflight
   //      and reach the handler. The token check rejects those: an attacker
   //      page can't read the SPA's <meta> from another origin.
-  //   2. `?studioToken=` is accepted only on the job-event stream route
-  //      because `EventSource` cannot send custom headers. Mutation routes
-  //      require the header so a leaked token in a URL is not enough to POST.
+  //   2. `?studioToken=` is accepted only on the GET stream-only routes
+  //      allowlisted in `eventStreamPathPattern` above (currently the
+  //      job-events stream and `/api/dev/events`), because `EventSource`
+  //      cannot send custom headers. Mutation routes require the header
+  //      so a leaked token in a URL is not enough to POST. Keep this
+  //      list in sync with `eventStreamPathPattern`; widening it is
+  //      CSRF-sensitive (see the comment on the pattern).
   app.use("/api/*", async (c, next) => {
     const queryTokenAllowed =
       c.req.method === "GET" && eventStreamPathPattern.test(c.req.path);
@@ -637,6 +641,12 @@ export function buildStudioApp(options: StudioServerOptions) {
       configHash,
       spawnArtifactContentHash,
       scope: spawnScope,
+      // Same snapshot the manual-Stop cancel path uses via the
+      // `spawnRpc` closure; pinned on the registry entry so the
+      // win32 HMR-restart cancel loop (which has no access to this
+      // request's closures) can address its cancel POST with the
+      // identity the child actually used.
+      rpc: spawnRpc,
     });
     // Hoisted out of the `ReadableStream` underlying-source so the
     // `start` handler can hand its closure-bound teardown helper to
@@ -1111,6 +1121,7 @@ export function buildStudioApp(options: StudioServerOptions) {
                 pid: entry.child.pid,
                 jobId: entry.jobId,
                 scope: entry.scope,
+                rpc: entry.rpc,
               }))
             : [];
         const { hotSwapTargets, restartTargets } = activeTrains.dispatchRebuild(
@@ -1126,10 +1137,20 @@ export function buildStudioApp(options: StudioServerOptions) {
             // cancel path: SIGTERM-as-forceful-kill on win32 means
             // nobody else will release the cloud job. Best-effort;
             // cloud reaper / TTL is the safety net on failure.
+            const snapRpc = snap.rpc;
             void (async () => {
               try {
+                // Prefer the spawn-time credential snapshot (qodo,
+                // round 83), mirroring the manual-Stop cancel path:
+                // a login / control-plane switch mid-run would make
+                // a cancel-time credentials read address this POST
+                // to the wrong account/host, silently orphaning the
+                // original cloud job. Fall back to a cancel-time
+                // resolve only when no credentials existed at spawn
+                // (first-run anon: the child bootstrapped them, and
+                // the file read here is the one it wrote).
                 const { baseUrl: rpcBaseUrl, token: rpcToken } =
-                  await resolveCredentialsAndBaseUrl();
+                  snapRpc ?? (await resolveCredentialsAndBaseUrl());
                 const rpc = createRpc(rpcBaseUrl, rpcToken);
                 await rpc.v1.jobs[":id"].cancel.$post({
                   param: { id: snapJobId },
