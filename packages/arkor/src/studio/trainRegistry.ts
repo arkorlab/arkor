@@ -23,18 +23,21 @@ export interface ActiveTrain {
   configHash: string | null;
   /**
    * Content hash (sha256, truncated; see `studio/hmr.ts`'s
-   * `contentHashOrNull`) of the on-disk `.arkor/build/index.mjs`
-   * at spawn time. Used **only** to gate the pre-ready-spawn
-   * backfill: if a rebuild eventually fires while `configHash` is
-   * still null and this content hash equals the rebuild's
-   * `event.contentHash`, the child is provably reading the same
-   * bundle bytes the new hash describes: safe to backfill
-   * `configHash` and skip dispatch. A mismatch (or null here)
-   * means the on-disk artefact has changed between spawn and
-   * rebuild (user edited mid-spawn, fresh project never built, …)
-   * so the child is running stale bytes and we MUST SIGTERM-restart
-   * to keep cloud-side `JobConfig` aligned with what the child
-   * actually loaded.
+   * `contentHashOrNull`) of the bundle this child has MOST RECENTLY
+   * LOADED: the on-disk `.arkor/build/index.mjs` at spawn time,
+   * then updated by `dispatchRebuild` on every successful SIGUSR2
+   * hot-swap (the child re-imports the current artefact then, so
+   * its loaded bundle moves with the rebuild).
+   *
+   * `dispatchRebuild` uses it as a content-equality gate for every
+   * entry: when a rebuild's `event.contentHash` equals this value,
+   * the child is provably already running that exact bundle (same
+   * `JobConfig`, same callbacks), so no signal is needed and any
+   * stale recorded `configHash` can be backfilled. A mismatch (or
+   * null on either side) proves nothing and falls through to the
+   * configHash comparison, whose conservative default is
+   * SIGTERM-restart, keeping cloud-side `JobConfig` aligned with
+   * what the child actually loaded.
    *
    * Content-hash (vs the timestamp `mtime+ctime+size` shape used
    * by `event.hash` for SSE dedup) avoids a false-positive
@@ -315,44 +318,45 @@ export class TrainRegistry {
     for (const [pid, entry] of this.entries) {
       if (entry.earlyStopRequested) continue;
       const target: RestartTarget = { pid, trainFile: entry.trainFile };
-      // Pre-ready spawn: this child was registered via `/api/train`
-      // *before* the HMR watcher's first successful build, so its
-      // recorded `configHash` is `null`. Whether the rebuild's new
-      // hash describes the same bytes the child actually loaded
-      // depends on whether the on-disk artefact has changed between
-      // spawn and now. Tie the decision to the artefact content
-      // hash:
+      // Content-equality gate, applied to EVERY entry (not just
+      // pre-ready spawns; Codex P2, round 82): when the bytes the
+      // child loaded at spawn (`entry.spawnArtifactContentHash`) are
+      // exactly the bytes this rebuild describes
+      // (`nextArtifactContentHash`), the child is ALREADY running
+      // this build: same bundle, same `JobConfig`, same callbacks.
+      // No signal is needed, whatever the recorded `configHash` says.
       //
-      //   - `entry.spawnArtifactContentHash === nextArtifactContentHash`
-      //     → child read the same bytes the new hash describes.
-      //     Safe to backfill `configHash`; future rebuilds compare
-      //     against the backfilled value like any other child. This
-      //     is the common case (user clicked Run before the SPA had
-      //     refreshed its manifest, but the on-disk artefact is the
-      //     same one the watcher just settled on).
+      // Two races collapse into this one rule:
       //
-      //   - content hashes differ (or one side is null) → the bytes
-      //     the child loaded don't match the new hash. SIGTERM-restart
-      //     so the cloud-side `JobConfig` and the child's actual
-      //     config are guaranteed to align. Without this gate, an
-      //     edit landing between spawn and the first BUNDLE_END would
-      //     silently teach the registry to use the post-edit hash as
-      //     the child's baseline; later same-hash rebuilds would
-      //     then hot-swap callbacks into a child whose cloud-side
-      //     `JobConfig` was *actually* spawned against an older
-      //     version, leaving the cloud run on a stale config.
-      const isPreReadySpawn =
-        entry.configHash === null && nextConfigHash !== null;
-      if (isPreReadySpawn) {
-        const artefactsAgree =
-          entry.spawnArtifactContentHash !== null &&
-          nextArtifactContentHash !== null &&
-          entry.spawnArtifactContentHash === nextArtifactContentHash;
-        if (artefactsAgree) {
-          entry.configHash = nextConfigHash;
-          continue;
-        }
-        // fall through to the mismatch / SIGTERM-restart path below
+      //   - Pre-ready spawn: the child registered before the
+      //     watcher's first successful build, so `entry.configHash`
+      //     is null. Byte equality proves the new hash describes the
+      //     child's actual bundle → backfill and continue.
+      //
+      //   - Stale spawn-time hash: a Run click landing after the
+      //     watcher renamed a new artefact but before the (async)
+      //     inspection updated `getCurrentConfigHash()` records the
+      //     PREVIOUS build's hash while the child imports the NEW
+      //     artefact. The next HMR event then looks like an
+      //     old-vs-new mismatch and (before this gate) SIGTERM'd a
+      //     run already spawned with the new config: pure
+      //     cancel+restart churn in the save-then-immediately-run
+      //     flow. Byte equality re-labels the entry with the hash
+      //     that actually describes it.
+      //
+      // A mismatch (or a null on either side) proves nothing either
+      // way, so the decision falls through to the configHash
+      // comparison below, with its conservative SIGTERM-restart for
+      // unprovable cases. Backfilling only when `nextConfigHash` is
+      // non-null keeps a null-inspection rebuild from erasing a
+      // known-good baseline.
+      const artefactsAgree =
+        entry.spawnArtifactContentHash !== null &&
+        nextArtifactContentHash !== null &&
+        entry.spawnArtifactContentHash === nextArtifactContentHash;
+      if (artefactsAgree) {
+        if (nextConfigHash !== null) entry.configHash = nextConfigHash;
+        continue;
       }
       const matches =
         nextConfigHash !== null &&
@@ -376,6 +380,16 @@ export class TrainRegistry {
         if (process.platform !== "win32") {
           const r = safeKill(entry.child, "SIGUSR2");
           if (r === "ok") {
+            // The child re-imports the CURRENT artefact on SIGUSR2,
+            // so from here on "the bundle this child has loaded" is
+            // this rebuild's bytes, not the spawn-time ones. Keeping
+            // the entry's content hash in step is what lets the
+            // content-equality gate above stay truthful: without
+            // this update, a later rebuild that reverts to the
+            // spawn-time bytes would byte-match the STALE spawn hash
+            // and skip the SIGUSR2 the child actually needs to undo
+            // the intermediate hot-swap.
+            entry.spawnArtifactContentHash = nextArtifactContentHash;
             hotSwapTargets.push(target);
             continue;
           }

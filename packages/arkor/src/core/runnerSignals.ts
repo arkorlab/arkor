@@ -1,12 +1,14 @@
+import { hashJobConfig } from "./configHash";
 import { moduleCacheBustUrl } from "./moduleCacheBust";
 import { SIGNAL_EXIT_CODE } from "./signalExit";
 import {
   findInspectableTrainer,
+  getTrainerInspection,
   replaceTrainerCallbacks,
   requestTrainerEarlyStop,
 } from "./trainerInspection";
 
-import type { Trainer, TrainerCallbacks } from "./types";
+import type { Trainer } from "./types";
 
 const SHUTDOWN_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
 const CALLBACK_RELOAD_SIGNAL = "SIGUSR2" as const;
@@ -85,7 +87,22 @@ export function installShutdownHandlers(trainer: Trainer): () => void {
         process.stderr.write(`requestEarlyStop failed: ${msg}\n`);
       })
       .finally(() => {
-        const code = earlyStopFailed ? SIGNAL_EXIT_CODE[signal] : 0;
+        // Success exits 0 ONLY for SIGTERM (Codex P2, round 82).
+        // SIGTERM is the Studio HMR restart path: the SPA parses the
+        // train stream's `exit=` marker and suppresses auto-restart
+        // on any nonzero code, so a graceful early-stop MUST read as
+        // 0 there for the restart flow to work. SIGINT / SIGHUP are
+        // operator interrupts (Ctrl-C on a direct `arkor start`,
+        // hangup): even when the early-stop + cancel succeeded, the
+        // run was still user-aborted, and exiting 0 would make
+        // `arkor start || cleanup_on_failure` wrappers classify the
+        // abort as a clean completion. Those keep the conventional
+        // POSIX 128 + signo (130 / 129) on success too; any failed
+        // early-stop exits 128 + signo regardless of signal.
+        const code =
+          earlyStopFailed || signal !== "SIGTERM"
+            ? SIGNAL_EXIT_CODE[signal]
+            : 0;
         process.exit(code);
       });
   };
@@ -129,6 +146,34 @@ export function installCallbackReloadHandler(
   entryPath: string,
 ): () => void {
   /**
+   * Config hash of the trainer THIS process is actually running,
+   * computed once at install time from the live trainer's inspection
+   * brand. Each SIGUSR2 reload compares the re-imported bundle's
+   * hash against it and skips the swap on mismatch (Codex P2, round
+   * 82): the server classifies "hot-swappable" against the artefact
+   * it inspected, but signal delivery is asynchronous, and a second
+   * config-CHANGING save can rename a newer artefact into place
+   * before this handler's import runs. Without the child-side gate,
+   * that import would install the newer trainer's callbacks into a
+   * cloud job still running the old config, violating the hash
+   * gate's guarantee for the window until the follow-up SIGTERM
+   * lands. `null` for unbranded (hand-rolled) trainers, where
+   * `replaceTrainerCallbacks` is a documented no-op anyway; the gate
+   * then stays open rather than blocking a swap that can't happen.
+   */
+  const baselineInspection = getTrainerInspection(trainer);
+  let baselineConfigHash: string | null = null;
+  if (baselineInspection) {
+    try {
+      baselineConfigHash = hashJobConfig(baselineInspection.config);
+    } catch {
+      // Unhashable config (pathological toJSON, cycles): leave the
+      // baseline null. The server-side gate can't have classified a
+      // hot-swap against a hash it couldn't compute either, so a
+      // SIGUSR2 arriving anyway is best-effort territory.
+    }
+  }
+  /**
    * Monotonic counter for sequencing concurrent SIGUSR2 reloads.
    * Bumped synchronously inside the signal handler *before* the
    * dynamic-import await begins, so each in-flight reload knows its
@@ -160,14 +205,42 @@ export function installCallbackReloadHandler(
         // A newer SIGUSR2 already started its own import while we
         // were awaiting; drop our result so the latest edit wins.
         if (seq !== loadSeq) return;
-        const callbacks = extractCallbacks(mod);
-        if (!callbacks) {
+        // Delegate the entry-shape walk to `findInspectableTrainer`
+        // so SIGUSR2's view of "what counts as a trainer" stays
+        // identical to the HMR coordinator's `inspectBundle` and
+        // `runner.ts`'s `extractTrainer`.
+        const inspection = findInspectableTrainer(mod);
+        if (!inspection) {
           process.stderr.write(
             "Callback reload skipped: rebuilt bundle has no inspectable trainer.\n",
           );
           return;
         }
-        replaceTrainerCallbacks(trainer, callbacks);
+        // Child-side config gate (see `baselineConfigHash` above):
+        // only install callbacks from a bundle whose `JobConfig`
+        // matches the config this process actually spawned with.
+        // The artefact on disk can already be a NEWER,
+        // config-changing build than the one the server classified
+        // as hot-swappable; installing its callbacks here would run
+        // them against a cloud job with a different config until
+        // the follow-up SIGTERM restart lands. An unhashable
+        // reloaded config counts as a mismatch (can't prove
+        // equality → don't swap).
+        if (baselineConfigHash !== null) {
+          let reloadedConfigHash: string | null = null;
+          try {
+            reloadedConfigHash = hashJobConfig(inspection.config);
+          } catch {
+            // fall through with null → mismatch below
+          }
+          if (reloadedConfigHash !== baselineConfigHash) {
+            process.stderr.write(
+              "Callback reload skipped: rebuilt bundle's config differs from the running job's; waiting for the restart signal.\n",
+            );
+            return;
+          }
+        }
+        replaceTrainerCallbacks(trainer, inspection.callbacks);
         process.stdout.write(
           "Callbacks hot-reloaded; training run continues.\n",
         );
@@ -199,18 +272,4 @@ export function installCallbackReloadHandler(
   return () => {
     process.off(CALLBACK_RELOAD_SIGNAL, handler);
   };
-}
-
-/**
- * Extract the user-supplied callbacks reference from a re-imported
- * bundle. Delegates the entry-shape walk to `findInspectableTrainer`
- * so SIGUSR2's view of "what counts as a trainer" stays identical to
- * the HMR coordinator's `inspectBundle` and `runner.ts`'s
- * `extractTrainer`. Returns `null` when no candidate carries the
- * inspection brand.
- */
-function extractCallbacks(
-  mod: Record<string, unknown>,
-): Partial<TrainerCallbacks> | null {
-  return findInspectableTrainer(mod)?.callbacks ?? null;
 }

@@ -36,7 +36,9 @@ export interface BuildResult {
  * Bare specifiers (`arkor`, anything from `node_modules`) are kept external
  * so the artifact resolves the runtime SDK from the project's installed
  * copy. Relative imports are bundled inline. The transform target is
- * derived from the running Node binary (see `resolveNodeTarget`).
+ * the published `engines.node` floor (see `resolveNodeTarget`) so an
+ * artifact built on a newer Node still parses on the oldest supported
+ * runtime.
  */
 export async function runBuild(opts: BuildOptions = {}): Promise<BuildResult> {
   const { cwd, entry, outDir, outFile } = resolveBuildEntry(opts);

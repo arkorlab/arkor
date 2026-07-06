@@ -129,6 +129,66 @@ describe("TrainRegistry", () => {
     expect(c.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
+  it("dispatchRebuild skips signalling when the child already loaded this exact bundle, even with a stale non-null configHash", () => {
+    // Codex P2 (round 82): a Run click landing after the watcher
+    // renamed a new artefact but BEFORE the async inspection updated
+    // `getCurrentConfigHash()` records the previous build's hash
+    // while the child imports the new bundle. The next HMR event
+    // then looks like an old-vs-new config mismatch and (before the
+    // generalized content gate) SIGTERM'd a run that was already
+    // spawned with the new config: pure cancel+restart churn in the
+    // save-then-immediately-run flow. Byte equality proves the child
+    // runs exactly this build, so no signal fires and the stale
+    // hash is re-labelled.
+    const reg = new TrainRegistry();
+    const c = fakeChild(451);
+    reg.register(c as unknown as ChildProcess, {
+      configHash: "stale-previous-hash",
+      trainFile: "/tmp/stale.ts",
+      spawnArtifactContentHash: "art-new",
+    });
+    const result = reg.dispatchRebuild("new-hash", "art-new");
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toEqual([]);
+    expect(c.kill).not.toHaveBeenCalled();
+    // The backfill re-labelled the entry: a later same-config rebuild
+    // with different bytes hot-swaps instead of restarting.
+    const second = reg.dispatchRebuild("new-hash", "art-v2");
+    expect(second.hotSwapTargets).toEqual([
+      { pid: 451, trainFile: "/tmp/stale.ts" },
+    ]);
+    expect(c.kill).toHaveBeenCalledWith("SIGUSR2");
+  });
+
+  it("dispatchRebuild tracks the loaded bundle across hot-swaps so a revert-to-spawn-bytes rebuild still SIGUSR2s", () => {
+    // Regression guard for the content-equality gate: a successful
+    // SIGUSR2 makes the child re-import the CURRENT artefact, so the
+    // entry's "loaded bundle" hash must move with it. If it stayed
+    // pinned to the spawn-time value, this sequence would break:
+    // spawn on bytes A → hot-swap to bytes B (same config, new
+    // callbacks) → user reverts the edit → rebuild emits bytes A
+    // again. The revert build byte-matches the STALE spawn hash, the
+    // gate would skip dispatch, and the child would keep B's
+    // callbacks while the artefact on disk says A: a silent stale
+    // hot-swap.
+    const reg = new TrainRegistry();
+    const c = fakeChild(461);
+    reg.register(c as unknown as ChildProcess, {
+      configHash: "same-config",
+      spawnArtifactContentHash: "art-A",
+    });
+    // Callback-only edit: same config, new bytes → hot-swap.
+    const first = reg.dispatchRebuild("same-config", "art-B");
+    expect(first.hotSwapTargets).toHaveLength(1);
+    expect(c.kill).toHaveBeenCalledWith("SIGUSR2");
+    c.kill.mockClear();
+    // Revert: bytes are A again. The child currently holds B's
+    // callbacks, so this MUST hot-swap again, not skip.
+    const second = reg.dispatchRebuild("same-config", "art-A");
+    expect(second.hotSwapTargets).toHaveLength(1);
+    expect(c.kill).toHaveBeenCalledWith("SIGUSR2");
+  });
+
   it("dispatchRebuild SIGTERM-restarts a pre-ready spawn when the artefact has changed since spawn", () => {
     // Codex P2 regression: an edit landing between spawn and the
     // watcher's first BUNDLE_END means the bytes the child loaded

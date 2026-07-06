@@ -116,10 +116,52 @@ describe("installShutdownHandlers", () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
         process.emit(sig, sig);
         await new Promise((resolve) => setTimeout(resolve, 10));
-        // First signal exits 0 via the early-stop chain's
-        // `.finally(() => process.exit(0))`; second signal exits
-        // with the per-signal POSIX code.
+        // The second signal always exits with the per-signal POSIX
+        // code. (The first signal's successful-early-stop exit is 0
+        // for SIGTERM only and 128+signo for SIGINT/SIGHUP; that
+        // split has its own dedicated test below.)
         expect(exitCodes, `signal ${sig}`).toContain(expectedExit);
+      } finally {
+        dispose();
+        exitSpy.mockRestore();
+        stdoutSpy.mockRestore();
+      }
+    }
+  });
+
+  it("a SUCCESSFUL first-signal early-stop exits 0 for SIGTERM but 128+signo for SIGINT/SIGHUP", async () => {
+    // Codex P2 (PR #101 round 82): exit 0 on a successful early-stop
+    // is required ONLY on the Studio HMR path, where the server sends
+    // SIGTERM and the SPA suppresses auto-restart for any nonzero
+    // `exit=` marker. A direct `arkor start` interrupted with Ctrl-C
+    // (SIGINT) is still a user-aborted run even when the graceful
+    // cancel succeeded: exiting 0 there made
+    // `arkor start || cleanup_on_failure` wrappers classify the abort
+    // as a clean completion. SIGHUP (terminal hangup) is the same
+    // operator-interrupt class.
+    const cases: ["SIGINT" | "SIGTERM" | "SIGHUP", number][] = [
+      ["SIGINT", 130],
+      ["SIGTERM", 0],
+      ["SIGHUP", 129],
+    ];
+    for (const [sig, expectedExit] of cases) {
+      const trainer = makeTrainer();
+      const exitCodes: number[] = [];
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+        code?: number,
+      ) => {
+        exitCodes.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit);
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      const dispose = installShutdownHandlers(trainer);
+      try {
+        process.emit(sig, sig);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(trainer.__earlyStop.calls, `signal ${sig}`).toBe(1);
+        expect(exitCodes, `signal ${sig}`).toEqual([expectedExit]);
       } finally {
         dispose();
         exitSpy.mockRestore();
@@ -219,11 +261,14 @@ describe("installShutdownHandlers", () => {
 });
 
 describe("installCallbackReloadHandler", () => {
-  function writeUserBundle(label: string): string {
+  function writeUserBundle(label: string, model = "m"): string {
     const file = join(cwd, "entry.mjs");
     // Inline a fake trainer that wears the inspection brand. The
     // SIGUSR2 handler dynamic-imports this file and pulls the
-    // callbacks reference off via `getTrainerInspection`.
+    // callbacks reference off via `getTrainerInspection`. The `model`
+    // parameter lets config-gate tests write a bundle whose
+    // `JobConfig` diverges from the baseline the running trainer was
+    // installed with.
     const src = `
       const KEY = Symbol.for("arkor.trainer.inspect");
       const callbacks = { onLog: (ctx) => globalThis.__arkor_callbackProbe?.(${JSON.stringify(label)}, ctx) };
@@ -234,7 +279,7 @@ describe("installCallbackReloadHandler", () => {
         cancel: async () => {},
       };
       Object.defineProperty(trainer, KEY, {
-        value: () => ({ name: "t", config: { model: "m", datasetSource: { type: "huggingface", name: "x" } }, callbacks }),
+        value: () => ({ name: "t", config: { model: ${JSON.stringify(model)}, datasetSource: { type: "huggingface", name: "x" } }, callbacks }),
         enumerable: false,
       });
       export const arkor = Object.freeze({ _kind: "arkor", trainer });
@@ -367,6 +412,57 @@ describe("installCallbackReloadHandler", () => {
       // guard, the older IIFE's `seq !== loadSeq` short-circuit
       // skips the replace call entirely.
       expect(trainer.__replace.calls).toBe(1);
+    } finally {
+      dispose();
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it("skips the swap when the reloaded bundle's config differs from the running job's", async () => {
+    // Codex P2 (PR #101 round 82): the server classifies a rebuild as
+    // hot-swappable against the artefact it inspected, but signal
+    // delivery is asynchronous. A config-CHANGING follow-up save can
+    // rename a newer artefact into place before the child's SIGUSR2
+    // handler imports, so the handler must re-verify the config hash
+    // itself: installing the newer trainer's callbacks would run them
+    // against a cloud job still on the old config until the follow-up
+    // SIGTERM restart lands.
+    const trainer = makeTrainer();
+    attachTrainerInspection(trainer, () => ({
+      name: "n",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      callbacks: {},
+    }));
+    // On-disk bundle carries a DIFFERENT model than the running
+    // trainer's baseline: same shape the mid-flight newer rename
+    // produces.
+    const file = writeUserBundle("config-changed", "other-model");
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    const stderrChunks: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    const dispose = installCallbackReloadHandler(trainer, file);
+    try {
+      process.emit("SIGUSR2", "SIGUSR2");
+      const deadline = Date.now() + 2000;
+      while (
+        !/config differs/i.test(stderrChunks.join("")) &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(stderrChunks.join("")).toMatch(/config differs/i);
+      expect(trainer.__replace.calls).toBe(0);
     } finally {
       dispose();
       stdoutSpy.mockRestore();

@@ -661,6 +661,7 @@ process.exit(0);
       // neither getter may even be consulted.
       await writeCredentials(ANON_CREDS);
       let configHashCalls = 0;
+      let artifactHashCalls = 0;
       let contentHashCalls = 0;
       const fakeHmr = {
         subscribe: () => () => undefined,
@@ -668,7 +669,10 @@ process.exit(0);
           configHashCalls += 1;
           return "default-entry-hash";
         },
-        getCurrentArtifactHash: () => "default-artefact-hash",
+        getCurrentArtifactHash: () => {
+          artifactHashCalls += 1;
+          return "default-artefact-hash";
+        },
         getCurrentArtifactContentHash: () => {
           contentHashCalls += 1;
           return "default-artefact-content-hash";
@@ -702,6 +706,7 @@ process.exit(0);
       expect(res.status).toBe(200);
       await res.text();
       expect(configHashCalls).toBe(0);
+      expect(artifactHashCalls).toBe(0);
       expect(contentHashCalls).toBe(0);
     });
 
@@ -2232,14 +2237,19 @@ process.exit(0);
       expect(body.trainer).toEqual({ name: "hmr-fast-path" });
     });
 
-    it("falls back to runBuild() when HMR is enabled but the watcher hasn't produced an artefact yet", async () => {
+    it("returns the empty summary (no runBuild bootstrap) when HMR is enabled but the watcher hasn't produced an artefact yet", async () => {
       // Companion to the fast-path test: on a fresh scaffold the
       // watcher's first BUNDLE_END may not have completed by the
-      // time the SPA's first /api/manifest poll lands. Without the
-      // existsSync gate we'd `await import(missing)` and 400
-      // forever (the watcher's later writes don't retroactively
-      // make this poll succeed); with the gate we bootstrap via
-      // `runBuild()` for that single call.
+      // time the SPA's first /api/manifest poll lands. The old
+      // behaviour bootstrapped via `runBuild()`, but that wrote the
+      // watcher-owned `.arkor/build/index.mjs` OUTSIDE the
+      // staging + rename protocol: a concurrent `/api/train` spawn
+      // (whose `runStart` skips its own rebuild the moment the file
+      // exists) could then import partial bytes (CodeRabbit,
+      // round 82). The manifest now reports "nothing yet" for that
+      // single pre-first-build poll; the watcher's BUNDLE_END SSE
+      // event triggers an immediate SPA refetch, so the empty state
+      // is transient.
       await writeCredentials(ANON_CREDS);
       mkdirSync(join(trainCwd, "src/arkor"), { recursive: true });
       writeFileSync(
@@ -2255,7 +2265,10 @@ process.exit(0);
         });`,
       );
       // No pre-existing `.arkor/build/index.mjs`: the artefact
-      // doesn't exist. `existsSync` is false → `runBuild()` runs.
+      // doesn't exist. Valid source IS present, so a regressed
+      // `runBuild()` bootstrap would succeed and return the
+      // "fallback-build" trainer, making the empty-summary
+      // assertions below discriminating.
       const fakeHmr = {
         subscribe: () => () => undefined,
         getCurrentConfigHash: () => null,
@@ -2281,8 +2294,13 @@ process.exit(0);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         trainer: { name: string } | null;
+        configHash: string | null;
       };
-      expect(body.trainer).toEqual({ name: "fallback-build" });
+      expect(body.trainer).toBeNull();
+      expect(body.configHash).toBeNull();
+      // The watcher-owned artefact must NOT have been created behind
+      // the coordinator's back.
+      expect(existsSync(join(trainCwd, ".arkor/build/index.mjs"))).toBe(false);
     });
 
     it("surfaces a broken prebuilt artefact as 400 instead of rebuilding over the watcher's outFile", async () => {

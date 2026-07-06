@@ -110,7 +110,20 @@ export async function readManifestSummary(
   cwd: string,
   opts: ReadManifestOptions = {},
 ): Promise<ManifestSummary> {
-  if (opts.prebuiltOutFile && existsSync(opts.prebuiltOutFile)) {
+  if (opts.prebuiltOutFile) {
+    // HMR mode: the watcher owns `.arkor/build/index.mjs` end to end.
+    // When the artefact doesn't exist yet (fresh scaffold, first poll
+    // landing before the watcher's first BUNDLE_END), return the
+    // empty summary instead of bootstrapping via `runBuild()`
+    // (CodeRabbit, round 82): that bootstrap wrote the watcher-owned
+    // outFile OUTSIDE the staging + rename protocol, so a concurrent
+    // `/api/train` spawn (whose `runStart` skips its own rebuild the
+    // moment the file exists) could dynamic-import partial bytes.
+    // The empty summary is transient by construction: the watcher
+    // starts at server boot, and its first BUNDLE_END pushes an SSE
+    // event that makes the SPA refetch immediately, so the window is
+    // one poll at most.
+    if (!existsSync(opts.prebuiltOutFile)) return EMPTY;
     // No `runBuild()` fallback on import failure here, deliberately.
     // An earlier revision fell through to a fresh `runBuild()` to
     // recover from the watcher's then-non-atomic artefact writes

@@ -37,15 +37,25 @@ export function resolveBuildEntry(opts: BuildEntryOptions): ResolvedBuildEntry {
 }
 
 /**
- * `node<major>.<minor>` derived from the running Node binary. Build host and
- * run host are effectively the same process (Studio spawns `arkor start` with
- * `process.execPath`), so the bundle can target precisely what will execute it.
+ * Rolldown transform target for user bundles: the published
+ * `engines.node` floor (`>=22.22.0` in [packages/arkor/package.json];
+ * see AGENTS.md's "Node version" note), NOT the build host's runtime.
+ *
+ * Codex P2 (PR #101 round 82): a host-derived target (the previous
+ * `process.versions.node` shape) is only safe when build host and run
+ * host are the same binary. That holds for the Studio flow (Studio
+ * spawns `arkor start` with `process.execPath`), but `arkor build`
+ * artifacts are documented for CI / servers / scripts: built on
+ * Node 24, an artifact could keep syntax the supported Node 22.22
+ * floor cannot parse and crash at `arkor start` on the older host.
+ * Targeting the floor keeps every artifact runnable on every engine
+ * the package declares, and costs nothing on newer hosts (downlevel
+ * output parses everywhere).
+ *
+ * Keep this in lockstep with `engines.node` when the floor is raised.
  */
 export function resolveNodeTarget(): string {
-  // Fallback aligns with the published `engines.node` floor; see
-  // [packages/arkor/package.json] / `AGENTS.md`'s "Node version" note.
-  const [major = "22", minor = "22"] = process.versions.node.split(".");
-  return `node${major}.${minor}`;
+  return "node22.22";
 }
 
 /**
