@@ -202,7 +202,7 @@ ${AGENTS_BLOCK_END}`;
 // pnpm-9 compat; pnpm 10/11 don't require it but tolerate it) and
 // `allowBuilds: { esbuild: false }` (silences pnpm 11's error
 // without granting esbuild the right to run code at install time).
-// Tested against pnpm 9.15.9, 10.33.4, and 11.5.0. (PR #99 round
+// Tested against pnpm 9.15.9, 10.33.4, and 11.6.0. (PR #99 round
 // 36: CI run 25351227697 showed `package.json#pnpm
 // .onlyBuiltDependencies` had no effect on pnpm 11.)
 //

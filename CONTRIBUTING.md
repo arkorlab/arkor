@@ -23,11 +23,13 @@ arkor/
 │   └── studio-app/         # Vite + React SPA bundled into `arkor`
 ├── e2e/cli/                # vitest-driven E2E suite for the scaffolder & build
 ├── e2e/studio/             # Playwright E2E suite for the Studio SPA
+├── examples/doc-drift/     # documentation drift check on an Arkor deployment
 ├── assets/                 # README / OG images
 └── turbo.json              # build / test orchestration
 ```
 
-`cli-internal`, `studio-app`, `e2e/cli`, and `e2e/studio` are private and never published.
+`cli-internal`, `studio-app`, `e2e/cli`, `e2e/studio`, and everything under
+`examples/` are private and never published.
 
 ## Development setup
 

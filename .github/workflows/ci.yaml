@@ -18,7 +18,7 @@ jobs:
     name: no em dashes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # The job runs `git grep` on the checkout but never pushes or
           # talks to the remote, so the `GITHUB_TOKEN` Actions stashes
@@ -93,7 +93,7 @@ jobs:
           - '>=26.0.0 <27'         # latest 26.x
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
@@ -103,8 +103,8 @@ jobs:
       # pnpm runs on its bundled Node regardless of which matrix Node
       # we switch to next.
       #
-      # Pinning `version: 11.5.0` instead doesn't work: action-setup
-      # compares it against the full `pnpm@11.5.0+sha512.xxx`
+      # Pinning `version: 11.6.0` instead doesn't work: action-setup
+      # compares it against the full `pnpm@11.6.0+sha512.xxx`
       # packageManager string and refuses on mismatch
       # (ERR_PNPM_BAD_PM_VERSION-style error).
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -118,7 +118,7 @@ jobs:
       # hash currently does not factor it in, and we want to keep the
       # matrix entries from clobbering each other if that ever changes.
       - name: Cache Turborepo
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-node${{ matrix.node }}-${{ github.sha }}
@@ -172,7 +172,7 @@ jobs:
       # current runner, so listing all three is safe.
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/ms-playwright
@@ -334,7 +334,7 @@ jobs:
           - '>=26.0.0 <27'        # latest 26.x
         id: [pnpm-9, pnpm-10, pnpm-11, npm, yarn, yarn-berry, bun]
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
@@ -365,7 +365,7 @@ jobs:
       # that shadows corepack's shim, which would defeat the matrix
       # --activate below: every entry would end up running action-setup's
       # pinned pnpm regardless of which version we asked corepack to
-      # activate. Workspace `pnpm install` still resolves to pnpm 11.5.0
+      # activate. Workspace `pnpm install` still resolves to pnpm 11.6.0
       # because corepack reads `packageManager` from the root
       # package.json; only the matrix pm test runs in tmpdirs (no
       # packageManager field there), so corepack falls back to the
@@ -412,7 +412,7 @@ jobs:
           case "${{ matrix.id }}" in
             pnpm-9)     corepack prepare "pnpm@9.15.9"   --activate ;;
             pnpm-10)    corepack prepare "pnpm@10.33.4"  --activate ;;
-            pnpm-11)    corepack prepare "pnpm@11.5.0"   --activate ;;
+            pnpm-11)    corepack prepare "pnpm@11.6.0"   --activate ;;
             npm)        echo "Using bundled npm $(npm --version)" ;;
             yarn)       corepack prepare "yarn@1.22.22"  --activate ;;
             # yarn classic and berry both use the `yarn` npm package;
@@ -440,13 +440,13 @@ jobs:
       - name: Confirm pm version
         run: |
           # Run from $RUNNER_TEMP, not the workspace cwd. corepack
-          # enforces the workspace's `packageManager: pnpm@11.5.0` and
+          # enforces the workspace's `packageManager: pnpm@11.6.0` and
           # rejects `yarn --version` / `bun --version` with "This project
           # is configured to use pnpm". Stepping out into a directory
           # without a packageManager field lets corepack fall back to the
           # version we just `--activate`d for the matrix pm, which is
           # also more useful diagnostically (it prints the matrix
-          # version, not the workspace's pinned 11.5.0 for pnpm-N
+          # version, not the workspace's pinned 11.6.0 for pnpm-N
           # entries).
           cd "$RUNNER_TEMP"
           case "${{ matrix.id }}" in
@@ -534,7 +534,7 @@ jobs:
       id-token: write
       code-quality: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
@@ -549,7 +549,7 @@ jobs:
           cache: pnpm
 
       - name: Cache Turborepo
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-coverage-${{ github.sha }}
@@ -573,7 +573,7 @@ jobs:
       # Mirror the matrix job's Playwright cache so the coverage run
       # also reuses the previously-downloaded browsers.
       - name: Cache Playwright browsers
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/ms-playwright
@@ -605,7 +605,7 @@ jobs:
 
       - name: Upload arkor coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -615,7 +615,7 @@ jobs:
 
       - name: Upload create-arkor coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -625,7 +625,7 @@ jobs:
 
       - name: Upload cli-internal coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -635,7 +635,7 @@ jobs:
 
       - name: Upload studio-app coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -649,7 +649,7 @@ jobs:
       # packages/{arkor,create-arkor}/src/**.
       - name: Upload e2e-cli coverage
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -720,7 +720,7 @@ jobs:
       # https://docs.codecov.com/docs/test-analytics.
       - name: Upload arkor test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -731,7 +731,7 @@ jobs:
 
       - name: Upload create-arkor test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -742,7 +742,7 @@ jobs:
 
       - name: Upload cli-internal test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -753,7 +753,7 @@ jobs:
 
       - name: Upload studio-app test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -764,7 +764,7 @@ jobs:
 
       - name: Upload e2e-cli test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
@@ -779,7 +779,7 @@ jobs:
       # Test Analytics for pass/fail trend tracking.
       - name: Upload e2e-studio test results
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           use_oidc: true
           disable_search: true
