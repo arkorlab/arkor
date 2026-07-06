@@ -499,7 +499,18 @@ export function RunTraining() {
     // failed-to-start run resolved `null` and slipped past this gate
     // as "non-failure", leaving a latched restart free to re-spawn
     // the same failing configuration.
-    if (streamFailed || (exitCode !== null && exitCode !== 0)) {
+    //
+    // `exitCode === null` on the non-aborted path is suppressed too
+    // (qodo, round 84): the server's exit marker carries the child's
+    // `close` code, which is literally `null` when the child died to
+    // a SIGNAL (OS OOM-kill, external SIGKILL); the SPA parser also
+    // yields null for a truncated stream. Either way the child never
+    // ran its graceful early-stop, so its cloud `cancel()` may not
+    // have gone out; only an explicit `exit=0` proves the clean
+    // early-stop that auto-restart is designed for. (User aborts
+    // never reach here: the `ac.signal.aborted` branch above returns
+    // first.)
+    if (streamFailed || exitCode !== 0) {
       restartPendingRef.current = false;
       currentPidRef.current = null;
       setHmrStatus("idle");
@@ -512,7 +523,9 @@ export function RunTraining() {
           prev,
           streamFailed
             ? `\n[hmr] run did not complete cleanly; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`
-            : `\n[hmr] run exited with code ${exitCode}; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`,
+            : exitCode === null
+              ? `\n[hmr] run ended without an exit status (signal kill or truncated stream); auto-restart suppressed. Press Run to start a new job.\n`
+              : `\n[hmr] run exited with code ${exitCode}; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`,
         ),
       );
       return;

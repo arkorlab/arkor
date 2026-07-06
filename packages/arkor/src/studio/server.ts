@@ -1121,7 +1121,9 @@ export function buildStudioApp(options: StudioServerOptions) {
                 pid: entry.child.pid,
                 jobId: entry.jobId,
                 scope: entry.scope,
-                rpc: entry.rpc,
+                // Narrow getter, not an entry field: `list()`
+                // snapshots must not carry bearer tokens.
+                rpc: activeTrains.getRpcSnapshot(entry.child.pid),
               }))
             : [];
         const { hotSwapTargets, restartTargets } = activeTrains.dispatchRebuild(

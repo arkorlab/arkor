@@ -84,22 +84,21 @@ export interface ActiveTrain {
    * subprocess.
    */
   scope: { orgSlug: string; projectSlug: string } | null;
-  /**
-   * Cloud-api endpoint + bearer token snapshotted at spawn time
-   * (same capture as `/api/train`'s `spawnRpc` closure). The win32
-   * HMR-restart cancel path reads this so its fire-and-forget cancel
-   * POST hits the same account / control plane the child used for
-   * createJob: a login/logout or control-plane switch mid-run would
-   * otherwise make a cancel-time credentials read address the POST
-   * to the wrong host (404s or cancels an unrelated job) while the
-   * original cloud job keeps running. On win32 that matters doubly,
-   * because `kill("SIGTERM")` is an abrupt termination there and the
-   * child never gets to issue its own cancel. Null when no
-   * credentials were on disk at spawn (first-run anon bootstrap
-   * happens inside the child); consumers fall back to a cancel-time
-   * resolve then.
-   */
-  rpc: { baseUrl: string; token: string } | null;
+}
+
+/**
+ * Cloud-api endpoint + bearer token snapshotted at spawn time (same
+ * capture as `/api/train`'s `spawnRpc` closure). Deliberately NOT a
+ * field on `ActiveTrain` (CodeRabbit, round 84): `list()` hands out
+ * entry snapshots for tests / observability, and a bearer token on
+ * that shape would leak credentials into anything that ever logs or
+ * serialises a snapshot. The registry keeps these in a private map
+ * instead, readable only through the narrow `getRpcSnapshot(pid)`
+ * cancel-context getter.
+ */
+export interface RpcSnapshot {
+  baseUrl: string;
+  token: string;
 }
 
 export interface RestartTarget {
@@ -169,6 +168,14 @@ function safeKill(child: ChildProcess, signal: NodeJS.Signals): KillResult {
 export class TrainRegistry {
   private readonly entries = new Map<number, ActiveTrain>();
 
+  /**
+   * Spawn-time credential snapshots, keyed by pid. Kept OUT of
+   * `entries` so `list()` snapshots never carry bearer tokens (see
+   * the `RpcSnapshot` doc). Lifecycle mirrors `entries`: populated
+   * by `register`, dropped by `unregister`.
+   */
+  private readonly rpcSnapshots = new Map<number, RpcSnapshot>();
+
   register(
     child: ChildProcess,
     init: Omit<
@@ -178,7 +185,6 @@ export class TrainRegistry {
       | "spawnArtifactContentHash"
       | "jobId"
       | "scope"
-      | "rpc"
     > & {
       // Optional in the signature so tests / future callers that
       // don't track the on-disk artefact content hash (e.g. an
@@ -200,17 +206,19 @@ export class TrainRegistry {
       // need a credentials snapshot. Real `/api/train` calls pass
       // the spawn-time `spawnRpc` capture so the win32 HMR cancel
       // path can address the cloud POST with the same identity the
-      // child used.
-      rpc?: { baseUrl: string; token: string } | null;
+      // child used. Stored in the private `rpcSnapshots` map, NOT
+      // on the entry, so `list()` never exposes the token.
+      rpc?: RpcSnapshot | null;
     },
   ): void {
     if (typeof child.pid !== "number") return;
+    const { rpc, ...entryInit } = init;
+    if (rpc) this.rpcSnapshots.set(child.pid, rpc);
     this.entries.set(child.pid, {
       child,
-      ...init,
+      ...entryInit,
       spawnArtifactContentHash: init.spawnArtifactContentHash ?? null,
       scope: init.scope ?? null,
-      rpc: init.rpc ?? null,
       earlyStopRequested: false,
       // `jobId` starts null; populated later by `recordJobId(pid,
       // id)` when the server's stdout parser sees the runner's
@@ -221,7 +229,25 @@ export class TrainRegistry {
   }
 
   unregister(pid: number | undefined): void {
-    if (typeof pid === "number") this.entries.delete(pid);
+    if (typeof pid === "number") {
+      this.entries.delete(pid);
+      this.rpcSnapshots.delete(pid);
+    }
+  }
+
+  /**
+   * Narrow cancel-context getter for the spawn-time credential
+   * snapshot. Only the win32 HMR-restart cancel path should consult
+   * this (to address its fire-and-forget cloud cancel POST with the
+   * same account / control plane the child used for createJob); the
+   * token intentionally does not appear on `list()` snapshots. Null
+   * when no credentials were on disk at spawn (first-run anon
+   * bootstrap happens inside the child); callers fall back to a
+   * cancel-time resolve then.
+   */
+  getRpcSnapshot(pid: number | undefined): RpcSnapshot | null {
+    if (typeof pid !== "number") return null;
+    return this.rpcSnapshots.get(pid) ?? null;
   }
 
   /**

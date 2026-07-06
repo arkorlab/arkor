@@ -70,8 +70,9 @@ function fakeEventSource() {
  * decide when the spawned pid becomes known (`spawn`) and when (and
  * with what exit code) the stream settles (`finish`). Mirrors the
  * real contract: the promise resolves with the exit code parsed off
- * the train stream's trailing `exit=` marker, or `null` when no
- * marker was seen (aborted stream, spawn failure).
+ * the train stream's trailing `exit=` marker, `null` when no numeric
+ * marker was seen (aborted stream, signal-killed child, truncated
+ * body), and rejects on the `error=` spawn-failure marker (`fail`).
  */
 interface StreamHandle {
   file: string | undefined;
@@ -303,6 +304,31 @@ describe("<RunTraining /> HMR restart state machine", () => {
     expect(streamTraining).toHaveBeenCalledTimes(1);
     expect(
       await screen.findByText(/auto-restart suppressed/i),
+    ).toBeInTheDocument();
+  });
+
+  it("suppresses auto-restart when the run ends without an exit status (signal-killed child)", async () => {
+    // qodo (round 84): the server's exit marker carries the child's
+    // `close` code, which is literally null when the child died to a
+    // signal (OS OOM-kill, external SIGKILL); a truncated stream
+    // parses to null too. The child never ran its graceful
+    // early-stop in either case, so its cloud cancel may not have
+    // gone out; a latched restart firing on top would overlap cloud
+    // jobs. Only an explicit exit=0 may auto-restart.
+    const first = await startRun(111);
+
+    sse.emit("rebuild", restartEvent(111));
+    expect(
+      await screen.findByText(/stopping at next checkpoint/i),
+    ).toBeInTheDocument();
+
+    await first.finish(null);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    expect(streamTraining).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(/without an exit status.*auto-restart suppressed/i),
     ).toBeInTheDocument();
   });
 

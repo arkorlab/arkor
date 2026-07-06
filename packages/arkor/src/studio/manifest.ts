@@ -81,11 +81,12 @@ export interface ReadManifestOptions {
    * fresh via its rolldown watcher, so re-running `runBuild()` on
    * every `/api/manifest` poll (every ~5 s + on every rebuild SSE
    * event) is wasted CPU AND races the watcher writing to the
-   * same path. Pre-existence is checked with `existsSync` so the
-   * very first poll on a fresh scaffold (watcher's first
-   * BUNDLE_END hasn't completed yet) still bootstraps via
-   * `runBuild()`. Once the file appears, subsequent polls skip
-   * the rebuild.
+   * same path. When this is set, `runBuild()` is NEVER invoked:
+   * the watcher owns the artefact end to end. A missing artefact
+   * (fresh scaffold, first poll landing before the watcher's
+   * first BUNDLE_END) yields the empty summary for that poll;
+   * the watcher's BUNDLE_END SSE event triggers an immediate SPA
+   * refetch, so the empty state lasts one poll at most.
    *
    * Pass `coordinator.outFile`-equivalent (e.g.
    * `resolveBuildEntry({ cwd }).outFile`) here when the server has

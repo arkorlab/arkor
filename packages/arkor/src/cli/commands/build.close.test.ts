@@ -15,8 +15,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { runBuild } from "./build";
 
-const writeMock = vi.fn<(...args: unknown[]) => Promise<unknown>>();
-const closeMock = vi.fn<() => Promise<void>>(async () => undefined);
+// `vi.hoisted` (CodeRabbit, round 84): `vi.mock` factories are hoisted
+// above all static imports, so a factory that touched plain top-level
+// consts directly would hit their TDZ when `./build`'s import chain
+// evaluates "rolldown". The previous shape only escaped that because
+// the consts were referenced lazily inside a nested `vi.fn` callback;
+// hoisting the mocks makes the dependency explicit and refactor-safe.
+const { writeMock, closeMock } = vi.hoisted(() => ({
+  writeMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  closeMock: vi.fn<() => Promise<void>>(async () => undefined),
+}));
 
 vi.mock("rolldown", () => ({
   rolldown: vi.fn(async () => ({ write: writeMock, close: closeMock })),
