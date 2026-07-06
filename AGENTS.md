@@ -4,7 +4,7 @@
 
 ## Repository shape
 
-pnpm + Turbo monorepo. Workspaces are declared in `pnpm-workspace.yaml` (`packages/*`, `e2e/*`, `docs`).
+pnpm + Turbo monorepo. Workspaces are declared in `pnpm-workspace.yaml` (`packages/*`, `e2e/*`, `examples/*`, `docs`).
 
 | Path | Role |
 | --- | --- |
@@ -14,6 +14,7 @@ pnpm + Turbo monorepo. Workspaces are declared in `pnpm-workspace.yaml` (`packag
 | [packages/studio-app](packages/studio-app) | **Private** Vite + React 19 SPA. `pnpm --filter @arkor/studio-app bundle` builds it; `packages/arkor/scripts/copy-studio-assets.mjs` copies `dist/` into `packages/arkor/dist/assets/`. |
 | [e2e/cli](e2e/cli) | **Private** vitest suite that spawns the built `dist/bin.mjs` of both CLIs in temp dirs. |
 | [e2e/studio](e2e/studio) | **Private** Playwright suite that spawns `arkor dev` against an in-process fake cloud-api and drives the Studio SPA in Chromium. |
+| [examples/doc-drift](examples/doc-drift) | **Private** use-case example: documentation drift check against an Arkor deployment (zero-dependency script + copy-me workflow). |
 | [docs](docs) | Mintlify sources for [docs.arkor.ai](https://docs.arkor.ai). |
 
 ## Common commands

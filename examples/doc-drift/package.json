@@ -1,0 +1,16 @@
+{
+  "name": "@arkor/example-doc-drift",
+  "version": "0.0.0",
+  "description": "Documentation drift detection example: asks an Arkor-hosted Gemma 4 deployment (OpenAI-compatible API) whether a pull request diff makes a documentation file stale. Never published.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node src/check.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings . && eslint ."
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

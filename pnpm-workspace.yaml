@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "e2e/*"
+  - "examples/*"
   - "docs"
 # Embed each published package's README.md into the `readme` field of
 # the manifest it ships: the registry packument that npmjs.com reads to
