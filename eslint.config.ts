@@ -565,11 +565,19 @@ export default defineConfig(
   // the loop in a SIGINT/SIGTERM handler, or bail out of an interactive
   // clack prompt that the user cancelled. The rule's "throw and let the
   // caller handle it" advice doesn't apply when *we are the caller*.
+  //
+  // `cleanupHooks.ts` and `core/runnerSignals.ts` are in the same
+  // bucket: they own the SIGINT/SIGTERM/SIGHUP handlers that terminate
+  // the `arkor dev` / `arkor start` process after running cleanup, so
+  // `process.exit(<128+signo>)` is the intended terminal call, not a
+  // code smell.
   {
     files: [
       "**/bin.ts",
       "**/bin.mjs",
       "packages/arkor/src/cli/commands/**/*.ts",
+      "packages/arkor/src/cli/cleanupHooks.ts",
+      "packages/arkor/src/core/runnerSignals.ts",
     ],
     rules: {
       "n/no-process-exit": "off",

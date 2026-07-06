@@ -7,12 +7,17 @@ export default defineConfig({
     testTimeout: 15_000,
     // `beforeAll` in `arkor-init.test.ts` / `create-arkor.test.ts` runs
     // `pnpm --filter arkor pack` to produce the tarball each test points
-    // at via `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:../<tgz>`. The
-    // default 10 s `hookTimeout` is enough on Linux/macOS but Windows CI
-    // runners have been observed taking 15–25 s for the same pack step
-    // (slower IO + setup-pnpm path resolution overhead), tripping flaky
-    // `Test timed out in beforeAll` failures. Bump to 30 s so the
-    // worst-case Windows pack still fits inside the hook.
+    // at via `ARKOR_INTERNAL_SCAFFOLD_ARKOR_SPEC=file:../<tgz>`. On Linux
+    // that takes ~0.4 s, but Windows CI runners have been observed taking
+    // 15–25 s for the same step (`pnpm` `.cmd` shim resolution overhead +
+    // cold workspace metadata reads + slower IO), tripping a confusing
+    // "Test timed out in beforeAll" / "Hook timed out in 10000ms" failure
+    // that points at the `beforeAll` line rather than the real blocker
+    // inside `execFileSync`. Bumping the cap to 30 s keeps Linux fast
+    // (the timeout is a ceiling, not a wait) and gives Windows enough
+    // headroom that intermittent shim slowness no longer trips the suite.
+    // `testTimeout` does NOT cover hooks, so it has to be set separately
+    // even though the value is similar in spirit.
     hookTimeout: 30_000,
     // ENG-632 retry lives in `spawn-cli.ts` (see `runCli` and the pure
     // gate `shouldRetryAfterSigkill`). A vitest-level `retry` would rerun

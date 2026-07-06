@@ -1,9 +1,11 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,8 +35,32 @@ import {
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
-
+import { __resetCleanupHooksForTests } from "../cleanupHooks";
 import { ensureCredentialsForStudio, runDev } from "./dev";
+
+/**
+ * Yield one `setImmediate` tick: enough for the cleanupHooks
+ * coordinator's `Promise.allSettled(...).then(() => process.exit(0))`
+ * chain to drain when there are no async cleanups in flight (the
+ * common case in this file: signal handler → queueMicrotask →
+ * already-resolved `allSettled` → `.then` → `process.exit(0)`,
+ * which all collapses into the single macrotask boundary that
+ * `setImmediate` yields to).
+ *
+ * `setImmediate` is the right primitive (vs `Promise.resolve` /
+ * `queueMicrotask`) because we need the event loop to actually
+ * turn: the `process.exit` mock fires inside a `.then` callback
+ * scheduled from a previous microtask checkpoint, and a microtask-
+ * only flush would resume *before* that callback gets to run.
+ *
+ * Tests that drive a chain with extra microtask hops (e.g. async
+ * sibling cleanups whose promises also pass through
+ * `Promise.allSettled`) await this helper twice in a row; see
+ * the cleanupHooks tests.
+ */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
@@ -549,15 +575,6 @@ describe("ensureCredentialsForStudio", () => {
 });
 
 describe("runDev", () => {
-  // Track exit/signal listeners we add via scheduleStudioTokenCleanup so
-  // we can remove them between tests; otherwise vitest's worker would
-  // accumulate listeners and Node's MaxListenersExceededWarning would
-  // fire by the third test.
-  const ORIG_EXIT_LISTENERS = process.listeners("exit").length;
-  const ORIG_SIGINT_LISTENERS = process.listeners("SIGINT").length;
-  const ORIG_SIGTERM_LISTENERS = process.listeners("SIGTERM").length;
-  const ORIG_SIGHUP_LISTENERS = process.listeners("SIGHUP").length;
-
   beforeEach(async () => {
     vi.mocked(serve).mockClear();
     vi.mocked(open).mockClear();
@@ -574,18 +591,11 @@ describe("runDev", () => {
   });
 
   afterEach(() => {
-    // Trim the exit/signal listeners runDev installed each iteration to
-    // keep vitest's worker tidy across tests.
-    const trim = (ev: string, keep: number) => {
-      const all = process.listeners(ev as never);
-      for (let i = keep; i < all.length; i++) {
-        process.removeListener(ev as never, all[i] as never);
-      }
-    };
-    trim("exit", ORIG_EXIT_LISTENERS);
-    trim("SIGINT", ORIG_SIGINT_LISTENERS);
-    trim("SIGTERM", ORIG_SIGTERM_LISTENERS);
-    trim("SIGHUP", ORIG_SIGHUP_LISTENERS);
+    // Each `runDev()` arms exit/signal hooks via `registerCleanupHook`.
+    // Tests whose handler never fires would leak listeners across the
+    // vitest worker's queue; this detaches every still-armed
+    // registration so Node's MaxListenersExceededWarning doesn't trip.
+    __resetCleanupHooksForTests();
   });
 
   it("persists the studio token and starts the server on the requested port", async () => {
@@ -651,15 +661,17 @@ describe("runDev", () => {
     }
   });
 
-  it("warns but still starts when persisting the studio token fails (read-only HOME)", async () => {
-    // Branch coverage for the writeCredentials/persist try/catch. Make
-    // ~/.arkor read-only after writeCredentials (so readCredentials still
-    // works) so the per-launch token write hits EACCES.
-    if (typeof process.getuid === "function" && process.getuid() === 0) {
-      // Root bypasses chmod permission checks; skip on root containers.
-      return;
-    }
-    chmodSync(join(fakeHome, ".arkor"), 0o555);
+  it("warns but still starts when persisting the studio token fails (token path unwritable)", async () => {
+    // Branch coverage for the writeCredentials/persist try/catch.
+    // Platform-neutral failure trigger (CodeRabbit, round 81): the
+    // previous `chmod 0o555` on `~/.arkor` only blocks directory
+    // writes on POSIX as a non-root user; NTFS doesn't enforce the
+    // read-only attribute on directories, so the Windows CI matrix
+    // ran this test without ever hitting the catch path. Creating a
+    // DIRECTORY at the token path itself makes `writeFile` fail
+    // everywhere (EISDIR on POSIX, EPERM on Windows) with no root
+    // caveat either.
+    mkdirSync(studioTokenPath(), { recursive: true });
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
@@ -668,8 +680,7 @@ describe("runDev", () => {
       expect(serve).toHaveBeenCalledTimes(1);
     } finally {
       stdoutSpy.mockRestore();
-      // Restore writable for afterEach rmSync.
-      chmodSync(join(fakeHome, ".arkor"), 0o755);
+      // afterEach's recursive rmSync(fakeHome) reaps the directory.
     }
   });
 
@@ -699,8 +710,168 @@ describe("runDev", () => {
       const sigintListeners = process.listeners("SIGINT");
       const handler = sigintListeners.at(-1) as () => void;
       handler();
+      // Sync side effect (token unlink) lands inside the synchronous
+      // portion of the handler.
       expect(existsSync(studioTokenPath())).toBe(false);
-      expect(exitSpy).toHaveBeenCalledWith(0);
+      // Exit fires after `Promise.allSettled(asyncCleanups)` resolves;
+      // a few microticks later. Flush to let the queued exit run.
+      await flushMicrotasks();
+      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2): see
+      // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
+      // the nonzero code to distinguish interrupt from clean exit.
+      expect(exitSpy).toHaveBeenCalledWith(130);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("keeps the SIGINT exit handler armed even when persisting the studio token fails", async () => {
+    // Regression: if `persistStudioToken` threw, the previous code
+    // skipped `scheduleStudioTokenCleanup`, and that was the *only*
+    // hook that called `process.exit(0)` on SIGINT. The leftover HMR
+    // hook overrides Node's default "exit on SIGINT" behaviour, so the
+    // dev server would idle in the foreground forever. The fix
+    // registers the token cleanup unconditionally; here we make
+    // persist throw and verify SIGINT still terminates.
+    // Same platform-neutral persist-failure trigger as the
+    // "warns but still starts" test above: a directory at the token
+    // path makes `writeFile` throw on every OS, no chmod / root
+    // caveats.
+    mkdirSync(studioTokenPath(), { recursive: true });
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4206 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      _code?: number,
+    ) => {
+      return undefined as never;
+    }) as typeof process.exit);
+    try {
+      const sigintListeners = process.listeners("SIGINT");
+      const handler = sigintListeners.at(-1) as () => void;
+      handler();
+      // Even though the token file was never written, the cleanup hook
+      // ran (best-effort `unlinkSync` swallows ENOENT) and the
+      // exit-on-signal arm fired (after async cleanup tails settle).
+      await flushMicrotasks();
+      // SIGINT exits 130 (POSIX 128 + signo for SIGINT=2): see
+      // SIGNAL_EXIT_CODE in cleanupHooks.ts. Parent shells need
+      // the nonzero code to distinguish interrupt from clean exit.
+      expect(exitSpy).toHaveBeenCalledWith(130);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("does NOT unlink a pre-existing token file when this process failed to persist its own token (concurrent arkor dev safety)", async () => {
+    // Regression: a failed-persist `arkor dev` used to unconditionally
+    // `unlinkSync(studioTokenPath())` on shutdown. If a concurrent
+    // `arkor dev` (different port, same user) had already persisted a
+    // valid token to the shared path, this run's cleanup would wipe
+    // it out from under them, breaking that session's Vite SPA dev
+    // workflow with mystery 403s on /api/*. The fix gates the unlink
+    // on a token-identity check: the cleanup hook re-reads the file
+    // at exit time and only deletes when the bytes still match the
+    // per-launch token THIS process wrote. A failed-persist run never
+    // writes, so the read returns either ENOENT or someone else's
+    // bytes (foreign token), and in both cases the unlink is skipped.
+    // An earlier design also tracked a `tokenPersisted` boolean, but
+    // it had a race window between `writeFile` completing and the
+    // boolean flipping; the byte-identity check is the sole gate now.
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      // Root bypasses chmod permission checks: skip on root containers.
+      return;
+    }
+    // Pre-place a "concurrent" token (the other dev session's). Body
+    // content lets us assert byte-equality after cleanup, not just
+    // file existence, to rule out an unlink+recreate cycle.
+    const path = studioTokenPath();
+    writeFileSync(path, "concurrent-token-value", { mode: 0o600 });
+    // Make the FILE unwritable so persistStudioToken's `writeFile`
+    // throws EACCES, but leave the *directory* writable so unlinkSync
+    // (which requires dir-write, not file-write perms) would happily
+    // delete the file if the cleanup hook weren't gated.
+    chmodSync(path, 0o444);
+
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await expect(runDev({ port: 4207 })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      _code?: number,
+    ) => {
+      return undefined as never;
+    }) as typeof process.exit);
+    try {
+      // Restore read perms so we can `readFileSync` to verify content.
+      chmodSync(path, 0o644);
+      const sigintListeners = process.listeners("SIGINT");
+      const handler = sigintListeners.at(-1) as () => void;
+      handler();
+      await flushMicrotasks();
+      // The pre-existing token is still on disk AND unchanged: this
+      // failed-persist run did not wipe it.
+      expect(existsSync(path)).toBe(true);
+      expect(readFileSync(path, "utf8")).toBe("concurrent-token-value");
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("does NOT unlink the studio-token when a concurrent arkor dev has overwritten it after our successful persist (token-identity check)", async () => {
+    // Regression: even when this process SUCCESSFULLY persisted the
+    // token, the cleanup hook used to `unlinkSync` unconditionally on
+    // shutdown. If a second `arkor dev` launched in the same `$HOME`
+    // overwrote `~/.arkor/studio-token` with ITS token AFTER our
+    // persist, our cleanup would still wipe the file: the second
+    // session's Vite SPA dev workflow would then see mystery 403s on
+    // /api/* because the meta tag the SPA reads no longer matches
+    // any in-memory token. The fix re-reads the file at exit time
+    // and only unlinks when the bytes match what we wrote.
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4208 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    // Sanity: our persist landed.
+    const path = studioTokenPath();
+    expect(existsSync(path)).toBe(true);
+    const ourToken = readFileSync(path, "utf8").trim();
+    expect(ourToken).toMatch(/^[\w-]+$/);
+    // Simulate the concurrent overwrite: a second `arkor dev` wrote
+    // its own token to the same shared path while we were running.
+    const concurrentToken = "concurrent-dev-token-XYZ";
+    writeFileSync(path, concurrentToken, { mode: 0o600 });
+
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      _code?: number,
+    ) => {
+      return undefined as never;
+    }) as typeof process.exit);
+    try {
+      const sigintListeners = process.listeners("SIGINT");
+      const handler = sigintListeners.at(-1) as () => void;
+      handler();
+      await flushMicrotasks();
+      // Under the bug the file would be gone. With the fix the
+      // concurrent token is still in place AND unchanged so the
+      // sibling `arkor dev` keeps working.
+      expect(existsSync(path)).toBe(true);
+      expect(readFileSync(path, "utf8")).toBe(concurrentToken);
     } finally {
       exitSpy.mockRestore();
     }

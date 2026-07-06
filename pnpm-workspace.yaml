@@ -75,7 +75,7 @@ catalog:
   react: "^19.0.0"
   react-dom: "^19.0.0"
   tailwindcss: "^4.0.0"
-  tsdown: "^0.21.9"
+  tsdown: "^0.22.0"
   turbo: "^2.9.14"
   typescript: "^5"
   typescript-eslint: "^8.59.4"
@@ -136,3 +136,12 @@ allowBuilds:
   keytar: false
   puppeteer: false
   sharp: false
+# Bump `unrun` past 0.2.x so its transitive `rolldown` resolves to the
+# GA series (^1.0.0) instead of the legacy `1.0.0-rc.17` pin in
+# `unrun@0.2.37`. `unrun` lands in the tree only as an optional peer of
+# `tsdown`; we don't import it ourselves. Without this override the
+# lockfile would carry two rolldown copies (GA from our direct dep +
+# rc.17 from unrun) for no functional gain. Drop this override once
+# every published `tsdown` resolves `unrun` to ^0.3.0 by itself.
+overrides:
+  unrun: ^0.3.0
