@@ -1,12 +1,15 @@
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 
-import { credentialsPath } from "../../core/credentials";
+import { credentialsPath, readCredentials } from "../../core/credentials";
 import { promptConfirm, ui } from "../prompts";
 
 export interface LogoutOptions {
   yes?: boolean;
 }
+
+const ANONYMOUS_LOGOUT_WARNING =
+  "Anonymous credentials cannot be restored after logout. Deleting them permanently loses access to this anonymous identity.";
 
 export async function runLogout(options: LogoutOptions = {}): Promise<void> {
   const path = credentialsPath();
@@ -14,9 +17,13 @@ export async function runLogout(options: LogoutOptions = {}): Promise<void> {
     ui.log.info("No credentials on file.");
     return;
   }
+  const credentials = await readCredentials().catch(() => null);
+  if (credentials?.mode === "anon") {
+    ui.log.warn(ANONYMOUS_LOGOUT_WARNING);
+  }
   const confirmed = await promptConfirm({
     message: `Delete ${path}?`,
-    initialValue: true,
+    initialValue: false,
     skipWith: options.yes ? true : undefined,
   });
   if (!confirmed) {

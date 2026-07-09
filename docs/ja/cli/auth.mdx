@@ -69,7 +69,9 @@ bun arkor login
 
 ## `arkor logout`
 
-`~/.arkor/credentials.json` を削除します。デフォルトでは確認プロンプトが出ます。
+確認後に `~/.arkor/credentials.json` を削除します。確認プロンプトのデフォルトは **No** です。
+
+匿名認証情報の場合、認証情報ファイルを自分でバックアップしていない限り、logout は元に戻せません。削除すると、その匿名 ID のローカルトークンが失われ、次の匿名ログインでは新しい `anonymousId` が作られます。OAuth 認証情報は `arkor login --oauth` を再実行すれば作り直せます。
 
 ### 概要
 
@@ -110,7 +112,9 @@ bun arkor logout
 ### 振る舞い
 
 - 認証情報ファイルが存在しなければ、CLI は `No credentials on file.`（認証情報ファイルがありません）と出して終了。
+- 認証情報ファイルが匿名（`mode: "anon"`）なら、logout 後にその匿名 ID を復元できないことを警告。
 - ユーザーがプロンプトを断ると `Aborted.`（中止しました）と出して削除せずに終了。
+- `--yes` はプロンプトをスキップしますが、匿名認証情報を削除する前の復元不可警告は表示します。
 - `arkor logout` は `.arkor/state.json` や `.arkor/build/` 成果物には触りません。完全に最初からやり直すには `.arkor/` も手動で削除してください。
 
 ## `arkor whoami`

@@ -8,6 +8,7 @@ import {
   credentialsPath,
   writeCredentials,
   type AnonymousCredentials,
+  type Auth0Credentials,
 } from "../../core/credentials";
 
 import { runLogout } from "./logout";
@@ -55,7 +56,19 @@ const anonCreds: AnonymousCredentials = {
   orgSlug: "anon-abc",
 };
 
+const oauthCreds: Auth0Credentials = {
+  mode: "auth0",
+  accessToken: "at",
+  refreshToken: "rt",
+  expiresAt: 1_735_000_000,
+  auth0Domain: "tenant.auth0.com",
+  audience: "https://api.arkor.ai",
+  clientId: "client-id",
+  arkorCloudApiUrl: "https://api.arkor.ai",
+};
+
 beforeEach(() => {
+  vi.clearAllMocks();
   fakeHome = mkdtempSync(join(tmpdir(), "arkor-logout-test-"));
   process.env.HOME = fakeHome;
   // Mirror HOME into the Windows home-dir env vars so `os.homedir()`
@@ -105,18 +118,23 @@ describe("runLogout", () => {
 
     await runLogout({ yes: true });
     expect(existsSync(credentialsPath())).toBe(false);
+
+    const clack = await import("@clack/prompts");
+    expect(clack.log.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/cannot be restored/i),
+    );
   });
 
-  it("removes the credentials file in non-interactive mode (initialValue=true)", async () => {
+  it("keeps the credentials file in non-interactive mode without --yes", async () => {
     // Without `yes`, the helper falls back to promptConfirm which honours
-    // initialValue=true under CI. The behaviour mirrors the user pressing
+    // initialValue=false under CI. The behaviour mirrors the user pressing
     // Enter at the default prompt.
     await writeCredentials(anonCreds);
     await runLogout();
-    expect(existsSync(credentialsPath())).toBe(false);
+    expect(existsSync(credentialsPath())).toBe(true);
   });
 
-  it("aborts (and leaves the file in place) when the user answers 'no' interactively", async () => {
+  it("defaults the interactive confirmation to no and aborts when the user declines", async () => {
     // Pretend we're in a TTY so promptConfirm enters the clack branch
     // instead of returning the initialValue. This exercises the
     // `if (!confirmed)` early-return that's otherwise unreachable.
@@ -131,5 +149,43 @@ describe("runLogout", () => {
     await writeCredentials(anonCreds);
     await runLogout();
     expect(existsSync(credentialsPath())).toBe(true);
+    expect(clack.confirm).toHaveBeenCalledWith({
+      message: `Delete ${credentialsPath()}?`,
+      initialValue: false,
+    });
+  });
+
+  it("removes the credentials file when the user confirms interactively", async () => {
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.confirm).mockResolvedValueOnce(true as never);
+
+    await writeCredentials(anonCreds);
+    await runLogout();
+    expect(existsSync(credentialsPath())).toBe(false);
+  });
+
+  it("does not print the anonymous restore warning for OAuth credentials", async () => {
+    await writeCredentials(oauthCreds);
+
+    await runLogout({ yes: true });
+    expect(existsSync(credentialsPath())).toBe(false);
+
+    const clack = await import("@clack/prompts");
+    expect(clack.log.warn).not.toHaveBeenCalled();
+  });
+
+  it("keeps OAuth credentials in non-interactive mode without --yes", async () => {
+    await writeCredentials(oauthCreds);
+
+    await runLogout();
+    expect(existsSync(credentialsPath())).toBe(true);
+
+    const clack = await import("@clack/prompts");
+    expect(clack.log.warn).not.toHaveBeenCalled();
   });
 });
