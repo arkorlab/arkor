@@ -18,9 +18,6 @@ export async function runLogout(options: LogoutOptions = {}): Promise<void> {
     return;
   }
   const credentials = await readCredentials().catch(() => null);
-  if (credentials?.mode === "anon") {
-    ui.log.warn(ANONYMOUS_LOGOUT_WARNING);
-  }
   const confirmed = await promptConfirm({
     message: `Delete ${path}?`,
     initialValue: false,
@@ -29,6 +26,9 @@ export async function runLogout(options: LogoutOptions = {}): Promise<void> {
   if (!confirmed) {
     ui.log.info("Aborted.");
     return;
+  }
+  if (credentials?.mode === "anon") {
+    ui.log.warn(ANONYMOUS_LOGOUT_WARNING);
   }
   await rm(path, { force: true });
   ui.log.success(`Removed ${path}.`);

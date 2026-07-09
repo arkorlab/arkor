@@ -132,6 +132,9 @@ describe("runLogout", () => {
     await writeCredentials(anonCreds);
     await runLogout();
     expect(existsSync(credentialsPath())).toBe(true);
+
+    const clack = await import("@clack/prompts");
+    expect(clack.log.warn).not.toHaveBeenCalled();
   });
 
   it("defaults the interactive confirmation to no and aborts when the user declines", async () => {
@@ -149,6 +152,7 @@ describe("runLogout", () => {
     await writeCredentials(anonCreds);
     await runLogout();
     expect(existsSync(credentialsPath())).toBe(true);
+    expect(clack.log.warn).not.toHaveBeenCalled();
     expect(clack.confirm).toHaveBeenCalledWith({
       message: `Delete ${credentialsPath()}?`,
       initialValue: false,
@@ -167,6 +171,9 @@ describe("runLogout", () => {
     await writeCredentials(anonCreds);
     await runLogout();
     expect(existsSync(credentialsPath())).toBe(false);
+    expect(clack.log.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/cannot be restored/i),
+    );
   });
 
   it("does not print the anonymous restore warning for OAuth credentials", async () => {
