@@ -86,7 +86,7 @@ login` / `arkor logout`.
 | Command | Purpose |
 |---|---|
 | `arkor init` | Scaffold a project in the current directory |
-| `arkor login` / `logout` / `whoami` | Auth0 PKCE / anonymous tokens |
+| `arkor login` / `logout` / `whoami` | OAuth (PKCE) / anonymous tokens |
 | `arkor dev` | Launch the local Studio (hot reload + GUI) |
 | `arkor build [entry]` | Bundle `src/arkor/index.ts` (or `entry`) to `.arkor/build/index.mjs` |
 | `arkor start [entry]` | Run the build artifact; rebuilds when an entry is supplied |
@@ -157,9 +157,10 @@ are being run and where they fail. Three events are emitted per invocation:
   200 chars of `error_message`)
 
 Each event carries `command`, `sdk_version`, `node_version`, `platform`, and
-`auth_mode` (`auth0` / `anon` / `none`). The distinct ID is your Auth0 `sub`
-when logged in, your `anonymousId` after `arkor login --anonymous`, or a
-locally generated UUID stored at `~/.arkor/telemetry-id`.
+`auth_mode` (`oauth` / `anon` / `none`). The distinct ID is the `sub` claim
+of your OAuth access token when logged in, your `anonymousId` after
+`arkor login --anonymous`, or a locally generated UUID stored at
+`~/.arkor/telemetry-id`.
 
 To opt out, set either of the following before running any `arkor` command:
 

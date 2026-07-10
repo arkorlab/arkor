@@ -813,7 +813,7 @@ process.exit(0);
       // `arkorCloudApiUrl` is *different* from `build()`'s baseUrl
       // (`http://mock`) and verifying the upstream call goes there.
       await writeCredentials({
-        mode: "auth0",
+        mode: "oauth",
         accessToken: "at-staging",
         refreshToken: "rt",
         expiresAt: 0,
@@ -2064,15 +2064,15 @@ process.exit(0);
       expect(stillNoState).toBeNull();
     });
 
-    it("rejects POST /api/deployments with a manual-state hint when Auth0 creds have no state file", async () => {
-      // Coverage for the Auth0 branch in `withDeploymentClient`: we
+    it("rejects POST /api/deployments with a manual-state hint when OAuth creds have no state file", async () => {
+      // Coverage for the OAuth branch in `withDeploymentClient`: we
       // intentionally do NOT bootstrap because we don't know which org
       // the logged-in user wants the deployment in. The error must
       // point at the only working remediation today (write `.arkor/
       // state.json` by hand), since `arkor login` and `arkor init`
       // both leave that file untouched.
       await writeCredentials({
-        mode: "auth0",
+        mode: "oauth",
         accessToken: "at",
         refreshToken: "rt",
         expiresAt: 0,
@@ -2092,7 +2092,7 @@ process.exit(0);
         body: JSON.stringify({
           // 2+ chars, matches the slug pattern: the request-body
           // schema must pass so we actually hit the
-          // `withDeploymentClient("create", …)` Auth0 branch instead
+          // `withDeploymentClient("create", …)` OAuth branch instead
           // of bouncing on schema validation.
           slug: "my-slug",
           target: { kind: "base_model", baseModel: "m" },

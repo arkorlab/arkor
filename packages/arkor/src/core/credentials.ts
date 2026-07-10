@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { anonymousTokenResponseSchema } from "./schemas";
 import { SDK_VERSION } from "./version";
 
-export interface Auth0Credentials {
-  mode: "auth0";
+export interface OAuthCredentials {
+  mode: "oauth";
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
@@ -35,7 +35,7 @@ export interface AnonymousCredentials {
   orgSlug: string;
 }
 
-export type Credentials = Auth0Credentials | AnonymousCredentials;
+export type Credentials = OAuthCredentials | AnonymousCredentials;
 
 /**
  * Thrown by `requestAnonymousToken` when the cloud-api responds with a
@@ -112,8 +112,8 @@ export async function getToken(credentials: Credentials): Promise<string> {
  *      hitting production) sees `""` propagated.
  *   2. `arkorCloudApiUrl` from the loaded credentials. Both
  *      `AnonymousCredentials` (stamped at signup) and
- *      `Auth0Credentials` (stamped at `arkor login` time, since
- *      `Auth0Credentials.arkorCloudApiUrl` was added) carry the URL
+ *      `OAuthCredentials` (stamped at `arkor login` time, since
+ *      `OAuthCredentials.arkorCloudApiUrl` was added) carry the URL
  *      they were issued against, so subsequent runs keep targeting
  *      the same staging / self-hosted control plane without
  *      `ARKOR_CLOUD_API_URL` re-set. Empty string is honoured here

@@ -663,7 +663,7 @@ describe("CloudApiClient.createJob", () => {
   });
 });
 
-describe("CloudApiClient with auth0 credentials", () => {
+describe("CloudApiClient with oauth credentials", () => {
   it("uses the access token in the Authorization header", async () => {
     // Branch coverage for `tokenFromCredentials`: the `accessToken` arm is
     // otherwise only used implicitly via the trainer tests (which run on
@@ -674,7 +674,7 @@ describe("CloudApiClient with auth0 credentials", () => {
     const client = new CloudApiClient({
       baseUrl: "http://mock",
       credentials: {
-        mode: "auth0",
+        mode: "oauth",
         accessToken: "a0-access",
         refreshToken: "rt",
         expiresAt: 0,

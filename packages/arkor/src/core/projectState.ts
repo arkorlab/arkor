@@ -11,7 +11,7 @@ export interface EnsureProjectStateOptions {
 }
 
 /**
- * Single source of truth for the "Auth0 caller hit a write path with
+ * Single source of truth for the "OAuth caller hit a write path with
  * no `.arkor/state.json`" remediation copy. Studio's
  * `withDeploymentClient` (in `studio/server.ts`) imports this and
  * surfaces it verbatim on its 400 response so users see exactly the
@@ -19,7 +19,7 @@ export interface EnsureProjectStateOptions {
  * the Endpoints page. Wording drift between the two surfaces would
  * make the same setup problem look like two different bugs.
  */
-export const AUTH0_MISSING_STATE_MESSAGE =
+export const OAUTH_MISSING_STATE_MESSAGE =
   "No .arkor/state.json found. Create it by hand with { orgSlug, projectSlug, projectId } pointing at the project you want to use.";
 
 /**
@@ -27,7 +27,7 @@ export const AUTH0_MISSING_STATE_MESSAGE =
  * cloud-api endpoints. Returns existing `.arkor/state.json` if present;
  * otherwise (for anonymous credentials only) derives a slug from the cwd
  * basename, creates (or reuses on 409) the project, persists state, and
- * returns it. Auth0 callers without state cannot bootstrap automatically
+ * returns it. OAuth callers without state cannot bootstrap automatically
  * (we don't know which org / project they want); they must write
  * `.arkor/state.json` by hand.
  *
@@ -50,17 +50,17 @@ export async function ensureProjectState(
   if (existing) return existing;
 
   if (credentials.mode !== "anon") {
-    // Auth0 callers cannot bootstrap automatically: we don't know which
+    // OAuth callers cannot bootstrap automatically: we don't know which
     // org / project the logged-in user wants. `arkor login` and `arkor
     // init` both leave `.arkor/state.json` untouched today (see
     // docs/concepts/project-structure), so the only working path is to
     // write the file by hand. The exact copy lives in the
-    // `AUTH0_MISSING_STATE_MESSAGE` constant above so Studio's
+    // `OAUTH_MISSING_STATE_MESSAGE` constant above so Studio's
     // server-side guard reuses the *same string*: in past rounds the
     // two strings drifted ("use" vs "manage"), which made the same
     // setup problem look like two different bugs depending on which
     // path the user hit.
-    throw new Error(AUTH0_MISSING_STATE_MESSAGE);
+    throw new Error(OAUTH_MISSING_STATE_MESSAGE);
   }
   const orgSlug = credentials.orgSlug;
 
