@@ -149,7 +149,7 @@ describe("findInspectableTrainer (brand-required path)", () => {
     });
     expect(inspectionC?.name).toBe("default-arkor");
 
-    // Shape #4: bare default-exported Trainer. The earlier comment
+    // Shape #5: bare default-exported Trainer. The earlier comment
     // called this out as a regression-prone shape but the assertion
     // was missing; cover it explicitly so `export default
     // createTrainer({...})` projects can't silently regress.
@@ -174,6 +174,30 @@ describe("findInspectableTrainer (brand-required path)", () => {
     const trainer = unbrandedTrainer("plain");
     expect(findInspectableTrainer({ trainer })).toBeNull();
     expect(getTrainerInspection(trainer)).toBeNull();
+  });
+
+  it("rejects a brand thunk whose result lacks `callbacks` (non-conforming wrapper)", () => {
+    // cubic (round 85): `runnerSignals.ts` hands
+    // `inspection.callbacks` straight to `replaceTrainerCallbacks`,
+    // so a third-party wrapper squatting on the brand key with a
+    // partial `{ name, config }` shape would rotate the live
+    // trainer's callback cell to `undefined` and silently drop every
+    // subsequent lifecycle event. The guard must require all three
+    // interface fields and fall back to the unbranded-null path.
+    const trainer = unbrandedTrainer("partial-brand");
+    Object.defineProperty(trainer, Symbol.for("arkor.trainer.inspect"), {
+      value: () => ({
+        name: "partial-brand",
+        config: {
+          model: "m",
+          datasetSource: { type: "huggingface", name: "x" },
+        },
+        // no `callbacks`
+      }),
+      enumerable: false,
+    });
+    expect(getTrainerInspection(trainer)).toBeNull();
+    expect(findInspectableTrainer({ trainer })).toBeNull();
   });
 
   it("does NOT walk past an unbranded first candidate to inspect a later branded one (runTrainer parity)", () => {

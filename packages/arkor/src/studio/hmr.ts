@@ -319,7 +319,20 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
 
   function broadcast(event: HmrEvent): void {
     lastEvent = event;
-    for (const fn of subscribers) {
+    // Snapshot before iterating: `Set` iteration visits entries added
+    // DURING the loop, so a subscriber whose callback triggers a
+    // nested `subscribe()` would deliver this event to the newcomer
+    // twice: once via `subscribe()`'s `lastEvent` replay (lastEvent
+    // was already updated above) and once when the live iteration
+    // reaches the just-added entry. The snapshot pins delivery to
+    // the subscribers that existed when the broadcast began.
+    // (`Array.from`, not a spread literal: oxlint's
+    // `no-useless-spread` flags `for…of [...set]` because it can't
+    // see the copy is load-bearing, while ESLint's `prefer-spread`
+    // dislikes `Array.from`; disabling the ESLint side keeps both
+    // linters green without losing the snapshot.)
+    // eslint-disable-next-line unicorn/prefer-spread
+    for (const fn of Array.from(subscribers)) {
       try {
         fn(event);
       } catch {
@@ -463,10 +476,29 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     // that errors before BUNDLE_END leaves the last-good artefact
     // in place instead of clobbering it with partial output.
     const stagingFile = `${resolved.outFile}.hmr-staging`;
-    watcher = watch({
-      ...rolldownInputOptions(resolved),
-      output: { file: stagingFile, format: "esm" },
-    });
+    // `watch()` can throw SYNCHRONOUSLY (native watcher resource
+    // exhaustion, EACCES on the watched directory). Without this
+    // catch the throw would escape `startWatcher()` and propagate
+    // out of `subscribe()` to whoever registered last, after their
+    // callback was already added to the set: an orphaned
+    // registration attached to a coordinator with no watcher.
+    // Broadcast an `error` frame instead, mirroring the
+    // entry-not-found branch above; `watcher` stays null so a later
+    // `subscribe()` retries `startWatcher()`.
+    try {
+      watcher = watch({
+        ...rolldownInputOptions(resolved),
+        output: { file: stagingFile, format: "esm" },
+      });
+    } catch (err) {
+      broadcast({
+        type: "error",
+        message: `Failed to start the build watcher: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      });
+      return;
+    }
     watcher.on("event", (event) => {
       switch (event.code) {
         case "BUNDLE_START": {

@@ -106,6 +106,22 @@ function extractTrainer(mod: Record<string, unknown>): Trainer {
   );
 }
 
+/**
+ * Import the training entry, discover its trainer, and drive the run
+ * to completion.
+ *
+ * **Process-wide side effects, by design.** For the duration of the
+ * run this installs SIGTERM/SIGINT/SIGHUP handlers (two-stage
+ * graceful early-stop, may call `process.exit`) and a SIGUSR2
+ * handler (Studio's callback hot-reload, re-imports the entry). This
+ * is what makes `arkor start` behave correctly under the Studio dev
+ * loop AND under plain Ctrl-C, and the handlers are removed in the
+ * `finally` below when the run settles. Hosts that embed
+ * `runTrainer` in a larger process are accepting that signal
+ * ownership for the run's duration; an embedder that needs custom
+ * signal policy should drive the trainer primitives (`start` /
+ * `wait` / `cancel` + `abortSignal`) directly instead.
+ */
 export async function runTrainer(file?: string): Promise<void> {
   const relative = file ?? DEFAULT_ENTRY;
   const abs = isAbsolute(relative)

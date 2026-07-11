@@ -53,6 +53,19 @@ let missSeq = 0;
  * (missing artefact, fresh project): the eventual `import()` then
  * surfaces its own clean error. See `missSeq` for why the token must
  * not be a shared constant.
+ *
+ * Known residual race, accepted: the key read and the loader's own
+ * read are two separate file reads, so a watcher rename landing in
+ * between can cache build N+1's module under build N's key. The
+ * window is microseconds, and every consumer is already fenced
+ * upstream (`hmr.ts` drops stale broadcasts via `buildSeq`,
+ * `runnerSignals.ts` via `loadSeq` plus the child-side configHash
+ * gate), so the mislabeled record can only surface if the artefact
+ * later reverts to byte-identical N content, at which point serving
+ * the cached N+1 module is at worst one rebuild behind and the next
+ * BUNDLE_END heals it. Closing it fully would require immutable
+ * per-build artefact paths (a directory-layout change), which isn't
+ * worth it for this window.
  */
 export function moduleCacheBustKey(filePath: string): string {
   try {

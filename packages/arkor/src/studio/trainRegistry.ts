@@ -213,7 +213,12 @@ export class TrainRegistry {
   ): void {
     if (typeof child.pid !== "number") return;
     const { rpc, ...entryInit } = init;
+    // Mirror `entries` exactly: a re-registered pid (OS pid reuse
+    // after a close whose unregister was somehow skipped) with NO
+    // snapshot must not inherit the previous child's bearer token,
+    // or the win32 cancel path could POST with stale credentials.
     if (rpc) this.rpcSnapshots.set(child.pid, rpc);
+    else this.rpcSnapshots.delete(child.pid);
     this.entries.set(child.pid, {
       child,
       ...entryInit,

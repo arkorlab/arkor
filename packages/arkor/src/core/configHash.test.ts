@@ -255,6 +255,37 @@ describe("hashJobConfig", () => {
     expect(() => hashJobConfig(config)).toThrow(/circular/i);
   });
 
+  it("unboxes primitive wrappers like JSON.stringify (Number/String/Boolean parity)", () => {
+    // cubic (round 85): boxed primitives previously fell through to
+    // the plain-object walk and serialised as "{}" (no own enumerable
+    // keys), diverging from `JSON.stringify(new Number(3)) === "3"`.
+    // The divergence was fail-safe (both compared hashes come from
+    // this function) but broke the file's JSON-parity contract:
+    // a semantically-identical config written with a wrapper would
+    // force a spurious SIGTERM restart against its unboxed twin.
+    // Boxed constructors are the SUBJECT under test here, so the
+    // `new-for-builtins` guidance (use the coercing function form)
+    // does not apply: `Number(3)` would produce the primitive and
+    // test nothing.
+    /* eslint-disable unicorn/new-for-builtins */
+    const boxed: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: new Number(3) as unknown,
+      suffix: new String("run-a") as unknown,
+      verbose: new Boolean(true) as unknown,
+    } as JobConfig;
+    /* eslint-enable unicorn/new-for-builtins */
+    const plain: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: 3 as unknown,
+      suffix: "run-a" as unknown,
+      verbose: true as unknown,
+    } as JobConfig;
+    expect(hashJobConfig(boxed)).toBe(hashJobConfig(plain));
+  });
+
   it("substitutes `null` for sparse array holes (JSON.stringify parity)", () => {
     // CodeRabbit regression: `Array.prototype.map` skips sparse
     // holes and leaves them as holes in the result array;

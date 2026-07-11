@@ -81,11 +81,20 @@ export function getTrainerInspection(
   if (typeof fn !== "function") return null;
   try {
     const result = (fn as () => unknown).call(trainer);
+    // Validate all THREE interface fields, `callbacks` included:
+    // `runnerSignals.ts` hands `inspection.callbacks` straight to
+    // `replaceTrainerCallbacks`, so a non-conforming thunk (a
+    // third-party wrapper squatting on the brand key with a partial
+    // shape) would otherwise rotate the live trainer's callback cell
+    // to `undefined` and silently drop every subsequent lifecycle
+    // event. Rejecting here routes such trainers through the same
+    // conservative null path as unbranded ones.
     if (
       result &&
       typeof result === "object" &&
       "config" in result &&
-      "name" in result
+      "name" in result &&
+      "callbacks" in result
     ) {
       return result as TrainerInspection;
     }

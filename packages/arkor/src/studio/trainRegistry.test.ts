@@ -502,4 +502,42 @@ describe("TrainRegistry", () => {
     expect(a.kill).toHaveBeenNthCalledWith(1, "SIGUSR2");
     expect(a.kill).toHaveBeenNthCalledWith(2, "SIGTERM");
   });
+
+  it("rpc snapshots mirror the entry lifecycle and never leak across pid reuse", () => {
+    // The spawn-time credential snapshot lives in a private map (so
+    // `list()` never exposes bearer tokens); this pins its lifecycle:
+    //   - register with `rpc` → readable via the narrow getter;
+    //   - re-register the SAME pid without `rpc` (OS pid reuse after
+    //     a close whose unregister was skipped) → the previous
+    //     child's token must NOT be inherited;
+    //   - unregister → snapshot dropped.
+    const reg = new TrainRegistry();
+    const a = fakeChild(951);
+    reg.register(a as unknown as ChildProcess, {
+      configHash: "h",
+      rpc: { baseUrl: "http://spawn-time", token: "tok-1" },
+    });
+    expect(reg.getRpcSnapshot(951)).toEqual({
+      baseUrl: "http://spawn-time",
+      token: "tok-1",
+    });
+    // `list()` snapshots carry no token-bearing field.
+    for (const entry of reg.list()) {
+      expect(Object.values(entry)).not.toContainEqual(
+        expect.objectContaining({ token: expect.anything() }),
+      );
+    }
+
+    const reused = fakeChild(951);
+    reg.register(reused as unknown as ChildProcess, { configHash: "h2" });
+    expect(reg.getRpcSnapshot(951)).toBeNull();
+
+    reg.register(reused as unknown as ChildProcess, {
+      configHash: "h3",
+      rpc: { baseUrl: "http://spawn-time", token: "tok-2" },
+    });
+    reg.unregister(951);
+    expect(reg.getRpcSnapshot(951)).toBeNull();
+    expect(reg.getRpcSnapshot(undefined)).toBeNull();
+  });
 });

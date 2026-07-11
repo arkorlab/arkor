@@ -653,6 +653,15 @@ export function buildStudioApp(options: StudioServerOptions) {
     // the `cancel` handler. `cancel` runs in a separate invocation,
     // not through `controller`, so the two need a parent-scope
     // rendez-vous variable.
+    //
+    // No init-order race: `start(controller)` below is a SYNCHRONOUS
+    // function that the `new ReadableStream(...)` constructor invokes
+    // before returning, so `cancelTeardown` is assigned before any
+    // consumer can hold a reference to the stream, let alone cancel
+    // it. (Even for an async start, the Streams spec defers the
+    // underlying-source `cancel` until the start promise settles.)
+    // And the cloud cancel POST below never depends on this variable;
+    // it only seals the enqueue path.
     let cancelTeardown: (() => void) | null = null;
     // Mirror of the cloud `jobId` parsed out of the runner's
     // stdout, accessible to both the `start` (parser writes) and

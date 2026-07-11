@@ -56,8 +56,9 @@ describe("runBuild bundle lifecycle (rolldown mocked)", () => {
     await expect(runBuild({ cwd, quiet: true })).rejects.toThrow(
       /ENOSPC: disk full/,
     );
-    // The `finally` contract under test: no close, no native-resource
-    // release on the failure path.
+    // The `finally` contract under test: close() must run even on
+    // the failure path, because that is what releases rolldown's
+    // native resources.
     expect(closeMock).toHaveBeenCalledTimes(1);
   });
 });

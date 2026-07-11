@@ -2921,6 +2921,10 @@ process.exit(0);
       // the bin; we need it alive so the subsequent manual
       // cancel actually has something to SIGKILL. Marker uses the
       // server-injected nonce prefix so the parser accepts it.
+      // (On Windows the no-op never runs: `kill("SIGTERM")` is an
+      // abrupt termination there, so the bin dies at HMR dispatch
+      // time; see the platform branch on the cancel-POST count
+      // below.)
       writeFileSync(
         fakeBin,
         `const nonce = process.env.ARKOR_JOB_ID_MARKER_NONCE ?? "";
@@ -3000,9 +3004,27 @@ process.exit(0);
         await reader.cancel();
         await new Promise((resolve) => setTimeout(resolve, 250));
 
-        // Cloud cancel POST landed for the right job.
-        expect(cancelHits).toHaveLength(1);
-        expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
+        // Cloud cancel POST landed for the right job. The COUNT is
+        // platform-dependent by design, so branch instead of pinning
+        // the POSIX value (this exact assertion is why the suite was
+        // red on every Windows CI job since the win32 compensation
+        // block landed):
+        //   - POSIX: exactly one POST, from the manual cancel. HMR's
+        //     graceful SIGTERM leaves the cancel to the child itself
+        //     (the fake bin ignores it), so the server sends nothing
+        //     at dispatch time.
+        //   - win32: two POSTs. `kill("SIGTERM")` is an abrupt
+        //     termination there, so the HMR dispatch path fires its
+        //     own compensation cancel POST for the restart target
+        //     (the child can never issue one), and the manual Stop
+        //     then fires the usual user-initiated cancel. Both are
+        //     idempotent POSTs against the same job; neither side
+        //     can safely skip its own (the manual path cannot know a
+        //     dispatch-time compensation already went out).
+        expect(cancelHits.length).toBe(process.platform === "win32" ? 2 : 1);
+        for (const hit of cancelHits) {
+          expect(hit.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
+        }
         // And the bin is dead: SIGKILL bypassed its SIGTERM
         // no-op (which had been masking HMR's earlier SIGTERM).
         let probeError: NodeJS.ErrnoException | null = null;

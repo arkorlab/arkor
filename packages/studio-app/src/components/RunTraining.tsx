@@ -511,6 +511,14 @@ export function RunTraining() {
     // never reach here: the `ac.signal.aborted` branch above returns
     // first.)
     if (streamFailed || exitCode !== 0) {
+      // The HMR-specific "auto-restart suppressed" note is only
+      // meaningful when a restart was actually latched for this run;
+      // a plain (non-HMR, or simply not-restart-targeted) failing
+      // run would otherwise get a confusing message about a restart
+      // nobody scheduled. The state RESET below runs either way:
+      // clearing the latch and pid unconditionally is what keeps a
+      // late-arriving restart event from re-spawning a failed run.
+      const hadPendingRestart = restartPendingRef.current;
       restartPendingRef.current = false;
       currentPidRef.current = null;
       setHmrStatus("idle");
@@ -518,16 +526,24 @@ export function RunTraining() {
         clearTimeout(restartGraceTimerRef.current);
         restartGraceTimerRef.current = null;
       }
-      setLog((prev) =>
-        appendCapped(
-          prev,
-          streamFailed
-            ? `\n[hmr] run did not complete cleanly; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`
-            : exitCode === null
-              ? `\n[hmr] run ended without an exit status (signal kill or truncated stream); auto-restart suppressed. Press Run to start a new job.\n`
-              : `\n[hmr] run exited with code ${exitCode}; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`,
-        ),
-      );
+      // Same narrowing false positive as the fast-path check below:
+      // the ref is written by the SSE handler / onSpawn drain across
+      // the `streamTraining` await, which TS's flow analysis can't
+      // see, so `hadPendingRestart` (captured from it above) gets
+      // pinned to the literal `false` type here.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (hadPendingRestart) {
+        setLog((prev) =>
+          appendCapped(
+            prev,
+            streamFailed
+              ? `\n[hmr] run did not complete cleanly; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`
+              : exitCode === null
+                ? `\n[hmr] run ended without an exit status (signal kill or truncated stream); auto-restart suppressed. Press Run to start a new job.\n`
+                : `\n[hmr] run exited with code ${exitCode}; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`,
+          ),
+        );
+      }
       return;
     }
 

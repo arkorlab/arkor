@@ -27,7 +27,10 @@ export interface ResolvedBuildEntry {
 
 /** Resolve `cwd` / `entry` / `outDir` to absolute paths with the standard defaults. */
 export function resolveBuildEntry(opts: BuildEntryOptions): ResolvedBuildEntry {
-  const cwd = opts.cwd ?? process.cwd();
+  // `resolve()` (not a bare `??` fallback) so a RELATIVE `opts.cwd`
+  // also honours the "project root (absolute)" contract this return
+  // type documents; `entry`/`outDir` below already resolve against it.
+  const cwd = resolve(opts.cwd ?? process.cwd());
   const entryRel = opts.entry ?? DEFAULT_ENTRY;
   const entry = isAbsolute(entryRel) ? entryRel : resolve(cwd, entryRel);
   const outDirRel = opts.outDir ?? DEFAULT_OUT_DIR;

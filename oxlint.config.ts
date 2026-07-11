@@ -110,6 +110,12 @@ export default defineConfig({
         "**/bin.ts",
         "**/bin.mjs",
         "packages/arkor/src/cli/commands/**/*.ts",
+        // Mirror eslint.config.ts's no-process-exit glob set exactly
+        // (deliberate-parity policy; see AGENTS.md "Two linters").
+        // These two modules own signal-driven shutdown and legitimately
+        // call process.exit outside the commands/ tree.
+        "packages/arkor/src/cli/cleanupHooks.ts",
+        "packages/arkor/src/core/runnerSignals.ts",
       ],
       rules: {
         "unicorn/no-process-exit": "off",

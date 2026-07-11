@@ -91,6 +91,33 @@ function stableStringifyRec(
         seen,
       );
     }
+    // Boxed primitives (`new Number(3)`, `new String("x")`,
+    // `new Boolean(true)`) unbox to their primitive JSON form,
+    // mirroring `JSON.stringify`'s SerializeJSONProperty steps (which
+    // apply ToNumber / ToString / [[BooleanData]] AFTER the toJSON
+    // probe above). Without this branch they'd fall through to the
+    // plain-object walk below and serialise as `"{}"` (no own
+    // enumerable keys), so a config carrying one would hash
+    // differently from the wire payload the cloud actually receives.
+    // The consequence was only over-restarting (both compared hashes
+    // come from this same function), but JSON parity is this file's
+    // contract, so mirror the spec. Brand-checked via the
+    // `Object.prototype.toString` tag rather than `instanceof`: the
+    // internal-slot tag survives cross-realm values and prototype
+    // surgery, which is exactly the unreliability
+    // `unicorn/no-instanceof-builtins` exists to flag.
+    const tag = Object.prototype.toString.call(value);
+    if (
+      tag === "[object Number]" ||
+      tag === "[object String]" ||
+      tag === "[object Boolean]"
+    ) {
+      return stableStringifyRec(
+        (value as { valueOf(): unknown }).valueOf(),
+        key,
+        seen,
+      );
+    }
     if (Array.isArray(value)) {
       // Array slots: non-representable → "null" (matches JSON spec).
       // Index-as-string keys mirror `JSON.stringify`'s behaviour for

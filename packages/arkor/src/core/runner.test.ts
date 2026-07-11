@@ -270,26 +270,36 @@ describe("runTrainer: shutdown signal handling", () => {
         if (probe) break;
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
-      if (!probe) throw new Error("Probe not installed by user bundle");
+      try {
+        if (!probe) throw new Error("Probe not installed by user bundle");
 
-      // 1st SIGTERM → requestEarlyStop is called, exit(0) scheduled in the
-      // promise's `.finally`.
-      process.emit("SIGTERM", "SIGTERM");
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      expect(probe.earlyStopCalls).toBe(1);
-      expect(exitCalls).toContain(0);
+        // 1st SIGTERM → requestEarlyStop is called, exit(0) scheduled in the
+        // promise's `.finally`.
+        process.emit("SIGTERM", "SIGTERM");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(probe.earlyStopCalls).toBe(1);
+        expect(exitCalls).toContain(0);
 
-      // 2nd SIGTERM (still in-flight, listeners not yet removed) →
-      // exit(143) immediately, no second requestEarlyStop call.
-      process.emit("SIGTERM", "SIGTERM");
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      expect(probe.earlyStopCalls).toBe(1);
-      expect(exitCalls).toContain(143);
-
-      // Release the hung wait() so runPromise can complete and the
-      // shutdown handlers detach via the finally block.
-      probe.finishWait();
-      await runPromise;
+        // 2nd SIGTERM (still in-flight, listeners not yet removed) →
+        // exit(143) immediately, no second requestEarlyStop call.
+        process.emit("SIGTERM", "SIGTERM");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(probe.earlyStopCalls).toBe(1);
+        expect(exitCalls).toContain(143);
+      } finally {
+        // Release the hung wait() UNCONDITIONALLY (cubic, round 85):
+        // if an assertion above throws while `wait()` is still
+        // pending, `runTrainer`'s own finally never runs and its
+        // SIGTERM/SIGINT/SIGHUP handlers stay registered, while the
+        // OUTER finally below restores the real `process.exit`. Any
+        // later test in the same worker that emits one of those
+        // signals would then hard-exit the vitest worker. Settling
+        // `runPromise` here guarantees the handlers detach on every
+        // exit path (the `.catch` absorbs a rejected run so the
+        // original assertion failure stays the reported error).
+        probe?.finishWait();
+        await runPromise.catch(() => undefined);
+      }
     } finally {
       exitSpy.mockRestore();
       stdoutSpy.mockRestore();
