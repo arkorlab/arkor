@@ -60,7 +60,7 @@ describe("buildAuthorizeUrl", () => {
 });
 
 describe("credentialsFromExchange", () => {
-  it("wraps the token response in Auth0Credentials shape", () => {
+  it("wraps the token response in OAuthCredentials shape", () => {
     const creds = credentialsFromExchange(
       {
         auth0Domain: "tenant.auth0.com",
@@ -69,7 +69,7 @@ describe("credentialsFromExchange", () => {
       },
       { accessToken: "at", refreshToken: "rt", expiresIn: 3600 },
     );
-    expect(creds.mode).toBe("auth0");
+    expect(creds.mode).toBe("oauth");
     expect(creds.accessToken).toBe("at");
     expect(creds.refreshToken).toBe("rt");
     expect(creds.auth0Domain).toBe("tenant.auth0.com");

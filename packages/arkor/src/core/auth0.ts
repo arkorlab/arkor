@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server, type ServerResponse } from "node:http";
 
-import type { Auth0Credentials } from "./credentials";
+import type { OAuthCredentials } from "./credentials";
 import type { AddressInfo } from "node:net";
 
 export interface CliConfig {
@@ -244,9 +244,9 @@ export function credentialsFromExchange(
     arkorCloudApiUrl?: string;
   },
   exchange: ExchangeCodeResult,
-): Auth0Credentials {
+): OAuthCredentials {
   return {
-    mode: "auth0",
+    mode: "oauth",
     accessToken: exchange.accessToken,
     refreshToken: exchange.refreshToken,
     expiresAt: Math.floor(Date.now() / 1000) + exchange.expiresIn,

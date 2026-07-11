@@ -61,7 +61,7 @@ CLI フローの外で Arkor を実行するコード（自前のサーバーや
 
 公開型エクスポート（`arkor` から）:
 
-`Arkor`、`ArkorInput`、`ArkorProjectState`、`BlobDatasetSource`、`DatasetSource`、`HuggingfaceDatasetSource`、`JobStatus`、`LoraConfig`、`Trainer`、`TrainerCallbacks`、`TrainerInput`、`TrainingJob`、`TrainingResult`。加えて認証ヘルパー用の `Auth0Credentials`（OAuth 認証情報の型。内部実装が Auth0 ベースのため命名がそうなっている）、`AnonymousCredentials`、`Credentials`。
+`Arkor`、`ArkorInput`、`ArkorProjectState`、`BlobDatasetSource`、`DatasetSource`、`HuggingfaceDatasetSource`、`JobStatus`、`LoraConfig`、`Trainer`、`TrainerCallbacks`、`TrainerInput`、`TrainingJob`、`TrainingResult`。加えて認証ヘルパー用の `OAuthCredentials`、`AnonymousCredentials`、`Credentials`。
 
 Deployment 関連の型のみエクスポート（[Deployments](/ja/sdk/deployments) を参照）: `CloudApiClientOptions`、`DeploymentTarget`、`DeploymentAuthMode`、`DeploymentRunRetentionMode`、`DeploymentDto`、`DeploymentKeyDto`、`DeploymentScope`、`CreateDeploymentInput`、`UpdateDeploymentInput`、`CreateDeploymentKeyInput`、`CreateDeploymentKeyResult`。ランタイムの `CloudApiClient` / `CloudApiError` クラスは上の Utilities セクションに掲載されています。型ではなく値の export なので、値として import してください。
 

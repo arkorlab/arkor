@@ -14,7 +14,7 @@ import {
   studioTokenPath,
   writeCredentials,
   type AnonymousCredentials,
-  type Auth0Credentials,
+  type OAuthCredentials,
 } from "./credentials";
 import { SDK_VERSION } from "./version";
 
@@ -70,9 +70,9 @@ describe("credentials roundtrip", () => {
     expect(await readCredentials()).toEqual(creds);
   });
 
-  it("round-trips auth0 credentials", async () => {
-    const creds: Auth0Credentials = {
-      mode: "auth0",
+  it("round-trips oauth credentials", async () => {
+    const creds: OAuthCredentials = {
+      mode: "oauth",
       accessToken: "at",
       refreshToken: "rt",
       expiresAt: 1_735_000_000,
@@ -97,9 +97,9 @@ describe("getToken", () => {
     expect(token).toBe("anon-tok");
   });
 
-  it("returns the access token for auth0 mode", async () => {
+  it("returns the access token for oauth mode", async () => {
     const token = await getToken({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "at",
       refreshToken: "rt",
       expiresAt: 0,
@@ -166,14 +166,14 @@ describe("defaultArkorCloudApiUrl", () => {
     expect(url).toBe("https://staging.arkor.ai");
   });
   it("falls back to production for legacy OAuth credentials with no baseUrl", () => {
-    // Credentials persisted before `Auth0Credentials.arkorCloudApiUrl`
+    // Credentials persisted before `OAuthCredentials.arkorCloudApiUrl`
     // was added (round 67). The graceful fallback is production:
     // operators on staging / self-hosted who hit this would have to
     // re-run `arkor login` to repopulate the field, or set
     // `ARKOR_CLOUD_API_URL` to bridge.
     delete process.env.ARKOR_CLOUD_API_URL;
     const url = defaultArkorCloudApiUrl({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "at",
       refreshToken: "rt",
       expiresAt: 0,
@@ -188,7 +188,7 @@ describe("defaultArkorCloudApiUrl", () => {
     // subsequent SDK calls keep targeting the same control plane.
     delete process.env.ARKOR_CLOUD_API_URL;
     const url = defaultArkorCloudApiUrl({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "at",
       refreshToken: "rt",
       expiresAt: 0,
@@ -204,12 +204,12 @@ describe("defaultArkorCloudApiUrl", () => {
     // with `ARKOR_CLOUD_API_URL=""` to make config errors fail
     // loudly should see that intent round-trip through the persisted
     // credentials and back out via this helper, *not* be silently
-    // substituted with production. The auth0 login path stamps the
-    // empty string verbatim into `Auth0Credentials.arkorCloudApiUrl`,
+    // substituted with production. The OAuth login path stamps the
+    // empty string verbatim into `OAuthCredentials.arkorCloudApiUrl`,
     // and this helper has to honour it.
     delete process.env.ARKOR_CLOUD_API_URL;
     const url = defaultArkorCloudApiUrl({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "at",
       refreshToken: "rt",
       expiresAt: 0,

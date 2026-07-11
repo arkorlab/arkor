@@ -61,7 +61,7 @@ These are exported for code that drives Arkor outside the CLI flow, e.g. running
 
 Public type exports (from `arkor`):
 
-`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `Auth0Credentials` (the OAuth credentials type, named after the underlying Auth0-based provider), `AnonymousCredentials`, and `Credentials` for the auth helpers.
+`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `OAuthCredentials`, `AnonymousCredentials`, and `Credentials` for the auth helpers.
 
 Deployment-related type-only exports (see [Deployments](/sdk/deployments)): `CloudApiClientOptions`, `DeploymentTarget`, `DeploymentAuthMode`, `DeploymentRunRetentionMode`, `DeploymentDto`, `DeploymentKeyDto`, `DeploymentScope`, `CreateDeploymentInput`, `UpdateDeploymentInput`, `CreateDeploymentKeyInput`, `CreateDeploymentKeyResult`. The runtime `CloudApiClient` and `CloudApiError` classes are listed under Utilities above; they're value exports, not types, so import them as values.
 

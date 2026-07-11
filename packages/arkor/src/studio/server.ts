@@ -21,7 +21,7 @@ import {
   type DeprecationNotice,
 } from "../core/deprecation";
 import {
-  AUTH0_MISSING_STATE_MESSAGE,
+  OAUTH_MISSING_STATE_MESSAGE,
   ensureProjectState,
 } from "../core/projectState";
 import {
@@ -503,7 +503,7 @@ export function buildStudioApp(options: StudioServerOptions) {
    *     route that can legitimately bootstrap a fresh workspace: an
    *     anonymous user clicks "New endpoint", we lazily run
    *     `ensureProjectState()`, persist `.arkor/state.json`, and
-   *     forward the deployment create. Auth0 callers without state get
+   *     forward the deployment create. OAuth callers without state get
    *     a 400 with the manual-state remediation.
    *   - `"mutate"`: PATCH / DELETE on `:id`, key CRUD. These need an
    *     existing deployment, which by definition needs an existing
@@ -534,11 +534,11 @@ export function buildStudioApp(options: StudioServerOptions) {
     if (!scope0 && (intent === "read" || intent === "mutate")) {
       // Stay neutral about whether deployments exist. For anonymous
       // workspaces the first deployment-create POST will bootstrap
-      // `.arkor/state.json` automatically; for Auth0 workspaces there
+      // `.arkor/state.json` automatically; for OAuth workspaces there
       // may be remote deployments that just aren't reachable until the
       // operator restores the state file by hand. Phrasing this as
       // "no deployments yet" misdiagnoses bookmarked detail / keys
-      // URLs hit by an Auth0 user; the actual fix is to put
+      // URLs hit by an OAuth user; the actual fix is to put
       // `.arkor/state.json` back in place.
       //
       // `"mutate"` lands here for the same reason: a PATCH / DELETE /
@@ -658,7 +658,7 @@ export function buildStudioApp(options: StudioServerOptions) {
             projectSlug: state.projectSlug,
           };
         } else {
-          // Auth0 callers cannot bootstrap automatically: we don't know
+          // OAuth callers cannot bootstrap automatically: we don't know
           // which org / project the logged-in user wants the deployment in,
           // and neither `arkor login` nor `arkor init` populates
           // `.arkor/state.json` today (see docs/concepts/project-structure).
@@ -667,7 +667,7 @@ export function buildStudioApp(options: StudioServerOptions) {
           // so this surface and the trainer / Playground throw exactly
           // the same instruction.
           return Response.json(
-            { error: AUTH0_MISSING_STATE_MESSAGE },
+            { error: OAUTH_MISSING_STATE_MESSAGE },
             { status: 400, headers: { "content-type": "application/json" } },
           );
         }
@@ -735,7 +735,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     // genuinely has no deployments" from "we don't know which project
     // to look at": the latter needs different remediation copy
     // ("create your first endpoint" for anonymous; "restore
-    // .arkor/state.json" for Auth0).
+    // .arkor/state.json" for OAuth).
     const scope = await readScopeFromState();
     if (!scope) {
       return Response.json(
