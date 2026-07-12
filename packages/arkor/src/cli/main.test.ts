@@ -170,9 +170,9 @@ describe("main (CLI Commander wiring)", () => {
     expect(runLogin).not.toHaveBeenCalled();
   });
 
-  it("dispatches `logout --yes`", async () => {
-    await main(["logout", "--yes"]);
-    expect(runLogout).toHaveBeenCalledWith({ yes: true });
+  it("dispatches `logout --force`", async () => {
+    await main(["logout", "--force"]);
+    expect(runLogout).toHaveBeenCalledWith({ force: true });
   });
 
   it("dispatches `whoami`", async () => {

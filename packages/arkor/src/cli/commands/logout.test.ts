@@ -112,11 +112,11 @@ describe("runLogout", () => {
     await expect(runLogout()).resolves.toBeUndefined();
   });
 
-  it("removes the credentials file when --yes is passed", async () => {
+  it("removes the credentials file when --force is passed", async () => {
     await writeCredentials(anonCreds);
     expect(existsSync(credentialsPath())).toBe(true);
 
-    await runLogout({ yes: true });
+    await runLogout({ force: true });
     expect(existsSync(credentialsPath())).toBe(false);
 
     const clack = await import("@clack/prompts");
@@ -125,8 +125,8 @@ describe("runLogout", () => {
     );
   });
 
-  it("keeps the credentials file in non-interactive mode without --yes", async () => {
-    // Without `yes`, the helper falls back to promptConfirm which honours
+  it("keeps the credentials file in non-interactive mode without --force", async () => {
+    // Without `force`, the helper falls back to promptConfirm which honours
     // initialValue=false under CI. The behaviour mirrors the user pressing
     // Enter at the default prompt.
     await writeCredentials(anonCreds);
@@ -185,14 +185,14 @@ describe("runLogout", () => {
   it("does not print the anonymous restore warning for OAuth credentials", async () => {
     await writeCredentials(oauthCreds);
 
-    await runLogout({ yes: true });
+    await runLogout({ force: true });
     expect(existsSync(credentialsPath())).toBe(false);
 
     const clack = await import("@clack/prompts");
     expect(clack.log.warn).not.toHaveBeenCalled();
   });
 
-  it("keeps OAuth credentials in non-interactive mode without --yes", async () => {
+  it("keeps OAuth credentials in non-interactive mode without --force", async () => {
     await writeCredentials(oauthCreds);
 
     await runLogout();

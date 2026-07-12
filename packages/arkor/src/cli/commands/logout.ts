@@ -5,7 +5,7 @@ import { credentialsPath, readCredentials } from "../../core/credentials";
 import { promptConfirm, ui } from "../prompts";
 
 export interface LogoutOptions {
-  yes?: boolean;
+  force?: boolean;
 }
 
 const ANONYMOUS_LOGOUT_WARNING =
@@ -24,13 +24,13 @@ export async function runLogout(options: LogoutOptions = {}): Promise<void> {
       ? `${ANONYMOUS_LOGOUT_WARNING} Delete ${path}?`
       : `Delete ${path}?`,
     initialValue: false,
-    skipWith: options.yes ? true : undefined,
+    skipWith: options.force ? true : undefined,
   });
   if (!confirmed) {
     ui.log.info("Aborted.");
     return;
   }
-  if (isAnonymous && options.yes) {
+  if (isAnonymous && options.force) {
     ui.log.warn(ANONYMOUS_LOGOUT_WARNING);
   }
   await rm(path, { force: true });

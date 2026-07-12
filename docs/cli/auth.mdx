@@ -111,14 +111,14 @@ bun arkor logout
 
 | Flag | Description |
 | --- | --- |
-| `-y, --yes` | Skip the confirmation prompt. |
+| `-f, --force` | Delete credentials without prompting. |
 
 ### Behavior
 
 - If the credentials file does not exist, the CLI logs `No credentials on file.` and exits.
 - If the credentials file is anonymous (`mode: "anon"`), the CLI warns that the anonymous identity cannot be restored after logout.
 - If the user declines the prompt, the CLI logs `Aborted.` and exits without deleting.
-- `--yes` skips the prompt, but still prints the anonymous restore warning before deleting anonymous credentials.
+- `--force` skips the prompt, but still prints the anonymous restore warning before deleting anonymous credentials.
 - `arkor logout` does not touch `.arkor/state.json` or the `.arkor/build/` artifact. To start fully fresh, remove `.arkor/` manually as well.
 
 ## `arkor whoami`
