@@ -8,7 +8,7 @@ import {
   credentialsPath,
   writeCredentials,
   type AnonymousCredentials,
-  type Auth0Credentials,
+  type OAuthCredentials,
 } from "../../core/credentials";
 
 import { runLogout } from "./logout";
@@ -56,8 +56,8 @@ const anonCreds: AnonymousCredentials = {
   orgSlug: "anon-abc",
 };
 
-const oauthCreds: Auth0Credentials = {
-  mode: "auth0",
+const oauthCreds: OAuthCredentials = {
+  mode: "oauth",
   accessToken: "at",
   refreshToken: "rt",
   expiresAt: 1_735_000_000,
