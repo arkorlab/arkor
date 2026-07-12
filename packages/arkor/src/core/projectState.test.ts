@@ -9,7 +9,7 @@ import { CloudApiClient, CloudApiError } from "./client";
 import { ensureProjectState } from "./projectState";
 import { readState, writeState } from "./state";
 
-import type { AnonymousCredentials, Auth0Credentials } from "./credentials";
+import type { AnonymousCredentials, OAuthCredentials } from "./credentials";
 
 let cwd: string;
 
@@ -21,8 +21,8 @@ const anonCreds: AnonymousCredentials = {
   orgSlug: "anon-abc",
 };
 
-const auth0Creds: Auth0Credentials = {
-  mode: "auth0",
+const oauthCreds: OAuthCredentials = {
+  mode: "oauth",
   accessToken: "at",
   refreshToken: "rt",
   expiresAt: 0,
@@ -88,10 +88,10 @@ describe("ensureProjectState", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
-  it("throws for auth0 callers without state (they must write .arkor/state.json by hand)", async () => {
+  it("throws for oauth callers without state (they must write .arkor/state.json by hand)", async () => {
     const client = fakeClient();
     await expect(
-      ensureProjectState({ cwd, client, credentials: auth0Creds }),
+      ensureProjectState({ cwd, client, credentials: oauthCreds }),
     ).rejects.toThrow(/\.arkor\/state\.json/);
   });
 

@@ -55,7 +55,7 @@ bun arkor login
 2. If `--anonymous` is passed, the CLI requests an anonymous token from `/v1/auth/anonymous` and writes it to `~/.arkor/credentials.json` with `mode: "anon"`.
 3. If `--oauth` is passed, it skips straight to the OAuth flow.
 4. If no flag is passed, it shows an interactive picker (`OAuth (browser)` / `Anonymous`) with **Anonymous** preselected. Accepting the default, including in non-interactive contexts where the prompt is non-blocking, runs the anonymous path; choosing OAuth runs the OAuth flow.
-5. The OAuth flow generates a PKCE pair, starts a loopback HTTP server on one of the cloud-api-provided callback ports, opens (or prints) the authorize URL, and waits for the callback. State is verified before exchanging the code for tokens; a mismatch aborts to prevent CSRF. The resulting OAuth tokens are written to `~/.arkor/credentials.json` with `mode: "auth0"`.
+5. The OAuth flow generates a PKCE pair, starts a loopback HTTP server on one of the cloud-api-provided callback ports, opens (or prints) the authorize URL, and waits for the callback. State is verified before exchanging the code for tokens; a mismatch aborts to prevent CSRF. The resulting OAuth tokens are written to `~/.arkor/credentials.json` with `mode: "oauth"`.
 
 The loopback server is closed in a `finally` block so it does not stick around if login fails.
 
@@ -170,7 +170,7 @@ When signed in, the command prints the JSON `user` object pretty-printed, then a
 
 ## Where the credentials live
 
-Both modes write to the same file at `~/.arkor/credentials.json` and are tagged with a `mode` field of either `"auth0"` or `"anon"` so the rest of the CLI (and the Studio server) knows which path to use. See [Project structure](/concepts/project-structure) for the full layout.
+Both modes write to the same file at `~/.arkor/credentials.json` and are tagged with a `mode` field of either `"oauth"` or `"anon"` so the rest of the CLI (and the Studio server) knows which path to use. See [Project structure](/concepts/project-structure) for the full layout.
 
 ## Token expiry
 
@@ -193,7 +193,7 @@ Anonymous tokens have no client-side expiry tracking; the cloud-api decides when
 | `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.` | `arkor login --oauth` | The OAuth token exchange succeeded but the response had no `refresh_token`, so the CLI cannot keep the session alive past the access token's lifetime. Usually a deployment-side misconfiguration. | Enable the `offline_access` scope on the OAuth application, then re-run `arkor login --oauth`. |
 | `No credentials on file.` | `arkor logout` | `~/.arkor/credentials.json` does not exist. Nothing to delete. | Run `arkor login` first if you wanted to sign in. |
 | `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.` | `arkor whoami` | Same condition as above, surfaced from a different command. | Same fix. |
-| `Failed to fetch /v1/me (<status>). Token may be expired.` | `arkor whoami` | The cloud-api rejected the request with a non-200, non-426 status. Most often expired access tokens. | Re-run `arkor login` matching the current `mode`: `arkor login --oauth` for `mode: "auth0"`, `arkor login --anonymous` for `mode: "anon"` (the latter mints a new `anonymousId`, so it lands in a new workspace). The exit code stays `0` so wrapper scripts can inspect the message. |
+| `Failed to fetch /v1/me (<status>). Token may be expired.` | `arkor whoami` | The cloud-api rejected the request with a non-200, non-426 status. Most often expired access tokens. | Re-run `arkor login` matching the current `mode`: `arkor login --oauth` for `mode: "oauth"`, `arkor login --anonymous` for `mode: "anon"` (the latter mints a new `anonymousId`, so it lands in a new workspace). The exit code stays `0` so wrapper scripts can inspect the message. |
 | `426 Upgrade Required` (with upgrade hint) | `arkor whoami` (and other cloud-api calls) | The deployment requires a newer SDK version. The CLI prints the upgrade command for your detected package manager and sets `process.exitCode = 1`. | Upgrade the `arkor` package and re-run. |
 
 ## See also
