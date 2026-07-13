@@ -107,7 +107,7 @@ jobs:
       # compares it against the full `pnpm@11.9.0+sha512.xxx`
       # packageManager string and refuses on mismatch
       # (ERR_PNPM_BAD_PM_VERSION-style error).
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           standalone: true
 
@@ -539,7 +539,7 @@ jobs:
           persist-credentials: false
 
       # Same reason as the build job; see comment there.
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           standalone: true
 
