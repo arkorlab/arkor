@@ -133,7 +133,7 @@ const YARNRC_YML_PATH = ".yarnrc.yml";
 const PNPM_WORKSPACE_PATH = "pnpm-workspace.yaml";
 const AGENTS_MD_PATH = "AGENTS.md";
 const CLAUDE_MD_PATH = "CLAUDE.md";
-const DEFAULT_ARKOR_SPEC = "^0.0.2-alpha.2";
+const DEFAULT_ARKOR_SPEC = "^0.0.3-alpha.1";
 
 // Marker pair scoped to arkor; do not reuse Next.js's `nextjs-` markers.
 // Anything between these markers is treated as canonical and replaced on
