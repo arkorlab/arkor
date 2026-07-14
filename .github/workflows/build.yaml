@@ -127,7 +127,7 @@ jobs:
       # pnpm >= 11.1.3 treats the `_authToken=${NODE_AUTH_TOKEN}` placeholder
       # that setup-node writes into `.npmrc` as empty and uses OIDC instead
       # of sending the literal placeholder as a bearer token. (This repo
-      # pins pnpm 11.13.0 via package.json's `packageManager`, well above
+      # pins pnpm 11.13.1 via package.json's `packageManager`, well above
       # that floor.)
       # `--no-git-checks` skips pnpm's publish-branch / clean-tree
       # assertions, which don't apply on the detached-tag checkout this
