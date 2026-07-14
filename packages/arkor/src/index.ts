@@ -31,7 +31,7 @@ export {
   defaultArkorCloudApiUrl,
   requestAnonymousToken,
   ensureCredentials,
-  type Auth0Credentials,
+  type OAuthCredentials,
   type AnonymousCredentials,
   type Credentials,
 } from "./core/credentials";

@@ -1,0 +1,61 @@
+# Qodo Review (v2, the "Qodo Platform" generation) repo-level config.
+# File name and location (.pr_agent.toml at the repo root of the default branch)
+# are unchanged from v1, but v2 uses the agentic commands and the [review_agent] /
+# [qodo_describe_agent] sections rather than the legacy /review, /describe,
+# /improve tools and [pr_reviewer] / [pr_description] sections. Every key below is
+# taken from the current v2 docs; we do not copy the full default file.
+#   https://docs.qodo.ai/install-and-configure/migrating-to-qodo-v2
+#   https://docs.qodo.ai/install-and-configure/configuration-overview/configuration-and-command-reference
+
+# --- What runs automatically -------------------------------------------------
+# /agentic_review folds in the old /review, /improve, and /compliance, so with
+# /agentic_describe a PR open gets description + review + code suggestions. On push,
+# re-run /agentic_review only: that is the documented persistent-review trigger and
+# it refreshes the single evolving review comment. (/generate_labels is a manual
+# PR-comment command in v2, not an auto pr_commands entry, so it is not listed.)
+[github_app]
+pr_commands = ["/agentic_describe", "/agentic_review"]
+handle_push_trigger = true
+push_commands = ["/agentic_review"]
+
+# --- Review agent ------------------------------------------------------------
+[review_agent]
+# Post both a summary and inline comments (this is the default; pinned so a future
+# default flip cannot silently drop inline coverage).
+comments_location_policy = "both"
+# Surface medium-and-higher severity inline, not just the highest (docs values are
+# 1-3, default 3); lower threshold = more inline findings.
+inline_comments_severity_threshold = 2
+# Bug / security / performance focus for the Issues agent.
+issues_user_guidelines = """
+Prioritise these Arkor-specific risks:
+- Studio dev server (packages/arkor/src/studio/server.ts): every /api/* request
+  must stay authenticated by the per-launch CSRF token (X-Arkor-Studio-Token
+  header for fetch; ?studioToken= query only for the GET job-events SSE stream,
+  jobEventsPathPattern). Keep the timingSafeEqual comparison, the
+  127.0.0.1/localhost host-header allow-list, and the deliberate absence of CORS.
+  Flag any change that weakens these or extends the query-token exception to a
+  mutation route.
+- Dependency versions must go through the pnpm-workspace.yaml catalog (catalog:),
+  not literal semver, except the two published packages' runtime dependencies.
+- Do not suggest formatting or import-order changes: oxfmt owns formatting and
+  ESLint import-x/order owns import order.
+"""
+# Standards / rules for the Compliance agent. Full standard lives in
+# best_practices.md at the repo root.
+compliance_user_guidelines = """
+- Bilingual docs move together in the same PR: README.md with README.ja.md,
+  CONTRIBUTING.md with CONTRIBUTING.ja.md, docs/ with docs/ja/.
+- No em dashes anywhere, including CLI runtime user-facing strings: the
+  local/no-em-dash ESLint rule and the repo-wide check-no-em-dash guard have no
+  carve-out.
+- Respect the known review-bot pitfalls in best_practices.md that must NOT be
+  "fixed": the npm CodeGroup tab (npm arkor init), Mintlify heading slugs (which
+  keep /, =, and full-width parens), and HuggingFace model-name existence.
+"""
+
+# --- Describe agent ----------------------------------------------------------
+[qodo_describe_agent]
+# Post the generated summary as a comment rather than overwriting a human-authored
+# PR body. Allowed: "comment" (default), "pr_description", "dynamic".
+publish_mode = "comment"

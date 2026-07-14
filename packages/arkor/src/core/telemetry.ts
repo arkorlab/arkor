@@ -83,7 +83,7 @@ function getClient(): PostHog | null {
 
 interface Identity {
   distinctId: string;
-  authMode: "auth0" | "anon" | "none";
+  authMode: "oauth" | "anon" | "none";
 }
 
 function decodeJwtSub(accessToken: string): string | null {
@@ -135,10 +135,10 @@ export async function getIdentity(): Promise<Identity> {
   } catch (err) {
     debugLog("readCredentials failed", err);
   }
-  if (creds?.mode === "auth0") {
+  if (creds?.mode === "oauth") {
     const sub = decodeJwtSub(creds.accessToken);
-    if (sub) return { distinctId: sub, authMode: "auth0" };
-    return { distinctId: readOrCreateTelemetryId(), authMode: "auth0" };
+    if (sub) return { distinctId: sub, authMode: "oauth" };
+    return { distinctId: readOrCreateTelemetryId(), authMode: "oauth" };
   }
   if (creds?.mode === "anon") {
     return { distinctId: creds.anonymousId, authMode: "anon" };
@@ -151,7 +151,7 @@ interface BaseProps {
   sdk_version: string;
   node_version: string;
   platform: NodeJS.Platform;
-  auth_mode: "auth0" | "anon" | "none";
+  auth_mode: "oauth" | "anon" | "none";
 }
 
 function safeCapture(

@@ -14,7 +14,7 @@ description: "arkor CLI: 全コマンドリファレンス。"
 | [`arkor build`](/ja/cli/build-and-start) | `src/arkor/index.ts` を `.arkor/build/index.mjs` にバンドル。 |
 | [`arkor start`](/ja/cli/build-and-start) | ビルド成果物を実行（無いときは自動ビルド）。 |
 | [`arkor login`](/ja/cli/auth) | サインイン。フラグなしでは対話ピッカー（初期選択: `Anonymous`）を表示。`--oauth` でループバック上の Arkor Cloud OAuth（PKCE）フロー、`--anonymous` でピッカーをスキップして使い捨てトークン。 |
-| [`arkor logout`](/ja/cli/auth) | `~/.arkor/credentials.json` を削除。 |
+| [`arkor logout`](/ja/cli/auth) | 確認後に `~/.arkor/credentials.json` を削除。匿名 ID は削除後に復元できません。 |
 | [`arkor whoami`](/ja/cli/auth) | 現在の ID と到達できる org を表示。 |
 
 ## コマンド共通の慣例
