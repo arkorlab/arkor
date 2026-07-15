@@ -35,9 +35,14 @@ const EMPTY: ManifestSummary = { trainer: null };
  * help either (esbuild rewrites the bundle every build). Hashing the contents
  * busts the cache exactly when the user's source actually changed and reuses
  * a single registry entry across repeated loads with no edits.
+ *
+ * `importModule` is an injectable seam (default: dynamic `import`) so tests can
+ * observe the cache-bust URL and assert the reuse-vs-bust behaviour directly.
  */
 export async function readManifestSummary(
   cwd: string,
+  importModule: (url: string) => Promise<Record<string, unknown>> = (u) =>
+    import(u) as Promise<Record<string, unknown>>,
 ): Promise<ManifestSummary> {
   const { outFile } = await runBuild({ cwd, quiet: true });
   const digest = createHash("sha256")
@@ -45,7 +50,7 @@ export async function readManifestSummary(
     .digest("hex")
     .slice(0, 16);
   const url = `${pathToFileURL(outFile).href}?t=${digest}`;
-  const mod = (await import(url)) as Record<string, unknown>;
+  const mod = await importModule(url);
   const candidate = mod.arkor ?? mod.default;
   if (!isArkor(candidate)) return EMPTY;
   const trainer = candidate.trainer ? { name: candidate.trainer.name } : null;

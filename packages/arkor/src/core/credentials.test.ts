@@ -110,7 +110,17 @@ describe("credentials roundtrip", () => {
     }
   });
 
-  // Atomic write: no stray `credentials.json.<pid>.tmp` left behind, and the
+  // A read-level failure (not just a parse failure) must also behave like a
+  // missing file. EISDIR is the deterministic stand-in for the TOCTOU race
+  // (a concurrent `arkor logout` rm'ing the file after existsSync) that would
+  // otherwise reject ENOENT out of non-catching callers (whoami / bootstrap).
+  it("returns null (does not throw) when the credentials path is unreadable", async () => {
+    // credentials.json exists but is a directory -> readFile rejects EISDIR.
+    mkdirSync(credentialsPath(), { recursive: true });
+    await expect(readCredentials()).resolves.toBeNull();
+  });
+
+  // Atomic write: no stray `credentials.json.<pid>.<uuid>.tmp` left behind, and the
   // final file is the fully-written JSON (never a partial).
   it("writes atomically and leaves no temp file behind", async () => {
     const creds: AnonymousCredentials = {

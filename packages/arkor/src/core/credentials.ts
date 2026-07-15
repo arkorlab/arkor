@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   readFile,
@@ -89,19 +90,21 @@ export function studioTokenPath(): string {
 export async function readCredentials(): Promise<Credentials | null> {
   const path = credentialsPath();
   if (!existsSync(path)) return null;
-  const raw = await readFile(path, "utf8");
+  // Wrap BOTH the read and the parse (matching `state.ts:readState`): the
+  // existsSync check above can race a concurrent `arkor logout` that rm's the
+  // file (readFile then rejects ENOENT), and a hand-mangled file can be
+  // unreadable (EACCES/EISDIR) or invalid JSON. All of these must behave like
+  // a missing file (return null) rather than throwing a raw error out of the
+  // many callers that don't catch (whoami, ensureCredentials, the studio
+  // server), so a truncated / raced / locked file never crashes an `arkor`
+  // command. Silent by design: this is the always-on telemetry read path
+  // (`telemetry.ts` getIdentity), so warning here would leak onto every
+  // command and double-print alongside the command's own read. The one-time
+  // "was unreadable" notice lives in `ensureCredentials` instead.
   try {
+    const raw = await readFile(path, "utf8");
     return JSON.parse(raw) as Credentials;
   } catch {
-    // A truncated / hand-mangled credentials.json must not make every
-    // `arkor` command die with a raw SyntaxError. Treat corruption like a
-    // missing file (matching `state.ts:readState`) and return null silently:
-    // callers bootstrap a fresh anonymous identity, and `arkor login`
-    // overwrites it cleanly. The silence is deliberate: this function is on
-    // the always-on telemetry path (`telemetry.ts` getIdentity), so warning
-    // here would leak onto every command and double-print alongside the
-    // command's own read. The one-time "was unreadable" notice lives in
-    // `ensureCredentials`, the explicit bootstrap path, instead.
     return null;
   }
 }
@@ -112,13 +115,16 @@ export async function writeCredentials(
   const dir = credentialsDir();
   const path = credentialsPath();
   await mkdir(dir, { recursive: true });
-  // Atomic write: serialise to a per-process temp file created at mode 0600
-  // (so the secret is never briefly world-readable and never left truncated
-  // if the process dies mid-write), then rename over the target. rename(2)
-  // is atomic within a filesystem, so a concurrent reader sees either the
-  // old file or the fully-written new one, never a partial JSON, and two
-  // `arkor` processes writing at once can't corrupt each other's file.
-  const tmp = `${path}.${process.pid}.tmp`;
+  // Atomic write: serialise to a unique temp file created at mode 0600 (so the
+  // secret is never briefly world-readable and never left truncated if the
+  // process dies mid-write), then rename over the target. rename(2) is atomic
+  // within a filesystem, so a concurrent reader sees either the old file or
+  // the fully-written new one, never a partial JSON. The temp name carries a
+  // random suffix (NOT just `process.pid`): a `~/.arkor` volume bind-mounted
+  // into two containers can have two arkor processes both running as PID 1, so
+  // a pid-only name would collide and let their renames race; the random
+  // component keeps each writer's temp file private.
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(tmp, JSON.stringify(credentials, null, 2), { mode: 0o600 });
     try {
