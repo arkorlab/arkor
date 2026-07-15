@@ -93,18 +93,18 @@ describe("credentials roundtrip", () => {
   // ENG-933: a truncated / hand-mangled credentials.json used to make every
   // `arkor` command die with a raw SyntaxError. It must now be treated like a
   // missing file (returns null, warns) so callers re-bootstrap cleanly.
-  it("returns null (does not throw) on a corrupt credentials.json", async () => {
+  it("returns null (does not throw, stays silent) on a corrupt credentials.json", async () => {
     mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
     // Simulate a crash mid-write: truncated JSON.
     writeFileSync(credentialsPath(), '{ "mode": "oauth", "accessTok');
+    // readCredentials must NOT warn: it is on the always-on telemetry path,
+    // so the "unreadable" notice lives in ensureCredentials instead.
     const warn = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
     try {
       await expect(readCredentials()).resolves.toBeNull();
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("is not valid JSON"),
-      );
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }
@@ -125,6 +125,26 @@ describe("credentials roundtrip", () => {
     const strays = readdirSync(dir).filter((f) => f.includes(".tmp"));
     expect(strays).toEqual([]);
     expect(await readCredentials()).toEqual(creds);
+  });
+
+  // Covers the `catch { await rm(tmp) }` cleanup branch: when the atomic
+  // rename fails, the staged temp file must be removed and the error must
+  // propagate (never leave a stray `credentials.json.<pid>.tmp`).
+  it("cleans up the temp file and rejects when the rename fails", async () => {
+    // Force rename(tmp, path) to fail by making the target path a directory
+    // (rename of a file over a directory fails on every platform).
+    mkdirSync(credentialsPath(), { recursive: true });
+    const creds: AnonymousCredentials = {
+      mode: "anon",
+      token: "tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://localhost",
+      orgSlug: "anon-abc",
+    };
+    await expect(writeCredentials(creds)).rejects.toThrow();
+    const dir = join(fakeHome, ".arkor");
+    const strays = readdirSync(dir).filter((f) => f.includes(".tmp"));
+    expect(strays).toEqual([]);
   });
 });
 
@@ -389,6 +409,38 @@ describe("ensureCredentials", () => {
     }) as typeof fetch;
 
     expect(await ensureCredentials()).toEqual(creds);
+  });
+
+  it("warns once and re-bootstraps when the existing credentials file is corrupt", async () => {
+    // The warning lives here (the explicit bootstrap path), NOT in the
+    // always-on readCredentials/telemetry path, so a discarded login is
+    // surfaced exactly once rather than on every command.
+    mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
+    writeFileSync(credentialsPath(), "{ truncated");
+    process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
+    globalThis.fetch = (async () =>
+      Response.json(
+        {
+          token: "fresh-tok",
+          anonymousId: "fresh-aid",
+          kind: "cli",
+          personalOrg: { id: "o", slug: "fresh-aid", name: "Anon" },
+        },
+        { status: 200 },
+      )) as typeof fetch;
+    const warn = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      const creds = await ensureCredentials();
+      expect(creds).toMatchObject({ mode: "anon", token: "fresh-tok" });
+      const unreadableWarnings = warn.mock.calls.filter((c) =>
+        String(c[0]).includes("was unreadable"),
+      );
+      expect(unreadableWarnings).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("bootstraps a fresh anonymous identity, persists it, and returns the parsed shape", async () => {

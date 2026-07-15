@@ -156,8 +156,9 @@ function disambiguateLeadingDashPath(
  * broken `cd My App && pnpm install`.
  *
  * Skips quoting for the common safe case (alphanumerics + a few
- * unambiguous extras like `-_./+@:,`) so the printed hint stays
- * clean for typical project names.
+ * unambiguous extras like `-_./+@:`) so the printed hint stays
+ * clean for typical project names. Comma is deliberately excluded
+ * (it is PowerShell's array operator); see `shellQuoteIfNeeded`.
  *
  * Quoting style is platform-aware (round-39 Codex P2 / Copilot):
  *

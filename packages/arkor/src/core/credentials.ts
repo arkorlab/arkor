@@ -95,13 +95,13 @@ export async function readCredentials(): Promise<Credentials | null> {
   } catch {
     // A truncated / hand-mangled credentials.json must not make every
     // `arkor` command die with a raw SyntaxError. Treat corruption like a
-    // missing file (matching `state.ts:readState`): callers bootstrap a
-    // fresh anonymous identity, and `arkor login` overwrites it cleanly.
-    // Warn so the user knows a prior login was discarded rather than
-    // silently swapped for an anonymous session.
-    process.stderr.write(
-      `arkor: warning: ${path} is not valid JSON and was ignored. Run \`arkor login\` to sign in again.\n`,
-    );
+    // missing file (matching `state.ts:readState`) and return null silently:
+    // callers bootstrap a fresh anonymous identity, and `arkor login`
+    // overwrites it cleanly. The silence is deliberate: this function is on
+    // the always-on telemetry path (`telemetry.ts` getIdentity), so warning
+    // here would leak onto every command and double-print alongside the
+    // command's own read. The one-time "was unreadable" notice lives in
+    // `ensureCredentials`, the explicit bootstrap path, instead.
     return null;
   }
 }
@@ -271,6 +271,17 @@ export async function requestAnonymousToken(
 export async function ensureCredentials(): Promise<Credentials> {
   const existing = await readCredentials();
   if (existing) return existing;
+
+  // `readCredentials` returns null for both an absent and an unreadable file
+  // (it stays silent for the telemetry path). If a file is present here, it
+  // was corrupt and is about to be replaced by the anonymous bootstrap below;
+  // surface that once from this explicit path so a discarded login is visible
+  // without the always-on telemetry read ever printing it.
+  if (existsSync(credentialsPath())) {
+    process.stderr.write(
+      `arkor: warning: ${credentialsPath()} was unreadable and is being replaced. Run \`arkor login\` to sign in again.\n`,
+    );
+  }
 
   const baseUrl = defaultArkorCloudApiUrl();
   const anon = await requestAnonymousToken(baseUrl, "cli");

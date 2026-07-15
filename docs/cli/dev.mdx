@@ -65,7 +65,7 @@ This means `arkor dev` is safe on a shared dev machine: another tab cannot read 
 
 ### Port collision
 
-`arkor dev` does not auto-pick a free port. If the chosen port is already taken (another `arkor dev` left running, an unrelated dev server, etc.), the listener's `EADDRINUSE` is caught and `arkor dev` exits non-zero with `Port <port> is already in use. Another \`arkor dev\` may be running; pass --port to choose a different one.` Pick a different port with `-p <port>`, or stop whatever else is bound to it.
+`arkor dev` does not auto-pick a free port. If the chosen port is already taken (another `arkor dev` left running, an unrelated dev server, etc.), the listener's `EADDRINUSE` is caught and `arkor dev` exits non-zero with ``Port <port> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.`` Pick a different port with `-p <port>`, or stop whatever else is bound to it.
 
 The token file (`~/.arkor/studio-token`) is written only **after** the port binds successfully, so a failed second launch on a busy port never overwrites or deletes the token a healthy first instance depends on.
 

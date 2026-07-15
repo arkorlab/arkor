@@ -558,7 +558,7 @@ describe("ensureCredentialsForStudio", () => {
 });
 
 describe("runDev", () => {
-  // Track exit/signal listeners we add via scheduleStudioTokenCleanup so
+  // Track exit/signal listeners we add via installShutdownHandlers so
   // we can remove them between tests; otherwise vitest's worker would
   // accumulate listeners and Node's MaxListenersExceededWarning would
   // fire by the third test.
@@ -795,7 +795,7 @@ describe("runDev", () => {
     expect(existsSync(studioTokenPath())).toBe(true);
 
     // Pull the most-recently-registered exit listener and invoke it; that
-    // exercises the unlinkSync(path) branch of scheduleStudioTokenCleanup.
+    // exercises the unlinkSync(path) branch of installShutdownHandlers.
     const exitListeners = process.listeners("exit");
     const cleanup = exitListeners.at(-1) as () => void;
     cleanup();

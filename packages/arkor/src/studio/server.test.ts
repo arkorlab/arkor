@@ -553,6 +553,44 @@ process.exit(0);
       expect(text).not.toContain("exit=0");
     });
 
+    // ENG-933: a spawn-LEVEL failure (here: a non-existent cwd, standing in
+    // for EMFILE/ENOMEM) emits the child's `error` event with no `close`. The
+    // new `child.on("error")` handler must surface it into the stream instead
+    // of letting it become an uncaught exception that crashes `arkor dev`.
+    // (The sibling ENOENT test spawns node against a missing *module*, which
+    // succeeds at spawn and exits via `close`, so it does NOT reach this
+    // branch.)
+    it("surfaces a spawn-level error (bad cwd) into the stream without crashing", async () => {
+      await writeCredentials(ANON_CREDS);
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      writeFileSync(fakeBin, `process.exit(0);\n`);
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        // A directory that does not exist: spawn() rejects with ENOENT on the
+        // cwd and emits 'error', never 'close'.
+        cwd: join(trainCwd, "does-not-exist-cwd"),
+        binPath: fakeBin,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain("failed to start:");
+      // Terminator from the error handler closed the stream cleanly (no
+      // uncaught exception took down the worker).
+      expect(text).not.toContain("exit=0");
+    });
+
     // ENG-933: when the client cancels the stream mid-training (e.g. the
     // Studio tab closes), `ReadableStream.cancel()` runs `child.kill()`, but
     // the child's buffered stdout `data` and the eventual `close` events still
