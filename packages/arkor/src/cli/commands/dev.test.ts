@@ -673,8 +673,26 @@ describe("runDev", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
     try {
+      const sigtermBefore = process.listeners("SIGTERM").length;
       await expect(runDev({ port: 4203 })).resolves.toBeUndefined();
       expect(serve).toHaveBeenCalledTimes(1);
+      // Regression (ENG-933 self-review): shutdown handlers must be installed
+      // even when token persistence fails, so a SIGTERM (`docker stop`) still
+      // routes through `process.exit` and fires 'exit' to reap any train
+      // child. Previously they were gated on persistence success.
+      expect(process.listeners("SIGTERM").length).toBe(sigtermBefore + 1);
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation(
+          ((_code?: number) => undefined as never) as typeof process.exit,
+        );
+      try {
+        const handler = process.listeners("SIGTERM").at(-1) as () => void;
+        handler();
+        expect(exitSpy).toHaveBeenCalledWith(143);
+      } finally {
+        exitSpy.mockRestore();
+      }
     } finally {
       stdoutSpy.mockRestore();
       // Restore writable for afterEach rmSync.
@@ -683,7 +701,7 @@ describe("runDev", () => {
   });
 
   it("registers SIGINT/SIGTERM/SIGHUP handlers that clean up the token + exit with the signal's conventional code", async () => {
-    // Branch coverage for scheduleStudioTokenCleanup's signal-handler body
+    // Branch coverage for installShutdownHandlers's signal-handler body
     // (`cleanup(); process.exit(128 + signal)`). We invoke each handler
     // synthetically and verify the token file is removed and the exit code
     // is the conventional `128 + signal number` (so a supervisor can tell

@@ -171,29 +171,34 @@ async function persistStudioToken(token: string): Promise<string> {
   return path;
 }
 
-function scheduleStudioTokenCleanup(path: string): void {
+/**
+ * Install the process-lifetime shutdown handlers, running `cleanup` (once)
+ * on normal exit and on SIGINT/SIGTERM/SIGHUP before re-exiting.
+ *
+ * Registered unconditionally once the server binds, NOT gated on studio-token
+ * persistence: even when persistence failed (read-only `$HOME` on Docker),
+ * a termination signal must still route through `process.exit` so that (a) it
+ * reports the conventional `128 + signal` code and (b) the synchronous 'exit'
+ * event fires, which is what lets each `/api/train` child register its own
+ * kill hook (see studio/server.ts) and avoid being orphaned on `docker stop`.
+ * `cleanup` itself handles the token file (a no-op when none was written).
+ */
+function installShutdownHandlers(cleanup: () => void): void {
   let cleaned = false;
-  const cleanup = () => {
+  const runCleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    try {
-      unlinkSync(path);
-    } catch {
-      // best-effort
-    }
+    cleanup();
   };
-  process.on("exit", cleanup);
+  process.on("exit", runCleanup);
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
-      cleanup();
+      runCleanup();
       // Exit with the conventional `128 + signal number` code (SIGINT ->
       // 130, SIGTERM -> 143, SIGHUP -> 129) rather than 0, so a supervisor
       // (systemd, `docker stop`, a shell `$?`) can tell the process was
       // terminated by a signal instead of exiting cleanly. `process.exit`
-      // fires the 'exit' listener above synchronously, and any training
-      // child spawned by `/api/train` also registers an 'exit' hook to
-      // kill itself (see studio/server.ts), so this path tears those down
-      // too instead of orphaning them.
+      // fires the 'exit' listener above synchronously.
       process.exit(128 + osConstants.signals[sig]);
     });
   }
@@ -234,6 +239,22 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     const server = serve(
       { fetch: app.fetch, port, hostname: "127.0.0.1" },
       () => {
+        // Install shutdown handlers immediately on successful bind, BEFORE
+        // (and independent of) token persistence. The handlers must fire even
+        // when persistence fails so a termination signal still reaps any
+        // /api/train child and reports the right exit code. `tokenPath` is
+        // captured by reference and only set once persistence succeeds, so
+        // the token-removal step is a no-op until then.
+        let tokenPath: string | undefined;
+        installShutdownHandlers(() => {
+          if (tokenPath !== undefined) {
+            try {
+              unlinkSync(tokenPath);
+            } catch {
+              // best-effort
+            }
+          }
+        });
         // Persisting the token to disk is *only* needed for the Vite SPA
         // dev workflow. The bundled `:port` flow injects the meta tag at
         // request time via `buildStudioApp`, so a failure here (read-only
@@ -241,8 +262,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         // block the server.
         void (async () => {
           try {
-            const tokenPath = await persistStudioToken(studioToken);
-            scheduleStudioTokenCleanup(tokenPath);
+            tokenPath = await persistStudioToken(studioToken);
           } catch (err) {
             ui.log.warn(
               `Could not write ${studioTokenPath()} (${

@@ -1560,10 +1560,11 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
     expect(streamCalls()).toBe(1);
   });
 
-  it("rejects immediately on a permanent 4xx open error (no reconnect)", async () => {
-    // A 404 (bad job id) / 401 (expired token) fails identically on every
-    // reconnect; with default unlimited attempts the old loop would spin
-    // forever and never settle wait(). It must reject at once.
+  it("rejects immediately on a permanent auth 4xx open error (no reconnect)", async () => {
+    // A 401 (expired/invalid token) fails identically on every reconnect
+    // since the token is fixed for this wait(); with default unlimited
+    // attempts the old loop would spin forever and never settle wait(). It
+    // must reject at once.
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,
@@ -1577,13 +1578,13 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
       const method = init?.method ?? "GET";
       if (method === "POST" && url.includes("/v1/jobs?")) {
         return Response.json(
-          { job: jobRow("j-404") },
+          { job: jobRow("j-401") },
           { status: 201, headers: { "content-type": "application/json" } },
         );
       }
-      if (method === "GET" && url.includes("/v1/jobs/j-404/events/stream")) {
+      if (method === "GET" && url.includes("/v1/jobs/j-401/events/stream")) {
         streamCount++;
-        return new Response("not found", { status: 404 });
+        return new Response("unauthorized", { status: 401 });
       }
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }) as typeof fetch;
@@ -1596,11 +1597,72 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
     try {
       const err = await trainer.wait().catch((e: unknown) => e);
       expect(err).toBeInstanceOf(CloudApiError);
-      expect((err as CloudApiError).status).toBe(404);
+      expect((err as CloudApiError).status).toBe(401);
     } finally {
       globalThis.fetch = original;
     }
     expect(streamCount).toBe(1);
+  });
+
+  it("retries a 404 open error (a just-created job's stream may not be visible yet)", async () => {
+    // wait() only ever streams a job it just created, so a 404 is the
+    // backend not having made the event stream visible yet, not a bad id.
+    // It must retry and recover, NOT reject like the auth statuses above.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    let streamCount = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: jobRow("j-404r") },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-404r/events/stream")) {
+        streamCount++;
+        if (streamCount === 1) {
+          return new Response("not found yet", { status: 404 });
+        }
+        return new Response(
+          sseStream([
+            `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+              type: "training.completed",
+              jobId: "j-404r",
+              timestamp: "2026-01-01T00:00:02Z",
+            })}\n\n`,
+          ]),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+    const trainer = createTrainer(
+      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectAttempts: 3,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await expect(trainer.wait()).resolves.toMatchObject({
+        job: { status: "completed" },
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCount).toBe(2);
   });
 
   it("still reconnects on a transient 5xx open error", async () => {

@@ -403,19 +403,26 @@ export function createTrainer(
             signal: abortSignal,
           });
         } catch (err) {
-          // Permanent client errors (bad job id -> 404, expired/invalid
-          // token -> 401/403, gone -> 410, upgrade required -> 426, ...)
-          // fail identically on every reconnect. With the default
-          // `maxReconnectAttempts` unset (unlimited) that would spin
-          // forever at up to the 60 s cap and never settle `wait()`. Reject
-          // now. 408 (request timeout) and 429 (rate limit) are transient,
-          // so they fall through to the reconnect path.
+          // Permanent client errors fail identically on every reconnect.
+          // With the default `maxReconnectAttempts` unset (unlimited) that
+          // would spin forever at up to the 60 s cap and never settle
+          // `wait()`, so reject now. The set is deliberately narrow:
+          //   - 401 / 403: auth. The token is fixed for this `wait()` (no
+          //     refresh yet), so it will never become valid on retry.
+          //   - 410: the job's event stream is gone.
+          //   - 426: SDK upgrade required.
+          // Everything else falls through to the reconnect path. In
+          // particular 404 is NOT treated as permanent: `wait()` only ever
+          // streams a job it just created itself, so a 404 here is the
+          // just-created job's stream not being visible yet (backend
+          // replication lag), which resolves on retry, not a bad id. 408
+          // (request timeout), 429 (rate limit), and 5xx are transient too.
           if (
             err instanceof CloudApiError &&
-            err.status >= 400 &&
-            err.status < 500 &&
-            err.status !== 408 &&
-            err.status !== 429
+            (err.status === 401 ||
+              err.status === 403 ||
+              err.status === 410 ||
+              err.status === 426)
           ) {
             throw err;
           }
