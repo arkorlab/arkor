@@ -65,13 +65,15 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 
 ### ポート競合
 
-`arkor dev` は空きポートの自動採用はしません。指定ポートが既に使われている（前回の `arkor dev` が残っている、無関係な dev サーバー、など）と `serve()` は Node の `net.Server` から来る `EADDRINUSE` をそのまま表に出してプロセスは非ゼロで終了します。`-p <port>` で別のポートを選ぶか、占有しているプロセスを止めてください。
+`arkor dev` は空きポートの自動採用はしません。指定ポートが既に使われている（前回の `arkor dev` が残っている、無関係な dev サーバー、など）と、リスナーの `EADDRINUSE` は捕捉され、`arkor dev` は ``Port <port> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート `<port>` は既に使用中です。別の `arkor dev` が動いているかもしれません。`--port` で別のポートを選んでください）という明確なメッセージとともに非ゼロで終了します。`-p <port>` で別のポートを選ぶか、占有しているプロセスを止めてください。
+
+トークンファイル（`~/.arkor/studio-token`）はポートのバインド成功 **後** にのみ書き込まれるため、使用中ポートへの 2 つ目の起動が失敗しても、正常に動いている 1 つ目のインスタンスが依存するトークンを上書き・削除することはありません。
 
 ## エラー
 
 | 症状 | 意味 | 対処 |
 | --- | --- | --- |
-| `Error: listen EADDRINUSE: address already in use 127.0.0.1:4000`（エラー: アドレス `127.0.0.1:4000` は既に使用中） | 別プロセスがポートを保持。 | 止めるか `--port <other>`。 |
+| ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート 4000 は既に使用中。根本のエラーは `EADDRINUSE`） | 別プロセスがポートを保持。 | 止めるか `--port <other>`。 |
 | `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.`（`<baseUrl>` に到達できませんでした（fetch 失敗）。Studio は起動を続け、初回の `/api/credentials` 受信時に再試行します） | `/v1/auth/cli/config` は成功したが、続く `/v1/auth/anonymous` がトランスポート障害で失敗。Studio サーバーは起動して再試行する。 | 接続を回復させれば `arkor dev` を再起動せずに次の `/api/credentials` ポーリングで SPA が回復。 |
 | `TypeError: fetch failed`（または同等のトランスポートエラーで `arkor dev` がそのまま終了する場合） | `/v1/auth/cli/config` 自体に届かなかったため、デプロイモードが特定できず fail-fast。 | 接続を回復してから `arkor dev` を再実行。 |
 | ``No credentials on file. Bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.``（認証情報ファイルがありません。匿名セッションを初期化します。アカウントでサインインしたい場合は `arkor login --oauth` を実行してください） | OAuth をアドバタイズしているデプロイで、この環境では初回の `arkor dev`。Studio をすぐ起動できるよう CLI が匿名で初期化している旨の案内で、エラーではない。 | 何もしなくてよい。本物のアカウントにアップグレードしたいなら、別途 `arkor login --oauth` を実行（`~/.arkor/credentials.json` を上書き）して Studio をリロード。 |

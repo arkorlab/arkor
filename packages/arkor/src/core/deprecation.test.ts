@@ -120,4 +120,25 @@ describe("tapDeprecation", () => {
       "Arkor SDK 1.4.0 is deprecated",
     );
   });
+
+  it("routes the notice to a custom sink instead of the global recorder", () => {
+    // ENG-933: the `sink` param lets CloudApiClient thread a per-request
+    // onDeprecation override into the raw chat/openEventStream paths. When a
+    // sink is passed, the SDK-global recorder must be left untouched.
+    recordDeprecation({
+      sdkVersion: "baseline",
+      message: "baseline",
+      sunset: null,
+    });
+    const captured: { message: string }[] = [];
+    const res = new Response(null, {
+      status: 200,
+      headers: { Deprecation: "true", Warning: '299 - "via sink"' },
+    });
+    tapDeprecation(res, "1.4.0", (notice) => captured.push(notice));
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.message).toBe("via sink");
+    // Global recorder untouched.
+    expect(getRecordedDeprecation()?.sdkVersion).toBe("baseline");
+  });
 });

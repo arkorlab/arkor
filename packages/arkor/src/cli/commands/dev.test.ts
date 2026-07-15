@@ -13,8 +13,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Module-level mocks for the libraries that would otherwise bind a port
 // or open a browser when runDev() is exercised end-to-end below.
+//
+// The default `serve` stub simulates a successful async bind: it invokes the
+// `listening` callback (2nd arg) so runDev's token-persistence + cleanup
+// registration runs, and returns a server object exposing `.on` for the
+// error handler. Tests that need EADDRINUSE override it with
+// `mockImplementationOnce`.
 vi.mock("@hono/node-server", () => ({
-  serve: vi.fn(),
+  serve: vi.fn((_opts: unknown, onListen?: () => void) => {
+    onListen?.();
+    return { on: vi.fn() };
+  }),
 }));
 vi.mock("open", () => ({
   default: vi.fn(async () => undefined),
@@ -673,11 +682,13 @@ describe("runDev", () => {
     }
   });
 
-  it("registers SIGINT/SIGTERM/SIGHUP handlers that clean up the token + exit", async () => {
-    // Branch coverage for scheduleStudioTokenCleanup's signal-handler
-    // body (`cleanup(); process.exit(0)`). We invoke each handler
-    // synthetically and verify the token file is removed; process.exit
-    // is stubbed so the test runner survives.
+  it("registers SIGINT/SIGTERM/SIGHUP handlers that clean up the token + exit with the signal's conventional code", async () => {
+    // Branch coverage for scheduleStudioTokenCleanup's signal-handler body
+    // (`cleanup(); process.exit(128 + signal)`). We invoke each handler
+    // synthetically and verify the token file is removed and the exit code
+    // is the conventional `128 + signal number` (so a supervisor can tell
+    // the process was signalled, not exited cleanly); process.exit is
+    // stubbed so the test runner survives.
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
@@ -695,15 +706,63 @@ describe("runDev", () => {
       return undefined as never;
     }) as typeof process.exit);
     try {
-      // Pull and fire the most-recently-registered SIGINT handler.
-      const sigintListeners = process.listeners("SIGINT");
-      const handler = sigintListeners.at(-1) as () => void;
-      handler();
+      // SIGINT -> 130, SIGTERM -> 143, SIGHUP -> 129.
+      for (const [sig, code] of [
+        ["SIGINT", 130],
+        ["SIGTERM", 143],
+        ["SIGHUP", 129],
+      ] as const) {
+        // Re-create the token so each handler has something to clean up
+        // (the first handler deletes it).
+        await writeCredentials({
+          mode: "anon",
+          token: "tok",
+          anonymousId: "aid",
+          arkorCloudApiUrl: "http://mock-cloud-api",
+          orgSlug: "anon-aid",
+        });
+        const listeners = process.listeners(sig);
+        const handler = listeners.at(-1) as () => void;
+        handler();
+        expect(exitSpy).toHaveBeenCalledWith(code);
+      }
       expect(existsSync(studioTokenPath())).toBe(false);
-      expect(exitSpy).toHaveBeenCalledWith(0);
     } finally {
       exitSpy.mockRestore();
     }
+  });
+
+  it("rejects with a clear message on EADDRINUSE without clobbering an existing token or registering cleanup", async () => {
+    // A second `arkor dev` on a port already in use must fail on the async
+    // 'error' event WITHOUT having persisted (and thus clobbered) a shared
+    // studio-token or registered an exit handler that would delete it. The
+    // stub below skips the listening callback and fires 'error' instead.
+    vi.mocked(serve).mockImplementationOnce((() => {
+      const server = {
+        on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+          if (event === "error") {
+            queueMicrotask(() =>
+              cb(
+                Object.assign(new Error("bind failed"), {
+                  code: "EADDRINUSE",
+                }),
+              ),
+            );
+          }
+          return server;
+        },
+      };
+      return server;
+    }) as unknown as typeof serve);
+
+    const exitBefore = process.listeners("exit").length;
+    const tokenBefore = existsSync(studioTokenPath());
+    await expect(runDev({ port: 4206 })).rejects.toThrow(
+      /Port 4206 is already in use/,
+    );
+    // No token was written and no cleanup handler was registered.
+    expect(existsSync(studioTokenPath())).toBe(tokenBefore);
+    expect(process.listeners("exit").length).toBe(exitBefore);
   });
 
   it("registers a cleanup listener that removes the studio-token file on exit", async () => {

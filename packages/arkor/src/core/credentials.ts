@@ -1,5 +1,12 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  chmod,
+  rename,
+  rm,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -83,7 +90,20 @@ export async function readCredentials(): Promise<Credentials | null> {
   const path = credentialsPath();
   if (!existsSync(path)) return null;
   const raw = await readFile(path, "utf8");
-  return JSON.parse(raw) as Credentials;
+  try {
+    return JSON.parse(raw) as Credentials;
+  } catch {
+    // A truncated / hand-mangled credentials.json must not make every
+    // `arkor` command die with a raw SyntaxError. Treat corruption like a
+    // missing file (matching `state.ts:readState`): callers bootstrap a
+    // fresh anonymous identity, and `arkor login` overwrites it cleanly.
+    // Warn so the user knows a prior login was discarded rather than
+    // silently swapped for an anonymous session.
+    process.stderr.write(
+      `arkor: warning: ${path} is not valid JSON and was ignored. Run \`arkor login\` to sign in again.\n`,
+    );
+    return null;
+  }
 }
 
 export async function writeCredentials(
@@ -92,8 +112,36 @@ export async function writeCredentials(
   const dir = credentialsDir();
   const path = credentialsPath();
   await mkdir(dir, { recursive: true });
-  await writeFile(path, JSON.stringify(credentials, null, 2), { mode: 0o600 });
-  await chmod(path, 0o600);
+  // Atomic write: serialise to a per-process temp file created at mode 0600
+  // (so the secret is never briefly world-readable and never left truncated
+  // if the process dies mid-write), then rename over the target. rename(2)
+  // is atomic within a filesystem, so a concurrent reader sees either the
+  // old file or the fully-written new one, never a partial JSON, and two
+  // `arkor` processes writing at once can't corrupt each other's file.
+  const tmp = `${path}.${process.pid}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(credentials, null, 2), { mode: 0o600 });
+    try {
+      // Belt-and-suspenders: guarantee 0600 regardless of the process
+      // umask. A chmod failure (seen on some network / overlay mounts) must
+      // not fail the whole login: the token is already staged and about to
+      // land, so warn rather than reject and mislead the caller into
+      // printing "Login failed" while `whoami` would still succeed.
+      await chmod(tmp, 0o600);
+    } catch (err) {
+      process.stderr.write(
+        `arkor: warning: could not set permissions on ${path}: ${
+          err instanceof Error ? err.message : String(err)
+        }\n`,
+      );
+    }
+    await rename(tmp, path);
+  } catch (err) {
+    // rename (or writeFile) failed: clean up the temp file so we don't leave
+    // a stray `credentials.json.<pid>.tmp` behind, then surface the error.
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
 }
 
 export async function getToken(credentials: Credentials): Promise<string> {

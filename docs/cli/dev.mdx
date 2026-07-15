@@ -65,13 +65,15 @@ This means `arkor dev` is safe on a shared dev machine: another tab cannot read 
 
 ### Port collision
 
-`arkor dev` does not auto-pick a free port. If the chosen port is already taken (another `arkor dev` left running, an unrelated dev server, etc.), `serve()` surfaces the underlying `EADDRINUSE` from Node's `net.Server` and the process exits non-zero. Pick a different port with `-p <port>`, or stop whatever else is bound to it.
+`arkor dev` does not auto-pick a free port. If the chosen port is already taken (another `arkor dev` left running, an unrelated dev server, etc.), the listener's `EADDRINUSE` is caught and `arkor dev` exits non-zero with `Port <port> is already in use. Another \`arkor dev\` may be running; pass --port to choose a different one.` Pick a different port with `-p <port>`, or stop whatever else is bound to it.
+
+The token file (`~/.arkor/studio-token`) is written only **after** the port binds successfully, so a failed second launch on a busy port never overwrites or deletes the token a healthy first instance depends on.
 
 ## Errors
 
 | Symptom | What it means | Fix |
 | --- | --- | --- |
-| `Error: listen EADDRINUSE: address already in use 127.0.0.1:4000` | Another process holds the port. | Stop it, or use `--port <other>`. |
+| ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.`` | Another process holds the port (the underlying error is `EADDRINUSE`). | Stop it, or use `--port <other>`. |
 | `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.` | `/v1/auth/cli/config` already succeeded, but the follow-up `/v1/auth/anonymous` hit a transport error. The Studio server starts and will retry. | Bring connectivity back; the SPA recovers on its next `/api/credentials` poll without restarting `arkor dev`. |
 | `TypeError: fetch failed` (or an equivalent transport error that exits `arkor dev` immediately) | `/v1/auth/cli/config` itself was unreachable, so the deployment mode could not be determined and the CLI fails fast. | Restore connectivity and re-run `arkor dev`. |
 | ``No credentials on file. Bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.`` | First `arkor dev` on this machine when the deployment advertises OAuth. The CLI bootstraps anonymous so Studio can start immediately; the message is informational, not an error. | Nothing required. To upgrade to a real account, run `arkor login --oauth` separately (it overwrites `~/.arkor/credentials.json`) and refresh Studio. |

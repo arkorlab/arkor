@@ -377,6 +377,25 @@ export function buildStudioApp(options: StudioServerOptions) {
       stdio: "pipe",
       cwd: trainCwd,
     });
+    // Don't let a training child outlive `arkor dev`. Ctrl-C (SIGINT) already
+    // reaches the child via the shared process group, but a SIGTERM/SIGHUP
+    // delivered only to the parent (e.g. `docker stop`) would orphan it and
+    // leak the GPU. dev.ts's signal handlers call `process.exit`, which fires
+    // 'exit' synchronously, so a kill hook here tears the child down on that
+    // path too. Removed once the child is gone so listeners don't accumulate.
+    const killChild = (): void => {
+      try {
+        child.kill();
+      } catch {
+        // already exited
+      }
+    };
+    process.once("exit", killChild);
+    const detachKillHook = (): void => {
+      process.removeListener("exit", killChild);
+    };
+    child.once("close", detachKillHook);
+    child.once("error", detachKillHook);
     const stream = new ReadableStream({
       start(controller) {
         // `Buffer` extends `Uint8Array`, so enqueue the raw chunk
@@ -385,11 +404,52 @@ export function buildStudioApp(options: StudioServerOptions) {
         // happens to split across reads. The terminator line still
         // needs encoding since it originates as a JS string.
         const enc = new TextEncoder();
-        child.stdout.on("data", (d: Buffer) => controller.enqueue(d));
-        child.stderr.on("data", (d: Buffer) => controller.enqueue(d));
+        // `done` guards every controller access below. When the client
+        // aborts (e.g. the Studio tab closes mid-training) the stream is
+        // cancelled and `child.kill()` runs, but the child's buffered
+        // `data` events and the eventual `close`/`error` events still
+        // fire on this EventEmitter. Calling `controller.enqueue`/`close`
+        // on an already-closed controller throws synchronously, and that
+        // throw would be an *uncaught* exception inside a ChildProcess
+        // listener, taking down the whole `arkor dev` process. The flag
+        // (plus a try/catch belt) makes every post-cancel callback a
+        // no-op instead.
+        let done = false;
+        const safeEnqueue = (chunk: Uint8Array) => {
+          if (done) return;
+          try {
+            controller.enqueue(chunk);
+          } catch {
+            done = true;
+          }
+        };
+        child.stdout.on("data", (d: Buffer) => safeEnqueue(d));
+        child.stderr.on("data", (d: Buffer) => safeEnqueue(d));
+        // A spawn failure (EMFILE/ENOMEM, missing cwd, ...) emits `error`
+        // with no `close` to follow. Without this listener the default
+        // EventEmitter behaviour rethrows it as an uncaught exception and
+        // crashes the dev server. Surface it into the stream instead.
+        child.on("error", (err) => {
+          if (done) return;
+          done = true;
+          try {
+            controller.enqueue(
+              enc.encode(`\n---\nfailed to start: ${err.message}\n`),
+            );
+            controller.close();
+          } catch {
+            // controller already closed (client went away first)
+          }
+        });
         child.on("close", (code) => {
-          controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
-          controller.close();
+          if (done) return;
+          done = true;
+          try {
+            controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
+            controller.close();
+          } catch {
+            // controller already closed (client went away first)
+          }
         });
       },
       cancel() {

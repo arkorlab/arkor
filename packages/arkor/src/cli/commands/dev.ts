@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { constants as osConstants } from "node:os";
 import { dirname } from "node:path";
 
 import { serve } from "@hono/node-server";
@@ -185,7 +186,15 @@ function scheduleStudioTokenCleanup(path: string): void {
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
       cleanup();
-      process.exit(0);
+      // Exit with the conventional `128 + signal number` code (SIGINT ->
+      // 130, SIGTERM -> 143, SIGHUP -> 129) rather than 0, so a supervisor
+      // (systemd, `docker stop`, a shell `$?`) can tell the process was
+      // terminated by a signal instead of exiting cleanly. `process.exit`
+      // fires the 'exit' listener above synchronously, and any training
+      // child spawned by `/api/train` also registers an 'exit' hook to
+      // kill itself (see studio/server.ts), so this path tears those down
+      // too instead of orphaning them.
+      process.exit(128 + osConstants.signals[sig]);
     });
   }
 }
@@ -198,21 +207,6 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // every /api/* request. Prevents another tab on the same machine from
   // hitting `arkor start` (and therefore RCE via dynamic import).
   const studioToken = randomBytes(32).toString("base64url");
-
-  // Persisting the token to disk is *only* needed for the Vite SPA dev
-  // workflow. The bundled `:port` flow injects the meta tag at request time
-  // via `buildStudioApp`, so a failure here (read-only $HOME on Docker /
-  // locked-down CI / restrictive umask) must not block the server.
-  try {
-    const tokenPath = await persistStudioToken(studioToken);
-    scheduleStudioTokenCleanup(tokenPath);
-  } catch (err) {
-    ui.log.warn(
-      `Could not write ${studioTokenPath()} (${
-        err instanceof Error ? err.message : String(err)
-      }). The Studio at http://localhost:${port} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
-    );
-  }
 
   // `autoAnonymous: true` (the default) lets the Hono server retry the
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
@@ -227,8 +221,57 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // IPv4. The host-header guard already accepts both, so the displayed URL
   // can still be `localhost`.
   const url = `http://localhost:${port}`;
-  serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
-  process.stdout.write(`Arkor Studio running on ${url}\n`);
+
+  await new Promise<void>((resolve, reject) => {
+    // Bind FIRST, then persist the studio token and register its cleanup
+    // in the `listening` callback (after a successful bind). The token
+    // file (`~/.arkor/studio-token`) is a single shared path, so a second
+    // `arkor dev` on the same port must fail on EADDRINUSE *without* having
+    // clobbered the first instance's token or registered an exit handler
+    // that would delete it. The old flow persisted up front, so a doomed
+    // second launch overwrote the token and then, on its crash-exit,
+    // unlinked the healthy instance's file, 403-ing the Vite SPA workflow.
+    const server = serve(
+      { fetch: app.fetch, port, hostname: "127.0.0.1" },
+      () => {
+        // Persisting the token to disk is *only* needed for the Vite SPA
+        // dev workflow. The bundled `:port` flow injects the meta tag at
+        // request time via `buildStudioApp`, so a failure here (read-only
+        // $HOME on Docker / locked-down CI / restrictive umask) must not
+        // block the server.
+        void (async () => {
+          try {
+            const tokenPath = await persistStudioToken(studioToken);
+            scheduleStudioTokenCleanup(tokenPath);
+          } catch (err) {
+            ui.log.warn(
+              `Could not write ${studioTokenPath()} (${
+                err instanceof Error ? err.message : String(err)
+              }). The Studio at ${url} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
+            );
+          }
+          process.stdout.write(`Arkor Studio running on ${url}\n`);
+          resolve();
+        })();
+      },
+    );
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      // EADDRINUSE (and friends) arrive here asynchronously. Without this
+      // listener Node rethrows them as an uncaught exception, which would
+      // also fire the process-wide exit handler and delete a *different*
+      // healthy instance's studio-token (see the bind-first note above).
+      if (err.code === "EADDRINUSE") {
+        reject(
+          new Error(
+            `Port ${port} is already in use. Another \`arkor dev\` may be running; pass --port to choose a different one.`,
+          ),
+        );
+        return;
+      }
+      reject(err instanceof Error ? err : new Error(String(err)));
+    });
+  });
+
   if (options.open) {
     try {
       await open(url);

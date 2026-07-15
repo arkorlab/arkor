@@ -52,6 +52,10 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        # Match every other workflow in the repo: don't leave the GITHUB_TOKEN
+        # persisted in .git/config (zizmor `artipacked`). CodeQL doesn't push.
+        persist-credentials: false
 
     # Add any setup steps before running the `github/codeql-action/init` action.
     # This includes steps like installing compilers or runtimes (`actions/setup-node`

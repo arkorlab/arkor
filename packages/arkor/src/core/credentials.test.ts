@@ -1,8 +1,14 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
   credentialsPath,
@@ -81,6 +87,43 @@ describe("credentials roundtrip", () => {
       clientId: "cid",
     };
     await writeCredentials(creds);
+    expect(await readCredentials()).toEqual(creds);
+  });
+
+  // ENG-933: a truncated / hand-mangled credentials.json used to make every
+  // `arkor` command die with a raw SyntaxError. It must now be treated like a
+  // missing file (returns null, warns) so callers re-bootstrap cleanly.
+  it("returns null (does not throw) on a corrupt credentials.json", async () => {
+    mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
+    // Simulate a crash mid-write: truncated JSON.
+    writeFileSync(credentialsPath(), '{ "mode": "oauth", "accessTok');
+    const warn = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      await expect(readCredentials()).resolves.toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("is not valid JSON"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // Atomic write: no stray `credentials.json.<pid>.tmp` left behind, and the
+  // final file is the fully-written JSON (never a partial).
+  it("writes atomically and leaves no temp file behind", async () => {
+    const creds: AnonymousCredentials = {
+      mode: "anon",
+      token: "tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://localhost",
+      orgSlug: "anon-abc",
+    };
+    await writeCredentials(creds);
+    const dir = join(fakeHome, ".arkor");
+    const strays = readdirSync(dir).filter((f) => f.includes(".tmp"));
+    expect(strays).toEqual([]);
     expect(await readCredentials()).toEqual(creds);
   });
 });

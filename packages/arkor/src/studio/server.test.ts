@@ -552,6 +552,52 @@ process.exit(0);
       expect(text).toContain("exit=");
       expect(text).not.toContain("exit=0");
     });
+
+    // ENG-933: when the client cancels the stream mid-training (e.g. the
+    // Studio tab closes), `ReadableStream.cancel()` runs `child.kill()`, but
+    // the child's buffered stdout `data` and the eventual `close` events still
+    // fire and used to call `controller.enqueue`/`close` on the now-closed
+    // controller. That throws synchronously inside a ChildProcess listener:
+    // an uncaught exception that crashed `arkor dev`. The guard must swallow
+    // it. An uncaught exception here would fail this test/suite.
+    it("does not crash when the client cancels the train stream mid-flight", async () => {
+      await writeCredentials(ANON_CREDS);
+      const slowBin = join(trainCwd, "slow-bin.mjs");
+      writeFileSync(
+        slowBin,
+        String.raw`let n = 0;
+const t = setInterval(() => { process.stdout.write("tick " + n++ + "\n"); }, 5);
+setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
+`,
+      );
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: slowBin,
+      });
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      const reader = res.body!.getReader();
+      // Read one chunk so the child is confirmed producing output, then
+      // cancel: this fires ReadableStream.cancel() -> child.kill().
+      await reader.read();
+      await reader.cancel();
+      // Let the kill + buffered data/close events flush against the closed
+      // controller. If the guard were missing, the uncaught exception would
+      // land in this window.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
   });
 
   describe("auto-anonymous bootstrap", () => {

@@ -1,4 +1,5 @@
 import {
+  mkdirSync,
   mkdtempSync,
   realpathSync,
   rmSync,
@@ -84,7 +85,13 @@ import {
   nodeModulesChangedSince,
   scaffold,
 } from "@arkor/cli-internal";
-import { buildCdLine, run, shellQuoteIfNeeded, shouldRunAsCli } from "./bin";
+import {
+  buildCdLine,
+  isOccupied,
+  run,
+  shellQuoteIfNeeded,
+  shouldRunAsCli,
+} from "./bin";
 
 let parentDir: string;
 const ORIG_CWD = process.cwd();
@@ -430,6 +437,45 @@ describe("create-arkor run()", () => {
 // symlink-tolerant comparison down so the regression can't
 // resurface; the fixture creates a real symlink with `symlinkSync`
 // and asserts the helper still recognises it as the entrypoint.
+describe("isOccupied", () => {
+  let occDir: string;
+  beforeEach(() => {
+    occDir = mkdtempSync(join(tmpdir(), "create-arkor-occ-"));
+  });
+  afterEach(() => {
+    rmSync(occDir, { recursive: true, force: true });
+  });
+
+  it("reports a non-existent path as free", async () => {
+    await expect(isOccupied(join(occDir, "nope"))).resolves.toBe(false);
+  });
+
+  it("reports an empty dir as free and a non-empty dir as occupied", async () => {
+    const empty = join(occDir, "empty");
+    mkdirSync(empty);
+    await expect(isOccupied(empty)).resolves.toBe(false);
+    writeFileSync(join(empty, "f.txt"), "x");
+    await expect(isOccupied(empty)).resolves.toBe(true);
+  });
+
+  it("reports a plain file as occupied", async () => {
+    const f = join(occDir, "file");
+    writeFileSync(f, "x");
+    await expect(isOccupied(f)).resolves.toBe(true);
+  });
+
+  // ENG-933: existsSync followed symlinks, so a broken (dangling) symlink
+  // reported "free" and the collision guard was bypassed. lstat inspects the
+  // link itself. Symlink-to-nonexistent needs privileges on Windows, so this
+  // case is POSIX-only.
+  it("reports a broken symlink as occupied (POSIX)", async () => {
+    if (process.platform === "win32") return;
+    const link = join(occDir, "dangling");
+    symlinkSync(join(occDir, "does-not-exist"), link);
+    await expect(isOccupied(link)).resolves.toBe(true);
+  });
+});
+
 describe("shouldRunAsCli", () => {
   let tmp: string;
   let realFile: string;
@@ -525,6 +571,15 @@ describe("shellQuoteIfNeeded", () => {
       });
     });
 
+    // ENG-933: comma is a legal filename char but PowerShell's array operator,
+    // so it must be quoted, not left bare (it's quoted on POSIX too for a
+    // consistent, copy-pasteable hint).
+    it("single-quotes paths containing a comma", () => {
+      withPlatform("linux", () => {
+        expect(shellQuoteIfNeeded("my,dir")).toBe("'my,dir'");
+      });
+    });
+
     it(
       String.raw`escapes embedded single quotes with the '\'' close-literal-open sequence`,
       () => {
@@ -544,6 +599,14 @@ describe("shellQuoteIfNeeded", () => {
     it("double-quotes paths containing spaces", () => {
       withPlatform("win32", () => {
         expect(shellQuoteIfNeeded("My App")).toBe('"My App"');
+      });
+    });
+
+    // ENG-933: `cd my,dir` in PowerShell parses the comma as the array
+    // operator and errors; the path must be double-quoted.
+    it("double-quotes paths containing a comma", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("my,dir")).toBe('"my,dir"');
       });
     });
 
