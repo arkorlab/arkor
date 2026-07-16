@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -110,14 +111,13 @@ describe("credentials roundtrip", () => {
     }
   });
 
-  // A read-level failure (not just a parse failure) must also behave like a
-  // missing file. EISDIR is the deterministic stand-in for the TOCTOU race
-  // (a concurrent `arkor logout` rm'ing the file after existsSync) that would
-  // otherwise reject ENOENT out of non-catching callers (whoami / bootstrap).
-  it("returns null (does not throw) when the credentials path is unreadable", async () => {
-    // credentials.json exists but is a directory -> readFile rejects EISDIR.
+  // A present-but-unreadable file must NOT be reported as missing: a valid but
+  // temporarily-unreadable OAuth login (EACCES/EIO/EISDIR) must rethrow so
+  // ensureCredentials never overwrites it with an anonymous identity. EISDIR
+  // (path is a directory) is the deterministic, non-root-bypassable stand-in.
+  it("rethrows (does not return null) when the credentials path is present but unreadable", async () => {
     mkdirSync(credentialsPath(), { recursive: true });
-    await expect(readCredentials()).resolves.toBeNull();
+    await expect(readCredentials()).rejects.toThrow();
   });
 
   // Atomic write: no stray `credentials.json.<pid>.<uuid>.tmp` left behind, and the
@@ -421,10 +421,10 @@ describe("ensureCredentials", () => {
     expect(await ensureCredentials()).toEqual(creds);
   });
 
-  it("warns once and re-bootstraps when the existing credentials file is corrupt", async () => {
-    // The warning lives here (the explicit bootstrap path), NOT in the
-    // always-on readCredentials/telemetry path, so a discarded login is
-    // surfaced exactly once rather than on every command.
+  it("warns once and re-bootstraps when the existing credentials file has corrupt content", async () => {
+    // Corrupt JSON content (not an I/O error) is safe to replace. The warning
+    // lives here (the explicit bootstrap path), NOT in the always-on
+    // readCredentials/telemetry path, so it surfaces exactly once.
     mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
     writeFileSync(credentialsPath(), "{ truncated");
     process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
@@ -444,13 +444,30 @@ describe("ensureCredentials", () => {
     try {
       const creds = await ensureCredentials();
       expect(creds).toMatchObject({ mode: "anon", token: "fresh-tok" });
-      const unreadableWarnings = warn.mock.calls.filter((c) =>
-        String(c[0]).includes("was unreadable"),
+      const replaceWarnings = warn.mock.calls.filter((c) =>
+        String(c[0]).includes("could not be parsed and is being replaced"),
       );
-      expect(unreadableWarnings).toHaveLength(1);
+      expect(replaceWarnings).toHaveLength(1);
     } finally {
       warn.mockRestore();
     }
+  });
+
+  // Data-loss regression guard (ENG-933 round-5 finding): a present-but-
+  // unreadable credentials file may hold a valid OAuth login. ensureCredentials
+  // must NOT bootstrap over it (no anonymous token request, no overwrite); it
+  // must surface the read error so the file is preserved.
+  it("does not overwrite a present-but-unreadable credentials file", async () => {
+    // EISDIR: credentials.json is a directory -> readCredentials rethrows.
+    mkdirSync(credentialsPath(), { recursive: true });
+    const fetchSpy = vi.fn(async () => {
+      throw new Error("anonymous bootstrap must not be attempted");
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    await expect(ensureCredentials()).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // The path is untouched (still the directory we created, never replaced).
+    expect(existsSync(credentialsPath())).toBe(true);
   });
 
   it("bootstraps a fresh anonymous identity, persists it, and returns the parsed shape", async () => {

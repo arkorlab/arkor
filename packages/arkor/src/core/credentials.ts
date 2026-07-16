@@ -90,22 +90,34 @@ export function studioTokenPath(): string {
 export async function readCredentials(): Promise<Credentials | null> {
   const path = credentialsPath();
   if (!existsSync(path)) return null;
-  // Wrap BOTH the read and the parse (matching `state.ts:readState`): the
-  // existsSync check above can race a concurrent `arkor logout` that rm's the
-  // file (readFile then rejects ENOENT), and a hand-mangled file can be
-  // unreadable (EACCES/EISDIR) or invalid JSON. All of these must behave like
-  // a missing file (return null) rather than throwing a raw error out of the
-  // many callers that don't catch (whoami, ensureCredentials, the studio
-  // server), so a truncated / raced / locked file never crashes an `arkor`
-  // command. Silent by design: this is the always-on telemetry read path
-  // (`telemetry.ts` getIdentity), so warning here would leak onto every
-  // command and double-print alongside the command's own read. The one-time
-  // "was unreadable" notice lives in `ensureCredentials` instead.
   try {
     const raw = await readFile(path, "utf8");
     return JSON.parse(raw) as Credentials;
-  } catch {
-    return null;
+  } catch (err) {
+    // Two failure modes that MUST NOT be conflated:
+    //
+    //  - ENOENT (the existsSync check above raced a concurrent `arkor logout`
+    //    rm) or a JSON parse error (genuinely corrupt content): there is no
+    //    valid login to preserve, so return null and let the caller
+    //    re-bootstrap. Returning null (not throwing) keeps the always-on
+    //    telemetry read path (`telemetry.ts` getIdentity) and the other
+    //    non-catching callers (whoami, ensureCredentials) from dying on a
+    //    raced / truncated file. Silent by design here; the one-time notice
+    //    lives in `ensureCredentials`.
+    //
+    //  - Anything else (EACCES / EPERM / EIO / EISDIR): the file is PRESENT
+    //    and may hold a perfectly valid OAuth session that is only
+    //    *temporarily* unreadable (root-owned after a `sudo arkor ...`,
+    //    evicted by iCloud / OneDrive, mode 0000, replaced by a directory).
+    //    Swallowing these as "missing" would let `ensureCredentials`
+    //    overwrite a real login with a fresh anonymous identity and
+    //    permanently drop the refresh token. Surface the real error instead
+    //    so the file is preserved and the user can fix it.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (err instanceof SyntaxError || code === "ENOENT") {
+      return null;
+    }
+    throw err;
   }
 }
 
@@ -278,14 +290,16 @@ export async function ensureCredentials(): Promise<Credentials> {
   const existing = await readCredentials();
   if (existing) return existing;
 
-  // `readCredentials` returns null for both an absent and an unreadable file
-  // (it stays silent for the telemetry path). If a file is present here, it
-  // was corrupt and is about to be replaced by the anonymous bootstrap below;
-  // surface that once from this explicit path so a discarded login is visible
-  // without the always-on telemetry read ever printing it.
+  // At this point `readCredentials` returned null, which now means only
+  // "absent" or "present but corrupt JSON" (a present-but-unreadable file
+  // rethrows above and never reaches here, so a valid login is never
+  // silently replaced). If a file is nonetheless present, its content was
+  // corrupt and is about to be overwritten by the anonymous bootstrap below;
+  // surface that once from this explicit path (the always-on telemetry read
+  // stays silent).
   if (existsSync(credentialsPath())) {
     process.stderr.write(
-      `arkor: warning: ${credentialsPath()} was unreadable and is being replaced. Run \`arkor login\` to sign in again.\n`,
+      `arkor: warning: ${credentialsPath()} could not be parsed and is being replaced. Run \`arkor login\` to sign in again.\n`,
     );
   }
 

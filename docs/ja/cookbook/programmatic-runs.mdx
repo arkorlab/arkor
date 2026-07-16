@@ -23,7 +23,7 @@ await runTrainer(".arkor/build/index.mjs");  // 明示的なビルド成果物
 
 トレーナーが既に `src/arkor/` にあって、CLI 以外のコード（GitHub Actions のステップ、ビルドステップ、使い捨てスクリプト）からトリガーしたいだけなら、これが正しい形です。トレーナーのコールバックと `abortSignal` の配線をそのまま継承します。
 
-CI で見落としがちな細かい点: `runTrainer()`（および `trainer.wait()`）は学習が `completed` で終わっても `failed` で終わっても **resolve します**。SSE ストリームはどちらでも単に終了し、reject するのはトランスポートレベルのエラー（Abort、再接続が尽きたなど）だけです。`runTrainer()` を素朴に `try / catch` で囲むと、失敗した学習ジョブでも CI は `0` で終わってしまいます。CI を失敗させたいなら、トレーナーを直接実行して終端ステータスを検査してください:
+CI で見落としがちな細かい点: `runTrainer()`（および `trainer.wait()`）は学習が `completed` で終わっても `failed` で終わっても **resolve します**。SSE ストリームはどちらでも単に終了し、reject するのはトランスポートレベルのエラー（Abort、再接続が尽きたなど）か、ライフサイクルコールバックが投げた例外だけです。`runTrainer()` を素朴に `try / catch` で囲むと、失敗した学習ジョブでも CI は `0` で終わってしまいます。CI を失敗させたいなら、トレーナーを直接実行して終端ステータスを検査してください:
 
 ```ts
 // scripts/train.ts
@@ -41,7 +41,8 @@ try {
   process.exit(1);
 } catch (err) {
   // wait() が終端ステータスに到達する前に reject（abortSignal abort、
-  // 再接続試行尽き、など）。CI 失敗扱い。
+  // 再接続試行尽き、ライフサイクルコールバックが投げた例外、など）。
+  // CI 失敗扱い。
   console.error("wait() threw:", err);
   process.exit(1);
 }
@@ -122,7 +123,8 @@ export async function POST() {
   const trainer = makeTrainer();
   const { jobId } = await trainer.start();
   // wait() はバックグラウンドで実行。.catch はトランスポートレベルの
-  // エラー（abort、再接続尽き）だけで発火する。`training.failed` の
+  // エラー（abort、再接続尽き）か、ライフサイクルコールバックが投げた
+  // 例外だけで発火する。`training.failed` の
   // 終端状態は wait() を通常 resolve させ `result.job.status` が
   // "failed" になる。失敗時にアラートしたいならトレーナーの
   // onFailed コールバックを使う（/ja/cookbook/notifications を参照）。

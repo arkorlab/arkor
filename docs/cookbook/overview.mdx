@@ -20,7 +20,7 @@ This section collects the patterns that show up first when you try. Each recipe 
 
 ## A note on callback exceptions before you start
 
-Three of the recipes below put logic inside the lifecycle callbacks. The runtime catches errors thrown out of a callback and routes them through the SSE reconnect loop ([SDK § Lifecycle callbacks](/sdk/callbacks)), and `maxReconnectAttempts` defaults to unlimited. In practice that means a `throw` inside a callback can be silently retried.
+Three of the recipes below put logic inside the lifecycle callbacks. A `throw` inside a callback rejects `trainer.wait()` immediately with your error ([SDK § Lifecycle callbacks](/sdk/callbacks)); it is not routed through the SSE reconnect loop, not silently retried, and the event is not swallowed. The reconnect loop handles only transport failures (a dropped connection, a transient 5xx). For non-fatal handling, catch inside the callback.
 
 The recipes here use a simple convention to stay deterministic:
 
