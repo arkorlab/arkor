@@ -100,8 +100,8 @@ await trainer.cancel(); // ベストエフォート、上記参照
 
 `wait()` はデフォルトで一過性の障害を超えて SSE ストリームを生かし続けます:
 
-- 少なくとも 1 本の実データフレームを受信した後（keepalive の `ping` フレームは進捗として数えません）のクリーンなストリーム EOF は、即時再接続をベース遅延（`initialReconnectDelayMs`、デフォルト 1000 ms）で起こし、失敗回数にはカウントしません。ストリームは `Last-Event-ID` で再開します。
-- 接続エラー、またはデータフレームを 1 本も受信せずの EOF（keepalive ping だけを送って EOF した場合を含む）は失敗としてカウントされ `handleFailure` を経由します: 指数バックオフは `initialReconnectDelayMs * 2 ** attempt`、各試行の遅延は `maxReconnectDelayMs`（デフォルト 60 000 ms）にクランプ、連続失敗カウントは `maxReconnectAttempts` で上限。これは意図的です: ping だけを送って EOF するような壊れた中継が、ベース遅延で無限ループしないように失敗として計上します。
+- 少なくとも 1 本のパース可能な実データフレームを受信した後（keepalive の `ping` フレームと不正なフレームは進捗として数えません）のクリーンなストリーム EOF は、即時再接続をベース遅延（`initialReconnectDelayMs`、デフォルト 1000 ms）で起こし、失敗回数にはカウントしません。ストリームは `Last-Event-ID` で再開します。
+- 接続エラー、またはパース可能なデータフレームを 1 本も受信せずの EOF（keepalive ping やパース不能なゴミだけを送って EOF した場合を含む）は失敗としてカウントされ `handleFailure` を経由します: 指数バックオフは `initialReconnectDelayMs * 2 ** attempt`、各試行の遅延は `maxReconnectDelayMs`（デフォルト 60 000 ms）にクランプ、連続失敗カウントは `maxReconnectAttempts` で上限。これは意図的です: ping やゴミだけを送って EOF するような壊れた中継が、ベース遅延で無限ループしないように失敗として計上します。
 - 恒久的な接続エラーはリトライループの例外です: `401` / `403`（認証）、`410`（gone）、`426`（アップグレード必須）のレスポンスは、再接続しても同じ結果になるため `wait()` を即座に reject します。`404` は一過性として扱いリトライします（作成直後のジョブのイベントストリームがまだ可視でない場合があるため）。`408`、`429`、`5xx` も同様にリトライします。
 - `maxReconnectAttempts` のデフォルトは `undefined`（連続失敗無制限）。`TrainerInput` から設定はできず、`reconnectDelayMs` と `maxReconnectDelayMs` も含め `createTrainer` の第 2 引数 `context`（`@internal` 注釈付き、変更され得る）からのみ設定できます。多くのプロジェクトでこれは、ジョブが走っている限り一過性 SSE 失敗が黙ってリトライされ続ける、ということを意味します。
 

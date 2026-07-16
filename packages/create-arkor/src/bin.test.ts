@@ -474,6 +474,19 @@ describe("isOccupied", () => {
     symlinkSync(join(occDir, "does-not-exist"), link);
     await expect(isOccupied(link)).resolves.toBe(true);
   });
+
+  // PR #193 review (greptile/cubic): only ENOENT means "free". Any other
+  // lstat failure (here ENOTDIR: a regular file in the parent chain, the
+  // deterministic non-root stand-in for EACCES/EIO) means the path cannot be
+  // scaffolded into, so it must report occupied instead of letting the
+  // scaffold proceed and die mid-write. Windows maps this case to ENOENT, so
+  // the assertion is POSIX-only.
+  it("reports a path behind a non-ENOENT lstat error as occupied (POSIX)", async () => {
+    if (process.platform === "win32") return;
+    const file = join(occDir, "plain-file");
+    writeFileSync(file, "x");
+    await expect(isOccupied(join(file, "child"))).resolves.toBe(true);
+  });
 });
 
 describe("shouldRunAsCli", () => {

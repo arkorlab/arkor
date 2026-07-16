@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
@@ -344,6 +344,21 @@ export function buildStudioApp(options: StudioServerOptions) {
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 
+  // Live `/api/train` children, reaped by a single refcounted process 'exit'
+  // listener (attached on first spawn, detached when the last child goes) so
+  // concurrent runs don't accumulate one listener each. Scoped per app: tests
+  // build many apps, and a module-level listener would leak across them.
+  const liveTrainChildren = new Set<ChildProcess>();
+  const killLiveTrainChildren = (): void => {
+    for (const child of liveTrainChildren) {
+      try {
+        child.kill();
+      } catch {
+        // already exited
+      }
+    }
+  };
+
   app.post("/api/train", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
     let trainFile: string | undefined;
@@ -381,18 +396,19 @@ export function buildStudioApp(options: StudioServerOptions) {
     // reaches the child via the shared process group, but a SIGTERM/SIGHUP
     // delivered only to the parent (e.g. `docker stop`) would orphan it and
     // leak the GPU. dev.ts's signal handlers call `process.exit`, which fires
-    // 'exit' synchronously, so a kill hook here tears the child down on that
-    // path too. Removed once the child is gone so listeners don't accumulate.
-    const killChild = (): void => {
-      try {
-        child.kill();
-      } catch {
-        // already exited
-      }
-    };
-    process.once("exit", killChild);
+    // 'exit' synchronously, so the shared kill hook tears children down on
+    // that path too. One refcounted process-level listener per app (attached
+    // while any child is live, detached at zero) rather than one per spawn,
+    // so >10 concurrent runs can't trip MaxListenersExceededWarning.
+    liveTrainChildren.add(child);
+    if (liveTrainChildren.size === 1) {
+      process.on("exit", killLiveTrainChildren);
+    }
     const detachKillHook = (): void => {
-      process.removeListener("exit", killChild);
+      liveTrainChildren.delete(child);
+      if (liveTrainChildren.size === 0) {
+        process.removeListener("exit", killLiveTrainChildren);
+      }
     };
     child.once("close", detachKillHook);
     child.once("error", detachKillHook);

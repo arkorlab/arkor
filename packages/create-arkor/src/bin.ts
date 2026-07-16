@@ -84,8 +84,15 @@ export async function isOccupied(path: string): Promise<boolean> {
     // confusing ENOENT. `lstat` inspects the link itself, so any entry
     // present at the path is treated as a collision.
     stats = await lstat(path);
-  } catch {
-    return false; // ENOENT: nothing there
+  } catch (err) {
+    // Only ENOENT means "nothing there". Any other lstat failure (EACCES,
+    // EIO, ELOOP, ENOTDIR from a file in the parent chain, ...) means the
+    // path exists in some form we cannot inspect; scaffolding into it would
+    // fail later with a misleading mid-write error, so treat it as occupied
+    // and surface the collision up front, consistent with the readdir
+    // fallback below.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    return true;
   }
   // Anything that isn't a real directory (a file, or a symlink of any kind
   // including a broken one) occupies the path outright, matching this

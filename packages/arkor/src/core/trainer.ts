@@ -446,16 +446,21 @@ export function createTrainer(
               terminal = true;
               break;
             }
-            // A real data frame: the stream is genuinely productive, so the
-            // connection is healthy. Reset the consecutive-failure budget.
-            receivedAny = true;
-            attempt = 0;
             let parsed: StreamEvent;
             try {
               parsed = JSON.parse(sse.data) as StreamEvent;
             } catch {
               continue; // malformed event; skip
             }
+            // A parseable data frame: the stream is genuinely productive, so
+            // the connection is healthy. Reset the consecutive-failure
+            // budget. Deliberately AFTER the parse (and, like pings,
+            // malformed frames are excluded): an intermediary that returns
+            // 200 and injects unparseable garbage before EOF must still
+            // accrue toward `maxReconnectAttempts` instead of looping
+            // forever on the clean-reconnect (no-counter) path below.
+            receivedAny = true;
+            attempt = 0;
             let result: { terminal: boolean; artifacts: unknown[] };
             try {
               result = await dispatch(parsed, null);

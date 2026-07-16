@@ -1726,6 +1726,44 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
     expect(streamCount).toBe(2);
   });
 
+  it("counts malformed-frame-only streams toward maxReconnectAttempts", async () => {
+    // PR #193 review (cubic): progress accounting must happen AFTER a
+    // successful JSON.parse. An intermediary that returns 200, injects
+    // unparseable garbage as a data frame, then EOFs must NOT reset the
+    // failure budget, or it loops forever at the base delay exactly like
+    // the ping-only case above.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const garbage = "id: 1\nevent: training.log\ndata: <html>bad gateway\n\n";
+    const { fetch: fetcher, streamCalls } = streamFetcherLocal([
+      { kind: "stream", chunks: [garbage] },
+      { kind: "stream", chunks: [garbage] },
+      { kind: "stream", chunks: [garbage] },
+    ]);
+    const trainer = createTrainer(
+      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 2,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      const err = await trainer.wait().catch((e: unknown) => e);
+      expect((err as Error).message).toMatch(/failed 3 consecutive times/);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCalls()).toBe(3);
+  });
+
   it("counts ping-only streams toward maxReconnectAttempts", async () => {
     // A broken intermediary that emits a single keepalive ping then EOFs must
     // NOT reset the failure budget: pings are no longer treated as progress,
