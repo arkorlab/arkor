@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearRecordedDeprecation,
@@ -119,6 +119,33 @@ describe("tapDeprecation", () => {
     expect(getRecordedDeprecation()?.message).toBe(
       "Arkor SDK 1.4.0 is deprecated",
     );
+  });
+
+  // PR #193 review (codex): a throwing sink must not propagate. The typed RPC
+  // path already swallows handler failures upstream; the raw path must match,
+  // or a buggy onDeprecation override rejects an otherwise-successful
+  // chat()/openEventStream() response.
+  it("swallows (and logs) a throwing sink instead of propagating", () => {
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const res = new Response(null, {
+        status: 200,
+        headers: { Deprecation: "true", Warning: '299 - "deprecated"' },
+      });
+      expect(() =>
+        tapDeprecation(res, "1.4.0", () => {
+          throw new Error("buggy handler");
+        }),
+      ).not.toThrow();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("onDeprecation handler threw"),
+        expect.any(Error),
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 
   it("routes the notice to a custom sink instead of the global recorder", () => {

@@ -41,11 +41,20 @@ export function tapDeprecation(
     warning?.match(/^\d{3}\s+-\s+"(.+)"\s*$/)?.[1] ??
     warning ??
     `Arkor SDK ${sdkVersion} is deprecated`;
-  sink({
-    sdkVersion,
-    message,
-    sunset: res.headers.get("Sunset"),
-  });
+  try {
+    sink({
+      sdkVersion,
+      message,
+      sunset: res.headers.get("Sunset"),
+    });
+  } catch (err) {
+    // Parity with the typed RPC path: `@arkor/cloud-api-client` catches a
+    // throwing onDeprecation handler and logs it instead of failing the API
+    // call. A deprecation notice is advisory, so a buggy handler must never
+    // reject an otherwise-successful chat()/openEventStream() response here
+    // either.
+    console.error("[arkor] onDeprecation handler threw; ignoring:", err);
+  }
 }
 
 export type { DeprecationNotice } from "@arkor/cloud-api-client";
