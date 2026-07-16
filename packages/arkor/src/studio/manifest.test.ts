@@ -66,4 +66,41 @@ describe("readManifestSummary cache-bust key", () => {
     expect(third).toEqual({ trainer: { name: "renamed-bot" } });
     expect(urls[2]).not.toBe(urls[0]);
   });
+
+  // PR #193 review (codex): Node's ESM registry caches FAILED evaluations by
+  // URL too. A bundle whose top-level code threw because of an external
+  // runtime condition (missing config file, ...) would stay a cached rejection
+  // forever under a pure content-hash key, since fixing the condition doesn't
+  // change the bundle bytes. After a failure the next read must use a fresh
+  // URL (retry salt); once a salted URL succeeds it is reused.
+  it("bumps the import URL after a failed import and reuses it after recovery", async () => {
+    writeFileSync(
+      join(cwd, "src", "arkor", "index.ts"),
+      manifestSource("qa-bot"),
+    );
+
+    const urls: string[] = [];
+    let failNext = true;
+    const importSpy = vi.fn(async (u: string) => {
+      urls.push(u);
+      if (failNext) {
+        failNext = false;
+        throw new Error("external condition not met");
+      }
+      return (await import(u)) as Record<string, unknown>;
+    });
+
+    // First read: the module evaluation fails (external condition).
+    await expect(readManifestSummary(cwd, importSpy)).rejects.toThrow(
+      "external condition not met",
+    );
+    // Second read, source unchanged: a DIFFERENT URL, so the recovered
+    // condition is picked up instead of Node's cached rejection.
+    const second = await readManifestSummary(cwd, importSpy);
+    expect(second).toEqual({ trainer: { name: "qa-bot" } });
+    expect(urls[1]).not.toBe(urls[0]);
+    // Third read: the successful salted URL is reused (no per-load growth).
+    await readManifestSummary(cwd, importSpy);
+    expect(urls[2]).toBe(urls[1]);
+  });
 });

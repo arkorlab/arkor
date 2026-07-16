@@ -468,12 +468,14 @@ describe("isOccupied", () => {
   // reported "free" and the collision guard was bypassed. lstat inspects the
   // link itself. Symlink-to-nonexistent needs privileges on Windows, so this
   // case is POSIX-only.
-  it("reports a broken symlink as occupied (POSIX)", async () => {
-    if (process.platform === "win32") return;
-    const link = join(occDir, "dangling");
-    symlinkSync(join(occDir, "does-not-exist"), link);
-    await expect(isOccupied(link)).resolves.toBe(true);
-  });
+  it.skipIf(process.platform === "win32")(
+    "reports a broken symlink as occupied (POSIX)",
+    async () => {
+      const link = join(occDir, "dangling");
+      symlinkSync(join(occDir, "does-not-exist"), link);
+      await expect(isOccupied(link)).resolves.toBe(true);
+    },
+  );
 
   // PR #193 review (greptile/cubic): only ENOENT means "free". Any other
   // lstat failure (here ENOTDIR: a regular file in the parent chain, the
@@ -481,12 +483,14 @@ describe("isOccupied", () => {
   // scaffolded into, so it must report occupied instead of letting the
   // scaffold proceed and die mid-write. Windows maps this case to ENOENT, so
   // the assertion is POSIX-only.
-  it("reports a path behind a non-ENOENT lstat error as occupied (POSIX)", async () => {
-    if (process.platform === "win32") return;
-    const file = join(occDir, "plain-file");
-    writeFileSync(file, "x");
-    await expect(isOccupied(join(file, "child"))).resolves.toBe(true);
-  });
+  it.skipIf(process.platform === "win32")(
+    "reports a path behind a non-ENOENT lstat error as occupied (POSIX)",
+    async () => {
+      const file = join(occDir, "plain-file");
+      writeFileSync(file, "x");
+      await expect(isOccupied(join(file, "child"))).resolves.toBe(true);
+    },
+  );
 });
 
 describe("shouldRunAsCli", () => {

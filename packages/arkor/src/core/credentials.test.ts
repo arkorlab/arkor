@@ -93,7 +93,8 @@ describe("credentials roundtrip", () => {
 
   // ENG-933: a truncated / hand-mangled credentials.json used to make every
   // `arkor` command die with a raw SyntaxError. It must now be treated like a
-  // missing file (returns null, warns) so callers re-bootstrap cleanly.
+  // missing file (returns null, silently) so callers re-bootstrap cleanly; the
+  // one-time warning lives in ensureCredentials, not here.
   it("returns null (does not throw, stays silent) on a corrupt credentials.json", async () => {
     mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
     // Simulate a crash mid-write: truncated JSON.

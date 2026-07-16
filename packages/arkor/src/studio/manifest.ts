@@ -39,6 +39,19 @@ const EMPTY: ManifestSummary = { trainer: null };
  * `importModule` is an injectable seam (default: dynamic `import`) so tests can
  * observe the cache-bust URL and assert the reuse-vs-bust behaviour directly.
  */
+
+// Node's ESM registry caches FAILED evaluations by URL too: a bundle whose
+// top-level code threw because of an external runtime condition (e.g. a
+// `readFileSync` of a config file that doesn't exist yet) would stay a cached
+// rejection under a pure content-hash key, since fixing the external condition
+// doesn't change the bundle bytes. Track the last import's outcome and bump a
+// retry salt after a failure so the next request re-imports; a successful
+// salted URL is then reused, keeping the no-edit steady state at one registry
+// entry per distinct build.
+let lastImportKey: string | null = null;
+let lastImportFailed = false;
+let retrySalt = 0;
+
 export async function readManifestSummary(
   cwd: string,
   importModule: (url: string) => Promise<Record<string, unknown>> = (u) =>
@@ -49,8 +62,23 @@ export async function readManifestSummary(
     .update(await readFile(outFile))
     .digest("hex")
     .slice(0, 16);
-  const url = `${pathToFileURL(outFile).href}?t=${digest}`;
-  const mod = await importModule(url);
+  const key = `${pathToFileURL(outFile).href}?t=${digest}`;
+  if (key !== lastImportKey) {
+    lastImportKey = key;
+    retrySalt = 0;
+    lastImportFailed = false;
+  } else if (lastImportFailed) {
+    retrySalt++;
+  }
+  const url = retrySalt === 0 ? key : `${key}&r=${retrySalt}`;
+  let mod: Record<string, unknown>;
+  try {
+    mod = await importModule(url);
+    lastImportFailed = false;
+  } catch (err) {
+    lastImportFailed = true;
+    throw err;
+  }
   const candidate = mod.arkor ?? mod.default;
   if (!isArkor(candidate)) return EMPTY;
   const trainer = candidate.trainer ? { name: candidate.trainer.name } : null;

@@ -17,11 +17,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The default `serve` stub simulates a successful async bind: it invokes the
 // `listening` callback (2nd arg) so runDev's token-persistence + cleanup
 // registration runs, and returns a server object exposing `.on` for the
-// error handler. Tests that need EADDRINUSE override it with
-// `mockImplementationOnce`.
+// error handler. The callback is deferred via queueMicrotask to stay
+// faithful to the real timing contract (the real server fires 'listening'
+// asynchronously, after runDev has registered its 'error' handler). Tests
+// that need EADDRINUSE override it with `mockImplementationOnce`.
 vi.mock("@hono/node-server", () => ({
   serve: vi.fn((_opts: unknown, onListen?: () => void) => {
-    onListen?.();
+    queueMicrotask(() => onListen?.());
     return { on: vi.fn() };
   }),
 }));
@@ -724,26 +726,21 @@ describe("runDev", () => {
       return undefined as never;
     }) as typeof process.exit);
     try {
-      // SIGINT -> 130, SIGTERM -> 143, SIGHUP -> 129.
+      // SIGINT -> 130, SIGTERM -> 143, SIGHUP -> 129. Token cleanup is
+      // idempotent (a shared `cleaned` guard in installShutdownHandlers), so
+      // only the FIRST handler invocation below actually unlinks the file;
+      // the later iterations verify the per-signal exit codes only.
       for (const [sig, code] of [
         ["SIGINT", 130],
         ["SIGTERM", 143],
         ["SIGHUP", 129],
       ] as const) {
-        // Re-create the token so each handler has something to clean up
-        // (the first handler deletes it).
-        await writeCredentials({
-          mode: "anon",
-          token: "tok",
-          anonymousId: "aid",
-          arkorCloudApiUrl: "http://mock-cloud-api",
-          orgSlug: "anon-aid",
-        });
         const listeners = process.listeners(sig);
         const handler = listeners.at(-1) as () => void;
         handler();
         expect(exitSpy).toHaveBeenCalledWith(code);
       }
+      // Removed by the first (SIGINT) invocation above.
       expect(existsSync(studioTokenPath())).toBe(false);
     } finally {
       exitSpy.mockRestore();

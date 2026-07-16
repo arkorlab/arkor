@@ -40,9 +40,9 @@ try {
   console.error(`status=${result.job.status}: ${result.job.error ?? "no error message"}`);
   process.exit(1);
 } catch (err) {
-  // wait() が終端ステータスに到達する前に reject（abortSignal abort、
-  // 再接続試行尽き、ライフサイクルコールバックが投げた例外、など）。
-  // CI 失敗扱い。
+  // wait() が終端ステータスで resolve せずに reject: abortSignal abort、
+  // 再接続試行尽き、またはライフサイクルコールバックが投げた例外
+  // （バックエンドが終端状態に到達した後でも発火し得る）。CI 失敗扱い。
   console.error("wait() threw:", err);
   process.exit(1);
 }

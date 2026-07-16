@@ -228,6 +228,10 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   const url = `http://localhost:${port}`;
 
   await new Promise<void>((resolve, reject) => {
+    // Tracks whether this promise has settled so the persistent 'error'
+    // listener below can tell a pre-bind failure (reject) from a post-startup
+    // fault (log; reject would be a silent no-op).
+    let settled = false;
     // Bind FIRST, then persist the studio token and register its cleanup
     // in the `listening` callback (after a successful bind). The token
     // file (`~/.arkor/studio-token`) is a single shared path, so a second
@@ -271,6 +275,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
             );
           }
           process.stdout.write(`Arkor Studio running on ${url}\n`);
+          settled = true;
           resolve();
         })();
       },
@@ -280,6 +285,16 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
       // listener Node rethrows them as an uncaught exception, which would
       // also fire the process-wide exit handler and delete a *different*
       // healthy instance's studio-token (see the bind-first note above).
+      //
+      // After the promise has settled (successful bind), reject() would be a
+      // silent no-op, so log post-startup server errors instead of dropping
+      // them: an operator watching a running Studio should see a live socket
+      // fault (EMFILE, ...) even though the process keeps serving.
+      if (settled) {
+        ui.log.warn(`Studio server error after startup: ${err.message}`);
+        return;
+      }
+      settled = true;
       if (err.code === "EADDRINUSE") {
         reject(
           new Error(

@@ -40,8 +40,9 @@ try {
   console.error(`status=${result.job.status}: ${result.job.error ?? "no error message"}`);
   process.exit(1);
 } catch (err) {
-  // wait() rejected before reaching a terminal status (abortSignal aborted,
-  // reconnect attempts exhausted, a thrown lifecycle callback, etc.). Treat
+  // wait() rejected instead of resolving with a terminal status: abortSignal
+  // aborted, reconnect attempts exhausted, or a thrown lifecycle callback
+  // (which can fire even after the backend reached a terminal state). Treat
   // as a CI failure too.
   console.error("wait() threw:", err);
   process.exit(1);
