@@ -250,26 +250,29 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         // Install shutdown handlers immediately on successful bind, BEFORE
         // (and independent of) token persistence. The handlers must fire even
         // when persistence fails so a termination signal still reaps any
-        // /api/train child and reports the right exit code. `tokenPath` is
-        // captured by reference and only set once persistence succeeds, so
-        // the token-removal step is a no-op until then.
-        let tokenPath: string | undefined;
+        // /api/train child and reports the right exit code. The cleanup
+        // resolves the token path directly (rather than gating on a variable
+        // assigned after persistence resolves): a signal landing after
+        // writeFile succeeded but before persistStudioToken's continuation
+        // ran would otherwise leave the file behind. The ownership check
+        // below makes the direct resolution safe in every state: not yet
+        // written -> ENOENT (caught); written by us -> matches, removed;
+        // overwritten by another instance -> differs, left alone.
         installShutdownHandlers(() => {
-          if (tokenPath !== undefined) {
-            try {
-              // Ownership check before unlinking: the token path is a single
-              // shared file, so a second `arkor dev` on a DIFFERENT port may
-              // have legitimately overwritten it since we wrote it
-              // (last-writer-wins is the documented multi-instance
-              // behaviour). Deleting it then would 403 the OTHER, still-
-              // running instance's Vite SPA workflow; only remove the file
-              // if it still holds OUR token.
-              if (readFileSync(tokenPath, "utf8") === studioToken) {
-                unlinkSync(tokenPath);
-              }
-            } catch {
-              // best-effort
+          try {
+            // Ownership check before unlinking: the token path is a single
+            // shared file, so a second `arkor dev` on a DIFFERENT port may
+            // have legitimately overwritten it since we wrote it
+            // (last-writer-wins is the documented multi-instance
+            // behaviour). Deleting it then would 403 the OTHER, still-
+            // running instance's Vite SPA workflow; only remove the file
+            // if it still holds OUR token.
+            const path = studioTokenPath();
+            if (readFileSync(path, "utf8") === studioToken) {
+              unlinkSync(path);
             }
+          } catch {
+            // best-effort
           }
         });
         // Persisting the token to disk is *only* needed for the Vite SPA
@@ -279,7 +282,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         // block the server.
         void (async () => {
           try {
-            tokenPath = await persistStudioToken(studioToken);
+            await persistStudioToken(studioToken);
           } catch (err) {
             ui.log.warn(
               `Could not write ${studioTokenPath()} (${
