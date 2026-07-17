@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { unlinkSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import { dirname } from "node:path";
@@ -257,7 +257,16 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         installShutdownHandlers(() => {
           if (tokenPath !== undefined) {
             try {
-              unlinkSync(tokenPath);
+              // Ownership check before unlinking: the token path is a single
+              // shared file, so a second `arkor dev` on a DIFFERENT port may
+              // have legitimately overwritten it since we wrote it
+              // (last-writer-wins is the documented multi-instance
+              // behaviour). Deleting it then would 403 the OTHER, still-
+              // running instance's Vite SPA workflow; only remove the file
+              // if it still holds OUR token.
+              if (readFileSync(tokenPath, "utf8") === studioToken) {
+                unlinkSync(tokenPath);
+              }
             } catch {
               // best-effort
             }

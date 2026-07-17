@@ -69,7 +69,7 @@ cd my-arkor-app && pnpm dev                            # Studio at http://127.0.
 
 1. Passes it to `buildStudioApp({ studioToken })`. The Hono server validates every `/api/*` request via `X-Arkor-Studio-Token` header (or `?studioToken=` query for `EventSource`, which can't set headers). Comparison uses `timingSafeEqual`.
 2. Persists it to `~/.arkor/studio-token` (mode 0600) so the SPA dev workflow (`pnpm --filter @arkor/studio-app dev`) can read it via the `arkor-studio-token` Vite plugin in [packages/studio-app/vite.config.ts](packages/studio-app/vite.config.ts), which injects `<meta name="arkor-studio-token">` into `index.html` on each request. Persistence failure must NOT block server start (read-only `$HOME` on Docker, etc.); just warn.
-3. Cleans up on `exit`/SIGINT/SIGTERM/SIGHUP via `unlinkSync`.
+3. Cleans up on `exit`/SIGINT/SIGTERM/SIGHUP via `unlinkSync`, after verifying the file still holds this instance's token (a second `arkor dev` on another port may have overwritten it; last writer wins and the previous owner must not delete it). Signal handlers exit with the conventional `128 + signal` code (SIGINT -> 130, SIGTERM -> 143, SIGHUP -> 129) so supervisors can distinguish signal termination from a clean exit.
 
 `/api/*` middleware also enforces a host-header allow-list (`127.0.0.1`/`localhost`) for DNS-rebinding defence. **CORS is intentionally NOT configured**: the SPA is same-origin so reflecting `*` would let "simple" cross-origin POSTs reach handlers. The token check rejects those; cross-origin tabs cannot read the SPA's `<meta>`.
 

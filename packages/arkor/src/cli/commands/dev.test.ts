@@ -1,9 +1,11 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -809,13 +811,44 @@ describe("runDev", () => {
     }) as unknown as typeof serve);
 
     const exitBefore = process.listeners("exit").length;
-    const tokenBefore = existsSync(studioTokenPath());
+    // Seed a token as if a healthy instance owns it: the doomed launch must
+    // leave the CONTENT untouched (existence alone can't catch a clobber).
+    mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
+    writeFileSync(studioTokenPath(), "healthy-instance-token");
     await expect(runDev({ port: 4206 })).rejects.toThrow(
       /Port 4206 is already in use/,
     );
-    // No token was written and no cleanup handler was registered.
-    expect(existsSync(studioTokenPath())).toBe(tokenBefore);
+    // The healthy instance's token is untouched and no cleanup handler was
+    // registered.
+    expect(readFileSync(studioTokenPath(), "utf8")).toBe(
+      "healthy-instance-token",
+    );
     expect(process.listeners("exit").length).toBe(exitBefore);
+  });
+
+  // PR #193 review (coderabbit): the token path is a single shared file, and
+  // a second instance on a DIFFERENT port can legitimately overwrite it
+  // (last-writer-wins). This instance's shutdown must then leave the file
+  // alone: only the current owner's token may be unlinked.
+  it("does not unlink a token that another instance has since overwritten", async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4209 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    expect(existsSync(studioTokenPath())).toBe(true);
+    // Another instance (different port) overwrites the shared token file.
+    writeFileSync(studioTokenPath(), "other-instances-token");
+    // Our exit cleanup must notice it no longer owns the file and keep it.
+    const cleanup = process.listeners("exit").at(-1) as () => void;
+    cleanup();
+    expect(existsSync(studioTokenPath())).toBe(true);
+    expect(readFileSync(studioTokenPath(), "utf8")).toBe(
+      "other-instances-token",
+    );
   });
 
   it("registers a cleanup listener that removes the studio-token file on exit", async () => {
