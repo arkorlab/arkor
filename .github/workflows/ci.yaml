@@ -103,10 +103,20 @@ jobs:
       # pnpm runs on its bundled Node regardless of which matrix Node
       # we switch to next.
       #
-      # Pinning `version: 11.13.0` instead doesn't work: action-setup
-      # compares it against the full `pnpm@11.13.0+sha512.xxx`
+      # Pinning `version: 11.13.1` instead doesn't work: action-setup
+      # compares it against the full `pnpm@11.13.1+sha512.xxx`
       # packageManager string and refuses on mismatch
       # (ERR_PNPM_BAD_PM_VERSION-style error).
+      #
+      # Do NOT pin pnpm 11.12.0 or 11.13.0: those two releases publish
+      # their per-platform npm packages (@pnpm/linux-x64, @pnpm/macos-
+      # arm64, @pnpm/win-x64, ...) WITHOUT the native binary (~1.9 kB
+      # metadata-only tarballs), so `standalone: true` here resolves
+      # @pnpm/exe, finds no binary, and leaves the placeholder that dies
+      # with `pnpm: 1: This: not found` on every OS. Fixed upstream in
+      # 11.13.1 (platform packages ship the binary again); 11.11.0 was
+      # the last good release before the gap. See pnpm/pnpm#12955
+      # (release-flow regression from pnpm/pnpm#12949, fixed in 11.13.1).
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
           standalone: true
@@ -365,7 +375,7 @@ jobs:
       # that shadows corepack's shim, which would defeat the matrix
       # --activate below: every entry would end up running action-setup's
       # pinned pnpm regardless of which version we asked corepack to
-      # activate. Workspace `pnpm install` still resolves to pnpm 11.13.0
+      # activate. Workspace `pnpm install` still resolves to pnpm 11.13.1
       # because corepack reads `packageManager` from the root
       # package.json; only the matrix pm test runs in tmpdirs (no
       # packageManager field there), so corepack falls back to the
@@ -412,7 +422,7 @@ jobs:
           case "${{ matrix.id }}" in
             pnpm-9)     corepack prepare "pnpm@9.15.9"   --activate ;;
             pnpm-10)    corepack prepare "pnpm@10.33.4"  --activate ;;
-            pnpm-11)    corepack prepare "pnpm@11.13.0"   --activate ;;
+            pnpm-11)    corepack prepare "pnpm@11.13.1"   --activate ;;
             npm)        echo "Using bundled npm $(npm --version)" ;;
             yarn)       corepack prepare "yarn@1.22.22"  --activate ;;
             # yarn classic and berry both use the `yarn` npm package;
@@ -440,13 +450,13 @@ jobs:
       - name: Confirm pm version
         run: |
           # Run from $RUNNER_TEMP, not the workspace cwd. corepack
-          # enforces the workspace's `packageManager: pnpm@11.13.0` and
+          # enforces the workspace's `packageManager: pnpm@11.13.1` and
           # rejects `yarn --version` / `bun --version` with "This project
           # is configured to use pnpm". Stepping out into a directory
           # without a packageManager field lets corepack fall back to the
           # version we just `--activate`d for the matrix pm, which is
           # also more useful diagnostically (it prints the matrix
-          # version, not the workspace's pinned 11.13.0 for pnpm-N
+          # version, not the workspace's pinned 11.13.1 for pnpm-N
           # entries).
           cd "$RUNNER_TEMP"
           case "${{ matrix.id }}" in
