@@ -103,4 +103,52 @@ describe("readManifestSummary cache-bust key", () => {
     await readManifestSummary(cwd, importSpy);
     expect(urls[2]).toBe(urls[1]);
   });
+
+  // PR #193 review (cubic): concurrent requests arriving while a post-failure
+  // retry is still in flight must compute the SAME salted URL (Node then
+  // coalesces the imports into one evaluation), not bump the salt once per
+  // request and re-evaluate the user bundle per concurrent caller.
+  it("shares one salted URL across concurrent retries after a failure", async () => {
+    writeFileSync(
+      join(cwd, "src", "arkor", "index.ts"),
+      manifestSource("qa-bot"),
+    );
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let failFirst = true;
+    const urls: string[] = [];
+    const importSpy = vi.fn(async (u: string) => {
+      urls.push(u);
+      if (failFirst) {
+        failFirst = false;
+        throw new Error("external condition not met");
+      }
+      await gate; // hold both retries in flight until released
+      return (await import(u)) as Record<string, unknown>;
+    });
+
+    // Seed the failure state.
+    await expect(readManifestSummary(cwd, importSpy)).rejects.toThrow(
+      "external condition not met",
+    );
+    // First retry: enters the import and blocks on the gate.
+    const first = readManifestSummary(cwd, importSpy);
+    await vi.waitFor(() => {
+      expect(importSpy).toHaveBeenCalledTimes(2);
+    });
+    // Second, concurrent retry while the first is still in flight.
+    const second = readManifestSummary(cwd, importSpy);
+    await vi.waitFor(() => {
+      expect(importSpy).toHaveBeenCalledTimes(3);
+    });
+    release();
+    const [r1, r2] = await Promise.all([first, second]);
+    expect(r1).toEqual({ trainer: { name: "qa-bot" } });
+    expect(r2).toEqual({ trainer: { name: "qa-bot" } });
+    // Same salted URL for both concurrent retries: no per-request salt bump.
+    expect(urls[2]).toBe(urls[1]);
+  });
 });

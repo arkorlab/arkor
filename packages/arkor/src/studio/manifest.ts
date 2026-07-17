@@ -69,12 +69,19 @@ export async function readManifestSummary(
     lastImportFailed = false;
   } else if (lastImportFailed) {
     retrySalt++;
+    // Cleared HERE, in the same synchronous block as the salt bump, not
+    // after the import resolves: concurrent requests that arrive while this
+    // retry is still in flight then compute the SAME salted URL (Node
+    // coalesces concurrent imports of one URL into a single evaluation)
+    // instead of each bumping the salt and re-evaluating the user bundle
+    // once per request. If the retry fails, the catch below re-arms the
+    // flag so the NEXT request bumps again.
+    lastImportFailed = false;
   }
   const url = retrySalt === 0 ? key : `${key}&r=${retrySalt}`;
   let mod: Record<string, unknown>;
   try {
     mod = await importModule(url);
-    lastImportFailed = false;
   } catch (err) {
     lastImportFailed = true;
     throw err;
