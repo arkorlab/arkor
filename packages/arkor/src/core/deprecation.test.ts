@@ -148,6 +148,36 @@ describe("tapDeprecation", () => {
     }
   });
 
+  // PR #193 review (coderabbit): `(notice) => void` accepts an ASYNC handler
+  // too. Its rejected promise bypasses the synchronous try/catch and would
+  // become a process-killing unhandled rejection; tapDeprecation must probe
+  // the return value for a thenable and swallow its rejection. (vitest fails
+  // the run on unhandled rejections, so surviving the flushed microtasks IS
+  // the discriminator here.)
+  it("swallows (and logs) an async sink whose promise rejects", async () => {
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const res = new Response(null, {
+        status: 200,
+        headers: { Deprecation: "true", Warning: '299 - "deprecated"' },
+      });
+      tapDeprecation(res, "1.4.0", (() =>
+        Promise.reject(
+          new Error("buggy async handler"),
+        )) as unknown as () => void);
+      // Flush microtasks so the rejection (if unhandled) would surface.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("onDeprecation handler threw"),
+        expect.any(Error),
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
   it("routes the notice to a custom sink instead of the global recorder", () => {
     // ENG-933: the `sink` param lets CloudApiClient thread a per-request
     // onDeprecation override into the raw chat/openEventStream paths. When a

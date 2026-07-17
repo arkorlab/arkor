@@ -151,4 +151,53 @@ describe("readManifestSummary cache-bust key", () => {
     // Same salted URL for both concurrent retries: no per-request salt bump.
     expect(urls[2]).toBe(urls[1]);
   });
+
+  // PR #193 review (coderabbit/cubic): retry state is tracked PER KEY. With a
+  // single shared slot, another build's read in between would reset the
+  // failed flag, and the failed build's next read would reuse Node's cached
+  // rejection (the sticky failure the salt exists to prevent).
+  it("keeps retry state per key so another build's read does not reset it", async () => {
+    writeFileSync(
+      join(cwd, "src", "arkor", "index.ts"),
+      manifestSource("qa-bot"),
+    );
+    const otherCwd = mkdtempSync(join(tmpdir(), "arkor-manifest-other-"));
+    mkdirSync(join(otherCwd, "src", "arkor"), { recursive: true });
+    writeFileSync(
+      join(otherCwd, "src", "arkor", "index.ts"),
+      manifestSource("other-bot"),
+    );
+    try {
+      const urls: string[] = [];
+      let failFirst = true;
+      const importSpy = vi.fn(async (u: string) => {
+        urls.push(u);
+        if (failFirst) {
+          failFirst = false;
+          throw new Error("external condition not met");
+        }
+        return (await import(u)) as Record<string, unknown>;
+      });
+
+      // Build A fails once.
+      await expect(readManifestSummary(cwd, importSpy)).rejects.toThrow(
+        "external condition not met",
+      );
+      // Build B (a different key) succeeds in between.
+      await expect(readManifestSummary(otherCwd, importSpy)).resolves.toEqual({
+        trainer: { name: "other-bot" },
+      });
+      // Build A's next read must still bump ITS salt (fresh URL), not have
+      // been reset by B's read into reusing the cached-failed base URL.
+      await expect(readManifestSummary(cwd, importSpy)).resolves.toEqual({
+        trainer: { name: "qa-bot" },
+      });
+      expect(urls[2]).not.toBe(urls[0]);
+      expect(urls[2]).toContain("&r=1");
+      // B was never salted (its key never failed).
+      expect(urls[1]).not.toContain("&r=");
+    } finally {
+      rmSync(otherCwd, { recursive: true, force: true });
+    }
+  });
 });

@@ -747,6 +747,44 @@ describe("runDev", () => {
     }
   });
 
+  // PR #193 review (sentry + coderabbit): once the listener has BOUND, a
+  // server 'error' event must be logged, never rejected (reject would kill an
+  // already-serving instance during the token-persistence window and is a
+  // silent no-op afterwards). Non-Error emissions must not crash the handler.
+  it("logs (does not reject) a post-bind server error, including non-Error emissions", async () => {
+    let errorCb: ((e: unknown) => void) | undefined;
+    vi.mocked(serve).mockImplementationOnce(((
+      _opts: unknown,
+      onListen?: () => void,
+    ) => {
+      queueMicrotask(() => onListen?.());
+      return {
+        on: (event: string, cb: (e: unknown) => void) => {
+          if (event === "error") errorCb = cb;
+        },
+      };
+    }) as unknown as typeof serve);
+    const warnSpy = vi.spyOn(clack.log, "warn");
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await expect(runDev({ port: 4208 })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    // A live socket fault after startup is logged, not fatal.
+    errorCb?.(new Error("EMFILE: too many open files"));
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Studio server error after startup: EMFILE"),
+    );
+    // A non-Error emission must not crash the handler either.
+    expect(() => errorCb?.("string emission")).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("string emission"),
+    );
+  });
+
   it("rejects with a clear message on EADDRINUSE without clobbering an existing token or registering cleanup", async () => {
     // A second `arkor dev` on a port already in use must fail on the async
     // 'error' event WITHOUT having persisted (and thus clobbered) a shared

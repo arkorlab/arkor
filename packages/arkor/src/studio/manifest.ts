@@ -44,13 +44,22 @@ const EMPTY: ManifestSummary = { trainer: null };
 // top-level code threw because of an external runtime condition (e.g. a
 // `readFileSync` of a config file that doesn't exist yet) would stay a cached
 // rejection under a pure content-hash key, since fixing the external condition
-// doesn't change the bundle bytes. Track the last import's outcome and bump a
+// doesn't change the bundle bytes. Track each key's import outcome and bump a
 // retry salt after a failure so the next request re-imports; a successful
 // salted URL is then reused, keeping the no-edit steady state at one registry
 // entry per distinct build.
-let lastImportKey: string | null = null;
-let lastImportFailed = false;
-let retrySalt = 0;
+//
+// State is PER KEY (not module-global): with a single shared slot, a late
+// failure from build A landing after build B's read had reset the slot would
+// mark B as failed (a pointless re-evaluation) and lose A's failure signal,
+// so A's next read would reuse Node's cached rejection: the exact sticky
+// failure this mechanism exists to prevent. Keys that never fail get no
+// entry, so the map only grows with distinct failed builds.
+interface ImportRetryState {
+  salt: number;
+  failed: boolean;
+}
+const importRetryStates = new Map<string, ImportRetryState>();
 
 export async function readManifestSummary(
   cwd: string,
@@ -63,12 +72,9 @@ export async function readManifestSummary(
     .digest("hex")
     .slice(0, 16);
   const key = `${pathToFileURL(outFile).href}?t=${digest}`;
-  if (key !== lastImportKey) {
-    lastImportKey = key;
-    retrySalt = 0;
-    lastImportFailed = false;
-  } else if (lastImportFailed) {
-    retrySalt++;
+  const state = importRetryStates.get(key);
+  if (state?.failed) {
+    state.salt++;
     // Cleared HERE, in the same synchronous block as the salt bump, not
     // after the import resolves: concurrent requests that arrive while this
     // retry is still in flight then compute the SAME salted URL (Node
@@ -76,14 +82,20 @@ export async function readManifestSummary(
     // instead of each bumping the salt and re-evaluating the user bundle
     // once per request. If the retry fails, the catch below re-arms the
     // flag so the NEXT request bumps again.
-    lastImportFailed = false;
+    state.failed = false;
   }
-  const url = retrySalt === 0 ? key : `${key}&r=${retrySalt}`;
+  const salt = state?.salt ?? 0;
+  const url = salt === 0 ? key : `${key}&r=${salt}`;
   let mod: Record<string, unknown>;
   try {
     mod = await importModule(url);
   } catch (err) {
-    lastImportFailed = true;
+    const failedState = importRetryStates.get(key) ?? {
+      salt: 0,
+      failed: false,
+    };
+    failedState.failed = true;
+    importRetryStates.set(key, failedState);
     throw err;
   }
   const candidate = mod.arkor ?? mod.default;
