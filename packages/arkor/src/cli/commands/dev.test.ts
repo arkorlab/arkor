@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -614,6 +615,11 @@ describe("runDev", () => {
     expect(existsSync(studioTokenPath())).toBe(true);
     const contents = readFileSync(studioTokenPath(), "utf8");
     expect(contents).toMatch(/^[\w-]+$/);
+    // Atomic write (PR #193 review): the temp staging file must be gone.
+    const strays = readdirSync(join(fakeHome, ".arkor")).filter((f) =>
+      f.includes(".tmp"),
+    );
+    expect(strays).toEqual([]);
 
     expect(serve).toHaveBeenCalledTimes(1);
     const arg = vi.mocked(serve).mock.calls[0]?.[0] as {

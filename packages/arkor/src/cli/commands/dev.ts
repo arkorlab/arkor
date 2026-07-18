@@ -1,6 +1,6 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, unlinkSync } from "node:fs";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import { dirname } from "node:path";
 
@@ -166,8 +166,26 @@ export async function ensureCredentialsForStudio(): Promise<void> {
 async function persistStudioToken(token: string): Promise<string> {
   const path = studioTokenPath();
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, token, { mode: 0o600 });
-  await chmod(path, 0o600);
+  // Atomic write, mirroring `writeCredentials`: stage to a unique 0600 temp
+  // file and rename over the shared path. A signal or crash mid-`writeFile`
+  // can then never leave a TRUNCATED token at the canonical path; that would
+  // be worse than no token, because the ownership-checked cleanup declines
+  // to remove content it doesn't recognise, stranding a corrupt file that
+  // 403s the Vite SPA workflow until the next launch rotates it. rename(2)
+  // is atomic within a filesystem, so readers observe either the previous
+  // complete token or this launch's complete token. The temp name carries a
+  // random suffix so PID-1 collisions across containers sharing ~/.arkor
+  // can't race each other's staging file.
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, token, { mode: 0o600 });
+    await chmod(tmp, 0o600);
+    await rename(tmp, path);
+  } catch (err) {
+    // Leave nothing behind on failure; the caller's warn path covers the rest.
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
   return path;
 }
 
