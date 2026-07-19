@@ -588,9 +588,11 @@ describe("shellQuoteIfNeeded", () => {
       });
     });
 
-    // ENG-933: comma is a legal filename char but PowerShell's array operator,
-    // so it must be quoted, not left bare (it's quoted on POSIX too for a
-    // consistent, copy-pasteable hint).
+    // ENG-933: comma was dropped from the safe-unquote set, so a comma path
+    // is quoted on POSIX as well, which is what this case pins. The
+    // motivating hazard lives on Windows (PowerShell parses an unquoted
+    // comma as its array operator); quoting on every platform keeps the
+    // printed hint consistent.
     it("single-quotes paths containing a comma", () => {
       withPlatform("linux", () => {
         expect(shellQuoteIfNeeded("my,dir")).toBe("'my,dir'");

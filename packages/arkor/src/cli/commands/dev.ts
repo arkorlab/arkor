@@ -179,7 +179,20 @@ async function persistStudioToken(token: string): Promise<string> {
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(tmp, token, { mode: 0o600 });
-    await chmod(tmp, 0o600);
+    try {
+      // Belt-and-suspenders, same policy as `writeCredentials`: `writeFile`'s
+      // create mode is already 0600 masked by umask (never wider), so a chmod
+      // failure on an exotic mount must not discard a complete, staged token
+      // and needlessly downgrade the Vite SPA workflow to 403s. Warn and
+      // proceed to the rename.
+      await chmod(tmp, 0o600);
+    } catch (err) {
+      ui.log.warn(
+        `Could not set permissions on ${path}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
     await rename(tmp, path);
   } catch (err) {
     // Leave nothing behind on failure; the caller's warn path covers the rest.
