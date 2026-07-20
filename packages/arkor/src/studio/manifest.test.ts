@@ -56,6 +56,11 @@ describe("readManifestSummary cache-bust key", () => {
     expect(second).toEqual({ trainer: { name: "qa-bot" } });
     // Identical source -> byte-identical bundle -> identical hash -> same URL.
     expect(urls[0]).toBe(urls[1]);
+    // PR #193 review (codex): the import goes through a digest-addressed COPY
+    // (index.<hash>.mjs), not the mutable index.mjs, so the URL names the
+    // exact bytes that were hashed even if a concurrent rebuild overwrites
+    // the bundle between hashing and import.
+    expect(urls[0]).toMatch(/index\.[0-9a-f]{16}\.mjs$/);
 
     writeFileSync(
       join(cwd, "src", "arkor", "index.ts"),
@@ -193,9 +198,9 @@ describe("readManifestSummary cache-bust key", () => {
         trainer: { name: "qa-bot" },
       });
       expect(urls[2]).not.toBe(urls[0]);
-      expect(urls[2]).toContain("&r=1");
+      expect(urls[2]).toContain("?r=1");
       // B was never salted (its key never failed).
-      expect(urls[1]).not.toContain("&r=");
+      expect(urls[1]).not.toContain("?r=");
     } finally {
       rmSync(otherCwd, { recursive: true, force: true });
     }
