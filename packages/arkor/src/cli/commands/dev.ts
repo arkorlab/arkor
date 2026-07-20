@@ -283,9 +283,11 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         // when persistence fails so a termination signal still reaps any
         // /api/train child and reports the right exit code. The cleanup
         // resolves the token path directly (rather than gating on a variable
-        // assigned after persistence resolves): a signal landing after
-        // writeFile succeeded but before persistStudioToken's continuation
-        // ran would otherwise leave the file behind. The ownership check
+        // assigned after persistence resolves): a signal landing after the
+        // atomic rename placed the token but before persistStudioToken's
+        // continuation ran would otherwise leave the file behind (a signal
+        // before the rename abandons only the disposable .tmp staging file,
+        // never the canonical path). The ownership check
         // below makes the direct resolution safe in every state: not yet
         // written -> ENOENT (caught); written by us -> matches, removed;
         // overwritten by another instance -> differs, left alone.
