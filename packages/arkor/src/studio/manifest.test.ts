@@ -157,6 +157,49 @@ describe("readManifestSummary cache-bust key", () => {
     expect(urls[2]).toBe(urls[1]);
   });
 
+  // PR #193 review (cubic): the stale-snapshot cleanup must skip a snapshot
+  // an in-flight request has selected but not yet imported. Otherwise a
+  // concurrent request with a NEWER digest unlinks it in the selection-to-
+  // open window and the older request fails with ENOENT.
+  it("does not clean up a snapshot an in-flight request still references", async () => {
+    writeFileSync(
+      join(cwd, "src", "arkor", "index.ts"),
+      manifestSource("qa-bot"),
+    );
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    const importSpy = vi.fn(async (u: string) => {
+      // Hold only the FIRST import (the old-digest request) at the gate so
+      // the second request's cleanup runs while the first is in flight.
+      if (!held) {
+        held = true;
+        await gate;
+      }
+      return (await import(u)) as Record<string, unknown>;
+    });
+
+    // Old-digest request: selects its snapshot, then blocks before opening.
+    const first = readManifestSummary(cwd, importSpy);
+    await vi.waitFor(() => {
+      expect(importSpy).toHaveBeenCalledTimes(1);
+    });
+    // Edit the source: the next request builds a NEW digest and its cleanup
+    // pass sees the first request's snapshot as a stale sibling.
+    writeFileSync(
+      join(cwd, "src", "arkor", "index.ts"),
+      manifestSource("edited-bot"),
+    );
+    const second = await readManifestSummary(cwd, importSpy);
+    expect(second).toEqual({ trainer: { name: "edited-bot" } });
+    // Release the old request: its snapshot must still exist and import.
+    release();
+    await expect(first).resolves.toEqual({ trainer: { name: "qa-bot" } });
+  });
+
   // PR #193 review (coderabbit/cubic): retry state is tracked PER KEY. With a
   // single shared slot, another build's read in between would reset the
   // failed flag, and the failed build's next read would reuse Node's cached

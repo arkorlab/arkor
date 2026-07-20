@@ -71,6 +71,30 @@ interface ImportRetryState {
 }
 const importRetryStates = new Map<string, ImportRetryState>();
 
+// Snapshots currently referenced by an in-flight request (selected but whose
+// dynamic import has not yet settled), refcounted because concurrent requests
+// can share a digest. The stale-snapshot cleanup skips these: an unlink
+// between a request's selection and its import's open() would ENOENT that
+// request (the POSIX "inode outlives the unlink" property only protects
+// already-open descriptors, not paths still waiting to be opened). In-process
+// tracking fully covers a single `arkor dev`; two instances serving the SAME
+// project directory could still race each other's cleanup cross-process, the
+// same accepted residual class as the shared studio-token file.
+const activeContentFiles = new Map<string, number>();
+
+function retainContentFile(path: string): void {
+  activeContentFiles.set(path, (activeContentFiles.get(path) ?? 0) + 1);
+}
+
+function releaseContentFile(path: string): void {
+  const count = activeContentFiles.get(path) ?? 0;
+  if (count <= 1) {
+    activeContentFiles.delete(path);
+  } else {
+    activeContentFiles.set(path, count - 1);
+  }
+}
+
 export async function readManifestSummary(
   cwd: string,
   importModule: (url: string) => Promise<Record<string, unknown>> = (u) =>
@@ -88,58 +112,68 @@ export async function readManifestSummary(
   // construction, so the write is skipped.
   const buildDir = dirname(outFile);
   const contentFile = join(buildDir, `index.${digest}.mjs`);
-  if (!existsSync(contentFile)) {
-    // Best-effort cleanup of digest-addressed copies from earlier builds so
-    // the directory holds at most a couple of snapshots. Deleting a file
-    // another in-flight import still reads is safe on POSIX (the inode
-    // outlives the unlink) and surfaces as a caught error on Windows.
-    try {
-      for (const entry of await readdir(buildDir)) {
-        if (
-          /^index\.[0-9a-f]{16}\.mjs$/.test(entry) &&
-          entry !== `index.${digest}.mjs`
-        ) {
-          await rm(join(buildDir, entry), { force: true });
-        }
-      }
-    } catch {
-      // best-effort
-    }
-    const tmp = `${contentFile}.${process.pid}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(tmp, bytes);
-      await rename(tmp, contentFile);
-    } catch (err) {
-      await rm(tmp, { force: true }).catch(() => undefined);
-      throw err;
-    }
-  }
-  const key = pathToFileURL(contentFile).href;
-  const state = importRetryStates.get(key);
-  if (state?.failed) {
-    state.salt++;
-    // Cleared HERE, in the same synchronous block as the salt bump, not
-    // after the import resolves: concurrent requests that arrive while this
-    // retry is still in flight then compute the SAME salted URL (Node
-    // coalesces concurrent imports of one URL into a single evaluation)
-    // instead of each bumping the salt and re-evaluating the user bundle
-    // once per request. If the retry fails, the catch below re-arms the
-    // flag so the NEXT request bumps again.
-    state.failed = false;
-  }
-  const salt = state?.salt ?? 0;
-  const url = salt === 0 ? key : `${key}?r=${salt}`;
+  // Retained until the import settles so a concurrent request's cleanup
+  // (below) can never unlink the snapshot this request is about to open.
+  retainContentFile(contentFile);
   let mod: Record<string, unknown>;
   try {
-    mod = await importModule(url);
-  } catch (err) {
-    const failedState = importRetryStates.get(key) ?? {
-      salt: 0,
-      failed: false,
-    };
-    failedState.failed = true;
-    importRetryStates.set(key, failedState);
-    throw err;
+    if (!existsSync(contentFile)) {
+      // Best-effort cleanup of digest-addressed copies from earlier builds
+      // so the directory holds at most a couple of snapshots. Skips any
+      // snapshot an in-flight request still references (see
+      // activeContentFiles above); other failures (e.g. Windows EBUSY) are
+      // swallowed and retried by a later request's cleanup pass.
+      try {
+        for (const entry of await readdir(buildDir)) {
+          const full = join(buildDir, entry);
+          if (
+            /^index\.[0-9a-f]{16}\.mjs$/.test(entry) &&
+            entry !== `index.${digest}.mjs` &&
+            !activeContentFiles.has(full)
+          ) {
+            await rm(full, { force: true });
+          }
+        }
+      } catch {
+        // best-effort
+      }
+      const tmp = `${contentFile}.${process.pid}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(tmp, bytes);
+        await rename(tmp, contentFile);
+      } catch (err) {
+        await rm(tmp, { force: true }).catch(() => undefined);
+        throw err;
+      }
+    }
+    const key = pathToFileURL(contentFile).href;
+    const state = importRetryStates.get(key);
+    if (state?.failed) {
+      state.salt++;
+      // Cleared HERE, in the same synchronous block as the salt bump, not
+      // after the import resolves: concurrent requests that arrive while
+      // this retry is still in flight then compute the SAME salted URL
+      // (Node coalesces concurrent imports of one URL into a single
+      // evaluation) instead of each bumping the salt and re-evaluating the
+      // user bundle once per request. If the retry fails, the catch below
+      // re-arms the flag so the NEXT request bumps again.
+      state.failed = false;
+    }
+    const salt = state?.salt ?? 0;
+    const url = salt === 0 ? key : `${key}?r=${salt}`;
+    try {
+      mod = await importModule(url);
+    } catch (err) {
+      const failedState = importRetryStates.get(key) ?? {
+        salt: 0,
+        failed: false,
+      };
+      failedState.failed = true;
+      importRetryStates.set(key, failedState);
+      throw err;
+    }
+  } finally {
+    releaseContentFile(contentFile);
   }
   const candidate = mod.arkor ?? mod.default;
   if (!isArkor(candidate)) return EMPTY;
