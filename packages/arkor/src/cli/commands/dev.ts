@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync, unlinkSync } from "node:fs";
+import { readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import { dirname, join } from "node:path";
@@ -367,10 +367,15 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // `autoAnonymous: true` (the default) lets the Hono server retry the
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
   // attempt above failed (e.g. cloud-api was unreachable at launch).
+  // `cwd` keeps the server's project root (/api/train file resolution,
+  // /api/status `cwd`) aligned with where the agent session file lands
+  // when tests pin `options.cwd`; in production both default to
+  // `process.cwd()` either way.
   const app = buildStudioApp({
     studioToken,
     mode: agent ? "agent" : "studio",
     url,
+    cwd: projectRoot,
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -381,10 +386,12 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     // token is still being persisted hits an already-serving server, so
     // treating it as a startup failure would kill a healthy instance.
     let bound = false;
-    // Absolute path of the agent-mode session file, assigned only after the
-    // atomic rename landed it. A signal mid-write therefore abandons only
-    // the disposable .tmp staging file, never a half-written session file,
-    // and the cleanup below can unlink unconditionally.
+    // Absolute path of the agent-mode session file, assigned after the
+    // atomic rename landed it; used for the stdout contract lines. The
+    // cleanup below does NOT depend on it: a signal can land after the
+    // rename placed the file but before this assignment runs, so the
+    // shutdown sweep matches on the pid-prefixed filename instead (same
+    // reasoning as the home token's direct path resolution above it).
     let agentSessionPath: string | undefined;
     // Bind FIRST, then persist the studio token and register its cleanup
     // in the `listening` callback (after a successful bind). The token
@@ -427,21 +434,32 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
           } catch {
             // best-effort
           }
-          // The agent session file needs no ownership check: its name is
-          // per-launch unique (pid + uuid), so this path is always ours.
-          if (agentSessionPath !== undefined) {
+          // Agent session files need no ownership check: filenames embed
+          // this process's pid (plus a uuid), so every `session-<pid>-…`
+          // entry in the agent dir is ours. Sweeping by pid prefix (rather
+          // than unlinking `agentSessionPath`) also covers the two windows
+          // a path variable cannot: a signal landing after the rename
+          // placed the file but before the assignment ran, and an
+          // abandoned `.tmp` staging file (its name carries the same
+          // prefix). Parallel sessions are unaffected: they run under
+          // different pids.
+          if (agent) {
             try {
-              unlinkSync(agentSessionPath);
+              const agentDir = join(projectRoot, ".arkor", "agent");
+              for (const name of readdirSync(agentDir)) {
+                if (name.startsWith(`session-${process.pid}-`)) {
+                  try {
+                    unlinkSync(join(agentDir, name));
+                  } catch {
+                    // best-effort
+                  }
+                }
+              }
             } catch {
-              // best-effort
+              // best-effort (the dir may not exist yet)
             }
           }
         });
-        // Persisting the token to disk is *only* needed for the Vite SPA
-        // dev workflow. The bundled `:port` flow injects the meta tag at
-        // request time via `buildStudioApp`, so a failure here (read-only
-        // $HOME on Docker / locked-down CI / restrictive umask) must not
-        // block the server.
         void (async () => {
           if (agent) {
             // The session file is the agent's only realistic token channel
@@ -475,6 +493,12 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
               return;
             }
           }
+          // Persisting the token to `~/.arkor/studio-token` is needed for
+          // the Vite SPA dev workflow and the port-collision probe. The
+          // bundled `:port` flow injects the meta tag at request time via
+          // `buildStudioApp`, so a failure here (read-only $HOME on Docker
+          // / locked-down CI / restrictive umask) must not block the
+          // server.
           try {
             await persistStudioToken(studioToken);
           } catch (err) {

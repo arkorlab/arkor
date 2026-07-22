@@ -83,6 +83,12 @@ test.describe("Agent mode contract", () => {
   });
 
   test("SIGINT removes the session file", async ({ agentStudio }) => {
+    // Node's Windows signal emulation terminates the child forcefully;
+    // the dev.ts SIGINT handler never runs, so the unlink cannot happen.
+    test.skip(
+      process.platform === "win32",
+      "Windows signal emulation kills the child without running handlers",
+    );
     const sessionFile = agentStudio.sessionFile!;
     expect(existsSync(sessionFile)).toBe(true);
     await agentStudio.kill();

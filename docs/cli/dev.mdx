@@ -77,7 +77,7 @@ The Studio SPA is still served in agent mode: a human can open the printed URL i
 
 ### Claude Code (`CLAUDECODE=1`) strict mode
 
-Claude Code sets `CLAUDECODE=1` in every spawned shell. Under it, a plain `arkor dev` refuses to start: the long-running browser-oriented server would hang the agent's shell without giving it a way to call the API. The CLI prints the block below to stderr and exits `1` before binding a port or writing any file:
+Claude Code sets `CLAUDECODE=1` in every spawned shell. Under it, a plain `arkor dev` refuses to start: the long-running browser-oriented server would hang the agent's shell without giving it a way to call the API. The CLI prints the block below to stderr and exits `1` without binding a port or writing any token or session file (first-run telemetry may still create its id file under `~/.arkor/`):
 
 ```
 arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.
@@ -116,7 +116,7 @@ The token file (`~/.arkor/studio-token`) is written only **after** the port bind
 | --- | --- | --- |
 | ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.`` | Another process holds the port (the underlying error is `EADDRINUSE`) and, in normal mode, the running-Studio probe did not confirm an Arkor Studio. In agent mode this fires without probing. | Stop it, or use `--port <other>`. |
 | `Arkor Studio already running on http://localhost:<port>` (exit `0`) | Normal mode found a healthy Arkor Studio on the port (often an `arkor dev --agent` session) and connected to it instead of failing. Informational, not an error. | Nothing required. Open the printed URL; pass `--open` to have the CLI do it. |
-| `arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.` (exit `1`) | The Claude Code strict gate: `CLAUDECODE=1` is set and `--agent` was not passed. Nothing was started and nothing was written. | Re-run as `arkor dev --agent` and use the printed session file. |
+| `arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.` (exit `1`) | The Claude Code strict gate: `CLAUDECODE=1` is set and `--agent` was not passed. No server was started and no token or session file was written. | Re-run as `arkor dev --agent` and use the printed session file. |
 | `Could not write the agent session file under <project>/.arkor/agent (...). Agent mode requires it; aborting.` (exit `1`) | Agent mode could not create `.arkor/agent/` or the session file (read-only project dir, permission problem). Unlike the home token this is fatal: the file is the agent's only token channel. | Make the project directory writable (check `.arkor/` permissions) and re-run. |
 | `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.` | `/v1/auth/cli/config` already succeeded, but the follow-up `/v1/auth/anonymous` hit a transport error. The Studio server starts and will retry. | Bring connectivity back; the SPA recovers on its next `/api/credentials` poll without restarting `arkor dev`. |
 | `TypeError: fetch failed` (or an equivalent transport error that exits `arkor dev` immediately) | `/v1/auth/cli/config` itself was unreachable, so the deployment mode could not be determined and the CLI fails fast. | Restore connectivity and re-run `arkor dev`. |

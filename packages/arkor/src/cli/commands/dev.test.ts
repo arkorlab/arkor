@@ -990,6 +990,12 @@ describe("runDev", () => {
     });
 
     it("aborts startup (hard-fail) when the session file cannot be written", async () => {
+      if (process.platform === "win32") {
+        // chmod maps to the read-only attribute on Windows, which does not
+        // block creating entries inside the directory, so the failure this
+        // test injects never happens there.
+        return;
+      }
       if (typeof process.getuid === "function" && process.getuid() === 0) {
         // Root bypasses chmod permission checks; skip on root containers.
         return;
@@ -1024,6 +1030,36 @@ describe("runDev", () => {
     it("does not create .arkor/agent in normal (non-agent) mode", async () => {
       await runDevCapturingStdout({ port: 4314, cwd: projectDir });
       expect(existsSync(join(projectDir, ".arkor"))).toBe(false);
+    });
+
+    it("sweeps every session file for this pid on cleanup but leaves other pids alone", async () => {
+      const stdout = await runDevCapturingStdout({
+        port: 4315,
+        agent: true,
+        cwd: projectDir,
+      });
+      const sessionPath = sessionPathFrom(stdout);
+      const dir = join(projectDir, ".arkor", "agent");
+      // Simulate the two windows the pid-prefix sweep exists for: a file
+      // whose rename landed but whose `agentSessionPath` assignment never
+      // ran (signal race), and an abandoned .tmp staging file.
+      const stray = join(dir, `session-${process.pid}-deadbeef.json`);
+      const strayTmp = join(
+        dir,
+        `session-${process.pid}-deadbeef.json.${process.pid}.x.tmp`,
+      );
+      writeFileSync(stray, "{}");
+      writeFileSync(strayTmp, "{}");
+      // A parallel session under a different pid must survive the sweep.
+      const otherPid = join(dir, `session-${process.pid + 1}-cafebabe.json`);
+      writeFileSync(otherPid, "{}");
+
+      const cleanup = process.listeners("exit").at(-1) as () => void;
+      cleanup();
+      expect(existsSync(sessionPath)).toBe(false);
+      expect(existsSync(stray)).toBe(false);
+      expect(existsSync(strayTmp)).toBe(false);
+      expect(existsSync(otherPid)).toBe(true);
     });
   });
 

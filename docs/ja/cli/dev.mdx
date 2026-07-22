@@ -77,7 +77,7 @@ bun dev
 
 ### Claude Code（`CLAUDECODE=1`）厳格モード
 
-Claude Code はすべてのシェルに `CLAUDECODE=1` を設定します。この環境で素の `arkor dev` は起動を拒否します。ブラウザー前提の常駐サーバーは、API を叩く手段をエージェントに与えないままシェルをハングさせてしまうためです。CLI はポートのバインドやファイル書き込みの前に次のブロックを stderr に出力し、exit code `1` で終了します。
+Claude Code はすべてのシェルに `CLAUDECODE=1` を設定します。この環境で素の `arkor dev` は起動を拒否します。ブラウザー前提の常駐サーバーは、API を叩く手段をエージェントに与えないままシェルをハングさせてしまうためです。CLI はポートをバインドせず、トークンファイルもセッションファイルも書かずに、次のブロックを stderr に出力して exit code `1` で終了します（初回実行時のテレメトリーは `~/.arkor/` に id ファイルを作ることがあります）。
 
 ```
 arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.
@@ -116,7 +116,7 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 | --- | --- | --- |
 | ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート 4000 は既に使用中。根本のエラーは `EADDRINUSE`） | 別プロセスがポートを保持していて、通常モードでは起動中 Studio プローブが Arkor Studio を確認できなかった。エージェントモードではプローブなしでこのエラーになる。 | 止めるか `--port <other>`。 |
 | `Arkor Studio already running on http://localhost:<port>`（exit `0`） | 通常モードがポート上で健全な Arkor Studio（多くは `arkor dev --agent` セッション）を発見し、失敗ではなく接続扱いにした。エラーではなく情報行。 | 何もしなくてよい。出力された URL を開く。CLI に開かせたいなら `--open`。 |
-| `arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.`（exit `1`） | Claude Code の厳格ゲート。`CLAUDECODE=1` が設定されていて `--agent` が渡されていない。何も起動されず、何も書き込まれていない。 | `arkor dev --agent` で再実行し、出力されたセッションファイルを使う。 |
+| `arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.`（exit `1`） | Claude Code の厳格ゲート。`CLAUDECODE=1` が設定されていて `--agent` が渡されていない。サーバーは起動されず、トークンファイルもセッションファイルも書き込まれていない。 | `arkor dev --agent` で再実行し、出力されたセッションファイルを使う。 |
 | `Could not write the agent session file under <project>/.arkor/agent (...). Agent mode requires it; aborting.`（exit `1`） | エージェントモードが `.arkor/agent/` またはセッションファイルを作成できなかった（読み取り専用のプロジェクトディレクトリー、権限の問題）。home のトークンと異なりこれは致命的で、ファイルはエージェント唯一のトークン経路。 | プロジェクトディレクトリーを書き込み可能にして（`.arkor/` の権限を確認）再実行。 |
 | `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.`（`<baseUrl>` に到達できませんでした（fetch 失敗）。Studio は起動を続け、初回の `/api/credentials` 受信時に再試行します） | `/v1/auth/cli/config` は成功したが、続く `/v1/auth/anonymous` がトランスポート障害で失敗。Studio サーバーは起動して再試行する。 | 接続を回復させれば `arkor dev` を再起動せずに次の `/api/credentials` ポーリングで SPA が回復。 |
 | `TypeError: fetch failed`（または同等のトランスポートエラーで `arkor dev` がそのまま終了する場合） | `/v1/auth/cli/config` 自体に届かなかったため、デプロイモードが特定できず fail-fast。 | 接続を回復してから `arkor dev` を再実行。 |
