@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
@@ -344,6 +344,21 @@ export function buildStudioApp(options: StudioServerOptions) {
     return new Response(upstream.body, { status: upstream.status, headers });
   });
 
+  // Live `/api/train` children, reaped by a single refcounted process 'exit'
+  // listener (attached on first spawn, detached when the last child goes) so
+  // concurrent runs don't accumulate one listener each. Scoped per app: tests
+  // build many apps, and a module-level listener would leak across them.
+  const liveTrainChildren = new Set<ChildProcess>();
+  const killLiveTrainChildren = (): void => {
+    for (const child of liveTrainChildren) {
+      try {
+        child.kill();
+      } catch {
+        // already exited
+      }
+    }
+  };
+
   app.post("/api/train", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
     let trainFile: string | undefined;
@@ -377,6 +392,26 @@ export function buildStudioApp(options: StudioServerOptions) {
       stdio: "pipe",
       cwd: trainCwd,
     });
+    // Don't let a training child outlive `arkor dev`. Ctrl-C (SIGINT) already
+    // reaches the child via the shared process group, but a SIGTERM/SIGHUP
+    // delivered only to the parent (e.g. `docker stop`) would orphan it and
+    // leak the GPU. dev.ts's signal handlers call `process.exit`, which fires
+    // 'exit' synchronously, so the shared kill hook tears children down on
+    // that path too. One refcounted process-level listener per app (attached
+    // while any child is live, detached at zero) rather than one per spawn,
+    // so >10 concurrent runs can't trip MaxListenersExceededWarning.
+    liveTrainChildren.add(child);
+    if (liveTrainChildren.size === 1) {
+      process.on("exit", killLiveTrainChildren);
+    }
+    const detachKillHook = (): void => {
+      liveTrainChildren.delete(child);
+      if (liveTrainChildren.size === 0) {
+        process.removeListener("exit", killLiveTrainChildren);
+      }
+    };
+    child.once("close", detachKillHook);
+    child.once("error", detachKillHook);
     const stream = new ReadableStream({
       start(controller) {
         // `Buffer` extends `Uint8Array`, so enqueue the raw chunk
@@ -385,11 +420,52 @@ export function buildStudioApp(options: StudioServerOptions) {
         // happens to split across reads. The terminator line still
         // needs encoding since it originates as a JS string.
         const enc = new TextEncoder();
-        child.stdout.on("data", (d: Buffer) => controller.enqueue(d));
-        child.stderr.on("data", (d: Buffer) => controller.enqueue(d));
+        // `done` guards every controller access below. When the client
+        // aborts (e.g. the Studio tab closes mid-training) the stream is
+        // cancelled and `child.kill()` runs, but the child's buffered
+        // `data` events and the eventual `close`/`error` events still
+        // fire on this EventEmitter. Calling `controller.enqueue`/`close`
+        // on an already-closed controller throws synchronously, and that
+        // throw would be an *uncaught* exception inside a ChildProcess
+        // listener, taking down the whole `arkor dev` process. The flag
+        // (plus a try/catch belt) makes every post-cancel callback a
+        // no-op instead.
+        let done = false;
+        const safeEnqueue = (chunk: Uint8Array) => {
+          if (done) return;
+          try {
+            controller.enqueue(chunk);
+          } catch {
+            done = true;
+          }
+        };
+        child.stdout.on("data", (d: Buffer) => safeEnqueue(d));
+        child.stderr.on("data", (d: Buffer) => safeEnqueue(d));
+        // A spawn failure (EMFILE/ENOMEM, missing cwd, ...) emits `error`
+        // with no `close` to follow. Without this listener the default
+        // EventEmitter behaviour rethrows it as an uncaught exception and
+        // crashes the dev server. Surface it into the stream instead.
+        child.on("error", (err) => {
+          if (done) return;
+          done = true;
+          try {
+            controller.enqueue(
+              enc.encode(`\n---\nfailed to start: ${err.message}\n`),
+            );
+            controller.close();
+          } catch {
+            // controller already closed (client went away first)
+          }
+        });
         child.on("close", (code) => {
-          controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
-          controller.close();
+          if (done) return;
+          done = true;
+          try {
+            controller.enqueue(enc.encode(`\n---\nexit=${code}\n`));
+            controller.close();
+          } catch {
+            // controller already closed (client went away first)
+          }
         });
       },
       cancel() {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+import { CloudApiError } from "./client";
 import { writeState } from "./state";
 import { createTrainer } from "./trainer";
 
@@ -1436,4 +1437,406 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       randomSpy.mockRestore();
     }
   });
+});
+
+// Regression for ENG-933: the dispatch/reconnect boundary conflated three
+// distinct failure modes (unknown event type, a throwing user callback, and a
+// permanent HTTP error) with a recoverable transport blip. Each is now
+// handled distinctly. See core/trainer.ts.
+describe("createTrainer (event dispatch robustness - ENG-933)", () => {
+  const jobRow = (id: string) => ({
+    id,
+    orgId: "o1",
+    projectId: "p1",
+    name: "run",
+    status: "queued",
+    config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+    createdAt: "2026-01-01T00:00:00Z",
+    startedAt: null,
+    completedAt: null,
+  });
+
+  it("skips an unknown event type instead of crashing / reconnecting", async () => {
+    // A forward-compatible server event whose `type` isn't in the SDK's union
+    // must be ignored like a malformed frame, not throw a TypeError that gets
+    // miscategorised as a transport failure. mockFetch has a single stream in
+    // its queue, so any reconnect would throw "unexpected fetch" and fail the
+    // test; resolving proves the unknown frame was skipped in place.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const sse = [
+      `id: 1\nevent: training.paused\ndata: ${JSON.stringify({
+        type: "training.paused",
+        jobId: "j-unknown",
+        timestamp: "2026-01-01T00:00:01Z",
+      })}\n\n`,
+      `id: 2\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j-unknown",
+        timestamp: "2026-01-01T00:00:02Z",
+      })}\n\n`,
+    ];
+    const fetcher = mockFetch([
+      {
+        method: "POST",
+        path: "/v1/jobs?",
+        body: JSON.stringify({ job: jobRow("j-unknown") }),
+        status: 201,
+      },
+      {
+        method: "GET",
+        path: "/v1/jobs/j-unknown/events/stream",
+        body: sseStream(sse),
+        headers: { "content-type": "text/event-stream" },
+      },
+    ]);
+    const trainer = createTrainer(
+      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await expect(trainer.wait()).resolves.toMatchObject({
+        job: { status: "completed" },
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("rejects (does not reconnect or swallow) when a user callback throws", async () => {
+    // A throwing onCompleted must reject wait() with the user's error, not be
+    // caught by the reconnect handler (which, since lastEventId has already
+    // advanced past the terminal frame, would skip it, swallow the error,
+    // and resolve with empty artifacts). Only one stream is offered; a
+    // reconnect would surface as streamCalls() === 2.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const boom = new Error("callback blew up");
+    const { fetch: fetcher, streamCalls } = streamFetcherLocal([
+      {
+        kind: "stream",
+        chunks: [
+          `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+            type: "training.completed",
+            jobId: "j1",
+            timestamp: "2026-01-01T00:00:01Z",
+            artifacts: [{ pathname: "adapter.json" }],
+          })}\n\n`,
+        ],
+      },
+    ]);
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onCompleted: () => {
+            throw boom;
+          },
+        },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectAttempts: 3,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await expect(trainer.wait()).rejects.toBe(boom);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCalls()).toBe(1);
+  });
+
+  it("rejects immediately on a permanent auth 4xx open error (no reconnect)", async () => {
+    // A 401 (expired/invalid token) fails identically on every reconnect
+    // since the token is fixed for this wait(); with default unlimited
+    // attempts the old loop would spin forever and never settle wait(). It
+    // must reject at once.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    let streamCount = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: jobRow("j-401") },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-401/events/stream")) {
+        streamCount++;
+        return new Response("unauthorized", { status: 401 });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+    const trainer = createTrainer(
+      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      const err = await trainer.wait().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(CloudApiError);
+      expect((err as CloudApiError).status).toBe(401);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCount).toBe(1);
+  });
+
+  it("retries a 404 open error (a just-created job's stream may not be visible yet)", async () => {
+    // wait() only ever streams a job it just created, so a 404 is the
+    // backend not having made the event stream visible yet, not a bad id.
+    // It must retry and recover, NOT reject like the auth statuses above.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    let streamCount = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: jobRow("j-404r") },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-404r/events/stream")) {
+        streamCount++;
+        if (streamCount === 1) {
+          return new Response("not found yet", { status: 404 });
+        }
+        return new Response(
+          sseStream([
+            `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+              type: "training.completed",
+              jobId: "j-404r",
+              timestamp: "2026-01-01T00:00:02Z",
+            })}\n\n`,
+          ]),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+    const trainer = createTrainer(
+      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectAttempts: 3,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await expect(trainer.wait()).resolves.toMatchObject({
+        job: { status: "completed" },
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCount).toBe(2);
+  });
+
+  it("still reconnects on a transient 5xx open error", async () => {
+    // 503 is transient (unlike 4xx), so it must fall through to the reconnect
+    // path and recover on the next open, proving the 4xx short-circuit above
+    // didn't turn every HTTP error into a hard failure.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    let streamCount = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: jobRow("j-503") },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-503/events/stream")) {
+        streamCount++;
+        if (streamCount === 1) {
+          return new Response("upstream down", { status: 503 });
+        }
+        return new Response(
+          sseStream([
+            `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+              type: "training.completed",
+              jobId: "j-503",
+              timestamp: "2026-01-01T00:00:02Z",
+            })}\n\n`,
+          ]),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+    const trainer = createTrainer(
+      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectAttempts: 3,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await expect(trainer.wait()).resolves.toMatchObject({
+        job: { status: "completed" },
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCount).toBe(2);
+  });
+
+  it("counts malformed-frame-only streams toward maxReconnectAttempts", async () => {
+    // PR #193 review (cubic): progress accounting must happen AFTER a
+    // successful JSON.parse. An intermediary that returns 200, injects
+    // unparseable garbage as a data frame, then EOFs must NOT reset the
+    // failure budget, or it loops forever at the base delay exactly like
+    // the ping-only case above.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const garbage = "id: 1\nevent: training.log\ndata: <html>bad gateway\n\n";
+    const { fetch: fetcher, streamCalls } = streamFetcherLocal([
+      { kind: "stream", chunks: [garbage] },
+      { kind: "stream", chunks: [garbage] },
+      { kind: "stream", chunks: [garbage] },
+    ]);
+    const trainer = createTrainer(
+      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 2,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      const err = await trainer.wait().catch((e: unknown) => e);
+      expect((err as Error).message).toMatch(/failed 3 consecutive times/);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCalls()).toBe(3);
+  });
+
+  it("counts ping-only streams toward maxReconnectAttempts", async () => {
+    // A broken intermediary that emits a single keepalive ping then EOFs must
+    // NOT reset the failure budget: pings are no longer treated as progress,
+    // so three ping-only streams exhaust max=2 instead of looping forever at
+    // the base delay.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const { fetch: fetcher, streamCalls } = streamFetcherLocal([
+      { kind: "stream", chunks: ["event: ping\ndata: \n\n"] },
+      { kind: "stream", chunks: ["event: ping\ndata: \n\n"] },
+      { kind: "stream", chunks: ["event: ping\ndata: \n\n"] },
+    ]);
+    const trainer = createTrainer(
+      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 2,
+      },
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      const err = await trainer.wait().catch((e: unknown) => e);
+      expect((err as Error).message).toMatch(/failed 3 consecutive times/);
+      expect(((err as Error).cause as Error).message).toMatch(
+        /closed without emitting any frame/,
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(streamCalls()).toBe(3);
+  });
+
+  // Local copy of the reconnect suite's streamFetcher (that one is scoped
+  // inside its own describe block). Kept minimal: POST /v1/jobs → a fixed job
+  // row, GET stream → the next queued handler.
+  function streamFetcherLocal(
+    handlers: (
+      | { kind: "throw"; error: Error }
+      | { kind: "stream"; chunks: string[] }
+    )[],
+  ): { fetch: typeof fetch; streamCalls: () => number } {
+    let streamCalls = 0;
+    const impl: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: jobRow("j1") },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
+        const handler = handlers[streamCalls++];
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (!handler) throw new Error(`unexpected stream open #${streamCalls}`);
+        if (handler.kind === "throw") throw handler.error;
+        return new Response(sseStream(handler.chunks), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+    return { fetch: impl, streamCalls: () => streamCalls };
+  }
 });

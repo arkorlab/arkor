@@ -1,8 +1,15 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
   credentialsPath,
@@ -82,6 +89,73 @@ describe("credentials roundtrip", () => {
     };
     await writeCredentials(creds);
     expect(await readCredentials()).toEqual(creds);
+  });
+
+  // ENG-933: a truncated / hand-mangled credentials.json used to make every
+  // `arkor` command die with a raw SyntaxError. It must now be treated like a
+  // missing file (returns null, silently) so callers re-bootstrap cleanly; the
+  // one-time warning lives in ensureCredentials, not here.
+  it("returns null (does not throw, stays silent) on a corrupt credentials.json", async () => {
+    mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
+    // Simulate a crash mid-write: truncated JSON.
+    writeFileSync(credentialsPath(), '{ "mode": "oauth", "accessTok');
+    // readCredentials must NOT warn: it is on the always-on telemetry path,
+    // so the "unreadable" notice lives in ensureCredentials instead.
+    const warn = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      await expect(readCredentials()).resolves.toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // A present-but-unreadable file must NOT be reported as missing: a valid but
+  // temporarily-unreadable OAuth login (EACCES/EIO/EISDIR) must rethrow so
+  // ensureCredentials never overwrites it with an anonymous identity. EISDIR
+  // (path is a directory) is the deterministic, non-root-bypassable stand-in.
+  it("rethrows (does not return null) when the credentials path is present but unreadable", async () => {
+    mkdirSync(credentialsPath(), { recursive: true });
+    await expect(readCredentials()).rejects.toThrow();
+  });
+
+  // Atomic write: no stray `credentials.json.<pid>.<uuid>.tmp` left behind, and the
+  // final file is the fully-written JSON (never a partial).
+  it("writes atomically and leaves no temp file behind", async () => {
+    const creds: AnonymousCredentials = {
+      mode: "anon",
+      token: "tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://localhost",
+      orgSlug: "anon-abc",
+    };
+    await writeCredentials(creds);
+    const dir = join(fakeHome, ".arkor");
+    const strays = readdirSync(dir).filter((f) => f.includes(".tmp"));
+    expect(strays).toEqual([]);
+    expect(await readCredentials()).toEqual(creds);
+  });
+
+  // Covers the `catch { await rm(tmp) }` cleanup branch: when the atomic
+  // rename fails, the staged temp file must be removed and the error must
+  // propagate (never leave a stray `credentials.json.<pid>.tmp`).
+  it("cleans up the temp file and rejects when the rename fails", async () => {
+    // Force rename(tmp, path) to fail by making the target path a directory
+    // (rename of a file over a directory fails on every platform).
+    mkdirSync(credentialsPath(), { recursive: true });
+    const creds: AnonymousCredentials = {
+      mode: "anon",
+      token: "tok",
+      anonymousId: "abc",
+      arkorCloudApiUrl: "http://localhost",
+      orgSlug: "anon-abc",
+    };
+    await expect(writeCredentials(creds)).rejects.toThrow();
+    const dir = join(fakeHome, ".arkor");
+    const strays = readdirSync(dir).filter((f) => f.includes(".tmp"));
+    expect(strays).toEqual([]);
   });
 });
 
@@ -346,6 +420,55 @@ describe("ensureCredentials", () => {
     }) as typeof fetch;
 
     expect(await ensureCredentials()).toEqual(creds);
+  });
+
+  it("warns once and re-bootstraps when the existing credentials file has corrupt content", async () => {
+    // Corrupt JSON content (not an I/O error) is safe to replace. The warning
+    // lives here (the explicit bootstrap path), NOT in the always-on
+    // readCredentials/telemetry path, so it surfaces exactly once.
+    mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
+    writeFileSync(credentialsPath(), "{ truncated");
+    process.env.ARKOR_CLOUD_API_URL = "http://mock-cloud-api";
+    globalThis.fetch = (async () =>
+      Response.json(
+        {
+          token: "fresh-tok",
+          anonymousId: "fresh-aid",
+          kind: "cli",
+          personalOrg: { id: "o", slug: "fresh-aid", name: "Anon" },
+        },
+        { status: 200 },
+      )) as typeof fetch;
+    const warn = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      const creds = await ensureCredentials();
+      expect(creds).toMatchObject({ mode: "anon", token: "fresh-tok" });
+      const replaceWarnings = warn.mock.calls.filter((c) =>
+        String(c[0]).includes("could not be parsed and is being replaced"),
+      );
+      expect(replaceWarnings).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // Data-loss regression guard (ENG-933 round-5 finding): a present-but-
+  // unreadable credentials file may hold a valid OAuth login. ensureCredentials
+  // must NOT bootstrap over it (no anonymous token request, no overwrite); it
+  // must surface the read error so the file is preserved.
+  it("does not overwrite a present-but-unreadable credentials file", async () => {
+    // EISDIR: credentials.json is a directory -> readCredentials rethrows.
+    mkdirSync(credentialsPath(), { recursive: true });
+    const fetchSpy = vi.fn(async () => {
+      throw new Error("anonymous bootstrap must not be attempted");
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    await expect(ensureCredentials()).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // The path is untouched (still the directory we created, never replaced).
+    expect(existsSync(credentialsPath())).toBe(true);
   });
 
   it("bootstraps a fresh anonymous identity, persists it, and returns the parsed shape", async () => {

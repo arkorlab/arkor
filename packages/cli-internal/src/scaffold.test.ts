@@ -178,6 +178,35 @@ describe("scaffold", () => {
     expect(pkgEntry?.action).toBe("patched");
   });
 
+  // ENG-933: a user who ran `pnpm add arkor` before `arkor init` already has
+  // `arkor` under `dependencies`. patchPackageJson must not add a SECOND entry
+  // under `devDependencies` (arkor pinned in both fields is rejected by some
+  // pnpm versions on install).
+  it("does not duplicate arkor into devDependencies when it is already a dependency", async () => {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify(
+        {
+          name: "already",
+          private: true,
+          dependencies: { arkor: "^0.0.1" },
+        },
+        null,
+        2,
+      ),
+    );
+    await scaffold({ cwd, name: "ignored", template: "triage" });
+    const patched = JSON.parse(
+      readFileSync(join(cwd, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+    // arkor stays where the user put it; no devDependencies.arkor is added.
+    expect(patched.dependencies).toEqual({ arkor: "^0.0.1" });
+    const devDeps = patched.devDependencies as
+      | Record<string, string>
+      | undefined;
+    expect(devDeps?.arkor).toBeUndefined();
+  });
+
   // Round 36 (PR #99: CI runs 25349847532, 25351227697): pnpm 11
   // refuses postinstall scripts unless the project allow- or
   // deny-lists the dep, exiting with `ERR_PNPM_IGNORED_BUILDS` and

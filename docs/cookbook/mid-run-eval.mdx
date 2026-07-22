@@ -85,6 +85,6 @@ onCheckpoint: async ({ step, infer }) => {
 
 ## What to keep in mind
 
-- **Wrap in `try / catch`.** A throw out of `onCheckpoint` is caught by the SSE reconnect loop and may be retried (see [SDK § Lifecycle callbacks](/sdk/callbacks)). For deterministic behavior, handle the error inside the callback and decide what to do.
+- **Wrap in `try / catch`.** A throw out of `onCheckpoint` rejects `wait()` immediately; it is not caught by the SSE reconnect loop or retried (that loop only handles transport failures) (see [SDK § Lifecycle callbacks](/sdk/callbacks)). For non-fatal handling, catch the error inside the callback and decide what to do.
 - **Inference costs a real call.** The backend serves the request from the live training cluster. Keep `maxTokens` modest if you are hitting every checkpoint.
 - **`infer` is per-call, not memoized.** Calling it twice in the same `onCheckpoint` makes two backend requests. Compose your prompts together in one call when you can.

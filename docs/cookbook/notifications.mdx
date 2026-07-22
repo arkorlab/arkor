@@ -59,7 +59,7 @@ The `<!here>` mention only fires on failure, so successful runs do not page anyo
 
 ## Why the inner `try / catch` matters
 
-If the webhook request throws (Slack outage, DNS hiccup, a non-2xx response that your code rethrows on), the callback rejects. The Arkor runtime catches that rejection and routes it through the SSE reconnect loop ([SDK § Lifecycle callbacks](/sdk/callbacks)). With `maxReconnectAttempts` at its default of unlimited, a flaky webhook can quietly retry forever, and `Last-Event-ID` advancing across the retry can swallow the original event.
+If the webhook request throws (Slack outage, DNS hiccup, a non-2xx response that your code rethrows on), the callback rejects, and an uncaught throw from a callback rejects `trainer.wait()` immediately with that error ([SDK § Lifecycle callbacks](/sdk/callbacks)). It is not routed through the SSE reconnect loop and it is not retried under `maxReconnectAttempts`. So a flaky webhook firing from `onCompleted` would abort the whole `wait()`, and a CI or cron orchestrator awaiting it would treat an otherwise-successful run as failed.
 
 Treat the webhook as a side effect, not as part of the run's success criterion. Catch inside; log if you want to know.
 
@@ -101,6 +101,6 @@ onCheckpoint: async ({ step, infer }) => {
 
 ## What to keep in mind
 
-- **Inner `try / catch` is mandatory.** Notifications are nice to have; an outage in your webhook should never silently retry your training event stream.
+- **Inner `try / catch` is mandatory.** Notifications are nice to have; an outage in your webhook should never abort an otherwise-successful run's `wait()`.
 - **Keep secrets out of the trainer file.** The example reads `SLACK_WEBHOOK_URL` from `process.env` so the webhook does not land in `git`. Same idea for any token-based destination.
 - **Remember `error` is a `string`.** `onFailed`'s `error` argument is the string the backend sent ([SDK § Lifecycle callbacks](/sdk/callbacks)), not an `Error` instance. Embed it directly; do not call `.message` on it.

@@ -367,7 +367,7 @@ try {
 | `4xx` モデル拒否 | バックエンドがリクエストを拒否（コンテキスト長超過、未対応のメッセージ形など）。 | `err.message` に upstream のエラーメッセージが入っているので呼び出し元に表面化。 |
 | `5xx` upstream | 推論クラスタの障害 / コールドスタートタイムアウト。 | SDK は推論リクエストを自動リトライ **しません**（trainer の SSE 再接続ループは *job event stream* 用で、`/v1/inference/chat` は対象外）。リトライが要るなら呼び出し側で実装してください。 |
 
-throw は `onCheckpoint` の外まで伝播し、ランタイムの再接続ループに catch されるため、未処理のエラーは silent な再試行になり得ます。推論エラーは必ず callback 内で処理してください。
+catch しなかった推論エラーは `onCheckpoint` の外へ抜け、`onCheckpoint` の外に出た throw は `trainer.wait()` を即座に reject します。ランタイムの再接続ループには catch されず、再接続ループはトランスポート障害のみをリトライします。致命的でない推論エラーは callback 内で catch し、回復可能な失敗が実行全体を中断しないようにしてください。
 
 ## 制約
 

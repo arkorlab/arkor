@@ -304,6 +304,71 @@ describe("CloudApiClient.openEventStream", () => {
       "Arkor SDK 1.4.0 is deprecated",
     );
   });
+
+  // ENG-933: openEventStream/chat used to always hit the SDK-global recorder,
+  // ignoring the per-request onDeprecation override (which Studio relies on to
+  // re-emit the notice as proxy headers). The override must now win.
+  it("routes deprecation to the per-request onDeprecation override, not the global recorder", async () => {
+    const captured: { message: string }[] = [];
+    const { fetch: f } = recorder(
+      () =>
+        new Response("body", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            Deprecation: "true",
+            Warning: '299 - "custom sink please"',
+          },
+        }),
+    );
+    const client = new CloudApiClient({
+      baseUrl: "http://mock",
+      credentials: anonCreds,
+      fetch: f,
+      onDeprecation: (notice) => captured.push(notice),
+    });
+    await client.openEventStream("j1", { orgSlug: "o", projectSlug: "p" });
+    expect(captured.map((c) => c.message)).toEqual(["custom sink please"]);
+    // Global recorder was NOT touched.
+    expect(getRecordedDeprecation()).toBeNull();
+  });
+
+  // PR #193 review (codex): a buggy onDeprecation override must not reject an
+  // otherwise-successful response on the raw path. The typed RPC path already
+  // swallows handler failures upstream; parity is enforced in tapDeprecation.
+  it("does not reject a successful response when the onDeprecation override throws", async () => {
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const { fetch: f } = recorder(
+        () =>
+          new Response("body", {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream",
+              Deprecation: "true",
+              Warning: '299 - "deprecated"',
+            },
+          }),
+      );
+      const client = new CloudApiClient({
+        baseUrl: "http://mock",
+        credentials: anonCreds,
+        fetch: f,
+        onDeprecation: () => {
+          throw new Error("buggy handler");
+        },
+      });
+      const res = await client.openEventStream("j1", {
+        orgSlug: "o",
+        projectSlug: "p",
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
 });
 
 describe("CloudApiClient.chat", () => {
