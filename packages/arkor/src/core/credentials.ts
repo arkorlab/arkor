@@ -1,5 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  chmod,
+  rename,
+  rm,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -82,8 +90,35 @@ export function studioTokenPath(): string {
 export async function readCredentials(): Promise<Credentials | null> {
   const path = credentialsPath();
   if (!existsSync(path)) return null;
-  const raw = await readFile(path, "utf8");
-  return JSON.parse(raw) as Credentials;
+  try {
+    const raw = await readFile(path, "utf8");
+    return JSON.parse(raw) as Credentials;
+  } catch (err) {
+    // Two failure modes that MUST NOT be conflated:
+    //
+    //  - ENOENT (the existsSync check above raced a concurrent `arkor logout`
+    //    rm) or a JSON parse error (genuinely corrupt content): there is no
+    //    valid login to preserve, so return null and let the caller
+    //    re-bootstrap. Returning null (not throwing) keeps the always-on
+    //    telemetry read path (`telemetry.ts` getIdentity) and the other
+    //    non-catching callers (whoami, ensureCredentials) from dying on a
+    //    raced / truncated file. Silent by design here; the one-time notice
+    //    lives in `ensureCredentials`.
+    //
+    //  - Anything else (EACCES / EPERM / EIO / EISDIR): the file is PRESENT
+    //    and may hold a perfectly valid OAuth session that is only
+    //    *temporarily* unreadable (root-owned after a `sudo arkor ...`,
+    //    evicted by iCloud / OneDrive, mode 0000, replaced by a directory).
+    //    Swallowing these as "missing" would let `ensureCredentials`
+    //    overwrite a real login with a fresh anonymous identity and
+    //    permanently drop the refresh token. Surface the real error instead
+    //    so the file is preserved and the user can fix it.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (err instanceof SyntaxError || code === "ENOENT") {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function writeCredentials(
@@ -92,8 +127,39 @@ export async function writeCredentials(
   const dir = credentialsDir();
   const path = credentialsPath();
   await mkdir(dir, { recursive: true });
-  await writeFile(path, JSON.stringify(credentials, null, 2), { mode: 0o600 });
-  await chmod(path, 0o600);
+  // Atomic write: serialise to a unique temp file created at mode 0600 (so the
+  // secret is never briefly world-readable and never left truncated if the
+  // process dies mid-write), then rename over the target. rename(2) is atomic
+  // within a filesystem, so a concurrent reader sees either the old file or
+  // the fully-written new one, never a partial JSON. The temp name carries a
+  // random suffix (NOT just `process.pid`): a `~/.arkor` volume bind-mounted
+  // into two containers can have two arkor processes both running as PID 1, so
+  // a pid-only name would collide and let their renames race; the random
+  // component keeps each writer's temp file private.
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(credentials, null, 2), { mode: 0o600 });
+    try {
+      // Belt-and-suspenders: guarantee 0600 regardless of the process
+      // umask. A chmod failure (seen on some network / overlay mounts) must
+      // not fail the whole login: the token is already staged and about to
+      // land, so warn rather than reject and mislead the caller into
+      // printing "Login failed" while `whoami` would still succeed.
+      await chmod(tmp, 0o600);
+    } catch (err) {
+      process.stderr.write(
+        `arkor: warning: could not set permissions on ${path}: ${
+          err instanceof Error ? err.message : String(err)
+        }\n`,
+      );
+    }
+    await rename(tmp, path);
+  } catch (err) {
+    // rename (or writeFile) failed: clean up the temp file so we don't leave
+    // a stray `credentials.json.<pid>.tmp` behind, then surface the error.
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
 }
 
 export async function getToken(credentials: Credentials): Promise<string> {
@@ -223,6 +289,19 @@ export async function requestAnonymousToken(
 export async function ensureCredentials(): Promise<Credentials> {
   const existing = await readCredentials();
   if (existing) return existing;
+
+  // At this point `readCredentials` returned null, which now means only
+  // "absent" or "present but corrupt JSON" (a present-but-unreadable file
+  // rethrows above and never reaches here, so a valid login is never
+  // silently replaced). If a file is nonetheless present, its content was
+  // corrupt and is about to be overwritten by the anonymous bootstrap below;
+  // surface that once from this explicit path (the always-on telemetry read
+  // stays silent).
+  if (existsSync(credentialsPath())) {
+    process.stderr.write(
+      `arkor: warning: ${credentialsPath()} could not be parsed and is being replaced. Run \`arkor login\` to sign in again.\n`,
+    );
+  }
 
   const baseUrl = defaultArkorCloudApiUrl();
   const anon = await requestAnonymousToken(baseUrl, "cli");

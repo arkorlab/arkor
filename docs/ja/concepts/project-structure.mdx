@@ -85,7 +85,7 @@ export default {};
 
 ## CLI が探すもの
 
-- `arkor dev` は Studio の Web サーバーを `127.0.0.1:4000` で起動し、`~/.arkor/studio-token` を書きます。`src/arkor/` をファイル監視はしません。Studio の `/api/manifest` エンドポイントは確かに `runBuild` を呼びキャッシュバストクエリで再 import しますが、それは Studio UI が fetch したときだけです（現状は Run training ページのマウント時）。同じページに留まったまま学習を複数回実行すると、ビルド成果物は再利用されます。編集した後は Run training ページをリロード（あるいはターミナルから `arkor build`）して変更を取り込んでください。`arkor dev` は単独で `.arkor/state.json` を書きません。
+- `arkor dev` は Studio の Web サーバーを `127.0.0.1:4000` で起動し、`~/.arkor/studio-token` を書きます。`src/arkor/` をファイル監視はしません。Studio の `/api/manifest` エンドポイントは確かに `runBuild` を呼び、bundle の content-addressed コピー経由で再 import します（無編集の再読込は Node のモジュールキャッシュを再利用し、編集はキャッシュをバストします）が、それは Studio UI が fetch したときだけです（現状は Run training ページのマウント時）。同じページに留まったまま学習を複数回実行すると、ビルド成果物は再利用されます。編集した後は Run training ページをリロード（あるいはターミナルから `arkor build`）して変更を取り込んでください。`arkor dev` は単独で `.arkor/state.json` を書きません。
 - `arkor build` は `src/arkor/index.ts`（または渡したエントリー）を読んで `.arkor/build/index.mjs` を書きます。Studio の dev ループの外側で直接呼ぶ必要があるのは CI や、スクリプトから `arkor start` の直前に走らせる場合などです。
 - `arkor start` はランナー経由でエントリーを解決し、`.arkor/build/index.mjs` がない、もしくは明示的なエントリーを渡したときはリビルドして実行します（これが `trainer.start()` と `trainer.wait()` を呼びます）。Studio から学習をトリガーすると内部的に `arkor start` がサブプロセスとして起動されます。
 

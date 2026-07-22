@@ -112,15 +112,13 @@ Each callback is awaited before the next event is dispatched. You can return a p
 
 ### Exception handling
 
-Throwing inside a callback does **not** behave like a normal Promise rejection. The SDK's event loop wraps dispatch in a try/catch and routes any throw to the SSE reconnect handler (`packages/arkor/src/core/trainer.ts:335-364`, then `handleFailure` at `:307-320`):
+Throwing inside a callback rejects `wait()` immediately with your error. The SDK distinguishes a callback failure from a transport failure: a thrown callback is **not** routed to the SSE reconnect handler, so the run does not silently retry past it.
 
-1. If `abortSignal.aborted` is set, the error re-throws and `wait()` rejects.
-2. Otherwise, if `maxReconnectAttempts` was configured and the counter is exceeded, `wait()` rejects with a wrapping error.
-3. Otherwise, the SDK delays and reopens the SSE stream.
+This matters because the failing event's `Last-Event-ID` has already advanced by the time your callback runs. If a throw were retried, the reconnect would resume *after* that event, skipping it, swallowing your error, and (for a terminal `training.completed` event) resolving `wait()` with empty `artifacts` as if the run produced nothing. Rejecting instead surfaces the failure where you can act on it.
 
-`maxReconnectAttempts` defaults to `undefined` (unlimited). It is not configurable through `TrainerInput`; the only way to set it is the second `context` argument to `createTrainer`, which is annotated `@internal` and may change without notice. In practice, with default settings, a thrown callback is **caught and retried**, possibly indefinitely. If `Last-Event-ID` advances across the retry, the originally failing event is also skipped.
+The reconnect handler is reserved for genuine transport failures (a dropped connection, a transient 5xx). Those are retried with exponential backoff; a thrown callback is not.
 
-For deterministic error handling, catch inside the callback (see the second example below).
+For deterministic, non-fatal error handling, catch inside the callback (see the second example below) so a recoverable side-effect failure (a flaky Slack post, a metrics write) doesn't abort the whole run.
 
 ## Examples
 
@@ -151,7 +149,7 @@ await trainer.start();
 await trainer.wait();
 ```
 
-Catch inside a callback to keep failures local instead of letting them trigger an SSE reconnect:
+Catch inside a callback to keep a recoverable failure local instead of letting it reject `wait()`:
 
 ```ts
 onCheckpoint: async ({ step, infer }) => {

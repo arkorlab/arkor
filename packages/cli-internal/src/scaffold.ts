@@ -1023,9 +1023,15 @@ async function patchPackageJson(
       dirty = true;
     }
   }
+  const deps =
+    (current.dependencies as Record<string, string> | undefined) ?? {};
   const devDeps =
     (current.devDependencies as Record<string, string> | undefined) ?? {};
-  if (!devDeps.arkor) {
+  // Check BOTH fields: a user who ran `pnpm add arkor` before `arkor init`
+  // already has `arkor` under `dependencies`. Only inspecting
+  // `devDependencies` would add a second `arkor` entry, leaving it pinned in
+  // both fields, which some pnpm versions reject on install.
+  if (!devDeps.arkor && !deps.arkor) {
     devDeps.arkor = resolveArkorScaffoldSpec();
     current.devDependencies = devDeps;
     dirty = true;

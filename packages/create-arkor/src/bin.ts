@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, realpathSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { lstat, readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -75,8 +75,29 @@ function isInteractive(): boolean {
  * block scaffolding into an auto-derived `./<name>/` so we don't silently
  * merge into someone else's work.
  */
-async function isOccupied(path: string): Promise<boolean> {
-  if (!existsSync(path)) return false;
+export async function isOccupied(path: string): Promise<boolean> {
+  let stats;
+  try {
+    // `lstat`, not `existsSync`: `existsSync` follows symlinks, so a broken
+    // (dangling) symlink at the target reports "does not exist" and the
+    // collision guard is bypassed, then the later file writes fail with a
+    // confusing ENOENT. `lstat` inspects the link itself, so any entry
+    // present at the path is treated as a collision.
+    stats = await lstat(path);
+  } catch (err) {
+    // Only ENOENT means "nothing there". Any other lstat failure (EACCES,
+    // EIO, ELOOP, ENOTDIR from a file in the parent chain, ...) means the
+    // path exists in some form we cannot inspect; scaffolding into it would
+    // fail later with a misleading mid-write error, so treat it as occupied
+    // and surface the collision up front, consistent with the readdir
+    // fallback below.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    return true;
+  }
+  // Anything that isn't a real directory (a file, or a symlink of any kind
+  // including a broken one) occupies the path outright, matching this
+  // function's contract of blocking a silent merge into someone else's work.
+  if (!stats.isDirectory()) return true;
   try {
     const entries = await readdir(path);
     return entries.length > 0;
@@ -142,8 +163,9 @@ function disambiguateLeadingDashPath(
  * broken `cd My App && pnpm install`.
  *
  * Skips quoting for the common safe case (alphanumerics + a few
- * unambiguous extras like `-_./+@:,`) so the printed hint stays
- * clean for typical project names.
+ * unambiguous extras like `-_./+@:`) so the printed hint stays
+ * clean for typical project names. Comma is deliberately excluded
+ * (it is PowerShell's array operator); see `shellQuoteIfNeeded`.
  *
  * Quoting style is platform-aware (round-39 Codex P2 / Copilot):
  *
@@ -204,10 +226,15 @@ function disambiguateLeadingDashPath(
 export function shellQuoteIfNeeded(value: string): string {
   value = disambiguateLeadingDashPath(value, process.platform);
   // Safe-unquote criteria: only alphanumerics + a small set of
-  // unambiguous extras (`-_./+@:,`). After the leading-dash
+  // unambiguous extras (`-_./+@:`). After the leading-dash
   // disambiguation above, `value` no longer starts with `-`
   // even if the user-supplied path did.
-  if (/^[\w./+@:,-]+$/.test(value)) return value;
+  //
+  // Comma is deliberately NOT in this set: in PowerShell an unquoted comma
+  // is the array-construction operator, so a hint like `cd my,dir` parses as
+  // `Set-Location @('my','dir')` and errors. Leaving comma out forces such
+  // paths through the quoting branches below, which both shells accept.
+  if (/^[\w./+@:-]+$/.test(value)) return value;
   if (process.platform === "win32") {
     // Order matters: backtick first (it's the PS escape
     // character for the others, so escaping it first prevents
