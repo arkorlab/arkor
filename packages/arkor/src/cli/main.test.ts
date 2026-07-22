@@ -196,14 +196,73 @@ describe("main (CLI Commander wiring)", () => {
   });
 
   it("dispatches `dev` with the parsed port + --open flag", async () => {
+    // The worker may inherit CLAUDECODE=1 (vitest spawned from a Claude
+    // Code session), which would trip the new dev gate; this test is about
+    // plain flag dispatch, so pin the non-agent environment. afterEach
+    // restores the original value.
+    delete process.env.CLAUDECODE;
     await main(["dev", "--port", "4500", "--open"]);
-    expect(runDev).toHaveBeenCalledWith({ port: 4500, open: true });
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4500,
+      open: true,
+      agent: false,
+    });
   });
 
   it("falls back to port 4000 when --port is non-numeric", async () => {
     // Branch coverage for the `Number(opts.port) || 4000` defaulting.
+    delete process.env.CLAUDECODE;
     await main(["dev", "--port", "not-a-number"]);
-    expect(runDev).toHaveBeenCalledWith({ port: 4000, open: false });
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4000,
+      open: false,
+      agent: false,
+    });
+  });
+
+  it("under CLAUDECODE=1, `dev` without --agent throws ClaudeCodeStrictExit and never starts the server", async () => {
+    process.env.CLAUDECODE = "1";
+    const stderrChunks: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(((
+      c: unknown,
+    ) => {
+      stderrChunks.push(String(c));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      await expect(main(["dev"])).rejects.toMatchObject({
+        name: "ClaudeCodeStrictExit",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    // Same sentinel contract as the init gate: the finally block still runs.
+    expect(shutdownTelemetry).toHaveBeenCalledOnce();
+    const buf = stderrChunks.join("");
+    expect(buf).toContain("arkor dev: CLAUDECODE=1 detected");
+    expect(buf).toContain("--agent");
+    expect(buf).toContain("X-Arkor-Studio-Token");
+    expect(runDev).not.toHaveBeenCalled();
+  });
+
+  it("under CLAUDECODE=1, `dev --agent` passes the gate and delegates with agent: true", async () => {
+    process.env.CLAUDECODE = "1";
+    await main(["dev", "--agent"]);
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4000,
+      open: false,
+      agent: true,
+    });
+  });
+
+  it("without CLAUDECODE, `dev --agent` still opts into agent mode (other coding agents)", async () => {
+    delete process.env.CLAUDECODE;
+    await main(["dev", "--agent", "--port", "4501"]);
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4501,
+      open: false,
+      agent: true,
+    });
   });
 
   it("flushes a recorded deprecation warning after parse and awaits shutdownTelemetry", async () => {

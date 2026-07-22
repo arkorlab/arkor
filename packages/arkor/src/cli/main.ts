@@ -1,5 +1,6 @@
 import {
   ClaudeCodeStrictExit,
+  formatClaudeCodeAgentModeMessage,
   formatClaudeCodeMissingMessage,
   isClaudeCode,
   missingClaudeCodeFlags,
@@ -241,13 +242,28 @@ export async function main(argv: string[]): Promise<void> {
     .description("Launch Arkor Studio locally")
     .option("-p, --port <port>", "Port to bind (default: 4000)", "4000")
     .option("--open", "Open the Studio URL in a browser after starting")
+    .option(
+      "--agent",
+      "Run headlessly for coding agents: write a JSON session token file to .arkor/agent/ and print its path",
+    )
     .action(
       withTelemetry(
         "dev",
-        async (opts: { port: string; open?: boolean }) => {
+        async (opts: { port: string; open?: boolean; agent?: boolean }) => {
+          // Under CLAUDECODE=1 a Studio launch without --agent is almost
+          // always a mistake: the agent cannot drive a browser UI and the
+          // long-running server would hang its shell. Require the explicit
+          // --agent opt-in (same sentinel pattern as the `init` gate above).
+          // The flag itself does NOT require the env var: other coding
+          // agents opt in with a plain `arkor dev --agent`.
+          if (isClaudeCode() && opts.agent !== true) {
+            process.stderr.write(formatClaudeCodeAgentModeMessage("arkor dev"));
+            throw new ClaudeCodeStrictExit();
+          }
           await runDev({
             port: Number(opts.port) || 4000,
             open: opts.open === true,
+            agent: opts.agent === true,
           });
         },
         { longRunning: true },

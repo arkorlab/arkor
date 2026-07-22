@@ -41,6 +41,7 @@ bun dev
 | --- | --- | --- |
 | `-p, --port <port>` | `4000` | Port to bind. The displayed URL uses `localhost`, but the listener binds `127.0.0.1` directly so it cannot end up IPv6-only on hosts where `/etc/hosts` lists `::1` before `127.0.0.1`. The CLI parses the value as `Number(opts.port) || 4000`, so falsy results (`0`, non-numeric) normalize to `4000`. **Truthy invalid values pass through unsanitized**: a negative port or a port above `65535` reaches the listener as-is and surfaces as a `serve()` failure (e.g. `RangeError`). Stick to the standard 1 to 65535 range yourself. |
 | `--open` | off | Open the Studio URL in a browser after the server is up. |
+| `--agent` | off | Agent mode: run the same Studio server headlessly for coding agents. Writes a per-session JSON token file under `.arkor/agent/` in the project and prints its path to stdout (see "Agent mode" below). Never opens a browser on its own; `--open` still works if you want one. |
 
 ## Behavior
 
@@ -52,6 +53,43 @@ bun dev
 4. **Token persistence (best-effort, after a successful bind).** Once the listener is up, the token is written to `~/.arkor/studio-token` (mode `0600`) so the studio-app Vite dev server (`pnpm --filter @arkor/studio-app dev`) can pick it up. Binding first means a doomed second launch on a busy port never touches the file (see "Port collision" below). If writing fails (read-only `$HOME`, locked-down umask), `arkor dev` continues; only the standalone Vite dev workflow is affected.
 
 When the process exits (normal exit, `SIGINT`, `SIGTERM`, or `SIGHUP`) the studio-token file is removed on a best-effort basis. A crash can leave the file on disk; the next `arkor dev` rotates it.
+
+### Agent mode (`--agent`)
+
+`arkor dev --agent` runs the exact same Studio server headlessly for coding agents (Claude Code and others) that operate Arkor through direct HTTP calls instead of the browser UI. The flag is a plain opt-in: no environment variable is required.
+
+Everything in the launch sequence above happens unchanged, plus:
+
+1. **Project-local session file.** The per-launch CSRF token is written to a unique JSON file inside the project: `<project>/.arkor/agent/session-<pid>-<uuid>.json`. The `.arkor/agent/` directory is created with mode `0700` and the file with mode `0600`; `.arkor/` is already gitignored by the scaffolder. The content is `{ "token": "<token>", "url": "http://localhost:<port>", "port": <port>, "pid": <pid> }`. Unlike the home token, a failure to write this file **aborts startup** with exit code 1: the session file is the agent's only token channel, so a server without it would be silently unusable.
+2. **stdout contract.** Three lines, in this order; the prefixes of the first two are stable and safe to grep:
+
+   ```
+   Arkor Studio running on http://localhost:<port>
+   Arkor Studio agent session file: <absolute path>
+   Read the token from that file and send it as the X-Arkor-Studio-Token header on /api/* requests.
+   ```
+
+3. **Status probe.** `GET /api/status` (token required, like every `/api/*` route) returns safe metadata only: `status`, `server: "arkor-studio"`, `version`, `mode` (`"agent"` here), `url`, `pid`, `cwd`, and the list of available `endpoints`. It never includes credentials or the CSRF token and never executes project code, so it is the right first call to confirm the server and discover the API surface.
+
+The session file is unlinked on exit, `SIGINT`, `SIGTERM`, and `SIGHUP`. A crash (`SIGKILL`, power loss) can leave `session-*.json` files behind; they are inert (the token died with the server) and safe to delete.
+
+The Studio SPA is still served in agent mode: a human can open the printed URL in a browser while the agent works, and every guard from "Loopback and CSRF model" below applies unchanged.
+
+### Claude Code (`CLAUDECODE=1`) strict mode
+
+Claude Code sets `CLAUDECODE=1` in every spawned shell. Under it, a plain `arkor dev` refuses to start: the long-running browser-oriented server would hang the agent's shell without giving it a way to call the API. The CLI prints the block below to stderr and exits `1` before binding a port or writing any file:
+
+```
+arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.
+Re-run with the --agent flag:
+  --agent
+      Runs the same Studio server headlessly and writes a JSON session
+      file ({ token, url, port, pid }) under .arkor/agent/ in the
+      project. Read the token from that file and send it as the
+      X-Arkor-Studio-Token header on /api/* requests.
+```
+
+`--agent` works without the environment variable, so other coding agents opt in with the same flag. The scaffolders follow the same convention: see [`arkor init` strict mode](/cli/init#claude-code-claudecode=1-strict-mode).
 
 ### Loopback and CSRF model
 
@@ -65,7 +103,10 @@ This means `arkor dev` is safe on a shared dev machine: another tab cannot read 
 
 ### Port collision
 
-`arkor dev` does not auto-pick a free port. If the chosen port is already taken (another `arkor dev` left running, an unrelated dev server, etc.), the listener's `EADDRINUSE` is caught and `arkor dev` exits non-zero with ``Port <port> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.`` Pick a different port with `-p <port>`, or stop whatever else is bound to it.
+`arkor dev` does not auto-pick a free port. What happens on a busy port depends on the mode:
+
+- **Normal mode connects to a running Studio.** Before failing, the CLI probes the occupant: it reads `~/.arkor/studio-token` and calls `GET /api/status` with it (1.5 s timeout). If the response confirms an Arkor Studio (`server: "arkor-studio"`), the CLI prints `Arkor Studio already running on http://localhost:<port>`, honors `--open` against that URL, and exits `0` without starting a second server. The typical case: an `arkor dev --agent` session owns the port and you want the browser UI; the running server already serves the SPA, so connecting is enough. If the probe fails for any reason (no token file, stale token, timeout, or the occupant is not a Studio), the CLI exits non-zero with ``Port <port> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``
+- **Agent mode always errors.** `arkor dev --agent` on a busy port fails with the same port-in-use message without probing: an agent session needs its own server process and its own session file, so adopting an existing instance would hand the agent a token it does not control. Pass `--port` to start a second session.
 
 The token file (`~/.arkor/studio-token`) is written only **after** the port binds successfully, so a failed second launch on a busy port never overwrites or deletes the token a healthy first instance depends on.
 
@@ -73,7 +114,10 @@ The token file (`~/.arkor/studio-token`) is written only **after** the port bind
 
 | Symptom | What it means | Fix |
 | --- | --- | --- |
-| ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.`` | Another process holds the port (the underlying error is `EADDRINUSE`). | Stop it, or use `--port <other>`. |
+| ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.`` | Another process holds the port (the underlying error is `EADDRINUSE`) and, in normal mode, the running-Studio probe did not confirm an Arkor Studio. In agent mode this fires without probing. | Stop it, or use `--port <other>`. |
+| `Arkor Studio already running on http://localhost:<port>` (exit `0`) | Normal mode found a healthy Arkor Studio on the port (often an `arkor dev --agent` session) and connected to it instead of failing. Informational, not an error. | Nothing required. Open the printed URL; pass `--open` to have the CLI do it. |
+| `arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.` (exit `1`) | The Claude Code strict gate: `CLAUDECODE=1` is set and `--agent` was not passed. Nothing was started and nothing was written. | Re-run as `arkor dev --agent` and use the printed session file. |
+| `Could not write the agent session file under <project>/.arkor/agent (...). Agent mode requires it; aborting.` (exit `1`) | Agent mode could not create `.arkor/agent/` or the session file (read-only project dir, permission problem). Unlike the home token this is fatal: the file is the agent's only token channel. | Make the project directory writable (check `.arkor/` permissions) and re-run. |
 | `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.` | `/v1/auth/cli/config` already succeeded, but the follow-up `/v1/auth/anonymous` hit a transport error. The Studio server starts and will retry. | Bring connectivity back; the SPA recovers on its next `/api/credentials` poll without restarting `arkor dev`. |
 | `TypeError: fetch failed` (or an equivalent transport error that exits `arkor dev` immediately) | `/v1/auth/cli/config` itself was unreachable, so the deployment mode could not be determined and the CLI fails fast. | Restore connectivity and re-run `arkor dev`. |
 | ``No credentials on file. Bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.`` | First `arkor dev` on this machine when the deployment advertises OAuth. The CLI bootstraps anonymous so Studio can start immediately; the message is informational, not an error. | Nothing required. To upgrade to a real account, run `arkor login --oauth` separately (it overwrites `~/.arkor/credentials.json`) and refresh Studio. |
@@ -131,8 +175,39 @@ bun dev --port 5000 --open
 
 </CodeGroup>
 
+Agent mode for a coding agent:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm dev --agent
+```
+
+```bash npm
+npm run dev -- --agent
+```
+
+```bash yarn
+yarn dev --agent
+```
+
+```bash bun
+bun dev --agent
+```
+
+</CodeGroup>
+
+Then, from the agent's shell, read the token out of the session file and confirm the server. Prefer the exact path printed on stdout; the glob below works for a single-session project:
+
+```bash
+SESSION_FILE=$(ls .arkor/agent/session-*.json | head -n 1)
+TOKEN=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).token' "$SESSION_FILE")
+curl -H "X-Arkor-Studio-Token: $TOKEN" http://localhost:4000/api/status
+```
+
 ## See also
 
 - [Studio concept](/concepts/studio) for what the UI actually does
 - [`arkor login`](/cli/auth) for upgrading from an anonymous session to OAuth
 - [Project structure](/concepts/project-structure) for the `~/.arkor/` and `.arkor/` layout
+- [`arkor init` strict mode](/cli/init#claude-code-claudecode=1-strict-mode) for the same `CLAUDECODE=1` convention on the scaffolder

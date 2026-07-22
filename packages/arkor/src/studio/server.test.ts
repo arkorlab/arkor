@@ -263,6 +263,93 @@ describe("Studio server", () => {
     expect(res.status).toBe(403);
   });
 
+  describe("GET /api/status", () => {
+    it("rejects requests without the studio token", async () => {
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects non-loopback hosts", async () => {
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: {
+          host: "evil.example:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("returns safe metadata and the endpoint list with a valid token", async () => {
+      // No credentials are written and `autoAnonymous` is false: if the
+      // handler ever touched the credential path, `getCredentials` would
+      // throw and this request would 500. Passing proves the endpoint is
+      // credentials-free.
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        status: "ok",
+        server: "arkor-studio",
+        mode: "studio",
+        url: null,
+        pid: process.pid,
+        cwd: trainCwd,
+      });
+      expect(typeof body.version).toBe("string");
+      expect(body.endpoints).toContain("GET /api/status");
+      expect(body.endpoints).toContain("POST /api/train");
+      expect(body.endpoints).toContain("GET /api/jobs/:id/events");
+    });
+
+    it("echoes mode and url when launched as an agent session", async () => {
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        mode: "agent",
+        url: "http://localhost:4123",
+      });
+      const res = await app.request("/api/status", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.mode).toBe("agent");
+      expect(body.url).toBe("http://localhost:4123");
+    });
+
+    it("never includes the studio token or credential material in the body", async () => {
+      await writeCredentials(ANON_CREDS);
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const raw = await res.text();
+      expect(raw).not.toContain(STUDIO_TOKEN);
+      expect(raw).not.toContain(ANON_CREDS.token);
+      expect(raw).not.toContain(ANON_CREDS.anonymousId);
+    });
+  });
+
   it("returns project state from the Studio training cwd", async () => {
     await writeCredentials(ANON_CREDS);
     await writeState(

@@ -41,6 +41,7 @@ bun dev
 | --- | --- | --- |
 | `-p, --port <port>` | `4000` | バインドするポート。表示 URL は `localhost` ですが、リスナーは `127.0.0.1` を直接バインドします。これにより `/etc/hosts` で `::1` が `127.0.0.1` より先に並ぶホストでも IPv6 専用に終わりません。CLI は値を `Number(opts.port) || 4000` でパースするので、falsy な結果（`0`、非数）は `4000` に正規化されます。**truthy な不正値はそのまま透過します**。負のポートや `65535` を超えるポートはリスナーにそのまま到達し `serve()` の失敗（例: `RangeError`）として現れます。1 から 65535 の標準範囲を自分で守ってください。 |
 | `--open` | off | サーバー起動後にブラウザーで Studio URL を開く。 |
+| `--agent` | off | エージェントモード。同じ Studio サーバーをコーディングエージェント向けにヘッドレスで起動する。プロジェクト内の `.arkor/agent/` にセッションごとの JSON トークンファイルを書き、そのパスを stdout に出力する（下の「エージェントモード」参照）。単体でブラウザーを開くことはなく、開きたい場合は従来どおり `--open` を併用する。 |
 
 ## 振る舞い
 
@@ -52,6 +53,43 @@ bun dev
 4. **トークンの永続化（ベストエフォート、バインド成功後）。** リスナーが立ち上がってから、トークンを `~/.arkor/studio-token`（モード `0600`）に書きます。studio-app の Vite dev サーバー（`pnpm --filter @arkor/studio-app dev`）が拾えるようにするためです。先にバインドするので、使用中ポートへの 2 つ目の起動がこのファイルに触れることはありません（下の「ポート競合」参照）。書き込みが失敗（`$HOME` が読み取り専用、umask が厳しいなど）しても `arkor dev` は続行します。影響を受けるのはスタンドアローン Vite dev ワークフローだけです。
 
 プロセス終了時（通常終了、`SIGINT`、`SIGTERM`、`SIGHUP`）に studio-token ファイルはベストエフォートで削除されます。クラッシュするとファイルがディスク上に残ることがあり、その場合は次回 `arkor dev` がローテートします。
+
+### エージェントモード（`--agent`）
+
+`arkor dev --agent` は、ブラウザー UI ではなく HTTP を直接叩いて Arkor を操作するコーディングエージェント（Claude Code など）向けに、まったく同じ Studio サーバーをヘッドレスで起動します。フラグは純粋なオプトインで、環境変数は不要です。
+
+上記の起動シーケンスはすべてそのまま実行され、加えて次が行われます。
+
+1. **プロジェクト内セッションファイル。** この起動用の CSRF トークンを、プロジェクト内の固有な JSON ファイル `<project>/.arkor/agent/session-<pid>-<uuid>.json` に書き込みます。`.arkor/agent/` ディレクトリーはモード `0700`、ファイルはモード `0600` で作成されます。`.arkor/` は scaffold の時点で gitignore 済みです。内容は `{ "token": "<token>", "url": "http://localhost:<port>", "port": <port>, "pid": <pid> }` です。home のトークンと異なり、このファイルの書き込みに失敗すると **起動は中止され** exit code 1 になります。セッションファイルはエージェント唯一のトークン受け渡し経路であり、これが無いサーバーは呼び出し元から静かに使用不能になるためです。
+2. **stdout の契約。** 次の 3 行がこの順で出力されます。先頭 2 行のプレフィックスは安定しており grep して安全です。
+
+   ```
+   Arkor Studio running on http://localhost:<port>
+   Arkor Studio agent session file: <絶対パス>
+   Read the token from that file and send it as the X-Arkor-Studio-Token header on /api/* requests.
+   ```
+
+3. **ステータスプローブ。** `GET /api/status`（他の `/api/*` ルートと同様にトークン必須）は安全なメタデータのみを返します。`status`、`server: "arkor-studio"`、`version`、`mode`（ここでは `"agent"`）、`url`、`pid`、`cwd`、利用可能な `endpoints` の一覧です。認証情報や CSRF トークンを含むことはなく、プロジェクトのコードを実行することもないため、サーバーの確認と API サーフェスの発見に最初に呼ぶべきエンドポイントです。
+
+セッションファイルは通常終了、`SIGINT`、`SIGTERM`、`SIGHUP` で unlink されます。クラッシュ（`SIGKILL`、電源断）では `session-*.json` が残ることがありますが、トークンはサーバーとともに死んでいるため無害で、削除して安全です。
+
+エージェントモードでも Studio SPA は引き続き配信されます。エージェントが作業している間、人間は出力された URL をブラウザーで開けますし、下の「ループバックと CSRF モデル」のガードもすべてそのまま適用されます。
+
+### Claude Code（`CLAUDECODE=1`）厳格モード
+
+Claude Code はすべてのシェルに `CLAUDECODE=1` を設定します。この環境で素の `arkor dev` は起動を拒否します。ブラウザー前提の常駐サーバーは、API を叩く手段をエージェントに与えないままシェルをハングさせてしまうためです。CLI はポートのバインドやファイル書き込みの前に次のブロックを stderr に出力し、exit code `1` で終了します。
+
+```
+arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.
+Re-run with the --agent flag:
+  --agent
+      Runs the same Studio server headlessly and writes a JSON session
+      file ({ token, url, port, pid }) under .arkor/agent/ in the
+      project. Read the token from that file and send it as the
+      X-Arkor-Studio-Token header on /api/* requests.
+```
+
+`--agent` は環境変数なしでも動作するので、Claude Code 以外のコーディングエージェントも同じフラグでオプトインできます。scaffolder も同じ規約に従います。[`arkor init` の厳格モード](/ja/cli/init#claude-code（claudecode=1）厳格モード)を参照してください。
 
 ### ループバックと CSRF モデル
 
@@ -65,7 +103,10 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 
 ### ポート競合
 
-`arkor dev` は空きポートの自動採用はしません。指定ポートが既に使われている（前回の `arkor dev` が残っている、無関係な dev サーバー、など）と、リスナーの `EADDRINUSE` は捕捉され、`arkor dev` は ``Port <port> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート `<port>` は既に使用中です。別の `arkor dev` が動いているかもしれません。`--port` で別のポートを選んでください）という明確なメッセージとともに非ゼロで終了します。`-p <port>` で別のポートを選ぶか、占有しているプロセスを止めてください。
+`arkor dev` は空きポートの自動採用はしません。使用中ポートでの挙動はモードで異なります。
+
+- **通常モードは起動中の Studio に接続します。** 失敗させる前に、CLI は占有者をプローブします。`~/.arkor/studio-token` を読み、それを付けて `GET /api/status` を呼びます（タイムアウト 1.5 秒）。レスポンスが Arkor Studio であること（`server: "arkor-studio"`）を確認できたら、CLI は `Arkor Studio already running on http://localhost:<port>` を出力し、その URL に対して `--open` を尊重し、2 つ目のサーバーを起動せずに exit code `0` で終了します。典型例は `arkor dev --agent` セッションがポートを保持していて、人間がブラウザー UI を使いたい場合です。起動中のサーバーは SPA も配信しているので、接続するだけで十分です。プローブが何らかの理由で失敗した場合（トークンファイルなし、古いトークン、タイムアウト、占有者が Studio ではない）は、従来どおり ``Port <port> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート `<port>` は既に使用中です。別の `arkor dev` が動いているかもしれません。`--port` で別のポートを選んでください）で非ゼロ終了します。
+- **エージェントモードは常にエラーです。** `arkor dev --agent` は使用中ポートに対してプローブせず、同じ port-in-use メッセージで失敗します。エージェントセッションには固有のサーバープロセスと固有のセッションファイルが必要で、既存インスタンスに相乗りするとエージェントが管理していないトークンを渡すことになるためです。`--port` で 2 つ目のセッションを起動してください。
 
 トークンファイル（`~/.arkor/studio-token`）はポートのバインド成功 **後** にのみ書き込まれるため、使用中ポートへの 2 つ目の起動が失敗しても、正常に動いている 1 つ目のインスタンスが依存するトークンを上書き・削除することはありません。
 
@@ -73,7 +114,10 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 
 | 症状 | 意味 | 対処 |
 | --- | --- | --- |
-| ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート 4000 は既に使用中。根本のエラーは `EADDRINUSE`） | 別プロセスがポートを保持。 | 止めるか `--port <other>`。 |
+| ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート 4000 は既に使用中。根本のエラーは `EADDRINUSE`） | 別プロセスがポートを保持していて、通常モードでは起動中 Studio プローブが Arkor Studio を確認できなかった。エージェントモードではプローブなしでこのエラーになる。 | 止めるか `--port <other>`。 |
+| `Arkor Studio already running on http://localhost:<port>`（exit `0`） | 通常モードがポート上で健全な Arkor Studio（多くは `arkor dev --agent` セッション）を発見し、失敗ではなく接続扱いにした。エラーではなく情報行。 | 何もしなくてよい。出力された URL を開く。CLI に開かせたいなら `--open`。 |
+| `arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.`（exit `1`） | Claude Code の厳格ゲート。`CLAUDECODE=1` が設定されていて `--agent` が渡されていない。何も起動されず、何も書き込まれていない。 | `arkor dev --agent` で再実行し、出力されたセッションファイルを使う。 |
+| `Could not write the agent session file under <project>/.arkor/agent (...). Agent mode requires it; aborting.`（exit `1`） | エージェントモードが `.arkor/agent/` またはセッションファイルを作成できなかった（読み取り専用のプロジェクトディレクトリー、権限の問題）。home のトークンと異なりこれは致命的で、ファイルはエージェント唯一のトークン経路。 | プロジェクトディレクトリーを書き込み可能にして（`.arkor/` の権限を確認）再実行。 |
 | `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.`（`<baseUrl>` に到達できませんでした（fetch 失敗）。Studio は起動を続け、初回の `/api/credentials` 受信時に再試行します） | `/v1/auth/cli/config` は成功したが、続く `/v1/auth/anonymous` がトランスポート障害で失敗。Studio サーバーは起動して再試行する。 | 接続を回復させれば `arkor dev` を再起動せずに次の `/api/credentials` ポーリングで SPA が回復。 |
 | `TypeError: fetch failed`（または同等のトランスポートエラーで `arkor dev` がそのまま終了する場合） | `/v1/auth/cli/config` 自体に届かなかったため、デプロイモードが特定できず fail-fast。 | 接続を回復してから `arkor dev` を再実行。 |
 | ``No credentials on file. Bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.``（認証情報ファイルがありません。匿名セッションを初期化します。アカウントでサインインしたい場合は `arkor login --oauth` を実行してください） | OAuth をアドバタイズしているデプロイで、この環境では初回の `arkor dev`。Studio をすぐ起動できるよう CLI が匿名で初期化している旨の案内で、エラーではない。 | 何もしなくてよい。本物のアカウントにアップグレードしたいなら、別途 `arkor login --oauth` を実行（`~/.arkor/credentials.json` を上書き）して Studio をリロード。 |
@@ -131,8 +175,39 @@ bun dev --port 5000 --open
 
 </CodeGroup>
 
+コーディングエージェント向けのエージェントモード。
+
+<CodeGroup>
+
+```bash pnpm
+pnpm dev --agent
+```
+
+```bash npm
+npm run dev -- --agent
+```
+
+```bash yarn
+yarn dev --agent
+```
+
+```bash bun
+bun dev --agent
+```
+
+</CodeGroup>
+
+続いてエージェントのシェルから、セッションファイルのトークンを読んでサーバーを確認します。stdout に出力された正確なパスを使うのが第一候補で、下の glob はセッションが 1 つだけのプロジェクトで機能します。
+
+```bash
+SESSION_FILE=$(ls .arkor/agent/session-*.json | head -n 1)
+TOKEN=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).token' "$SESSION_FILE")
+curl -H "X-Arkor-Studio-Token: $TOKEN" http://localhost:4000/api/status
+```
+
 ## 関連項目
 
 - [Studio コンセプト](/ja/concepts/studio): UI で実際に何が起きるか
 - [`arkor login`](/ja/cli/auth): 匿名セッションを OAuth にアップグレード
 - [プロジェクト構成](/ja/concepts/project-structure): `~/.arkor/` と `.arkor/` のレイアウト
+- [`arkor init` の厳格モード](/ja/cli/init#claude-code（claudecode=1）厳格モード): scaffolder 側の同じ `CLAUDECODE=1` 規約

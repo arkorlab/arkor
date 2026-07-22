@@ -32,6 +32,7 @@ export {
   ClaudeCodeStrictExit,
   isClaudeCode,
   missingClaudeCodeFlags,
+  formatClaudeCodeAgentModeMessage,
   formatClaudeCodeMissingMessage,
   type ClaudeCodeOptionsCheck,
   type MissingClaudeCodeFlag,

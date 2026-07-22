@@ -879,4 +879,297 @@ describe("runDev", () => {
     // doesn't throw on the now-missing file.
     expect(() => cleanup()).not.toThrow();
   });
+
+  describe("agent mode", () => {
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = mkdtempSync(join(tmpdir(), "arkor-dev-agent-proj-"));
+    });
+
+    afterEach(() => {
+      rmSync(projectDir, { recursive: true, force: true });
+    });
+
+    /** Run runDev with a captured stdout and return the joined output. */
+    async function runDevCapturingStdout(
+      options: Parameters<typeof runDev>[0],
+    ): Promise<string> {
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await runDev(options);
+        return stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    }
+
+    function sessionPathFrom(stdout: string): string {
+      const match = /^Arkor Studio agent session file: (.+)$/m.exec(stdout);
+      expect(match).not.toBeNull();
+      return match![1];
+    }
+
+    it("writes the session file, prints the three-line contract, and still persists the home token", async () => {
+      const stdout = await runDevCapturingStdout({
+        port: 4310,
+        agent: true,
+        cwd: projectDir,
+      });
+      expect(stdout).toContain("Arkor Studio running on http://localhost:4310");
+      const sessionPath = sessionPathFrom(stdout);
+      expect(stdout).toContain(
+        "Read the token from that file and send it as the X-Arkor-Studio-Token header on /api/* requests.",
+      );
+      // Path shape: <project>/.arkor/agent/session-<pid>-<uuid>.json.
+      expect(sessionPath.startsWith(join(projectDir, ".arkor", "agent"))).toBe(
+        true,
+      );
+      expect(sessionPath).toMatch(/session-\d+-[0-9a-f-]+\.json$/);
+      const payload = JSON.parse(readFileSync(sessionPath, "utf8")) as {
+        token: string;
+        url: string;
+        port: number;
+        pid: number;
+      };
+      expect(payload.url).toBe("http://localhost:4310");
+      expect(payload.port).toBe(4310);
+      expect(payload.pid).toBe(process.pid);
+      expect(payload.token).toMatch(/^[\w-]+$/);
+      // The home token is still written (user-facing contract: the Vite SPA
+      // workflow and the port-collision probe keep working in agent mode).
+      expect(readFileSync(studioTokenPath(), "utf8")).toBe(payload.token);
+      // Agent mode never opens a browser implicitly.
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it("creates the directory 0700 and the file 0600 with no .tmp strays", async () => {
+      if (process.platform === "win32") {
+        // POSIX modes are a no-op on Windows.
+        return;
+      }
+      const stdout = await runDevCapturingStdout({
+        port: 4311,
+        agent: true,
+        cwd: projectDir,
+      });
+      const sessionPath = sessionPathFrom(stdout);
+      const { statSync } = await import("node:fs");
+      const dir = join(projectDir, ".arkor", "agent");
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(sessionPath).mode & 0o777).toBe(0o600);
+      const strays = readdirSync(dir).filter((f) => f.includes(".tmp"));
+      expect(strays).toEqual([]);
+    });
+
+    it("unlinks the session file from the exit cleanup and on signals", async () => {
+      const stdout = await runDevCapturingStdout({
+        port: 4312,
+        agent: true,
+        cwd: projectDir,
+      });
+      const sessionPath = sessionPathFrom(stdout);
+      expect(existsSync(sessionPath)).toBe(true);
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation(
+          ((_code?: number) => undefined as never) as typeof process.exit,
+        );
+      try {
+        const handler = process.listeners("SIGINT").at(-1) as () => void;
+        handler();
+        expect(exitSpy).toHaveBeenCalledWith(130);
+      } finally {
+        exitSpy.mockRestore();
+      }
+      expect(existsSync(sessionPath)).toBe(false);
+      // The home token was ours too, so the same cleanup removed it.
+      expect(existsSync(studioTokenPath())).toBe(false);
+    });
+
+    it("aborts startup (hard-fail) when the session file cannot be written", async () => {
+      if (typeof process.getuid === "function" && process.getuid() === 0) {
+        // Root bypasses chmod permission checks; skip on root containers.
+        return;
+      }
+      // A read-only <project>/.arkor makes `mkdir .arkor/agent` fail. Unlike
+      // the home token (warn-and-continue), agent mode must reject: the
+      // session file is the agent's only token channel.
+      mkdirSync(join(projectDir, ".arkor"), { recursive: true });
+      chmodSync(join(projectDir, ".arkor"), 0o555);
+      const closeSpy = vi.fn();
+      vi.mocked(serve).mockImplementationOnce(((
+        _opts: unknown,
+        onListen?: () => void,
+      ) => {
+        queueMicrotask(() => onListen?.());
+        return { on: vi.fn(), close: closeSpy };
+      }) as unknown as typeof serve);
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(
+          runDev({ port: 4313, agent: true, cwd: projectDir }),
+        ).rejects.toThrow();
+      } finally {
+        stdoutSpy.mockRestore();
+        chmodSync(join(projectDir, ".arkor"), 0o755);
+      }
+      expect(closeSpy).toHaveBeenCalled();
+    });
+
+    it("does not create .arkor/agent in normal (non-agent) mode", async () => {
+      await runDevCapturingStdout({ port: 4314, cwd: projectDir });
+      expect(existsSync(join(projectDir, ".arkor"))).toBe(false);
+    });
+  });
+
+  describe("port-collision connect (EADDRINUSE probe)", () => {
+    /** serve stub that skips the listening callback and fires EADDRINUSE. */
+    function mockServeAddrInUse(closeSpy?: () => void): void {
+      vi.mocked(serve).mockImplementationOnce((() => {
+        const server = {
+          close: closeSpy ?? vi.fn(),
+          on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+            if (event === "error") {
+              queueMicrotask(() =>
+                cb(
+                  Object.assign(new Error("bind failed"), {
+                    code: "EADDRINUSE",
+                  }),
+                ),
+              );
+            }
+            return server;
+          },
+        };
+        return server;
+      }) as unknown as typeof serve);
+    }
+
+    function seedHomeToken(token: string): void {
+      mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
+      writeFileSync(studioTokenPath(), token);
+    }
+
+    it("connects to a confirmed running Studio: resolves, prints the URL, registers no cleanup", async () => {
+      mockServeAddrInUse();
+      seedHomeToken("running-instance-token");
+      const fetchSpy = vi.fn(async () =>
+        Response.json({ status: "ok", server: "arkor-studio" }),
+      );
+      globalThis.fetch = fetchSpy as unknown as typeof fetch;
+      const exitBefore = process.listeners("exit").length;
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(runDev({ port: 4320 })).resolves.toBeUndefined();
+        const stdout = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+        expect(stdout).toContain(
+          "Arkor Studio already running on http://localhost:4320",
+        );
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      // Probe hit /api/status with the home token in the header.
+      const [reqUrl, reqInit] = fetchSpy.mock.calls[0] as unknown as [
+        URL,
+        RequestInit,
+      ];
+      expect(String(reqUrl)).toBe("http://localhost:4320/api/status");
+      expect(
+        (reqInit.headers as Record<string, string>)["x-arkor-studio-token"],
+      ).toBe("running-instance-token");
+      // The running instance's token is untouched and no cleanup handler was
+      // registered by this launch.
+      expect(readFileSync(studioTokenPath(), "utf8")).toBe(
+        "running-instance-token",
+      );
+      expect(process.listeners("exit").length).toBe(exitBefore);
+    });
+
+    it("honors --open against the existing instance", async () => {
+      mockServeAddrInUse();
+      seedHomeToken("running-instance-token");
+      globalThis.fetch = vi.fn(async () =>
+        Response.json({ status: "ok", server: "arkor-studio" }),
+      ) as unknown as typeof fetch;
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(
+          runDev({ port: 4321, open: true }),
+        ).resolves.toBeUndefined();
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      expect(open).toHaveBeenCalledWith("http://localhost:4321");
+    });
+
+    it("falls back to the port-in-use error when no home token exists (probe skipped)", async () => {
+      mockServeAddrInUse();
+      const fetchSpy = vi.fn();
+      globalThis.fetch = fetchSpy as unknown as typeof fetch;
+      await expect(runDev({ port: 4322 })).rejects.toThrow(
+        /Port 4322 is already in use/,
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("falls back when the occupant rejects the token (403)", async () => {
+      mockServeAddrInUse();
+      seedHomeToken("stale-token");
+      globalThis.fetch = vi.fn(async () =>
+        Response.json(
+          { error: "Missing or invalid studio token" },
+          {
+            status: 403,
+          },
+        ),
+      ) as unknown as typeof fetch;
+      await expect(runDev({ port: 4323 })).rejects.toThrow(
+        /Port 4323 is already in use/,
+      );
+    });
+
+    it("falls back when the probe request itself fails (timeout / refused)", async () => {
+      mockServeAddrInUse();
+      seedHomeToken("some-token");
+      globalThis.fetch = vi.fn(async () => {
+        throw new Error("The operation was aborted due to timeout");
+      }) as unknown as typeof fetch;
+      await expect(runDev({ port: 4324 })).rejects.toThrow(
+        /Port 4324 is already in use/,
+      );
+    });
+
+    it("falls back when the occupant is not an Arkor Studio (missing discriminator)", async () => {
+      mockServeAddrInUse();
+      seedHomeToken("some-token");
+      globalThis.fetch = vi.fn(async () =>
+        Response.json({ status: "ok", server: "something-else" }),
+      ) as unknown as typeof fetch;
+      await expect(runDev({ port: 4325 })).rejects.toThrow(
+        /Port 4325 is already in use/,
+      );
+    });
+
+    it("agent mode never probes: EADDRINUSE stays a hard error", async () => {
+      mockServeAddrInUse();
+      seedHomeToken("running-instance-token");
+      const fetchSpy = vi.fn(async () =>
+        Response.json({ status: "ok", server: "arkor-studio" }),
+      );
+      globalThis.fetch = fetchSpy as unknown as typeof fetch;
+      await expect(runDev({ port: 4326, agent: true })).rejects.toThrow(
+        /Port 4326 is already in use/,
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
 });

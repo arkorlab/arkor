@@ -73,6 +73,17 @@ export interface StudioServerOptions {
    * here points at the bin itself). Override in tests.
    */
   binPath?: string;
+  /**
+   * How this server was launched: `"agent"` for `arkor dev --agent`,
+   * `"studio"` otherwise. Echoed by `GET /api/status` so a coding agent can
+   * confirm it is talking to its own session. Defaults to `"studio"`.
+   */
+  mode?: "agent" | "studio";
+  /**
+   * Public URL the CLI printed (e.g. `http://localhost:4000`). Echoed by
+   * `GET /api/status`; `null` there when omitted (e.g. app-only tests).
+   */
+  url?: string;
 }
 
 function tokensMatch(provided: string, expected: string): boolean {
@@ -241,6 +252,45 @@ export function buildStudioApp(options: StudioServerOptions) {
   }
 
   // ---- API routes ---------------------------------------------------------
+
+  // Safe status probe for coding agents and for the `arkor dev` port-collision
+  // check. Deliberately synchronous data only: no credentials read, no cloud
+  // round-trip, and above all no user-code execution (`readManifestSummary`
+  // rebuilds and imports the project entry point; that must never hang off a
+  // status poll). Must never include secrets: the token guard still applies
+  // (it is under `/api/*`), but the response body is written as if it were
+  // public. `server: "arkor-studio"` is the discriminator the port-collision
+  // probe keys on to distinguish a Studio instance from an unrelated occupant
+  // that happens to 200 on this path.
+  app.get("/api/status", (c) =>
+    c.json({
+      status: "ok",
+      server: "arkor-studio",
+      version: SDK_VERSION,
+      mode: options.mode ?? "studio",
+      url: options.url ?? null,
+      pid: process.pid,
+      cwd: trainCwd,
+      endpoints: [
+        "GET /api/status",
+        "GET /api/credentials",
+        "GET /api/me",
+        "GET /api/manifest",
+        "GET /api/jobs",
+        "GET /api/jobs/:id/events",
+        "POST /api/train",
+        "POST /api/inference/chat",
+        "GET /api/deployments",
+        "POST /api/deployments",
+        "GET /api/deployments/:id",
+        "PATCH /api/deployments/:id",
+        "DELETE /api/deployments/:id",
+        "GET /api/deployments/:id/keys",
+        "POST /api/deployments/:id/keys",
+        "DELETE /api/deployments/:id/keys/:keyId",
+      ],
+    }),
+  );
 
   app.get("/api/credentials", async (c) => {
     const {

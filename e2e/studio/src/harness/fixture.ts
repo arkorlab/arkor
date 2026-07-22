@@ -7,6 +7,8 @@ import { startStudio, type StudioHandle } from "./studioServer";
 interface StudioFixtures {
   /** Live `arkor dev` instance for this test (URL + CSRF token). */
   studio: StudioHandle;
+  /** Live `arkor dev --agent` instance (adds `sessionFile`). */
+  agentStudio: StudioHandle;
   /** In-process fake cloud-api the Studio server proxies through. */
   cloudApi: CloudApiMock;
   /** tmp HOME + project dir, cleaned up automatically. */
@@ -51,6 +53,19 @@ export const test = base.extend<StudioFixtures>({
       home: fixturePaths.home,
       projectDir: fixturePaths.projectDir,
       cloudApiUrl: cloudApi.baseUrl,
+    });
+    try {
+      await use(studio);
+    } finally {
+      await studio.kill();
+    }
+  },
+  agentStudio: async ({ cloudApi, fixturePaths }, use) => {
+    const studio = await startStudio({
+      home: fixturePaths.home,
+      projectDir: fixturePaths.projectDir,
+      cloudApiUrl: cloudApi.baseUrl,
+      agent: true,
     });
     try {
       await use(studio);
