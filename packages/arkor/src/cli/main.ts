@@ -1,5 +1,6 @@
 import {
   ClaudeCodeStrictExit,
+  ExpectedCliError,
   formatClaudeCodeAgentModeMessage,
   formatClaudeCodeMissingMessage,
   isClaudeCode,
@@ -22,6 +23,28 @@ import { runLogout } from "./commands/logout";
 import { runStart } from "./commands/start";
 import { runWhoami } from "./commands/whoami";
 import { ui } from "./prompts";
+
+/**
+ * Parse and validate `arkor dev --port`. The previous `Number(opts.port) ||
+ * 4000` silently coerced a typo (`--port abc` -> NaN -> 4000) and a legitimate
+ * ephemeral request (`--port 0` -> 4000), and let an out-of-range value reach
+ * `net.Server.listen`, which throws `ERR_SOCKET_BAD_PORT` synchronously before
+ * the friendly EADDRINUSE handler is even registered (surfacing a raw minified
+ * stack). Validate here so a bad value is a clear, actionable message. Port 0
+ * (OS-assigned) is rejected on purpose: `arkor dev` prints and probes a fixed
+ * `http://localhost:<port>` URL, so an ephemeral port has no supported flow.
+ */
+function parseDevPort(raw: string): number {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 65_535) {
+    throw new ExpectedCliError(
+      `--port must be an integer between 1 and 65535 (got ${JSON.stringify(
+        raw,
+      )}).`,
+    );
+  }
+  return n;
+}
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();
@@ -246,10 +269,16 @@ export async function main(argv: string[]): Promise<void> {
       "--agent",
       "Run headlessly for coding agents: write a JSON session token file to .arkor/agent/ and print its path",
     )
-    .action(
-      withTelemetry(
+    .action((opts: { port: string; open?: boolean; agent?: boolean }) => {
+      // `dev` is long-running when it serves, but a short-lived completion
+      // when it connects to an already-running Studio and exits. Track the
+      // outcome so telemetry emits `cli_command_completed` for the connect
+      // case (the `longRunning` predicate is evaluated after the handler
+      // resolves). Wrapped per-invocation so the closure flag is fresh.
+      let adopted = false;
+      return withTelemetry(
         "dev",
-        async (opts: { port: string; open?: boolean; agent?: boolean }) => {
+        async () => {
           // Under CLAUDECODE=1 a Studio launch without --agent is almost
           // always a mistake: the agent cannot drive a browser UI and the
           // long-running server would hang its shell. Require the explicit
@@ -260,15 +289,16 @@ export async function main(argv: string[]): Promise<void> {
             process.stderr.write(formatClaudeCodeAgentModeMessage("arkor dev"));
             throw new ClaudeCodeStrictExit();
           }
-          await runDev({
-            port: Number(opts.port) || 4000,
+          const result = await runDev({
+            port: parseDevPort(opts.port),
             open: opts.open === true,
             agent: opts.agent === true,
           });
+          adopted = result.adopted;
         },
-        { longRunning: true },
-      ),
-    );
+        { longRunning: () => !adopted },
+      )();
+    });
 
   try {
     await program.parseAsync(argv, { from: "user" });

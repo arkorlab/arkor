@@ -264,36 +264,43 @@ describe("Studio server", () => {
   });
 
   describe("GET /api/status", () => {
-    it("rejects requests without the studio token", async () => {
+    it("is token-exempt: returns 200 WITHOUT a studio token", async () => {
+      // The one token-exempt /api/* route, so the port-collision probe can
+      // confirm an occupant without disclosing the CSRF token. Still behind
+      // the loopback Host guard (asserted below).
       const app = build();
       const res = await app.request("/api/status", {
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("still enforces the non-loopback Host guard (no token involved)", async () => {
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: { host: "evil.example:4000" },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("does not exempt other /api/* routes from the token check", async () => {
+      // Scope guard: the exemption is /api/status only. A sibling GET still
+      // 403s without the token.
+      const app = build();
+      const res = await app.request("/api/credentials", {
         headers: { host: "127.0.0.1:4000" },
       });
       expect(res.status).toBe(403);
     });
 
-    it("rejects non-loopback hosts", async () => {
-      const app = build();
-      const res = await app.request("/api/status", {
-        headers: {
-          host: "evil.example:4000",
-          "x-arkor-studio-token": STUDIO_TOKEN,
-        },
-      });
-      expect(res.status).toBe(403);
-    });
-
-    it("returns safe metadata and the endpoint list with a valid token", async () => {
+    it("returns safe metadata and the endpoint list", async () => {
       // No credentials are written and `autoAnonymous` is false: if the
       // handler ever touched the credential path, `getCredentials` would
       // throw and this request would 500. Passing proves the endpoint is
       // credentials-free.
       const app = build();
       const res = await app.request("/api/status", {
-        headers: {
-          host: "127.0.0.1:4000",
-          "x-arkor-studio-token": STUDIO_TOKEN,
-        },
+        headers: { host: "127.0.0.1:4000" },
       });
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;

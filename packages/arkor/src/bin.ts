@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
 
-import { ClaudeCodeStrictExit } from "@arkor/cli-internal";
+import { ClaudeCodeStrictExit, ExpectedCliError } from "@arkor/cli-internal";
 
 import { main } from "./cli/main";
 
@@ -20,6 +20,12 @@ try {
   // `finally` run telemetry shutdown + any deprecation notice; here we
   // just set the exit code without re-printing the message or its stack.
   if (err instanceof ClaudeCodeStrictExit) {
+    process.exitCode = 1;
+  } else if (err instanceof ExpectedCliError) {
+    // The message is already user-facing, actionable copy; print it alone
+    // (no stack) so the minified bundle never dumps a code-frame for a
+    // routine failure such as an invalid `--port`.
+    console.error(err.message);
     process.exitCode = 1;
   } else {
     console.error(

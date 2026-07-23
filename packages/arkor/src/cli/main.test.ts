@@ -63,6 +63,8 @@ beforeEach(() => {
   vi.mocked(runBuild).mockReset();
   vi.mocked(runStart).mockReset();
   vi.mocked(runDev).mockReset();
+  // runDev resolves to a RunDevResult; default to the serving outcome.
+  vi.mocked(runDev).mockResolvedValue({ adopted: false });
   vi.mocked(shutdownTelemetry).mockReset();
   vi.mocked(shutdownTelemetry).mockResolvedValue(undefined);
   mockDeprecation.value = null;
@@ -209,15 +211,14 @@ describe("main (CLI Commander wiring)", () => {
     });
   });
 
-  it("falls back to port 4000 when --port is non-numeric", async () => {
-    // Branch coverage for the `Number(opts.port) || 4000` defaulting.
+  it("rejects a non-numeric --port instead of silently starting the server", async () => {
+    // `parseDevPort` validates the value before `runDev`, so a typo surfaces
+    // as a clear error rather than coercing to 4000 or reaching the listener.
     delete process.env.CLAUDECODE;
-    await main(["dev", "--port", "not-a-number"]);
-    expect(runDev).toHaveBeenCalledWith({
-      port: 4000,
-      open: false,
-      agent: false,
-    });
+    await expect(main(["dev", "--port", "not-a-number"])).rejects.toThrow(
+      /port/i,
+    );
+    expect(runDev).not.toHaveBeenCalled();
   });
 
   it("under CLAUDECODE=1, `dev` without --agent throws ClaudeCodeStrictExit and never starts the server", async () => {

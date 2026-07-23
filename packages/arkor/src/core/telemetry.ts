@@ -174,7 +174,12 @@ export interface TelemetryOptions {
   // `cli_command_completed` (which would otherwise report a near-zero
   // duration_ms while the session is still live); `cli_command_started` still
   // fires, and a failure during bring-up still emits `cli_command_failed`.
-  longRunning?: boolean;
+  //
+  // A function form is evaluated AFTER the handler resolves, so a command
+  // whose long-running-ness depends on the outcome can decide per-invocation
+  // (e.g. `arkor dev` is long-running when it serves, but a short-lived
+  // completion when it connects to an already-running Studio and exits).
+  longRunning?: boolean | (() => boolean);
 }
 
 export function withTelemetry<TArgs extends unknown[]>(
@@ -205,7 +210,11 @@ export function withTelemetry<TArgs extends unknown[]>(
     }
     try {
       await handler(...args);
-      if (identity && !options.longRunning) {
+      const longRunning =
+        typeof options.longRunning === "function"
+          ? options.longRunning()
+          : options.longRunning;
+      if (identity && !longRunning) {
         safeCapture(identity.distinctId, "cli_command_completed", {
           ...baseProps,
           duration_ms: Date.now() - start,

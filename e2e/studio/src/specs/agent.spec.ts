@@ -1,13 +1,12 @@
-import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { ARKOR_BIN } from "../harness/bins";
 import { expect, test } from "../harness/fixture";
+import { spawnDevToExit } from "../harness/studioServer";
 
 // Agent mode (`arkor dev --agent`, ENG-967): the browser-free contract a
 // coding agent relies on. Covers the stdout session-file line, the JSON
-// session file itself (shape + POSIX modes), the token-guarded
+// session file itself (shape + POSIX modes), the token-exempt
 // GET /api/status probe, the SPA staying reachable for humans, SIGINT
 // cleanup, and a second plain `arkor dev` connecting to the running
 // instance instead of failing on the busy port.
@@ -48,13 +47,13 @@ test.describe("Agent mode contract", () => {
     }
   });
 
-  test("GET /api/status answers the session-file token with safe agent metadata", async ({
+  test("GET /api/status is token-exempt and returns safe agent metadata", async ({
     agentStudio,
   }) => {
-    const payload = readSession(agentStudio.sessionFile!);
-    const res = await fetch(`${agentStudio.url}/api/status`, {
-      headers: { "X-Arkor-Studio-Token": payload.token },
-    });
+    // No token header: /api/status is the one token-exempt route (so the
+    // port-collision probe can confirm the occupant without disclosing the
+    // CSRF token). It stays secrets-free.
+    const res = await fetch(`${agentStudio.url}/api/status`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("ok");
@@ -62,13 +61,17 @@ test.describe("Agent mode contract", () => {
     expect(body.mode).toBe("agent");
     expect(body.endpoints).toContain("POST /api/train");
     // Safe by contract: the CSRF token must never round-trip in the body.
-    expect(JSON.stringify(body)).not.toContain(payload.token);
+    expect(JSON.stringify(body)).not.toContain(
+      readSession(agentStudio.sessionFile!).token,
+    );
   });
 
-  test("GET /api/status still 403s without the token header", async ({
+  test("a token-guarded route still 403s without the token header", async ({
     agentStudio,
   }) => {
-    const res = await fetch(`${agentStudio.url}/api/status`);
+    // The token exemption is scoped to /api/status only; the rest of /api/*
+    // still requires the header.
+    const res = await fetch(`${agentStudio.url}/api/credentials`);
     expect(res.status).toBe(403);
   });
 
@@ -100,63 +103,47 @@ test.describe("Agent mode contract", () => {
     fixturePaths,
     cloudApi,
   }) => {
-    // The agent session owns the port and wrote ~/.arkor/studio-token
-    // (fixture HOME); the plain launch probes /api/status with it,
-    // confirms the occupant is an Arkor Studio, prints the URL, and
+    // The agent session owns the port and serves this project; the plain
+    // launch probes 127.0.0.1/api/status (no token), confirms the occupant
+    // is an Arkor Studio serving the SAME project, prints the URL, and
     // exits 0 instead of EADDRINUSE-failing.
     const port = new URL(agentStudio.url).port;
-    const env: NodeJS.ProcessEnv = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      const lower = k.toLowerCase();
-      if (
-        lower.startsWith("npm_config_") ||
-        lower.startsWith("pnpm_config_") ||
-        lower === "claudecode"
-      ) {
-        continue;
-      }
-      env[k] = v;
-    }
-    const result = await new Promise<{ code: number | null; stdout: string }>(
-      (resolve, reject) => {
-        const child = spawn(
-          process.execPath,
-          [ARKOR_BIN, "dev", "--port", port],
-          {
-            cwd: fixturePaths.projectDir,
-            stdio: ["ignore", "pipe", "pipe"],
-            env: {
-              ...env,
-              CI: "1",
-              HOME: fixturePaths.home,
-              USERPROFILE: fixturePaths.home,
-              ARKOR_CLOUD_API_URL: cloudApi.baseUrl,
-              ARKOR_TELEMETRY_DISABLED: "1",
-              npm_config_user_agent: "",
-            },
-          },
-        );
-        let stdout = "";
-        child.stdout.setEncoding("utf8");
-        child.stdout.on("data", (d: string) => {
-          stdout += d;
-        });
-        child.on("error", reject);
-        child.on("close", (code) => {
-          resolve({ code, stdout });
-        });
+    const result = await spawnDevToExit(
+      {
+        home: fixturePaths.home,
+        projectDir: fixturePaths.projectDir,
+        cloudApiUrl: cloudApi.baseUrl,
       },
+      ["--port", port],
     );
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
       `Arkor Studio already running on http://localhost:${port}`,
     );
     // The running agent session is untouched.
-    const res = await fetch(`${agentStudio.url}/api/status`, {
-      headers: {
-        "X-Arkor-Studio-Token": readSession(agentStudio.sessionFile!).token,
-      },
-    });
+    const res = await fetch(`${agentStudio.url}/api/status`);
     expect(res.status).toBe(200);
+  });
+
+  test("a plain `arkor dev` for a DIFFERENT project does not adopt this port", async ({
+    agentStudio,
+    fixturePaths,
+    cloudApi,
+  }) => {
+    // Project-match guard: an occupant serving another project must NOT be
+    // adopted. Spawn from a different cwd (the fixture HOME dir, which is not
+    // the project root) targeting the busy port; the probe's cwd check fails,
+    // so the launch falls back to the hard port-in-use error.
+    const port = new URL(agentStudio.url).port;
+    const result = await spawnDevToExit(
+      {
+        home: fixturePaths.home,
+        projectDir: fixturePaths.home,
+        cloudApiUrl: cloudApi.baseUrl,
+      },
+      ["--port", port],
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain(`Port ${port} is already in use`);
   });
 });

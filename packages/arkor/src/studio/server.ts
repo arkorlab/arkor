@@ -188,7 +188,19 @@ export function buildStudioApp(options: StudioServerOptions) {
   //   2. `?studioToken=` is accepted only on the job-event stream route
   //      because `EventSource` cannot send custom headers. Mutation routes
   //      require the header so a leaked token in a URL is not enough to POST.
+  //   3. `GET /api/status` is the ONE token-exempt route (still behind the
+  //      loopback + Host guard above). It is secrets-free and never executes
+  //      user code, so it can be read without the token. This lets the
+  //      `arkor dev` port-collision probe confirm an occupant is Arkor Studio
+  //      (and which project it serves) WITHOUT transmitting the CSRF token to
+  //      an unverified port occupant, which would otherwise disclose the
+  //      RCE-guarding token to a same-machine squatter. A cross-origin tab can
+  //      issue the GET but cannot read the response (no CORS), so no metadata
+  //      leaks across origins; the Host guard still blocks DNS rebinding.
   app.use("/api/*", async (c, next) => {
+    if (c.req.method === "GET" && c.req.path === "/api/status") {
+      return next();
+    }
     const queryTokenAllowed =
       c.req.method === "GET" && jobEventsPathPattern.test(c.req.path);
     const provided =

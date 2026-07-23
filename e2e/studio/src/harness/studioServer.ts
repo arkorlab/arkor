@@ -205,29 +205,81 @@ interface SpawnedStudio {
   sessionFile?: string;
 }
 
-async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
-  const port = await getEphemeralPort();
-  // `runCli` in e2e/cli also strips parent's `npm_config_*` to keep the
-  // child's pm detection deterministic; for `arkor dev` it doesn't
-  // matter (it never installs anything), but mirroring the policy
-  // avoids a class of surprises if the CLI later starts reading those.
+/**
+ * Build the child env for a spawned `arkor dev`, shared by `spawnStudio`
+ * (long-running) and `spawnDevToExit` (run-to-exit). Strips the parent's
+ * `npm_config_*`/`pnpm_config_*` (keep the child's pm detection hermetic) and
+ * `CLAUDECODE` (case-insensitively: `arkor dev` refuses to start under
+ * `CLAUDECODE=1` without `--agent`, so an inherited value from a Claude Code
+ * session must not leak into the child and flip the gate; same policy as
+ * `e2e/cli/src/spawn-cli.ts`), then layers the hermetic-E2E overrides.
+ */
+function studioChildEnv(opts: StartStudioOptions): NodeJS.ProcessEnv {
   const cleanEnv: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) {
     const lower = k.toLowerCase();
-    if (lower.startsWith("npm_config_") || lower.startsWith("pnpm_config_")) {
-      continue;
-    }
-    // `arkor dev` refuses to start under CLAUDECODE=1 without --agent
-    // (strict gate, ENG-967). The harness spawns both modes explicitly,
-    // so an inherited CLAUDECODE (vitest/playwright launched from a
-    // Claude Code session) must not leak into the child and flip the
-    // gate on tests that spawn plain `arkor dev`. Same policy as
-    // e2e/cli/src/spawn-cli.ts.
-    if (lower === "claudecode") {
+    if (
+      lower.startsWith("npm_config_") ||
+      lower.startsWith("pnpm_config_") ||
+      lower === "claudecode"
+    ) {
       continue;
     }
     cleanEnv[k] = v;
   }
+  return {
+    ...cleanEnv,
+    CI: "1",
+    HOME: opts.home,
+    // Mirror HOME onto USERPROFILE so the spawned CLI's `os.homedir()`
+    // resolves to the test temp dir on Windows too (see the matching
+    // comment in e2e/cli/src/spawn-cli.ts).
+    USERPROFILE: opts.home,
+    ARKOR_CLOUD_API_URL: opts.cloudApiUrl,
+    // Defence in depth: if anything anonymous-bootstrapped slips through
+    // credential pre-seeding, telemetry posts must not hit the real PostHog
+    // endpoint from CI.
+    ARKOR_TELEMETRY_DISABLED: "1",
+    npm_config_user_agent: "",
+  };
+}
+
+/**
+ * Spawn `arkor dev` with the shared hermetic env and the given extra args,
+ * and resolve once the child exits. For run-to-exit flows (e.g. a plain
+ * `arkor dev` on a busy port that connects to a running Studio and exits 0),
+ * which `startStudio` cannot model because it waits for a ready line and
+ * returns a live handle.
+ */
+export function spawnDevToExit(
+  opts: StartStudioOptions,
+  extraArgs: string[] = [],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [ARKOR_BIN, "dev", ...extraArgs], {
+      cwd: opts.projectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: studioChildEnv(opts),
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => {
+      stdout += d;
+    });
+    child.stderr.on("data", (d: string) => {
+      stderr += d;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
+async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
+  const port = await getEphemeralPort();
   const child = spawn(
     process.execPath,
     [
@@ -240,21 +292,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
     {
       cwd: opts.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...cleanEnv,
-        CI: "1",
-        HOME: opts.home,
-        // Mirror HOME onto USERPROFILE so the spawned CLI's `os.homedir()`
-        // resolves to the test temp dir on Windows too (see the matching
-        // comment in e2e/cli/src/spawn-cli.ts).
-        USERPROFILE: opts.home,
-        ARKOR_CLOUD_API_URL: opts.cloudApiUrl,
-        // Defence in depth: if anything anonymous-bootstrapped slips
-        // through credential pre-seeding, telemetry posts must not hit
-        // the real PostHog endpoint from CI.
-        ARKOR_TELEMETRY_DISABLED: "1",
-        npm_config_user_agent: "",
-      },
+      env: studioChildEnv(opts),
     },
   );
 

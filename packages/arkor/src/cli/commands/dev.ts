@@ -1,9 +1,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readdirSync, readFileSync, unlinkSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import { dirname, join } from "node:path";
 
+import { ExpectedCliError } from "@arkor/cli-internal";
 import { serve } from "@hono/node-server";
 import open from "open";
 
@@ -223,25 +224,25 @@ interface AgentSessionPayload {
   pid: number;
 }
 
+/** `<projectRoot>/.arkor/agent`. */
+function agentDirFor(projectRoot: string): string {
+  return join(projectRoot, ".arkor", "agent");
+}
+
 /**
- * Write the agent-mode session file:
- * `<projectRoot>/.arkor/agent/session-<pid>-<uuid>.json` (directory 0700,
- * file 0600). The filename is per-launch unique so parallel sessions in the
- * same project coexist and shutdown can unlink its own path without the
- * content ownership check the shared home token needs. Uses the same
- * atomic temp+rename staging as `persistStudioToken` so a crash mid-write
- * never leaves a truncated JSON body at the final path.
+ * Create the agent session directory. The intermediate `.arkor` is created
+ * with the DEFAULT mode (matching `arkor build`'s `.arkor/build` and
+ * `state.ts`), and only the `agent` leaf is tightened to 0700. A single
+ * `mkdir(agentDir, { recursive: true, mode: 0o700 })` would also apply 0700
+ * to a freshly-created `.arkor`, diverging from every other creator and
+ * breaking cross-uid traversal of `.arkor/build` when agent mode happens to
+ * be the first command to create `.arkor`.
  */
-async function writeAgentSessionFile(
-  projectRoot: string,
-  payload: AgentSessionPayload,
-): Promise<string> {
-  const dir = join(projectRoot, ".arkor", "agent");
-  await mkdir(dir, { recursive: true, mode: 0o700 });
+async function ensureAgentDir(projectRoot: string): Promise<string> {
+  const dir = agentDirFor(projectRoot);
+  await mkdir(join(projectRoot, ".arkor"), { recursive: true });
+  await mkdir(dir, { recursive: true });
   try {
-    // `mkdir`'s `mode` only applies to directories it creates; tighten a
-    // pre-existing dir too. Best-effort: on exotic mounts where chmod fails,
-    // the 0600 file mode below is the last line of defence for the token.
     await chmod(dir, 0o700);
   } catch (err) {
     ui.log.warn(
@@ -250,8 +251,58 @@ async function writeAgentSessionFile(
       }`,
     );
   }
-  const path = join(dir, `session-${process.pid}-${randomUUID()}.json`);
-  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  return dir;
+}
+
+/**
+ * Best-effort: remove session files whose owning pid is dead so a crashed
+ * prior `arkor dev --agent` does not strand a stale-token file that the docs'
+ * `ls session-*.json` glob could pick up. `process.kill(pid, 0)` probes
+ * liveness: ESRCH -> dead -> reap; EPERM -> alive under another uid -> keep;
+ * our own pid and unparseable names are skipped. Never touches a live
+ * session, so it is safe to run on every agent launch.
+ */
+function reapDeadAgentSessions(dir: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const match = /^session-(\d+)-.*\.json$/.exec(name);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    try {
+      process.kill(pid, 0);
+      // No error -> the pid is alive; leave its session file alone.
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ESRCH") {
+        try {
+          unlinkSync(join(dir, name));
+        } catch {
+          // best-effort
+        }
+      }
+      // EPERM (or anything else) -> assume alive/uncertain; keep the file.
+    }
+  }
+}
+
+/**
+ * Atomically write the agent-mode session file to `path` (a pre-computed,
+ * per-launch-unique `session-<pid>-<uuid>.json`, mode 0600). The caller owns
+ * `path` up front (see `runDev`) so the shutdown handler can unlink exactly
+ * this path even if a signal lands mid-write; that is why the temp name is
+ * the deterministic `${path}.tmp` rather than a uuid sibling (the path itself
+ * already carries a unique uuid, so no cross-launch collision is possible).
+ */
+async function writeAgentSessionFile(
+  path: string,
+  payload: AgentSessionPayload,
+): Promise<void> {
+  const tmp = `${path}.tmp`;
   try {
     await writeFile(tmp, `${JSON.stringify(payload, null, 2)}\n`, {
       mode: 0o600,
@@ -271,40 +322,44 @@ async function writeAgentSessionFile(
     await rm(tmp, { force: true }).catch(() => undefined);
     throw err;
   }
-  return path;
 }
 
 /**
- * True when `url` is answered by a running Arkor Studio instance. Used by
- * the normal-mode EADDRINUSE path so a plain `arkor dev` connects to an
- * already-running Studio (typically an `arkor dev --agent` session that owns
- * the port) instead of failing. Reads `~/.arkor/studio-token` (agent mode
- * still writes it; last-writer-wins) and calls the token-guarded
- * `GET /api/status`, keying on its `server: "arkor-studio"` discriminator so
- * an unrelated occupant that happens to 200 on that path is not adopted.
- * Best-effort by design: any failure (no token file, stale token, timeout,
- * non-Studio occupant) reports false and the caller falls back to the
- * existing port-in-use error.
+ * True when the busy `port` is held by a running Arkor Studio that serves
+ * THIS project. Used by the normal-mode EADDRINUSE path so a plain
+ * `arkor dev` connects to an already-running Studio (typically an
+ * `arkor dev --agent` session that owns the port) instead of failing.
+ *
+ * The probe hits the token-EXEMPT `GET /api/status` over `127.0.0.1` (not
+ * `localhost`, matching the server's IPv4 bind and avoiding the `::1`-first
+ * resolution the module goes out of its way to dodge). No token is sent: the
+ * endpoint is secrets-free, so we never disclose the CSRF token to an
+ * unverified port occupant. Adoption requires both the `server:
+ * "arkor-studio"` discriminator AND that the instance's `cwd` (realpath)
+ * equals this launch's project root, so a plain `arkor dev` in project B
+ * never silently attaches to project A's Studio on the same default port.
+ * Best-effort: any failure (timeout, non-Studio occupant, different project,
+ * unreadable cwd) reports false and the caller falls back to the existing
+ * port-in-use error.
  */
-async function probeExistingStudio(url: string): Promise<boolean> {
-  let token: string;
+async function probeExistingStudio(
+  port: number,
+  projectRoot: string,
+): Promise<boolean> {
   try {
-    token = readFileSync(studioTokenPath(), "utf8");
-  } catch {
-    return false;
-  }
-  try {
-    const res = await fetch(new URL("/api/status", url), {
-      headers: { "x-arkor-studio-token": token },
-      signal: AbortSignal.timeout(1500),
-    });
+    const res = await fetch(
+      new URL("/api/status", `http://127.0.0.1:${port}`),
+      { signal: AbortSignal.timeout(1500) },
+    );
     if (!res.ok) return false;
     const body: unknown = await res.json();
-    return (
-      typeof body === "object" &&
-      body !== null &&
-      (body as { server?: unknown }).server === "arkor-studio"
-    );
+    if (typeof body !== "object" || body === null) return false;
+    const b = body as { server?: unknown; cwd?: unknown };
+    if (b.server !== "arkor-studio") return false;
+    if (typeof b.cwd !== "string") return false;
+    // Compare realpaths so a symlinked project root (e.g. macOS
+    // `/var` -> `/private/var`) still matches the same project.
+    return realpathSync(b.cwd) === realpathSync(projectRoot);
   } catch {
     return false;
   }
@@ -343,12 +398,35 @@ function installShutdownHandlers(cleanup: () => void): void {
   }
 }
 
-export async function runDev(options: DevOptions = {}): Promise<void> {
+export interface RunDevResult {
+  /**
+   * True when this launch found a healthy Studio already serving the project
+   * on the requested port and connected to it (printed "already running" and
+   * will exit) instead of starting its own server. False when this process
+   * bound the port and is now serving. Lets the telemetry wrapper emit a
+   * `cli_command_completed` for the short-lived connect outcome while still
+   * treating the serving outcome as long-running.
+   */
+  adopted: boolean;
+}
+
+export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
   await ensureCredentialsForStudio();
 
   const port = options.port ?? 4000;
   const agent = options.agent === true;
   const projectRoot = options.cwd ?? process.cwd();
+  const agentDir = agentDirFor(projectRoot);
+  // Compute the session-file path UP FRONT (per-launch-unique via uuid) so the
+  // shutdown handler can unlink exactly this path even if a signal lands
+  // mid-write, and so cleanup never has to sweep the dir by pid prefix (which
+  // would delete a co-located live session sharing this pid, e.g. two
+  // containers bind-mounting the same project both running as pid 1).
+  const agentSessionPath = agent
+    ? join(agentDir, `session-${process.pid}-${randomUUID()}.json`)
+    : undefined;
+  // Set true only on the normal-mode "connect to a running Studio" path.
+  let adopted = false;
   // Per-launch CSRF token: injected into index.html as <meta>, required on
   // every /api/* request. Prevents another tab on the same machine from
   // hitting `arkor start` (and therefore RCE via dynamic import).
@@ -386,13 +464,6 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     // token is still being persisted hits an already-serving server, so
     // treating it as a startup failure would kill a healthy instance.
     let bound = false;
-    // Absolute path of the agent-mode session file, assigned after the
-    // atomic rename landed it; used for the stdout contract lines. The
-    // cleanup below does NOT depend on it: a signal can land after the
-    // rename placed the file but before this assignment runs, so the
-    // shutdown sweep matches on the pid-prefixed filename instead (same
-    // reasoning as the home token's direct path resolution above it).
-    let agentSessionPath: string | undefined;
     // Bind FIRST, then persist the studio token and register its cleanup
     // in the `listening` callback (after a successful bind). The token
     // file (`~/.arkor/studio-token`) is a single shared path, so a second
@@ -434,62 +505,60 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
           } catch {
             // best-effort
           }
-          // Agent session files need no ownership check: filenames embed
-          // this process's pid (plus a uuid), so every `session-<pid>-…`
-          // entry in the agent dir is ours. Sweeping by pid prefix (rather
-          // than unlinking `agentSessionPath`) also covers the two windows
-          // a path variable cannot: a signal landing after the rename
-          // placed the file but before the assignment ran, and an
-          // abandoned `.tmp` staging file (its name carries the same
-          // prefix). Parallel sessions are unaffected: they run under
-          // different pids.
-          if (agent) {
-            try {
-              const agentDir = join(projectRoot, ".arkor", "agent");
-              for (const name of readdirSync(agentDir)) {
-                if (name.startsWith(`session-${process.pid}-`)) {
-                  try {
-                    unlinkSync(join(agentDir, name));
-                  } catch {
-                    // best-effort
-                  }
-                }
+          // Remove exactly this launch's session file (and its deterministic
+          // `.tmp` staging sibling, in case a signal landed mid-write). The
+          // path is per-launch-unique and known up front, so no pid-prefix
+          // sweep is needed: sweeping would delete a co-located LIVE session
+          // that happens to share this pid (two containers bind-mounting the
+          // same project, both pid 1). ENOENT (never written / already gone)
+          // is swallowed.
+          if (agentSessionPath !== undefined) {
+            for (const p of [agentSessionPath, `${agentSessionPath}.tmp`]) {
+              try {
+                unlinkSync(p);
+              } catch {
+                // best-effort
               }
-            } catch {
-              // best-effort (the dir may not exist yet)
             }
           }
         });
         void (async () => {
-          if (agent) {
+          if (agent && agentSessionPath !== undefined) {
             // The session file is the agent's only realistic token channel
             // (an agent does not scrape the <meta> tag the SPA reads), so
             // unlike the home token below a write failure aborts startup
             // instead of degrading: a warn-and-continue server would be
             // silently unusable to its own caller.
             try {
-              agentSessionPath = await writeAgentSessionFile(projectRoot, {
+              await ensureAgentDir(projectRoot);
+              // Best-effort: clear session files left by crashed prior
+              // launches (dead pid) so the docs' `ls session-*.json` glob
+              // never hands an agent a stale, already-403ing token.
+              reapDeadAgentSessions(agentDir);
+              await writeAgentSessionFile(agentSessionPath, {
                 token: studioToken,
                 url,
                 port,
                 pid: process.pid,
               });
             } catch (err) {
-              ui.log.error(
-                `Could not write the agent session file under ${join(
-                  projectRoot,
-                  ".arkor",
-                  "agent",
-                )} (${
-                  err instanceof Error ? err.message : String(err)
-                }). Agent mode requires it; aborting.`,
-              );
               try {
                 server.close();
               } catch {
                 // best-effort
               }
-              reject(err instanceof Error ? err : new Error(String(err)));
+              // Reject with an ExpectedCliError so bin.ts prints this
+              // actionable line ALONE (no minified stack). The previous flow
+              // logged the message via ui.log.error AND rejected with the raw
+              // fs Error, so bin.ts also dumped a code-frame: a routine
+              // read-only-`.arkor` failure printed twice, once as noise.
+              reject(
+                new ExpectedCliError(
+                  `Could not write the agent session file under ${agentDir} (${
+                    err instanceof Error ? err.message : String(err)
+                  }). Agent mode requires it; aborting.`,
+                ),
+              );
               return;
             }
           }
@@ -557,20 +626,21 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         }
         // Normal mode: the occupant may be a healthy Studio, typically an
         // `arkor dev --agent` session that owns the port. Probe the token-
-        // guarded /api/status with the home token (agent mode still writes
-        // it) and, when confirmed, "connect": print the URL and resolve so
-        // the caller can honor --open against the existing instance and
-        // exit 0. Bind-first ordering guarantees this launch wrote no files
-        // and registered no shutdown handlers, so resolving here cannot
-        // disturb the running instance.
+        // exempt /api/status over 127.0.0.1 (no token disclosed) and adopt it
+        // only when it is an Arkor Studio serving THIS project; then "connect":
+        // print the URL and resolve so the caller can honor --open against the
+        // existing instance and exit 0. Bind-first ordering guarantees this
+        // launch wrote no files and registered no shutdown handlers, so
+        // resolving here cannot disturb the running instance.
         void (async () => {
-          const ok = await probeExistingStudio(url);
+          const ok = await probeExistingStudio(port, projectRoot);
           if (ok) {
             try {
               server.close();
             } catch {
               // best-effort
             }
+            adopted = true;
             process.stdout.write(`Arkor Studio already running on ${url}\n`);
             resolve();
             return;
@@ -590,4 +660,6 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
       // fall through
     }
   }
+
+  return { adopted };
 }

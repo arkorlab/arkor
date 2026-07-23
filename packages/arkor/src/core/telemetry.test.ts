@@ -45,7 +45,7 @@ interface TelemetryModule {
   withTelemetry: <TArgs extends unknown[]>(
     command: string,
     handler: (...args: TArgs) => Promise<void>,
-    options?: { longRunning?: boolean },
+    options?: { longRunning?: boolean | (() => boolean) },
   ) => (...args: TArgs) => Promise<void>;
   shutdownTelemetry: () => Promise<void>;
 }
@@ -396,6 +396,38 @@ describe("withTelemetry", () => {
     const mod = await loadTelemetry({ key: "phc_test" });
     const wrapped = mod.withTelemetry("dev", async () => {}, {
       longRunning: true,
+    });
+    await wrapped();
+    expect(captureMock).toHaveBeenCalledTimes(1);
+    expect(captureMock.mock.calls[0][0].event).toBe("cli_command_started");
+  });
+
+  it("evaluates a function-form longRunning AFTER the handler (dev connect-and-exit still reports completed)", async () => {
+    // `arkor dev` is long-running when it serves but a short-lived completion
+    // when it connects to an already-running Studio and exits. The predicate
+    // form lets the handler decide per-outcome: here it resolves to the
+    // adopted/connect outcome, so `cli_command_completed` must fire.
+    const mod = await loadTelemetry({ key: "phc_test" });
+    let adopted = false;
+    const wrapped = mod.withTelemetry(
+      "dev",
+      async () => {
+        adopted = true;
+      },
+      { longRunning: () => !adopted },
+    );
+    await wrapped();
+    const events = captureMock.mock.calls.map((c) => c[0].event);
+    expect(events).toEqual(["cli_command_started", "cli_command_completed"]);
+  });
+
+  it("evaluates a function-form longRunning that stays true (dev serving skips completed)", async () => {
+    const mod = await loadTelemetry({ key: "phc_test" });
+    // Never reassigned: the handler serves (does not "adopt"), so the
+    // predicate stays true and `cli_command_completed` is skipped.
+    const adopted = false;
+    const wrapped = mod.withTelemetry("dev", async () => {}, {
+      longRunning: () => !adopted,
     });
     await wrapped();
     expect(captureMock).toHaveBeenCalledTimes(1);
