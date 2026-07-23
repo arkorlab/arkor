@@ -271,8 +271,28 @@ export function spawnDevToExit(
     child.stderr.on("data", (d: string) => {
       stderr += d;
     });
-    child.on("error", reject);
+    // Safety net: this helper is for run-to-exit launches (a busy `--port`,
+    // so the child adopts-and-exits or errors within the 1.5s probe budget).
+    // If a caller ever spawns a launch that BINDS a free port, it would serve
+    // forever and this promise would never settle; kill it and reject rather
+    // than hang the test to Playwright's global timeout and orphan the server.
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(
+        new Error(
+          `spawnDevToExit: child did not exit within ${String(
+            READY_TIMEOUT_MS,
+          )}ms (did it bind a free port instead of a busy one?).\n--- last output ---\n${stderr}${stdout}`,
+        ),
+      );
+    }, READY_TIMEOUT_MS);
+    timer.unref();
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
     child.on("close", (code) => {
+      clearTimeout(timer);
       resolve({ code, stdout, stderr });
     });
   });

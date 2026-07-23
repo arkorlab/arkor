@@ -269,9 +269,12 @@ export function buildStudioApp(options: StudioServerOptions) {
   // check. Deliberately synchronous data only: no credentials read, no cloud
   // round-trip, and above all no user-code execution (`readManifestSummary`
   // rebuilds and imports the project entry point; that must never hang off a
-  // status poll). Must never include secrets: the token guard still applies
-  // (it is under `/api/*`), but the response body is written as if it were
-  // public. `server: "arkor-studio"` is the discriminator the port-collision
+  // status poll). This route is token-EXEMPT (see the `/api/*` middleware
+  // above), so the body MUST stay secrets-free: it is served to any loopback
+  // client without the CSRF token. Add nothing here you would not `curl`
+  // publicly on the box; `cwd`/`pid`/`version`/`mode`/`url`/endpoint-list are
+  // deliberately low-sensitivity (the probe needs `cwd` for its same-project
+  // check). `server: "arkor-studio"` is the discriminator the port-collision
   // probe keys on to distinguish a Studio instance from an unrelated occupant
   // that happens to 200 on this path.
   app.get("/api/status", (c) =>

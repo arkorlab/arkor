@@ -221,6 +221,30 @@ describe("main (CLI Commander wiring)", () => {
     expect(runDev).not.toHaveBeenCalled();
   });
 
+  it("rejects out-of-range --port boundaries (0, negative, > 65535)", async () => {
+    // Pin the deliberate behavior change: `--port 0` no longer coerces to
+    // 4000, and the 1..65535 bounds are enforced.
+    delete process.env.CLAUDECODE;
+    for (const bad of ["0", "-1", "65536", "70000"]) {
+      vi.mocked(runDev).mockClear();
+      await expect(main(["dev", "--port", bad])).rejects.toThrow(/port/i);
+      expect(runDev).not.toHaveBeenCalled();
+    }
+  });
+
+  it("accepts the in-range --port boundaries (1 and 65535)", async () => {
+    delete process.env.CLAUDECODE;
+    for (const ok of [1, 65_535]) {
+      vi.mocked(runDev).mockClear();
+      await main(["dev", "--port", String(ok)]);
+      expect(runDev).toHaveBeenCalledWith({
+        port: ok,
+        open: false,
+        agent: false,
+      });
+    }
+  });
+
   it("under CLAUDECODE=1, `dev` without --agent throws ClaudeCodeStrictExit and never starts the server", async () => {
     process.env.CLAUDECODE = "1";
     const stderrChunks: string[] = [];

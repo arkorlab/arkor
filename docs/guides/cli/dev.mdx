@@ -61,7 +61,7 @@ Add `--open` to open the browser automatically.
 
 ## Working with a coding agent?
 
-`arkor dev --agent` runs the same server headlessly for coding agents (Claude Code and others): it writes a per-session JSON token file to `.arkor/agent/` inside the project, prints its path to stdout, and the agent drives Arkor through the `/api/*` endpoints directly (start with `GET /api/status`). Under `CLAUDECODE=1`, a plain `arkor dev` refuses to start and asks for `--agent` explicitly. The Studio UI stays available in a browser the whole time, and a second plain `arkor dev` on the same port simply connects to the running instance and exits. Details in the "Agent mode" section of the [`arkor dev` reference](/cli/dev).
+`arkor dev --agent` runs the same server headlessly for coding agents (Claude Code and others): it writes a per-session JSON token file to `.arkor/agent/` inside the project, prints its path to stdout, and the agent drives Arkor through the `/api/*` endpoints directly (start with `GET /api/status`). Under `CLAUDECODE=1`, a plain `arkor dev` refuses to start and asks for `--agent` explicitly. The Studio UI stays available in a browser the whole time, and a second plain `arkor dev` on the same port connects to the running instance and exits when it is a Studio serving the same project (otherwise you get the usual port-in-use error). Details in the "Agent mode" section of the [`arkor dev` reference](/cli/dev).
 
 ## Reference
 

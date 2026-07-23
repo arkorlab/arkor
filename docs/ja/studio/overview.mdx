@@ -37,7 +37,7 @@ Arkor マネージドバックエンド
 `/api/*` リクエストごとに 3 つのチェックが走ります:
 
 1. **Host ヘッダーのガード。** `127.0.0.1` と `localhost` のみ受理。`127.0.0.1` に DNS リバインディングされる悪意あるサイトに誘導された被害者でも、送信されるのは `Host: evil.com` で、ミドルウェアは HTTP 403 で拒否します。
-2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダー `X-Arkor-Studio-Token`、または `EventSource` リクエスト用に `?studioToken=`）。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較には `timingSafeEqual` を使用しているため、タイミング攻撃に対して安全です。
+2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダー `X-Arkor-Studio-Token`、または `EventSource` リクエスト用に `?studioToken=`）。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較には `timingSafeEqual` を使用しているため、タイミング攻撃に対して安全です。唯一の例外は `GET /api/status` で、これはトークン不要です（ループバック + Host ガードは適用）。機密ゼロでユーザーコードを実行しないため、`arkor dev` のポート競合プローブがトークンを送信せずに占有者を確認できます。
 3. **CORS なし。** SPA は同一オリジンなので CORS には意味がありません。`*` を反射すると「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまうので、トークンチェックがそれを拒否します。
 
 トークンは `arkor dev` 起動のたびにローテートされるので、前回起動時の古いタブはリロードするまで HTTP 403 で失敗します。

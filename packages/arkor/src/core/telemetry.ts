@@ -210,10 +210,20 @@ export function withTelemetry<TArgs extends unknown[]>(
     }
     try {
       await handler(...args);
-      const longRunning =
-        typeof options.longRunning === "function"
-          ? options.longRunning()
-          : options.longRunning;
+      // Evaluate the (possibly function-form) longRunning flag AFTER the
+      // handler resolves, but guard it: a faulty predicate that throws must
+      // NOT fall through to the catch below, which would mislabel a genuine
+      // success as `cli_command_failed` and re-throw a non-zero exit. Treat a
+      // throwing predicate as "not long-running" (emit completed).
+      let longRunning = false;
+      try {
+        longRunning =
+          typeof options.longRunning === "function"
+            ? options.longRunning()
+            : Boolean(options.longRunning);
+      } catch (err) {
+        debugLog("longRunning predicate threw", err);
+      }
       if (identity && !longRunning) {
         safeCapture(identity.distinctId, "cli_command_completed", {
           ...baseProps,

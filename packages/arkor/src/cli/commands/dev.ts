@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { ExpectedCliError } from "@arkor/cli-internal";
 import { serve } from "@hono/node-server";
@@ -255,42 +255,6 @@ async function ensureAgentDir(projectRoot: string): Promise<string> {
 }
 
 /**
- * Best-effort: remove session files whose owning pid is dead so a crashed
- * prior `arkor dev --agent` does not strand a stale-token file that the docs'
- * `ls session-*.json` glob could pick up. `process.kill(pid, 0)` probes
- * liveness: ESRCH -> dead -> reap; EPERM -> alive under another uid -> keep;
- * our own pid and unparseable names are skipped. Never touches a live
- * session, so it is safe to run on every agent launch.
- */
-function reapDeadAgentSessions(dir: string): void {
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return;
-  }
-  for (const name of names) {
-    const match = /^session-(\d+)-.*\.json$/.exec(name);
-    if (!match) continue;
-    const pid = Number(match[1]);
-    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
-    try {
-      process.kill(pid, 0);
-      // No error -> the pid is alive; leave its session file alone.
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ESRCH") {
-        try {
-          unlinkSync(join(dir, name));
-        } catch {
-          // best-effort
-        }
-      }
-      // EPERM (or anything else) -> assume alive/uncertain; keep the file.
-    }
-  }
-}
-
-/**
  * Atomically write the agent-mode session file to `path` (a pre-computed,
  * per-launch-unique `session-<pid>-<uuid>.json`, mode 0600). The caller owns
  * `path` up front (see `runDev`) so the shutdown handler can unlink exactly
@@ -356,7 +320,12 @@ async function probeExistingStudio(
     if (typeof body !== "object" || body === null) return false;
     const b = body as { server?: unknown; cwd?: unknown };
     if (b.server !== "arkor-studio") return false;
-    if (typeof b.cwd !== "string") return false;
+    // Require an ABSOLUTE cwd: a real Studio always reports its resolved
+    // project root (`trainCwd`, itself absolute). Rejecting a relative value
+    // stops a hostile occupant from returning `cwd: "."`, which
+    // `realpathSync` would otherwise resolve against THIS process's cwd
+    // (= projectRoot) and so spuriously pass the same-project check.
+    if (typeof b.cwd !== "string" || !isAbsolute(b.cwd)) return false;
     // Compare realpaths so a symlinked project root (e.g. macOS
     // `/var` -> `/private/var`) still matches the same project.
     return realpathSync(b.cwd) === realpathSync(projectRoot);
@@ -531,10 +500,15 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
             // silently unusable to its own caller.
             try {
               await ensureAgentDir(projectRoot);
-              // Best-effort: clear session files left by crashed prior
-              // launches (dead pid) so the docs' `ls session-*.json` glob
-              // never hands an agent a stale, already-403ing token.
-              reapDeadAgentSessions(agentDir);
+              // We deliberately do NOT sweep other session files here. A
+              // crashed prior session leaves an inert `session-*.json`
+              // (its token died with the server); the documented recipe
+              // picks the NEWEST file (`ls -t`), which is always this live
+              // launch's, so a stale file is never selected. A pid-liveness
+              // sweep (`process.kill(pid, 0)`) would be actively unsafe when
+              // the project dir is a shared bind-mount across containers:
+              // pids are namespace-local, so a live foreign session's file
+              // would look dead (ESRCH) and get deleted out from under it.
               await writeAgentSessionFile(agentSessionPath, {
                 token: studioToken,
                 url,
@@ -615,7 +589,11 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
         err instanceof Error &&
         (err as NodeJS.ErrnoException).code === "EADDRINUSE"
       ) {
-        const portInUse = new Error(
+        // ExpectedCliError (not a bare Error) so bin.ts prints this one
+        // actionable line and exits 1 WITHOUT a minified `dist/bin.mjs`
+        // code-frame; a busy port is the most common dev failure and the
+        // stack would be pure noise. Mirrors the agent-write hard-fail below.
+        const portInUse = new ExpectedCliError(
           `Port ${port} is already in use. Another \`arkor dev\` may be running; pass --port to choose a different one.`,
         );
         if (agent) {

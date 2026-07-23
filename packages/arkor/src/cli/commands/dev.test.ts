@@ -1071,18 +1071,24 @@ describe("runDev", () => {
       expect(existsSync(otherSameP)).toBe(true);
     });
 
-    it("reaps dead-pid session files on startup but keeps live ones", async () => {
+    it("does not delete OTHER session files in the agent dir (no pid-liveness sweep)", async () => {
+      // A pid-liveness sweep (process.kill) is unsafe when the project dir is
+      // a shared bind-mount across containers (pids are namespace-local, so a
+      // live foreign session looks dead). Agent startup must therefore leave
+      // every other session file untouched and only ever manage its own.
       const dir = join(projectDir, ".arkor", "agent");
       mkdirSync(dir, { recursive: true });
-      // A pid above any real max_pid -> process.kill(pid, 0) throws ESRCH.
-      const dead = join(dir, `session-999999999-dead.json`);
-      // The parent process is alive -> process.kill(ppid, 0) succeeds.
-      const live = join(dir, `session-${process.ppid}-live.json`);
-      writeFileSync(dead, "{}");
-      writeFileSync(live, "{}");
-      await runDevCapturingStdout({ port: 4316, agent: true, cwd: projectDir });
-      expect(existsSync(dead)).toBe(false);
-      expect(existsSync(live)).toBe(true);
+      const foreign = join(dir, `session-999999999-foreign.json`);
+      writeFileSync(foreign, "{}");
+      const stdout = await runDevCapturingStdout({
+        port: 4316,
+        agent: true,
+        cwd: projectDir,
+      });
+      const ours = sessionPathFrom(stdout);
+      expect(existsSync(ours)).toBe(true);
+      // The unrelated file survived: no sweep ran.
+      expect(existsSync(foreign)).toBe(true);
     });
   });
 
@@ -1188,6 +1194,17 @@ describe("runDev", () => {
       } finally {
         rmSync(otherProject, { recursive: true, force: true });
       }
+    });
+
+    it("falls back when the occupant reports a RELATIVE cwd (no `.`-bypass of the project match)", async () => {
+      // A hostile occupant returning `cwd: "."` must NOT be adopted: without
+      // the absolute-path guard, realpathSync(".") resolves to the prober's
+      // own projectRoot and would spuriously match.
+      mockServeAddrInUse();
+      mockProbe({ server: "arkor-studio", cwd: "." });
+      await expect(runDev({ port: 4327, cwd: projectDir })).rejects.toThrow(
+        /Port 4327 is already in use/,
+      );
     });
 
     it("falls back when the probe gets a non-200 (e.g. a non-Studio occupant)", async () => {
