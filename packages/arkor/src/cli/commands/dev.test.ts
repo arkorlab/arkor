@@ -1174,8 +1174,11 @@ describe("runDev", () => {
       // The probe is time-bounded by an AbortSignal (Node fetch has no default
       // timeout): without it, an occupant that accepts TCP but never responds
       // would hang `arkor dev` forever. Assert the signal is passed so removing
-      // the timeout guard fails here.
+      // the timeout guard fails here (the timeout DURATION is exercised
+      // behaviorally by the "times out on a silent occupant" test below).
       expect(reqInit?.signal).toBeInstanceOf(AbortSignal);
+      // Never follow a redirect from an untrusted occupant (no blind SSRF).
+      expect(reqInit?.redirect).toBe("manual");
       // No shutdown handler was registered by this doomed launch.
       expect(process.listeners("exit").length).toBe(exitBefore);
     });
@@ -1330,6 +1333,81 @@ describe("runDev", () => {
           message: expect.stringMatching(/Could not bind port 80:.*EACCES/),
         },
       );
+    });
+
+    it("times out and falls back when the occupant accepts the connection but never responds", async () => {
+      // Exercises the timeout DURATION, not just that a signal is passed:
+      // fetch never resolves and only rejects when the AbortSignal fires.
+      // Weakening the guard to an unbounded signal makes this test hang/fail.
+      mockServeAddrInUse();
+      vi.useFakeTimers();
+      globalThis.fetch = vi.fn(
+        (_url: unknown, init?: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            // probeExistingStudio catches every throw, so the rejection reason
+            // is irrelevant; a plain Error keeps prefer-promise-reject-errors
+            // happy. What matters is that ONLY the abort fires it.
+            init?.signal?.addEventListener("abort", () => {
+              reject(new Error("aborted by AbortSignal.timeout"));
+            });
+          }),
+      ) as unknown as typeof fetch;
+      try {
+        // Await the rejection inline (Promise.all) while driving the fake
+        // clock past 1500ms so AbortSignal.timeout fires and the probe bails.
+        await Promise.all([
+          expect(runDev({ port: 4332, cwd: projectDir })).rejects.toThrow(
+            /Port 4332 is already in use/,
+          ),
+          vi.advanceTimersByTimeAsync(1600),
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("adopts an existing Studio even when first-run credential bootstrap hard-fails (offline)", async () => {
+      // Deferred bootstrap: with no credentials AND the config fetch failing,
+      // ensureCredentialsForStudio throws, but the adopt path needs no
+      // credentials, so a first-run offline launch must still connect.
+      rmSync(join(fakeHome, ".arkor", "credentials.json"), { force: true });
+      mockServeAddrInUse();
+      globalThis.fetch = vi.fn(async (input: unknown) => {
+        if (String(input).includes("/api/status")) {
+          return Response.json({ server: "arkor-studio", cwd: projectDir });
+        }
+        throw new TypeError("fetch failed"); // config/anon bootstrap fails
+      }) as unknown as typeof fetch;
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(runDev({ port: 4330, cwd: projectDir })).resolves.toEqual({
+          adopted: true,
+        });
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    });
+
+    it("still rejects when bootstrap hard-fails AND this process actually serves", async () => {
+      // The deferral only helps the adopt path: if we bind and serve (serving
+      // needs credentials), the deferred bootstrap error is surfaced.
+      rmSync(join(fakeHome, ".arkor", "credentials.json"), { force: true });
+      // Default serve mock fires the listening callback (successful bind).
+      globalThis.fetch = vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }) as unknown as typeof fetch;
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(runDev({ port: 4331, cwd: projectDir })).rejects.toThrow(
+          /fetch failed/,
+        );
+      } finally {
+        stdoutSpy.mockRestore();
+      }
     });
   });
 });

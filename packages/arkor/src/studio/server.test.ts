@@ -313,7 +313,28 @@ describe("Studio server", () => {
         cwd: trainCwd,
       });
       expect(typeof body.version).toBe("string");
-      expect(body.endpoints).toContain("GET /api/status");
+      // Assert the FULL contract, not a spot-check: the endpoints array is the
+      // agent's discovery surface, so a dropped/renamed/reordered route is a
+      // silent contract break. `/api/status` must lead (it is the probe's own
+      // entry) and no route may carry the studio token or credentials.
+      expect(body.endpoints).toEqual([
+        "GET /api/status",
+        "GET /api/credentials",
+        "GET /api/me",
+        "GET /api/manifest",
+        "GET /api/jobs",
+        "GET /api/jobs/:id/events",
+        "POST /api/train",
+        "POST /api/inference/chat",
+        "GET /api/deployments",
+        "POST /api/deployments",
+        "GET /api/deployments/:id",
+        "PATCH /api/deployments/:id",
+        "DELETE /api/deployments/:id",
+        "GET /api/deployments/:id/keys",
+        "POST /api/deployments/:id/keys",
+        "DELETE /api/deployments/:id/keys/:keyId",
+      ]);
       expect(body.endpoints).toContain("POST /api/train");
       expect(body.endpoints).toContain("GET /api/jobs/:id/events");
     });

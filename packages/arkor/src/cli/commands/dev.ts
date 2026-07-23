@@ -347,7 +347,14 @@ async function probeExistingStudio(
   try {
     const res = await fetch(
       new URL("/api/status", `http://127.0.0.1:${port}`),
-      { signal: AbortSignal.timeout(1500) },
+      {
+        signal: AbortSignal.timeout(1500),
+        // A real /api/status is terminal and never redirects. `redirect:
+        // "manual"` stops an untrusted port occupant from bouncing this CLI-side
+        // GET to an arbitrary URL (a 3xx then yields an opaque, non-ok response
+        // that fails the check below), removing that blind-request surface.
+        redirect: "manual",
+      },
     );
     if (!res.ok) return false;
     // Read the body with a hard BYTE cap, not just the 1.5s time bound: the
@@ -426,7 +433,20 @@ export interface RunDevResult {
 }
 
 export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
-  await ensureCredentialsForStudio();
+  // DEFER a credential-bootstrap hard failure instead of failing up front. The
+  // normal-mode "connect to an already-running Studio and exit" (adopt) path
+  // starts no server and needs no credentials, so a first-run OFFLINE launch
+  // should still be able to adopt an existing local Studio. We rethrow the
+  // error only if this process actually binds and serves (which does need
+  // credentials); the EADDRINUSE adopt path ignores it.
+  let bootstrapError: Error | undefined;
+  try {
+    await ensureCredentialsForStudio();
+  } catch (err) {
+    // Normalise at capture so the later `reject(bootstrapError)` always hands
+    // the promise an Error (a bare throw is theoretically `unknown`).
+    bootstrapError = err instanceof Error ? err : new Error(String(err));
+  }
 
   const port = options.port ?? 4000;
   const agent = options.agent === true;
@@ -443,8 +463,9 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
   // Set true only on the normal-mode "connect to a running Studio" path.
   let adopted = false;
   // Per-launch CSRF token: injected into index.html as <meta>, required on
-  // every /api/* request. Prevents another tab on the same machine from
-  // hitting `arkor start` (and therefore RCE via dynamic import).
+  // every /api/* request except the token-exempt GET /api/status probe.
+  // Prevents another tab on the same machine from hitting `arkor start`
+  // (and therefore RCE via dynamic import).
   const studioToken = randomBytes(32).toString("base64url");
 
   // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
@@ -549,6 +570,18 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
           }
         });
         void (async () => {
+          // We are about to SERVE, which needs credentials. If the up-front
+          // bootstrap hard-failed (deferred above), surface it now: close the
+          // just-bound listener and reject. The adopt path never reaches here.
+          if (bootstrapError !== undefined) {
+            try {
+              server.close();
+            } catch {
+              // best-effort
+            }
+            reject(bootstrapError);
+            return;
+          }
           if (agent && agentSessionPath !== undefined) {
             // The session file is the agent's only realistic token channel
             // (an agent does not scrape the <meta> tag the SPA reads), so

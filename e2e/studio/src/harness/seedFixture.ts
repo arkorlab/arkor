@@ -25,7 +25,15 @@ export function makeTempDir(prefix: string): string {
 }
 
 export function cleanup(dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
+  // Best-effort: a spawned `arkor dev` (esp. the agentStudio fixture's second
+  // child, force-killed on Windows) can briefly hold a handle inside `dir`, so
+  // rmSync may throw EPERM/EBUSY on Windows. Swallow it: teardown must not
+  // fail the test. Mirrors e2e/cli's cleanup.
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // best-effort teardown
+  }
 }
 
 /**

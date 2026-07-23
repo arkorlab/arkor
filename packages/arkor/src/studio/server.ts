@@ -54,11 +54,12 @@ export interface StudioServerOptions {
   autoAnonymous?: boolean;
   /**
    * Per-launch CSRF token. Every `/api/*` request must include it via header
-   * `X-Arkor-Studio-Token`; the job-event stream also accepts `?studioToken=`
-   * because `EventSource` cannot carry custom headers. The token is injected
-   * into the served `index.html` as a `<meta>` tag so the same-origin SPA can
-   * read it; cross-origin tabs cannot, so even a "simple" CORS POST without
-   * preflight is rejected.
+   * `X-Arkor-Studio-Token`, EXCEPT the token-exempt `GET /api/status` probe;
+   * the job-event stream also accepts `?studioToken=` because `EventSource`
+   * cannot carry custom headers. The token is injected into the served
+   * `index.html` as a `<meta>` tag so the same-origin SPA can read it;
+   * cross-origin tabs cannot, so even a "simple" CORS POST without preflight
+   * is rejected.
    */
   studioToken: string;
   /**
