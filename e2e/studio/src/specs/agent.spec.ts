@@ -32,10 +32,11 @@ test.describe("Agent mode contract", () => {
     const agentDir = join(fixturePaths.projectDir, ".arkor", "agent");
     expect(sessionFile!.startsWith(agentDir)).toBe(true);
     const payload = readSession(sessionFile!);
-    // The CLI prints/binds 127.0.0.1 but displays localhost; the session
-    // file carries the displayed URL.
+    // The session file carries the agent-facing 127.0.0.1 URL (the literal the
+    // server bound), which is exactly what the harness connects to.
     const port = new URL(agentStudio.url).port;
-    expect(payload.url).toBe(`http://localhost:${port}`);
+    expect(payload.url).toBe(`http://127.0.0.1:${port}`);
+    expect(payload.url).toBe(agentStudio.url);
     expect(String(payload.port)).toBe(port);
     expect(Number.isInteger(payload.pid)).toBe(true);
     // The file token is the same per-launch CSRF token the SPA reads from

@@ -940,7 +940,9 @@ describe("runDev", () => {
         port: number;
         pid: number;
       };
-      expect(payload.url).toBe("http://localhost:4310");
+      // Agent-facing URL is the 127.0.0.1 literal (matches the bind), not the
+      // localhost display name, so a non-Happy-Eyeballs client always reaches it.
+      expect(payload.url).toBe("http://127.0.0.1:4310");
       expect(payload.port).toBe(4310);
       expect(payload.pid).toBe(process.pid);
       expect(payload.token).toMatch(/^[\w-]+$/);
@@ -1212,9 +1214,13 @@ describe("runDev", () => {
       );
     });
 
-    it("falls back when the probe gets a non-200 (e.g. a non-Studio occupant)", async () => {
+    it("falls back on a non-200 even when the body WOULD otherwise match (isolates the res.ok guard)", async () => {
       mockServeAddrInUse();
-      mockProbe({ error: "nope" }, { status: 404 });
+      // Body has the right discriminator AND a matching cwd, so only the
+      // `if (!res.ok) return false` branch can reject it. This keeps the test
+      // load-bearing for that guard specifically (a body that also failed the
+      // discriminator would pass whether or not the status check existed).
+      mockProbe({ server: "arkor-studio", cwd: projectDir }, { status: 404 });
       await expect(runDev({ port: 4323, cwd: projectDir })).rejects.toThrow(
         /Port 4323 is already in use/,
       );

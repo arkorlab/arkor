@@ -39,7 +39,7 @@ bun dev
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `-p, --port <port>` | `4000` | Port to bind. The displayed URL uses `localhost`, but the listener binds `127.0.0.1` directly so it cannot end up IPv6-only on hosts where `/etc/hosts` lists `::1` before `127.0.0.1`. The CLI parses the value as `Number(opts.port) || 4000`, so falsy results (`0`, non-numeric) normalize to `4000`. **Truthy invalid values pass through unsanitized**: a negative port or a port above `65535` reaches the listener as-is and surfaces as a `serve()` failure (e.g. `RangeError`). Stick to the standard 1 to 65535 range yourself. |
+| `-p, --port <port>` | `4000` | Port to bind. The displayed URL uses `localhost`, but the listener binds `127.0.0.1` directly so it cannot end up IPv6-only on hosts where `/etc/hosts` lists `::1` before `127.0.0.1`. The value is validated up front: it must be an integer in `1` to `65535`. Anything else (`0`, a negative, `> 65535`, or non-numeric) is rejected with ``--port must be an integer between 1 and 65535 (got …).`` and the CLI exits `1` before binding. |
 | `--open` | off | Open the Studio URL in a browser after the server is up. |
 | `--agent` | off | Agent mode: run the same Studio server headlessly for coding agents. Writes a per-session JSON token file under `.arkor/agent/` in the project and prints its path to stdout (see "Agent mode" below). Never opens a browser on its own; `--open` still works if you want one. |
 
@@ -109,6 +109,8 @@ This means `arkor dev` is safe on a shared dev machine: another tab cannot read 
 - **Agent mode always errors.** `arkor dev --agent` on a busy port fails with the same port-in-use message without probing: an agent session needs its own server process and its own session file, so adopting an existing instance would hand the agent a token it does not control. Pass `--port` to start a second session.
 
 The token file (`~/.arkor/studio-token`) is written only **after** the port binds successfully, so a failed second launch on a busy port never overwrites or deletes the token a healthy first instance depends on.
+
+**Adoption trust model.** Adoption trusts the loopback occupant by its self-reported `/api/status` (which is token-exempt), so it does **not** authenticate the peer. On a shared multi-user host, a local process that pre-binds the port and serves a matching `/api/status` can make your `arkor dev` print "already running" and exit (a nuisance denial of your own launch), and with `--open` your browser would open at that local origin. This is deliberately the safe side of the trade: because the probe sends **no token**, an impostor can never obtain the CSRF token or reach the RCE-grade `POST /api/train`; the worst case is a redirect or denial, never code execution. If you do not want the connect behavior on an untrusted shared box, pass an explicit free `--port`.
 
 ## Errors
 
@@ -202,9 +204,12 @@ Then, from the agent's shell, read the token out of the session file and confirm
 ```bash
 SESSION_FILE=$(ls -t .arkor/agent/session-*.json | head -n 1)
 TOKEN=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).token' "$SESSION_FILE")
-curl http://localhost:4000/api/status                                  # token-free health probe
-curl -H "X-Arkor-Studio-Token: $TOKEN" http://localhost:4000/api/jobs  # token-guarded routes
+URL=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).url' "$SESSION_FILE")
+curl "$URL/api/status"                                  # token-free health probe
+curl -H "X-Arkor-Studio-Token: $TOKEN" "$URL/api/jobs"  # token-guarded routes
 ```
+
+The `url` in the session file is the `127.0.0.1` literal the server bound (not `localhost`), so an HTTP client that does not do Happy Eyeballs still reaches it on an IPv6-localhost-first host.
 
 ## See also
 

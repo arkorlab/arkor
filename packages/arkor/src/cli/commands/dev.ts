@@ -144,8 +144,10 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       // `err.message` already starts with "Failed to acquire…" and
       // includes the response-body snippet, which would double-prefix the
       // wrap and risk leaking noisy HTML/JSON error pages. The full
-      // detail is preserved on `cause` for debugging.
-      throw new Error(
+      // detail is preserved on `cause` for debugging. ExpectedCliError so
+      // bin.ts prints this actionable line alone (no minified dist stack)
+      // for a routine first-run-on-an-OAuth-only-deployment failure.
+      throw new ExpectedCliError(
         `Failed to bootstrap an anonymous session (HTTP ${err.status}). This deployment may require sign-in. Run \`arkor login --oauth\` and try again.`,
         { cause: err },
       );
@@ -407,9 +409,17 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
   // before `127.0.0.1 localhost`, a "localhost" bind would refuse IPv4
   // connections, breaking the studio-app Vite proxy (hardcoded to
   // `http://127.0.0.1:4000`) and any browser that resolves localhost to
-  // IPv4. The host-header guard already accepts both, so the displayed URL
-  // can still be `localhost`.
+  // IPv4. The host-header guard accepts both.
+  //
+  // Two URL forms: `url` (localhost) is human-facing (the stdout line, the
+  // browser `--open` target: browsers do Happy-Eyeballs and a friendly host
+  // reads better). `agentUrl` (127.0.0.1) is what a coding AGENT consumes
+  // programmatically (the session file's `url`, the `/api/status` echo): an
+  // agent's HTTP client may not do Happy-Eyeballs, so it must get the same
+  // IPv4 literal the server actually bound, not a name that can resolve to
+  // an unbound `::1`.
   const url = `http://localhost:${port}`;
+  const agentUrl = `http://127.0.0.1:${port}`;
 
   // `autoAnonymous: true` (the default) lets the Hono server retry the
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
@@ -421,7 +431,10 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
   const app = buildStudioApp({
     studioToken,
     mode: agent ? "agent" : "studio",
-    url,
+    // Echo the agent-facing (127.0.0.1) URL from /api/status so a probe or
+    // agent reading it reaches the bound listener regardless of localhost
+    // resolution order.
+    url: agentUrl,
     cwd: projectRoot,
   });
 
@@ -511,7 +524,9 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
               // would look dead (ESRCH) and get deleted out from under it.
               await writeAgentSessionFile(agentSessionPath, {
                 token: studioToken,
-                url,
+                // Agent-facing URL: 127.0.0.1 (the literal the server bound),
+                // never `localhost`, so a non-Happy-Eyeballs client reaches it.
+                url: agentUrl,
                 port,
                 pid: process.pid,
               });

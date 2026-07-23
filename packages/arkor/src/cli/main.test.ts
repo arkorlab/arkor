@@ -12,16 +12,31 @@ vi.mock("./commands/build", () => ({ runBuild: vi.fn() }));
 vi.mock("./commands/start", () => ({ runStart: vi.fn() }));
 vi.mock("./commands/dev", () => ({ runDev: vi.fn() }));
 
-// Telemetry: the wrapper just delegates to the inner handler in tests
-// so we don't have to thread PostHog state through every assertion.
+// Telemetry: the wrapper delegates to the inner handler, but it also
+// captures the `options` (esp. the `longRunning` flag/predicate) and
+// evaluates it AFTER the handler resolves, exactly as the real
+// withTelemetry does. This lets tests assert main.ts's per-command
+// telemetry wiring (e.g. `dev`'s `{ longRunning: () => !adopted }` and its
+// `adopted = result.adopted` capture) instead of silently dropping it.
+const capturedTelemetry = vi.hoisted(() => ({
+  longRunningAfter: undefined as boolean | undefined,
+}));
 vi.mock("../core/telemetry", () => ({
   withTelemetry:
     <TArgs extends unknown[]>(
       _name: string,
       handler: (...args: TArgs) => Promise<void>,
+      options?: { longRunning?: boolean | (() => boolean) },
     ) =>
-    async (...args: TArgs) =>
-      handler(...args),
+    async (...args: TArgs) => {
+      capturedTelemetry.longRunningAfter = undefined;
+      const result = await handler(...args);
+      capturedTelemetry.longRunningAfter =
+        typeof options?.longRunning === "function"
+          ? options.longRunning()
+          : options?.longRunning;
+      return result;
+    },
   shutdownTelemetry: vi.fn(async () => undefined),
 }));
 
@@ -288,6 +303,26 @@ describe("main (CLI Commander wiring)", () => {
       open: false,
       agent: true,
     });
+  });
+
+  it("classifies a SERVING `dev` as long-running (suppresses cli_command_completed)", async () => {
+    // runDev resolving { adopted: false } => the process keeps serving =>
+    // longRunning must be true so the near-zero-duration completed event is
+    // skipped. This exercises main.ts's `adopted = result.adopted` capture
+    // and `{ longRunning: () => !adopted }` wiring (inverting it fails here).
+    delete process.env.CLAUDECODE;
+    vi.mocked(runDev).mockResolvedValueOnce({ adopted: false });
+    await main(["dev"]);
+    expect(capturedTelemetry.longRunningAfter).toBe(true);
+  });
+
+  it("classifies a CONNECT-and-exit `dev` as NOT long-running (emits cli_command_completed)", async () => {
+    // runDev resolving { adopted: true } => connected to a running Studio and
+    // exits => a genuine short-lived completion, so longRunning must be false.
+    delete process.env.CLAUDECODE;
+    vi.mocked(runDev).mockResolvedValueOnce({ adopted: true });
+    await main(["dev"]);
+    expect(capturedTelemetry.longRunningAfter).toBe(false);
   });
 
   it("flushes a recorded deprecation warning after parse and awaits shutdownTelemetry", async () => {

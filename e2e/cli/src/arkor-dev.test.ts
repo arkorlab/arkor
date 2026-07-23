@@ -10,6 +10,9 @@
 //
 // `runCli` strips CLAUDECODE from the inherited env by default, so tests
 // opt INTO strict mode via `extraEnv`, mirroring arkor-init.test.ts.
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { ARKOR_BIN } from "./bins";
@@ -33,6 +36,13 @@ describe("arkor dev × CLAUDECODE strict gate (E2E)", () => {
       // The gate fires before the server starts: no ready line, no token
       // file side effects under the isolated HOME.
       expect(result.stdout).not.toContain("Arkor Studio running on");
+      // Assert the documented "nothing persisted" contract concretely: the
+      // gate throws before runDev, so neither the home studio-token nor a
+      // project agent session dir is created (a regression that moved the gate
+      // after persistence would fail here). Telemetry may create ~/.arkor
+      // itself, so check the specific ENG-967 artifacts, not the whole dir.
+      expect(existsSync(join(dir, ".arkor", "studio-token"))).toBe(false);
+      expect(existsSync(join(dir, ".arkor", "agent"))).toBe(false);
     } finally {
       cleanup(dir);
     }

@@ -36,7 +36,14 @@ const READY_LINE_PATTERN = /Arkor Studio running on/;
 // same async block right after the ready line, so matching it both proves
 // the server is up and hands us the session-file path without a second
 // wait-and-parse pass racing the child's stdout flush.
-const AGENT_SESSION_LINE_PATTERN = /^Arkor Studio agent session file: (.+)$/m;
+//
+// The trailing `\r?\n` is load-bearing: it forces the match to see the FULL
+// line before settling. `(.+)$` under `/m` also anchors at end-of-buffer, so
+// a stdout chunk that split mid-path would otherwise match and hand back a
+// truncated `sessionFile`. Requiring the newline makes readiness wait for the
+// complete line regardless of pipe chunking.
+const AGENT_SESSION_LINE_PATTERN =
+  /^Arkor Studio agent session file: (.+)\r?\n/m;
 const READY_TIMEOUT_MS = 30_000;
 const PORT_POLL_INTERVAL_MS = 50;
 const PORT_POLL_TIMEOUT_MS = 10_000;

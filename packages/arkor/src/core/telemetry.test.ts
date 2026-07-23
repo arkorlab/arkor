@@ -434,6 +434,23 @@ describe("withTelemetry", () => {
     expect(captureMock.mock.calls[0][0].event).toBe("cli_command_started");
   });
 
+  it("treats a THROWING longRunning predicate as not-long-running (a succeeded command stays a success)", async () => {
+    // A faulty predicate must NOT propagate into the failure path: that would
+    // mislabel a genuine success as cli_command_failed and re-throw a non-zero
+    // exit. The guard defaults a throwing predicate to "not long-running", so
+    // the command still resolves AND emits cli_command_completed.
+    const mod = await loadTelemetry({ key: "phc_test" });
+    const wrapped = mod.withTelemetry("dev", async () => {}, {
+      longRunning: () => {
+        throw new Error("predicate boom");
+      },
+    });
+    await expect(wrapped()).resolves.toBeUndefined();
+    const events = captureMock.mock.calls.map((c) => c[0].event);
+    expect(events).toEqual(["cli_command_started", "cli_command_completed"]);
+    expect(events).not.toContain("cli_command_failed");
+  });
+
   it("does not double-initialise the PostHog client across multiple wrapped calls", async () => {
     // The lazy `getClient` returns the cached instance after the first
     // safeCapture; later calls (started + completed of a 2nd command)
