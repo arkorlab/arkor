@@ -1335,12 +1335,28 @@ describe("runDev", () => {
       );
     });
 
-    it("times out and falls back when the occupant accepts the connection but never responds", async () => {
-      // Exercises the timeout DURATION, not just that a signal is passed:
-      // fetch never resolves and only rejects when the AbortSignal fires.
-      // Weakening the guard to an unbounded signal makes this test hang/fail.
+    it("time-bounds the probe with AbortSignal.timeout(1500) and falls back when the occupant never responds", async () => {
+      // Asserts the probe is TIME-BOUNDED, not merely that some signal is
+      // passed. NOTE: vitest fake timers do NOT drive AbortSignal.timeout (it
+      // uses an internal, unmockable timer), so we cannot advance a fake clock
+      // to fire it. Instead we spy on AbortSignal.timeout: this both proves the
+      // production code requests the 1500ms bound (an unbounded
+      // `new AbortController().signal` never calls it -> the toHaveBeenCalled
+      // assertion fails) AND lets us fire the abort synchronously so the test
+      // stays fast (no real 1.5s wall-clock wait).
       mockServeAddrInUse();
-      vi.useFakeTimers();
+      const timeoutSpy = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockImplementation((ms) => {
+          const ac = new AbortController();
+          // Fire on the next microtask so the mocked fetch below (which only
+          // rejects on abort) settles promptly, standing in for the real
+          // occupant that accepts the connection but never responds.
+          queueMicrotask(() => {
+            ac.abort(new Error(`stub timeout after ${String(ms)}ms`));
+          });
+          return ac.signal;
+        });
       globalThis.fetch = vi.fn(
         (_url: unknown, init?: { signal?: AbortSignal }) =>
           new Promise((_resolve, reject) => {
@@ -1353,16 +1369,13 @@ describe("runDev", () => {
           }),
       ) as unknown as typeof fetch;
       try {
-        // Await the rejection inline (Promise.all) while driving the fake
-        // clock past 1500ms so AbortSignal.timeout fires and the probe bails.
-        await Promise.all([
-          expect(runDev({ port: 4332, cwd: projectDir })).rejects.toThrow(
-            /Port 4332 is already in use/,
-          ),
-          vi.advanceTimersByTimeAsync(1600),
-        ]);
+        await expect(runDev({ port: 4332, cwd: projectDir })).rejects.toThrow(
+          /Port 4332 is already in use/,
+        );
+        // The exact bound is the contract; assert it, not just "was called".
+        expect(timeoutSpy).toHaveBeenCalledWith(1500);
       } finally {
-        vi.useRealTimers();
+        timeoutSpy.mockRestore();
       }
     });
 
