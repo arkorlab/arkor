@@ -1034,9 +1034,15 @@ describe("runDev", () => {
         .spyOn(process.stdout, "write")
         .mockImplementation((() => true) as typeof process.stdout.write);
       try {
+        // ExpectedCliError (not the raw fs Error) so bin.ts prints the one
+        // actionable line without a minified stack; reverting to the raw
+        // error must fail here.
         await expect(
           runDev({ port: 4313, agent: true, cwd: projectDir }),
-        ).rejects.toThrow();
+        ).rejects.toMatchObject({
+          name: "ExpectedCliError",
+          message: expect.stringMatching(/Could not write the agent session/),
+        });
       } finally {
         stdoutSpy.mockRestore();
         chmodSync(join(projectDir, ".arkor"), 0o755);

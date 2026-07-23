@@ -252,7 +252,7 @@ describe("main (CLI Commander wiring)", () => {
     // coercions (0x1F4 -> 500, 4e3 -> 4000, 500.0 -> 500, " 80 " -> 80) do NOT
     // silently bind a surprising port; each is rejected to match the docs.
     delete process.env.CLAUDECODE;
-    for (const bad of ["0x1F4", "4e3", "500.0", " 80 ", "80\n"]) {
+    for (const bad of ["0x1F4", "4e3", "500.0", " 80 ", "80\n", "080", "00"]) {
       vi.mocked(runDev).mockClear();
       await expect(main(["dev", "--port", bad])).rejects.toThrow(/port/i);
       expect(runDev).not.toHaveBeenCalled();

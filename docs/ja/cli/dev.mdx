@@ -96,7 +96,7 @@ Re-run with the --agent flag:
 Studio サーバーはすべての `/api/*` リクエストに 3 つのチェックを課します。
 
 1. `Host` ヘッダーは `127.0.0.1` か `localhost`（DNS リバインディング対策）。
-2. CSRF トークンは `X-Arkor-Studio-Token` ヘッダーか `?studioToken=...`（カスタムヘッダーを送れない `EventSource` 用）として必須。比較には `timingSafeEqual` を使用しているため、タイミング攻撃に対して安全です。
+2. CSRF トークンは `X-Arkor-Studio-Token` ヘッダーか `?studioToken=...`（カスタムヘッダーを送れない `EventSource` 用）として必須。ただし 1 つだけ例外があり、機密ゼロの `GET /api/status` プローブはトークン不要です（上記参照）。比較には `timingSafeEqual` を使用しているため、タイミング攻撃に対して安全です。
 3. CORS は意図的に未設定。SPA は同一オリジンなので CORS は意味を持たず、`*` を反射すると preflight をスキップする「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまう。トークンが無ければミドルウェアが拒否します。
 
 これにより `arkor dev` は共有の開発環境でも安全です。別タブは meta を読めず、過去の起動の古いタブはトークンが一致せず、別オリジンの攻撃者ページはリクエストを偽造できません。
@@ -117,6 +117,7 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 | 症状 | 意味 | 対処 |
 | --- | --- | --- |
 | ``Port 4000 is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート 4000 は既に使用中。根本のエラーは `EADDRINUSE`） | 別プロセスがポートを保持していて、通常モードでは起動中 Studio プローブが Arkor Studio を確認できなかった。エージェントモードではプローブなしでこのエラーになる。 | 止めるか `--port <other>`。 |
+| `Could not bind port <port>: <reason>`（exit `1`） | `EADDRINUSE` 以外のバインド失敗。例: 非 root で特権ポート（`1`-`1023`）をバインドしたときの `EACCES`、または `EADDRNOTAVAIL`。 | 非特権ポート（1024 以上）を `--port` で指定するか、そのポートに必要な権限で実行する。 |
 | `Arkor Studio already running on http://localhost:<port>`（exit `0`） | 通常モードがポート上でこのプロジェクトを提供する健全な Arkor Studio（多くは `arkor dev --agent` セッション）を発見し、失敗ではなく接続扱いにした。エラーではなく情報行。 | 何もしなくてよい。出力された URL を開く。CLI に開かせたいなら `--open`。 |
 | `arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.`（exit `1`） | Claude Code の厳格ゲート。`CLAUDECODE=1` が設定されていて `--agent` が渡されていない。サーバーは起動されず、トークンファイルもセッションファイルも書き込まれていない。 | `arkor dev --agent` で再実行し、出力されたセッションファイルを使う。 |
 | `Could not write the agent session file under <project>/.arkor/agent (...). Agent mode requires it; aborting.`（exit `1`） | エージェントモードが `.arkor/agent/` またはセッションファイルを作成できなかった（読み取り専用のプロジェクトディレクトリー、権限の問題）。home のトークンと異なりこれは致命的で、ファイルはエージェント唯一のトークン経路。 | プロジェクトディレクトリーを書き込み可能にして（`.arkor/` の権限を確認）再実行。 |

@@ -48,6 +48,26 @@ describe("arkor dev × CLAUDECODE strict gate (E2E)", () => {
     }
   });
 
+  it("prints an ExpectedCliError (invalid --port) as a clean one-liner with no stack (bin.ts contract)", async () => {
+    const dir = makeTempDir("arkor-dev-port-e2e-");
+    try {
+      const result = await runCli(ARKOR_BIN, ["dev", "--port", "0"], dir, {
+        HOME: dir,
+      });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(
+        "--port must be an integer between 1 and 65535",
+      );
+      // The whole point of ExpectedCliError: bin.ts prints `err.message` alone,
+      // so no `dist/bin.mjs` code-frame / V8 stack lines leak out.
+      expect(result.stderr).not.toMatch(/^\s+at\s/m);
+      expect(result.stderr).not.toContain("ExpectedCliError:");
+      expect(result.stderr).not.toContain("bin.mjs");
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   it("advertises --agent in `dev --help`", async () => {
     const dir = makeTempDir("arkor-dev-help-e2e-");
     try {

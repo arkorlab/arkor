@@ -35,12 +35,13 @@ import { ui } from "./prompts";
  * `http://localhost:<port>` URL, so an ephemeral port has no supported flow.
  */
 function parseDevPort(raw: string): number {
-  // Require a plain decimal-integer string. `Number()` alone would accept
-  // hex (`0x1F4`), scientific notation (`4e3`), decimals (`500.0`), and
-  // whitespace-padded values, binding a surprising port while the error copy
-  // (and the docs) promise "an integer". `/^\d+$/` keeps the contract honest.
+  // Require a canonical decimal-integer string (no leading zero). `Number()`
+  // alone would accept hex (`0x1F4`), scientific notation (`4e3`), decimals
+  // (`500.0`), whitespace-padded, and zero-padded (`080`) values, binding a
+  // surprising port while the error copy (and the docs) promise "an integer".
+  // `/^[1-9]\d*$/` keeps the contract honest.
   const n = Number(raw);
-  if (!/^\d+$/.test(raw) || !Number.isInteger(n) || n < 1 || n > 65_535) {
+  if (!/^[1-9]\d*$/.test(raw) || !Number.isInteger(n) || n < 1 || n > 65_535) {
     throw new ExpectedCliError(
       `--port must be an integer between 1 and 65535 (got ${JSON.stringify(
         raw,
