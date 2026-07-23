@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1184,6 +1185,29 @@ describe("runDev", () => {
       expect(open).toHaveBeenCalledWith("http://localhost:4321");
     });
 
+    it("adopts when the occupant's cwd is a SYMLINK that realpath-resolves to this project (pins realpathSync)", async () => {
+      if (process.platform === "win32") {
+        // Symlink creation needs privileges on Windows; the realpath path is
+        // exercised on POSIX where the connect flow matters most.
+        return;
+      }
+      mockServeAddrInUse();
+      // The occupant reports a DIFFERENT path STRING that resolves to the same
+      // real directory. A plain string compare would reject (no adopt); only
+      // realpathSync(b.cwd) === realpathSync(projectRoot) matches. Reverting
+      // the canonicalization to a string compare makes this test fail.
+      const linkPath = `${projectDir}-link`;
+      symlinkSync(projectDir, linkPath);
+      try {
+        mockProbe({ server: "arkor-studio", cwd: linkPath });
+        await expect(runDev({ port: 4328, cwd: projectDir })).resolves.toEqual({
+          adopted: true,
+        });
+      } finally {
+        rmSync(linkPath, { force: true });
+      }
+    });
+
     it("falls back to the port-in-use error when the occupant serves a DIFFERENT project", async () => {
       mockServeAddrInUse();
       // Same-machine Arkor Studio, but a different project root -> do NOT adopt.
@@ -1211,6 +1235,21 @@ describe("runDev", () => {
       mockProbe({ server: "arkor-studio", cwd: "." });
       await expect(runDev({ port: 4327, cwd: process.cwd() })).rejects.toThrow(
         /Port 4327 is already in use/,
+      );
+    });
+
+    it("falls back when the occupant streams an over-cap body even if it WOULD otherwise match (byte cap)", async () => {
+      mockServeAddrInUse();
+      // A 200 whose body has the right discriminator + cwd but is > 64 KiB.
+      // Only the byte cap can reject it, so this isolates readCapped: with an
+      // uncapped `res.json()` the launch would wrongly adopt.
+      mockProbe({
+        server: "arkor-studio",
+        cwd: projectDir,
+        filler: "x".repeat(70 * 1024),
+      });
+      await expect(runDev({ port: 4329, cwd: projectDir })).rejects.toThrow(
+        /Port 4329 is already in use/,
       );
     });
 
@@ -1251,6 +1290,32 @@ describe("runDev", () => {
         runDev({ port: 4326, agent: true, cwd: projectDir }),
       ).rejects.toThrow(/Port 4326 is already in use/);
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("wraps a non-EADDRINUSE pre-bind error (e.g. EACCES on a privileged port) in a clean ExpectedCliError", async () => {
+      // parseDevPort now permits 1-1023, so a non-root `arkor dev --port 80`
+      // hits EACCES. That must print a clean actionable line, not a minified
+      // dist stack, so runDev rejects with an ExpectedCliError.
+      vi.mocked(serve).mockImplementationOnce((() => {
+        const server = {
+          close: vi.fn(),
+          on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+            if (event === "error") {
+              queueMicrotask(() =>
+                cb(Object.assign(new Error("bind EACCES"), { code: "EACCES" })),
+              );
+            }
+            return server;
+          },
+        };
+        return server;
+      }) as unknown as typeof serve);
+      await expect(runDev({ port: 80, cwd: projectDir })).rejects.toMatchObject(
+        {
+          name: "ExpectedCliError",
+          message: expect.stringMatching(/Could not bind port 80:.*EACCES/),
+        },
+      );
     });
   });
 });

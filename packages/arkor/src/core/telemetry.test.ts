@@ -424,7 +424,10 @@ describe("withTelemetry", () => {
   it("evaluates a function-form longRunning that stays true (dev serving skips completed)", async () => {
     const mod = await loadTelemetry({ key: "phc_test" });
     // Never reassigned: the handler serves (does not "adopt"), so the
-    // predicate stays true and `cli_command_completed` is skipped.
+    // predicate stays true and `cli_command_completed` is skipped. Note this
+    // true-case cannot distinguish CALLING the predicate from `Boolean`-
+    // coercing the function object (both are truthy); the false-case sibling
+    // above ("...reports completed") is what proves the predicate is invoked.
     const adopted = false;
     const wrapped = mod.withTelemetry("dev", async () => {}, {
       longRunning: () => !adopted,

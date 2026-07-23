@@ -308,6 +308,38 @@ async function writeAgentSessionFile(
  * unreadable cwd) reports false and the caller falls back to the existing
  * port-in-use error.
  */
+/**
+ * Read a fetch `Response` body as UTF-8 text, giving up past `maxBytes`. The
+ * per-request AbortSignal bounds TIME; this bounds BYTES, so an untrusted
+ * loopback occupant streaming a huge 200 body cannot balloon the probing
+ * process's memory. Returns null if the body exceeds the cap or cannot be read.
+ */
+async function readCapped(
+  res: Response,
+  maxBytes: number,
+): Promise<string | null> {
+  const body = res.body;
+  if (body === null) return null;
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 async function probeExistingStudio(
   port: number,
   projectRoot: string,
@@ -318,7 +350,19 @@ async function probeExistingStudio(
       { signal: AbortSignal.timeout(1500) },
     );
     if (!res.ok) return false;
-    const body: unknown = await res.json();
+    // Read the body with a hard BYTE cap, not just the 1.5s time bound: the
+    // occupant is untrusted (any local process can squat a loopback port), so
+    // `res.json()` alone would let it stream an arbitrarily large 200 body
+    // into memory within the timeout window. A real /api/status payload is a
+    // few hundred bytes; 64 KiB is generous headroom. Over the cap -> reject.
+    const text = await readCapped(res, 64 * 1024);
+    if (text === null) return false;
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return false;
+    }
     if (typeof body !== "object" || body === null) return false;
     const b = body as { server?: unknown; cwd?: unknown };
     if (b.server !== "arkor-studio") return false;
@@ -551,12 +595,12 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
               return;
             }
           }
-          // Persisting the token to `~/.arkor/studio-token` is needed for
-          // the Vite SPA dev workflow and the port-collision probe. The
-          // bundled `:port` flow injects the meta tag at request time via
-          // `buildStudioApp`, so a failure here (read-only $HOME on Docker
-          // / locked-down CI / restrictive umask) must not block the
-          // server.
+          // Persisting the token to `~/.arkor/studio-token` is needed ONLY
+          // for the Vite SPA dev workflow (the port-collision probe reads no
+          // token; /api/status is token-exempt). The bundled `:port` flow
+          // injects the meta tag at request time via `buildStudioApp`, so a
+          // failure here (read-only $HOME on Docker / locked-down CI /
+          // restrictive umask) must not block the server.
           try {
             await persistStudioToken(studioToken);
           } catch (err) {
@@ -642,7 +686,15 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
         })();
         return;
       }
-      reject(err instanceof Error ? err : new Error(message));
+      // Any other pre-bind listener failure (EACCES on a privileged port now
+      // that `--port` permits 1-1023, EADDRNOTAVAIL, ...) is a user-actionable
+      // bind error, so surface it as an ExpectedCliError: bin.ts prints this
+      // one line and exits 1 without dumping a minified `dist/bin.mjs` stack.
+      reject(
+        new ExpectedCliError(`Could not bind port ${port}: ${message}`, {
+          cause: err instanceof Error ? err : undefined,
+        }),
+      );
     });
   });
 

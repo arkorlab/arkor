@@ -60,6 +60,9 @@ test.describe("Agent mode contract", () => {
     expect(body.status).toBe("ok");
     expect(body.server).toBe("arkor-studio");
     expect(body.mode).toBe("agent");
+    // The echoed url is the agent-facing 127.0.0.1 literal (not localhost).
+    expect(body.url).toBe(agentStudio.url);
+    expect(body.url).toBe(`http://127.0.0.1:${new URL(agentStudio.url).port}`);
     expect(body.endpoints).toContain("POST /api/train");
     // Safe by contract: the CSRF token must never round-trip in the body.
     expect(JSON.stringify(body)).not.toContain(

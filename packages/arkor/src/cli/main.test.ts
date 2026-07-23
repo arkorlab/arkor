@@ -247,6 +247,18 @@ describe("main (CLI Commander wiring)", () => {
     }
   });
 
+  it("rejects non-decimal-integer --port forms (hex, exponent, decimal, padded)", async () => {
+    // The validator requires a plain decimal-integer string, so Number()'s
+    // coercions (0x1F4 -> 500, 4e3 -> 4000, 500.0 -> 500, " 80 " -> 80) do NOT
+    // silently bind a surprising port; each is rejected to match the docs.
+    delete process.env.CLAUDECODE;
+    for (const bad of ["0x1F4", "4e3", "500.0", " 80 ", "80\n"]) {
+      vi.mocked(runDev).mockClear();
+      await expect(main(["dev", "--port", bad])).rejects.toThrow(/port/i);
+      expect(runDev).not.toHaveBeenCalled();
+    }
+  });
+
   it("accepts the in-range --port boundaries (1 and 65535)", async () => {
     delete process.env.CLAUDECODE;
     for (const ok of [1, 65_535]) {
@@ -308,8 +320,9 @@ describe("main (CLI Commander wiring)", () => {
   it("classifies a SERVING `dev` as long-running (suppresses cli_command_completed)", async () => {
     // runDev resolving { adopted: false } => the process keeps serving =>
     // longRunning must be true so the near-zero-duration completed event is
-    // skipped. This exercises main.ts's `adopted = result.adopted` capture
-    // and `{ longRunning: () => !adopted }` wiring (inverting it fails here).
+    // skipped. This pins the `() => !adopted` predicate DIRECTION; the sibling
+    // CONNECT test (adopted: true) is what pins the `adopted = result.adopted`
+    // capture, since `adopted` defaults to false here either way.
     delete process.env.CLAUDECODE;
     vi.mocked(runDev).mockResolvedValueOnce({ adopted: false });
     await main(["dev"]);

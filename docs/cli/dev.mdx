@@ -60,7 +60,7 @@ When the process exits (normal exit, `SIGINT`, `SIGTERM`, or `SIGHUP`) the studi
 
 Everything in the launch sequence above happens unchanged, plus:
 
-1. **Project-local session file.** The per-launch CSRF token is written to a unique JSON file inside the project: `<project>/.arkor/agent/session-<pid>-<uuid>.json`. The `.arkor/agent/` directory is created with mode `0700` and the file with mode `0600`; `.arkor/` is already gitignored by the scaffolder. The content is `{ "token": "<token>", "url": "http://localhost:<port>", "port": <port>, "pid": <pid> }`. Unlike the home token, a failure to write this file **aborts startup** with exit code 1: the session file is the agent's only token channel, so a server without it would be silently unusable.
+1. **Project-local session file.** The per-launch CSRF token is written to a unique JSON file inside the project: `<project>/.arkor/agent/session-<pid>-<uuid>.json`. The `.arkor/agent/` directory is created with mode `0700` and the file with mode `0600`; `.arkor/` is already gitignored by the scaffolder. The content is `{ "token": "<token>", "url": "http://127.0.0.1:<port>", "port": <port>, "pid": <pid> }` (the `url` is the `127.0.0.1` literal the server bound, see below). Unlike the home token, a failure to write this file **aborts startup** with exit code 1: the session file is the agent's only token channel, so a server without it would be silently unusable.
 2. **stdout contract.** Three lines, in this order; the prefixes of the first two are stable and safe to grep:
 
    ```
@@ -71,7 +71,7 @@ Everything in the launch sequence above happens unchanged, plus:
 
 3. **Status probe.** `GET /api/status` is the one **token-exempt** `/api/*` route (still behind the loopback + Host guard): it is secrets-free and never executes project code, so a coding agent (and the port-collision probe) can read it without the token. It returns `status`, `server: "arkor-studio"`, `version`, `mode` (`"agent"` here), `url`, `pid`, `cwd`, and the list of available `endpoints`. It never includes credentials or the CSRF token, so it is the right first call to confirm the server and discover the API surface. Every OTHER `/api/*` route still requires the `X-Arkor-Studio-Token` header.
 
-The session file is unlinked on exit, `SIGINT`, `SIGTERM`, and `SIGHUP` (exactly this launch's file, by its known unique path, so a co-located session that happens to share the pid is never touched). A crash (`SIGKILL`, power loss) can leave a `session-*.json` behind; it is inert (the token died with the server) and safe to delete. `arkor dev --agent` does not sweep other session files on startup: a liveness check would be unsafe when the project dir is a shared bind-mount across containers (pids are namespace-local). Selecting the newest file (below) means a stale leftover is never picked anyway.
+The session file is unlinked on exit, `SIGINT`, `SIGTERM`, and `SIGHUP` (exactly this launch's file, by its known unique path, so a co-located session that happens to share the pid is never touched). A crash (`SIGKILL`, power loss) can leave a `session-*.json` (or a `session-*.json.tmp` staging remnant) behind; both are inert (the token died with the server) and safe to delete. `arkor dev --agent` does not sweep other session files on startup: a liveness check would be unsafe when the project dir is a shared bind-mount across containers (pids are namespace-local). Selecting the newest file (below) means a stale leftover is never picked anyway.
 
 The Studio SPA is still served in agent mode: a human can open the printed URL in a browser while the agent works, and every guard from "Loopback and CSRF model" below applies unchanged.
 
@@ -199,7 +199,7 @@ bun dev --agent
 
 </CodeGroup>
 
-Then, from the agent's shell, read the token out of the session file and confirm the server. Prefer the exact path printed on stdout. If you must glob, select the **newest** file (`ls -t`), never the lexically first: a crashed prior session can leave an older `session-*.json` behind, and picking it would hand you a dead token. The newest file is always this launch's live session.
+Then, from the agent's shell, read the token out of the session file and confirm the server. **Prefer the exact path printed on stdout** (that is unambiguously your launch, even with other sessions in the same project). If you must glob, select the **newest** file (`ls -t`), never the lexically first: a crashed prior session can leave an older `session-*.json` behind, and picking it would hand you a dead token. In the common single-session case the newest is your live session; if you run two `arkor dev --agent` in the same project at once, only the printed path is unambiguous.
 
 ```bash
 SESSION_FILE=$(ls -t .arkor/agent/session-*.json | head -n 1)
