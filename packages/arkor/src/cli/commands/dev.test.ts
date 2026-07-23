@@ -1165,6 +1165,11 @@ describe("runDev", () => {
       ];
       expect(String(reqUrl)).toBe("http://127.0.0.1:4320/api/status");
       expect(reqInit?.headers).toBeUndefined();
+      // The probe is time-bounded by an AbortSignal (Node fetch has no default
+      // timeout): without it, an occupant that accepts TCP but never responds
+      // would hang `arkor dev` forever. Assert the signal is passed so removing
+      // the timeout guard fails here.
+      expect(reqInit?.signal).toBeInstanceOf(AbortSignal);
       // No shutdown handler was registered by this doomed launch.
       expect(process.listeners("exit").length).toBe(exitBefore);
     });
@@ -1283,13 +1288,16 @@ describe("runDev", () => {
       );
     });
 
-    it("agent mode never probes: EADDRINUSE stays a hard error", async () => {
+    it("agent mode never probes: EADDRINUSE stays a hard error and writes no session file", async () => {
       mockServeAddrInUse();
       const fetchSpy = mockProbe({ server: "arkor-studio", cwd: projectDir });
       await expect(
         runDev({ port: 4326, agent: true, cwd: projectDir }),
       ).rejects.toThrow(/Port 4326 is already in use/);
       expect(fetchSpy).not.toHaveBeenCalled();
+      // Bind-first ordering: the session file is written only in the listening
+      // callback, so a doomed busy-port launch leaves no `.arkor/agent`.
+      expect(existsSync(join(projectDir, ".arkor", "agent"))).toBe(false);
     });
 
     it("wraps a non-EADDRINUSE pre-bind error (e.g. EACCES on a privileged port) in a clean ExpectedCliError", async () => {

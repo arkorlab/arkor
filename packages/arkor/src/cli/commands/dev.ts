@@ -291,24 +291,6 @@ async function writeAgentSessionFile(
 }
 
 /**
- * True when the busy `port` is held by a running Arkor Studio that serves
- * THIS project. Used by the normal-mode EADDRINUSE path so a plain
- * `arkor dev` connects to an already-running Studio (typically an
- * `arkor dev --agent` session that owns the port) instead of failing.
- *
- * The probe hits the token-EXEMPT `GET /api/status` over `127.0.0.1` (not
- * `localhost`, matching the server's IPv4 bind and avoiding the `::1`-first
- * resolution the module goes out of its way to dodge). No token is sent: the
- * endpoint is secrets-free, so we never disclose the CSRF token to an
- * unverified port occupant. Adoption requires both the `server:
- * "arkor-studio"` discriminator AND that the instance's `cwd` (realpath)
- * equals this launch's project root, so a plain `arkor dev` in project B
- * never silently attaches to project A's Studio on the same default port.
- * Best-effort: any failure (timeout, non-Studio occupant, different project,
- * unreadable cwd) reports false and the caller falls back to the existing
- * port-in-use error.
- */
-/**
  * Read a fetch `Response` body as UTF-8 text, giving up past `maxBytes`. The
  * per-request AbortSignal bounds TIME; this bounds BYTES, so an untrusted
  * loopback occupant streaming a huge 200 body cannot balloon the probing
@@ -340,6 +322,24 @@ async function readCapped(
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/**
+ * True when the busy `port` is held by a running Arkor Studio that serves
+ * THIS project. Used by the normal-mode EADDRINUSE path so a plain
+ * `arkor dev` connects to an already-running Studio (typically an
+ * `arkor dev --agent` session that owns the port) instead of failing.
+ *
+ * The probe hits the token-EXEMPT `GET /api/status` over `127.0.0.1` (not
+ * `localhost`, matching the server's IPv4 bind and avoiding the `::1`-first
+ * resolution the module goes out of its way to dodge). No token is sent: the
+ * endpoint is secrets-free, so we never disclose the CSRF token to an
+ * unverified port occupant. Adoption requires both the `server:
+ * "arkor-studio"` discriminator AND that the instance's `cwd` (realpath)
+ * equals this launch's project root, so a plain `arkor dev` in project B
+ * never silently attaches to project A's Studio on the same default port.
+ * Best-effort: any failure (timeout, non-Studio occupant, different project,
+ * unreadable cwd) reports false and the caller falls back to the existing
+ * port-in-use error.
+ */
 async function probeExistingStudio(
   port: number,
   projectRoot: string,

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { expect, test } from "../harness/fixture";
 import { spawnDevToExit } from "../harness/studioServer";
@@ -30,7 +30,9 @@ test.describe("Agent mode contract", () => {
     const sessionFile = agentStudio.sessionFile;
     expect(sessionFile).toBeDefined();
     const agentDir = join(fixturePaths.projectDir, ".arkor", "agent");
-    expect(sessionFile!.startsWith(agentDir)).toBe(true);
+    // Exact parent-dir match (not a loose prefix, which would also accept a
+    // sibling like `.arkor/agentX`).
+    expect(dirname(sessionFile!)).toBe(agentDir);
     const payload = readSession(sessionFile!);
     // The session file carries the agent-facing 127.0.0.1 URL (the literal the
     // server bound), which is exactly what the harness connects to.
