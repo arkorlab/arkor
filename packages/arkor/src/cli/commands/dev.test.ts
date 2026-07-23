@@ -1197,12 +1197,17 @@ describe("runDev", () => {
     });
 
     it("falls back when the occupant reports a RELATIVE cwd (no `.`-bypass of the project match)", async () => {
-      // A hostile occupant returning `cwd: "."` must NOT be adopted: without
-      // the absolute-path guard, realpathSync(".") resolves to the prober's
-      // own projectRoot and would spuriously match.
+      // A hostile occupant returning `cwd: "."` must NOT be adopted. This test
+      // is load-bearing only when it reproduces the production invariant
+      // `projectRoot === process.cwd()` (since `realpathSync(".")` resolves
+      // against the prober's process.cwd()): passing a /tmp `projectDir` here
+      // would make the guard untestable (realpathSync(".") != that /tmp path
+      // regardless of the guard). So pin projectRoot to process.cwd(): without
+      // the `isAbsolute` guard, `realpathSync(".") === realpathSync(cwd)` would
+      // wrongly adopt; with it, the launch rejects.
       mockServeAddrInUse();
       mockProbe({ server: "arkor-studio", cwd: "." });
-      await expect(runDev({ port: 4327, cwd: projectDir })).rejects.toThrow(
+      await expect(runDev({ port: 4327, cwd: process.cwd() })).rejects.toThrow(
         /Port 4327 is already in use/,
       );
     });
