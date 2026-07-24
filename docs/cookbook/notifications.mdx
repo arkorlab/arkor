@@ -5,7 +5,7 @@ description: "Post to a webhook when a training run finishes or fails, from insi
 
 # Slack / Discord notifications
 
-Training runs take long enough that nobody actually watches Studio the whole time. The terminal `onCompleted` and `onFailed` callbacks are perfect places to fan a status message out to wherever your team already lives.
+The terminal `onCompleted` and `onFailed` callbacks can fan a status message out to Slack, Discord, or any other webhook.
 
 This recipe uses Slack incoming webhooks; Discord, Microsoft Teams, and arbitrary HTTP endpoints work the same way. Anything you can `fetch`, you can notify.
 

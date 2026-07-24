@@ -5,7 +5,7 @@ description: "学習が完了 or 失敗したときに、trainer.ts の中から
 
 # Slack / Discord 通知
 
-学習は長いので、ずっと Studio を見続ける人はいません。終端の `onCompleted` と `onFailed` コールバックは、チームが普段いる場所にステータスメッセージを流すのにうってつけです。
+終端の `onCompleted` と `onFailed` コールバックから、Slack や Discord などの Webhook にステータスメッセージを送れます。
 
 このレシピは Slack incoming Webhook を使います。Discord、Microsoft Teams、任意の HTTP エンドポイントも同じやり方で動きます。`fetch` できるものなら何でも通知先になります。
 

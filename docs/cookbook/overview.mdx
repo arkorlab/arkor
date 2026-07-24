@@ -3,9 +3,7 @@ title: "Recipes"
 description: "Recipes that show what TypeScript unlocks for an Arkor training run today."
 ---
 
-Arkor is alpha. The framework's surface is intentionally small: one trainer, one manifest slot, a handful of lifecycle callbacks. What makes that small surface worthwhile is that **all of it is your TypeScript code**. Anything you can express in TS, you can wire into a training run, with the same editor, types, and review flow as the rest of your product.
-
-This section collects the patterns that show up first when you try. Each recipe stays inside today's public SDK: no roadmap APIs, no internal imports, nothing that requires forking the runtime.
+This section collects the patterns that show up first when you put logic inside an Arkor training run. Each recipe stays inside today's public SDK: no roadmap APIs, no internal imports, nothing that requires forking the runtime.
 
 ## Recipes
 
@@ -31,6 +29,6 @@ This is a pattern, not a limit on what you can do. Once you have it, the recipes
 
 ## Things this section does not cover
 
-- **Production deploys.** Arkor today only runs on managed GPUs, and `createArkor`'s `deploy` slot is a reserved type field with no implementation. Serving recipes will land when that surface lands.
+- **Production-serving recipes.** Publishing a trained adapter at a stable `*.arkor.app` endpoint already works — see [Deployments](/sdk/deployments); this section simply has no serving recipes yet (`createArkor`'s `deploy` manifest slot is still a reserved type field with no implementation).
 - **Multiple trainers per project.** `createArkor` accepts a single `trainer`; running several together is a programmatic-run pattern (see the recipe), not a manifest pattern.
 - **Custom base models beyond what the backend accepts.** The `model` field is forwarded to the cloud API verbatim; today the curated path is Gemma. Recipes do not pretend other models work end to end.
