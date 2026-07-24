@@ -22,7 +22,7 @@ When you start `arkor dev`, the CLI:
 
 1. Boots a Hono server on `127.0.0.1:4000` (use `-p` to change the port).
 2. Serves a Vite + React SPA from the same origin so the UI talks to the CLI through `/api/*` on loopback.
-3. Issues a per-launch CSRF token (saved to `~/.arkor/studio-token` with mode `0600`) and requires every request to present it.
+3. Issues a per-launch CSRF token (saved to `~/.arkor/studio-token` with mode `0600`) and requires it on every `/api/*` request, except the secrets-free `GET /api/status` probe (which is token-exempt so the port-collision check can confirm an occupant without transmitting the token).
 
 The server only binds to loopback and rejects requests with a non-loopback `Host` header. There is no public URL, no inbound connection, and the token rotates every time you start `arkor dev`. You can run Studio safely on a shared dev machine without worrying about exposing your training data.
 
@@ -32,7 +32,7 @@ Studio is just a viewer for what your CLI is doing. The CLI talks to the managed
 
 ```
 Studio (browser tab)
-   │  /api/* on loopback, CSRF-token gated
+   │  /api/* on loopback, CSRF-token gated (except GET /api/status)
    ▼
 arkor CLI (your machine)
    │  authenticated HTTPS

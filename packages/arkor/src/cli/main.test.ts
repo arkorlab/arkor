@@ -12,16 +12,31 @@ vi.mock("./commands/build", () => ({ runBuild: vi.fn() }));
 vi.mock("./commands/start", () => ({ runStart: vi.fn() }));
 vi.mock("./commands/dev", () => ({ runDev: vi.fn() }));
 
-// Telemetry: the wrapper just delegates to the inner handler in tests
-// so we don't have to thread PostHog state through every assertion.
+// Telemetry: the wrapper delegates to the inner handler, but it also
+// captures the `options` (esp. the `longRunning` flag/predicate) and
+// evaluates it AFTER the handler resolves, exactly as the real
+// withTelemetry does. This lets tests assert main.ts's per-command
+// telemetry wiring (e.g. `dev`'s `{ longRunning: () => !adopted }` and its
+// `adopted = result.adopted` capture) instead of silently dropping it.
+const capturedTelemetry = vi.hoisted(() => ({
+  longRunningAfter: undefined as boolean | undefined,
+}));
 vi.mock("../core/telemetry", () => ({
   withTelemetry:
     <TArgs extends unknown[]>(
       _name: string,
       handler: (...args: TArgs) => Promise<void>,
+      options?: { longRunning?: boolean | (() => boolean) },
     ) =>
-    async (...args: TArgs) =>
-      handler(...args),
+    async (...args: TArgs) => {
+      capturedTelemetry.longRunningAfter = undefined;
+      const result = await handler(...args);
+      capturedTelemetry.longRunningAfter =
+        typeof options?.longRunning === "function"
+          ? options.longRunning()
+          : options?.longRunning;
+      return result;
+    },
   shutdownTelemetry: vi.fn(async () => undefined),
 }));
 
@@ -63,6 +78,8 @@ beforeEach(() => {
   vi.mocked(runBuild).mockReset();
   vi.mocked(runStart).mockReset();
   vi.mocked(runDev).mockReset();
+  // runDev resolves to a RunDevResult; default to the serving outcome.
+  vi.mocked(runDev).mockResolvedValue({ adopted: false });
   vi.mocked(shutdownTelemetry).mockReset();
   vi.mocked(shutdownTelemetry).mockResolvedValue(undefined);
   mockDeprecation.value = null;
@@ -196,14 +213,129 @@ describe("main (CLI Commander wiring)", () => {
   });
 
   it("dispatches `dev` with the parsed port + --open flag", async () => {
+    // The worker may inherit CLAUDECODE=1 (vitest spawned from a Claude
+    // Code session), which would trip the new dev gate; this test is about
+    // plain flag dispatch, so pin the non-agent environment. afterEach
+    // restores the original value.
+    delete process.env.CLAUDECODE;
     await main(["dev", "--port", "4500", "--open"]);
-    expect(runDev).toHaveBeenCalledWith({ port: 4500, open: true });
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4500,
+      open: true,
+      agent: false,
+    });
   });
 
-  it("falls back to port 4000 when --port is non-numeric", async () => {
-    // Branch coverage for the `Number(opts.port) || 4000` defaulting.
-    await main(["dev", "--port", "not-a-number"]);
-    expect(runDev).toHaveBeenCalledWith({ port: 4000, open: false });
+  it("rejects a non-numeric --port instead of silently starting the server", async () => {
+    // `parseDevPort` validates the value before `runDev`, so a typo surfaces
+    // as a clear error rather than coercing to 4000 or reaching the listener.
+    delete process.env.CLAUDECODE;
+    await expect(main(["dev", "--port", "not-a-number"])).rejects.toThrow(
+      /port/i,
+    );
+    expect(runDev).not.toHaveBeenCalled();
+  });
+
+  it("rejects out-of-range --port boundaries (0, negative, > 65535)", async () => {
+    // Pin the deliberate behavior change: `--port 0` no longer coerces to
+    // 4000, and the 1..65535 bounds are enforced.
+    delete process.env.CLAUDECODE;
+    for (const bad of ["0", "-1", "65536", "70000"]) {
+      vi.mocked(runDev).mockClear();
+      await expect(main(["dev", "--port", bad])).rejects.toThrow(/port/i);
+      expect(runDev).not.toHaveBeenCalled();
+    }
+  });
+
+  it("rejects non-decimal-integer --port forms (hex, exponent, decimal, padded)", async () => {
+    // The validator requires a plain decimal-integer string, so Number()'s
+    // coercions (0x1F4 -> 500, 4e3 -> 4000, 500.0 -> 500, " 80 " -> 80) do NOT
+    // silently bind a surprising port; each is rejected to match the docs.
+    delete process.env.CLAUDECODE;
+    for (const bad of ["0x1F4", "4e3", "500.0", " 80 ", "80\n", "080", "00"]) {
+      vi.mocked(runDev).mockClear();
+      await expect(main(["dev", "--port", bad])).rejects.toThrow(/port/i);
+      expect(runDev).not.toHaveBeenCalled();
+    }
+  });
+
+  it("accepts the in-range --port boundaries (1 and 65535)", async () => {
+    delete process.env.CLAUDECODE;
+    for (const ok of [1, 65_535]) {
+      vi.mocked(runDev).mockClear();
+      await main(["dev", "--port", String(ok)]);
+      expect(runDev).toHaveBeenCalledWith({
+        port: ok,
+        open: false,
+        agent: false,
+      });
+    }
+  });
+
+  it("under CLAUDECODE=1, `dev` without --agent throws ClaudeCodeStrictExit and never starts the server", async () => {
+    process.env.CLAUDECODE = "1";
+    const stderrChunks: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(((
+      c: unknown,
+    ) => {
+      stderrChunks.push(String(c));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      await expect(main(["dev"])).rejects.toMatchObject({
+        name: "ClaudeCodeStrictExit",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    // Same sentinel contract as the init gate: the finally block still runs.
+    expect(shutdownTelemetry).toHaveBeenCalledOnce();
+    const buf = stderrChunks.join("");
+    expect(buf).toContain("arkor dev: CLAUDECODE=1 detected");
+    expect(buf).toContain("--agent");
+    expect(buf).toContain("X-Arkor-Studio-Token");
+    expect(runDev).not.toHaveBeenCalled();
+  });
+
+  it("under CLAUDECODE=1, `dev --agent` passes the gate and delegates with agent: true", async () => {
+    process.env.CLAUDECODE = "1";
+    await main(["dev", "--agent"]);
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4000,
+      open: false,
+      agent: true,
+    });
+  });
+
+  it("without CLAUDECODE, `dev --agent` still opts into agent mode (other coding agents)", async () => {
+    delete process.env.CLAUDECODE;
+    await main(["dev", "--agent", "--port", "4501"]);
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4501,
+      open: false,
+      agent: true,
+    });
+  });
+
+  it("classifies a SERVING `dev` as long-running (suppresses cli_command_completed)", async () => {
+    // runDev resolving { adopted: false } => the process keeps serving =>
+    // longRunning must be true so the near-zero-duration completed event is
+    // skipped. This pins the `() => !adopted` predicate DIRECTION; the sibling
+    // CONNECT test (adopted: true) is what pins the `adopted = result.adopted`
+    // capture, since `adopted` defaults to false here either way.
+    delete process.env.CLAUDECODE;
+    vi.mocked(runDev).mockResolvedValueOnce({ adopted: false });
+    await main(["dev"]);
+    expect(capturedTelemetry.longRunningAfter).toBe(true);
+  });
+
+  it("classifies a CONNECT-and-exit `dev` as NOT long-running (emits cli_command_completed)", async () => {
+    // runDev resolving { adopted: true } => connected to a running Studio and
+    // exits => a genuine short-lived completion, so longRunning must be false.
+    delete process.env.CLAUDECODE;
+    vi.mocked(runDev).mockResolvedValueOnce({ adopted: true });
+    await main(["dev"]);
+    expect(capturedTelemetry.longRunningAfter).toBe(false);
   });
 
   it("flushes a recorded deprecation warning after parse and awaits shutdownTelemetry", async () => {

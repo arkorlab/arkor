@@ -11,6 +11,8 @@ export interface StartStudioOptions {
   projectDir: string;
   /** Fake cloud-api base URL (`http://127.0.0.1:<port>`). */
   cloudApiUrl: string;
+  /** Spawn with `--agent` (agent mode: session file under `.arkor/agent/`). */
+  agent?: boolean;
 }
 
 export interface StudioHandle {
@@ -18,11 +20,30 @@ export interface StudioHandle {
   url: string;
   /** Per-launch CSRF token, parsed out of the served `index.html`. */
   token: string;
+  /**
+   * Absolute path of the agent session file, parsed from the stdout
+   * contract line (`Arkor Studio agent session file: <path>`). Only set
+   * when the studio was started with `agent: true`.
+   */
+  sessionFile?: string;
   /** Send SIGINT and await child exit. Idempotent. */
   kill: () => Promise<void>;
 }
 
 const READY_LINE_PATTERN = /Arkor Studio running on/;
+// Agent mode's stable stdout contract (documented in docs/cli/dev.mdx). In
+// agent mode readiness waits for THIS line instead: it is written by the
+// same async block right after the ready line, so matching it both proves
+// the server is up and hands us the session-file path without a second
+// wait-and-parse pass racing the child's stdout flush.
+//
+// The trailing `\r?\n` is load-bearing: it forces the match to see the FULL
+// line before settling. `(.+)$` under `/m` also anchors at end-of-buffer, so
+// a stdout chunk that split mid-path would otherwise match and hand back a
+// truncated `sessionFile`. Requiring the newline makes readiness wait for the
+// complete line regardless of pipe chunking.
+const AGENT_SESSION_LINE_PATTERN =
+  /^Arkor Studio agent session file: (.+)\r?\n/m;
 const READY_TIMEOUT_MS = 30_000;
 const PORT_POLL_INTERVAL_MS = 50;
 const PORT_POLL_TIMEOUT_MS = 10_000;
@@ -187,43 +208,118 @@ interface SpawnedStudio {
   kill: () => Promise<void>;
   stderr: TailBuffer;
   stdout: TailBuffer;
+  /** Agent-mode session file path (see `StudioHandle.sessionFile`). */
+  sessionFile?: string;
 }
 
-async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
-  const port = await getEphemeralPort();
-  // `runCli` in e2e/cli also strips parent's `npm_config_*` to keep the
-  // child's pm detection deterministic; for `arkor dev` it doesn't
-  // matter (it never installs anything), but mirroring the policy
-  // avoids a class of surprises if the CLI later starts reading those.
+/**
+ * Build the child env for a spawned `arkor dev`, shared by `spawnStudio`
+ * (long-running) and `spawnDevToExit` (run-to-exit). Strips the parent's
+ * `npm_config_*`/`pnpm_config_*` (keep the child's pm detection hermetic) and
+ * `CLAUDECODE` (case-insensitively: `arkor dev` refuses to start under
+ * `CLAUDECODE=1` without `--agent`, so an inherited value from a Claude Code
+ * session must not leak into the child and flip the gate; same policy as
+ * `e2e/cli/src/spawn-cli.ts`), then layers the hermetic-E2E overrides.
+ */
+function studioChildEnv(opts: StartStudioOptions): NodeJS.ProcessEnv {
   const cleanEnv: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) {
     const lower = k.toLowerCase();
-    if (lower.startsWith("npm_config_") || lower.startsWith("pnpm_config_")) {
+    if (
+      lower.startsWith("npm_config_") ||
+      lower.startsWith("pnpm_config_") ||
+      lower === "claudecode"
+    ) {
       continue;
     }
     cleanEnv[k] = v;
   }
+  return {
+    ...cleanEnv,
+    CI: "1",
+    HOME: opts.home,
+    // Mirror HOME onto USERPROFILE so the spawned CLI's `os.homedir()`
+    // resolves to the test temp dir on Windows too (see the matching
+    // comment in e2e/cli/src/spawn-cli.ts).
+    USERPROFILE: opts.home,
+    ARKOR_CLOUD_API_URL: opts.cloudApiUrl,
+    // Defence in depth: if anything anonymous-bootstrapped slips through
+    // credential pre-seeding, telemetry posts must not hit the real PostHog
+    // endpoint from CI.
+    ARKOR_TELEMETRY_DISABLED: "1",
+    npm_config_user_agent: "",
+  };
+}
+
+/**
+ * Spawn `arkor dev` with the shared hermetic env and the given extra args,
+ * and resolve once the child exits. For run-to-exit flows (e.g. a plain
+ * `arkor dev` on a busy port that connects to a running Studio and exits 0),
+ * which `startStudio` cannot model because it waits for a ready line and
+ * returns a live handle.
+ */
+export function spawnDevToExit(
+  opts: StartStudioOptions,
+  extraArgs: string[] = [],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [ARKOR_BIN, "dev", ...extraArgs], {
+      cwd: opts.projectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: studioChildEnv(opts),
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => {
+      stdout += d;
+    });
+    child.stderr.on("data", (d: string) => {
+      stderr += d;
+    });
+    // Safety net: this helper is for run-to-exit launches (a busy `--port`,
+    // so the child adopts-and-exits or errors within the 1.5s probe budget).
+    // If a caller ever spawns a launch that BINDS a free port, it would serve
+    // forever and this promise would never settle; kill it and reject rather
+    // than hang the test to Playwright's global timeout and orphan the server.
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(
+        new Error(
+          `spawnDevToExit: child did not exit within ${String(
+            READY_TIMEOUT_MS,
+          )}ms (did it bind a free port instead of a busy one?).\n--- last output ---\n${stderr}${stdout}`,
+        ),
+      );
+    }, READY_TIMEOUT_MS);
+    timer.unref();
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
+async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
+  const port = await getEphemeralPort();
   const child = spawn(
     process.execPath,
-    [ARKOR_BIN, "dev", "--port", String(port)],
+    [
+      ARKOR_BIN,
+      "dev",
+      "--port",
+      String(port),
+      ...(opts.agent ? ["--agent"] : []),
+    ],
     {
       cwd: opts.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...cleanEnv,
-        CI: "1",
-        HOME: opts.home,
-        // Mirror HOME onto USERPROFILE so the spawned CLI's `os.homedir()`
-        // resolves to the test temp dir on Windows too (see the matching
-        // comment in e2e/cli/src/spawn-cli.ts).
-        USERPROFILE: opts.home,
-        ARKOR_CLOUD_API_URL: opts.cloudApiUrl,
-        // Defence in depth: if anything anonymous-bootstrapped slips
-        // through credential pre-seeding, telemetry posts must not hit
-        // the real PostHog endpoint from CI.
-        ARKOR_TELEMETRY_DISABLED: "1",
-        npm_config_user_agent: "",
-      },
+      env: studioChildEnv(opts),
     },
   );
 
@@ -276,17 +372,19 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
   // both via `tail()` is O(cap), not O(total bytes), so this stays
   // cheap regardless of how chatty the child has been.
   const errorTail = (): string => `${stderr.tail(1000)}${stdout.tail(1000)}`;
+  // Agent mode waits for the session-file line (which follows the ready
+  // line from the same writer) so the path is guaranteed to be in the
+  // buffer once we settle; plain mode keeps the classic ready line.
+  const readyPattern = opts.agent
+    ? AGENT_SESSION_LINE_PATTERN
+    : READY_LINE_PATTERN;
   try {
     await new Promise<void>((resolve, reject) => {
       const onData = (chunk: string) => {
         // Test the chunk first (handles the line landing in one read)
         // and fall back to the rolling buffer (handles the rare split
         // where "Arkor Studio" and "running on" arrive in two chunks).
-        // Use the shared regex constant so the substring doesn't drift;
-        // `prefer-includes` would push us back to a hardcoded literal.
-        // oxfmt-ignore
-        // eslint-disable-next-line @typescript-eslint/prefer-includes
-        if (READY_LINE_PATTERN.test(chunk) || READY_LINE_PATTERN.test(stdout.toString())) {
+        if (readyPattern.test(chunk) || readyPattern.test(stdout.toString())) {
           settle(resolve);
         }
       };
@@ -319,7 +417,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
         settle(() =>
           reject(
             new Error(
-              `Timed out waiting for "${READY_LINE_PATTERN.source}" on stdout from arkor dev.\n--- last output ---\n${errorTail()}`,
+              `Timed out waiting for "${readyPattern.source}" on stdout from arkor dev.\n--- last output ---\n${errorTail()}`,
             ),
           ),
         );
@@ -346,9 +444,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
       // `onData` would never fire and we'd hang until
       // `READY_TIMEOUT_MS`. Probe the rolling buffer once after
       // attaching listeners to catch that pre-buffered line.
-      // Same shared-constant rationale as the `onData` callback above.
-      // eslint-disable-next-line @typescript-eslint/prefer-includes
-      if (READY_LINE_PATTERN.test(stdout.toString())) {
+      if (readyPattern.test(stdout.toString())) {
         settle(resolve);
       }
     });
@@ -357,7 +453,20 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
     throw err;
   }
 
-  return { child, url, kill, stderr, stdout };
+  // In agent mode the wait above settled on the session-file line, so the
+  // rolling buffer is guaranteed to still contain it (the cap is far above
+  // the three-line startup output).
+  const sessionFile = opts.agent
+    ? AGENT_SESSION_LINE_PATTERN.exec(stdout.toString())?.[1]
+    : undefined;
+  if (opts.agent && sessionFile === undefined) {
+    await kill();
+    throw new Error(
+      `Agent mode was requested but no session-file line was found on stdout.\n--- last output ---\n${errorTail()}`,
+    );
+  }
+
+  return { child, url, kill, stderr, stdout, sessionFile };
 }
 
 /**
@@ -391,7 +500,7 @@ async function readMetaToken(url: string): Promise<string> {
 export async function startStudio(
   opts: StartStudioOptions,
 ): Promise<StudioHandle> {
-  const { url, kill } = await spawnStudio(opts);
+  const { url, kill, sessionFile } = await spawnStudio(opts);
   let token: string;
   try {
     // `arkor dev` writes the ready line before `http.Server.listen()`
@@ -408,5 +517,5 @@ export async function startStudio(
     throw err;
   }
 
-  return { url, token, kill };
+  return { url, token, sessionFile, kill };
 }

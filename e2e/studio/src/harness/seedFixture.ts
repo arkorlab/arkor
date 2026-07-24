@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,11 +16,24 @@ export interface FixturePaths {
 }
 
 export function makeTempDir(prefix: string): string {
-  return mkdtempSync(join(tmpdir(), prefix));
+  // realpathSync canonicalizes the tmp path so it matches what a spawned
+  // child's `process.cwd()` (getcwd) reports. Without this, macOS
+  // (`/var` -> `/private/var`) and the Windows 8.3 short-name form make the
+  // parent's `mkdtemp` path and the child-derived session path diverge, so
+  // any `startsWith`/equality check across the process boundary fails.
+  return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 }
 
 export function cleanup(dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
+  // Best-effort: a spawned `arkor dev` (esp. the agentStudio fixture's second
+  // child, force-killed on Windows) can briefly hold a handle inside `dir`, so
+  // rmSync may throw EPERM/EBUSY on Windows. Swallow it: teardown must not
+  // fail the test. Mirrors e2e/cli's cleanup.
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // best-effort teardown
+  }
 }
 
 /**

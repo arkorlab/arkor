@@ -54,11 +54,12 @@ export interface StudioServerOptions {
   autoAnonymous?: boolean;
   /**
    * Per-launch CSRF token. Every `/api/*` request must include it via header
-   * `X-Arkor-Studio-Token`; the job-event stream also accepts `?studioToken=`
-   * because `EventSource` cannot carry custom headers. The token is injected
-   * into the served `index.html` as a `<meta>` tag so the same-origin SPA can
-   * read it; cross-origin tabs cannot, so even a "simple" CORS POST without
-   * preflight is rejected.
+   * `X-Arkor-Studio-Token`, EXCEPT the token-exempt `GET /api/status` probe;
+   * the job-event stream also accepts `?studioToken=` because `EventSource`
+   * cannot carry custom headers. The token is injected into the served
+   * `index.html` as a `<meta>` tag so the same-origin SPA can read it;
+   * cross-origin tabs cannot, so even a "simple" CORS POST without preflight
+   * is rejected.
    */
   studioToken: string;
   /**
@@ -73,6 +74,21 @@ export interface StudioServerOptions {
    * here points at the bin itself). Override in tests.
    */
   binPath?: string;
+  /**
+   * How this server was launched: `"agent"` for `arkor dev --agent`,
+   * `"studio"` otherwise. Echoed by `GET /api/status` so a coding agent can
+   * confirm it is talking to its own session. Defaults to `"studio"`.
+   */
+  mode?: "agent" | "studio";
+  /**
+   * Agent-facing URL of the bound listener, as the `http://127.0.0.1:<port>`
+   * LITERAL, not the `localhost` form the CLI prints for humans: `GET
+   * /api/status` echoes this value for programmatic clients that may not do
+   * Happy-Eyeballs, so it must be the IPv4 address the server actually bound
+   * (see the url/agentUrl split in cli/commands/dev.ts). `null` in the echo
+   * when omitted (e.g. app-only tests).
+   */
+  url?: string;
 }
 
 function tokensMatch(provided: string, expected: string): boolean {
@@ -177,7 +193,19 @@ export function buildStudioApp(options: StudioServerOptions) {
   //   2. `?studioToken=` is accepted only on the job-event stream route
   //      because `EventSource` cannot send custom headers. Mutation routes
   //      require the header so a leaked token in a URL is not enough to POST.
+  //   3. `GET /api/status` is the ONE token-exempt route (still behind the
+  //      loopback + Host guard above). It is secrets-free and never executes
+  //      user code, so it can be read without the token. This lets the
+  //      `arkor dev` port-collision probe confirm an occupant is Arkor Studio
+  //      (and which project it serves) WITHOUT transmitting the CSRF token to
+  //      an unverified port occupant, which would otherwise disclose the
+  //      RCE-guarding token to a same-machine squatter. A cross-origin tab can
+  //      issue the GET but cannot read the response (no CORS), so no metadata
+  //      leaks across origins; the Host guard still blocks DNS rebinding.
   app.use("/api/*", async (c, next) => {
+    if (c.req.method === "GET" && c.req.path === "/api/status") {
+      return next();
+    }
     const queryTokenAllowed =
       c.req.method === "GET" && jobEventsPathPattern.test(c.req.path);
     const provided =
@@ -241,6 +269,48 @@ export function buildStudioApp(options: StudioServerOptions) {
   }
 
   // ---- API routes ---------------------------------------------------------
+
+  // Safe status probe for coding agents and for the `arkor dev` port-collision
+  // check. Deliberately synchronous data only: no credentials read, no cloud
+  // round-trip, and above all no user-code execution (`readManifestSummary`
+  // rebuilds and imports the project entry point; that must never hang off a
+  // status poll). This route is token-EXEMPT (see the `/api/*` middleware
+  // above), so the body MUST stay secrets-free: it is served to any loopback
+  // client without the CSRF token. Add nothing here you would not `curl`
+  // publicly on the box; `cwd`/`pid`/`version`/`mode`/`url`/endpoint-list are
+  // deliberately low-sensitivity (the probe needs `cwd` for its same-project
+  // check). `server: "arkor-studio"` is the discriminator the port-collision
+  // probe keys on to distinguish a Studio instance from an unrelated occupant
+  // that happens to 200 on this path.
+  app.get("/api/status", (c) =>
+    c.json({
+      status: "ok",
+      server: "arkor-studio",
+      version: SDK_VERSION,
+      mode: options.mode ?? "studio",
+      url: options.url ?? null,
+      pid: process.pid,
+      cwd: trainCwd,
+      endpoints: [
+        "GET /api/status",
+        "GET /api/credentials",
+        "GET /api/me",
+        "GET /api/manifest",
+        "GET /api/jobs",
+        "GET /api/jobs/:id/events",
+        "POST /api/train",
+        "POST /api/inference/chat",
+        "GET /api/deployments",
+        "POST /api/deployments",
+        "GET /api/deployments/:id",
+        "PATCH /api/deployments/:id",
+        "DELETE /api/deployments/:id",
+        "GET /api/deployments/:id/keys",
+        "POST /api/deployments/:id/keys",
+        "DELETE /api/deployments/:id/keys/:keyId",
+      ],
+    }),
+  );
 
   app.get("/api/credentials", async (c) => {
     const {

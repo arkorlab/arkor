@@ -1,5 +1,7 @@
 import {
   ClaudeCodeStrictExit,
+  ExpectedCliError,
+  formatClaudeCodeAgentModeMessage,
   formatClaudeCodeMissingMessage,
   isClaudeCode,
   missingClaudeCodeFlags,
@@ -21,6 +23,33 @@ import { runLogout } from "./commands/logout";
 import { runStart } from "./commands/start";
 import { runWhoami } from "./commands/whoami";
 import { ui } from "./prompts";
+
+/**
+ * Parse and validate `arkor dev --port`. The previous `Number(opts.port) ||
+ * 4000` silently coerced a typo (`--port abc` -> NaN -> 4000) and a legitimate
+ * ephemeral request (`--port 0` -> 4000), and let an out-of-range value reach
+ * `net.Server.listen`, which throws `ERR_SOCKET_BAD_PORT` synchronously before
+ * the friendly EADDRINUSE handler is even registered (surfacing a raw minified
+ * stack). Validate here so a bad value is a clear, actionable message. Port 0
+ * (OS-assigned) is rejected on purpose: `arkor dev` prints and probes a fixed
+ * `http://localhost:<port>` URL, so an ephemeral port has no supported flow.
+ */
+function parseDevPort(raw: string): number {
+  // Require a canonical decimal-integer string (no leading zero). `Number()`
+  // alone would accept hex (`0x1F4`), scientific notation (`4e3`), decimals
+  // (`500.0`), whitespace-padded, and zero-padded (`080`) values, binding a
+  // surprising port while the error copy (and the docs) promise "an integer".
+  // `/^[1-9]\d*$/` keeps the contract honest.
+  const n = Number(raw);
+  if (!/^[1-9]\d*$/.test(raw) || !Number.isInteger(n) || n < 1 || n > 65_535) {
+    throw new ExpectedCliError(
+      `--port must be a plain decimal integer between 1 and 65535 (got ${JSON.stringify(
+        raw,
+      )}).`,
+    );
+  }
+  return n;
+}
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();
@@ -241,18 +270,40 @@ export async function main(argv: string[]): Promise<void> {
     .description("Launch Arkor Studio locally")
     .option("-p, --port <port>", "Port to bind (default: 4000)", "4000")
     .option("--open", "Open the Studio URL in a browser after starting")
-    .action(
-      withTelemetry(
+    .option(
+      "--agent",
+      "Run headlessly for coding agents: write a JSON session token file to .arkor/agent/ and print its path",
+    )
+    .action((opts: { port: string; open?: boolean; agent?: boolean }) => {
+      // `dev` is long-running when it serves, but a short-lived completion
+      // when it connects to an already-running Studio and exits. Track the
+      // outcome so telemetry emits `cli_command_completed` for the connect
+      // case (the `longRunning` predicate is evaluated after the handler
+      // resolves). Wrapped per-invocation so the closure flag is fresh.
+      let adopted = false;
+      return withTelemetry(
         "dev",
-        async (opts: { port: string; open?: boolean }) => {
-          await runDev({
-            port: Number(opts.port) || 4000,
+        async () => {
+          // Under CLAUDECODE=1 a Studio launch without --agent is almost
+          // always a mistake: the agent cannot drive a browser UI and the
+          // long-running server would hang its shell. Require the explicit
+          // --agent opt-in (same sentinel pattern as the `init` gate above).
+          // The flag itself does NOT require the env var: other coding
+          // agents opt in with a plain `arkor dev --agent`.
+          if (isClaudeCode() && opts.agent !== true) {
+            process.stderr.write(formatClaudeCodeAgentModeMessage("arkor dev"));
+            throw new ClaudeCodeStrictExit();
+          }
+          const result = await runDev({
+            port: parseDevPort(opts.port),
             open: opts.open === true,
+            agent: opts.agent === true,
           });
+          adopted = result.adopted;
         },
-        { longRunning: true },
-      ),
-    );
+        { longRunning: () => !adopted },
+      )();
+    });
 
   try {
     await program.parseAsync(argv, { from: "user" });

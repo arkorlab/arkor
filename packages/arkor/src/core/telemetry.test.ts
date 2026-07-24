@@ -45,7 +45,7 @@ interface TelemetryModule {
   withTelemetry: <TArgs extends unknown[]>(
     command: string,
     handler: (...args: TArgs) => Promise<void>,
-    options?: { longRunning?: boolean },
+    options?: { longRunning?: boolean | (() => boolean) },
   ) => (...args: TArgs) => Promise<void>;
   shutdownTelemetry: () => Promise<void>;
 }
@@ -400,6 +400,58 @@ describe("withTelemetry", () => {
     await wrapped();
     expect(captureMock).toHaveBeenCalledTimes(1);
     expect(captureMock.mock.calls[0][0].event).toBe("cli_command_started");
+  });
+
+  it("evaluates a function-form longRunning AFTER the handler (dev connect-and-exit still reports completed)", async () => {
+    // `arkor dev` is long-running when it serves but a short-lived completion
+    // when it connects to an already-running Studio and exits. The predicate
+    // form lets the handler decide per-outcome: here it resolves to the
+    // adopted/connect outcome, so `cli_command_completed` must fire.
+    const mod = await loadTelemetry({ key: "phc_test" });
+    let adopted = false;
+    const wrapped = mod.withTelemetry(
+      "dev",
+      async () => {
+        adopted = true;
+      },
+      { longRunning: () => !adopted },
+    );
+    await wrapped();
+    const events = captureMock.mock.calls.map((c) => c[0].event);
+    expect(events).toEqual(["cli_command_started", "cli_command_completed"]);
+  });
+
+  it("evaluates a function-form longRunning that stays true (dev serving skips completed)", async () => {
+    const mod = await loadTelemetry({ key: "phc_test" });
+    // Never reassigned: the handler serves (does not "adopt"), so the
+    // predicate stays true and `cli_command_completed` is skipped. Note this
+    // true-case cannot distinguish CALLING the predicate from `Boolean`-
+    // coercing the function object (both are truthy); the false-case sibling
+    // above ("...reports completed") is what proves the predicate is invoked.
+    const adopted = false;
+    const wrapped = mod.withTelemetry("dev", async () => {}, {
+      longRunning: () => !adopted,
+    });
+    await wrapped();
+    expect(captureMock).toHaveBeenCalledTimes(1);
+    expect(captureMock.mock.calls[0][0].event).toBe("cli_command_started");
+  });
+
+  it("treats a THROWING longRunning predicate as not-long-running (a succeeded command stays a success)", async () => {
+    // A faulty predicate must NOT propagate into the failure path: that would
+    // mislabel a genuine success as cli_command_failed and re-throw a non-zero
+    // exit. The guard defaults a throwing predicate to "not long-running", so
+    // the command still resolves AND emits cli_command_completed.
+    const mod = await loadTelemetry({ key: "phc_test" });
+    const wrapped = mod.withTelemetry("dev", async () => {}, {
+      longRunning: () => {
+        throw new Error("predicate boom");
+      },
+    });
+    await expect(wrapped()).resolves.toBeUndefined();
+    const events = captureMock.mock.calls.map((c) => c[0].event);
+    expect(events).toEqual(["cli_command_started", "cli_command_completed"]);
+    expect(events).not.toContain("cli_command_failed");
   });
 
   it("does not double-initialise the PostHog client across multiple wrapped calls", async () => {
