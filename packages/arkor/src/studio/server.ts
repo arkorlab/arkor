@@ -23,6 +23,7 @@ import {
 import {
   OAUTH_MISSING_STATE_MESSAGE,
   ensureProjectState,
+  isStateUsableFor,
 } from "../core/projectState";
 import {
   createDeploymentKeyRequestSchema,
@@ -32,6 +33,8 @@ import { readState } from "../core/state";
 import { SDK_VERSION } from "../core/version";
 
 import { readManifestSummary } from "./manifest";
+
+import type { ArkorProjectState } from "../core/types";
 
 const DEPRECATION_HEADERS = ["Deprecation", "Sunset", "Warning"] as const;
 function copyDeprecationHeaders(from: Headers, to: Headers): void {
@@ -240,6 +243,28 @@ export function buildStudioApp(options: StudioServerOptions) {
     };
   }
 
+  /**
+   * Read project state, ignoring a `.arkor/state.json` left by a *different
+   * anonymous identity* than the session's current credentials. After
+   * `arkor logout` a fresh anonymous session (minted by `arkor dev` OR by a
+   * prior `arkor login --anonymous`) gets a new org; scoping cloud-api calls
+   * to the stale file's org with the new token 403s every route. Ignoring it
+   * here (at every read site) covers both identity-rotation paths without
+   * deleting the file, so a hand-maintained OAuth `state.json` survives.
+   *
+   * Uses `readCredentials()` (a pure disk read, never a mint) rather than
+   * `getCredentials()`, so read-only routes stay credential-agnostic: absent
+   * credentials leave the file as-is (the fresh-workspace empty-list paths and
+   * the offline `autoAnonymous:false` behaviour are unchanged), and OAuth
+   * credentials always keep it.
+   */
+  async function readUsableState(): Promise<ArkorProjectState | null> {
+    const state = await readState(trainCwd);
+    if (!state) return null;
+    const creds = await readCredentials().catch(() => null);
+    return creds && !isStateUsableFor(state, creds) ? null : state;
+  }
+
   // ---- API routes ---------------------------------------------------------
 
   app.get("/api/credentials", async (c) => {
@@ -248,7 +273,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       token,
       baseUrl: credsBaseUrl,
     } = await resolveCredentialsAndBaseUrl();
-    const state = await readState(trainCwd);
+    const state = await readUsableState();
     return c.json({
       token,
       mode: creds.mode,
@@ -290,7 +315,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.get("/api/jobs", async (c) => {
-    const state = await readState(trainCwd);
+    const state = await readUsableState();
     if (!state) return c.json({ jobs: [] });
     const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
@@ -309,7 +334,7 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   app.get("/api/jobs/:id/events", async (c) => {
     const id = c.req.param("id");
-    const state = await readState(trainCwd);
+    const state = await readUsableState();
     if (!state) return c.json({ error: "No project state" }, 400);
     const { token, baseUrl: credsBaseUrl } =
       await resolveCredentialsAndBaseUrl();
@@ -552,18 +577,21 @@ export function buildStudioApp(options: StudioServerOptions) {
   //      a single error-handling shape across cloud-backed routes.
 
   /**
-   * Read project state without requiring credentials. Listing deployments
-   * for a fresh workspace (no `.arkor/state.json`) is a local no-op (same
-   * behaviour as `/api/jobs`), so we must NOT call `getCredentials()`
-   * first: that path can throw on `autoAnonymous: false` setups or when
-   * the anonymous-token bootstrap fails offline, turning the empty-list
-   * read into a 500.
+   * Derive the `(orgSlug, projectSlug)` scope from local state without
+   * requiring credentials. Listing deployments for a fresh workspace (no
+   * `.arkor/state.json`) is a local no-op (same behaviour as `/api/jobs`), so
+   * we must NOT call `getCredentials()` first: that path can throw on
+   * `autoAnonymous: false` setups or when the anonymous-token bootstrap fails
+   * offline, turning the empty-list read into a 500. `readUsableState` reads
+   * credentials only via `readCredentials()` (a non-minting disk read that
+   * returns null when absent), so that guarantee still holds while a stale
+   * anonymous scope is ignored.
    */
   async function readScopeFromState(): Promise<{
     orgSlug: string;
     projectSlug: string;
   } | null> {
-    const state = await readState(trainCwd);
+    const state = await readUsableState();
     return state
       ? { orgSlug: state.orgSlug, projectSlug: state.projectSlug }
       : null;
@@ -600,12 +628,13 @@ export function buildStudioApp(options: StudioServerOptions) {
       scope: { orgSlug: string; projectSlug: string };
     }) => Promise<T>,
   ): Promise<Response> {
-    // Read scope from local FS first. `readScopeFromState` does not touch
-    // credentials or the network, so on a fresh workspace we can answer
-    // read-only routes with a clean 404 *without* tripping `getCredentials()`:
-    // the latter throws when no token is on disk and `autoAnonymous` is
-    // off, which would otherwise turn a documented "no deployments yet"
-    // into an opaque 500.
+    // Read scope from local FS first. `readScopeFromState` never calls the
+    // minting `getCredentials()` or the network (it only reads credentials via
+    // the non-minting `readCredentials()` to drop a stale anonymous scope), so
+    // on a fresh workspace we can answer read-only routes with a clean 404
+    // *without* tripping `getCredentials()`: the latter throws when no token is
+    // on disk and `autoAnonymous` is off, which would otherwise turn a
+    // documented "no deployments yet" into an opaque 500.
     const scope0 = await readScopeFromState().catch(() => null);
     if (!scope0 && (intent === "read" || intent === "mutate")) {
       // Stay neutral about whether deployments exist. For anonymous

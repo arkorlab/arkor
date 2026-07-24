@@ -267,7 +267,9 @@ describe("Studio server", () => {
     await writeCredentials(ANON_CREDS);
     await writeState(
       {
-        orgSlug: "state-org",
+        // Same org as ANON_CREDS: state that belongs to the current identity
+        // is surfaced verbatim (projectSlug proves the file was read).
+        orgSlug: "anon-org",
         projectSlug: "state-project",
         projectId: "p-state",
       },
@@ -283,8 +285,64 @@ describe("Studio server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
-      orgSlug: "state-org",
+      orgSlug: "anon-org",
       projectSlug: "state-project",
+    });
+  });
+
+  it("ignores a stale anonymous state.json scoped to a previous identity's org", async () => {
+    // ENG-979: after `arkor logout` a fresh anonymous session has a new org.
+    // A state.json left by the previous identity would make every scoped
+    // route forward the old org with the new token and 403, so Studio must
+    // ignore it (neither surfacing nor forwarding its org) and fall back to
+    // the current identity's org until a new scope is bootstrapped.
+    await writeCredentials(ANON_CREDS); // orgSlug: "anon-org"
+    await writeState(
+      { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+      trainCwd,
+    );
+    const app = build();
+    const res = await app.request("/api/credentials", {
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ mode: "anon", orgSlug: "anon-org" });
+    // The stale scope is not surfaced; projectSlug falls back to null.
+    expect(body.projectSlug).toBeNull();
+  });
+
+  it("honours OAuth state.json even when its org differs from the credentials", async () => {
+    // OAuth state is hand-maintained and can point at any org the user
+    // belongs to, so the stale-anonymous guard must never ignore it.
+    await writeCredentials({
+      mode: "oauth",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "d",
+      audience: "a",
+      clientId: "c",
+    });
+    await writeState(
+      { orgSlug: "real-org", projectSlug: "real-project", projectId: "p-real" },
+      trainCwd,
+    );
+    const app = build();
+    const res = await app.request("/api/credentials", {
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      orgSlug: "real-org",
+      projectSlug: "real-project",
     });
   });
 
@@ -937,7 +995,9 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       await writeCredentials(ANON_CREDS);
       await writeState(
         {
-          orgSlug: "events-org",
+          // Same org as ANON_CREDS so the state belongs to the current
+          // identity and is not ignored as a stale anonymous scope.
+          orgSlug: "anon-org",
           projectSlug: "events-project",
           projectId: "p-events",
         },
@@ -967,7 +1027,7 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       expect(res.status).toBe(200);
       expect(capturedUrl).not.toBeNull();
       expect(capturedUrl!).toContain("/v1/jobs/job-1/events/stream");
-      expect(capturedUrl!).toContain("orgSlug=events-org");
+      expect(capturedUrl!).toContain("orgSlug=anon-org");
       expect(capturedUrl!).toContain("projectSlug=events-project");
     });
 
@@ -975,7 +1035,9 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       await writeCredentials(ANON_CREDS);
       await writeState(
         {
-          orgSlug: "events-org",
+          // Same org as ANON_CREDS so the state belongs to the current
+          // identity and is not ignored as a stale anonymous scope.
+          orgSlug: "anon-org",
           projectSlug: "events-project",
           projectId: "p-events",
         },

@@ -23,6 +23,28 @@ export const OAUTH_MISSING_STATE_MESSAGE =
   "No .arkor/state.json found. Create it by hand with { orgSlug, projectSlug, projectId } pointing at the project you want to use.";
 
 /**
+ * Whether a persisted `.arkor/state.json` is usable for the active identity.
+ *
+ * Anonymous project state must belong to the current identity's org: a stale
+ * file left by a previous anonymous identity (e.g. after `arkor logout`
+ * followed by a fresh anonymous session, whether the new token was minted by
+ * `arkor dev` or `arkor login --anonymous`) scopes cloud-api calls to an org
+ * this token isn't a member of, so every scoped request 403s. OAuth state is
+ * hand-maintained and can legitimately point at any org the user belongs to,
+ * so it is always usable.
+ *
+ * Studio's read paths and `ensureProjectState` share this predicate so a
+ * mismatched anonymous scope is ignored (and re-bootstrapped on write) rather
+ * than deleted, so hand-maintained OAuth state is never discarded.
+ */
+export function isStateUsableFor(
+  state: ArkorProjectState,
+  credentials: Credentials,
+): boolean {
+  return credentials.mode !== "anon" || state.orgSlug === credentials.orgSlug;
+}
+
+/**
  * Resolve the project scope (`orgSlug` / `projectSlug`) used to address
  * cloud-api endpoints. Returns existing `.arkor/state.json` if present;
  * otherwise (for anonymous credentials only) derives a slug from the cwd
@@ -47,17 +69,9 @@ export async function ensureProjectState(
 ): Promise<ArkorProjectState> {
   const { cwd, client, credentials } = options;
   const existing = await readState(cwd);
-  // Anonymous project state must belong to the current identity's org. A
-  // stale `.arkor/state.json` left by a previous anonymous identity (e.g.
-  // after `arkor logout` followed by a fresh anonymous session) scopes
-  // cloud-api calls to an org this token can't access, so createJob /
-  // createDeployment would 403 against it. Ignore it and re-bootstrap under
-  // the current org. OAuth state is hand-maintained and can legitimately
-  // point at any org the user belongs to, so it is always honoured.
-  if (
-    existing &&
-    (credentials.mode !== "anon" || existing.orgSlug === credentials.orgSlug)
-  ) {
+  // Ignore a stale anonymous scope (see `isStateUsableFor`) and re-bootstrap
+  // under the current org; createJob / createDeployment would otherwise 403.
+  if (existing && isStateUsableFor(existing, credentials)) {
     return existing;
   }
 

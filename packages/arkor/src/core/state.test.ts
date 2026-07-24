@@ -4,12 +4,7 @@ import { join } from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import {
-  readState,
-  writeState,
-  statePath,
-  clearStaleProjectState,
-} from "./state";
+import { readState, writeState, statePath } from "./state";
 
 let cwd: string;
 
@@ -54,45 +49,5 @@ describe("state", () => {
       JSON.stringify({ orgSlug: "o" }),
     );
     expect(await readState(cwd)).toBeNull();
-  });
-});
-
-describe("clearStaleProjectState", () => {
-  it("removes state.json scoped to a different org and reports the removal", async () => {
-    await writeState(
-      { orgSlug: "anon-old", projectSlug: "proj", projectId: "pid-old" },
-      cwd,
-    );
-    const removed = await clearStaleProjectState("anon-new", cwd);
-    expect(removed).toBe(true);
-    expect(await readState(cwd)).toBeNull();
-  });
-
-  it("keeps state.json that already belongs to the current org", async () => {
-    const state = {
-      orgSlug: "anon-same",
-      projectSlug: "proj",
-      projectId: "pid-1",
-    };
-    await writeState(state, cwd);
-    const removed = await clearStaleProjectState("anon-same", cwd);
-    expect(removed).toBe(false);
-    expect(await readState(cwd)).toEqual(state);
-  });
-
-  it("is a no-op when there is no state.json", async () => {
-    const removed = await clearStaleProjectState("anon-any", cwd);
-    expect(removed).toBe(false);
-    expect(await readState(cwd)).toBeNull();
-  });
-
-  it("treats a malformed state.json as absent (readState returns null) and leaves it", async () => {
-    // readState returns null for unreadable/invalid files, so there is no
-    // org to compare against; clearing here would be an over-reach that
-    // discards a file the user may be repairing by hand.
-    mkdirSync(join(cwd, ".arkor"), { recursive: true });
-    writeFileSync(join(cwd, ".arkor", "state.json"), "{not json");
-    const removed = await clearStaleProjectState("anon-any", cwd);
-    expect(removed).toBe(false);
   });
 });
