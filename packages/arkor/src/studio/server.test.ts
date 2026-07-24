@@ -756,6 +756,56 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       expect(calls).toBe(1);
     });
 
+    it("reconciles a stale scope against the identity minted lazily on this request", async () => {
+      // Regression for the credential-bootstrap gap: after `arkor logout`
+      // there is a stale state.json but NO credentials on disk when the first
+      // cloud-backed read arrives. The lazy autoAnonymous mint happens during
+      // this request, so the stale scope must be compared against the *newly
+      // minted* org, not kept and forwarded with the new token (a cross-org
+      // 403).
+      await writeState(
+        { orgSlug: "anon-old", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/anonymous")) {
+          calls++;
+          return Response.json(
+            {
+              token: "fresh-anon",
+              anonymousId: "fresh-aid",
+              kind: "cli",
+              personalOrg: { id: "o", slug: "anon-fresh", name: "Anon" },
+            },
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+
+      const app = buildStudioApp({
+        baseUrl: "http://mock-cloud-api",
+        assetsDir,
+        autoAnonymous: true,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+      });
+      const res = await app.request("/api/credentials", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      // The minted org is surfaced, not the stale "anon-old" scope.
+      expect(body).toMatchObject({ mode: "anon", orgSlug: "anon-fresh" });
+      expect(body.projectSlug).toBeNull();
+      expect(calls).toBe(1);
+    });
+
     it("rejects with a sign-in hint when autoAnonymous=false and no credentials exist", async () => {
       // Branch coverage for the `if (!autoAnonymous) throw …` path.
       const app = buildStudioApp({
