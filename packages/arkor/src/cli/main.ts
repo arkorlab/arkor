@@ -43,7 +43,7 @@ function parseDevPort(raw: string): number {
   const n = Number(raw);
   if (!/^[1-9]\d*$/.test(raw) || !Number.isInteger(n) || n < 1 || n > 65_535) {
     throw new ExpectedCliError(
-      `--port must be an integer between 1 and 65535 (got ${JSON.stringify(
+      `--port must be a plain decimal integer between 1 and 65535 (got ${JSON.stringify(
         raw,
       )}).`,
     );

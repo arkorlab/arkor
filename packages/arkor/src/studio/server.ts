@@ -81,8 +81,12 @@ export interface StudioServerOptions {
    */
   mode?: "agent" | "studio";
   /**
-   * Public URL the CLI printed (e.g. `http://localhost:4000`). Echoed by
-   * `GET /api/status`; `null` there when omitted (e.g. app-only tests).
+   * Agent-facing URL of the bound listener, as the `http://127.0.0.1:<port>`
+   * LITERAL, not the `localhost` form the CLI prints for humans: `GET
+   * /api/status` echoes this value for programmatic clients that may not do
+   * Happy-Eyeballs, so it must be the IPv4 address the server actually bound
+   * (see the url/agentUrl split in cli/commands/dev.ts). `null` in the echo
+   * when omitted (e.g. app-only tests).
    */
   url?: string;
 }

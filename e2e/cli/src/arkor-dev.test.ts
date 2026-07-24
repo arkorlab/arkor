@@ -56,7 +56,7 @@ describe("arkor dev × CLAUDECODE strict gate (E2E)", () => {
       });
       expect(result.code).toBe(1);
       expect(result.stderr).toContain(
-        "--port must be an integer between 1 and 65535",
+        "--port must be a plain decimal integer between 1 and 65535",
       );
       // The whole point of ExpectedCliError: bin.ts prints `err.message` alone,
       // so no `dist/bin.mjs` code-frame / V8 stack lines leak out.

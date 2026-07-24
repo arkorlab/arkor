@@ -1407,7 +1407,20 @@ describe("runDev", () => {
       // The deferral only helps the adopt path: if we bind and serve (serving
       // needs credentials), the deferred bootstrap error is surfaced.
       rmSync(join(fakeHome, ".arkor", "credentials.json"), { force: true });
-      // Default serve mock fires the listening callback (successful bind).
+      // Bind succeeds (listening fires), but expose a close spy: the reject
+      // path must also CLOSE the just-bound listener, or a failed launch
+      // would leak a live socket until process exit. The default serve stub
+      // has no `close`, and dev.ts wraps the call in try/catch, so without
+      // this spy the assertion below is the only thing keeping the
+      // `server.close()` call alive under mutation.
+      const closeSpy = vi.fn();
+      vi.mocked(serve).mockImplementationOnce(((
+        _opts: unknown,
+        onListen?: () => void,
+      ) => {
+        queueMicrotask(() => onListen?.());
+        return { on: vi.fn(), close: closeSpy };
+      }) as unknown as typeof serve);
       globalThis.fetch = vi.fn(async () => {
         throw new TypeError("fetch failed");
       }) as unknown as typeof fetch;
@@ -1421,6 +1434,7 @@ describe("runDev", () => {
       } finally {
         stdoutSpy.mockRestore();
       }
+      expect(closeSpy).toHaveBeenCalled();
     });
   });
 });

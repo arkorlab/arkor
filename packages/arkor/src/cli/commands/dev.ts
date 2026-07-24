@@ -684,7 +684,7 @@ export async function runDev(options: DevOptions = {}): Promise<RunDevResult> {
         // ExpectedCliError (not a bare Error) so bin.ts prints this one
         // actionable line and exits 1 WITHOUT a minified `dist/bin.mjs`
         // code-frame; a busy port is the most common dev failure and the
-        // stack would be pure noise. Mirrors the agent-write hard-fail below.
+        // stack would be pure noise. Mirrors the agent-write hard-fail above.
         const portInUse = new ExpectedCliError(
           `Port ${port} is already in use. Another \`arkor dev\` may be running; pass --port to choose a different one.`,
         );
