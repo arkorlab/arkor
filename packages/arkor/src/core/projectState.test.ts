@@ -88,52 +88,16 @@ describe("ensureProjectState", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
-  it("re-bootstraps for anonymous callers when existing state belongs to a different anon identity", async () => {
-    // A stale `.arkor/state.json` from a PREVIOUS anonymous identity (its
-    // orgSlug != the current anon org, and its owner marker names a different
-    // anonymousId) must not be reused: scoping cloud-api calls to that org
-    // 403s. ensureProjectState ignores it and provisions a fresh project under
-    // the current identity's org, overwriting the file.
+  it("throws without overwriting when an anonymous session finds a mismatched state.json", async () => {
+    // A `.arkor/state.json` scoped to a different org than the current
+    // anonymous identity is either a previous anonymous session's leftover or
+    // a hand-maintained OAuth scope. state.json carries no reliable owner
+    // marker to tell them apart, so we never bootstrap over it: throw with the
+    // two safe recoveries and leave the file exactly as written. (The read
+    // paths ignore the same file, so `arkor dev` Studio stays usable; only
+    // these write paths need the file cleared or an OAuth login first.)
     await writeState(
-      {
-        orgSlug: "anon-previous",
-        projectSlug: "old",
-        projectId: "pid-old",
-        anonymousId: "prev-anon-id",
-      },
-      cwd,
-    );
-    const created = { id: "pid-new", slug: "reused", name: "reused" };
-    const createProject = vi.fn().mockResolvedValue({ project: created });
-    const client = fakeClient({
-      createProject:
-        createProject as unknown as CloudApiClient["createProject"],
-    });
-
-    const state = await ensureProjectState({
-      cwd,
-      client,
-      credentials: anonCreds,
-    });
-
-    expect(createProject).toHaveBeenCalledWith(
-      expect.objectContaining({ orgSlug: "anon-abc" }),
-    );
-    expect(state.orgSlug).toBe("anon-abc");
-    expect(state.projectId).toBe("pid-new");
-    // The new scope carries the current identity's owner marker.
-    expect(state.anonymousId).toBe("abc");
-    // The stale file was overwritten with the new identity's scope.
-    expect(await readState(cwd)).toEqual(state);
-  });
-
-  it("preserves an unmarked (OAuth / hand-written) state.json instead of overwriting it under anonymous creds", async () => {
-    // No owner marker means the file is a hand-maintained OAuth scope (or a
-    // pre-marker legacy file), not a previous anonymous session's. An
-    // anonymous write must not clobber it: throw with actionable guidance so
-    // the user can log in or remove it, and leave the file untouched.
-    await writeState(
-      { orgSlug: "real-org", projectSlug: "proj", projectId: "pid-oauth" },
+      { orgSlug: "anon-previous", projectSlug: "old", projectId: "pid-old" },
       cwd,
     );
     const createProject = vi.fn();
@@ -144,13 +108,13 @@ describe("ensureProjectState", () => {
 
     await expect(
       ensureProjectState({ cwd, client, credentials: anonCreds }),
-    ).rejects.toThrow(/configured for a different account/);
+    ).rejects.toThrow(/scoped to a different organization/);
     expect(createProject).not.toHaveBeenCalled();
-    // The file is left exactly as written (not overwritten with an anon scope).
+    // The file is left exactly as written (never overwritten with an anon scope).
     expect(await readState(cwd)).toEqual({
-      orgSlug: "real-org",
-      projectSlug: "proj",
-      projectId: "pid-oauth",
+      orgSlug: "anon-previous",
+      projectSlug: "old",
+      projectId: "pid-old",
     });
   });
 
@@ -208,8 +172,6 @@ describe("ensureProjectState", () => {
         orgSlug: "anon-abc",
         projectSlug: "my-app",
         projectId: "pid-new",
-        // Bootstrapped anonymous state is stamped with the owner marker.
-        anonymousId: "abc",
       });
       expect(createProject).toHaveBeenCalledWith({
         orgSlug: "anon-abc",

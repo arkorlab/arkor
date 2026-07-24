@@ -177,10 +177,25 @@ export function createTrainer(
   let startedJob: TrainingJob | null = null;
   let scope: { orgSlug: string; projectSlug: string } | null = null;
   let clientPromise: Promise<CloudApiClient> | null = null;
+  let credentialsPromise: Promise<Credentials> | null = null;
+
+  // Resolve credentials ONCE per trainer instance and share that snapshot with
+  // both the client and the project-state check. Reading them independently
+  // (as `getClient` and `resolveProjectState` used to) let an `arkor logout` /
+  // login between the two reads build the client with one identity's token
+  // while `ensureProjectState` validated / re-scoped the project under
+  // another, sending the old token to the new org (a cross-org 403). Memoised
+  // like `clientPromise` so the token the client is built with never diverges
+  // from the one the scope is reconciled against.
+  async function resolveCredentials(): Promise<Credentials> {
+    credentialsPromise ??= (async () =>
+      context.credentials ?? (await ensureCredentials()))();
+    return credentialsPromise;
+  }
 
   async function getClient(): Promise<CloudApiClient> {
     clientPromise ??= (async () => {
-      const credentials = context.credentials ?? (await ensureCredentials());
+      const credentials = await resolveCredentials();
       const baseUrl = context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
       return new CloudApiClient({ baseUrl, credentials });
     })();
@@ -188,7 +203,7 @@ export function createTrainer(
   }
 
   async function resolveProjectState(client: CloudApiClient) {
-    const credentials = context.credentials ?? (await ensureCredentials());
+    const credentials = await resolveCredentials();
     return ensureProjectState({ cwd, client, credentials });
   }
 

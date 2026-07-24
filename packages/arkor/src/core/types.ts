@@ -375,14 +375,4 @@ export interface ArkorProjectState {
   orgSlug: string;
   projectSlug: string;
   projectId: string;
-  /**
-   * The anonymous identity that bootstrapped this scope, stamped when
-   * `ensureProjectState` provisions a project for anonymous credentials. It
-   * marks the file as owned by a specific throwaway identity, so a later
-   * anonymous session can tell *its own* stale state (safe to re-bootstrap
-   * over) apart from a hand-maintained OAuth scope (which has no marker and
-   * must be preserved, not silently overwritten). Absent on OAuth-written and
-   * pre-marker legacy files.
-   */
-  anonymousId?: string;
 }

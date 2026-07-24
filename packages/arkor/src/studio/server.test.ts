@@ -1470,14 +1470,11 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
         orgSlug: string;
         projectSlug: string;
         projectId: string;
-        anonymousId?: string;
       };
       expect(state).toEqual({
         orgSlug: "anon-org",
         projectSlug: "auto-slug",
         projectId: "p-bootstrap",
-        // Bootstrapped anonymous state carries the owner marker (ANON_CREDS).
-        anonymousId: "anon-id",
       });
 
       // Inference request carried the bootstrapped scope and the body verbatim.
@@ -2584,18 +2581,14 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
 
     it("reconciles a stale anonymous scope on deployment reads instead of forwarding the old org", async () => {
       // ENG-979 (single snapshot): anon creds present, but the state.json is
-      // from a previous anonymous identity (different org). The deployment
-      // read must drop that scope against the resolved-credentials snapshot
-      // and 404 with setup guidance, never forward the stale org to cloud-api
-      // (which would 403 with the new token).
+      // from a previous anonymous identity (different org). The deployment read
+      // must drop that scope against the resolved-credentials snapshot and
+      // return the 409 mismatch guidance, never forward the stale org to
+      // cloud-api (which would 403 with the new token) and never overwrite the
+      // file.
       await writeCredentials(ANON_CREDS); // org "anon-org"
       await writeState(
-        {
-          orgSlug: "anon-previous",
-          projectSlug: "old",
-          projectId: "p-old",
-          anonymousId: "prev-id",
-        },
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
         trainCwd,
       );
       let calls = 0;
@@ -2607,10 +2600,16 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       const res = await app.request("/api/deployments/dep-1", {
         headers: studioHeaders(),
       });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(409);
       const body = (await res.json()) as { error?: string };
       expect(body.error).toContain(".arkor/state.json");
       expect(calls).toBe(0);
+      // The stale file is preserved, not overwritten.
+      expect(await readState(trainCwd)).toEqual({
+        orgSlug: "anon-previous",
+        projectSlug: "old",
+        projectId: "p-old",
+      });
     });
   });
 });
