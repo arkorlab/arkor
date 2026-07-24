@@ -35,7 +35,12 @@ export {
   type AnonymousCredentials,
   type Credentials,
 } from "./core/credentials";
-export { readState, writeState, statePath } from "./core/state";
+export {
+  readState,
+  writeState,
+  statePath,
+  clearStaleProjectState,
+} from "./core/state";
 export { CloudApiClient } from "./core/client";
 export type { CloudApiClientOptions } from "./core/client";
 export type {

@@ -47,7 +47,19 @@ export async function ensureProjectState(
 ): Promise<ArkorProjectState> {
   const { cwd, client, credentials } = options;
   const existing = await readState(cwd);
-  if (existing) return existing;
+  // Anonymous project state must belong to the current identity's org. A
+  // stale `.arkor/state.json` left by a previous anonymous identity (e.g.
+  // after `arkor logout` followed by a fresh anonymous session) scopes
+  // cloud-api calls to an org this token can't access, so createJob /
+  // createDeployment would 403 against it. Ignore it and re-bootstrap under
+  // the current org. OAuth state is hand-maintained and can legitimately
+  // point at any org the user belongs to, so it is always honoured.
+  if (
+    existing &&
+    (credentials.mode !== "anon" || existing.orgSlug === credentials.orgSlug)
+  ) {
+    return existing;
+  }
 
   if (credentials.mode !== "anon") {
     // OAuth callers cannot bootstrap automatically: we don't know which

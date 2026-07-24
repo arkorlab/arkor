@@ -88,6 +88,64 @@ describe("ensureProjectState", () => {
     expect(createProject).not.toHaveBeenCalled();
   });
 
+  it("re-bootstraps for anonymous callers when existing state belongs to a different org", async () => {
+    // A stale `.arkor/state.json` from a previous anonymous identity (its
+    // orgSlug != the current anon org) must not be reused: scoping cloud-api
+    // calls to that org 403s. ensureProjectState ignores it and provisions a
+    // fresh project under the current identity's org, overwriting the file.
+    await writeState(
+      { orgSlug: "anon-previous", projectSlug: "old", projectId: "pid-old" },
+      cwd,
+    );
+    const created = { id: "pid-new", slug: "reused", name: "reused" };
+    const createProject = vi.fn().mockResolvedValue({ project: created });
+    const client = fakeClient({
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
+    });
+
+    const state = await ensureProjectState({
+      cwd,
+      client,
+      credentials: anonCreds,
+    });
+
+    expect(createProject).toHaveBeenCalledWith(
+      expect.objectContaining({ orgSlug: "anon-abc" }),
+    );
+    expect(state.orgSlug).toBe("anon-abc");
+    expect(state.projectId).toBe("pid-new");
+    // The stale file was overwritten with the new identity's scope.
+    expect(await readState(cwd)).toEqual(state);
+  });
+
+  it("honours existing oauth state even when its org differs from a would-be anon org", async () => {
+    // OAuth state is hand-maintained and can point at any org the user
+    // belongs to, so the anon-only mismatch guard must never fire for it.
+    await writeState(
+      { orgSlug: "real-org", projectSlug: "proj", projectId: "pid-oauth" },
+      cwd,
+    );
+    const createProject = vi.fn();
+    const client = fakeClient({
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
+    });
+
+    const state = await ensureProjectState({
+      cwd,
+      client,
+      credentials: oauthCreds,
+    });
+
+    expect(createProject).not.toHaveBeenCalled();
+    expect(state).toEqual({
+      orgSlug: "real-org",
+      projectSlug: "proj",
+      projectId: "pid-oauth",
+    });
+  });
+
   it("throws for oauth callers without state (they must write .arkor/state.json by hand)", async () => {
     const client = fakeClient();
     await expect(
