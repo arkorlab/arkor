@@ -50,4 +50,32 @@ describe("state", () => {
     );
     expect(await readState(cwd)).toBeNull();
   });
+
+  it("round-trips the anonymousId owner marker when present", async () => {
+    const state = {
+      orgSlug: "anon-abc",
+      projectSlug: "proj",
+      projectId: "pid-1",
+      anonymousId: "abc",
+    };
+    await writeState(state, cwd);
+    expect(await readState(cwd)).toEqual(state);
+  });
+
+  it("omits anonymousId when it is absent or not a string", async () => {
+    mkdirSync(join(cwd, ".arkor"), { recursive: true });
+    // A non-string marker is dropped rather than propagated as garbage.
+    writeFileSync(
+      join(cwd, ".arkor", "state.json"),
+      JSON.stringify({
+        orgSlug: "o",
+        projectSlug: "p",
+        projectId: "pid",
+        anonymousId: 123,
+      }),
+    );
+    const state = await readState(cwd);
+    expect(state).toEqual({ orgSlug: "o", projectSlug: "p", projectId: "pid" });
+    expect(state && "anonymousId" in state).toBe(false);
+  });
 });
