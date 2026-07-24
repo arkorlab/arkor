@@ -1470,11 +1470,14 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
         orgSlug: string;
         projectSlug: string;
         projectId: string;
+        anonymousId?: string;
       };
       expect(state).toEqual({
         orgSlug: "anon-org",
         projectSlug: "auto-slug",
         projectId: "p-bootstrap",
+        // Bootstrapped anonymous state carries the owner marker (ANON_CREDS).
+        anonymousId: "anon-id",
       });
 
       // Inference request carried the bootstrapped scope and the body verbatim.
@@ -2577,6 +2580,37 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       const body = (await res.json()) as { error?: string };
       expect(body.error).toMatch(/no credentials on file/i);
       expect(body.error).toMatch(/arkor login/);
+    });
+
+    it("reconciles a stale anonymous scope on deployment reads instead of forwarding the old org", async () => {
+      // ENG-979 (single snapshot): anon creds present, but the state.json is
+      // from a previous anonymous identity (different org). The deployment
+      // read must drop that scope against the resolved-credentials snapshot
+      // and 404 with setup guidance, never forward the stale org to cloud-api
+      // (which would 403 with the new token).
+      await writeCredentials(ANON_CREDS); // org "anon-org"
+      await writeState(
+        {
+          orgSlug: "anon-previous",
+          projectSlug: "old",
+          projectId: "p-old",
+          anonymousId: "prev-id",
+        },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not reach cloud-api");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain(".arkor/state.json");
+      expect(calls).toBe(0);
     });
   });
 });
