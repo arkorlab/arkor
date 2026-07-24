@@ -18,6 +18,7 @@ import {
   requestAnonymousToken,
   type AnonymousCredentials,
 } from "../../core/credentials";
+import { clearStaleProjectState } from "../../core/state";
 import { buildStudioApp } from "../../studio/server";
 import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
 import { ui } from "../prompts";
@@ -146,6 +147,26 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     orgSlug: anon.orgSlug,
   };
   await writeCredentials(creds);
+  // A previous (now logged-out) anonymous identity may have left a
+  // `.arkor/state.json` scoped to its org. `arkor logout` deletes only the
+  // global credentials file, so the stale project scope survives; reusing it
+  // with this freshly-minted identity 403s every Studio route (jobs,
+  // deployments, /api/me) because the new token isn't a member of the old
+  // org. Drop it so the routes re-bootstrap under the new org. Best-effort:
+  // a read-only cwd must not block the Studio launch.
+  try {
+    if (await clearStaleProjectState(creds.orgSlug)) {
+      ui.log.info(
+        "Discarded a stale .arkor/state.json from a previous identity; a fresh project scope will be created on first use.",
+      );
+    }
+  } catch (err) {
+    ui.log.warn(
+      `Could not reconcile .arkor/state.json (${
+        err instanceof Error ? err.message : String(err)
+      }). If Studio shows 403s, delete .arkor/state.json and re-run.`,
+    );
+  }
   ui.log.info(
     `Anonymous id: ${anon.anonymousId}. Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
   );
