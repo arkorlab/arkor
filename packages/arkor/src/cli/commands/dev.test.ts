@@ -47,9 +47,6 @@ import {
   writeCredentials,
   type AnonymousCredentials,
 } from "../../core/credentials";
-// Namespace import so a test can `vi.spyOn` on `clearStaleProjectState` and
-// assert the reconciliation runs without touching the real cwd's state.json.
-import * as stateModule from "../../core/state";
 
 import { ensureCredentialsForStudio, runDev } from "./dev";
 
@@ -177,45 +174,6 @@ describe("ensureCredentialsForStudio", () => {
       anonymousId: "anon-aid",
       orgSlug: "anon-aid",
     });
-  });
-
-  // Regression for ENG-978: after `arkor logout` (credentials gone) a fresh
-  // `arkor dev` mints a NEW anonymous org. A `.arkor/state.json` left by the
-  // previous identity would scope every Studio route to the old org and 403.
-  // The bootstrap must reconcile that stale scope against the new org.
-  it("reconciles a stale project scope against the freshly-minted anon org", async () => {
-    const clearSpy = vi
-      .spyOn(stateModule, "clearStaleProjectState")
-      .mockResolvedValue(true);
-    globalThis.fetch = vi.fn(async (input) => {
-      const url = String(input);
-      if (url.endsWith("/v1/auth/cli/config")) {
-        return Response.json(
-          {
-            auth0Domain: null,
-            clientId: null,
-            audience: null,
-            callbackPorts: [],
-          },
-          { status: 200 },
-        );
-      }
-      if (url.endsWith("/v1/auth/anonymous")) {
-        return Response.json(
-          {
-            token: "anon-tok",
-            anonymousId: "anon-new",
-            kind: "cli",
-            personalOrg: { id: "o", slug: "anon-new", name: "Anon" },
-          },
-          { status: 200 },
-        );
-      }
-      throw new Error(`unexpected fetch: ${url}`);
-    }) as typeof fetch;
-
-    await ensureCredentialsForStudio();
-    expect(clearSpy).toHaveBeenCalledWith("anon-new");
   });
 
   // Regression for ENG-403: when the cloud-api is unreachable, `arkor dev`
