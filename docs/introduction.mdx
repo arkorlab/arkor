@@ -3,28 +3,7 @@ title: "Introduction"
 description: "Arkor is the TypeScript framework for fine-tuning open-weight LLMs."
 ---
 
-Arkor lets TypeScript and Node developers fine-tune open-weight LLMs the same way they ship the rest of their product: type-safe configs, lifecycle callbacks in your own code, and a local Studio for the dev loop.
-
-## Who Arkor is for
-
-You are a product engineer (or a small team of them) shipping a TypeScript or Node app. You want a custom open-weight model behind one of your features, but you do not have a dedicated ML team and you do not want to maintain a separate Python codebase to get there.
-
-Arkor is for that exact workflow.
-
-## How Arkor relates to the Python ML ecosystem
-
-Custom open-weight models are a real option today because of years of work in the Python ML ecosystem and the people and companies who built it out. Arkor stands on that foundation: the training itself runs on the same stack everyone else uses.
-
-What Arkor adds is a TypeScript surface on top of that stack. Today it covers fine-tuning; evaluation and serving are next. The aim is for the model workflow to live in the same codebase as the product you are shipping, with the same editor, types, and review flow.
-
-## What "ship the model the same way you ship the product" means
-
-In practice:
-
-- **Type-safe configs.** `createTrainer({ model, dataset, lora, ... })` is checked at compile time. No YAML drift, no separate config language.
-- **Fast iteration on training code.** Edit your trainer, rebuild, and the next run uses the latest code. No notebook restart.
-- **Callbacks in your own code.** `onLog`, `onCheckpoint`, `onCompleted`, `onFailed` fire on your TypeScript functions, fully typed. From inside `onCheckpoint` you can call `infer({ messages })` against the partial model and sanity-check it before the run finishes.
-- **A local Studio.** Run `arkor dev` and a web UI shows job status, a live loss chart, the log tail, and a Playground for chatting with your fine-tuned model. No external dashboard, no signup.
+Arkor is a TypeScript framework for fine-tuning open-weight LLMs: `createTrainer` configs checked at compile time, lifecycle callbacks (`onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) that fire on your own functions, and a local Studio (`arkor dev`) with job status, a live loss chart, and a Playground.
 
 ## What works today
 
@@ -33,7 +12,8 @@ Arkor is alpha. APIs change without notice as the design settles. The current ve
 What you can do right now:
 
 - Fine-tune an open-weight LLM ([Gemma-based today](/models)) from a single file.
-- Pick from three end-to-end templates that finish in minutes: `triage` (support classification), `translate` (9 languages), and `redaction` (PII extraction).
+- Pick from three end-to-end templates that finish in minutes: `triage` (support classification), `translate` (9 languages), and `redaction` (PII redaction).
+- Train on your own dataset: a [Hugging Face dataset name or a hosted file URL](/guides/sdk/dataset).
 - React to training in code via lifecycle callbacks, not a dashboard.
 - Run training on Arkor's managed GPUs with no separate infra setup. Try it without an account; run `arkor login --oauth` before your next run if you want it tied to an account. Merging anonymous workspaces and jobs into an account once you sign in is on the roadmap.
 - Watch the run live in the local Studio. Once it finishes, chat with the trained model in the Playground.
@@ -41,7 +21,6 @@ What you can do right now:
 What is not in yet:
 
 - Local GPU training. Today every run goes to managed GPUs.
-- Bring-your-own dataset beyond the curated demos.
 - [Base models beyond Gemma](/models).
 - Self-hosting the training backend.
 

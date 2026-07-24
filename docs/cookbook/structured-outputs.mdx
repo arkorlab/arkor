@@ -5,7 +5,7 @@ description: "Constrain a checkpoint's output to a JSON schema, parse it as a ty
 
 # Structured outputs and function calling
 
-A fine-tuned model is supposed to emit a fixed shape (`triage` produces `{ category, urgency, summary, nextAction }`; `redaction` produces `{ redactedText, redactedCount, tags }`), but at a half-trained checkpoint the output drifts: extra prose, missing keys, the occasional unparseable blob. Hoping the dataset alone keeps things tidy is fragile.
+A fine-tuned model is supposed to emit a fixed shape (`triage` produces `{ category, urgency, summary, nextAction }`; `redaction` produces `{ redactedText, redactedCount, tags }`), but at a half-trained checkpoint the output drifts: extra prose, missing keys, the occasional unparseable blob.
 
 `infer({ responseFormat })` gets you a hard guarantee. The model is constrained at decode time to emit a string that matches the JSON Schema you hand it, so `JSON.parse` always succeeds and the resulting object always has the keys you asked for. That turns the mid-run check from "log a sample, eyeball it" into "extract typed fields, branch on them."
 

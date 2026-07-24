@@ -24,7 +24,7 @@ When you start `arkor dev`, the CLI:
 2. Serves a Vite + React SPA from the same origin so the UI talks to the CLI through `/api/*` on loopback.
 3. Issues a per-launch CSRF token (saved to `~/.arkor/studio-token` with mode `0600`) and requires every request to present it.
 
-The server only binds to loopback and rejects requests with a non-loopback `Host` header. There is no public URL, no inbound connection, and the token rotates every time you start `arkor dev`. You can run Studio safely on a shared dev machine without worrying about exposing your training data.
+The server only binds to loopback and rejects requests with a non-loopback `Host` header. There is no public URL, no inbound connection, and the token rotates every time you start `arkor dev`.
 
 ## How Studio fits with the managed backend
 
@@ -57,4 +57,4 @@ A walkthrough of each view (Run training, Job detail, Playground, Endpoints) liv
 
 ## When not to use Studio
 
-Studio is a development tool. It runs on your machine, only on loopback, and only while `arkor dev` is up. For production usage of a fine-tuned model you would call `infer` from your own application code (or wire it into whatever serving layer you ship), not point users at Studio.
+Studio is a development tool. It runs on your machine, only on loopback, and only while `arkor dev` is up. For production usage of a fine-tuned model, publish it as a [deployment](/sdk/deployments) and call the endpoint's OpenAI-compatible API from your application — `infer` is only handed to `onCheckpoint` during a run, and Studio is never something to point users at.

@@ -5,7 +5,7 @@ description: "Sanity-check the half-trained model against a fixed prompt at ever
 
 # Mid-run evaluation
 
-The single biggest reason to fine-tune in TypeScript is that you can call into the partially trained model from your own code while the run is still going. The hook is `onCheckpoint`: each time the backend uploads a checkpoint, the SDK calls back into your function and hands you an `infer` bound to that exact checkpoint adapter.
+`onCheckpoint` lets you call into the partially trained model from your own code while the run is still going: each time the backend uploads a checkpoint, the SDK calls back into your function and hands you an `infer` bound to that exact checkpoint adapter.
 
 This recipe wires it up against a fixed prompt so you can spot regressions long before the loss curve says anything is wrong.
 
@@ -60,7 +60,7 @@ The function returns the raw `Response` from the cloud API, so the streaming and
 
 ## Variations
 
-**Compare against the base model on the same prompt.** Studio's Playground already has a Base / Adapter mode toggle, but you can do the same thing from `onCheckpoint` to score automatically rather than eyeballing it.
+**Forward each checkpoint's sample to a review queue.** The callback's `infer` is permanently bound to the just-saved checkpoint and `InferArgs` has no base-model override, so an automated base-vs-adapter comparison isn't possible from here (use Studio's Playground Base / Adapter toggle for that manually). What you can automate is capturing one sample per checkpoint for later review:
 
 ```ts
 async function generate(prompt: typeof GOLDEN_PROMPT, infer: (args: any) => Promise<Response>) {
