@@ -24,17 +24,7 @@ export async function readState(
       typeof data.projectSlug === "string" &&
       typeof data.projectId === "string"
     ) {
-      const state: ArkorProjectState = {
-        orgSlug: data.orgSlug,
-        projectSlug: data.projectSlug,
-        projectId: data.projectId,
-      };
-      // Preserve the anonymous-owner marker only when it is a string; a
-      // malformed value is dropped rather than propagated as garbage.
-      if (typeof data.anonymousId === "string") {
-        state.anonymousId = data.anonymousId;
-      }
-      return state;
+      return data as ArkorProjectState;
     }
     return null;
   } catch {

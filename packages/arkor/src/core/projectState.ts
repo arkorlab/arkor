@@ -23,6 +23,17 @@ export const OAUTH_MISSING_STATE_MESSAGE =
   "No .arkor/state.json found. Create it by hand with { orgSlug, projectSlug, projectId } pointing at the project you want to use.";
 
 /**
+ * Shown when an anonymous session finds a `.arkor/state.json` scoped to an org
+ * it can't use. The file is left untouched (it may be a hand-maintained OAuth
+ * scope, or a leftover from a previous anonymous identity; the two are
+ * indistinguishable, so we never overwrite it) and the user is pointed at the
+ * two safe recoveries. `ensureProjectState` throws it and Studio's deployment
+ * path returns it, so both surfaces read identically.
+ */
+export const ANON_STATE_MISMATCH_MESSAGE =
+  "This workspace's .arkor/state.json is scoped to a different organization than your current anonymous session. Delete .arkor/state.json to start a fresh anonymous project, or run `arkor login` with the account that owns that project.";
+
+/**
  * Whether a persisted `.arkor/state.json` is usable for the active identity.
  *
  * Anonymous project state must belong to the current identity's org: a stale
@@ -33,9 +44,10 @@ export const OAUTH_MISSING_STATE_MESSAGE =
  * hand-maintained and can legitimately point at any org the user belongs to,
  * so it is always usable.
  *
- * Studio's read paths and `ensureProjectState` share this predicate so a
- * mismatched anonymous scope is ignored (and re-bootstrapped on write) rather
- * than deleted, so hand-maintained OAuth state is never discarded.
+ * Studio's read paths and `ensureProjectState` share this predicate. Read
+ * paths ignore an unusable scope; the write path refuses to overwrite it.
+ * Either way the file is never deleted, so a hand-maintained OAuth scope
+ * survives.
  */
 export function isStateUsableFor(
   state: ArkorProjectState,
@@ -61,14 +73,15 @@ export function isOrgUsableFor(
 /**
  * Resolve the project scope (`orgSlug` / `projectSlug`) used to address
  * cloud-api endpoints. Returns existing `.arkor/state.json` when it is usable
- * for the caller (`isStateUsableFor`); otherwise (for anonymous credentials
- * only) derives a slug from the cwd basename, creates (or reuses on 409) the
- * project, persists state, and returns it. A mismatched anonymous scope is
- * only re-bootstrapped when its owner marker proves it belongs to a previous
- * anonymous identity; an unmarked (OAuth / hand-maintained) file is preserved
- * with a throw. OAuth callers without state cannot bootstrap automatically (we
- * don't know which org / project they want); they must write
- * `.arkor/state.json` by hand.
+ * for the caller (`isStateUsableFor`). When it is present but NOT usable (an
+ * anonymous session whose state points at a different org), it is never
+ * overwritten (we can't tell a previous anonymous identity's leftover from a
+ * hand-maintained OAuth scope), so we throw `ANON_STATE_MISMATCH_MESSAGE`
+ * pointing at the safe recoveries. Only when there is NO state (and the caller
+ * is anonymous) do we derive a slug from the cwd basename, create (or reuse on
+ * 409) the project, persist state, and return it. OAuth callers without state
+ * cannot bootstrap automatically (we don't know which org / project they
+ * want); they must write `.arkor/state.json` by hand.
  *
  * Shared by the trainer (`createTrainer().start()`) and every Studio
  * write-path that needs a scope: `/api/inference/chat` (Playground), and
@@ -90,23 +103,16 @@ export async function ensureProjectState(
     return existing;
   }
 
-  // Mismatched existing state under anonymous credentials. Two sub-cases, told
-  // apart by the anonymous-owner marker so we never silently overwrite a
-  // hand-maintained OAuth scope (the read paths already preserve it):
-  //   - marker present ⇒ a *previous anonymous identity's* stale scope. Safe
-  //     to re-bootstrap over: that identity is gone (post-logout) and can't be
-  //     recovered anyway.
-  //   - marker absent ⇒ an OAuth-written or pre-marker legacy file. Preserve
-  //     it and tell the user how to proceed, rather than clobbering their
-  //     org / project selection with a fresh anonymous project.
-  if (
-    existing &&
-    credentials.mode === "anon" &&
-    existing.anonymousId === undefined
-  ) {
-    throw new Error(
-      `.arkor/state.json is configured for a different account (org "${existing.orgSlug}"), but this is an anonymous session. Run \`arkor login --oauth\` to use it, or remove .arkor/state.json to start a fresh anonymous project.`,
-    );
+  // Reaching here means `existing` is present but not usable (an anonymous
+  // session pointed at an org it can't use; OAuth callers with any state
+  // returned above). We can't tell a previous anonymous identity's leftover
+  // apart from a hand-maintained OAuth scope (state.json carries no reliable
+  // owner marker), and overwriting either would destroy the user's project
+  // selection, so we never bootstrap over it. Surface the two safe recoveries
+  // instead. The read paths already ignore this same file, so `arkor dev`
+  // Studio stays usable; only these write paths need the file cleared first.
+  if (existing) {
+    throw new Error(ANON_STATE_MISMATCH_MESSAGE);
   }
 
   if (credentials.mode !== "anon") {
@@ -160,10 +166,6 @@ export async function ensureProjectState(
     orgSlug,
     projectSlug: project.slug,
     projectId: project.id,
-    // Stamp the owner so a *later* anonymous identity can recognise this file
-    // as a previous anonymous session's (safe to re-bootstrap over) rather
-    // than a hand-maintained OAuth scope (which must be preserved).
-    anonymousId: credentials.anonymousId,
   };
   await writeState(state, cwd);
   return state;

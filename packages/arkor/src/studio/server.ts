@@ -21,6 +21,7 @@ import {
   type DeprecationNotice,
 } from "../core/deprecation";
 import {
+  ANON_STATE_MISMATCH_MESSAGE,
   OAUTH_MISSING_STATE_MESSAGE,
   ensureProjectState,
   isOrgUsableFor,
@@ -729,16 +730,15 @@ export function buildStudioApp(options: StudioServerOptions) {
       credentials = await getCredentials();
       // Single-snapshot reconciliation: validate the scope read above against
       // the credentials we just resolved (possibly minted on this request),
-      // not a separately-read snapshot. A stale anonymous scope is dropped;
-      // read / mutate then answer with the same clean 404 as a missing scope
-      // (bootstrapping a fresh project to satisfy a bookmarked GET or a stray
-      // PATCH would orphan it), while create falls through to the bootstrap
-      // branch below.
+      // not a separately-read snapshot. A present-but-unusable scope is an
+      // anonymous session whose `.arkor/state.json` points at a different org.
+      // We never overwrite that file (it may be a hand-maintained OAuth scope),
+      // so EVERY intent (including create) gets the same actionable message
+      // rather than a stale-org 403 or a clobbering bootstrap. This mirrors
+      // `ensureProjectState`'s CLI-side throw, and the read paths ignore the
+      // same file so `arkor dev` Studio itself stays usable.
       if (scope && !isOrgUsableFor(scope.orgSlug, credentials)) {
-        if (intent !== "create") {
-          return jsonWithDeprecation({ error: noUsableStateMessage }, 404);
-        }
-        scope = null;
+        return jsonWithDeprecation({ error: ANON_STATE_MISMATCH_MESSAGE }, 409);
       }
       // Resolve the deployment client's base URL *from the credentials*
       // rather than the closure-captured `baseUrl`. The closure was
