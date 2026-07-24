@@ -1488,6 +1488,48 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       expect(chat!.headers["x-arkor-client"]).toMatch(/^arkor\/\S+$/);
     });
 
+    it("returns 409 (not an opaque 500) for a stale anonymous scope", async () => {
+      // ENG-979: anon creds present, but state.json is from a previous
+      // anonymous identity (different org). ensureProjectState throws the typed
+      // ProjectStateMismatchError; the chat handler must map it to a 409 with
+      // the actionable message instead of the generic backend 500, and must not
+      // overwrite the file or call cloud-api.
+      await writeCredentials(ANON_CREDS); // org "anon-org"
+      await writeState(
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not reach cloud-api");
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-E4B-it",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain(".arkor/state.json");
+      expect(calls).toBe(0);
+      // The stale file is preserved, not overwritten.
+      expect(await readState(trainCwd)).toEqual({
+        orgSlug: "anon-previous",
+        projectSlug: "old",
+        projectId: "p-old",
+      });
+    });
+
     it("proxies inference using existing state without re-creating a project", async () => {
       await writeCredentials(ANON_CREDS);
       await writeState(
@@ -2513,6 +2555,33 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
         throw new Error("should not call upstream when no scope");
       }) as typeof fetch;
       const app = build(); // build() pins autoAnonymous: false
+      const res = await app.request("/api/deployments", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        deployments: [],
+        scopeMissing: true,
+      });
+      expect(calls).toBe(0);
+    });
+
+    it("listing with a stale anonymous scope returns the friendly empty wrapper, not an error", async () => {
+      // ENG-979: after logout the Endpoints tab must load cleanly. A stale
+      // anonymous state (different org) reconciles to the same 200
+      // `scopeMissing` empty list as a fresh workspace, NOT a 404/409 load
+      // error, and never forwards the stale org to cloud-api.
+      await writeCredentials(ANON_CREDS); // org "anon-org"
+      await writeState(
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not reach cloud-api");
+      }) as typeof fetch;
+      const app = build();
       const res = await app.request("/api/deployments", {
         headers: studioHeaders(),
       });

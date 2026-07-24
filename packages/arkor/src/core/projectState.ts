@@ -11,6 +11,21 @@ export interface EnsureProjectStateOptions {
 }
 
 /**
+ * Thrown when an anonymous session resolves project state that is scoped to an
+ * org it can't use (see `ANON_STATE_MISMATCH_MESSAGE`). A distinct type so the
+ * Studio write handlers (`/api/inference/chat`, the deployment proxy) can map
+ * this *recoverable* setup conflict to a 409 with the actionable message,
+ * instead of collapsing it into the generic "Studio backend" 500 they return
+ * for genuinely unexpected errors.
+ */
+export class ProjectStateMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectStateMismatchError";
+  }
+}
+
+/**
  * Single source of truth for the "OAuth caller hit a write path with
  * no `.arkor/state.json`" remediation copy. Studio's
  * `withDeploymentClient` (in `studio/server.ts`) imports this and
@@ -112,7 +127,7 @@ export async function ensureProjectState(
   // instead. The read paths already ignore this same file, so `arkor dev`
   // Studio stays usable; only these write paths need the file cleared first.
   if (existing) {
-    throw new Error(ANON_STATE_MISMATCH_MESSAGE);
+    throw new ProjectStateMismatchError(ANON_STATE_MISMATCH_MESSAGE);
   }
 
   if (credentials.mode !== "anon") {

@@ -23,6 +23,7 @@ import {
 import {
   ANON_STATE_MISMATCH_MESSAGE,
   OAUTH_MISSING_STATE_MESSAGE,
+  ProjectStateMismatchError,
   ensureProjectState,
   isOrgUsableFor,
   isStateUsableFor,
@@ -42,6 +43,19 @@ function copyDeprecationHeaders(from: Headers, to: Headers): void {
     const value = from.get(name);
     if (value !== null) to.set(name, value);
   }
+}
+
+/**
+ * The friendly empty-list envelope for the `"list"` deployment intent when
+ * there is no usable scope (fresh workspace, or a stale anonymous scope
+ * reconciled away): the Endpoints tab renders "create your first endpoint",
+ * not a load error.
+ */
+function scopeMissingResponse(): Response {
+  return Response.json(
+    { deployments: [], scopeMissing: true },
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -543,6 +557,12 @@ export function buildStudioApp(options: StudioServerOptions) {
           },
         );
       }
+      // A stale anonymous `.arkor/state.json` is a recoverable setup conflict,
+      // not a backend failure: surface the actionable message as 409 (matching
+      // the deployment path) instead of an opaque 500.
+      if (err instanceof ProjectStateMismatchError) {
+        return c.json({ error: err.message }, 409);
+      }
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
         500,
@@ -606,9 +626,13 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   /**
    * Intent of the route calling `withDeploymentClient`:
-   *   - `"read"`: pure GET. If `.arkor/state.json` is missing, return
-   *     404 without provisioning a remote project. Bookmarked detail
-   *     pages and `/keys` lookups must NOT silently create empty cloud
+   *   - `"list"`: `GET /api/deployments`. A missing OR stale-anonymous scope is
+   *     answered with a 200 `scopeMissing` empty list (same as a fresh
+   *     workspace) so the tab loads cleanly instead of surfacing a 404 / 409
+   *     load error; only a usable scope reaches the upstream list call.
+   *   - `"read"`: bookmarked detail / `/keys` GET. If `.arkor/state.json` is
+   *     missing, return 404 without provisioning a remote project. Bookmarked
+   *     detail pages and `/keys` lookups must NOT silently create empty cloud
    *     projects as a side effect.
    *   - `"create"`: `POST /api/deployments` only. This is the one
    *     route that can legitimately bootstrap a fresh workspace: an
@@ -625,8 +649,12 @@ export function buildStudioApp(options: StudioServerOptions) {
    *     DELETE / key request would still 404 against the empty
    *     project). Adding a deployment first via the create flow is the
    *     only way these can succeed on a fresh workspace.
+   *
+   * A present-but-stale anonymous scope (org mismatch) is never overwritten:
+   * `"list"` degrades to `scopeMissing`, every other intent returns the 409
+   * mismatch guidance.
    */
-  type ScopeIntent = "read" | "create" | "mutate";
+  type ScopeIntent = "list" | "read" | "create" | "mutate";
 
   async function withDeploymentClient<T>(
     intent: ScopeIntent,
@@ -648,6 +676,10 @@ export function buildStudioApp(options: StudioServerOptions) {
     // scope (state present but not this identity's) is reconciled later,
     // against the single credentials snapshot resolved for the call itself.
     const scope0 = await readScopeFromState().catch(() => null);
+    if (!scope0 && intent === "list") {
+      // Fresh workspace, credential-free: same empty envelope as a stale scope.
+      return scopeMissingResponse();
+    }
     if (!scope0 && (intent === "read" || intent === "mutate")) {
       // Stay neutral about whether deployments exist. For anonymous
       // workspaces the first deployment-create POST will bootstrap
@@ -732,12 +764,14 @@ export function buildStudioApp(options: StudioServerOptions) {
       // the credentials we just resolved (possibly minted on this request),
       // not a separately-read snapshot. A present-but-unusable scope is an
       // anonymous session whose `.arkor/state.json` points at a different org.
-      // We never overwrite that file (it may be a hand-maintained OAuth scope),
-      // so EVERY intent (including create) gets the same actionable message
-      // rather than a stale-org 403 or a clobbering bootstrap. This mirrors
+      // We never overwrite that file (it may be a hand-maintained OAuth scope).
+      // `"list"` degrades to the friendly empty envelope (like a fresh
+      // workspace); every other intent returns the 409 mismatch guidance rather
+      // than a stale-org 403 or a clobbering bootstrap. This mirrors
       // `ensureProjectState`'s CLI-side throw, and the read paths ignore the
       // same file so `arkor dev` Studio itself stays usable.
       if (scope && !isOrgUsableFor(scope.orgSlug, credentials)) {
+        if (intent === "list") return scopeMissingResponse();
         return jsonWithDeprecation({ error: ANON_STATE_MISMATCH_MESSAGE }, 409);
       }
       // Resolve the deployment client's base URL *from the credentials*
@@ -813,6 +847,14 @@ export function buildStudioApp(options: StudioServerOptions) {
       if (err instanceof CloudApiError) {
         return jsonWithDeprecation({ error: err.message }, err.status);
       }
+      // A stale anonymous scope that raced in between the up-front
+      // reconciliation and `ensureProjectState()` (create on a workspace whose
+      // state.json appeared mid-request) surfaces here. It is the same
+      // recoverable conflict the reconciliation returns as 409, so forward the
+      // actionable message rather than the generic "Studio backend error" 500.
+      if (err instanceof ProjectStateMismatchError) {
+        return jsonWithDeprecation({ error: err.message }, 409);
+      }
       // The "no credentials on file" guard from `getCredentials()` is a
       // recoverable setup problem (the operator just needs to log in or
       // enable autoAnonymous). Surface its message verbatim with a 401
@@ -854,25 +896,13 @@ export function buildStudioApp(options: StudioServerOptions) {
   }
 
   app.get("/api/deployments", async () => {
-    // List view doesn't require credentials when there's no scope yet:
-    // mirror `/api/jobs`'s local-only empty-list path so the Endpoints
-    // tab loads cleanly on fresh workspaces and offline. Surface
-    // `scopeMissing: true` so the SPA can distinguish "this project
-    // genuinely has no deployments" from "we don't know which project
-    // to look at": the latter needs different remediation copy
-    // ("create your first endpoint" for anonymous; "restore
-    // .arkor/state.json" for OAuth).
-    const scope = await readScopeFromState();
-    if (!scope) {
-      return Response.json(
-        { deployments: [], scopeMissing: true },
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        },
-      );
-    }
-    return withDeploymentClient("read", ({ client, scope }) =>
+    // The `"list"` intent owns the credential-free empty path: a missing scope
+    // (fresh workspace / offline) OR a stale anonymous scope both answer with a
+    // 200 `{ deployments: [], scopeMissing: true }` so the Endpoints tab loads
+    // cleanly and renders "create your first endpoint" (anonymous) / "restore
+    // .arkor/state.json" (OAuth) rather than a load error. Only a usable scope
+    // reaches the upstream list call.
+    return withDeploymentClient("list", ({ client, scope }) =>
       client.listDeployments(scope),
     );
   });
