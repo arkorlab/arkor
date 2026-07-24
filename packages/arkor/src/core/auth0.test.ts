@@ -8,6 +8,7 @@ import {
   fetchCliConfig,
   startLoopbackServer,
 } from "./auth0";
+import { SDK_VERSION } from "./version";
 
 describe("generatePkce", () => {
   it("produces URL-safe base64 values", () => {
@@ -180,6 +181,30 @@ describe("fetchCliConfig", () => {
     }) as typeof fetch;
     await fetchCliConfig("http://localhost:3003/", fetchImpl);
     expect(captured).toBe("http://localhost:3003/v1/auth/cli/config");
+  });
+
+  it("sends X-Arkor-Client so the SDK version gate accepts the bootstrap call", async () => {
+    // Without this header the cloud-api gate returns 426 reason=missing,
+    // breaking `arkor login` / `arkor dev` before OAuth even starts.
+    let captured: RequestInit | undefined;
+    const fetchImpl = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      captured = init;
+      return Response.json(
+        {
+          auth0Domain: null,
+          clientId: null,
+          audience: null,
+          callbackPorts: [],
+        },
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    await fetchCliConfig("http://localhost:3003", fetchImpl);
+    const headers = new Headers(captured?.headers);
+    expect(headers.get("X-Arkor-Client")).toBe(`arkor/${SDK_VERSION}`);
   });
 });
 
