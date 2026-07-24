@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Composer } from "./Composer";
@@ -28,7 +28,15 @@ describe("Composer Enter handling", () => {
 
   it("inserts a newline (does not submit) on Shift+Enter", () => {
     const { onSubmit, textarea } = renderComposer();
-    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    // jsdom does not perform the textarea newline edit for a synthetic keydown,
+    // so assert the handler leaves the default action intact (no preventDefault).
+    // Calling preventDefault would suppress the browser's native newline insert.
+    const event = createEvent.keyDown(textarea, {
+      key: "Enter",
+      shiftKey: true,
+    });
+    fireEvent(textarea, event);
+    expect(event.defaultPrevented).toBe(false);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
