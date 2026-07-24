@@ -34,7 +34,7 @@ The response is an SSE stream of token deltas. Studio parses each frame and appe
 
 - **Intermediate checkpoints.** The dropdown only lists completed jobs and only sends `kind: "final"`. To run inference during a run, use the SDK's [`onCheckpoint({ infer })`](/sdk/callbacks): the `infer` it gives you is bound to the checkpoint that just landed.
 - **`temperature` / `topP` / `maxTokens`.** The HTTP shape ([`InferArgs`](/sdk/infer)) accepts these, but the Playground does not surface input fields for them. Studio sends only `messages` and the mode-specific fields. To experiment with these knobs, call the SDK's `infer` directly with the values you want.
-- **System prompts.** The input field only adds a `user` role. There is no field for `system`. Edit `src/arkor/trainer.ts` (or call `infer` programmatically) if you want to test with a system prompt.
+- **System prompts.** The input field only adds a `user` role. There is no field for `system`, and the Playground builds its request solely from what you type on this page. To test with a system prompt, call the SDK's [`infer`](/sdk/infer) programmatically with a `system` message.
 - **Conversation export / share.** Reload the page and the history is gone. Copy out manually if you want to keep it.
 - **Auth-aware list filtering.** The Adapter dropdown shows whatever `/api/jobs` returns for the current credentials; it does not filter by author or any other dimension.
 
