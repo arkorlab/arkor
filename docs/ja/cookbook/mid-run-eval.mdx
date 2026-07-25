@@ -60,7 +60,7 @@ export const trainer = createTrainer({
 
 ## バリエーション
 
-**チェックポイントごとのサンプルをレビューキューへ送る。** コールバックの `infer` は保存直後のチェックポイントに固定されており、`InferArgs` にベースモデルへ切り替える指定もないため、ここから自動でベース vs アダプター比較を行うことはできません（手動なら Studio Playground の Base / Adapter 切替を使ってください）。自動化できるのは、チェックポイントごとに 1 サンプルを取得して後からレビューできるようにすることです:
+**チェックポイントごとのサンプルをレビューキューへ送る。** コールバックの `infer` は保存直後のチェックポイントに固定されており、`InferArgs` にベースモデルへ切り替える指定もないため、このコールバック単体ではベース vs アダプター比較はできません（ベースモデル側は `CloudApiClient.chat({ baseModel })` で別リクエストを発行するか、手動なら Studio Playground の Base / Adapter 切替を使ってください）。コールバック単体で自動化できるのは、チェックポイントごとに 1 サンプルを取得して後からレビューできるようにすることです:
 
 ```ts
 async function generate(prompt: typeof GOLDEN_PROMPT, infer: (args: any) => Promise<Response>) {

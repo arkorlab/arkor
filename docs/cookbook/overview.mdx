@@ -29,6 +29,6 @@ This is a pattern, not a limit on what you can do. Once you have it, the recipes
 
 ## Things this section does not cover
 
-- **Production-serving recipes.** Publishing a trained adapter at a stable `*.arkor.app` endpoint already works — see [Deployments](/sdk/deployments); this section simply has no serving recipes yet (`createArkor`'s `deploy` manifest slot is still a reserved type field with no implementation).
+- **Production-serving recipes.** Publishing a trained adapter at a stable `*.arkor.app` endpoint already works, per [Deployments](/sdk/deployments); this section simply has no serving recipes yet (`createArkor`'s `deploy` manifest slot is still a reserved type field with no implementation).
 - **Multiple trainers per project.** `createArkor` accepts a single `trainer`; running several together is a programmatic-run pattern (see the recipe), not a manifest pattern.
 - **Custom base models beyond what the backend accepts.** The `model` field is forwarded to the cloud API verbatim; today the curated path is Gemma. Recipes do not pretend other models work end to end.

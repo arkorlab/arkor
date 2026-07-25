@@ -60,7 +60,7 @@ The function returns the raw `Response` from the cloud API, so the streaming and
 
 ## Variations
 
-**Forward each checkpoint's sample to a review queue.** The callback's `infer` is permanently bound to the just-saved checkpoint and `InferArgs` has no base-model override, so an automated base-vs-adapter comparison isn't possible from here (use Studio's Playground Base / Adapter toggle for that manually). What you can automate is capturing one sample per checkpoint for later review:
+**Forward each checkpoint's sample to a review queue.** The callback's `infer` is permanently bound to the just-saved checkpoint and `InferArgs` has no base-model override, so this callback alone cannot produce a base-vs-adapter comparison (issue a separate base-model request via `CloudApiClient.chat({ baseModel })`, or use Studio's Playground Base / Adapter toggle manually). What the callback can automate by itself is capturing one sample per checkpoint for later review:
 
 ```ts
 async function generate(prompt: typeof GOLDEN_PROMPT, infer: (args: any) => Promise<Response>) {

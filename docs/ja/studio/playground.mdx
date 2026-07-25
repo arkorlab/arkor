@@ -34,7 +34,7 @@ Playground はマウント時に `/api/jobs` を 1 度取得し、レスポン�
 
 - **中間チェックポイント。** ドロップダウンは完了済みジョブのみリストし `kind: "final"` だけ送ります。学習中に推論したいなら SDK の [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使ってください。与えられる `infer` は直前に到達したチェックポイントに紐づいています。
 - **`temperature` / `topP` / `maxTokens`。** HTTP の形（[`InferArgs`](/ja/sdk/infer)）はこれらを受け付けますが、Playground は入力欄を提供しません。Studio は `messages` とモード固有のフィールドだけを送ります。これらのノブを試したい場合は SDK の `infer` を直接呼んでください。
-- **System プロンプト。** 入力欄は `user` ロールのみ追加します。`system` 用のフィールドはなく、Playground のリクエストはこの画面で入力した内容だけから構築されます。System プロンプトを試すには、SDK の [`infer`](/ja/sdk/infer) をプログラムから呼び、`system` メッセージを渡してください。
+- **System プロンプト。** 入力欄は `user` ロールのみ追加します。`system` 用のフィールドはなく、Playground のリクエストはこの画面で入力した内容だけから構築されます。System プロンプトを試すには、学習中に [`onCheckpoint`](/ja/sdk/callbacks) へ渡される [`infer`](/ja/sdk/infer) に `system` メッセージを渡してください。
 - **会話のエクスポート／共有。** ページをリロードすると履歴は消えます。残したいなら手動でコピーしてください。
 - **認証情報を意識したリストフィルター。** アダプターのドロップダウンは現在の認証情報で `/api/jobs` が返すものをそのまま表示します。著者など他次元でフィルターしません。
 
