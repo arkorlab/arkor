@@ -79,7 +79,7 @@ type WritableDeploymentTarget = Exclude<DeploymentTarget, { kind: "model_menu" }
 
 A `model_menu` deployment serves every model published to the public catalog menu, and the caller picks one per request through the OpenAI `model` body field (falling back to the catalog default when it is omitted). The menu resolves at request time, so operator changes to the catalog take effect without re-targeting the deployment.
 
-Menu deployments are **created from the web dashboard, not from this SDK**: `createDeployment` and `updateDeployment` take a `WritableDeploymentTarget`, so `{ kind: "model_menu" }` is a compile error there. Reads are unrestricted — `listDeployments` and `getDeployment` return menu deployments like any other, so handle all three `kind` values when you branch on `target`.
+Menu deployments are **created from the web dashboard, not from this SDK**: `createDeployment` and `updateDeployment` take a `WritableDeploymentTarget`, so `{ kind: "model_menu" }` is a compile error there. Reads are unrestricted: `listDeployments` and `getDeployment` return menu deployments like any other, so handle all three `kind` values when you branch on `target`.
 
 `authMode` is either `"fixed_api_key"` (clients send `Authorization: Bearer …` or `x-api-key`) or `"none"` (the URL is open; only use for public demos / models).
 
