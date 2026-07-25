@@ -405,9 +405,11 @@ export interface TrainerInput {
    *
    * The slugs come from the operator's GPU catalog rather than a fixed
    * list in this SDK, so an unrecognised one is rejected at job
-   * submission (`Unknown gpuType slug`) instead of at compile time.
+   * submission (`Unknown gpuType slug`) instead of at compile time. The
+   * non-empty tuple is what the cloud API's `.min(1)` expects: an empty
+   * list names no primary candidate, so it is caught here instead.
    */
-  gpuTypes?: string[];
+  gpuTypes?: [string, ...string[]];
   /**
    * Run a smoke-test instead of a full training run. The cloud trainer
    * truncates the dataset and caps the number of steps so the job finishes in

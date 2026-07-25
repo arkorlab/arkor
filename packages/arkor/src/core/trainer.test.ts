@@ -497,12 +497,12 @@ describe("createTrainer (SSE event stream)", () => {
     expect(capturedStep).toBeNull();
   });
 
-  it("surfaces training.completed metrics and the failing step", async () => {
-    // `training.completed` carries a run summary (`finalLoss` /
-    // `totalSteps` / `totalTime`) and `training.failed` carries the step
-    // it died on. Both were parsed off the wire but dropped before
-    // reaching the callbacks, so a user had no way to read the final loss
-    // without re-deriving it from the last onLog frame.
+  it("surfaces training.completed metrics", async () => {
+    // The run summary (`finalLoss` / `totalSteps` / `totalTime`) was parsed
+    // off the wire but dropped before reaching `onCompleted`, so a user had
+    // no way to read the final loss without re-deriving it from the last
+    // onLog frame. (`training.failed`'s step is covered by the onFailed
+    // test above.)
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,
