@@ -91,7 +91,7 @@ These are forwarded to the cloud API verbatim (`buildJobConfig` in `packages/ark
 
 | Field | Status |
 | --- | --- |
-| `warmupSteps`, `loggingSteps`, `saveSteps`, `evalSteps` | Forwarded as-is. Each takes a **step config object**, not a bare number: exactly one of `{ steps: <integer ≥ 0> }` or `{ ratio: <0 < n ≤ 1> }`. `warmupSteps` additionally accepts `ratio: 0`. |
+| `warmupSteps`, `loggingSteps`, `saveSteps`, `evalSteps` | Forwarded as-is. Each takes a **step config object**, not a bare number: exactly one of `{ steps: <integer ≥ 0> }` or `{ ratio: <0 < n < 1> }`. `warmupSteps` additionally accepts `ratio: 0`. The ratio's upper bound is exclusive because the trainer passes it straight through to a field the underlying library reads as a fraction *only* below 1; at exactly 1 it would flip to meaning "every single step", so the cloud API rejects it rather than silently checkpointing on every optimizer step. |
 | `trainOnResponsesOnly` | Forwarded as-is. |
 | `datasetFormat` | Forwarded as-is. |
 | `datasetSplit` | Forwarded as-is. `{ enabled: boolean, testSize?: number, seed?: number }`, defaulting server-side to `{ enabled: false, testSize: 0.1, seed: 42 }`. `testSize` is the held-out fraction (0 < n ≤ 1) and `seed` makes the split reproducible. Turning it on is what enables evaluation, and it removes that fraction from the training set. The dedicated `dataset` field's `split` should still be preferred for choosing which HuggingFace split to load. |

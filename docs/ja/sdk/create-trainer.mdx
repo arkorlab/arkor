@@ -89,7 +89,7 @@ createTrainer({
 
 | フィールド | 状況 |
 | --- | --- |
-| `warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps` | そのまま転送。いずれも数値そのままではなく **ステップ設定オブジェクト** を取ります。`{ steps: <0 以上の整数> }` か `{ ratio: <0 < n ≤ 1> }` のちょうど一方を指定します。`warmupSteps` だけは `ratio: 0` も許容されます。 |
+| `warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps` | そのまま転送。いずれも数値そのままではなく **ステップ設定オブジェクト** を取ります。`{ steps: <0 以上の整数> }` か `{ ratio: <0 < n < 1> }` のちょうど一方を指定します。`warmupSteps` だけは `ratio: 0` も許容されます。ratio の上限が開区間なのは、トレーナーがこの値を下層ライブラリのフィールドにそのまま渡し、そのフィールドが 1 未満のときだけ割合として解釈するためです。ちょうど 1 だと「毎ステップ」の意味に変わってしまうので、毎ステップの checkpoint を黙って実行するかわりにクラウド API が弾きます。 |
 | `trainOnResponsesOnly` | そのまま転送。 |
 | `datasetFormat` | そのまま転送。 |
 | `datasetSplit` | そのまま転送。`{ enabled: boolean, testSize?: number, seed?: number }` で、サーバー側のデフォルトは `{ enabled: false, testSize: 0.1, seed: 42 }` です。`testSize` は hold-out の割合（0 < n ≤ 1）、`seed` は分割の再現性のためのシードです。これを有効にすることが評価を動かす条件であり、同時にその割合だけ学習データが減ります。読み込む HuggingFace の split を選ぶ用途には、引き続き専用 `dataset` フィールドの `split` を使ってください。 |
