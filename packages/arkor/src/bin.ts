@@ -4,6 +4,7 @@ import process from "node:process";
 import { ClaudeCodeStrictExit } from "@arkor/cli-internal";
 
 import { main } from "./cli/main";
+import { ProjectStateMismatchError } from "./core/projectState";
 
 // Catch top-level await rejections explicitly instead of letting Node's
 // default unhandled-rejection handler print them: the bundled `dist/bin.mjs`
@@ -20,6 +21,14 @@ try {
   // `finally` run telemetry shutdown + any deprecation notice; here we
   // just set the exit code without re-printing the message or its stack.
   if (err instanceof ClaudeCodeStrictExit) {
+    process.exitCode = 1;
+  } else if (err instanceof ProjectStateMismatchError) {
+    // A recoverable, expected setup conflict (a stale anonymous
+    // `.arkor/state.json` after `arkor logout`): print the actionable
+    // message only. The stack trace would be an unhelpful minified blob and
+    // would bury the "delete the file / `arkor login`" guidance the message
+    // carries. Studio maps the same error to a 409; this is its CLI mirror.
+    console.error(err.message);
     process.exitCode = 1;
   } else {
     console.error(

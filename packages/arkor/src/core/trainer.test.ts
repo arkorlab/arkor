@@ -199,10 +199,14 @@ describe("createTrainer (config builder branches)", () => {
 });
 
 describe("createTrainer (credentials defaulting)", () => {
-  it("falls back to ensureCredentials() when context.credentials is omitted", async () => {
-    // Branch coverage for `context.credentials ?? (await ensureCredentials())`
-    // in both `getClient` and `resolveProjectState`. We pre-write
-    // credentials so ensureCredentials() resolves without hitting fetch.
+  it("resolves via ensureCredentials() once and shares that snapshot between getClient and resolveProjectState", async () => {
+    // Branch coverage for `context.credentials ?? (await ensureCredentials())`,
+    // AND the single-snapshot guarantee: `resolveCredentials()` memoises, so
+    // both consumers (getClient + resolveProjectState) observe ONE resolution.
+    // Reading independently would let an `arkor logout` / login between the two
+    // reads build the client with one identity's token while ensureProjectState
+    // re-scoped under another (a cross-org 403). We pre-write credentials so
+    // ensureCredentials() resolves without hitting fetch.
     const ORIG_HOME = process.env.HOME;
     // Node's `os.homedir()` reads HOME on POSIX but USERPROFILE (with a
     // HOMEDRIVE+HOMEPATH fallback) on Windows, so HOME alone doesn't
@@ -217,6 +221,7 @@ describe("createTrainer (credentials defaulting)", () => {
     process.env.HOMEPATH = fakeHome;
     try {
       const credsMod = await import("./credentials");
+      const ensureSpy = vi.spyOn(credsMod, "ensureCredentials");
       await credsMod.writeCredentials({
         mode: "anon",
         token: "tok",
@@ -287,8 +292,12 @@ describe("createTrainer (credentials defaulting)", () => {
           await expect(trainer.wait()).resolves.toMatchObject({
             job: { status: "completed" },
           });
+          // Memoised: both getClient() and resolveProjectState() ran during the
+          // flow, yet credentials were resolved exactly once (shared snapshot).
+          expect(ensureSpy).toHaveBeenCalledTimes(1);
         } finally {
           globalThis.fetch = original;
+          ensureSpy.mockRestore();
         }
       } finally {
         rmSync(localCwd, { recursive: true, force: true });
