@@ -42,7 +42,14 @@ describe("Composer Enter handling", () => {
 
   it("does not submit while an IME composition is active (isComposing)", () => {
     const { onSubmit, textarea } = renderComposer();
-    fireEvent.keyDown(textarea, { key: "Enter", isComposing: true });
+    // preventDefault here would swallow the keystroke the IME needs to commit
+    // the conversion, so the default action must stay intact.
+    const event = createEvent.keyDown(textarea, {
+      key: "Enter",
+      isComposing: true,
+    });
+    fireEvent(textarea, event);
+    expect(event.defaultPrevented).toBe(false);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -50,7 +57,12 @@ describe("Composer Enter handling", () => {
   // that commits an IME conversion has `isComposing === false` but `keyCode === 229`.
   it("does not submit on the Enter that commits an IME conversion (keyCode 229)", () => {
     const { onSubmit, textarea } = renderComposer();
-    fireEvent.keyDown(textarea, { key: "Enter", keyCode: 229 });
+    const event = createEvent.keyDown(textarea, {
+      key: "Enter",
+      keyCode: 229,
+    });
+    fireEvent(textarea, event);
+    expect(event.defaultPrevented).toBe(false);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
