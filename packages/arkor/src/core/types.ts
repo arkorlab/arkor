@@ -404,12 +404,19 @@ export interface TrainerInput {
    * tried in order. Omit to take the backend's default pool.
    *
    * The slugs come from the operator's GPU catalog rather than a fixed
-   * list in this SDK, so an unrecognised one is rejected at job
-   * submission (`Unknown gpuType slug`) instead of at compile time. The
-   * non-empty tuple is what the cloud API's `.min(1)` expects: an empty
-   * list names no primary candidate, so it is caught here instead.
+   * list in this SDK, so neither an unrecognised slug nor an empty list
+   * is caught at compile time; both are rejected at job submission
+   * (`Unknown gpuType slug` / the cloud API's `.min(1)`).
+   *
+   * Deliberately `string[]` and not `[string, ...string[]]`. The tuple
+   * would reject every array whose length TypeScript cannot see, which
+   * is the normal case here: slugs are environment-specific, so they
+   * usually arrive from config or `process.env.X.split(",")` as a plain
+   * `string[]`. The only escape is `as [string, ...string[]]`, which
+   * asserts away the very non-emptiness the tuple existed to prove, so
+   * an empty list would reach the wire anyway.
    */
-  gpuTypes?: [string, ...string[]];
+  gpuTypes?: string[];
   /**
    * Run a smoke-test instead of a full training run. The cloud trainer
    * truncates the dataset and caps the number of steps so the job finishes in

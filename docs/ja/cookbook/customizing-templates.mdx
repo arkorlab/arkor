@@ -43,7 +43,7 @@ export const trainer = createTrainer({
 どちらのフィールドも、数値や真偽値ではなくオブジェクトを取ります:
 
 - **`evalSteps`** はステップ設定です。`{ steps: <0 以上の整数> }` か `{ ratio: <0 < n ≤ 1> }` のちょうど一方を指定します。数値そのままの `evalSteps: 25` はジョブ投入時にクラウド API に弾かれます。`warmupSteps`、`loggingSteps`、`saveSteps` も同じ形です。
-- **`datasetSplit`** が実際に評価を有効にするフィールドです。バックエンドは hold-out 分割が存在するときにだけ eval ループを構成し、`datasetSplit` はサーバー側で `{ enabled: false }` がデフォルトです。つまり `evalSteps` だけを指定してもジョブは通り、eval loss は一切出力されません。
+- **`datasetSplit`** が実際に評価を有効にするフィールドです。バックエンドは hold-out 分割が存在するときにだけ eval ループを構成し、`datasetSplit` はサーバー側で `{ enabled: false }` がデフォルトです。つまり `evalSteps` だけを指定してもジョブは通り、eval loss は一切出力されません。裏返すと、hold-out に回った行は学習に使われません。`testSize: 0.1` のスキャフォルドはデータセットの 90% で学習します。データセットが小さく 1 割の損失が eval のシグナルより痛い場合は `testSize` を下げるか、`datasetSplit`（と `evalSteps`）を外して全件で学習してください。
 
 ## 1. データセットを差し替える
 

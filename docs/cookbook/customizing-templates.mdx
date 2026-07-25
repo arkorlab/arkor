@@ -43,7 +43,7 @@ export const trainer = createTrainer({
 Both fields take an object, not a bare number or boolean:
 
 - **`evalSteps`** is a step config: exactly one of `{ steps: <integer ≥ 0> }` or `{ ratio: <0 < n ≤ 1> }`. A bare `evalSteps: 25` is rejected by the cloud API at job submission. The same shape applies to `warmupSteps`, `loggingSteps`, and `saveSteps`.
-- **`datasetSplit`** is what actually turns evaluation on. The backend only configures an eval loop when a held-out split exists, and `datasetSplit` defaults to `{ enabled: false }` server-side, so `evalSteps` on its own is accepted and then produces no eval loss at all.
+- **`datasetSplit`** is what actually turns evaluation on. The backend only configures an eval loop when a held-out split exists, and `datasetSplit` defaults to `{ enabled: false }` server-side, so `evalSteps` on its own is accepted and then produces no eval loss at all. The flip side is that the held-out rows stop being trained on: with `testSize: 0.1` the scaffold trains on 90% of the dataset. Lower `testSize` if your dataset is small enough that losing a tenth of it matters more than the eval signal, or drop `datasetSplit` (and `evalSteps`) to train on everything.
 
 ## 1. Swap the dataset
 

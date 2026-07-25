@@ -87,14 +87,15 @@ It still uses GPU time, just much less of it. Useful in CI or when wiring up cal
 
 ## Advanced: forwarded fields
 
-These are typed as `unknown` and forwarded to the cloud API verbatim (`packages/arkor/src/core/trainer.ts:100-108`). They are reserved on the input shape so the SDK can support fields the backend exposes before the SDK has caught up with first-class typing.
+These are forwarded to the cloud API verbatim (`buildJobConfig` in `packages/arkor/src/core/trainer.ts`). They are reserved on the input shape so the SDK can support fields the backend exposes before the SDK has caught up with first-class typing. Most are typed `unknown`; `gpuTypes` is `string[]`, but only its container is checked, not the slugs inside it, so the caveats below apply to it just the same.
 
 | Field | Status |
 | --- | --- |
 | `warmupSteps`, `loggingSteps`, `saveSteps`, `evalSteps` | Forwarded as-is. Each takes a **step config object**, not a bare number: exactly one of `{ steps: <integer ≥ 0> }` or `{ ratio: <0 < n ≤ 1> }`. `warmupSteps` additionally accepts `ratio: 0`. |
 | `trainOnResponsesOnly` | Forwarded as-is. |
-| `datasetFormat`, `datasetSplit` | Forwarded as-is. The dedicated `dataset` field's `split` should be preferred for HuggingFace sources. |
-| `gpuTypes` | `[string, ...string[]]`. Ordered list of managed GPU-type slugs: the first entry is the primary, the rest are failover candidates tried in order. Omit to take the backend's default pool; an empty list is a compile error, since it names no primary. The slugs come from the operator's GPU catalog rather than a fixed list in this SDK, so an unrecognised one is rejected at job submission (`Unknown gpuType slug`) instead of at compile time. |
+| `datasetFormat` | Forwarded as-is. |
+| `datasetSplit` | Forwarded as-is. `{ enabled: boolean, testSize?: number, seed?: number }`, defaulting server-side to `{ enabled: false, testSize: 0.1, seed: 42 }`. `testSize` is the held-out fraction (0 < n ≤ 1) and `seed` makes the split reproducible. Turning it on is what enables evaluation, and it removes that fraction from the training set. The dedicated `dataset` field's `split` should still be preferred for choosing which HuggingFace split to load. |
+| `gpuTypes` | `string[]`. Ordered list of managed GPU-type slugs: the first entry is the primary, the rest are failover candidates tried in order. Omit to take the backend's default pool. The slugs come from the operator's GPU catalog rather than a fixed list in this SDK, so neither an unknown slug nor an empty list is caught at compile time; both are rejected at job submission. |
 
 ```ts
 createTrainer({

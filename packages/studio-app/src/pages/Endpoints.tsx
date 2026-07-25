@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
   type SyntheticEvent,
 } from "react";
 
@@ -44,14 +45,27 @@ import {
 } from "./Endpoints.helpers";
 import { QuickStart } from "./QuickStart";
 
-function describeTarget(target: DeploymentTarget): string {
+// Returns a `ReactNode`, not a string, so the `model` reference can be a
+// real `<code>` element. QuickStart.tsx hit the string version of this
+// exact problem and documents it: Markdown-style backticks inside a value
+// rendered as a JSX text node surface as literal backticks, because the
+// SPA has no Markdown renderer.
+function describeTarget(target: DeploymentTarget): ReactNode {
   if (target.kind === "adapter") {
     return target.adapter.kind === "final"
       ? `Final adapter (job ${target.adapter.jobId.slice(0, 8)})`
       : `Checkpoint step ${target.adapter.step} (job ${target.adapter.jobId.slice(0, 8)})`;
   }
   if (target.kind === "model_menu") {
-    return "All public models (per-request `model`)";
+    return (
+      <>
+        All public models (per-request{" "}
+        <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+          model
+        </code>
+        )
+      </>
+    );
   }
   return `Base model: ${target.baseModel}`;
 }
@@ -1049,7 +1063,11 @@ export function EndpointDetail({ id }: { id: string }) {
         </CardContent>
       </Card>
 
-      <QuickStart endpointUrl={url} authMode={deployment.authMode} />
+      <QuickStart
+        endpointUrl={url}
+        authMode={deployment.authMode}
+        targetKind={deployment.target.kind}
+      />
 
       <Card>
         <CardHeader

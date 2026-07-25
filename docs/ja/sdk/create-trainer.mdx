@@ -91,7 +91,8 @@ createTrainer({
 | --- | --- |
 | `warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps` | そのまま転送。いずれも数値そのままではなく **ステップ設定オブジェクト** を取ります。`{ steps: <0 以上の整数> }` か `{ ratio: <0 < n ≤ 1> }` のちょうど一方を指定します。`warmupSteps` だけは `ratio: 0` も許容されます。 |
 | `trainOnResponsesOnly` | そのまま転送。 |
-| `datasetFormat`、`datasetSplit` | そのまま転送。HuggingFace ソースには専用 `dataset` フィールドの `split` を優先してください。 |
+| `datasetFormat` | そのまま転送。 |
+| `datasetSplit` | そのまま転送。`{ enabled: boolean, testSize?: number, seed?: number }` で、サーバー側のデフォルトは `{ enabled: false, testSize: 0.1, seed: 42 }` です。`testSize` は hold-out の割合（0 < n ≤ 1）、`seed` は分割の再現性のためのシードです。これを有効にすることが評価を動かす条件であり、同時にその割合だけ学習データが減ります。読み込む HuggingFace の split を選ぶ用途には、引き続き専用 `dataset` フィールドの `split` を使ってください。 |
 | `gpuTypes` | `[string, ...string[]]`。この run を流すマネージド GPU タイプの slug を優先順に並べたリストで、先頭がプライマリ、残りは順に試されるフェイルオーバー候補です。省略するとバックエンドの既定プールを使います。空配列はプライマリが無いためコンパイルエラーになります。slug はこの SDK 内の固定リストではなく運用側の GPU カタログ由来なので、未知の slug はコンパイル時ではなくジョブ投入時に弾かれます（`Unknown gpuType slug`）。 |
 
 ```ts

@@ -11,7 +11,7 @@ import {
 } from "../components/ui/Card";
 import { CopyButton } from "../components/ui/CopyButton";
 
-import type { DeploymentAuthMode } from "../lib/api";
+import type { DeploymentAuthMode, DeploymentTarget } from "../lib/api";
 
 // ---------------------------------------------------------------------------
 // Quick start: language- and operation-keyed code samples.
@@ -31,32 +31,47 @@ const SAMPLE_LANGUAGES: { value: SampleLanguage; label: string }[] = [
   { value: "javascript", label: "JavaScript (OpenAI SDK)" },
 ];
 
-// `description` is a `ReactNode` rather than a plain string so we can
+// `description` returns a `ReactNode` rather than a plain string so we can
 // render real `<code>` elements inline. The earlier shape used
 // Markdown-style backticks in the string and rendered with
 // `{opMeta.description}`, which surfaced literal backticks in the UI.
+//
+// It takes the target kind because what `model` means is target-dependent:
+// an adapter / base_model deployment pins one model and ignores the field,
+// while a `model_menu` deployment uses it as the per-request selector. Same
+// reason `buildQuickStartSample` needs the kind.
 const SAMPLE_OPERATIONS: {
   value: SampleOperation;
   label: string;
-  description: ReactNode;
+  description: (targetKind: DeploymentTarget["kind"]) => ReactNode;
 }[] = [
   {
     value: "chat",
     label: "POST /v1/chat/completions",
-    description: (
+    description: (targetKind) => (
       <>
         Send a chat completion request. The body uses the OpenAI Chat
         Completions schema;{" "}
         <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
           model
         </code>{" "}
-        is ignored because the deployment pins the target adapter or base model.
+        {targetKind === "model_menu"
+          ? "selects which of this deployment's models answers the request; omit it to get the catalog default."
+          : "is ignored because the deployment pins the target adapter or base model."}
       </>
     ),
   },
 ];
 
 const SAMPLE_PROMPT = "Hello!";
+
+// Value put in the samples' `model` field. A menu deployment routes on it,
+// so the sample has to be a placeholder the user replaces (same shape as
+// `YOUR_API_KEY`); every other target ignores it, and `"ignored"` says so
+// at a glance.
+function sampleModel(targetKind: DeploymentTarget["kind"]): string {
+  return targetKind === "model_menu" ? "MODEL_NAME" : "ignored";
+}
 
 /**
  * Strip the operation segment off `endpointUrl` so the OpenAI SDK can
@@ -91,8 +106,10 @@ export function buildQuickStartSample(opts: {
   operation: SampleOperation;
   endpointUrl: string;
   authMode: DeploymentAuthMode;
+  targetKind: DeploymentTarget["kind"];
 }): string {
-  const { language, endpointUrl, authMode } = opts;
+  const { language, endpointUrl, authMode, targetKind } = opts;
+  const model = sampleModel(targetKind);
   // The dropdown only carries `chat` today, but the operation arg is
   // kept so adding `embeddings` / `completions` later is just a new
   // entry in `SAMPLE_OPERATIONS` and a new branch here.
@@ -115,7 +132,7 @@ export function buildQuickStartSample(opts: {
       lines.push(`  -H "Authorization: Bearer YOUR_API_KEY" \\`);
     }
     lines.push(
-      `  -d '{"model":"ignored","messages":[{"role":"user","content":"${SAMPLE_PROMPT}"}]}'`,
+      `  -d '{"model":"${model}","messages":[{"role":"user","content":"${SAMPLE_PROMPT}"}]}'`,
     );
     return lines.join("\n");
   }
@@ -136,7 +153,7 @@ export function buildQuickStartSample(opts: {
       `)`,
       ``,
       `response = client.chat.completions.create(`,
-      `    model="ignored",`,
+      `    model="${model}",`,
       `    messages=[{"role": "user", "content": "${SAMPLE_PROMPT}"}],`,
       `)`,
       `print(response.choices[0].message.content)`,
@@ -166,7 +183,7 @@ export function buildQuickStartSample(opts: {
     ``,
     `async function main() {`,
     `  const response = await client.chat.completions.create({`,
-    `    model: "ignored",`,
+    `    model: "${model}",`,
     `    messages: [{ role: "user", content: "${SAMPLE_PROMPT}" }],`,
     `  });`,
     `  console.log(response.choices[0].message.content);`,
@@ -179,9 +196,11 @@ export function buildQuickStartSample(opts: {
 export function QuickStart({
   endpointUrl,
   authMode,
+  targetKind,
 }: {
   endpointUrl: string;
   authMode: DeploymentAuthMode;
+  targetKind: DeploymentTarget["kind"];
 }) {
   const [language, setLanguage] = useState<SampleLanguage>("curl");
   const [operation, setOperation] = useState<SampleOperation>("chat");
@@ -192,6 +211,7 @@ export function QuickStart({
     operation,
     endpointUrl,
     authMode,
+    targetKind,
   });
   // Future-proof: `SampleOperation` currently has a single literal
   // (`"chat"`), so this lookup looks trivially-true to the type system.
@@ -284,7 +304,7 @@ export function QuickStart({
 
           {opMeta && (
             <p className="text-sm text-zinc-700 dark:text-zinc-300">
-              {opMeta.description}
+              {opMeta.description(targetKind)}
             </p>
           )}
 
