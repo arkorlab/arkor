@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CloudApiClient, CloudApiError } from "./client";
-import { ensureProjectState } from "./projectState";
+import {
+  ANON_STATE_MISMATCH_MESSAGE,
+  ProjectStateMismatchError,
+  ensureProjectState,
+} from "./projectState";
 import { readState, writeState } from "./state";
 
 import type { AnonymousCredentials, OAuthCredentials } from "./credentials";
@@ -60,6 +64,19 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
   vi.restoreAllMocks();
+});
+
+describe("ProjectStateMismatchError", () => {
+  it("carries the stable `name` discriminator the CLI matches cross-bundle", () => {
+    // `bin.ts` identifies this error by `err.name` (not `instanceof`) so it
+    // survives `arkor start` loading the user project's separately bundled
+    // `arkor` copy. Guard that contract: if the name drifts, the CLI would
+    // fall back to printing a raw stack trace.
+    const err = new ProjectStateMismatchError(ANON_STATE_MISMATCH_MESSAGE);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe("ProjectStateMismatchError");
+    expect(err.message).toBe(ANON_STATE_MISMATCH_MESSAGE);
+  });
 });
 
 describe("ensureProjectState", () => {
