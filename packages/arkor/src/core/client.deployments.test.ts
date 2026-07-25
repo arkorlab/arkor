@@ -75,6 +75,7 @@ const SAMPLE_DEPLOYMENT: DeploymentDto = {
   customDomain: null,
   runRetentionMode: "days",
   runRetentionDays: 7,
+  expiresAt: null,
   createdAt: "2026-04-30T00:00:00.000Z",
   updatedAt: "2026-04-30T00:00:00.000Z",
 };

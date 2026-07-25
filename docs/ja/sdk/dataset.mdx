@@ -32,7 +32,7 @@ dataset: {
 | --- | --- | --- |
 | `type` | `"huggingface"` | 判別子。 |
 | `name` | `string` | リポジトリ名（例: `arkorlab/triage-demo`）。公開リポジトリは追加認証なしで動きます。 |
-| `split` | `string?` | デフォルト split を上書き。任意。 |
+| `split` | `string?` | 読み込む split。任意ですが、省略するとデータセット側の既定ではなく文字列 `"train"` がバックエンドで補われます。`train` split を持たないデータセットでは明示的に指定してください。 |
 | `subset` | `string?` | 複数 subset を公開しているデータセット用。任意。 |
 
 これは同梱テンプレート（`triage` / `translate` / `redaction`）が使う形です。多くのプロジェクトはここから始めます。

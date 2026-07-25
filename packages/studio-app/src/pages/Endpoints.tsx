@@ -50,6 +50,9 @@ function describeTarget(target: DeploymentTarget): string {
       ? `Final adapter (job ${target.adapter.jobId.slice(0, 8)})`
       : `Checkpoint step ${target.adapter.step} (job ${target.adapter.jobId.slice(0, 8)})`;
   }
+  if (target.kind === "model_menu") {
+    return "All public models (per-request `model`)";
+  }
   return `Base model: ${target.baseModel}`;
 }
 

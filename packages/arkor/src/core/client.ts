@@ -37,6 +37,7 @@ import type {
 import type {
   ChatMessage,
   JobConfig,
+  ReasoningEffort,
   ResponseFormat,
   StructuredOutputs,
   ToolChoice,
@@ -369,9 +370,20 @@ export class CloudApiClient {
       topP?: number;
       maxTokens?: number;
       stream?: boolean;
-      // Function calling + structured outputs. Forwarded verbatim: the
-      // cloud-api inference route spreads the body into its proxy, so any
-      // field declared on `chatInferenceRequestSchema` flows through.
+      // Sampling, function calling + structured outputs. Forwarded
+      // verbatim: the cloud-api inference route spreads the body into its
+      // proxy, so any field declared on `chatInferenceRequestSchema`
+      // flows through.
+      stop?: string | string[];
+      presencePenalty?: number;
+      frequencyPenalty?: number;
+      seed?: number;
+      logprobs?: boolean;
+      topLogprobs?: number;
+      logitBias?: Record<string, number>;
+      streamOptions?: { includeUsage?: boolean };
+      enableThinking?: boolean;
+      reasoningEffort?: ReasoningEffort;
       tools?: ToolDefinition[];
       toolChoice?: ToolChoice;
       responseFormat?: ResponseFormat;

@@ -19,7 +19,8 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  evalSteps: 25,
+  evalSteps: { steps: 25 },
+  datasetSplit: { enabled: true, testSize: 0.1 },
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   callbacks: {
     onLog: ({ step, loss, evalLoss }) => {
@@ -37,7 +38,12 @@ export const trainer = createTrainer({
 });
 ```
 
-`evalSteps: 25` is wired in by default so the run produces an eval-loss series alongside the training-loss curve. Studio's loss chart picks `evalLoss` up automatically, and the `onLog` callback above appends ` evalLoss=…` to the terminal line on the steps where the trainer evaluates (every 25 steps with `maxSteps: 100`, so four eval points per run). Each `field=…` segment is gated on `Number.isFinite` so eval-only steps don't print `loss=null` and training-only steps don't print `evalLoss=null` (the SDK normalizes both to `null`, and `evalLoss` is typed as `number | null`). Drop or change `evalSteps` if you don't want eval, and remove the `evalLoss` plumbing from `onLog` if you only care about training loss.
+`evalSteps: { steps: 25 }` and `datasetSplit: { enabled: true, testSize: 0.1 }` are wired in by default so the run produces an eval-loss series alongside the training-loss curve. Studio's loss chart picks `evalLoss` up automatically, and the `onLog` callback above appends ` evalLoss=…` to the terminal line on the steps where the trainer evaluates (every 25 steps with `maxSteps: 100`, so four eval points per run). Each `field=…` segment is gated on `Number.isFinite` so eval-only steps don't print `loss=null` and training-only steps don't print `evalLoss=null` (the SDK normalizes both to `null`, and `evalLoss` is typed as `number | null`). Drop or change `evalSteps` if you don't want eval, and remove the `evalLoss` plumbing from `onLog` if you only care about training loss.
+
+Both fields take an object, not a bare number or boolean:
+
+- **`evalSteps`** is a step config: exactly one of `{ steps: <integer ≥ 0> }` or `{ ratio: <0 < n ≤ 1> }`. A bare `evalSteps: 25` is rejected by the cloud API at job submission. The same shape applies to `warmupSteps`, `loggingSteps`, and `saveSteps`.
+- **`datasetSplit`** is what actually turns evaluation on. The backend only configures an eval loop when a held-out split exists, and `datasetSplit` defaults to `{ enabled: false }` server-side, so `evalSteps` on its own is accepted and then produces no eval loss at all.
 
 ## 1. Swap the dataset
 
@@ -49,7 +55,7 @@ The dataset is what the model actually learns from. The most common change is mo
 dataset: {
   type: "huggingface",
   name: "your-org/your-private-dataset",
-  split: "train",        // optional, defaults to dataset's default split
+  split: "train",        // optional, defaults to the literal "train" split
   subset: "v3",          // optional, for datasets with multiple subsets
 },
 ```
@@ -98,7 +104,7 @@ createTrainer({
 
 `dryRun: true` runs the full pipeline against a truncated dataset and a capped step count. It still uses GPU time (it is a smoke test, not a no-op), but the run finishes in a couple of minutes so you can check that your config and callbacks behave before committing to a long run. See [SDK § createTrainer](/sdk/create-trainer).
 
-The advanced fields (`warmupSteps`, `loggingSteps`, `saveSteps`, `evalSteps`, `trainOnResponsesOnly`, `datasetFormat`, `datasetSplit`) are typed as `unknown` and forwarded to the cloud API verbatim. Use them only if you already know the backend's expected shape; the SDK does not type-check the values you pass.
+The advanced fields (`warmupSteps`, `loggingSteps`, `saveSteps`, `evalSteps`, `trainOnResponsesOnly`, `datasetFormat`, `datasetSplit`) are typed as `unknown` and forwarded to the cloud API verbatim. The SDK does not type-check the values you pass, so a wrong shape surfaces as a validation error from the cloud API at job submission rather than a compile error. See [SDK § forwarded fields](/sdk/create-trainer#advanced-forwarded-fields) for the shape each one expects.
 
 ## 3. Add lifecycle callbacks
 

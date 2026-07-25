@@ -102,6 +102,12 @@ const adapterRefSchema = z.union([
   }),
 ]);
 
+// Every `kind` the cloud API's `deploymentTargetSchema` admits. Unlike the
+// unknown-FIELD tolerance `looseObject` buys us, an unknown `kind` fails the
+// whole union, and `decode()` calls `.parse()`, so one unrecognised row
+// rejects the entire `listDeployments` response. A variant added server-side
+// must therefore be mirrored here before it reaches production, or Studio's
+// Endpoints tab 500s for every project that owns one.
 const deploymentTargetSchema = z.union([
   z.looseObject({
     kind: z.literal("adapter"),
@@ -110,6 +116,13 @@ const deploymentTargetSchema = z.union([
   z.looseObject({
     kind: z.literal("base_model"),
     baseModel: z.string(),
+  }),
+  // Multi-model deployment: serves every catalog model flagged for the
+  // public menu, picked per-request via the OpenAI `model` body field.
+  // Carries no target-specific payload: the menu resolves at dispatch
+  // time, so nothing is snapshotted on the row.
+  z.looseObject({
+    kind: z.literal("model_menu"),
   }),
 ]);
 
@@ -215,6 +228,11 @@ const deploymentSchema = z.looseObject({
   // ./deployments.ts.
   runRetentionMode: z.string().optional(),
   runRetentionDays: z.number().optional(),
+  // Auto-delete deadline for the sweeper, or null = never expires. Only
+  // anonymous one-click deployments carry a value. Accepted as nullish
+  // (not required) so the decoder still works against a cloud-api build
+  // that predates the field.
+  expiresAt: z.union([z.string(), z.date()]).nullish().transform(toIsoOrNull),
   // Cloud API serializes timestamps as ISO strings; we accept Date too
   // for parity with `trainingJobSchema`'s tolerant transform. `toIso`
   // normalises a `Date` via `toISOString()` (not the locale-ish

@@ -28,12 +28,23 @@ describe("templates", () => {
       // eval to the UI; leaving it out would silently regress the
       // out-of-the-box eval experience.
       //
-      // Match `evalSteps: <number>` anywhere it appears so a future
-      // formatter or refactor (changed indentation, trailing comma
-      // dropped, fields reordered) doesn't break the test as long as
-      // the contract ("some numeric evalSteps is configured") is
-      // preserved.
-      expect(trainer).toMatch(/\bevalSteps:\s*\d+/);
+      // The object form is pinned, not just the presence of the key:
+      // the cloud API validates `evalSteps` as exactly one of
+      // `{ steps }` or `{ ratio }`, so a bare `evalSteps: 25` makes
+      // every scaffolded project fail at job submission. Field order,
+      // indentation and trailing commas stay unpinned so a formatter
+      // pass can't break the test.
+      expect(trainer).toMatch(/\bevalSteps:\s*\{\s*steps:\s*\d+[\s,]*\}/);
+    });
+
+    it("enables a held-out split so evalSteps actually runs", () => {
+      // `evalSteps` alone is inert: the trainer only configures an eval
+      // loop when the dataset was split, and `datasetSplit` defaults to
+      // `{ enabled: false }` server-side. Without this the scaffold
+      // submits successfully and then produces no eval loss at all.
+      expect(trainer).toMatch(
+        /\bdatasetSplit:\s*\{[^}]*\benabled:\s*true\b[^}]*\}/,
+      );
     });
 
     it("destructures evalLoss in the onLog callback so it's printed when present", () => {

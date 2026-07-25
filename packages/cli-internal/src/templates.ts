@@ -24,11 +24,19 @@ export interface Template {
 // prompt baked into the conversation - so `datasetFormat: { type: "chatml" }`
 // hands the right shape to the trainer's apply_chat_template step.
 //
-// `evalSteps: 25` is wired in by default so a fresh scaffold produces both
-// training and eval loss out of the box: Studio's loss chart picks the
-// `evalLoss` series up automatically, and `onLog` prints it on the steps
-// where the trainer actually evaluates (`evalLoss` is null on non-eval
-// steps, so the segment is omitted there).
+// `evalSteps: { steps: 25 }` and `datasetSplit: { enabled: true }` are wired
+// in by default so a fresh scaffold produces both training and eval loss out
+// of the box: Studio's loss chart picks the `evalLoss` series up
+// automatically, and `onLog` prints it on the steps where the trainer
+// actually evaluates (`evalLoss` is null on non-eval steps, so the segment is
+// omitted there).
+//
+// Both are backend step/split-config objects, not bare numbers or booleans.
+// The cloud API validates `evalSteps` as exactly one of `{ steps }` or
+// `{ ratio }`, so `evalSteps: 25` is rejected at job submission. It also only
+// configures an eval loop when a held-out split exists, and `datasetSplit`
+// defaults to `{ enabled: false }` server-side, so `evalSteps` on its own
+// would be accepted and then silently produce no eval loss.
 //
 // Use `dryRun: true` for a 2-3 minute smoke test (50 rows, max_steps=10) before
 // committing to a full run.
@@ -78,7 +86,8 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/redaction-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  evalSteps: 25,
+  evalSteps: { steps: 25 },
+  datasetSplit: { enabled: true, testSize: 0.1 },
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // Set dryRun: true for a fast end-to-end smoke test before a full run.
   // dryRun: true,
@@ -98,7 +107,8 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/translate-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  evalSteps: 25,
+  evalSteps: { steps: 25 },
+  datasetSplit: { enabled: true, testSize: 0.1 },
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {
@@ -136,7 +146,8 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  evalSteps: 25,
+  evalSteps: { steps: 25 },
+  datasetSplit: { enabled: true, testSize: 0.1 },
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   // dryRun: true,
   callbacks: {

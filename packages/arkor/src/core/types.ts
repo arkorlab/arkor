@@ -51,6 +51,7 @@ export interface JobConfig {
   loadIn4bit?: boolean;
   trainOnResponsesOnly?: unknown;
   datasetSplit?: unknown;
+  gpuTypes?: string[];
   /**
    * Smoke-test mode. When true, the trainer truncates the dataset to a small
    * sample and caps the number of training steps so the run finishes in a
@@ -219,13 +220,63 @@ export type StructuredOutputs = ExactlyOne<{
 }> &
   StructuredOutputsCommon;
 
+/**
+ * OpenAI-compatible reasoning-effort levels. Gemma 4 has no graduated
+ * effort (only thinking on/off), so every value except `"none"`
+ * collapses to "thinking on" there. The granularity is carried for
+ * OpenAI-client compatibility and models that honour it. An explicit
+ * `enableThinking` always wins over the level derived from this field.
+ */
+export type ReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
 export interface InferArgs {
   messages: ChatMessage[];
+  /** Sampling temperature, 0–2. */
   temperature?: number;
+  /** Nucleus-sampling cutoff, 0–1. */
   topP?: number;
   maxTokens?: number;
   /** Default: true. Set false to get a single JSON body instead of SSE. */
   stream?: boolean;
+  /**
+   * Stop sequence(s). An empty array is accepted as an explicit no-op;
+   * individual strings must be non-empty. At most 16 entries.
+   */
+  stop?: string | string[];
+  /** Presence penalty, -2–2. */
+  presencePenalty?: number;
+  /** Frequency penalty, -2–2. */
+  frequencyPenalty?: number;
+  /** Sampling seed for reproducible completions. */
+  seed?: number;
+  /** Return per-token logprobs. */
+  logprobs?: boolean;
+  /**
+   * How many alternatives to return per token, 0–20. Values above 0
+   * require `logprobs: true`; the endpoint rejects the pair otherwise.
+   */
+  topLogprobs?: number;
+  /** Token id (stringified) → bias in the range -100–100. */
+  logitBias?: Record<string, number>;
+  /**
+   * OpenAI `stream_options`. `includeUsage` controls whether the final
+   * usage chunk is forwarded to you; it does not change what is metered.
+   */
+  streamOptions?: { includeUsage?: boolean };
+  /**
+   * Gemma 4's thinking toggle. Omit to take the model's chat-template
+   * default, which is safe on non-Gemma endpoints too.
+   */
+  enableThinking?: boolean;
+  /** OpenAI-compatible `reasoning_effort`. See {@link ReasoningEffort}. */
+  reasoningEffort?: ReasoningEffort;
   /**
    * Function-calling tool definitions. When present without an explicit
    * `toolChoice`, the OpenAI-compatible default `"auto"` applies; the
@@ -268,6 +319,20 @@ export interface CheckpointContext {
  */
 type MaybePromise<T> = T | Promise<T>;
 
+/**
+ * Run-level summary carried on the terminal `training.completed` event.
+ * Every field is normalized to `null` when the backend omits it, matching
+ * how `TrainingLogContext` treats absent per-step metrics.
+ */
+export interface TrainingMetrics {
+  /** Loss at the final training step. */
+  finalLoss: number | null;
+  /** Gradient steps actually executed. */
+  totalSteps: number | null;
+  /** Wall-clock training duration in seconds. */
+  totalTime: number | null;
+}
+
 export interface TrainerCallbacks {
   onStarted: (ctx: { job: TrainingJob }) => MaybePromise<unknown>;
   onLog: (ctx: TrainingLogContext) => MaybePromise<unknown>;
@@ -275,8 +340,14 @@ export interface TrainerCallbacks {
   onCompleted: (ctx: {
     job: TrainingJob;
     artifacts: unknown[];
+    metrics: TrainingMetrics;
   }) => MaybePromise<unknown>;
-  onFailed: (ctx: { job: TrainingJob; error: string }) => MaybePromise<unknown>;
+  onFailed: (ctx: {
+    job: TrainingJob;
+    error: string;
+    /** Step the run died on, or `null` when it failed before training. */
+    step: number | null;
+  }) => MaybePromise<unknown>;
 }
 
 /**
@@ -327,6 +398,16 @@ export interface TrainerInput {
   trainOnResponsesOnly?: unknown;
   datasetFormat?: unknown;
   datasetSplit?: unknown;
+  /**
+   * Ordered list of managed GPU-type slugs to dispatch this run through:
+   * the first entry is the primary, the rest are failover candidates
+   * tried in order. Omit to take the backend's default pool.
+   *
+   * The slugs come from the operator's GPU catalog rather than a fixed
+   * list in this SDK, so an unrecognised one is rejected at job
+   * submission (`Unknown gpuType slug`) instead of at compile time.
+   */
+  gpuTypes?: string[];
   /**
    * Run a smoke-test instead of a full training run. The cloud trainer
    * truncates the dataset and caps the number of steps so the job finishes in
