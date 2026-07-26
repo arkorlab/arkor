@@ -9,6 +9,14 @@ import { basename, resolve } from "node:path";
  * produce a stderr message listing the suggested re-invocation rather than
  * running with hidden defaults.
  *
+ * `arkor dev` is a THIRD consumer with a different shape (see
+ * `formatClaudeCodeAgentModeMessage`): it has no curated flag list and no
+ * `--yes` escape hatch. Under `CLAUDECODE=1` a plain `arkor dev` always exits
+ * 1 and demands `--agent`, because the failure there is not "a prompt would
+ * hang" but "a long-running browser-oriented server is the wrong thing to
+ * hand an agent at all". Everything below about curated flags and `--yes`
+ * describes the scaffolders only.
+ *
  * "Curated" (not "every interactive prompt") because the runtime defaults
  * for a couple of decisions are well-understood enough that forcing them
  * would just add noise:

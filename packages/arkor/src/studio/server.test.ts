@@ -293,6 +293,24 @@ describe("Studio server", () => {
       expect(res.status).toBe(403);
     });
 
+    it("does not exempt NON-GET methods on /api/status from the token check", async () => {
+      // The exemption is scoped to `method === "GET" && path === "/api/status"`.
+      // The sibling test above pins only the PATH half; without this one the
+      // method half is silently removable (dropping `c.req.method === "GET"`
+      // leaves the whole suite green), which would hand an unauthenticated
+      // loopback peer any future non-GET handler mounted on this path.
+      const app = build();
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        const res = await app.request("/api/status", {
+          method,
+          headers: { host: "127.0.0.1:4000" },
+        });
+        // 403 from the token middleware, never 404/405 from the router: the
+        // request must be rejected BEFORE routing.
+        expect({ method, status: res.status }).toEqual({ method, status: 403 });
+      }
+    });
+
     it("returns safe metadata and the endpoint list", async () => {
       // No credentials are written and `autoAnonymous` is false: if the
       // handler ever touched the credential path, `getCredentials` would

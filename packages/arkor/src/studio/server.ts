@@ -873,7 +873,7 @@ export function buildStudioApp(options: StudioServerOptions) {
         // above): anonymous credentials carry an `orgSlug` and we can
         // derive a `projectSlug` from the cwd basename, so we
         // bootstrap on demand. This mirrors `/api/inference/chat` and
-        // `arkor train`, which both call `ensureProjectState()` before
+        // `arkor start`, which both call `ensureProjectState()` before
         // issuing their first cloud call so a user can get something
         // done from a fresh `arkor dev` without first running
         // training.

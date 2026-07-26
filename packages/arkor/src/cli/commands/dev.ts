@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 
 import { ExpectedCliError } from "@arkor/cli-internal";
 import { serve } from "@hono/node-server";
@@ -323,6 +323,26 @@ async function readCapped(
 }
 
 /**
+ * True for paths inside a kernel namespace whose symlinks resolve relative to
+ * the process doing the resolving (`/proc/self/cwd`, `/proc/<pid>/cwd`,
+ * `/proc/thread-self/...`, `/dev/fd/<n>`). Such a path is absolute but its
+ * `realpathSync` result describes US, not the peer that reported it, so it can
+ * never be trusted as a peer-supplied identity. Linux-only in practice; the
+ * check is a cheap no-op elsewhere.
+ */
+function isProcessRelativePath(p: string): boolean {
+  // Normalise separators so `/proc/self/../self/cwd` and Windows-style input
+  // cannot sneak past a naive prefix test.
+  const norm = normalize(p).replaceAll("\\", "/");
+  return (
+    norm === "/proc" ||
+    norm.startsWith("/proc/") ||
+    norm === "/dev/fd" ||
+    norm.startsWith("/dev/fd/")
+  );
+}
+
+/**
  * True when the busy `port` is held by a running Arkor Studio that serves
  * THIS project. Used by the normal-mode EADDRINUSE path so a plain
  * `arkor dev` connects to an already-running Studio (typically an
@@ -382,8 +402,22 @@ async function probeExistingStudio(
     // `realpathSync` would otherwise resolve against THIS process's cwd
     // (= projectRoot) and so spuriously pass the same-project check.
     if (typeof b.cwd !== "string" || !isAbsolute(b.cwd)) return false;
+    // Reject process-relative magic symlinks before resolving. `/proc/self/cwd`
+    // (also `/proc/<pid>/cwd`, `/proc/thread-self/cwd`, `/dev/fd/*`) is
+    // absolute, so it clears the check above, but `realpathSync` resolves it
+    // against the RESOLVING process: this CLI. A hostile occupant could
+    // therefore report `cwd: "/proc/self/cwd"` and have it resolve to our own
+    // projectRoot, passing the same-project check without ever knowing where
+    // the project lives. A real Studio always reports a concrete `trainCwd`,
+    // never one of these, so the carve-out costs nothing. (Adoption is
+    // unauthenticated by design, so the worst case here was still a nuisance
+    // redirect rather than code execution, but the documented invariant is
+    // "same project or no adoption" and this keeps it true.)
+    if (isProcessRelativePath(b.cwd)) return false;
     // Compare realpaths so a symlinked project root (e.g. macOS
-    // `/var` -> `/private/var`) still matches the same project.
+    // `/var` -> `/private/var`) still matches the same project. The remote
+    // value needs resolving too: the occupant reports its raw `trainCwd`,
+    // which on macOS is typically the unresolved `/var/...` form.
     return realpathSync(b.cwd) === realpathSync(projectRoot);
   } catch {
     return false;
@@ -398,8 +432,10 @@ async function probeExistingStudio(
  * persistence: even when persistence failed (read-only `$HOME` on Docker),
  * a termination signal must still route through `process.exit` so that (a) it
  * reports the conventional `128 + signal` code and (b) the synchronous 'exit'
- * event fires, which is what lets each `/api/train` child register its own
- * kill hook (see studio/server.ts) and avoid being orphaned on `docker stop`.
+ * event fires, which is what runs the Studio server's `killLiveTrainChildren`
+ * hook (one shared 'exit' listener, attached while at least one `/api/train`
+ * child is live; see studio/server.ts) so those children are not orphaned on
+ * `docker stop`.
  * `cleanup` itself handles the token file (a no-op when none was written).
  */
 function installShutdownHandlers(cleanup: () => void): void {

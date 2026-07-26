@@ -482,8 +482,9 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
 /**
  * Fetch the served index.html once, parse the per-launch token out of
  * the injected `<meta name="arkor-studio-token" content="...">` tag,
- * and return it. The Studio server side-effects the meta tag at
- * request time (`server.ts:85-90`); reading
+ * and return it. The Studio server injects the meta tag at request time
+ * (`injectStudioToken` in `packages/arkor/src/studio/server.ts`; referenced by
+ * name rather than line number, which drifts); reading
  * `~/.arkor/studio-token` directly would couple to a persistence path
  * that's allowed to fail (CLI swallows errors when HOME is read-only).
  */

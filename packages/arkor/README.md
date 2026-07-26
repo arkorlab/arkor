@@ -87,7 +87,7 @@ login` / `arkor logout`.
 |---|---|
 | `arkor init` | Scaffold a project in the current directory |
 | `arkor login` / `logout` / `whoami` | OAuth (PKCE) / anonymous tokens |
-| `arkor dev` | Launch the local Studio (hot reload + GUI) |
+| `arkor dev` | Launch the local Studio (GUI; add `--agent` for coding agents). Does not watch your trainer files |
 | `arkor build [entry]` | Bundle `src/arkor/index.ts` (or `entry`) to `.arkor/build/index.mjs` |
 | `arkor start [entry]` | Run the build artifact; rebuilds when an entry is supplied |
 
@@ -100,10 +100,17 @@ project's installed copy. Relative imports get inlined.
 `arkor dev` boots a Hono server on `127.0.0.1:4000` and serves a Vite +
 React SPA from the same origin. Two roles:
 
-- **Hot reload** for the user's TypeScript so the UI reflects current
-  source without restarts.
+- **Runs your TypeScript from source**: a run started with an explicit entry
+  file re-bundles it first, so you pick up edits without restarting `arkor
+  dev`. There is no file watcher, and a run started without an entry reuses
+  the existing `.arkor/build/index.mjs`.
 - **GUI operations**: running training, inspecting jobs, mid-training
   inference in a Playground.
+
+For coding agents, `arkor dev --agent` serves the same Studio headlessly and
+writes the per-launch token to a JSON session file under
+`<project>/.arkor/agent/`, printing its path to stdout. Under `CLAUDECODE=1` a
+plain `arkor dev` refuses to start and asks for `--agent`.
 
 Studio is loopback-only and per-launch CSRF-token-gated:
 
@@ -160,7 +167,9 @@ are being run and where they fail. Three events are emitted per invocation:
 - `cli_command_started`
 - `cli_command_completed` (includes `duration_ms`)
 - `cli_command_failed` (includes `duration_ms`, `error_name`, and the first
-  200 chars of `error_message`)
+  200 chars of `error_message`). That message is sent verbatim and is not
+  scrubbed, so it can contain local absolute paths (for example the project
+  directory or `~/.arkor/...`). Opt out below if that matters to you.
 
 Each event carries `command`, `sdk_version`, `node_version`, `platform`, and
 `auth_mode` (`oauth` / `anon` / `none`). The distinct ID is the `sub` claim

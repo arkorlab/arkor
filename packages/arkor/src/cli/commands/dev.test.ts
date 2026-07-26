@@ -10,7 +10,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import type * as FsPromises from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import * as clack from "@clack/prompts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +35,28 @@ vi.mock("@hono/node-server", () => ({
 vi.mock("open", () => ({
   default: vi.fn(async () => undefined),
 }));
+
+// Record `rename` calls so a test can pin the agent session file's atomic
+// temp+rename publish. `vi.spyOn` cannot be used here (ESM module namespaces
+// are non-configurable), and a `vi.fn` in the factory would be neutered by the
+// `vi.restoreAllMocks()` in afterEach, so use a hoisted array plus a plain
+// pass-through wrapper: behaviour is byte-identical to the real fs.
+const { renameCalls } = vi.hoisted(() => ({
+  renameCalls: [] as [string, string][],
+}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  return {
+    ...actual,
+    rename: async (
+      from: Parameters<typeof actual.rename>[0],
+      to: Parameters<typeof actual.rename>[1],
+    ) => {
+      renameCalls.push([String(from), String(to)]);
+      return actual.rename(from, to);
+    },
+  };
+});
 
 import { serve } from "@hono/node-server";
 import open from "open";
@@ -828,8 +851,17 @@ describe("runDev", () => {
     // leave the CONTENT untouched (existence alone can't catch a clobber).
     mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
     writeFileSync(studioTokenPath(), "healthy-instance-token");
+    // Pin the CLASS, not just the message: bin.ts prints ExpectedCliError
+    // stack-free, and port-in-use is the most common `arkor dev` failure, so
+    // downgrading it to a plain Error would dump a minified dist stack for a
+    // routine collision. A message-only assertion would not catch that.
     await expect(runDev({ port: 4206 })).rejects.toThrow(
-      /Port 4206 is already in use/,
+      expect.objectContaining({
+        name: "ExpectedCliError",
+        message: expect.stringMatching(
+          /Port 4206 is already in use/,
+        ) as unknown as string,
+      }),
     );
     // The healthy instance's token is untouched and no cleanup handler was
     // registered.
@@ -947,8 +979,9 @@ describe("runDev", () => {
       expect(payload.port).toBe(4310);
       expect(payload.pid).toBe(process.pid);
       expect(payload.token).toMatch(/^[\w-]+$/);
-      // The home token is still written (user-facing contract: the Vite SPA
-      // workflow and the port-collision probe keep working in agent mode).
+      // The home token is still written in agent mode (user-facing contract:
+      // the Vite SPA dev workflow reads it). NOT for the port-collision probe:
+      // that hits the token-exempt /api/status and sends no token at all.
       expect(readFileSync(studioTokenPath(), "utf8")).toBe(payload.token);
       // Agent mode never opens a browser implicitly.
       expect(open).not.toHaveBeenCalled();
@@ -979,6 +1012,30 @@ describe("runDev", () => {
       );
       const strays = readdirSync(agentDir).filter((f) => f.includes(".tmp"));
       expect(strays).toEqual([]);
+    });
+
+    it("publishes the session file atomically (temp file + rename, never a direct write)", async () => {
+      // The "no .tmp strays" assertion above passes vacuously if the atomic
+      // temp+rename is swapped for a plain writeFile to the final path, so it
+      // does NOT pin atomicity. Readers (the agent, a concurrent `ls -t`) must
+      // never observe a partially written session file, which is the whole
+      // reason for the staging write. Spy on rename to pin it: a direct write
+      // never calls rename and fails here.
+      renameCalls.length = 0;
+      const stdout = await runDevCapturingStdout({
+        port: 4312,
+        agent: true,
+        cwd: projectDir,
+      });
+      const sessionPath = sessionPathFrom(stdout);
+      const call = renameCalls.find((c) => c[1] === sessionPath);
+      expect(call).toBeDefined();
+      // Staged under a .tmp sibling in the SAME directory: rename is only
+      // atomic within a filesystem, so a cross-device staging path would
+      // silently degrade to copy+unlink.
+      const from = String(call?.[0]);
+      expect(from).toMatch(/\.tmp$/);
+      expect(dirname(from)).toBe(dirname(sessionPath));
     });
 
     it("unlinks the session file from the exit cleanup and on signals", async () => {
@@ -1258,6 +1315,25 @@ describe("runDev", () => {
         /Port 4327 is already in use/,
       );
     });
+
+    it.runIf(process.platform === "linux")(
+      "falls back when the occupant reports a process-relative magic path (no /proc/self/cwd bypass)",
+      async () => {
+        // `/proc/self/cwd` is ABSOLUTE, so it clears the isAbsolute guard, but
+        // `realpathSync` resolves it against the PROBER. Without the
+        // process-relative carve-out it would resolve to our own projectRoot
+        // and adopt a hostile occupant that never knew where the project is.
+        // Same projectRoot === process.cwd() pinning rationale as the test
+        // above. Linux-only: /proc/self/cwd does not exist elsewhere, so the
+        // resolve would throw and the probe would fall back anyway, making the
+        // assertion pass for the wrong reason.
+        mockServeAddrInUse();
+        mockProbe({ server: "arkor-studio", cwd: "/proc/self/cwd" });
+        await expect(
+          runDev({ port: 4328, cwd: process.cwd() }),
+        ).rejects.toThrow(/Port 4328 is already in use/);
+      },
+    );
 
     it("falls back when the occupant streams an over-cap body even if it WOULD otherwise match (byte cap)", async () => {
       mockServeAddrInUse();

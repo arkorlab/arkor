@@ -145,7 +145,7 @@ my-arkor-app/
 
 `arkor dev` boots a [Hono](https://hono.dev) server on `127.0.0.1:4000` that serves a Vite + React SPA from the same origin. 
 
-The Studio server rejects non-loopback `Host` headers before serving HTML, and the SPA talks to your code via per-launch CSRF-token-gated `/api/*` routes; your code talks to the Arkor training backend over authenticated HTTPS. 
+The Studio server rejects non-loopback `Host` headers before serving HTML (DNS-rebinding defence), and the SPA talks to your code via per-launch CSRF-token-gated `/api/*` routes; your code talks to the Arkor training backend over authenticated HTTPS. 
 
 Training runs on managed GPUs; checkpoints stream back as SSE events that fire your `callbacks.*` in process.
 

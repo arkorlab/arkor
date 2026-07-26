@@ -268,7 +268,10 @@ export async function main(argv: string[]): Promise<void> {
   program
     .command("dev")
     .description("Launch Arkor Studio locally")
-    .option("-p, --port <port>", "Port to bind (default: 4000)", "4000")
+    // No "(default: 4000)" in the description: Commander appends its own
+    // `(default: "4000")` from the third argument, and spelling it twice made
+    // `arkor dev --help` print the default twice on one line.
+    .option("-p, --port <port>", "Port to bind", "4000")
     .option("--open", "Open the Studio URL in a browser after starting")
     .option(
       "--agent",
