@@ -14,7 +14,7 @@ Studio は `arkor dev` 実行時に立ち上がるローカル Web UI です。�
 3. **完成モデルを試す。** Playground ページでベースモデルや任意の完了済みジョブの最終アダプターを選んでチャットできます。中間チェックポイントは Playground からはロードしません。学習中の推論には [`onCheckpoint`](/ja/concepts/lifecycle) コールバックをトレーナーで使ってください。
 4. **`*.arkor.app` URL でモデルを公開する。** Endpoints ページで OpenAI 互換 chat completions を提供する deployment 専用サブドメインを作成し、その API キーを発行・取り消しできます。同じ操作は [`CloudApiClient`](/ja/sdk/deployments) からプログラマティックにも可能で、Studio が対話的なインターフェイス、SDK が下位レイヤーという位置付けです。
 
-dev ループのメモ: Studio の `/api/manifest` エンドポイントはリクエストごとにトレーナーをリビルド・再 import しますが（キャッシュバストクエリ付き、`packages/arkor/src/studio/manifest.ts` を参照）、UI が fetch するのは Run training ページがマウントされたときだけです。`src/arkor/` を編集して同じ Run training ページに留まり続けると、次のクリックは既存の `.arkor/build/index.mjs` を再利用して古いコードで走ります。確実に新しいコードを取り込むには、編集とクリックの間にページをリロード（あるいはターミナルから `arkor build`）してください。
+dev ループのメモ: Studio の `/api/manifest` エンドポイントはリクエストごとにトレーナーをリビルド・再 import し（コンテンツアドレス方式なので、編集が無ければ Node の ESM キャッシュを再利用します。`packages/arkor/src/studio/manifest.ts` を参照）、Run training ページはこれを 5 秒ごとにポーリングします。このリビルドは **Run training** が実行するのと同じ `.arkor/build/index.mjs` に書き込むため、`src/arkor/` の編集はページをリロードしなくても約 5 秒で反映されます。ただしこれはファイルシステムのウォッチャーではなく、開いているページが駆動するポーリングです。Studio を閉じている間はリビルドされませんし、ターミナルからの `arkor start` はディスク上にある成果物をそのまま実行します。
 
 ## Studio が動く場所
 

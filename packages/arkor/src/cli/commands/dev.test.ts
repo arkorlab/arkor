@@ -708,12 +708,20 @@ describe("runDev", () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
+    const warnSpy = vi.spyOn(clack.log, "warn").mockImplementation(() => {});
     try {
       const sigtermBefore = process.listeners("SIGTERM").length;
       await expect(runDev({ port: 4203 })).resolves.toEqual({
         adopted: false,
       });
       expect(serve).toHaveBeenCalledTimes(1);
+      // Assert the failure actually happened AND was surfaced. Without these
+      // the test passes even if the warn is deleted, and even if the injected
+      // EACCES never fires (leaving the whole branch unexercised).
+      expect(existsSync(studioTokenPath())).toBe(false);
+      expect(warnSpy.mock.calls.map((c) => c[0]).join("\n")).toMatch(
+        /Could not write .*studio-token.*Vite SPA dev workflow/s,
+      );
       // Regression (ENG-933 self-review): shutdown handlers must be installed
       // even when token persistence fails, so a SIGTERM (`docker stop`) still
       // routes through `process.exit` and fires 'exit' to reap any train
@@ -733,6 +741,7 @@ describe("runDev", () => {
       }
     } finally {
       stdoutSpy.mockRestore();
+      warnSpy.mockRestore();
       // Restore writable for afterEach rmSync.
       chmodSync(join(fakeHome, ".arkor"), 0o755);
     }

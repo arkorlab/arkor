@@ -323,14 +323,33 @@ async function readCapped(
 }
 
 /**
- * True for paths inside a kernel namespace whose symlinks resolve relative to
- * the process doing the resolving (`/proc/self/cwd`, `/proc/<pid>/cwd`,
- * `/proc/thread-self/...`, `/dev/fd/<n>`). Such a path is absolute but its
- * `realpathSync` result describes US, not the peer that reported it, so it can
- * never be trusted as a peer-supplied identity. Linux-only in practice; the
- * check is a cheap no-op elsewhere.
+ * True for peer-reported paths we refuse to hand to `realpathSync` at all.
+ *
+ * Two families:
+ *
+ *  - **Process-relative kernel namespaces** (`/proc/self/cwd`,
+ *    `/proc/<pid>/cwd`, `/proc/thread-self/...`, `/dev/fd/<n>`). These are
+ *    absolute, so they clear the `isAbsolute` check, but they resolve relative
+ *    to the process doing the resolving: us. Left alone, a peer reporting
+ *    `/proc/self/cwd` resolves to OUR project root and passes the same-project
+ *    comparison without knowing anything about the project.
+ *  - **UNC / network paths** (`\\host\share`, `//host/share`). Resolving one on
+ *    Windows makes an outbound SMB connection, which both blocks the event loop
+ *    outside the probe's 1.5s abort budget and can leak an NTLM handshake to a
+ *    host the peer chose.
+ *
+ * This is a cheap filter on the obvious cases, NOT a security boundary: a
+ * prefix test cannot see through a symlink (an ordinary-looking path pointing
+ * at `/proc/self/cwd` still resolves to us). It cannot be made airtight,
+ * because any resolution we perform happens in our own namespace on a string
+ * the peer controls. That is acceptable because adoption is unauthenticated by
+ * design and its worst case is a nuisance redirect, never code execution: the
+ * probe sends no token, so a peer that wins this comparison still cannot obtain
+ * the CSRF token or reach `POST /api/train`. The same-project comparison exists
+ * to stop a DIFFERENT project's Studio (the common, benign collision) from
+ * being adopted, and for that non-adversarial job it is exact.
  */
-function isProcessRelativePath(p: string): boolean {
+function isUntrustedPeerPath(p: string): boolean {
   // Normalise separators so `/proc/self/../self/cwd` and Windows-style input
   // cannot sneak past a naive prefix test.
   const norm = normalize(p).replaceAll("\\", "/");
@@ -338,7 +357,8 @@ function isProcessRelativePath(p: string): boolean {
     norm === "/proc" ||
     norm.startsWith("/proc/") ||
     norm === "/dev/fd" ||
-    norm.startsWith("/dev/fd/")
+    norm.startsWith("/dev/fd/") ||
+    norm.startsWith("//")
   );
 }
 
@@ -402,18 +422,12 @@ async function probeExistingStudio(
     // `realpathSync` would otherwise resolve against THIS process's cwd
     // (= projectRoot) and so spuriously pass the same-project check.
     if (typeof b.cwd !== "string" || !isAbsolute(b.cwd)) return false;
-    // Reject process-relative magic symlinks before resolving. `/proc/self/cwd`
-    // (also `/proc/<pid>/cwd`, `/proc/thread-self/cwd`, `/dev/fd/*`) is
-    // absolute, so it clears the check above, but `realpathSync` resolves it
-    // against the RESOLVING process: this CLI. A hostile occupant could
-    // therefore report `cwd: "/proc/self/cwd"` and have it resolve to our own
-    // projectRoot, passing the same-project check without ever knowing where
-    // the project lives. A real Studio always reports a concrete `trainCwd`,
-    // never one of these, so the carve-out costs nothing. (Adoption is
-    // unauthenticated by design, so the worst case here was still a nuisance
-    // redirect rather than code execution, but the documented invariant is
-    // "same project or no adoption" and this keeps it true.)
-    if (isProcessRelativePath(b.cwd)) return false;
+    // Filter the peer-reported path shapes we will not resolve at all (magic
+    // process-relative namespaces, UNC). See `isUntrustedPeerPath` for why this
+    // is a cheap filter rather than a boundary: a real Studio never reports one
+    // of these, so it costs nothing, but it cannot see through a symlink and is
+    // not what makes adoption safe (the probe sending no token is).
+    if (isUntrustedPeerPath(b.cwd)) return false;
     // Compare realpaths so a symlinked project root (e.g. macOS
     // `/var` -> `/private/var`) still matches the same project. The remote
     // value needs resolving too: the occupant reports its raw `trainCwd`,

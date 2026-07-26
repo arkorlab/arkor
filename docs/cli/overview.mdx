@@ -22,7 +22,7 @@ The `arkor` CLI is the command surface around an Arkor project. The [scaffolder]
 - **`--help` / `-h`** is available on every command; `arkor <command> --help` prints the flag list and usage.
 - **`arkor --version` / `-V`** prints the installed SDK version (the same `SDK_VERSION` the package exports).
 - **Exit codes.** Successful commands exit 0. Most commands exit non-zero on failure (uncaught throws, build errors, etc.). `arkor whoami` is a deliberate exception: it prints the failure to stdout but still exits 0 for ordinary cloud-api errors (`Failed to fetch /v1/me (<status>)`), and only sets `process.exitCode = 1` when the cloud-api responds with 426 (SDK too old). Wrapper scripts that need to detect a `whoami` failure should grep stdout, not rely on the exit code.
-- **Telemetry.** Every command runs through a small instrumentation wrapper so usage events can be sent to PostHog. See [Environment variables](#environment-variables) below for the full opt-out / debug knobs.
+- **Telemetry.** Every command runs through a small instrumentation wrapper so usage events can be sent to PostHog. A failing command also reports `error_name` and the first 200 characters of the error message, sent **verbatim and unscrubbed**, so it can contain local absolute paths (your project directory, `~/.arkor/...`). See [Environment variables](#environment-variables) below for the full opt-out / debug knobs.
 - **Deprecation notices.** When the cloud-api response carries `Deprecation: true`, the CLI prints a one-line warning at the end of the run with the suggested upgrade command. The `Warning` and `Sunset` headers (when present) format the message; they do not trigger the warning on their own.
 
 ## Environment variables

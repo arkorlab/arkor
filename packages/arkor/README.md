@@ -100,10 +100,12 @@ project's installed copy. Relative imports get inlined.
 `arkor dev` boots a Hono server on `127.0.0.1:4000` and serves a Vite +
 React SPA from the same origin. Two roles:
 
-- **Runs your TypeScript from source**: a run started with an explicit entry
-  file re-bundles it first, so you pick up edits without restarting `arkor
-  dev`. There is no file watcher, and a run started without an entry reuses
-  the existing `.arkor/build/index.mjs`.
+- **Picks up source edits without a restart**: the Overview page polls
+  `/api/manifest` every 5s, and each call re-runs the esbuild bundle into
+  `.arkor/build/index.mjs` and re-imports it. Run training spawns `arkor start`
+  against that same artifact, so a trainer edit is live within ~5s (and a newly
+  added trainer lights up the button) with no page reload. This is a poll on
+  the open page, not a filesystem watcher: with Studio closed, nothing rebuilds.
 - **GUI operations**: running training, inspecting jobs, mid-training
   inference in a Playground.
 
@@ -162,10 +164,14 @@ training from a custom Node script). `arkor start` uses it under the hood.
 ## Telemetry
 
 The CLI sends anonymous usage events to PostHog so we can see which commands
-are being run and where they fail. Three events are emitted per invocation:
+are being run and where they fail. An invocation emits `cli_command_started`
+and then at most one terminal event, never all three:
 
 - `cli_command_started`
-- `cli_command_completed` (includes `duration_ms`)
+- `cli_command_completed` (includes `duration_ms`) on success. Suppressed for
+  long-running commands: a serving `arkor dev` emits only
+  `cli_command_started`, since it has no meaningful completion. (`arkor dev`
+  that instead connects to an already-running Studio and exits does emit it.)
 - `cli_command_failed` (includes `duration_ms`, `error_name`, and the first
   200 chars of `error_message`). That message is sent verbatim and is not
   scrubbed, so it can contain local absolute paths (for example the project

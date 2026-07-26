@@ -156,6 +156,53 @@ describe("Studio server", () => {
     expect(await res.text()).toBe("console.log('studio')");
   });
 
+  it("refuses to serve files outside assetsDir (path traversal on the token-free GET *)", async () => {
+    // `GET *` is the one token-FREE route (the browser must be able to load
+    // the SPA before it can read the token out of it), so an unconstrained
+    // join would be an arbitrary local file read for anything that reaches the
+    // loopback port. Plant a secret one level above assetsDir and try to walk
+    // out to it.
+    //
+    // HONEST SCOPE: on POSIX this is a contract test, NOT a mutation-detecting
+    // one, and deleting the containment check in server.ts leaves it green.
+    // That is because nothing reaches the handler with a real `..` segment
+    // here (measured on Hono 4.12 / Node 24):
+    //
+    //   /../x      -> c.req.path "/x"       URL parsing collapses it
+    //   /%2e%2e/x  -> c.req.path "/x"       encoded dots are collapsed too
+    //   /..%2fx    -> c.req.path "/..%2fx"  decodeURI keeps reserved %2F
+    //   /..%5cx    -> c.req.path "/..\x"    %5C decodes, but on POSIX a
+    //                                       backslash is an ordinary filename
+    //                                       character, so it still cannot escape
+    //
+    // The guard earns its keep on WINDOWS, where `resolve` treats that decoded
+    // backslash as a separator and `/..%5cx` does escape. We cannot exercise
+    // win32 path semantics from a POSIX runner, so this test pins the
+    // observable contract on every platform and becomes mutation-detecting on
+    // Windows CI.
+    const secret = join(assetsDir, "..", "arkor-traversal-secret.txt");
+    writeFileSync(secret, "TOP-SECRET");
+    try {
+      const app = build();
+      for (const path of [
+        "/%2e%2e/arkor-traversal-secret.txt",
+        "/assets/%2e%2e/%2e%2e/arkor-traversal-secret.txt",
+        "/..%5carkor-traversal-secret.txt",
+      ]) {
+        const res = await app.request(path, {
+          headers: { host: "127.0.0.1:4000" },
+        });
+        const body = await res.text();
+        expect({ path, leaked: body.includes("TOP-SECRET") }).toEqual({
+          path,
+          leaked: false,
+        });
+      }
+    } finally {
+      rmSync(secret, { force: true });
+    }
+  });
+
   it("falls back to index.html for unknown extensionless paths (SPA hash router)", async () => {
     // Lines 404-407: the React app uses a router that produces paths like
     // /jobs/:id which aren't on disk. The handler must serve index.html so
@@ -216,6 +263,27 @@ describe("Studio server", () => {
       headers: { host: "127.0.0.1:4000" },
     });
     expect(res.status).toBe(403);
+  });
+
+  it("rejects NESTED /api/* routes without a studio token", async () => {
+    // The deny-direction tests above all use single-segment paths
+    // (/api/credentials). Hono's `/api/*` matches multi-segment paths too, but
+    // nothing pinned that: narrowing the middleware pattern (e.g. to
+    // `/api/:route`) would leave every nested route unauthenticated with the
+    // rest of the suite still green. These are the RCE-adjacent and
+    // secret-bearing ones, so cover the shapes explicitly.
+    const app = build();
+    for (const path of [
+      "/api/jobs/some-id/events",
+      "/api/deployments/some-id",
+      "/api/deployments/some-id/keys",
+      "/api/deployments/some-id/keys/some-key",
+    ]) {
+      const res = await app.request(path, {
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect({ path, status: res.status }).toEqual({ path, status: 403 });
+    }
   });
 
   it("rejects /api/* with a wrong studio token", async () => {

@@ -44,7 +44,7 @@ pnpm dev
 ```
 
 **No signup required:** 
-`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it provisions a throwaway anonymous workspace so you can fire off a real training run right away. 
+`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it provisions a throwaway anonymous workspace so you can fire off a real training run right away. Coding agents should use `arkor dev --agent`, which serves the same Studio headlessly and writes an API token to a JSON session file under `.arkor/agent/`; under `CLAUDECODE=1` a plain `arkor dev` refuses to start and asks for the flag. 
 
 Run `arkor login --oauth` later if you want to claim your work under an account.
 

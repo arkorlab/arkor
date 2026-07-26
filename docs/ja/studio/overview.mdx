@@ -48,7 +48,7 @@ Arkor マネージドバックエンド
 | --- | --- |
 | **Run training** | Overview ページ (`#/`) のボタン。`POST /api/train` を呼ぶと `arkor start` がサブプロセスとして起動し、stdout/stderr が生のテキストとしてページにストリーミングされます。 |
 | **Jobs リスト** | `#/jobs`。5 秒間隔の自動ポーリングに加えて手動 Refresh ボタン、名前 / ID での検索、status フィルター（`All` / `Running` / `Completed` / `Queued` / `Failed` / `Cancelled`）を備えます。列: Status、Name（詳細へリンク）、Created、ID。 |
-| **Job 詳細** | `#/jobs/:id`。ライブステータスバッジ、SVG の Loss チャート、生イベントログ（直近 50 行）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
+| **Job 詳細** | `#/jobs/:id`。ライブステータスバッジ、SVG の Loss チャート、生イベントログ（直近 500 件）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
 | **Playground** | `#/playground` のチャット UI。2 モード: 1 つの対応ベースモデル、または任意の完了済みジョブの最終アダプター。 |
 | **Endpoints** | `#/endpoints` の `*.arkor.app` URL 管理。Deployment の作成、enabled / auth mode の切替、API キーの発行と revoke。SDK の [`CloudApiClient`](/ja/sdk/deployments) と等価で、UI で行えるすべての操作にプログラマティックな呼び出しが対応。 |
 
@@ -60,7 +60,7 @@ Arkor マネージドバックエンド
 | --- | --- |
 | 動作中ジョブのキャンセル / 一時停止 | 自前コードから [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼ぶ。 |
 | Playground での中間チェックポイントアダプター選択 | トレーナー内で [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使う。SDK の `infer` は直前に保存されたチェックポイントに紐づく。 |
-| Jobs リストのページング | 現状のポーリング一覧ビューでは対象外。サーバーが完全な一覧を返す前提。 |
+| Jobs リストのページング | 現状のポーリング一覧ビューでは対象外。サーバーが完全な一覧を返す前提。検索と状態フィルターは**実装済み**です（その完全な一覧に対するクライアントサイド処理）。 |
 | プロジェクトごとの複数トレーナー | `/api/manifest` が単一の `trainer` を返す。SDK の [`createArkor`](/ja/sdk/create-arkor) も 1 つしか受け付けない。 |
 | Playground から `temperature` / `topP` / `maxTokens` を調整 | HTTP API（[`InferArgs`](/ja/sdk/infer)）はこれらを受け付ける。SDK から `infer` を呼ぶ際に渡してください。 |
 | Loss チャートのズーム、エクスポート、ツールチップ | チャートは静的な SVG パス。 |

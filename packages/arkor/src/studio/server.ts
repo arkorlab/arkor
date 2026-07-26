@@ -1142,10 +1142,35 @@ export function buildStudioApp(options: StudioServerOptions) {
     map: "application/json",
   };
 
+  // `assetsDir` resolved once so the containment check below compares two
+  // absolute, normalised paths.
+  const assetsRoot = resolve(assetsDir);
+
   async function readAsset(relPath: string): Promise<Response | null> {
     const cleaned = relPath.replace(/^\/+/, "");
+    // Path-traversal guard. This route is the token-FREE `GET *` handler (the
+    // SPA has to be reachable before the browser can read the token out of it),
+    // so an unconstrained join here would be an arbitrary local file read for
+    // any process that can reach the loopback port.
+    //
+    // Measured behaviour of the shapes that look dangerous (Hono 4.12, Node 24):
+    //
+    //   /../x       -> c.req.path "/x"        WHATWG URL parsing collapses it
+    //   /%2e%2e/x   -> c.req.path "/x"        parser collapses encoded dots too
+    //   /..%2fx     -> c.req.path "/..%2fx"   decodeURI keeps reserved %2F
+    //   /..%5cx     -> c.req.path "/..\x"     %5C DOES decode (not reserved)
+    //
+    // So on POSIX nothing reaches here with a real `..` segment and this guard
+    // is belt-and-braces. The reachable vector is WINDOWS: there `resolve`
+    // treats the decoded backslash as a separator, so `/..%5cx` escapes.
+    //
+    // Resolve first, then require the result to stay inside `assetsRoot`.
+    const target = resolve(assetsRoot, cleaned);
+    if (target !== assetsRoot && !target.startsWith(assetsRoot + sep)) {
+      return null;
+    }
     try {
-      const file = await readFile(join(assetsDir, cleaned));
+      const file = await readFile(target);
       const ext = cleaned.slice(cleaned.lastIndexOf(".") + 1);
       if (ext === "html") {
         const html = injectStudioToken(file.toString("utf8"), studioToken);
