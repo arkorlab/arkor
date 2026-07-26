@@ -115,6 +115,12 @@ Studio is loopback-only and per-launch CSRF-token-gated:
   headers. Mutation routes never accept the token from the query string.
   The token is generated on every `arkor dev` launch and injected into the
   served `index.html` as a `<meta>` tag the same-origin SPA reads at startup.
+- `GET /api/status` is the one token-exempt route (still behind the `Host` and
+  loopback guards). It is secrets-free and never runs project code: it reports
+  liveness, version, mode, url, pid, cwd and the endpoint list, never the token
+  or credentials. The exemption exists so a coding agent, and `arkor dev`'s own
+  port-collision probe, can confirm an occupant without transmitting the token
+  to an unverified peer.
 
 ## Public exports
 
