@@ -89,13 +89,23 @@ class TailBuffer {
 }
 
 /**
- * `arkor dev`'s [@hono/node-server] writes the "Arkor Studio running on …"
- * line *before* the underlying `http.Server.listen()` settles, so a fetch
- * fired in the small window between stdout flush and bound socket gets
- * `ECONNREFUSED`. The window is sub-millisecond on a warm Node process but
- * grows on a cold one. Poll a bare TCP connect until the kernel accepts:
- * cheaper than retrying every test's fetch and keeps the contract local
- * to the harness so spec authors can fetch immediately after `studio.url`.
+ * Defence in depth before the first fetch of a spawned Studio.
+ *
+ * NOTE: this is NOT load-bearing for the ordering an earlier version of this
+ * comment claimed. `@hono/node-server`'s `serve(opts, cb)` is
+ * `server.listen(port, hostname, cb)`, so `cb` IS the `listening` handler and
+ * `arkor dev` writes "Arkor Studio running on ..." from inside it, i.e. AFTER
+ * the socket is bound and accepting (in agent mode the harness waits on the
+ * session-file line, printed later still). There is no stdout-flush-before-bind
+ * window that could yield `ECONNREFUSED`.
+ *
+ * The poll is kept anyway because it is nearly free (it succeeds on the first
+ * iteration) and it keeps the harness robust to a future change in that
+ * ordering, to a proxy/port-forward in front of the child, and to a `url` whose
+ * port was reported before the OS finished plumbing it. Do not infer from this
+ * function that `serve()`'s callback fires pre-bind: `dev.ts` sets its
+ * `bound = true` discriminator inside that same callback, and the EADDRINUSE
+ * vs post-bind failure split depends on that being a genuine post-bind signal.
  */
 async function waitForPort(port: number): Promise<void> {
   const deadline = Date.now() + PORT_POLL_TIMEOUT_MS;
@@ -503,9 +513,9 @@ export async function startStudio(
   const { url, kill, sessionFile } = await spawnStudio(opts);
   let token: string;
   try {
-    // `arkor dev` writes the ready line before `http.Server.listen()`
-    // finishes binding; wait for the port to actually accept TCP
-    // connections before any fetch. See `waitForPort` comment.
+    // Belt-and-braces TCP poll before the first fetch. The ready line is
+    // already printed post-bind, so this normally passes on its first
+    // iteration. See the `waitForPort` docblock for why it is kept.
     const port = Number(new URL(url).port);
     await waitForPort(port);
     token = await readMetaToken(url);
