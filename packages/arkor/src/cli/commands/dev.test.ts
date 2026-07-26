@@ -1144,8 +1144,12 @@ describe("runDev", () => {
       return fetchSpy;
     }
 
-    it("connects to a running Studio serving THIS project: resolves adopted, prints the URL, registers no cleanup, sends no token", async () => {
-      mockServeAddrInUse();
+    it("connects to a running Studio serving THIS project: resolves adopted, prints the URL, closes its own listener, registers no cleanup, sends no token", async () => {
+      // dev.ts wraps the adopt-path `server.close()` in try/catch, so without
+      // this spy nothing keeps that call alive under mutation (deleting it left
+      // the whole suite green). Inject it and assert below.
+      const closeSpy = vi.fn();
+      mockServeAddrInUse(closeSpy);
       // Occupant reports it is an Arkor Studio serving the same project root.
       const fetchSpy = mockProbe({ server: "arkor-studio", cwd: projectDir });
       const exitBefore = process.listeners("exit").length;
@@ -1174,11 +1178,14 @@ describe("runDev", () => {
       // The probe is time-bounded by an AbortSignal (Node fetch has no default
       // timeout): without it, an occupant that accepts TCP but never responds
       // would hang `arkor dev` forever. Assert the signal is passed so removing
-      // the timeout guard fails here (the timeout DURATION is exercised
-      // behaviorally by the "times out on a silent occupant" test below).
+      // the timeout guard fails here (the exact DURATION is pinned by the
+      // "time-bounds the probe with AbortSignal.timeout(1500)" test below).
       expect(reqInit?.signal).toBeInstanceOf(AbortSignal);
       // Never follow a redirect from an untrusted occupant (no blind SSRF).
       expect(reqInit?.redirect).toBe("manual");
+      // The adopted instance owns the port; this launch must release the
+      // listener object it created instead of leaking it.
+      expect(closeSpy).toHaveBeenCalled();
       // No shutdown handler was registered by this doomed launch.
       expect(process.listeners("exit").length).toBe(exitBefore);
     });

@@ -350,9 +350,12 @@ async function probeExistingStudio(
       {
         signal: AbortSignal.timeout(1500),
         // A real /api/status is terminal and never redirects. `redirect:
-        // "manual"` stops an untrusted port occupant from bouncing this CLI-side
-        // GET to an arbitrary URL (a 3xx then yields an opaque, non-ok response
-        // that fails the check below), removing that blind-request surface.
+        // "manual"` stops an untrusted port occupant from bouncing this
+        // CLI-side GET to an arbitrary URL, removing that blind-request
+        // surface. Under Node/undici the 3xx then comes back as an ordinary
+        // response carrying the real status (NOT the browser's opaqueredirect
+        // filtering, which only applies to navigate-mode requests), so `res.ok`
+        // is false and the check below rejects it before any body is read.
         redirect: "manual",
       },
     );
