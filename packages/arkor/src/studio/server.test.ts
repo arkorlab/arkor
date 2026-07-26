@@ -382,7 +382,9 @@ describe("Studio server", () => {
     await writeCredentials(ANON_CREDS);
     await writeState(
       {
-        orgSlug: "state-org",
+        // Same org as ANON_CREDS: state that belongs to the current identity
+        // is surfaced verbatim (projectSlug proves the file was read).
+        orgSlug: "anon-org",
         projectSlug: "state-project",
         projectId: "p-state",
       },
@@ -398,8 +400,64 @@ describe("Studio server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
-      orgSlug: "state-org",
+      orgSlug: "anon-org",
       projectSlug: "state-project",
+    });
+  });
+
+  it("ignores a stale anonymous state.json scoped to a previous identity's org", async () => {
+    // ENG-979: after `arkor logout` a fresh anonymous session has a new org.
+    // A state.json left by the previous identity would make every scoped
+    // route forward the old org with the new token and 403, so Studio must
+    // ignore it (neither surfacing nor forwarding its org) and fall back to
+    // the current identity's org until a new scope is bootstrapped.
+    await writeCredentials(ANON_CREDS); // orgSlug: "anon-org"
+    await writeState(
+      { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+      trainCwd,
+    );
+    const app = build();
+    const res = await app.request("/api/credentials", {
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ mode: "anon", orgSlug: "anon-org" });
+    // The stale scope is not surfaced; projectSlug falls back to null.
+    expect(body.projectSlug).toBeNull();
+  });
+
+  it("honours OAuth state.json even when its org differs from the credentials", async () => {
+    // OAuth state is hand-maintained and can point at any org the user
+    // belongs to, so the stale-anonymous guard must never ignore it.
+    await writeCredentials({
+      mode: "oauth",
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresAt: 0,
+      auth0Domain: "d",
+      audience: "a",
+      clientId: "c",
+    });
+    await writeState(
+      { orgSlug: "real-org", projectSlug: "real-project", projectId: "p-real" },
+      trainCwd,
+    );
+    const app = build();
+    const res = await app.request("/api/credentials", {
+      headers: {
+        host: "127.0.0.1:4000",
+        "x-arkor-studio-token": STUDIO_TOKEN,
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      orgSlug: "real-org",
+      projectSlug: "real-project",
     });
   });
 
@@ -813,6 +871,56 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       expect(calls).toBe(1);
     });
 
+    it("reconciles a stale scope against the identity minted lazily on this request", async () => {
+      // Regression for the credential-bootstrap gap: after `arkor logout`
+      // there is a stale state.json but NO credentials on disk when the first
+      // cloud-backed read arrives. The lazy autoAnonymous mint happens during
+      // this request, so the stale scope must be compared against the *newly
+      // minted* org, not kept and forwarded with the new token (a cross-org
+      // 403).
+      await writeState(
+        { orgSlug: "anon-old", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+        const url = String(input);
+        if (url.endsWith("/v1/auth/anonymous")) {
+          calls++;
+          return Response.json(
+            {
+              token: "fresh-anon",
+              anonymousId: "fresh-aid",
+              kind: "cli",
+              personalOrg: { id: "o", slug: "anon-fresh", name: "Anon" },
+            },
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+
+      const app = buildStudioApp({
+        baseUrl: "http://mock-cloud-api",
+        assetsDir,
+        autoAnonymous: true,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+      });
+      const res = await app.request("/api/credentials", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      // The minted org is surfaced, not the stale "anon-old" scope.
+      expect(body).toMatchObject({ mode: "anon", orgSlug: "anon-fresh" });
+      expect(body.projectSlug).toBeNull();
+      expect(calls).toBe(1);
+    });
+
     it("rejects with a sign-in hint when autoAnonymous=false and no credentials exist", async () => {
       // Branch coverage for the `if (!autoAnonymous) throw …` path.
       const app = buildStudioApp({
@@ -1052,7 +1160,9 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       await writeCredentials(ANON_CREDS);
       await writeState(
         {
-          orgSlug: "events-org",
+          // Same org as ANON_CREDS so the state belongs to the current
+          // identity and is not ignored as a stale anonymous scope.
+          orgSlug: "anon-org",
           projectSlug: "events-project",
           projectId: "p-events",
         },
@@ -1082,7 +1192,7 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       expect(res.status).toBe(200);
       expect(capturedUrl).not.toBeNull();
       expect(capturedUrl!).toContain("/v1/jobs/job-1/events/stream");
-      expect(capturedUrl!).toContain("orgSlug=events-org");
+      expect(capturedUrl!).toContain("orgSlug=anon-org");
       expect(capturedUrl!).toContain("projectSlug=events-project");
     });
 
@@ -1090,7 +1200,9 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       await writeCredentials(ANON_CREDS);
       await writeState(
         {
-          orgSlug: "events-org",
+          // Same org as ANON_CREDS so the state belongs to the current
+          // identity and is not ignored as a stale anonymous scope.
+          orgSlug: "anon-org",
           projectSlug: "events-project",
           projectId: "p-events",
         },
@@ -1144,6 +1256,42 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       expect(body.jobs).toEqual([]);
     });
 
+    it("reads a stale anonymous scope as an empty job list instead of forwarding the old org", async () => {
+      // ENG-979: after `arkor logout` the state.json left by the previous
+      // anonymous identity points at a different org. Forwarding it with the
+      // new token 403s upstream, so /api/jobs must reconcile against the
+      // resolved credentials snapshot and degrade to the same empty list a
+      // fresh workspace gets, without ever reaching cloud-api.
+      await writeCredentials(ANON_CREDS); // orgSlug: "anon-org"
+      await writeState(
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not reach cloud-api");
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { jobs: unknown[] };
+      expect(body.jobs).toEqual([]);
+      expect(calls).toBe(0);
+      // Read paths never rewrite the file; it may be a hand-maintained scope.
+      expect(await readState(trainCwd)).toEqual({
+        orgSlug: "anon-previous",
+        projectSlug: "old",
+        projectId: "p-old",
+      });
+    });
+
     it("returns 400 on /api/jobs/:id/events when project state is missing", async () => {
       // Without `.arkor/state.json` written into trainCwd, the proxy has
       // no scope to forward.
@@ -1158,6 +1306,40 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error?: string };
       expect(body.error).toBe("No project state");
+    });
+
+    it("treats a stale anonymous scope on /api/jobs/:id/events as missing state", async () => {
+      // ENG-979: the SSE proxy bypasses createRpc() and opens the stream
+      // directly, so a stale scope would pin the stream to the previous org.
+      // It reconciles against the same credentials snapshot as /api/jobs and
+      // reports "no state" rather than opening a doomed stream.
+      await writeCredentials(ANON_CREDS); // orgSlug: "anon-org"
+      await writeState(
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not open a stream");
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/jobs/j-xyz/events", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toBe("No project state");
+      expect(calls).toBe(0);
+      expect(await readState(trainCwd)).toEqual({
+        orgSlug: "anon-previous",
+        projectSlug: "old",
+        projectId: "p-old",
+      });
     });
 
     it("forwards Last-Event-ID through the SSE proxy", async () => {
@@ -1489,6 +1671,48 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       // X-Arkor-Client must be present, otherwise cloud-api's SDK version
       // gate rejects the proxied request with 426 (reason: "missing").
       expect(chat!.headers["x-arkor-client"]).toMatch(/^arkor\/\S+$/);
+    });
+
+    it("returns 409 (not an opaque 500) for a stale anonymous scope", async () => {
+      // ENG-979: anon creds present, but state.json is from a previous
+      // anonymous identity (different org). ensureProjectState throws the typed
+      // ProjectStateMismatchError; the chat handler must map it to a 409 with
+      // the actionable message instead of the generic backend 500, and must not
+      // overwrite the file or call cloud-api.
+      await writeCredentials(ANON_CREDS); // org "anon-org"
+      await writeState(
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not reach cloud-api");
+      }) as typeof fetch;
+
+      const app = build();
+      const res = await app.request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-E4B-it",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain(".arkor/state.json");
+      expect(calls).toBe(0);
+      // The stale file is preserved, not overwritten.
+      expect(await readState(trainCwd)).toEqual({
+        orgSlug: "anon-previous",
+        projectSlug: "old",
+        projectId: "p-old",
+      });
     });
 
     it("proxies inference using existing state without re-creating a project", async () => {
@@ -2527,6 +2751,33 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       expect(calls).toBe(0);
     });
 
+    it("listing with a stale anonymous scope returns the friendly empty wrapper, not an error", async () => {
+      // ENG-979: after logout the Endpoints tab must load cleanly. A stale
+      // anonymous state (different org) reconciles to the same 200
+      // `scopeMissing` empty list as a fresh workspace, NOT a 404/409 load
+      // error, and never forwards the stale org to cloud-api.
+      await writeCredentials(ANON_CREDS); // org "anon-org"
+      await writeState(
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not reach cloud-api");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        deployments: [],
+        scopeMissing: true,
+      });
+      expect(calls).toBe(0);
+    });
+
     it("GET /api/deployments/:id on a fresh workspace returns 404 without calling getCredentials", async () => {
       // Regression: the read-path short-circuit must run *before*
       // `getCredentials()`. Otherwise on a fresh workspace where
@@ -2580,6 +2831,78 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       const body = (await res.json()) as { error?: string };
       expect(body.error).toMatch(/no credentials on file/i);
       expect(body.error).toMatch(/arkor login/);
+    });
+
+    it("reconciles a stale anonymous scope on deployment reads instead of forwarding the old org", async () => {
+      // ENG-979 (single snapshot): anon creds present, but the state.json is
+      // from a previous anonymous identity (different org). The deployment read
+      // must drop that scope against the resolved-credentials snapshot and
+      // return the 409 mismatch guidance, never forward the stale org to
+      // cloud-api (which would 403 with the new token) and never overwrite the
+      // file.
+      await writeCredentials(ANON_CREDS); // org "anon-org"
+      await writeState(
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not reach cloud-api");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments/dep-1", {
+        headers: studioHeaders(),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain(".arkor/state.json");
+      expect(calls).toBe(0);
+      // The stale file is preserved, not overwritten.
+      expect(await readState(trainCwd)).toEqual({
+        orgSlug: "anon-previous",
+        projectSlug: "old",
+        projectId: "p-old",
+      });
+    });
+
+    it("rejects a create against a stale anonymous scope with 409 instead of bootstrapping over it", async () => {
+      // ENG-979 (create intent): the original bug. A POST with a
+      // present-but-mismatched scope used to fall through to
+      // `ensureProjectState`, whose throw surfaced as an opaque 500. The
+      // `isOrgUsableFor` guard short-circuits before that, and unlike the
+      // no-scope path it must NOT bootstrap a replacement project over a file
+      // that may be a hand-maintained OAuth scope.
+      await writeCredentials(ANON_CREDS); // org "anon-org"
+      await writeState(
+        { orgSlug: "anon-previous", projectSlug: "old", projectId: "p-old" },
+        trainCwd,
+      );
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        throw new Error("stale scope must not reach cloud-api");
+      }) as typeof fetch;
+      const app = build();
+      const res = await app.request("/api/deployments", {
+        method: "POST",
+        headers: studioHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          slug: "first",
+          target: { kind: "base_model", baseModel: "m" },
+          authMode: "none",
+        }),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain(".arkor/state.json");
+      expect(calls).toBe(0);
+      // No orphan project was created and the stale file survives untouched.
+      expect(await readState(trainCwd)).toEqual({
+        orgSlug: "anon-previous",
+        projectSlug: "old",
+        projectId: "p-old",
+      });
     });
   });
 });

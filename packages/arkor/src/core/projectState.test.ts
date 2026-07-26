@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CloudApiClient, CloudApiError } from "./client";
-import { ensureProjectState } from "./projectState";
+import {
+  ANON_STATE_MISMATCH_MESSAGE,
+  ProjectStateMismatchError,
+  ensureProjectState,
+} from "./projectState";
 import { readState, writeState } from "./state";
 
 import type { AnonymousCredentials, OAuthCredentials } from "./credentials";
@@ -62,6 +66,19 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("ProjectStateMismatchError", () => {
+  it("carries the stable `name` discriminator the CLI matches cross-bundle", () => {
+    // `bin.ts` identifies this error by `err.name` (not `instanceof`) so it
+    // survives `arkor start` loading the user project's separately bundled
+    // `arkor` copy. Guard that contract: if the name drifts, the CLI would
+    // fall back to printing a raw stack trace.
+    const err = new ProjectStateMismatchError(ANON_STATE_MISMATCH_MESSAGE);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe("ProjectStateMismatchError");
+    expect(err.message).toBe(ANON_STATE_MISMATCH_MESSAGE);
+  });
+});
+
 describe("ensureProjectState", () => {
   it("returns existing state without calling the API when state.json is present", async () => {
     await writeState(
@@ -86,6 +103,63 @@ describe("ensureProjectState", () => {
       projectId: "pid-1",
     });
     expect(createProject).not.toHaveBeenCalled();
+  });
+
+  it("throws without overwriting when an anonymous session finds a mismatched state.json", async () => {
+    // A `.arkor/state.json` scoped to a different org than the current
+    // anonymous identity is either a previous anonymous session's leftover or
+    // a hand-maintained OAuth scope. state.json carries no reliable owner
+    // marker to tell them apart, so we never bootstrap over it: throw with the
+    // two safe recoveries and leave the file exactly as written. (The read
+    // paths ignore the same file, so `arkor dev` Studio stays usable; only
+    // these write paths need the file cleared or an OAuth login first.)
+    await writeState(
+      { orgSlug: "anon-previous", projectSlug: "old", projectId: "pid-old" },
+      cwd,
+    );
+    const createProject = vi.fn();
+    const client = fakeClient({
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
+    });
+
+    await expect(
+      ensureProjectState({ cwd, client, credentials: anonCreds }),
+    ).rejects.toThrow(/scoped to a different organization/);
+    expect(createProject).not.toHaveBeenCalled();
+    // The file is left exactly as written (never overwritten with an anon scope).
+    expect(await readState(cwd)).toEqual({
+      orgSlug: "anon-previous",
+      projectSlug: "old",
+      projectId: "pid-old",
+    });
+  });
+
+  it("honours existing oauth state even when its org differs from a would-be anon org", async () => {
+    // OAuth state is hand-maintained and can point at any org the user
+    // belongs to, so the anon-only mismatch guard must never fire for it.
+    await writeState(
+      { orgSlug: "real-org", projectSlug: "proj", projectId: "pid-oauth" },
+      cwd,
+    );
+    const createProject = vi.fn();
+    const client = fakeClient({
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
+    });
+
+    const state = await ensureProjectState({
+      cwd,
+      client,
+      credentials: oauthCreds,
+    });
+
+    expect(createProject).not.toHaveBeenCalled();
+    expect(state).toEqual({
+      orgSlug: "real-org",
+      projectSlug: "proj",
+      projectId: "pid-oauth",
+    });
   });
 
   it("throws for oauth callers without state (they must write .arkor/state.json by hand)", async () => {

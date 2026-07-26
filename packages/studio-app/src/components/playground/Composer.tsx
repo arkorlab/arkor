@@ -26,7 +26,13 @@ export function Composer({
   }, [value]);
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Ignore Enter while the IME is composing. `isComposing` alone is not
+    // enough: in Safari `compositionend` fires before `keydown`, so the Enter
+    // that commits a conversion arrives with `isComposing === false` and only
+    // the legacy `keyCode === 229` sentinel still marks it as IME processing.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- keyCode 229 is the only cross-browser IME-composition sentinel; there is no non-deprecated equivalent
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!disabled && value.trim()) onSubmit();
     }
