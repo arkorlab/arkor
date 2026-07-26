@@ -21,6 +21,20 @@ try {
   // just set the exit code without re-printing the message or its stack.
   if (err instanceof ClaudeCodeStrictExit) {
     process.exitCode = 1;
+  } else if (err instanceof Error && err.name === "ProjectStateMismatchError") {
+    // A recoverable, expected setup conflict (a stale anonymous
+    // `.arkor/state.json` after `arkor logout`): print the actionable
+    // message only. The stack trace would be an unhelpful minified blob and
+    // would bury the "delete the file / `arkor login`" guidance the message
+    // carries. Studio maps the same error to a 409; this is its CLI mirror.
+    //
+    // Matched by `name`, NOT `instanceof`: `arkor start` loads the user
+    // project's own bundled `arkor` copy, so a `ProjectStateMismatchError` it
+    // throws has a different class constructor than this CLI bundle's, and
+    // `instanceof` would be false across that boundary. The `name` string is
+    // stable across bundles (asserted in `projectState.test.ts`).
+    console.error(err.message);
+    process.exitCode = 1;
   } else {
     console.error(
       err instanceof Error ? (err.stack ?? err.message) : String(err),

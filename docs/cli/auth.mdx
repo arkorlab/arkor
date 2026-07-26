@@ -77,6 +77,14 @@ credentials file yourself: deleting it removes the local token for that
 anonymous identity, and the next anonymous login creates a new `anonymousId`.
 OAuth credentials can be recreated by running `arkor login --oauth` again.
 
+`arkor logout` does not touch the project-local `.arkor/state.json`. If you
+were anonymous and start a fresh anonymous session in the same workspace, that
+leftover file points at the previous identity's organization: read views ignore
+it (lists stay empty), but the first write (training, base-model inference,
+endpoint creation) fails with a 409 / error asking you to delete
+`.arkor/state.json` to start a fresh anonymous project, or `arkor login` with
+the account that owns it. See [Project structure](/concepts/project-structure).
+
 ### Synopsis
 
 ```
