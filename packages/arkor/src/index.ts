@@ -13,6 +13,7 @@ export type {
   InferArgs,
   JobStatus,
   LoraConfig,
+  ReasoningEffort,
   ResponseFormat,
   StructuredOutputs,
   ToolCall,
@@ -22,6 +23,7 @@ export type {
   TrainerCallbacks,
   TrainerInput,
   TrainingJob,
+  TrainingMetrics,
   TrainingResult,
 } from "./core/types";
 export {
@@ -49,4 +51,5 @@ export type {
   DeploymentScope,
   DeploymentTarget,
   UpdateDeploymentInput,
+  WritableDeploymentTarget,
 } from "./core/deployments";

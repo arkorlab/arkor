@@ -61,11 +61,11 @@ These are exported for code that drives Arkor outside the CLI flow, e.g. running
 
 Public type exports (from `arkor`):
 
-`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `OAuthCredentials`, `AnonymousCredentials`, and `Credentials` for the auth helpers.
+`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `ChatMessage`, `DatasetSource`, `HuggingfaceDatasetSource`, `InferArgs`, `JobStatus`, `LoraConfig`, `ReasoningEffort`, `ResponseFormat`, `StructuredOutputs`, `ToolCall`, `ToolChoice`, `ToolDefinition`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingMetrics`, `TrainingResult`, plus `OAuthCredentials`, `AnonymousCredentials`, and `Credentials` for the auth helpers.
 
-Deployment-related type-only exports (see [Deployments](/sdk/deployments)): `CloudApiClientOptions`, `DeploymentTarget`, `DeploymentAuthMode`, `DeploymentRunRetentionMode`, `DeploymentDto`, `DeploymentKeyDto`, `DeploymentScope`, `CreateDeploymentInput`, `UpdateDeploymentInput`, `CreateDeploymentKeyInput`, `CreateDeploymentKeyResult`. The runtime `CloudApiClient` and `CloudApiError` classes are listed under Utilities above; they're value exports, not types, so import them as values.
+Deployment-related type-only exports (see [Deployments](/sdk/deployments)): `CloudApiClientOptions`, `DeploymentTarget`, `WritableDeploymentTarget`, `DeploymentAuthMode`, `DeploymentRunRetentionMode`, `DeploymentDto`, `DeploymentKeyDto`, `DeploymentScope`, `CreateDeploymentInput`, `UpdateDeploymentInput`, `CreateDeploymentKeyInput`, `CreateDeploymentKeyResult`. The runtime `CloudApiClient` and `CloudApiError` classes are listed under Utilities above; they're value exports, not types, so import them as values.
 
-`TrainingLogContext`, `CheckpointContext`, `InferArgs` are not exported by name today; they are documented in the [callbacks](/sdk/callbacks) and [infer](/sdk/infer) pages so you can mirror them inline if you need typed callback parameters.
+`TrainingLogContext` and `CheckpointContext` are not exported by name today; they are documented in the [callbacks](/sdk/callbacks) page so you can mirror them inline if you need typed callback parameters.
 
 ## Not in the public surface
 

@@ -92,27 +92,29 @@ onCheckpoint: async ({ step, infer }) => {
 
 実用上もっとも価値のあるコールバックです。学習の最後まで待たずに、途中でモデルを動作確認できます。チェックポイントが既にベースモデルより悪ければ、止めるべきだとわかります。
 
-## `onCompleted({ job, artifacts })`
+## `onCompleted({ job, artifacts, metrics })`
 
-成功時に 1 回発火します。`artifacts` はこの学習でバックエンドが生成した成果物のリストです。用途:
+成功時に 1 回発火します。`artifacts` はこの学習でバックエンドが生成した成果物のリスト、`metrics` は run 全体のサマリー（`finalLoss` / `totalSteps` / `totalTime`）です。`metrics` は常にオブジェクトで、バックエンドが報告しなかった項目は `null` になります。用途:
 
 - 最終アダプター ID をアプリの他の部分から見つけられる場所に保存。
+- 最後の `onLog` フレームから再計算せずに最終 loss を記録。
 - モデルを昇格させる前に最終スモークテスト。
 - 「学習完了」通知の送信。
 
 ```ts
-onCompleted: ({ job, artifacts }) => {
+onCompleted: ({ job, artifacts, metrics }) => {
   console.log(`Run ${job.id} done, ${artifacts.length} artifacts`);
+  console.log(`final loss ${metrics.finalLoss} after ${metrics.totalSteps} steps`);
 },
 ```
 
-## `onFailed({ job, error })`
+## `onFailed({ job, error, step })`
 
-バックエンドが失敗を報告した場合に 1 回発火します。`error` は `string`（バックエンドが送ってきたメッセージ）であって `Error` インスタンスではないことに注意:
+バックエンドが失敗を報告した場合に 1 回発火します。`error` は `string`（バックエンドが送ってきたメッセージ）であって `Error` インスタンスではないことに注意。`step` は run が落ちた学習ステップで、学習ループに入る前に失敗した場合は `null` です:
 
 ```ts
-onFailed: ({ job, error }) => {
-  console.error(`Run ${job.id} failed: ${error}`);
+onFailed: ({ job, error, step }) => {
+  console.error(`Run ${job.id} failed at step ${step}: ${error}`);
 },
 ```
 

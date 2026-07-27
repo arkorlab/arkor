@@ -34,6 +34,21 @@ interface InferArgs {
   maxTokens?: number;
   /** デフォルト: true。SSE ではなく単一 JSON ボディが欲しいなら false に。 */
   stream?: boolean;
+  /** ストップシーケンス。 */
+  stop?: string | string[];
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  seed?: number;
+  logprobs?: boolean;
+  topLogprobs?: number;
+  /** トークン ID（文字列）→ バイアス。 */
+  logitBias?: Record<string, number>;
+  /** OpenAI の stream_options。 */
+  streamOptions?: { includeUsage?: boolean };
+  /** Gemma 4 の thinking トグル。 */
+  enableThinking?: boolean;
+  /** OpenAI 互換の reasoning_effort。 */
+  reasoningEffort?: ReasoningEffort;
   /** OpenAI 互換の Function Calling のためのツール定義。 */
   tools?: ToolDefinition[];
   /** "auto" | "none" | "required" | { type: "function", function: { name } } */
@@ -49,10 +64,20 @@ interface InferArgs {
 | フィールド | 型 | 補足 |
 | --- | --- | --- |
 | `messages` | `ChatMessage[]` | チャット履歴。`system` / `user` / `assistant`（任意の `tool_calls` 付き）/ `tool`（`tool_call_id` 付き）の判別共用体で、OpenAI のメッセージ形と完全互換。Function Calling を含む履歴をそのまま往復できます。 |
-| `temperature` | `number?` | サンプリング温度。省略時はバックエンドのデフォルト。 |
-| `topP` | `number?` | Nucleus サンプリング。省略時はバックエンドのデフォルト。 |
+| `temperature` | `number?` | サンプリング温度、0〜2。省略時はバックエンドのデフォルト。 |
+| `topP` | `number?` | Nucleus サンプリング、0〜1。省略時はバックエンドのデフォルト。 |
 | `maxTokens` | `number?` | 応答トークンの最大値。省略時はバックエンドのデフォルト。 |
 | `stream` | `boolean?` | デフォルトは **true**（SSE）。単一 JSON ボディが欲しければ `false`。 |
+| `stop` | `string \| string[]?` | ストップシーケンス。各文字列は空不可、最大 16 個。空配列は明示的な no-op として受理されます。 |
+| `presencePenalty` | `number?` | -2〜2。 |
+| `frequencyPenalty` | `number?` | -2〜2。 |
+| `seed` | `number?` | 再現性のためのサンプリングシード。 |
+| `logprobs` | `boolean?` | トークンごとの logprob を返す。 |
+| `topLogprobs` | `number?` | トークンあたりの候補数、0〜20。0 より大きい値には `logprobs: true` が必要で、組み合わせが不整合ならエンドポイントが `400` を返します。 |
+| `logitBias` | `Record<string, number>?` | トークン ID（文字列キー）→ -100〜100 のバイアス。数値でないキーは上流で拒否されます。 |
+| `streamOptions` | `{ includeUsage?: boolean }?` | OpenAI の `stream_options`。最後の usage チャンクを受け取るかどうかだけを制御し、計測対象は変わりません。 |
+| `enableThinking` | `boolean?` | Gemma 4 の thinking トグル。省略するとモデルの chat template の既定が使われ、Gemma 以外のエンドポイントでも安全です。 |
+| `reasoningEffort` | `ReasoningEffort?` | `"none"` / `"minimal"` / `"low"` / `"medium"` / `"high"` / `"xhigh"` / `"max"`。Gemma 4 には段階的な effort がないため `"none"` 以外はすべて「thinking オン」に collapse します。`enableThinking` を明示した場合はそちらが優先されます。 |
 | `tools` | `ToolDefinition[]?` | モデルが呼び出せる関数定義。`toolChoice` を明示しない場合は OpenAI 仕様どおり既定 `"auto"` が適用されます。エンドポイントが auto-tool 抽出に未対応なら `400 tool_calling_not_configured` が返ります。 |
 | `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }`。auto-extraction のパーサが必要なのは `"auto"`（と `tools` 指定時の既定）のみで、それ以外は guided-decoding 経路を通ります。 |
 | `responseFormat` | `ResponseFormat?` | OpenAI 標準の構造化出力スイッチ。`{ type: "text" }` / `{ type: "json_object" }` / `{ type: "json_schema", json_schema: { name, schema, strict? } }`。表現できる制約はこちらを優先。 |

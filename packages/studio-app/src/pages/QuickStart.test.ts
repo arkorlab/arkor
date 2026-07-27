@@ -24,6 +24,7 @@ describe("buildQuickStartSample: cURL", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     expect(out).toContain(`curl -X POST ${ENDPOINT_URL}`);
     expect(out).toContain("Authorization: Bearer YOUR_API_KEY");
@@ -43,6 +44,7 @@ describe("buildQuickStartSample: cURL", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     expect(out).toContain(`-H "Content-Type: application/json"`);
     expect(out).toContain(`-H "Authorization: Bearer YOUR_API_KEY"`);
@@ -59,6 +61,7 @@ describe("buildQuickStartSample: cURL", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "none",
+      targetKind: "base_model",
     });
     expect(out).not.toContain("Authorization");
     expect(out).not.toContain("YOUR_API_KEY");
@@ -76,6 +79,7 @@ describe("buildQuickStartSample: Python (openai SDK)", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     expect(out).toContain('base_url="https://mymodel.arkor.app/v1"');
     expect(out).not.toContain("/v1/chat/completions");
@@ -93,6 +97,7 @@ describe("buildQuickStartSample: Python (openai SDK)", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "none",
+      targetKind: "base_model",
     });
     expect(out).toContain('api_key="not-required"');
     expect(out).toContain("auth_mode=none on this deployment");
@@ -107,6 +112,7 @@ describe("buildQuickStartSample: JavaScript (openai SDK)", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     expect(out).toContain('baseURL: "https://mymodel.arkor.app/v1"');
     expect(out).not.toContain("/v1/chat/completions");
@@ -120,6 +126,7 @@ describe("buildQuickStartSample: JavaScript (openai SDK)", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "none",
+      targetKind: "base_model",
     });
     expect(out).toContain('apiKey: "not-required"');
     expect(out).not.toContain("YOUR_API_KEY");
@@ -137,6 +144,7 @@ describe("buildQuickStartSample: JavaScript (openai SDK)", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     // The marker must come *before* the `import` so the reader sees
     // the requirement before the line that fails to parse under CJS.
@@ -157,6 +165,7 @@ describe("buildQuickStartSample: JavaScript (openai SDK)", () => {
       operation: "chat",
       endpointUrl: ENDPOINT_URL,
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     expect(out).toContain("async function main()");
     expect(out).toContain("main();");
@@ -186,6 +195,7 @@ describe("buildQuickStartSample: base URL derivation", () => {
       // `/v1`, not leave the operation suffix in place.
       endpointUrl: "https://mymodel.arkor.app/v1/embeddings",
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     expect(out).toContain('base_url="https://mymodel.arkor.app/v1"');
     expect(out).not.toContain("/embeddings");
@@ -200,6 +210,7 @@ describe("buildQuickStartSample: base URL derivation", () => {
       operation: "chat",
       endpointUrl: "https://mymodel.arkor.app:8443/v1/chat/completions",
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     expect(out).toContain('baseURL: "https://mymodel.arkor.app:8443/v1"');
   });
@@ -214,7 +225,44 @@ describe("buildQuickStartSample: base URL derivation", () => {
       operation: "chat",
       endpointUrl: "not-a-valid-url/v1/chat/completions",
       authMode: "fixed_api_key",
+      targetKind: "base_model",
     });
     expect(out).toContain('base_url="not-a-valid-url/v1"');
   });
+});
+
+describe("buildQuickStartSample: model field per target kind", () => {
+  // A `model_menu` deployment routes on the `model` field instead of
+  // ignoring it, so a sample hardcoding `"ignored"` either 400s on the
+  // unknown slug or silently serves the catalog default. Every language
+  // is covered because each branch templates the value separately.
+  it.each(["curl", "python", "javascript"] as const)(
+    "uses a replaceable placeholder for a model_menu deployment (%s)",
+    (language) => {
+      const out = buildQuickStartSample({
+        language,
+        operation: "chat",
+        endpointUrl: ENDPOINT_URL,
+        authMode: "none",
+        targetKind: "model_menu",
+      });
+      expect(out).toContain("MODEL_NAME");
+      expect(out).not.toContain("ignored");
+    },
+  );
+
+  it.each(["adapter", "base_model"] as const)(
+    "keeps `ignored` for a %s deployment, which pins its model",
+    (targetKind) => {
+      const out = buildQuickStartSample({
+        language: "curl",
+        operation: "chat",
+        endpointUrl: ENDPOINT_URL,
+        authMode: "none",
+        targetKind,
+      });
+      expect(out).toContain('"model":"ignored"');
+      expect(out).not.toContain("MODEL_NAME");
+    },
+  );
 });

@@ -19,7 +19,8 @@ export const trainer = createTrainer({
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
   datasetFormat: { type: "chatml" },
   maxSteps: 100,
-  evalSteps: 25,
+  evalSteps: { steps: 25 },
+  datasetSplit: { enabled: true, testSize: 0.1 },
   lora: { r: 16, alpha: 16, loadIn4bit: false },
   callbacks: {
     onLog: ({ step, loss, evalLoss }) => {
@@ -37,7 +38,12 @@ export const trainer = createTrainer({
 });
 ```
 
-`evalSteps: 25` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます。Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。各 `field=…` セグメントは `Number.isFinite` でガードされているので、eval-only ステップで `loss=null` が出たり、training-only ステップで `evalLoss=null` が出ることはありません（SDK は欠損値を `null` に正規化し、`evalLoss` の型は `number | null` です）。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 関連も合わせて削ってください。
+`evalSteps: { steps: 25 }` と `datasetSplit: { enabled: true, testSize: 0.1 }` がデフォルトで導入されているので、学習 loss と並んで eval loss の系列も出力されます。Studio の loss チャートは `evalLoss` を自動で拾い、上の `onLog` コールバックも eval が走ったステップだけターミナル行末に ` evalLoss=…` を追記します（`maxSteps: 100` で 25 ごと、つまり 1 run あたり 4 回）。各 `field=…` セグメントは `Number.isFinite` でガードされているので、eval-only ステップで `loss=null` が出たり、training-only ステップで `evalLoss=null` が出ることはありません（SDK は欠損値を `null` に正規化し、`evalLoss` の型は `number | null` です）。 eval が不要なら `evalSteps` を外し、`onLog` の `evalLoss` 関連も合わせて削ってください。
+
+どちらのフィールドも、数値や真偽値ではなくオブジェクトを取ります:
+
+- **`evalSteps`** はステップ設定です。`{ steps }`（0 以上の整数）か `{ ratio }`（0 より大きく 1 より小さい数値。例: `{ ratio: 0.25 }`）のちょうど一方を指定します。数値そのままの `evalSteps: 25` はジョブ投入時にクラウド API に弾かれます。`warmupSteps`、`loggingSteps`、`saveSteps` も同じ形ですが、`warmupSteps` だけは `ratio: 0` も許容されます。ratio の上限が開区間である理由は [SDK § 転送フィールド](/ja/sdk/create-trainer#上級-転送フィールド) を参照してください。
+- **`datasetSplit`** が実際に評価を有効にするフィールドです。バックエンドは hold-out 分割が存在するときにだけ eval ループを構成し、`datasetSplit` はサーバー側で `{ enabled: false }` がデフォルトです。つまり `evalSteps` だけを指定してもジョブは通り、eval loss は一切出力されません。裏返すと、hold-out に回った行は学習に使われません。`testSize: 0.1` のスキャフォルドはデータセットの 90% で学習します。データセットが小さく 1 割の損失が eval のシグナルより痛い場合は `testSize` を下げるか、`datasetSplit`（と `evalSteps`）を外して全件で学習してください。
 
 ## 1. データセットを差し替える
 
@@ -49,7 +55,7 @@ export const trainer = createTrainer({
 dataset: {
   type: "huggingface",
   name: "your-org/your-private-dataset",
-  split: "train",        // 任意。データセットのデフォルト split
+  split: "train",        // 任意。省略時は文字列 "train" の split
   subset: "v3",          // 任意。複数 subset を持つデータセット用
 },
 ```
@@ -98,7 +104,7 @@ createTrainer({
 
 `dryRun: true` はデータセットを切り詰め、ステップ数を制限してフルパイプラインを走らせます。GPU 時間は使います（スモークテストであり、何もしないわけではありません）が、学習は数分で終わるので、長い学習にコミットする前に設定とコールバックの挙動を確認できます。[SDK § createTrainer](/ja/sdk/create-trainer) を参照。
 
-上級者向けフィールド（`warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps`、`trainOnResponsesOnly`、`datasetFormat`、`datasetSplit`）は `unknown` として型付けされ、クラウド API にそのまま転送されます。バックエンドの想定形を既に知っている場合のみ使ってください。SDK は渡す値を型チェックしません。
+上級者向けフィールド（`warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps`、`trainOnResponsesOnly`、`datasetFormat`、`datasetSplit`）は `unknown` として型付けされ、クラウド API にそのまま転送されます。SDK は渡す値を型チェックしないので、形が違ってもコンパイルエラーにはならず、ジョブ投入時にクラウド API のバリデーションエラーとして表面化します。各フィールドが要求する形は [SDK § 転送フィールド](/ja/sdk/create-trainer#上級-転送フィールド) を参照してください。
 
 ## 3. ライフサイクルコールバックを追加する
 

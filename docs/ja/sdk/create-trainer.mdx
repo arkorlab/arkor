@@ -85,15 +85,28 @@ createTrainer({
 
 ## 上級: 転送フィールド
 
-これらは `unknown` として型付けされ、クラウド API にそのまま転送されます（`packages/arkor/src/core/trainer.ts:100-108`）。SDK のファーストクラス型付けが追いつく前にバックエンドが新フィールドを公開できるよう、入力型に予約されています。
+これらはクラウド API にそのまま転送されます（`packages/arkor/src/core/trainer.ts` の `buildJobConfig`）。SDK のファーストクラス型付けが追いつく前にバックエンドが新フィールドを公開できるよう、入力型に予約されています。大半は `unknown` として型付けされています。`gpuTypes` だけは `string[]` ですが、検査されるのは入れ物だけで中身の slug は見ないので、下記の注意はこのフィールドにも同じように当てはまります。
 
 | フィールド | 状況 |
 | --- | --- |
-| `warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps` | そのまま転送。バックエンドの想定形を既に知っている場合のみ使用してください。 |
+| `warmupSteps`、`loggingSteps`、`saveSteps`、`evalSteps` | そのまま転送。いずれも数値そのままではなく **ステップ設定オブジェクト** を取ります。`{ steps }`（0 以上の整数）か `{ ratio }`（0 より大きく 1 より小さい数値。例: `{ ratio: 0.25 }`）のちょうど一方を指定します。`warmupSteps` だけは `ratio: 0` も許容されます。ratio の上限が開区間なのは、トレーナーがこの値を下層ライブラリのフィールドにそのまま渡し、そのフィールドが 1 未満のときだけ割合として解釈するためです。ちょうど 1 だと「毎ステップ」の意味に変わってしまうので、毎ステップの checkpoint を黙って実行するかわりにクラウド API が弾きます。 |
 | `trainOnResponsesOnly` | そのまま転送。 |
-| `datasetFormat`、`datasetSplit` | そのまま転送。HuggingFace ソースには専用 `dataset` フィールドの `split` を優先してください。 |
+| `datasetFormat` | そのまま転送。 |
+| `datasetSplit` | そのまま転送。`{ enabled: boolean, testSize?: number, seed?: number }` で、サーバー側のデフォルトは `{ enabled: false, testSize: 0.1, seed: 42 }` です。`testSize` は hold-out の割合（0 < n ≤ 1）、`seed` は分割の再現性のためのシードです。これを有効にすることが評価を動かす条件であり、同時にその割合だけ学習データが減ります。読み込む HuggingFace の split を選ぶ用途には、引き続き専用 `dataset` フィールドの `split` を使ってください。 |
+| `gpuTypes` | `string[]`。この run を流すマネージド GPU タイプの slug を優先順に並べたリストで、先頭がプライマリ、残りは順に試されるフェイルオーバー候補です。省略するとバックエンドの既定プールを使います。slug はこの SDK 内の固定リストではなく運用側の GPU カタログ由来なので、未知の slug も空配列もコンパイル時には検出されません。どちらもジョブ投入時に弾かれます。 |
 
-これらのフィールドは明示的に **安定ではありません**。バックエンド契約はリリース間で変わり得て、渡す値にコンパイル時チェックもありません。上記の型付きフィールドを優先し、それで対応できないときだけ手を出してください。
+```ts
+createTrainer({
+  // ...
+  evalSteps: { steps: 25 },        // 25 ステップごとに評価
+  saveSteps: { ratio: 0.25 },      // run 全体に対する割合でも指定可
+  datasetSplit: { enabled: true, testSize: 0.1 },
+});
+```
+
+`evalSteps` が効くのは、バックエンドに評価対象の hold-out 分割がある場合だけです。`datasetSplit` はサーバー側で `{ enabled: false }` がデフォルトなので、`datasetSplit: { enabled: true }` なしに `evalSteps` を設定してもジョブは通り、eval loss は出力されません。
+
+これらのフィールドは明示的に **安定ではありません**。バックエンド契約はリリース間で変わり得て、渡す値にコンパイル時チェックもありません。形が違ってもコンパイルエラーにはならず、ジョブ投入時にクラウド API のバリデーションエラーとして表面化します。上記の型付きフィールドを優先し、それで対応できないときだけ手を出してください。
 
 ## ロードマップ
 

@@ -102,15 +102,50 @@ const adapterRefSchema = z.union([
   }),
 ]);
 
-const deploymentTargetSchema = z.union([
-  z.looseObject({
-    kind: z.literal("adapter"),
-    adapter: adapterRefSchema,
-  }),
-  z.looseObject({
-    kind: z.literal("base_model"),
-    baseModel: z.string(),
-  }),
+const adapterTargetSchema = z.looseObject({
+  kind: z.literal("adapter"),
+  adapter: adapterRefSchema,
+});
+const baseModelTargetSchema = z.looseObject({
+  kind: z.literal("base_model"),
+  baseModel: z.string(),
+});
+// Multi-model deployment: serves every catalog model flagged for the public
+// menu, picked per-request via the OpenAI `model` body field. Carries no
+// target-specific payload: the menu resolves at dispatch time, so nothing is
+// snapshotted on the row.
+const modelMenuTargetSchema = z.looseObject({
+  kind: z.literal("model_menu"),
+});
+
+// Reads and writes admit different sets, so they get different schemas. Both
+// discriminate on `kind`, matching how the cloud API's own
+// `deploymentTargetSchema` is built: an unrecognised value then fails on the
+// discriminator itself rather than as an aggregate of every branch's
+// mismatch, which is what reaches the user when the failure surfaces.
+//
+// Reads take every `kind` the cloud API can return. Unlike the unknown-FIELD
+// tolerance `looseObject` buys us, an unknown `kind` fails the whole union,
+// and `decode()` calls `.parse()`, so one unrecognised row rejects the entire
+// `listDeployments` response. A variant added server-side must therefore be
+// mirrored here before it reaches production, or Studio's Endpoints tab 500s
+// for every project that owns one.
+const deploymentTargetSchema = z.discriminatedUnion("kind", [
+  adapterTargetSchema,
+  baseModelTargetSchema,
+  modelMenuTargetSchema,
+]);
+
+// Writes mirror the exported `WritableDeploymentTarget`, which omits
+// `model_menu` (menu deployments are created from the web dashboard; the
+// generated cloud-api client's request types do not carry the variant yet).
+// Keeping this union narrower than the read one is what makes the type
+// contract hold through `studio/server.ts`'s create route, where the parsed
+// body is cast to `createDeployment`'s parameter type and would otherwise
+// carry a target that type says cannot be written.
+const writableDeploymentTargetSchema = z.discriminatedUnion("kind", [
+  adapterTargetSchema,
+  baseModelTargetSchema,
 ]);
 
 /**
@@ -136,7 +171,7 @@ export const createDeploymentRequestSchema = z
         message:
           'slug must be 2-50 chars, lowercase letters / digits / hyphens, starting and ending with a letter or digit (e.g. "my-model")',
       }),
-    target: deploymentTargetSchema,
+    target: writableDeploymentTargetSchema,
     authMode: z.enum(["none", "fixed_api_key"]),
     // The retention fields are a discriminated coupling: `days` mode
     // requires a positive integer `runRetentionDays`, the other modes
@@ -215,6 +250,11 @@ const deploymentSchema = z.looseObject({
   // ./deployments.ts.
   runRetentionMode: z.string().optional(),
   runRetentionDays: z.number().optional(),
+  // Auto-delete deadline for the sweeper, or null = never expires. Only
+  // anonymous one-click deployments carry a value. Accepted as nullish
+  // (not required) so the decoder still works against a cloud-api build
+  // that predates the field.
+  expiresAt: z.union([z.string(), z.date()]).nullish().transform(toIsoOrNull),
   // Cloud API serializes timestamps as ISO strings; we accept Date too
   // for parity with `trainingJobSchema`'s tolerant transform. `toIso`
   // normalises a `Date` via `toISOString()` (not the locale-ish

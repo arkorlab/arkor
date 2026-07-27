@@ -76,13 +76,17 @@ type StreamEvent =
     })
   | (StreamEventBase & {
       type: "training.completed";
-      metrics?: unknown;
+      metrics?: {
+        finalLoss?: number | null;
+        totalSteps?: number | null;
+        totalTime?: number | null;
+      } | null;
       artifacts?: unknown[];
     })
   | (StreamEventBase & {
       type: "training.failed";
       error: string;
-      step?: number;
+      step?: number | null;
     });
 
 /**
@@ -137,6 +141,7 @@ function buildJobConfig(input: TrainerInput): JobConfig {
     config.datasetFormat = input.datasetFormat;
   if (input.datasetSplit !== undefined)
     config.datasetSplit = input.datasetSplit;
+  if (input.gpuTypes !== undefined) config.gpuTypes = input.gpuTypes;
   if (input.dryRun !== undefined) config.dryRun = input.dryRun;
   return config;
 }
@@ -308,6 +313,16 @@ export function createTrainer(
               topP: args.topP,
               maxTokens: args.maxTokens,
               stream: args.stream ?? true,
+              stop: args.stop,
+              presencePenalty: args.presencePenalty,
+              frequencyPenalty: args.frequencyPenalty,
+              seed: args.seed,
+              logprobs: args.logprobs,
+              topLogprobs: args.topLogprobs,
+              logitBias: args.logitBias,
+              streamOptions: args.streamOptions,
+              enableThinking: args.enableThinking,
+              reasoningEffort: args.reasoningEffort,
               tools: args.tools,
               toolChoice: args.toolChoice,
               responseFormat: args.responseFormat,
@@ -333,7 +348,15 @@ export function createTrainer(
           completedAt: event.timestamp,
         };
         const artifacts = (event.artifacts ?? []) as unknown[];
-        await callbacks.onCompleted?.({ job: startedJob, artifacts });
+        await callbacks.onCompleted?.({
+          job: startedJob,
+          artifacts,
+          metrics: {
+            finalLoss: event.metrics?.finalLoss ?? null,
+            totalSteps: event.metrics?.totalSteps ?? null,
+            totalTime: event.metrics?.totalTime ?? null,
+          },
+        });
         return { terminal: true, artifacts };
       }
       case "training.failed": {
@@ -343,7 +366,11 @@ export function createTrainer(
           error: event.error,
           completedAt: event.timestamp,
         };
-        await callbacks.onFailed?.({ job: startedJob, error: event.error });
+        await callbacks.onFailed?.({
+          job: startedJob,
+          error: event.error,
+          step: event.step ?? null,
+        });
         return { terminal: true, artifacts: [] };
       }
       default: {

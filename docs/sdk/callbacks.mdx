@@ -14,8 +14,14 @@ interface TrainerCallbacks {
   onStarted:    (ctx: { job: TrainingJob }) => unknown | Promise<unknown>;
   onLog:        (ctx: TrainingLogContext) => unknown | Promise<unknown>;
   onCheckpoint: (ctx: CheckpointContext) => unknown | Promise<unknown>;
-  onCompleted:  (ctx: { job: TrainingJob; artifacts: unknown[] }) => unknown | Promise<unknown>;
-  onFailed:     (ctx: { job: TrainingJob; error: string }) => unknown | Promise<unknown>;
+  onCompleted:  (ctx: { job: TrainingJob; artifacts: unknown[]; metrics: TrainingMetrics }) => unknown | Promise<unknown>;
+  onFailed:     (ctx: { job: TrainingJob; error: string; step: number | null }) => unknown | Promise<unknown>;
+}
+
+interface TrainingMetrics {
+  finalLoss: number | null;   // loss at the final training step
+  totalSteps: number | null;  // gradient steps actually executed
+  totalTime: number | null;   // wall-clock training duration, in seconds
 }
 ```
 
@@ -82,23 +88,26 @@ onCheckpoint: async ({ step, infer }) => {
 
 This is where most of the value of doing fine-tuning in TypeScript lives: you can run the half-trained model against a held-out prompt before the full run finishes.
 
-### `onCompleted({ job, artifacts })`
+### `onCompleted({ job, artifacts, metrics })`
 
 Fires once on success. `artifacts` is `unknown[]`: the raw artifact list the backend sent. Schemas evolve, so the SDK does not narrow it.
 
+`metrics` is the run-level summary the backend reports alongside the terminal event. It is always an object, so you can destructure without a null guard; an individual field is `null` when the backend did not report it.
+
 ```ts
-onCompleted: ({ job, artifacts }) => {
+onCompleted: ({ job, artifacts, metrics }) => {
   saveAdapterId({ jobId: job.id, count: artifacts.length });
+  console.log(`final loss ${metrics.finalLoss} after ${metrics.totalSteps} steps`);
 }
 ```
 
-### `onFailed({ job, error })`
+### `onFailed({ job, error, step })`
 
-Fires once on a backend-reported failure. `error` is a `string` (the message the backend sent), not an `Error` instance.
+Fires once on a backend-reported failure. `error` is a `string` (the message the backend sent), not an `Error` instance. `step` is the training step the run died on, or `null` when it failed before the training loop started (a dataset that could not be loaded, an OOM while loading the model).
 
 ```ts
-onFailed: ({ job, error }) => {
-  // error: string
+onFailed: ({ job, error, step }) => {
+  // error: string, step: number | null
 }
 ```
 

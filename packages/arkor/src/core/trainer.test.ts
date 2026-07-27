@@ -156,6 +156,7 @@ describe("createTrainer (config builder branches)", () => {
         trainOnResponsesOnly: true,
         datasetFormat: "alpaca",
         datasetSplit: "train",
+        gpuTypes: ["runpod-l40s", "runpod-a100"],
         dryRun: false,
       },
       {
@@ -193,6 +194,7 @@ describe("createTrainer (config builder branches)", () => {
       trainOnResponsesOnly: true,
       datasetFormat: "alpaca",
       datasetSplit: "train",
+      gpuTypes: ["runpod-l40s", "runpod-a100"],
       dryRun: false,
     });
   });
@@ -473,14 +475,16 @@ describe("createTrainer (SSE event stream)", () => {
     ]);
 
     let captured: string | null = null;
+    let capturedStep: number | null | undefined;
     const trainer = createTrainer(
       {
         name: "run",
         model: "m",
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
-          onFailed: ({ error }) => {
+          onFailed: ({ error, step }) => {
             captured = error;
+            capturedStep = step;
           },
         },
       },
@@ -496,6 +500,153 @@ describe("createTrainer (SSE event stream)", () => {
       globalThis.fetch = originalFetch;
     }
     expect(captured).toBe("CUDA OOM");
+    // The backend omits `step` when the run dies before training starts
+    // (bad dataset, OOM on model load). Normalised to null rather than
+    // left undefined so `step` is always present on the context.
+    expect(capturedStep).toBeNull();
+  });
+
+  it("surfaces training.completed metrics", async () => {
+    // The run summary (`finalLoss` / `totalSteps` / `totalTime`) was parsed
+    // off the wire but dropped before reaching `onCompleted`, so a user had
+    // no way to read the final loss without re-deriving it from the last
+    // onLog frame. (`training.failed`'s step is covered by the onFailed
+    // test above.)
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const jobRow = {
+      id: "j3",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    const sse = [
+      `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j3",
+        timestamp: "2026-01-01T00:00:05Z",
+        metrics: { finalLoss: 0.42, totalSteps: 100, totalTime: 613.5 },
+        artifacts: [],
+      })}\n\n`,
+    ];
+    const fetcher = mockFetch([
+      {
+        method: "POST",
+        path: "/v1/jobs?",
+        body: JSON.stringify({ job: jobRow }),
+        status: 201,
+      },
+      {
+        method: "GET",
+        path: "/v1/jobs/j3/events/stream",
+        body: sseStream(sse),
+        headers: { "content-type": "text/event-stream" },
+      },
+    ]);
+
+    let metrics: unknown;
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onCompleted: (ctx) => {
+            metrics = ctx.metrics;
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 5 },
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.wait();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(metrics).toEqual({
+      finalLoss: 0.42,
+      totalSteps: 100,
+      totalTime: 613.5,
+    });
+  });
+
+  it("normalises an absent training.completed metrics block to all-null", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const jobRow = {
+      id: "j4",
+      orgId: "o1",
+      projectId: "p1",
+      name: "run",
+      status: "queued",
+      config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+    const sse = [
+      `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+        type: "training.completed",
+        jobId: "j4",
+        timestamp: "2026-01-01T00:00:05Z",
+      })}\n\n`,
+    ];
+    const fetcher = mockFetch([
+      {
+        method: "POST",
+        path: "/v1/jobs?",
+        body: JSON.stringify({ job: jobRow }),
+        status: 201,
+      },
+      {
+        method: "GET",
+        path: "/v1/jobs/j4/events/stream",
+        body: sseStream(sse),
+        headers: { "content-type": "text/event-stream" },
+      },
+    ]);
+
+    let metrics: unknown;
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: "m",
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onCompleted: (ctx) => {
+            metrics = ctx.metrics;
+          },
+        },
+      },
+      { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 5 },
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.wait();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    // `metrics` is always an object so callers can destructure it without a
+    // null guard; the individual fields carry the "not reported" signal.
+    expect(metrics).toEqual({
+      finalLoss: null,
+      totalSteps: null,
+      totalTime: null,
+    });
   });
 
   it("binds infer() to the checkpoint adapter and proxies to /v1/inference/chat", async () => {
@@ -653,6 +804,16 @@ describe("createTrainer (SSE event stream)", () => {
               responseFormat,
               structuredOutputs,
               stream: false,
+              stop: ["\n\n", "END"],
+              presencePenalty: 0.5,
+              frequencyPenalty: -0.25,
+              seed: 1234,
+              logprobs: true,
+              topLogprobs: 5,
+              logitBias: { "1547": -100 },
+              streamOptions: { includeUsage: true },
+              enableThinking: false,
+              reasoningEffort: "low",
             });
           },
         },
@@ -688,6 +849,20 @@ describe("createTrainer (SSE event stream)", () => {
     expect(body.responseFormat).toEqual(responseFormat);
     expect(body.structuredOutputs).toEqual(structuredOutputs);
     expect(body.adapter).toEqual({ kind: "checkpoint", jobId: "j7", step: 7 });
+    // Sampling knobs the cloud API accepts on `chatInferenceRequestSchema`.
+    // `infer()` copies fields one by one rather than spreading `args`, so a
+    // field added to `InferArgs` without a matching line in the builder is
+    // silently dropped between the user's call and the request body.
+    expect(body.stop).toEqual(["\n\n", "END"]);
+    expect(body.presencePenalty).toBe(0.5);
+    expect(body.frequencyPenalty).toBe(-0.25);
+    expect(body.seed).toBe(1234);
+    expect(body.logprobs).toBe(true);
+    expect(body.topLogprobs).toBe(5);
+    expect(body.logitBias).toEqual({ "1547": -100 });
+    expect(body.streamOptions).toEqual({ includeUsage: true });
+    expect(body.enableThinking).toBe(false);
+    expect(body.reasoningEffort).toBe("low");
   });
 });
 

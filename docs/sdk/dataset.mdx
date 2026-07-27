@@ -32,7 +32,7 @@ dataset: {
 | --- | --- | --- |
 | `type` | `"huggingface"` | Discriminant. |
 | `name` | `string` | Repository name (e.g. `arkorlab/triage-demo`). Public repos work without further auth. |
-| `split` | `string?` | Override the default split. Optional. |
+| `split` | `string?` | Which split to load. Optional, but the backend fills in the literal `"train"` when you omit it rather than letting the dataset pick, so a dataset that publishes no `train` split needs this set explicitly. |
 | `subset` | `string?` | For datasets that publish multiple subsets. Optional. |
 
 This is the form the bundled templates (`triage` / `translate` / `redaction`) use. Most projects start here.

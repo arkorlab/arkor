@@ -4,7 +4,9 @@ import {
   jobStatusSchema,
   trainingJobSchema,
   anonymousTokenResponseSchema,
+  createDeploymentRequestSchema,
   listDeploymentKeysResponseSchema,
+  listDeploymentsResponseSchema,
 } from "./schemas";
 
 describe("jobStatusSchema", () => {
@@ -107,6 +109,137 @@ describe("anonymousTokenResponseSchema", () => {
         personalOrg: { slug: "anon-a" },
       }),
     ).toThrow();
+  });
+});
+
+describe("listDeploymentsResponseSchema", () => {
+  const row = (target: unknown, extra: Record<string, unknown> = {}) => ({
+    id: "d1",
+    slug: "my-app",
+    orgId: "o1",
+    projectId: "p1",
+    target,
+    authMode: "none",
+    urlFormat: "openai_compat",
+    enabled: true,
+    customDomain: null,
+    createdAt: "2026-07-01T00:00:00Z",
+    updatedAt: "2026-07-01T00:00:00Z",
+    ...extra,
+  });
+
+  // `decode()` calls `.parse()` with no fallback and the response is an
+  // array, so ONE unrecognised `target.kind` rejects the whole list and
+  // Studio's Endpoints tab 500s. Every kind the cloud API can return must
+  // therefore decode; `model_menu` in particular is created from the web
+  // dashboard and the one-click app flow, so a project can own one
+  // without ever having touched Studio.
+  it.each([
+    [
+      "adapter (final)",
+      { kind: "adapter", adapter: { kind: "final", jobId: "j1" } },
+    ],
+    [
+      "adapter (checkpoint)",
+      {
+        kind: "adapter",
+        adapter: { kind: "checkpoint", jobId: "j1", step: 50 },
+      },
+    ],
+    ["base_model", { kind: "base_model", baseModel: "unsloth/gemma-4-e4b-it" }],
+    ["model_menu", { kind: "model_menu" }],
+  ])("decodes a %s target", (_label, target) => {
+    const parsed = listDeploymentsResponseSchema.parse({
+      deployments: [row(target)],
+    });
+    expect(parsed.deployments[0]?.target).toEqual(target);
+  });
+
+  it("rejects an unknown target kind", () => {
+    // The union stays closed on purpose: a silently-accepted unknown kind
+    // would reach `describeTarget` in the SPA and render as
+    // `Base model: undefined` instead of failing where it can be fixed.
+    expect(() =>
+      listDeploymentsResponseSchema.parse({
+        deployments: [row({ kind: "quantum_tunnel" })],
+      }),
+    ).toThrow();
+  });
+
+  it("normalises expiresAt: absent and null both decode to null", () => {
+    // `DeploymentDto.expiresAt` is declared non-optional, so the decoder
+    // has to materialise the field even when a cloud-api build that
+    // predates it omits the key entirely.
+    for (const extra of [{}, { expiresAt: null }]) {
+      const parsed = listDeploymentsResponseSchema.parse({
+        deployments: [row({ kind: "model_menu" }, extra)],
+      });
+      expect(parsed.deployments[0]?.expiresAt).toBeNull();
+    }
+  });
+
+  it("ISO-coerces a Date expiresAt", () => {
+    const parsed = listDeploymentsResponseSchema.parse({
+      deployments: [
+        row(
+          { kind: "model_menu" },
+          { expiresAt: new Date("2026-08-01T00:00:00Z") },
+        ),
+      ],
+    });
+    expect(parsed.deployments[0]?.expiresAt).toBe("2026-08-01T00:00:00.000Z");
+  });
+});
+
+describe("createDeploymentRequestSchema", () => {
+  // Writes admit a narrower target set than reads. `model_menu` deployments
+  // are created from the web dashboard, and the exported
+  // `WritableDeploymentTarget` says so at the type layer; Studio's create
+  // route casts the parsed body to `createDeployment`'s parameter type, so
+  // this schema is the only thing keeping that cast honest at runtime.
+  const body = (target: unknown) => ({
+    slug: "my-app",
+    target,
+    authMode: "none",
+  });
+
+  it("accepts the writable target kinds", () => {
+    for (const target of [
+      { kind: "adapter", adapter: { kind: "final", jobId: "j1" } },
+      { kind: "base_model", baseModel: "unsloth/gemma-4-e4b-it" },
+    ]) {
+      expect(
+        createDeploymentRequestSchema.safeParse(body(target)).success,
+      ).toBe(true);
+    }
+  });
+
+  it("rejects a model_menu target even though reads accept it", () => {
+    expect(
+      createDeploymentRequestSchema.safeParse(body({ kind: "model_menu" }))
+        .success,
+    ).toBe(false);
+    // Same value on the read path still decodes: the two schemas are
+    // deliberately different, not accidentally out of sync.
+    expect(
+      listDeploymentsResponseSchema.safeParse({
+        deployments: [
+          {
+            id: "d1",
+            slug: "my-app",
+            orgId: "o1",
+            projectId: "p1",
+            target: { kind: "model_menu" },
+            authMode: "none",
+            urlFormat: "openai_compat",
+            enabled: true,
+            customDomain: null,
+            createdAt: "2026-07-01T00:00:00Z",
+            updatedAt: "2026-07-01T00:00:00Z",
+          },
+        ],
+      }).success,
+    ).toBe(true);
   });
 });
 

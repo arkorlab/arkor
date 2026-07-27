@@ -11,9 +11,10 @@
  */
 
 /**
- * What a deployment serves under its `<slug>.arkor.app` URL. Currently a
- * trained adapter (final or a specific checkpoint) or a raw base model.
- * Re-targetable via PATCH on the deployment's `target` field.
+ * What a deployment serves under its `<slug>.arkor.app` URL: a trained
+ * adapter (final or a specific checkpoint), a single raw base model, or the
+ * whole public model menu. Re-targetable via PATCH on the deployment's
+ * `target` field.
  */
 export type DeploymentTarget =
   | {
@@ -22,7 +23,29 @@ export type DeploymentTarget =
         | { kind: "final"; jobId: string }
         | { kind: "checkpoint"; jobId: string; step: number };
     }
-  | { kind: "base_model"; baseModel: string };
+  | { kind: "base_model"; baseModel: string }
+  /**
+   * Serves every catalog model published to the public menu; the caller
+   * picks one per request through the OpenAI `model` body field, falling
+   * back to the catalog's default model when that field is omitted. The
+   * menu resolves at dispatch time, so models added or removed by an
+   * operator take effect without re-targeting the deployment.
+   */
+  | { kind: "model_menu" };
+
+/**
+ * The subset of {@link DeploymentTarget} this SDK can *set*. `model_menu`
+ * deployments are created from the web dashboard; the generated cloud-api
+ * client this package builds its request bodies against does not carry the
+ * variant yet, so offering it here would only produce a compile error at
+ * the call site. Reads are unaffected: `DeploymentDto.target` is the full
+ * union, because the server does return menu deployments in this
+ * project's list.
+ */
+export type WritableDeploymentTarget = Exclude<
+  DeploymentTarget,
+  { kind: "model_menu" }
+>;
 
 /**
  * - `none`: the URL is open (use only for demos / public models).
@@ -66,6 +89,13 @@ export interface DeploymentDto {
    */
   runRetentionMode?: DeploymentRunRetentionMode | (string & {});
   runRetentionDays?: number;
+  /**
+   * ISO timestamp after which the deployment is swept, or `null` when it
+   * never expires. Only anonymous one-click deployments carry a deadline.
+   * Non-optional because the decoder normalizes an absent field to `null`,
+   * same as `DeploymentKeyDto.lastUsedAt`.
+   */
+  expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -108,13 +138,13 @@ export type CreateDeploymentInput = {
    * labels (`www`, `api`, `admin`, etc.) are rejected by the server.
    */
   slug: string;
-  target: DeploymentTarget;
+  target: WritableDeploymentTarget;
   authMode: DeploymentAuthMode;
 } & RunRetentionFields;
 
 /** Partial update for `updateDeployment`. Any field omitted is left untouched. */
 export type UpdateDeploymentInput = {
-  target?: DeploymentTarget;
+  target?: WritableDeploymentTarget;
   authMode?: DeploymentAuthMode;
   enabled?: boolean;
 } & RunRetentionFields;

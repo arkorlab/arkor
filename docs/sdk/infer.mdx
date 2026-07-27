@@ -34,6 +34,21 @@ interface InferArgs {
   maxTokens?: number;
   /** Default: true. Set false to get a single JSON body instead of SSE. */
   stream?: boolean;
+  /** Stop sequence(s). */
+  stop?: string | string[];
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  seed?: number;
+  logprobs?: boolean;
+  topLogprobs?: number;
+  /** Token id (stringified) → bias. */
+  logitBias?: Record<string, number>;
+  /** OpenAI stream_options. */
+  streamOptions?: { includeUsage?: boolean };
+  /** Gemma 4 thinking toggle. */
+  enableThinking?: boolean;
+  /** OpenAI-compatible reasoning_effort. */
+  reasoningEffort?: ReasoningEffort;
   /** OpenAI-compatible function-calling tool definitions. */
   tools?: ToolDefinition[];
   /** "auto" | "none" | "required" | { type: "function", function: { name } } */
@@ -49,10 +64,20 @@ interface InferArgs {
 | Field | Type | Notes |
 | --- | --- | --- |
 | `messages` | `ChatMessage[]` | Chat history. Discriminated union over `system` / `user` / `assistant` (with optional `tool_calls`) / `tool` (with `tool_call_id`); matches the OpenAI message shape so a tool-calling history can round-trip. |
-| `temperature` | `number?` | Sampling temperature. Backend default if omitted. |
-| `topP` | `number?` | Nucleus sampling. Backend default if omitted. |
+| `temperature` | `number?` | Sampling temperature, 0–2. Backend default if omitted. |
+| `topP` | `number?` | Nucleus sampling, 0–1. Backend default if omitted. |
 | `maxTokens` | `number?` | Maximum response tokens. Backend default if omitted. |
 | `stream` | `boolean?` | Default **true** (SSE). Set `false` for a single JSON body. |
+| `stop` | `string \| string[]?` | Stop sequence(s). Each string must be non-empty, at most 16 entries; an empty array is accepted as an explicit no-op. |
+| `presencePenalty` | `number?` | -2–2. |
+| `frequencyPenalty` | `number?` | -2–2. |
+| `seed` | `number?` | Sampling seed for reproducible completions. |
+| `logprobs` | `boolean?` | Return per-token logprobs. |
+| `topLogprobs` | `number?` | Alternatives per token, 0–20. Values above 0 require `logprobs: true`; the endpoint returns a `400` for the mismatched pair. |
+| `logitBias` | `Record<string, number>?` | Token id (as a string key) → bias in -100–100. Non-numeric keys are rejected upstream. |
+| `streamOptions` | `{ includeUsage?: boolean }?` | OpenAI `stream_options`. Controls whether the final usage chunk reaches you; it does not change what is metered. |
+| `enableThinking` | `boolean?` | Gemma 4's thinking toggle. Omit to take the model's chat-template default, which is safe on non-Gemma endpoints too. |
+| `reasoningEffort` | `ReasoningEffort?` | `"none"` / `"minimal"` / `"low"` / `"medium"` / `"high"` / `"xhigh"` / `"max"`. Gemma 4 has no graduated effort, so every value except `"none"` collapses to "thinking on" there; an explicit `enableThinking` always wins. |
 | `tools` | `ToolDefinition[]?` | Function declarations the model is allowed to call. When set without an explicit `toolChoice`, the OpenAI-compatible default `"auto"` applies; the underlying endpoint must be configured for auto-tool extraction or the request returns `400 tool_calling_not_configured`. |
 | `toolChoice` | `ToolChoice?` | `"auto"` / `"none"` / `"required"` / `{ type: "function", function: { name } }`. Only `"auto"` (and the default when `tools` is present) needs the auto-extraction parser; the rest go through the guided-decoding path. |
 | `responseFormat` | `ResponseFormat?` | OpenAI's standard structured-output knob: `{ type: "text" }`, `{ type: "json_object" }`, or `{ type: "json_schema", json_schema: { name, schema, strict? } }`. Prefer this when expressible. |

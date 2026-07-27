@@ -306,7 +306,15 @@ export type DeploymentTarget =
         | { kind: "final"; jobId: string }
         | { kind: "checkpoint"; jobId: string; step: number };
     }
-  | { kind: "base_model"; baseModel: string };
+  | { kind: "base_model"; baseModel: string }
+  /**
+   * Multi-model deployment: serves the whole public model menu, picked
+   * per-request via the OpenAI `model` body field. Created from the web
+   * dashboard (and by the one-click app flow), not from Studio, but it
+   * shows up in this project's list and must render rather than fall
+   * through to the `base_model` branch as `Base model: undefined`.
+   */
+  | { kind: "model_menu" };
 
 export type DeploymentAuthMode = "none" | "fixed_api_key";
 
@@ -332,6 +340,11 @@ export interface Deployment {
    */
   runRetentionMode?: "unlimited" | "disabled" | "days" | (string & {});
   runRetentionDays?: number;
+  /**
+   * Auto-delete deadline, or `null` when the deployment never expires.
+   * Only anonymous one-click deployments carry a value.
+   */
+  expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

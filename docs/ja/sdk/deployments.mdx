@@ -69,8 +69,16 @@ type DeploymentTarget =
       | { kind: "final"; jobId: string }
       | { kind: "checkpoint"; jobId: string; step: number };
     }
-  | { kind: "base_model"; baseModel: string };
+  | { kind: "base_model"; baseModel: string }
+  | { kind: "model_menu" };
+
+// この SDK から設定できるのはこの部分集合。`model_menu` は読み取り専用。
+type WritableDeploymentTarget = Exclude<DeploymentTarget, { kind: "model_menu" }>;
 ```
+
+`model_menu` のデプロイは、公開カタログのメニューに載っているモデルすべてを配信し、呼び出し側がリクエストごとに OpenAI の `model` ボディフィールドで選びます（省略時はカタログのデフォルトモデル）。メニューはリクエスト時に解決されるので、運用側がカタログを変更してもデプロイを再ターゲットする必要はありません。
+
+メニューのデプロイは **この SDK からではなく Web ダッシュボードから作成します**。`createDeployment` と `updateDeployment` は `WritableDeploymentTarget` を取るので、そこに `{ kind: "model_menu" }` を渡すとコンパイルエラーになります。読み取りには制限がなく、`listDeployments` や `getDeployment` は他と同じようにメニューのデプロイを返すため、`target` で分岐するときは 3 つの `kind` すべてを扱ってください。
 
 `authMode` は `"fixed_api_key"`（クライアントが `Authorization: Bearer …` または `x-api-key` を送る）または `"none"`（URL がオープン。公開デモやモデル限定で使用）です。
 
@@ -182,4 +190,6 @@ try {
 
 ランタイム export（値として import できるクラス）: `CloudApiClient`、`CloudApiError`。
 
-型のみの export（`import type` で import できるもの）: `CloudApiClientOptions`、`DeploymentTarget`、`DeploymentAuthMode`、`DeploymentRunRetentionMode`、`DeploymentDto`、`DeploymentKeyDto`、`DeploymentScope`、`CreateDeploymentInput`、`UpdateDeploymentInput`、`CreateDeploymentKeyInput`、`CreateDeploymentKeyResult`。
+`DeploymentDto` には `expiresAt` もあります。スイーパーがデプロイを削除する ISO タイムスタンプで、無期限の場合は `null` です。値が入るのは匿名のワンクリックデプロイだけです。
+
+型のみの export（`import type` で import できるもの）: `CloudApiClientOptions`、`DeploymentTarget`、`WritableDeploymentTarget`、`DeploymentAuthMode`、`DeploymentRunRetentionMode`、`DeploymentDto`、`DeploymentKeyDto`、`DeploymentScope`、`CreateDeploymentInput`、`UpdateDeploymentInput`、`CreateDeploymentKeyInput`、`CreateDeploymentKeyResult`。

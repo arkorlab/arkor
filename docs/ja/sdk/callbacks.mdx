@@ -14,8 +14,14 @@ interface TrainerCallbacks {
   onStarted:    (ctx: { job: TrainingJob }) => unknown | Promise<unknown>;
   onLog:        (ctx: TrainingLogContext) => unknown | Promise<unknown>;
   onCheckpoint: (ctx: CheckpointContext) => unknown | Promise<unknown>;
-  onCompleted:  (ctx: { job: TrainingJob; artifacts: unknown[] }) => unknown | Promise<unknown>;
-  onFailed:     (ctx: { job: TrainingJob; error: string }) => unknown | Promise<unknown>;
+  onCompleted:  (ctx: { job: TrainingJob; artifacts: unknown[]; metrics: TrainingMetrics }) => unknown | Promise<unknown>;
+  onFailed:     (ctx: { job: TrainingJob; error: string; step: number | null }) => unknown | Promise<unknown>;
+}
+
+interface TrainingMetrics {
+  finalLoss: number | null;   // 最終ステップの loss
+  totalSteps: number | null;  // 実際に実行された勾配ステップ数
+  totalTime: number | null;   // 学習の実時間（秒）
 }
 ```
 
@@ -82,23 +88,26 @@ onCheckpoint: async ({ step, infer }) => {
 
 TypeScript でファインチューニングする意義の多くはここにあります。学習途中のモデルに対して、学習完了を待たずに用意したプロンプトを試せます。
 
-### `onCompleted({ job, artifacts })`
+### `onCompleted({ job, artifacts, metrics })`
 
 成功時に 1 回発火。`artifacts` は `unknown[]`: バックエンドが送った生の artifact リスト。スキーマは進化するため SDK で絞り込みません。
 
+`metrics` は終了イベントに付随してバックエンドが報告する run 全体のサマリーです。常にオブジェクトなので null ガードなしで分割代入できます。バックエンドが報告しなかった項目は個別に `null` になります。
+
 ```ts
-onCompleted: ({ job, artifacts }) => {
+onCompleted: ({ job, artifacts, metrics }) => {
   saveAdapterId({ jobId: job.id, count: artifacts.length });
+  console.log(`final loss ${metrics.finalLoss} after ${metrics.totalSteps} steps`);
 }
 ```
 
-### `onFailed({ job, error })`
+### `onFailed({ job, error, step })`
 
-バックエンドからの失敗報告で 1 回発火。`error` は `string`（バックエンドが送ったメッセージ）であり、`Error` インスタンスではありません。
+バックエンドからの失敗報告で 1 回発火。`error` は `string`（バックエンドが送ったメッセージ）であり、`Error` インスタンスではありません。`step` は run が落ちた学習ステップで、学習ループに入る前に失敗した場合（データセットのロード失敗、モデルロード時の OOM など）は `null` です。
 
 ```ts
-onFailed: ({ job, error }) => {
-  // error: string
+onFailed: ({ job, error, step }) => {
+  // error: string, step: number | null
 }
 ```
 

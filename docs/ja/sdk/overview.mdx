@@ -61,11 +61,11 @@ CLI フローの外で Arkor を実行するコード（自前のサーバーや
 
 公開型エクスポート（`arkor` から）:
 
-`Arkor`、`ArkorInput`、`ArkorProjectState`、`BlobDatasetSource`、`DatasetSource`、`HuggingfaceDatasetSource`、`JobStatus`、`LoraConfig`、`Trainer`、`TrainerCallbacks`、`TrainerInput`、`TrainingJob`、`TrainingResult`。加えて認証ヘルパー用の `OAuthCredentials`、`AnonymousCredentials`、`Credentials`。
+`Arkor`、`ArkorInput`、`ArkorProjectState`、`BlobDatasetSource`、`ChatMessage`、`DatasetSource`、`HuggingfaceDatasetSource`、`InferArgs`、`JobStatus`、`LoraConfig`、`ReasoningEffort`、`ResponseFormat`、`StructuredOutputs`、`ToolCall`、`ToolChoice`、`ToolDefinition`、`Trainer`、`TrainerCallbacks`、`TrainerInput`、`TrainingJob`、`TrainingMetrics`、`TrainingResult`。加えて認証ヘルパー用の `OAuthCredentials`、`AnonymousCredentials`、`Credentials`。
 
-Deployment 関連の型のみエクスポート（[Deployments](/ja/sdk/deployments) を参照）: `CloudApiClientOptions`、`DeploymentTarget`、`DeploymentAuthMode`、`DeploymentRunRetentionMode`、`DeploymentDto`、`DeploymentKeyDto`、`DeploymentScope`、`CreateDeploymentInput`、`UpdateDeploymentInput`、`CreateDeploymentKeyInput`、`CreateDeploymentKeyResult`。ランタイムの `CloudApiClient` / `CloudApiError` クラスは上の Utilities セクションに掲載されています。型ではなく値の export なので、値として import してください。
+Deployment 関連の型のみエクスポート（[Deployments](/ja/sdk/deployments) を参照）: `CloudApiClientOptions`、`DeploymentTarget`、`WritableDeploymentTarget`、`DeploymentAuthMode`、`DeploymentRunRetentionMode`、`DeploymentDto`、`DeploymentKeyDto`、`DeploymentScope`、`CreateDeploymentInput`、`UpdateDeploymentInput`、`CreateDeploymentKeyInput`、`CreateDeploymentKeyResult`。ランタイムの `CloudApiClient` / `CloudApiError` クラスは上の Utilities セクションに掲載されています。型ではなく値の export なので、値として import してください。
 
-`TrainingLogContext`、`CheckpointContext`、`InferArgs` は今のところ名前付きでエクスポートされていません。型付きのコールバックパラメーターが必要なら、[コールバック](/ja/sdk/callbacks) と [infer](/ja/sdk/infer) ページを見てインラインで同じ形を定義してください。
+`TrainingLogContext` と `CheckpointContext` は今のところ名前付きでエクスポートされていません。型付きのコールバックパラメーターが必要なら、[コールバック](/ja/sdk/callbacks) ページを見てインラインで同じ形を定義してください。
 
 ## 公開 API に含まれないもの
 

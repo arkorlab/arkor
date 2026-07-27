@@ -92,27 +92,29 @@ onCheckpoint: async ({ step, infer }) => {
 
 This is the most useful callback in practice. It lets you sanity-check the model mid-run rather than waiting until the end. If the checkpoint is already worse than the base model, you know to stop.
 
-## `onCompleted({ job, artifacts })`
+## `onCompleted({ job, artifacts, metrics })`
 
-Fires once, on success. `artifacts` lists what the backend produced for this run. Use it to:
+Fires once, on success. `artifacts` lists what the backend produced for this run, and `metrics` is the run-level summary (`finalLoss`, `totalSteps`, `totalTime`); it is always an object, with `null` on any field the backend did not report. Use it to:
 
 - Persist the final adapter ID where the rest of your app can find it.
+- Record the final loss without re-deriving it from the last `onLog` frame.
 - Run a final smoke test before promoting the model.
 - Send a "training done" notification.
 
 ```ts
-onCompleted: ({ job, artifacts }) => {
+onCompleted: ({ job, artifacts, metrics }) => {
   console.log(`Run ${job.id} done, ${artifacts.length} artifacts`);
+  console.log(`final loss ${metrics.finalLoss} after ${metrics.totalSteps} steps`);
 },
 ```
 
-## `onFailed({ job, error })`
+## `onFailed({ job, error, step })`
 
-Fires once if the backend reports a failure. Note that `error` is a `string` (the message the backend sent), not an `Error` instance:
+Fires once if the backend reports a failure. Note that `error` is a `string` (the message the backend sent), not an `Error` instance. `step` is the training step the run died on, or `null` when it failed before the training loop started:
 
 ```ts
-onFailed: ({ job, error }) => {
-  console.error(`Run ${job.id} failed: ${error}`);
+onFailed: ({ job, error, step }) => {
+  console.error(`Run ${job.id} failed at step ${step}: ${error}`);
 },
 ```
 
