@@ -85,7 +85,7 @@ createTrainer({
 
 ## 上級: 転送フィールド
 
-これらは `unknown` として型付けされ、クラウド API にそのまま転送されます（`packages/arkor/src/core/trainer.ts:100-108`）。SDK のファーストクラス型付けが追いつく前にバックエンドが新フィールドを公開できるよう、入力型に予約されています。
+これらはクラウド API にそのまま転送されます（`packages/arkor/src/core/trainer.ts` の `buildJobConfig`）。SDK のファーストクラス型付けが追いつく前にバックエンドが新フィールドを公開できるよう、入力型に予約されています。大半は `unknown` として型付けされています。`gpuTypes` だけは `string[]` ですが、検査されるのは入れ物だけで中身の slug は見ないので、下記の注意はこのフィールドにも同じように当てはまります。
 
 | フィールド | 状況 |
 | --- | --- |
@@ -93,7 +93,7 @@ createTrainer({
 | `trainOnResponsesOnly` | そのまま転送。 |
 | `datasetFormat` | そのまま転送。 |
 | `datasetSplit` | そのまま転送。`{ enabled: boolean, testSize?: number, seed?: number }` で、サーバー側のデフォルトは `{ enabled: false, testSize: 0.1, seed: 42 }` です。`testSize` は hold-out の割合（0 < n ≤ 1）、`seed` は分割の再現性のためのシードです。これを有効にすることが評価を動かす条件であり、同時にその割合だけ学習データが減ります。読み込む HuggingFace の split を選ぶ用途には、引き続き専用 `dataset` フィールドの `split` を使ってください。 |
-| `gpuTypes` | `[string, ...string[]]`。この run を流すマネージド GPU タイプの slug を優先順に並べたリストで、先頭がプライマリ、残りは順に試されるフェイルオーバー候補です。省略するとバックエンドの既定プールを使います。空配列はプライマリが無いためコンパイルエラーになります。slug はこの SDK 内の固定リストではなく運用側の GPU カタログ由来なので、未知の slug はコンパイル時ではなくジョブ投入時に弾かれます（`Unknown gpuType slug`）。 |
+| `gpuTypes` | `string[]`。この run を流すマネージド GPU タイプの slug を優先順に並べたリストで、先頭がプライマリ、残りは順に試されるフェイルオーバー候補です。省略するとバックエンドの既定プールを使います。slug はこの SDK 内の固定リストではなく運用側の GPU カタログ由来なので、未知の slug も空配列もコンパイル時には検出されません。どちらもジョブ投入時に弾かれます。 |
 
 ```ts
 createTrainer({

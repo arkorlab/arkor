@@ -118,7 +118,11 @@ const modelMenuTargetSchema = z.looseObject({
   kind: z.literal("model_menu"),
 });
 
-// Reads and writes admit different sets, so they get different schemas.
+// Reads and writes admit different sets, so they get different schemas. Both
+// discriminate on `kind`, matching how the cloud API's own
+// `deploymentTargetSchema` is built: an unrecognised value then fails on the
+// discriminator itself rather than as an aggregate of every branch's
+// mismatch, which is what reaches the user when the failure surfaces.
 //
 // Reads take every `kind` the cloud API can return. Unlike the unknown-FIELD
 // tolerance `looseObject` buys us, an unknown `kind` fails the whole union,
@@ -126,7 +130,7 @@ const modelMenuTargetSchema = z.looseObject({
 // `listDeployments` response. A variant added server-side must therefore be
 // mirrored here before it reaches production, or Studio's Endpoints tab 500s
 // for every project that owns one.
-const deploymentTargetSchema = z.union([
+const deploymentTargetSchema = z.discriminatedUnion("kind", [
   adapterTargetSchema,
   baseModelTargetSchema,
   modelMenuTargetSchema,
@@ -139,7 +143,7 @@ const deploymentTargetSchema = z.union([
 // contract hold through `studio/server.ts`'s create route, where the parsed
 // body is cast to `createDeployment`'s parameter type and would otherwise
 // carry a target that type says cannot be written.
-const writableDeploymentTargetSchema = z.union([
+const writableDeploymentTargetSchema = z.discriminatedUnion("kind", [
   adapterTargetSchema,
   baseModelTargetSchema,
 ]);
