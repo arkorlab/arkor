@@ -56,6 +56,8 @@ Note that **every** one of these bootstrap failures is deferred the same way, no
 
 When the process exits (normal exit, `SIGINT`, `SIGTERM`, or `SIGHUP`) the studio-token file is removed on a best-effort basis. A crash can leave the file on disk; the next `arkor dev` rotates it.
 
+On a signal, `arkor dev` exits with the conventional `128 + signal` code rather than `0`, so a supervisor can tell signal termination from a clean exit: `SIGINT` gives `130`, `SIGTERM` gives `143`, `SIGHUP` gives `129`.
+
 ### Agent mode (`--agent`)
 
 `arkor dev --agent` runs the exact same Studio server headlessly for coding agents (Claude Code and others) that operate Arkor through direct HTTP calls instead of the browser UI. The flag is a plain opt-in: no environment variable is required.

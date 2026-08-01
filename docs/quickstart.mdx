@@ -158,7 +158,7 @@ Once a run is in flight, three views matter:
 - **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
 - **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Use the mode toggle to switch between the base model and the adapter. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
 
-If you edit `src/arkor/` between runs, refresh the Run training page (or run `arkor build`) before the next click so the new code is what runs.
+If you edit `src/arkor/` between runs, the change is picked up automatically within about 5 seconds while the Overview page is open (its manifest poll re-runs the build). No refresh needed.
 
 ## 4. Tie runs to an account (optional)
 
@@ -197,5 +197,5 @@ A few caveats. Running `arkor login` without a flag opens an interactive picker 
 ## 5. Where to go next
 
 - **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
-- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Refresh the Run training page (or run `arkor build`) before the next click so your edits land.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. With the Overview page open, your edits land on the next click about 5 seconds later.
 - **Try another template.** Re-run the scaffolder with a different `--template` to compare.

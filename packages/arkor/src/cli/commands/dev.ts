@@ -50,10 +50,14 @@ export interface DevOptions {
  *    advertises OAuth, surface a hint pointing at `arkor login --oauth` so
  *    the user can upgrade to a real session whenever they want, but don't
  *    block the Studio launch on it.
- *  - On anonymous-bootstrap network failure, warn and continue: the Studio
- *    server is built with `autoAnonymous` enabled, so it will retry on the
- *    first `/api/credentials` hit. This keeps `arkor dev` usable when the
- *    cloud-api is momentarily down.
+ *  - On anonymous-bootstrap network failure, warn and continue **only when the
+ *    deployment mode is known** (i.e. `/v1/auth/cli/config` had already
+ *    succeeded): the Studio server is built with `autoAnonymous` enabled, so it
+ *    will retry on the first `/api/credentials` hit. This keeps `arkor dev`
+ *    usable when the cloud-api is momentarily down. If the config call ALSO
+ *    failed we cannot tell whether `/v1/auth/anonymous` is even enabled here,
+ *    so the error is rethrown instead of starting a Studio that may never
+ *    recover. See the `deploymentModeKnown` branch below.
  */
 export async function ensureCredentialsForStudio(): Promise<void> {
   if (await readCredentials()) return;
@@ -392,10 +396,11 @@ async function probeExistingStudio(
         // A real /api/status is terminal and never redirects. `redirect:
         // "manual"` stops an untrusted port occupant from bouncing this
         // CLI-side GET to an arbitrary URL, removing that blind-request
-        // surface. Under Node/undici the 3xx then comes back as an ordinary
-        // response carrying the real status (NOT the browser's opaqueredirect
-        // filtering, which only applies to navigate-mode requests), so `res.ok`
-        // is false and the check below rejects it before any body is read.
+        // surface. Measured on Node 24 / undici: the 3xx then comes back as an
+        // ordinary response carrying the real status (`type: "basic"`, body
+        // readable), not a synthesised opaque one, so `res.ok` is false and the
+        // check below rejects it before any body is read. Either way the guard
+        // holds; only the reason the response is unusable would differ.
         redirect: "manual",
       },
     );

@@ -9,7 +9,7 @@ description: "Studio の Overview / Jobs / Job 詳細ページ: 学習をトリ�
 
 ## Run training
 
-Run training パネルはページ読み込み時に `/api/manifest` を 1 度呼びます。レスポンスはプロジェクトの `createArkor({ trainer })` のサマリで、これをもとにアクションをラベル付けします:
+Run training パネルは Overview ページが開いている間、`/api/manifest` を 5 秒ごとにポーリングします。レスポンスはプロジェクトの `createArkor({ trainer })` のサマリで、これをもとにアクションをラベル付けします:
 
 - トレーナーが見つかれば `Run training: <trainer name>`。
 - バンドルは import されたが何も露出しない場合 `No trainer in src/arkor/index.ts yet. Add createTrainer(...) and pass it to createArkor.`（`src/arkor/index.ts` にトレーナーがまだありません。`createTrainer(...)` を追加して `createArkor` に渡してください）。
@@ -19,7 +19,7 @@ Run training パネルはページ読み込み時に `/api/manifest` を 1 度�
 
 クリックすると Studio は `POST /api/train` を送ります。バックエンドはサブプロセスで `arkor start` を起動し、stdout / stderr を生テキストとしてストリーミングで返します。整形済みログボックスは自動スクロールし、表示されるのはターミナルで `arkor start` を走らせたときの出力そのものです。
 
-トレーナー選択やフラグを渡す入力フォームはありません: Studio は常に `createArkor` で登録されたトレーナーを走らせ、`arkor start` は `.arkor/build/index.mjs` があれば再利用します。同じページで複数回クリックする間に `src/arkor/` の編集は自動では拾われません。編集の合間に Run training ページをリロード（あるいはターミナルから `arkor build`）してから次のクリックをしてください。具体的なリビルドルールは [CLI § build / start](/ja/cli/build-and-start) を参照。
+トレーナー選択やフラグを渡す入力フォームはありません: Studio は常に `createArkor` で登録されたトレーナーを走らせ、`arkor start` は `.arkor/build/index.mjs` があれば再利用します。編集の合間にリロードする必要はありません。マニフェストのポーリングごとにビルドが再実行されるため、`src/arkor/` の編集は約 5 秒で次のクリックに反映されます。具体的なリビルドルールは [CLI § build / start](/ja/cli/build-and-start) を参照。
 
 ## Jobs リスト
 

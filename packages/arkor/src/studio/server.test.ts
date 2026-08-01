@@ -265,6 +265,39 @@ describe("Studio server", () => {
     expect(res.status).toBe(403);
   });
 
+  it("never emits CORS headers (the SPA is same-origin by design)", async () => {
+    // Third pillar of the Studio CSRF model, alongside the Host guard and the
+    // token, and the only one with no test until now. Reflecting `*` would let
+    // a "simple" cross-origin POST (text/plain, urlencoded) skip preflight and
+    // reach a handler; the token check would still reject it, but adding CORS
+    // would remove a whole layer for no benefit, since the SPA is same-origin.
+    // Assert the absence directly so a future `app.use(cors())` fails here.
+    const app = build();
+    const responses = [
+      // Static HTML, an authorised /api/* call, and a rejected one: a CORS
+      // middleware could plausibly be mounted on any of these paths.
+      await app.request("/", { headers: { host: "127.0.0.1:4000" } }),
+      await app.request("/api/status", { headers: { host: "127.0.0.1:4000" } }),
+      await app.request("/api/credentials", {
+        headers: { host: "127.0.0.1:4000", origin: "http://evil.example" },
+      }),
+      await app.request("/api/credentials", {
+        method: "OPTIONS",
+        headers: {
+          host: "127.0.0.1:4000",
+          origin: "http://evil.example",
+          "access-control-request-method": "POST",
+        },
+      }),
+    ];
+    for (const res of responses) {
+      const cors = [...res.headers.keys()].filter((h) =>
+        h.toLowerCase().startsWith("access-control-"),
+      );
+      expect(cors).toEqual([]);
+    }
+  });
+
   it("rejects NESTED /api/* routes without a studio token", async () => {
     // The deny-direction tests above all use single-segment paths
     // (/api/credentials). Hono's `/api/*` matches multi-segment paths too, but
@@ -433,7 +466,11 @@ describe("Studio server", () => {
         studioToken: STUDIO_TOKEN,
         cwd: trainCwd,
         mode: "agent",
-        url: "http://localhost:4123",
+        // The 127.0.0.1 LITERAL, matching what runDev actually passes
+        // (`agentUrl`). Seeding the `localhost` form here would make this test
+        // assert exactly the shape StudioServerOptions.url documents as wrong,
+        // and an agent HTTP client without Happy-Eyeballs may not reach it.
+        url: "http://127.0.0.1:4123",
       });
       const res = await app.request("/api/status", {
         headers: {
@@ -444,7 +481,7 @@ describe("Studio server", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.mode).toBe("agent");
-      expect(body.url).toBe("http://localhost:4123");
+      expect(body.url).toBe("http://127.0.0.1:4123");
     });
 
     it("never includes the studio token or credential material in the body", async () => {

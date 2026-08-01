@@ -639,7 +639,14 @@ describe("runDev", () => {
     expect(existsSync(studioTokenPath())).toBe(true);
     const contents = readFileSync(studioTokenPath(), "utf8");
     expect(contents).toMatch(/^[\w-]+$/);
-    // Atomic write (PR #193 review): the temp staging file must be gone.
+    // Atomic write (PR #193 review). "No .tmp stray" alone does NOT pin this:
+    // a plain direct write leaves no stray either. Assert the rename that makes
+    // the publish atomic, so swapping temp+rename for a direct write fails here
+    // (same reasoning as the agent session file's atomicity test below).
+    const homeRename = renameCalls.find((c) => c[1] === studioTokenPath());
+    expect(homeRename).toBeDefined();
+    expect(String(homeRename?.[0])).toMatch(/\.tmp$/);
+    expect(dirname(String(homeRename?.[0]))).toBe(dirname(studioTokenPath()));
     const strays = readdirSync(join(fakeHome, ".arkor")).filter((f) =>
       f.includes(".tmp"),
     );
@@ -988,6 +995,21 @@ describe("runDev", () => {
       expect(payload.port).toBe(4310);
       expect(payload.pid).toBe(process.pid);
       expect(payload.token).toMatch(/^[\w-]+$/);
+      // The SERVER must be given that same agent-facing URL, not the localhost
+      // display form: `/api/status` echoes it, and that echo is what an agent
+      // reads back. Drive the real app through the handler runDev passed to
+      // `serve`, so passing the display url here fails.
+      const served = vi.mocked(serve).mock.calls[0]?.[0] as {
+        fetch: (req: Request) => Promise<Response>;
+      };
+      const statusRes = await served.fetch(
+        new Request("http://127.0.0.1:4310/api/status", {
+          headers: { host: "127.0.0.1:4310" },
+        }),
+      );
+      const statusBody = (await statusRes.json()) as Record<string, unknown>;
+      expect(statusBody.mode).toBe("agent");
+      expect(statusBody.url).toBe("http://127.0.0.1:4310");
       // The home token is still written in agent mode (user-facing contract:
       // the Vite SPA dev workflow reads it). NOT for the port-collision probe:
       // that hits the token-exempt /api/status and sends no token at all.
