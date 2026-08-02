@@ -352,10 +352,19 @@ async function readCapped(
  * the CSRF token or reach `POST /api/train`. The same-project comparison exists
  * to stop a DIFFERENT project's Studio (the common, benign collision) from
  * being adopted, and for that non-adversarial job it is exact.
+ *
+ * Exported for tests only. Only the `/proc/self/cwd` family is reachable as an
+ * end-to-end adoption bypass (it is the one that resolves to our own cwd); the
+ * `/dev/fd` and UNC branches resolve to something that could never equal the
+ * project root, so they cannot be driven through `probeExistingStudio` into a
+ * false adoption and are covered by direct unit tests instead.
  */
-function isUntrustedPeerPath(p: string): boolean {
+export function isUntrustedPeerPath(p: string): boolean {
   // Normalise separators so `/proc/self/../self/cwd` and Windows-style input
-  // cannot sneak past a naive prefix test.
+  // cannot sneak past a naive prefix test. Note the UNC branch below is
+  // effectively Windows-only: `path.posix.normalize` collapses a leading `//`
+  // to `/`, so on POSIX it never fires. That is fine (UNC resolution is a
+  // Windows hazard), but do not read it as cross-platform coverage.
   const norm = normalize(p).replaceAll("\\", "/");
   return (
     norm === "/proc" ||

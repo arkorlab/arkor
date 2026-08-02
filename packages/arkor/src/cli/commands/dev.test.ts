@@ -72,7 +72,7 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 
-import { ensureCredentialsForStudio, runDev } from "./dev";
+import { ensureCredentialsForStudio, isUntrustedPeerPath, runDev } from "./dev";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
@@ -104,6 +104,63 @@ afterEach(() => {
   // would otherwise leak across tests and accumulate call records.
   vi.restoreAllMocks();
   rmSync(fakeHome, { recursive: true, force: true });
+});
+
+describe("isUntrustedPeerPath", () => {
+  // The adoption filter's /proc family is exercised end to end by the
+  // "no /proc/self/cwd bypass" test below, but the /dev/fd and UNC branches
+  // cannot be: they never resolve to the project root, so a probe using them
+  // falls back for the wrong reason and the branch could be deleted unnoticed.
+  // Pin them directly instead.
+  it("rejects the process-relative /proc family, including traversal", () => {
+    for (const p of [
+      "/proc",
+      "/proc/self/cwd",
+      "/proc/1234/cwd",
+      "/proc/thread-self/cwd",
+      // `..` traversal must not sneak past the prefix test.
+      "/proc/self/../self/cwd",
+    ]) {
+      expect({ p, rejected: isUntrustedPeerPath(p) }).toEqual({
+        p,
+        rejected: true,
+      });
+    }
+  });
+
+  it("rejects the /dev/fd family", () => {
+    for (const p of ["/dev/fd", "/dev/fd/1"]) {
+      expect({ p, rejected: isUntrustedPeerPath(p) }).toEqual({
+        p,
+        rejected: true,
+      });
+    }
+  });
+
+  it("accepts ordinary absolute project paths, including near-miss prefixes", () => {
+    for (const p of [
+      "/home/u/proj",
+      "/",
+      // Near misses: the guard must match path SEGMENTS, not raw prefixes,
+      // or these legitimate directories would be refused.
+      "/procfs-notreally",
+      "/dev/fdisk",
+      "/home/u/proc",
+    ]) {
+      expect({ p, rejected: isUntrustedPeerPath(p) }).toEqual({
+        p,
+        rejected: false,
+      });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("rejects UNC paths on Windows", () => {
+    // Windows-only on purpose: `path.posix.normalize` collapses a leading
+    // `//` to `/`, so this branch cannot fire on POSIX. Asserting it there
+    // would encode the opposite of the real behaviour.
+    expect(isUntrustedPeerPath("//host/share")).toBe(true);
+    expect(isUntrustedPeerPath(String.raw`\\host\share`)).toBe(true);
+  });
 });
 
 describe("ensureCredentialsForStudio", () => {
@@ -922,6 +979,7 @@ describe("runDev", () => {
       stdoutSpy.mockRestore();
     }
     expect(existsSync(studioTokenPath())).toBe(true);
+    const ourToken = readFileSync(studioTokenPath(), "utf8");
 
     // Pull the most-recently-registered exit listener and invoke it; that
     // exercises the unlinkSync(path) branch of installShutdownHandlers.
@@ -930,9 +988,17 @@ describe("runDev", () => {
     cleanup();
     expect(existsSync(studioTokenPath())).toBe(false);
 
-    // A second invocation must short-circuit (the `cleaned` guard) so it
-    // doesn't throw on the now-missing file.
+    // A second invocation must short-circuit on the `cleaned` guard: the body
+    // must not run twice. Asserting only `not.toThrow()` could not detect the
+    // guard's removal, because every fs call inside the cleanup closure is
+    // already individually try/caught, so a second run is silent either way.
+    // Re-create the file with OUR OWN token instead: the ownership check would
+    // then happily match, so `cleaned` is the only thing left that can save it.
+    // Without the guard the second call deletes this file.
+    writeFileSync(studioTokenPath(), ourToken);
     expect(() => cleanup()).not.toThrow();
+    expect(existsSync(studioTokenPath())).toBe(true);
+    expect(readFileSync(studioTokenPath(), "utf8")).toBe(ourToken);
   });
 
   describe("agent mode", () => {

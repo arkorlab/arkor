@@ -89,7 +89,7 @@ export default {};
 
 ## CLI が探すもの
 
-- `arkor dev` は Studio の Web サーバーを `127.0.0.1:4000` で起動し、`~/.arkor/studio-token` を書きます。`src/arkor/` をファイル監視はしません。Studio の `/api/manifest` エンドポイントは確かに `runBuild` を呼び、bundle の content-addressed コピー経由で再 import します（無編集の再読込は Node のモジュールキャッシュを再利用し、編集はキャッシュをバストします）。これは Studio UI が駆動します。Overview ページ（`#/`）が開いている間、5 秒ごとにポーリングされます。このリビルドは **Run training** が実行するのと同じ `.arkor/build/index.mjs` に書き込むため、編集はページをリロードしなくても約 5 秒で反映されます。Studio を閉じている間はリビルドされないので、ターミナルからの `arkor start` はディスク上の成果物をそのまま実行します。`arkor dev` は単独で `.arkor/state.json` を書きません。
+- `arkor dev` は Studio の Web サーバーを `127.0.0.1:4000` で起動し、`~/.arkor/studio-token` を書きます。（例外が 1 つあります。同じプロジェクトをサーブしている Arkor Studio が既にそのポートを握っている場合、この起動はそこへ接続して exit `0` で終了し、サーバーは起動せず既存インスタンスのトークンにも触れません。[`arkor dev`](/ja/cli/dev) を参照。）`src/arkor/` をファイル監視はしません。Studio の `/api/manifest` エンドポイントは確かに `runBuild` を呼び、bundle の content-addressed コピー経由で再 import します（無編集の再読込は Node のモジュールキャッシュを再利用し、編集はキャッシュをバストします）。これは Studio UI が駆動します。Overview ページ（`#/`）が開いている間、5 秒ごとにポーリングされます。このリビルドは **Run training** が実行するのと同じ `.arkor/build/index.mjs` に書き込むため、編集はページをリロードしなくても約 5 秒で反映されます。Studio を閉じている間はリビルドされないので、ターミナルからの `arkor start` はディスク上の成果物をそのまま実行します。`arkor dev` は単独で `.arkor/state.json` を書きません。
 - `arkor build` は `src/arkor/index.ts`（または渡したエントリー）を読んで `.arkor/build/index.mjs` を書きます。Studio の dev ループの外側で直接呼ぶ必要があるのは CI や、スクリプトから `arkor start` の直前に走らせる場合などです。
 - `arkor start` はランナー経由でエントリーを解決し、`.arkor/build/index.mjs` がない、もしくは明示的なエントリーを渡したときはリビルドして実行します（これが `trainer.start()` と `trainer.wait()` を呼びます）。Studio から学習をトリガーすると内部的に `arkor start` がサブプロセスとして起動されます。
 

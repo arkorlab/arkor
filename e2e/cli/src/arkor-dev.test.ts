@@ -22,10 +22,17 @@ describe("arkor dev × CLAUDECODE strict gate (E2E)", () => {
   it("exits 1 with the --agent re-invocation block under CLAUDECODE=1 without --agent", async () => {
     const dir = makeTempDir("arkor-dev-e2e-");
     try {
-      const result = await runCli(ARKOR_BIN, ["dev"], dir, {
-        HOME: dir,
-        CLAUDECODE: "1",
-      });
+      // Bounded: if the gate ever regresses, `arkor dev` serves forever.
+      // Without a cap this test would hang until vitest's timeout AND leave a
+      // live server bound to port 4000 on the runner. 30s is far above a
+      // normal exit-1 (tens of ms) and well under the vitest file timeout.
+      const result = await runCli(
+        ARKOR_BIN,
+        ["dev"],
+        dir,
+        { HOME: dir, CLAUDECODE: "1" },
+        30_000,
+      );
       expect(result.code).toBe(1);
       expect(result.stderr).toContain(
         "arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.",

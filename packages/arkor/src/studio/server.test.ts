@@ -823,6 +823,82 @@ process.exit(0);
       expect(text).toContain("exit=0");
     });
 
+    // The whole child-reaping mechanism (`liveTrainChildren`, the refcounted
+    // `process.on("exit", killLiveTrainChildren)` attach, and the
+    // `detachKillHook` release) had no coverage: deleting any part of it left
+    // this suite green, even though dev.ts's shutdown handlers depend on it to
+    // avoid orphaning a training child (and leaking a GPU) on `docker stop`.
+    it("attaches ONE refcounted exit hook while a child is live, kills the child through it, and detaches at zero", async () => {
+      await writeCredentials(ANON_CREDS);
+      // A child that would outlive the request unless something kills it.
+      const sleepBin = join(trainCwd, "sleep-bin.mjs");
+      writeFileSync(
+        sleepBin,
+        'process.stdout.write("[sleeping]\\n");\nsetTimeout(() => { process.exit(0); }, 30_000);\n',
+      );
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: sleepBin,
+      });
+
+      const before = process.listeners("exit").length;
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let seen = "";
+      try {
+        // Read until the child has actually started (proves it is spawned and
+        // therefore registered) rather than sleeping a fixed interval.
+        while (!seen.includes("[sleeping]")) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          seen += decoder.decode(value, { stream: true });
+        }
+        expect(seen).toContain("[sleeping]");
+
+        // Exactly one hook, not one per spawn (a per-spawn listener would trip
+        // MaxListenersExceededWarning past 10 concurrent runs).
+        const during = process.listeners("exit");
+        expect(during.length).toBe(before + 1);
+
+        // Invoking the hook must kill the live child. Without it the child
+        // would sit in its 30s timer and orphan.
+        const hook = during.at(-1) as () => void;
+        hook();
+
+        // Drain: the stream terminates because the child died.
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          seen += decoder.decode(value, { stream: true });
+        }
+        // Killed by signal, so not a clean exit=0.
+        expect(seen).not.toContain("exit=0");
+      } finally {
+        reader.releaseLock();
+      }
+
+      // ...and the hook is released once no child is live, so `arkor dev` does
+      // not accumulate listeners across runs.
+      await vi.waitFor(() => {
+        expect(process.listeners("exit").length).toBe(before);
+      });
+    });
+
     it("surfaces ENOENT-grade errors when binPath does not exist", async () => {
       await writeCredentials(ANON_CREDS);
       const app = buildStudioApp({
