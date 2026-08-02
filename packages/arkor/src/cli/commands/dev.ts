@@ -364,9 +364,10 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // because `startWatcher` falls through to a poll loop that waits
   // for the entry file to appear (see `hmr.ts:entryWaitTimer`).
   //
-  // Registered before the studio-token cleanup so the latter remains
-  // the most-recently-attached signal listener (existing tests rely
-  // on this ordering to find the token-removal handler).
+  // Only CREATED here; its dispose hook is registered inside the
+  // `listening` callback below (before the studio-token hook, which
+  // must stay the most-recently-attached, exit-owning listener), so a
+  // doomed EADDRINUSE launch never leaves cleanup listeners behind.
   const hmr = createHmrCoordinator({ cwd: process.cwd() });
 
   // `autoAnonymous: true` (the default) lets the Hono server retry the

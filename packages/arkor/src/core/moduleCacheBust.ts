@@ -81,7 +81,10 @@ export function moduleCacheBustKey(filePath: string): string {
  * Convenience: full file URL with the cache-bust key already
  * appended. The `as const`-style template is small enough to inline
  * but doing it in one place keeps the URL shape uniform across the
- * three callers (`hmr.ts`, `manifest.ts`, `runnerSignals.ts`).
+ * two callers (`hmr.ts`, `runnerSignals.ts`). `manifest.ts` no longer
+ * uses it: its reads go through a content-addressed snapshot copy
+ * (`index.<sha256>.mjs`), which closes the key-vs-import race
+ * documented below for that path entirely.
  */
 export function moduleCacheBustUrl(filePath: string): string {
   return `${pathToFileURL(filePath).href}?t=${moduleCacheBustKey(filePath)}`;
