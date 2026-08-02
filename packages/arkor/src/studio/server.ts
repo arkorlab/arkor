@@ -558,6 +558,25 @@ export function buildStudioApp(options: StudioServerOptions) {
       }
       trainFile = abs;
     }
+    // Custom-entry runs are refused while HMR owns the build artefact
+    // (Codex P2, round 86). `arkor start <file>` rebuilds the SHARED
+    // `.arkor/build/index.mjs` from the custom entry, and since the
+    // HMR manifest fast path never rebuilds the default entry itself,
+    // that overwrite would persist until the watcher's next
+    // source-triggered publish: Studio would display (and a later
+    // default Run would execute) the wrong trainer. The SPA never
+    // sends `file`; direct API users can run `arkor start <file>`
+    // in a terminal, which doesn't fight the watcher-owned artefact
+    // lifecycle Studio depends on.
+    if (trainFile && options.hmr) {
+      return c.json(
+        {
+          error:
+            "custom file runs are not supported while arkor dev's HMR watcher owns the build artifact; run `arkor start <file>` directly instead",
+        },
+        400,
+      );
+    }
     // Snapshot the current `configHash` so HMR routing on the *next*
     // rebuild can compare against this child's spawn-time config.
     //
@@ -913,7 +932,13 @@ export function buildStudioApp(options: StudioServerOptions) {
           if (closed) return;
           closed = true;
           try {
-            controller.enqueue(enc.encode(`\n---\nerror=${err.message}\n`));
+            // Cap the marker payload: the SPA detects the marker in a
+            // bounded rolling tail (4 KiB), so an unbounded message
+            // (some ENOENT chains embed full command lines) could
+            // push the `---\nerror=` prefix out of the window and
+            // downgrade a spawn failure to an unknown-exit resolve.
+            const reason = err.message.slice(0, 2048);
+            controller.enqueue(enc.encode(`\n---\nerror=${reason}\n`));
             controller.close();
           } catch {
             // already cancelled; nothing more to do.
@@ -957,8 +982,8 @@ export function buildStudioApp(options: StudioServerOptions) {
         //
         // SIGKILL is uncatchable so the long-standing
         // "second-SIGTERM-triggers-exit(143)-fast-path" worry
-        // (which used to gate this branch on
-        // `isEarlyStopRequested`) doesn't apply. The runner's
+        // (which used to gate this branch on the registry's
+        // early-stop latch) doesn't apply. The runner's
         // graceful early-stop chain may have been trying to
         // preserve a checkpoint, but the user just said no; keep
         // the local subprocess teardown snappy and let the
@@ -1005,19 +1030,23 @@ export function buildStudioApp(options: StudioServerOptions) {
         // for matching jobs at cancel time is brittle in
         // multi-tab/multi-spawn scenarios).
         void (async () => {
-          // Brief poll on `parsedJobId` (the closure mirror,
-          // see top-of-handler for why it can't be the
-          // registry's `getJobId`): the runner's
-          // `Started job <id>` line may not have been parsed by
-          // the time the user clicked Stop. Most runs hit it
-          // within ~50-200 ms of spawn (cloud createJob
-          // roundtrip), so polling for up to ~500 ms catches
-          // nearly all races. Beyond that we accept the
-          // cloud-side orphan as a documented follow-up: cloud
-          // reaper / TTL is the safety net, and the
-          // alternative (querying cloud-api for matching jobs
-          // at cancel time) is brittle for multi-tab /
-          // multi-spawn cases.
+          // Poll on `parsedJobId` (the closure mirror, see
+          // top-of-handler for why it can't be the registry's
+          // `getJobId`): the runner's `Started job <id>` line may
+          // not have been parsed by the time the user clicked Stop.
+          // Most runs hit it within ~50-200 ms of spawn, but a slow
+          // cloud createJob / first-run `ensureProjectState` can
+          // take seconds, so the window is 2 s (greptile P1, round
+          // 86; was 500 ms). CRITICALLY, the SIGKILL now happens
+          // AFTER this window (see below), so the child is still
+          // alive to finish `trainer.start()` and print the marker;
+          // the previous shape killed first, which GUARANTEED the
+          // marker never arrived for any Stop that landed mid-
+          // `start()`, silently orphaning the just-created cloud
+          // job. Beyond the window we accept the orphan as a
+          // documented follow-up: cloud reaper / TTL is the safety
+          // net, and querying cloud-api for matching jobs at cancel
+          // time is brittle for multi-tab / multi-spawn cases.
           if (parsedJobId === null) {
             const start = Date.now();
             // `parsedJobId` is mutated by the stdout parser closure
@@ -1027,9 +1056,34 @@ export function buildStudioApp(options: StudioServerOptions) {
             // loop guard as always-true. The poll is real: the marker
             // line can land mid-wait.
             // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-            while (parsedJobId === null && Date.now() - start < 500) {
+            while (parsedJobId === null && Date.now() - start < 2000) {
+              // Stop waiting the moment the child is provably dead:
+              // its stdout is closed, so no marker can ever arrive
+              // and every further tick only delays the kill below.
+              if (child.exitCode !== null || child.signalCode !== null) {
+                break;
+              }
               await new Promise((resolve) => setTimeout(resolve, 25));
             }
+          }
+          // SIGKILL (not the default SIGTERM) for user-initiated
+          // aborts, sent AFTER the marker window above. The runner's
+          // `installShutdownHandlers` treats a single SIGTERM as the
+          // HMR-driven graceful early-stop; for a Stop click the user
+          // wants the run STOPPED, and SIGKILL is uncatchable. It
+          // lives inside this IIFE (rather than at the end of the
+          // synchronous cancel handler, its previous home) because
+          // killing before the poll destroyed the only process able
+          // to produce the job-id marker. Worst-case added local
+          // lifetime for a marker-less child is the 2 s window; the
+          // stream is already sealed (`closed` flag) so the UI is
+          // unaffected. `kill()` can throw ESRCH if the child exited
+          // during the poll; swallow it, the close handler has
+          // already unregistered the entry.
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // already gone; nothing to clean up.
           }
           if (parsedJobId === null) return;
           // Resolve the cloud scope: prefer the spawn-time
@@ -1078,39 +1132,6 @@ export function buildStudioApp(options: StudioServerOptions) {
             // drift. Cloud reaper / TTL is the safety net.
           }
         })();
-        // SIGKILL (not the default SIGTERM) for user-initiated
-        // aborts. The runner's `installShutdownHandlers` now treats
-        // a single SIGTERM as the HMR-driven "graceful early-stop"
-        // signal: wait for the next checkpoint (up to ~5 min
-        // timeout) before exiting. That semantics is right for the
-        // HMR path but wrong for a Stop-training click: the user
-        // wants the run STOPPED, not left running in the background
-        // for minutes consuming GPU/cloud spend while the UI has
-        // already settled to idle. SIGKILL is uncatchable so the
-        // child dies immediately, eliminating the
-        // unregister-before-graceful-exit window where a fast new
-        // run could overlap an old one untracked by HMR routing.
-        //
-        // The cloud-side job is released by the fire-and-forget
-        // POST above (we recorded the runner's `Started job <id>`
-        // line on the registry; the IIFE looks it up here). SIGKILL
-        // alone would have left the cloud job orphaned until
-        // TTL/reaper because the runner can't POST cancel itself
-        // when the kernel reaps it without warning. Together,
-        // server-side cancel POST + SIGKILL give snappy local
-        // teardown AND eventual cloud-side release.
-        //
-        // `ChildProcess.kill()` can throw (ESRCH if the process has
-        // already exited between this handler's invocation and the
-        // signal delivery). A throw here would surface as an unhandled
-        // exception in the request pipeline and crash the server
-        // handler. Swallow it; the close handler above has already
-        // taken the entry out of the registry.
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // already gone; nothing to clean up.
-        }
       },
     });
     // Expose the spawned pid via a response header so the SPA can
@@ -1228,8 +1249,13 @@ export function buildStudioApp(options: StudioServerOptions) {
         if (process.platform === "win32" && restartTargets.length > 0) {
           for (const target of restartTargets) {
             const snap = win32CancelSnapshots.find((s) => s.pid === target.pid);
-            if (!snap?.jobId || !snap.scope) continue;
-            const { jobId: snapJobId, scope: snapScope } = snap;
+            // No jobId means the runner never printed its marker
+            // before the (abrupt, win32) SIGTERM: there is nothing
+            // addressable to cancel. The narrow marker-less window
+            // shares the manual-Stop path's accepted residual: the
+            // cloud reaper / TTL is the safety net.
+            if (!snap?.jobId) continue;
+            const { jobId: snapJobId, scope: snapPinnedScope } = snap;
             // Fire-and-forget per child, mirroring the manual-Stop
             // cancel path: SIGTERM-as-forceful-kill on win32 means
             // nobody else will release the cloud job. Best-effort;
@@ -1237,6 +1263,26 @@ export function buildStudioApp(options: StudioServerOptions) {
             const snapRpc = snap.rpc;
             void (async () => {
               try {
+                // A null spawn-time scope is the first-run anon flow:
+                // `ensureProjectState` writes `.arkor/state.json` from
+                // inside the child during `trainer.start()`, i.e.
+                // AFTER spawn. Since we have a jobId, `start()`
+                // resolved, so the state file exists by now; resolve
+                // it at cancel time exactly like the manual-Stop
+                // path (cubic P1, round 86: skipping these targets
+                // orphaned first-run cloud jobs on every win32 HMR
+                // restart).
+                let snapScope = snapPinnedScope;
+                if (!snapScope) {
+                  const late = await readState(trainCwd).catch(() => null);
+                  if (late) {
+                    snapScope = {
+                      orgSlug: late.orgSlug,
+                      projectSlug: late.projectSlug,
+                    };
+                  }
+                }
+                if (!snapScope) return;
                 // Prefer the spawn-time credential snapshot (qodo,
                 // round 83), mirroring the manual-Stop cancel path:
                 // a login / control-plane switch mid-run would make

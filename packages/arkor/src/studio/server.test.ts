@@ -80,6 +80,24 @@ function build() {
   });
 }
 
+/**
+ * Bounded poll for fire-and-forget async work the production code
+ * never exposes a promise for (the cloud cancel IIFE). Replaces the
+ * previous fixed sleeps, which flaked under CI load (cubic P3,
+ * round 86): resolves as soon as `predicate()` is true, and returns
+ * regardless after `deadlineMs` so the following assertion reports
+ * the real state.
+ */
+async function pollUntil(
+  predicate: () => boolean,
+  deadlineMs = 5000,
+): Promise<void> {
+  const deadline = Date.now() + deadlineMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 describe("Studio server", () => {
   it("requires a studioToken at construction time", () => {
     expect(() =>
@@ -156,7 +174,6 @@ describe("Studio server", () => {
     const fakeHmr = {
       subscribe: () => () => undefined,
       getCurrentConfigHash: () => null,
-      getCurrentArtifactHash: () => null,
       getCurrentArtifactContentHash: () => null,
       getLastEventType: () => null,
       async dispose() {},
@@ -716,7 +733,6 @@ process.exit(0);
           getCurrentCalls += 1;
           return "spawn-time-hash";
         },
-        getCurrentArtifactHash: () => "spawn-artefact-hash",
         getCurrentArtifactContentHash: () => "spawn-artefact-content-hash",
         getLastEventType: () => null,
         async dispose() {},
@@ -748,30 +764,23 @@ process.exit(0);
       expect(getCurrentCalls).toBe(1);
     });
 
-    it("skips the coordinator hash capture entirely for a custom body.file spawn", async () => {
-      // Regression guard for the custom-entry HMR hazard: the
-      // coordinator's configHash / artefact content hash describe the
-      // DEFAULT entry's bundle, but `arkor start <file>` rebuilds and
-      // runs the CUSTOM entry's trainer. Capturing the default
-      // entry's hashes as this child's baseline would let a later
-      // same-hash rebuild hot-swap (SIGUSR2) the default trainer's
-      // callbacks into the custom trainer's live run. The server must
-      // register null baselines instead (which `dispatchRebuild`
-      // routes through the conservative SIGTERM-restart path), so
-      // neither getter may even be consulted.
+    it("rejects a custom body.file with 400 while HMR owns the build artifact", async () => {
+      // Codex P2 (round 86): `arkor start <file>` rebuilds the SHARED
+      // `.arkor/build/index.mjs` from the custom entry, and the HMR
+      // manifest fast path never rebuilds the default entry itself,
+      // so the overwrite would persist until the next source-triggered
+      // watcher publish: Studio would display (and a later default Run
+      // execute) the wrong trainer. The route is refused up front
+      // under HMR; the coordinator's hash getters must not even be
+      // consulted, and no child may be spawned.
       await writeCredentials(ANON_CREDS);
       let configHashCalls = 0;
-      let artifactHashCalls = 0;
       let contentHashCalls = 0;
       const fakeHmr = {
         subscribe: () => () => undefined,
         getCurrentConfigHash: () => {
           configHashCalls += 1;
           return "default-entry-hash";
-        },
-        getCurrentArtifactHash: () => {
-          artifactHashCalls += 1;
-          return "default-artefact-hash";
         },
         getCurrentArtifactContentHash: () => {
           contentHashCalls += 1;
@@ -803,10 +812,10 @@ process.exit(0);
         },
         body: JSON.stringify({ file: "src/arkor/custom.ts" }),
       });
-      expect(res.status).toBe(200);
-      await res.text();
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(/custom file runs are not supported/);
       expect(configHashCalls).toBe(0);
-      expect(artifactHashCalls).toBe(0);
       expect(contentHashCalls).toBe(0);
     });
 
@@ -910,7 +919,7 @@ process.exit(0);
           buf += decoder.decode(value, { stream: true });
         }
         await reader.cancel();
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await pollUntil(() => cancelHits.length > 0);
 
         // The cancel POST must target the REAL id. With the bug
         // the decoy would have been recorded first → cancelHits[0]
@@ -1032,7 +1041,7 @@ process.exit(0);
         await reader.cancel();
         // Fire-and-forget: give the void IIFE a tick to actually
         // dispatch the fetch + receive the 200 response.
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await pollUntil(() => cancelHits.length > 0);
 
         expect(cancelHits).toHaveLength(1);
         expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
@@ -1131,7 +1140,7 @@ process.exit(0);
         // fix, the registry-pinned scope is used and the POST goes
         // out anyway.
         await reader.cancel();
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await pollUntil(() => cancelHits.length > 0);
 
         expect(cancelHits).toHaveLength(1);
         expect(cancelHits[0]?.url).toContain(`/v1/jobs/${FAKE_JOB_ID}/cancel`);
@@ -1230,7 +1239,7 @@ process.exit(0);
           buf += decoder.decode(value, { stream: true });
         }
         await reader.cancel();
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await pollUntil(() => cancelHits.length > 0);
 
         // Under the bug there were 0 cancel hits (pinned scope null
         // → skip). With the fix the cancel-time read recovers the
@@ -1334,7 +1343,7 @@ process.exit(0);
           buf += decoder.decode(value, { stream: true });
         }
         await reader.cancel();
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await pollUntil(() => cancelHits.length > 0);
 
         // Under the bug: 0 hits (the merged `"loading dataset… [arkor:n] Started job <id>"`
         // line failed the `^\[arkor:` anchor, so parsedJobId stayed
@@ -1440,7 +1449,7 @@ process.exit(0);
           buf += decoder.decode(value, { stream: true });
         }
         await reader.cancel();
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await pollUntil(() => cancelHits.length > 0);
 
         // Cancel POST landed against the REAL id: the spoof was
         // rejected by the anchored nonce-prefixed regex.
@@ -1499,19 +1508,23 @@ process.exit(0);
       // Trigger the cancel() handler.
       await res.body!.cancel();
 
-      // Give the OS a moment to deliver SIGKILL and reap.
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
       // `process.kill(pid, 0)` is the standard "is this pid alive?"
       // probe: sends signal 0 (no-op) but the syscall still
       // surfaces ESRCH for non-existent pids. SIGKILL → reaped →
       // ESRCH. SIGTERM (with the bin's no-op handler) → still
-      // alive → no throw → test fails.
+      // alive → no throw → deadline exceeded → test fails. Bounded
+      // poll rather than a fixed sleep (cubic P3, round 86): this
+      // bin never prints the job marker, so the cancel path holds
+      // the SIGKILL for its full 2 s marker window before killing.
       let probeError: NodeJS.ErrnoException | null = null;
-      try {
-        process.kill(pid, 0);
-      } catch (e) {
-        probeError = e as NodeJS.ErrnoException;
+      const deadline = Date.now() + 6000;
+      while (probeError === null && Date.now() < deadline) {
+        try {
+          process.kill(pid, 0);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        } catch (e) {
+          probeError = e as NodeJS.ErrnoException;
+        }
       }
       expect(probeError).not.toBeNull();
       expect(probeError?.code).toBe("ESRCH");
@@ -2435,7 +2448,6 @@ process.exit(0);
       const fakeHmr = {
         subscribe: () => () => undefined,
         getCurrentConfigHash: () => null,
-        getCurrentArtifactHash: () => null,
         getCurrentArtifactContentHash: () => null,
         getLastEventType: () => null,
         async dispose() {},
@@ -2496,7 +2508,6 @@ process.exit(0);
       const fakeHmr = {
         subscribe: () => () => undefined,
         getCurrentConfigHash: () => null,
-        getCurrentArtifactHash: () => null,
         getCurrentArtifactContentHash: () => null,
         getLastEventType: () => null,
         async dispose() {},
@@ -2563,7 +2574,6 @@ process.exit(0);
       const fakeHmr = {
         subscribe: () => () => undefined,
         getCurrentConfigHash: () => null,
-        getCurrentArtifactHash: () => null,
         getCurrentArtifactContentHash: () => null,
         getLastEventType: () => null,
         async dispose() {},
@@ -2618,7 +2628,6 @@ process.exit(0);
       const fakeHmr = {
         subscribe: () => () => undefined,
         getCurrentConfigHash: () => null,
-        getCurrentArtifactHash: () => null,
         getCurrentArtifactContentHash: () => null,
         getLastEventType: () => "error" as const,
         async dispose() {},
@@ -2975,10 +2984,9 @@ process.exit(0);
       const subs = new Set<(e: HmrEvent) => void>();
       let currentConfigHash: string | null = initialConfigHash;
       // Match the real coordinator's behaviour: a stable artefact
-      // fingerprint at spawn time. Tests that exercise the
+      // content fingerprint at spawn time. Tests that exercise the
       // pre-ready-spawn path (configHash null, then a real hash)
-      // can override via `setArtifactHash`.
-      let currentArtifactHash: string | null = "fake-artefact-hash";
+      // can override via `setArtifactContentHash`.
       let currentArtifactContentHash: string | null =
         "fake-artefact-content-hash";
       let lastEventType: HmrEvent["type"] | null = null;
@@ -2991,9 +2999,6 @@ process.exit(0);
         },
         getCurrentConfigHash() {
           return currentConfigHash;
-        },
-        getCurrentArtifactHash() {
-          return currentArtifactHash;
         },
         getCurrentArtifactContentHash() {
           return currentArtifactContentHash;
@@ -3016,9 +3021,6 @@ process.exit(0);
         },
         setConfigHash(hash: string | null) {
           currentConfigHash = hash;
-        },
-        setArtifactHash(hash: string | null) {
-          currentArtifactHash = hash;
         },
         setArtifactContentHash(hash: string | null) {
           currentArtifactContentHash = hash;

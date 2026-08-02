@@ -100,6 +100,20 @@ export function RunTraining() {
   // state either; `cancelled` inside `tick()` only covers effect
   // teardown, not cross-channel ordering.
   const manifestFetchSeqRef = useRef(0);
+  // Latest build state seen on the SSE channel: `true` between an
+  // `error` frame and the next successful `ready`/`rebuild`. A latched
+  // auto-restart is DEFERRED while this is set (cubic P1, round 86):
+  // firing it would spawn a fresh cloud job from the last-good
+  // artifact while the manifest error is disabling the manual Run
+  // button for exactly that broken state. The deferred latch fires
+  // from the SSE handler when the next successful rebuild arrives.
+  const lastBuildErrorRef = useRef(false);
+  // True when the latched restart's target carried `forcedKill`
+  // (win32: the server's SIGTERM is an abrupt kill, so the child
+  // cannot produce the clean `exit=0` the suppression gate normally
+  // requires, and the server already fired its compensation cancel
+  // POST). Lets that one restart through the nonzero-exit gate.
+  const forcedKillLatchRef = useRef(false);
   // Tracks "is this React tree still mounted?". The HMR auto-restart
   // path schedules `queueMicrotask(() => run(...))` after the prior
   // run's `finally`. Without this gate, navigating away during the
@@ -127,6 +141,7 @@ export function RunTraining() {
       // edits to React's effect ordering, future refactors), it
       // still finds nothing pending.
       restartPendingRef.current = false;
+      forcedKillLatchRef.current = false;
       pendingPreSpawnEventsRef.current = [];
       trainingAbortRef.current?.abort();
       if (hotSwapTimerRef.current !== null) {
@@ -219,6 +234,7 @@ export function RunTraining() {
       // `setManifest` below.
       const seq = ++manifestFetchSeqRef.current;
       if (payload.type === "error") {
+        lastBuildErrorRef.current = true;
         setManifest({ error: payload.message ?? "Build failed" });
         setHmrStatus("idle");
         // Codex P2 (PR #101 round 79): do NOT clear `restartPendingRef`
@@ -237,13 +253,38 @@ export function RunTraining() {
         // surfaces the error either way, so stale-good-code background
         // churn is bounded and visible).
         //
-        // Pre-spawn buffer IS still cleared: those are events for
-        // children whose pid isn't known yet, and the latest known
-        // state is "broken," so the buffer's stale restart targets
-        // shouldn't latch a fresh spawn onto a now-irrelevant
-        // rebuild.
-        pendingPreSpawnEventsRef.current = [];
+        // The pre-spawn buffer is deliberately KEPT (cubic, round
+        // 86; an earlier revision cleared it here). It exists for
+        // the same reason the latch survives: a restart-targeting
+        // event that arrived before `onSpawn` learned our pid is
+        // the server's only restart signal for this child, and a
+        // build-error frame racing in ahead of `onSpawn` must not
+        // erase it (the drained latch then defers on
+        // `lastBuildErrorRef` like any other latch). Failed spawns
+        // clear the buffer in `run()`'s post-sequence.
         return;
+      }
+      // A successful build clears the error state and releases any
+      // restart latch that was deferred while the build was broken
+      // (see `lastBuildErrorRef`): this rebuild IS the "fixed" state
+      // the deferral was waiting for, so re-spawn from it now. The
+      // idle/pid checks scope the release to the deferred case (a
+      // running child's latch is consumed by run()'s post-exit
+      // sequence as usual).
+      lastBuildErrorRef.current = false;
+      if (
+        !runningRef.current &&
+        currentPidRef.current === null &&
+        restartPendingRef.current
+      ) {
+        restartPendingRef.current = false;
+        forcedKillLatchRef.current = false;
+        setHmrStatus("restarting");
+        const fileForRestart = lastTrainFileRef.current;
+        queueMicrotask(() => {
+          if (!isMountedRef.current) return;
+          void runRef.current(fileForRestart);
+        });
       }
       // Always refresh the manifest on ready/rebuild. Version-gate the
       // late `setManifest` so a slow `/api/manifest` response from this
@@ -285,9 +326,11 @@ export function RunTraining() {
       // exactly this reason. Without dropping the `runningRef`
       // gate, post-exit restart events would silently no-op and
       // leave the tab on stale code.
-      const myRestart =
-        myPid !== null &&
-        (payload.restartTargets?.some((t) => t.pid === myPid) ?? false);
+      const myRestartTarget =
+        myPid === null
+          ? undefined
+          : payload.restartTargets?.find((t) => t.pid === myPid);
+      const myRestart = myRestartTarget !== undefined;
       const myHotSwap =
         myPid !== null &&
         (payload.hotSwapTargets?.some((t) => t.pid === myPid) ?? false);
@@ -297,6 +340,7 @@ export function RunTraining() {
         // exits cleanly. The `finally` block of `run()` picks up the
         // pending flag and re-spawns with the same args.
         restartPendingRef.current = true;
+        forcedKillLatchRef.current = myRestartTarget.forcedKill === true;
         setHmrStatus("early-stopping");
       } else if (myHotSwap) {
         // Callbacks were swapped in place; the cloud-side run is
@@ -341,6 +385,18 @@ export function RunTraining() {
     if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
   }, [log]);
 
+  /**
+   * Latest-`run` ref for the SSE effect's deferred-restart release:
+   * the effect mounts once (empty deps) but must invoke the CURRENT
+   * render's `run` closure; calling through the ref keeps
+   * `react-hooks/exhaustive-deps` satisfied without re-subscribing
+   * the EventSource on every render.
+   */
+  const runRef = useRef<(file?: string) => Promise<void>>(
+    // Placeholder until the render below assigns the real closure;
+    // resolves immediately so a (theoretically) early caller no-ops.
+    () => Promise.resolve(),
+  );
   async function run(file?: string): Promise<void> {
     runningRef.current = true;
     lastTrainFileRef.current = file;
@@ -360,6 +416,7 @@ export function RunTraining() {
     // this point (SSE handler / onSpawn drain), so clearing here can
     // never lose a real signal.
     restartPendingRef.current = false;
+    forcedKillLatchRef.current = false;
     setRunning(true);
     setLog("");
     const ac = new AbortController();
@@ -402,11 +459,14 @@ export function RunTraining() {
           // dispatching every buffered event verbatim.
           const buffered = pendingPreSpawnEventsRef.current;
           pendingPreSpawnEventsRef.current = [];
-          let restartHit = false;
+          let restartHit:
+            | { pid: number; trainFile?: string; forcedKill?: boolean }
+            | undefined;
           let hotSwapHit = false;
           for (const ev of buffered) {
-            if (ev.restartTargets?.some((t) => t.pid === pid)) {
-              restartHit = true;
+            const hit = ev.restartTargets?.find((t) => t.pid === pid);
+            if (hit) {
+              restartHit = hit;
               break;
             }
             if (ev.hotSwapTargets?.some((t) => t.pid === pid)) {
@@ -415,6 +475,7 @@ export function RunTraining() {
           }
           if (restartHit) {
             restartPendingRef.current = true;
+            forcedKillLatchRef.current = restartHit.forcedKill === true;
             setHmrStatus("early-stopping");
           } else if (hotSwapHit) {
             setHmrStatus("hot-swapped");
@@ -510,7 +571,24 @@ export function RunTraining() {
     // early-stop that auto-restart is designed for. (User aborts
     // never reach here: the `ac.signal.aborted` branch above returns
     // first.)
-    if (streamFailed || exitCode !== 0) {
+    // win32 carve-out (Codex P2, round 86): a `forcedKill` restart
+    // target means the server's SIGTERM was an abrupt kill, the exit
+    // marker CANNOT be a clean `exit=0`, and the server has already
+    // fired its compensation cancel POST for the cloud job. The
+    // advertised restart must go through despite the nonzero/absent
+    // code; every other nonzero/unknown exit still suppresses.
+    // TS's flow analysis pins both refs to `false` across the await
+    // (it can't see the SSE handler's cross-closure writes), so the
+    // rule mis-flags both operands; the runtime reads are real. The
+    // explicit `boolean` widening keeps DOWNSTREAM uses clean.
+    /* eslint-disable @typescript-eslint/no-unnecessary-condition --
+       const-narrowing re-pins `forcedRestart` to the literal `false`
+       even through the boolean annotation, so the `if` below trips
+       the rule too; the disable spans both lines. */
+    const forcedRestart: boolean =
+      restartPendingRef.current && forcedKillLatchRef.current;
+    if (streamFailed || (exitCode !== 0 && !forcedRestart)) {
+      /* eslint-enable @typescript-eslint/no-unnecessary-condition */
       // The HMR-specific "auto-restart suppressed" note is only
       // meaningful when a restart was actually latched for this run;
       // a plain (non-HMR, or simply not-restart-targeted) failing
@@ -520,6 +598,7 @@ export function RunTraining() {
       // late-arriving restart event from re-spawning a failed run.
       const hadPendingRestart = restartPendingRef.current;
       restartPendingRef.current = false;
+      forcedKillLatchRef.current = false;
       currentPidRef.current = null;
       setHmrStatus("idle");
       if (restartGraceTimerRef.current !== null) {
@@ -547,19 +626,40 @@ export function RunTraining() {
       return;
     }
 
-    // `restartPendingRef.current` is set to `false` at run() entry and
-    // flipped back to `true` by the SSE handler / onSpawn drain while
-    // the `streamTraining` await above is in flight. TS's control-flow
-    // narrowing can't see those cross-closure writes across the await
-    // and pins the property to `false` here, so
-    // `no-unnecessary-condition` mis-reports the check as always
-    // falsy. The runtime branch is real: it IS the fast-path restart.
+    // Deferral (cubic P1, round 86): a latched restart while the
+    // BUILD IS BROKEN must not fire. It would spawn a fresh cloud job
+    // from the last-good artifact at the very moment the manifest
+    // error is disabling the manual Run button for that same broken
+    // state. Keep the latch armed and settle to idle; the SSE
+    // handler releases it on the next successful rebuild (which is
+    // the artifact the user actually wants to run).
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (restartPendingRef.current && lastBuildErrorRef.current) {
+      currentPidRef.current = null;
+      setHmrStatus("idle");
+      if (restartGraceTimerRef.current !== null) {
+        clearTimeout(restartGraceTimerRef.current);
+        restartGraceTimerRef.current = null;
+      }
+      setLog((prev) =>
+        appendCapped(
+          prev,
+          `\n[hmr] the current build is failing; auto-restart deferred until the next successful rebuild.\n`,
+        ),
+      );
+      return;
+    }
+
+    // Same cross-closure narrowing false positive as above: the ref
+    // is written by the SSE handler / onSpawn drain across the
+    // `streamTraining` await; the runtime branch is real.
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (restartPendingRef.current) {
       // Fast path: SSE event already landed before exit. Fire the
       // restart synchronously without waiting for the grace
       // window so the common case has no perceptible delay.
       restartPendingRef.current = false;
+      forcedKillLatchRef.current = false;
       currentPidRef.current = null;
       setHmrStatus("restarting");
       const fileForRestart = lastTrainFileRef.current;
@@ -606,7 +706,15 @@ export function RunTraining() {
       currentPidRef.current = null;
       if (!isMountedRef.current) return;
       if (restartPendingRef.current) {
+        if (lastBuildErrorRef.current) {
+          // Same deferral as the fast path: hold the latch for the
+          // next successful rebuild instead of spawning from a
+          // broken build's last-good artifact.
+          setHmrStatus("idle");
+          return;
+        }
         restartPendingRef.current = false;
+        forcedKillLatchRef.current = false;
         setHmrStatus("restarting");
         const fileForRestart = lastTrainFileRef.current;
         void run(fileForRestart);
@@ -616,10 +724,13 @@ export function RunTraining() {
     }, 250);
   }
 
+  runRef.current = run;
+
   function stop() {
     // A user Stop click also cancels any pending HMR auto-restart so
     // the run finally settles instead of bouncing back up.
     restartPendingRef.current = false;
+    forcedKillLatchRef.current = false;
     trainingAbortRef.current?.abort();
   }
 

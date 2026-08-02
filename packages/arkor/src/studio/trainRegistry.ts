@@ -104,6 +104,18 @@ export interface RpcSnapshot {
 export interface RestartTarget {
   pid: number;
   trainFile?: string;
+  /**
+   * True when the SIGTERM that put this child in the restart bucket
+   * is an ABRUPT kill on this platform (win32: Node terminates the
+   * process forcefully for any POSIX signal name), so the child will
+   * exit with a nonzero/absent `exit=` marker even though the server
+   * fired its compensation cancel POST and genuinely wants the SPA
+   * to re-spawn. The SPA's nonzero-exit auto-restart suppression
+   * lets a latched restart through when this flag is set (Codex P2,
+   * round 86: without it, every config-changing rebuild on Windows
+   * killed + cancelled the old run and then never restarted it).
+   */
+  forcedKill?: boolean;
 }
 
 export interface DispatchResult {
@@ -302,23 +314,6 @@ export class TrainRegistry {
     return this.entries.get(pid)?.scope ?? null;
   }
 
-  /**
-   * Whether `dispatchRebuild` has already issued a graceful-restart
-   * SIGTERM to this child as part of an HMR cycle. Consulted by
-   * `/api/train`'s ReadableStream `cancel()` handler so a client-
-   * driven cancel (tab close, navigation, aborted fetch) doesn't
-   * pile a second SIGTERM on top of an in-progress early-stop:
-   * the runner's `installShutdownHandlers` interprets a second
-   * SIGTERM as the emergency `exit(143)` fast-path, which bypasses
-   * the checkpoint-preserving early-stop + `cancel()` flow and
-   * leaves the cloud-side run live while the local subprocess
-   * dies. Defeats the main safety goal of the HMR restart logic.
-   */
-  isEarlyStopRequested(pid: number | undefined): boolean {
-    if (typeof pid !== "number") return false;
-    return this.entries.get(pid)?.earlyStopRequested ?? false;
-  }
-
   get size(): number {
     return this.entries.size;
   }
@@ -418,7 +413,24 @@ export class TrainRegistry {
         entry.configHash !== null &&
         entry.configHash === nextConfigHash;
 
-      if (matches) {
+      // Readiness handshake for the hot-swap path (cubic P1, round
+      // 86): SIGUSR2's default disposition TERMINATES a process that
+      // hasn't registered a handler yet, and the runner only arms its
+      // handler during startup (before `trainer.start()`). The
+      // `Started job <id>` marker is printed strictly AFTER
+      // `start()` resolves, so a recorded jobId proves the handler
+      // has been armed for a while. Without this gate, a callback
+      // edit landing in the spawn-to-armed window would KILL the
+      // child while reporting `hotSwapTargets` success, leaving the
+      // SPA showing a hot-swapped label over a dead run. Unready
+      // children route to SIGTERM-restart instead; a pre-marker
+      // SIGTERM may also hard-kill (same default-disposition
+      // reasoning), but then the exit marker is nonzero/absent and
+      // the SPA surfaces its suppression note instead of a false
+      // success.
+      const runnerReady = entry.jobId !== null;
+
+      if (matches && runnerReady) {
         // On Windows, Node's `child.kill(signal)` for any unknown
         // POSIX signal (including SIGUSR2) is documented to
         // **forcefully terminate** the process (same effect as
@@ -463,18 +475,29 @@ export class TrainRegistry {
         const fallback = safeKill(entry.child, "SIGTERM");
         if (fallback === "ok") {
           entry.earlyStopRequested = true;
-          restartTargets.push(target);
+          restartTargets.push(
+            process.platform === "win32"
+              ? { ...target, forcedKill: true }
+              : target,
+          );
         }
         // "gone" / "unsupported" again → drop silently; the close
         // handler (or operator-driven restart) will recover.
         continue;
       }
 
-      // Hash mismatch (or one side is null): graceful restart.
+      // Hash mismatch (or one side is null), or a hash match whose
+      // child isn't provably ready for SIGUSR2: graceful restart.
+      // (On win32 "graceful" is aspirational: the kill is abrupt, so
+      // flag the target for the SPA's suppression carve-out.)
       const r = safeKill(entry.child, "SIGTERM");
       if (r === "ok") {
         entry.earlyStopRequested = true;
-        restartTargets.push(target);
+        restartTargets.push(
+          process.platform === "win32"
+            ? { ...target, forcedKill: true }
+            : target,
+        );
       }
       // "gone": child already exited, drop. "unsupported": can't
       // happen for SIGTERM on supported platforms; drop defensively.

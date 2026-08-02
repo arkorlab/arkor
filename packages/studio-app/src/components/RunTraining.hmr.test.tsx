@@ -381,18 +381,85 @@ describe("<RunTraining /> HMR restart state machine", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the restart latch armed across an intervening HMR error (fix-before-exit flow)", async () => {
+  it("defers a latched restart across an HMR error and fires it on the next successful rebuild", async () => {
+    // Round 86 (cubic P1) refinement of the round-79 latch-survival
+    // contract: the latch STILL survives the error frame (the server
+    // will never re-emit this pid in restartTargets), but firing it
+    // while the build is broken would spawn a cloud job from the
+    // last-good artifact at the very moment the manifest error
+    // disables manual Run. The restart now waits for the next
+    // successful rebuild, which is the artifact the user actually
+    // wants running.
     const first = await startRun(111);
 
-    // Rebuild SIGTERMs the child (latch set), then the user's next
-    // edit breaks the build. dispatchRebuild skips already-signalled
-    // children, so this error (and even the subsequent fixed rebuild)
-    // will never re-list our pid: the latch is the only restart
-    // signal left and must survive.
     sse.emit("rebuild", restartEvent(111));
     sse.emit("error", { type: "error", message: "syntax error" });
 
     await first.finish(0);
+    // No immediate respawn: the build is still broken.
+    expect(streamTraining).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(/auto-restart deferred until the next successful/i),
+    ).toBeInTheDocument();
+
+    // The fix lands: a successful rebuild releases the deferred latch.
+    sse.emit("rebuild", {
+      type: "rebuild",
+      outFile: "/tmp/x.mjs",
+      hash: "h3",
+      configHash: "h2",
+      trainerName: "demo",
+    });
+    await waitFor(() => expect(streamTraining).toHaveBeenCalledTimes(2));
+  });
+
+  it("fires the latch immediately when the fix landed BEFORE the run exited (fix-before-exit flow)", async () => {
+    // The round-79 flow proper: rebuild SIGTERMs the child (latch),
+    // the user briefly breaks the build, then fixes it while the
+    // child is still early-stopping. The successful rebuild clears
+    // the error state, so the exit takes the fast path with no
+    // deferral hop.
+    const first = await startRun(111);
+
+    sse.emit("rebuild", restartEvent(111));
+    sse.emit("error", { type: "error", message: "syntax error" });
+    sse.emit("rebuild", {
+      type: "rebuild",
+      outFile: "/tmp/x.mjs",
+      hash: "h4",
+      configHash: "h2",
+      trainerName: "demo",
+    });
+
+    await first.finish(0);
+    await waitFor(() => expect(streamTraining).toHaveBeenCalledTimes(2));
+  });
+
+  it("lets a forcedKill restart through the nonzero-exit suppression gate (win32 abrupt SIGTERM)", async () => {
+    // Codex P2 (round 86): on win32 the server's restart SIGTERM is
+    // an abrupt kill, so the child can never produce the clean
+    // `exit=0` the suppression gate wants, even though the server
+    // fired its compensation cancel POST and genuinely advertised a
+    // restart. The `forcedKill` flag on the target lets exactly this
+    // latch through; ordinary nonzero exits (previous test) still
+    // suppress.
+    const first = await startRun(111);
+
+    sse.emit("rebuild", {
+      type: "rebuild",
+      outFile: "/tmp/x.mjs",
+      hash: "h",
+      configHash: "h2",
+      trainerName: "demo",
+      restart: true,
+      restartTargets: [{ pid: 111, forcedKill: true }],
+    });
+    expect(
+      await screen.findByText(/stopping at next checkpoint/i),
+    ).toBeInTheDocument();
+
+    // win32 forceful termination surfaces as exit code 1.
+    await first.finish(1);
     await waitFor(() => expect(streamTraining).toHaveBeenCalledTimes(2));
   });
 

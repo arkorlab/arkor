@@ -811,78 +811,77 @@ describe("runDev", () => {
     }
   });
 
-  it("does NOT unlink a pre-existing token file when this process failed to persist its own token (concurrent arkor dev safety)", async () => {
-    // Regression: a failed-persist `arkor dev` used to unconditionally
-    // `unlinkSync(studioTokenPath())` on shutdown. If a concurrent
-    // `arkor dev` (different port, same user) had already persisted a
-    // valid token to the shared path, this run's cleanup would wipe
-    // it out from under them, breaking that session's Vite SPA dev
-    // workflow with mystery 403s on /api/*. The fix gates the unlink
-    // on a token-identity check: the cleanup hook re-reads the file
-    // at exit time and only deletes when the bytes still match the
-    // per-launch token THIS process wrote. A failed-persist run never
-    // writes, so the read returns either ENOENT or someone else's
-    // bytes (foreign token), and in both cases the unlink is skipped.
-    // An earlier design also tracked a `tokenPersisted` boolean, but
-    // it had a race window between `writeFile` completing and the
-    // boolean flipping; the byte-identity check is the sole gate now.
-    if (typeof process.getuid === "function" && process.getuid() === 0) {
-      // Root bypasses chmod permission checks: skip on root containers.
-      return;
-    }
-    if (process.platform === "win32") {
-      // NTFS ignores POSIX directory modes, so the read-only-parent
-      // trigger below cannot make the atomic persist fail on Windows.
-      // The ownership-safety contract itself is covered cross-platform
-      // by the successful-persist overwrite test that follows.
-      return;
-    }
-    // Pre-place a "concurrent" token (the other dev session's). Body
-    // content lets us assert byte-equality after cleanup, not just
-    // file existence, to rule out an unlink+recreate cycle.
-    const path = studioTokenPath();
-    writeFileSync(path, "concurrent-token-value", { mode: 0o600 });
-    // Make the PARENT DIRECTORY read-only so persistStudioToken's atomic
-    // temp+rename write fails (the temp-file `writeFile` throws EACCES).
-    // A read-only token FILE no longer works as the trigger: rename(2)
-    // over the path only needs directory-write permission, so the atomic
-    // persist would succeed and legitimately overwrite the concurrent
-    // token (last-writer-wins), which is a different scenario than the
-    // failed-persist one this test pins.
-    chmodSync(dirname(path), 0o555);
+  // win32: NTFS ignores POSIX directory modes, so the read-only-parent
+  // trigger cannot make the atomic persist fail there; the ownership
+  // contract is covered cross-platform by the overwrite test below.
+  it.skipIf(process.platform === "win32")(
+    "does NOT unlink a pre-existing token file when this process failed to persist its own token (concurrent arkor dev safety)",
+    async () => {
+      // Regression: a failed-persist `arkor dev` used to unconditionally
+      // `unlinkSync(studioTokenPath())` on shutdown. If a concurrent
+      // `arkor dev` (different port, same user) had already persisted a
+      // valid token to the shared path, this run's cleanup would wipe
+      // it out from under them, breaking that session's Vite SPA dev
+      // workflow with mystery 403s on /api/*. The fix gates the unlink
+      // on a token-identity check: the cleanup hook re-reads the file
+      // at exit time and only deletes when the bytes still match the
+      // per-launch token THIS process wrote. A failed-persist run never
+      // writes, so the read returns either ENOENT or someone else's
+      // bytes (foreign token), and in both cases the unlink is skipped.
+      // An earlier design also tracked a `tokenPersisted` boolean, but
+      // it had a race window between `writeFile` completing and the
+      // boolean flipping; the byte-identity check is the sole gate now.
+      if (typeof process.getuid === "function" && process.getuid() === 0) {
+        // Root bypasses chmod permission checks: skip on root containers.
+        return;
+      }
+      // Pre-place a "concurrent" token (the other dev session's). Body
+      // content lets us assert byte-equality after cleanup, not just
+      // file existence, to rule out an unlink+recreate cycle.
+      const path = studioTokenPath();
+      writeFileSync(path, "concurrent-token-value", { mode: 0o600 });
+      // Make the PARENT DIRECTORY read-only so persistStudioToken's atomic
+      // temp+rename write fails (the temp-file `writeFile` throws EACCES).
+      // A read-only token FILE no longer works as the trigger: rename(2)
+      // over the path only needs directory-write permission, so the atomic
+      // persist would succeed and legitimately overwrite the concurrent
+      // token (last-writer-wins), which is a different scenario than the
+      // failed-persist one this test pins.
+      chmodSync(dirname(path), 0o555);
 
-    const stdoutSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation((() => true) as typeof process.stdout.write);
-    try {
-      await expect(runDev({ port: 4207 })).resolves.toBeUndefined();
-    } finally {
-      stdoutSpy.mockRestore();
-      // Restore dir perms so the cleanup below (and afterEach's rmSync)
-      // can operate; the reap then exercises the foreign-token restore
-      // path against a WRITABLE directory, which is the realistic state
-      // at a normal shutdown.
-      chmodSync(dirname(path), 0o755);
-    }
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(runDev({ port: 4207 })).resolves.toBeUndefined();
+      } finally {
+        stdoutSpy.mockRestore();
+        // Restore dir perms so the cleanup below (and afterEach's rmSync)
+        // can operate; the reap then exercises the foreign-token restore
+        // path against a WRITABLE directory, which is the realistic state
+        // at a normal shutdown.
+        chmodSync(dirname(path), 0o755);
+      }
 
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
-      _code?: number,
-    ) => {
-      return undefined as never;
-    }) as typeof process.exit);
-    try {
-      const sigintListeners = process.listeners("SIGINT");
-      const handler = sigintListeners.at(-1) as () => void;
-      handler();
-      await flushMicrotasks();
-      // The pre-existing token is still on disk AND unchanged: this
-      // failed-persist run did not wipe it.
-      expect(existsSync(path)).toBe(true);
-      expect(readFileSync(path, "utf8")).toBe("concurrent-token-value");
-    } finally {
-      exitSpy.mockRestore();
-    }
-  });
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+        _code?: number,
+      ) => {
+        return undefined as never;
+      }) as typeof process.exit);
+      try {
+        const sigintListeners = process.listeners("SIGINT");
+        const handler = sigintListeners.at(-1) as () => void;
+        handler();
+        await flushMicrotasks();
+        // The pre-existing token is still on disk AND unchanged: this
+        // failed-persist run did not wipe it.
+        expect(existsSync(path)).toBe(true);
+        expect(readFileSync(path, "utf8")).toBe("concurrent-token-value");
+      } finally {
+        exitSpy.mockRestore();
+      }
+    },
+  );
 
   it("does NOT unlink the studio-token when a concurrent arkor dev has overwritten it after our successful persist (token-identity check)", async () => {
     // Regression: even when this process SUCCESSFULLY persisted the

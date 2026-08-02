@@ -209,7 +209,16 @@ export interface DevEvent {
   message?: string;
   /** True when the rebuild changed cloud-side config and a child was SIGTERM'd. */
   restart?: boolean;
-  restartTargets?: { pid: number; trainFile?: string }[];
+  restartTargets?: {
+    pid: number;
+    trainFile?: string;
+    /** Set (true) when the SIGTERM behind this target is an abrupt
+     *  kill on the server's platform (win32), so the exit marker
+     *  cannot be the clean `exit=0` the SPA's restart gate normally
+     *  requires; the server has already fired its compensation
+     *  cancel POST for the cloud job. */
+    forcedKill?: boolean;
+  }[];
   /** True when the rebuild only changed callbacks and one or more children
    *  were SIGUSR2'd to hot-swap their callback closures in place. */
   hotSwap?: boolean;

@@ -138,7 +138,23 @@ async function awaitSseFrame(
   let buf = "";
   try {
     while (true) {
-      const { value, done } = await reader.read();
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch (err) {
+        // The timeout's `controller.abort()` surfaces here as an
+        // opaque AbortError DOMException; rethrow it as the
+        // descriptive timeout this helper promises so a CI failure
+        // says WHAT was being waited for (cubic P3, round 86).
+        if (controller.signal.aborted) {
+          throw new Error(
+            `timed out after ${timeoutMs}ms waiting for a matching SSE frame from ${url}`,
+            { cause: err },
+          );
+        }
+        throw err;
+      }
+      const { value, done } = chunk;
       if (done) {
         throw new Error("SSE stream ended before predicate matched");
       }

@@ -207,9 +207,25 @@ export async function summariseBuiltManifest(
   const name =
     typeof trainer.name === "string" ? trainer.name : "(unnamed trainer)";
   const inspection = getTrainerInspection(trainer);
+  // `hashJobConfig` throws on unhashable configs (circular refs in an
+  // `unknown` field, etc.). For the manifest the trainer NAME is
+  // still perfectly renderable, so degrade to `configHash: null`
+  // (the documented "config not diffable -> conservative
+  // SIGTERM-restart" state) instead of 400-ing the whole summary
+  // (cubic P2, round 86). `runnerSignals` makes the same choice;
+  // only `hmr`'s inspection propagates, because there the throw is
+  // what surfaces the error frame.
+  let configHash: string | null = null;
+  if (inspection) {
+    try {
+      configHash = hashJobConfig(inspection.config);
+    } catch {
+      // unhashable config: fall through with null
+    }
+  }
   return {
     trainer: { name },
-    configHash: inspection ? hashJobConfig(inspection.config) : null,
+    configHash,
   };
 }
 

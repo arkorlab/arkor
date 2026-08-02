@@ -67,21 +67,6 @@ export interface HmrCoordinator {
    */
   getCurrentConfigHash(): string | null;
   /**
-   * Synchronous fingerprint of the on-disk build artefact RIGHT NOW
-   * (fresh stat, not cached). Used by `/api/train`'s registry entry
-   * so HMR routing in the pre-ready-spawn case (`configHash === null`)
-   * can compare against the rebuild's `event.hash` to tell whether
-   * the child read the same bytes. Without this gate, an edit
-   * landing between spawn and the watcher's first BUNDLE_END would
-   * silently teach the registry to use the post-edit `configHash`
-   * as the child's baseline; later same-hash rebuilds would then
-   * hot-swap callbacks into a child whose cloud-side `JobConfig`
-   * was actually spawned against an older version, leaving the
-   * cloud run on a stale config. `null` when stat fails (artefact
-   * doesn't exist yet, fresh project never built).
-   */
-  getCurrentArtifactHash(): string | null;
-  /**
    * Content-derived hash (sha256, truncated) of the on-disk
    * artefact RIGHT NOW. Used by `/api/train` to capture a
    * spawn-time content-hash for the registry's pre-ready-spawn
@@ -147,7 +132,7 @@ function contentHashOrNull(outFile: string): string | null {
 
 /**
  * Single-stat fingerprint with a clean `null` on failure: used by
- * `getCurrentArtifactHash()` whose contract is "return a fingerprint
+ * the removed `getCurrentArtifactHash()` getter, whose contract was "a fingerprint
  * derived from the artefact bytes, or `null` if no artefact". A
  * separate exists-check + `fingerprint()` here would race: the file
  * could disappear between the two stats and `fingerprint()`'s
@@ -232,11 +217,44 @@ type InspectionResult = {
  * through the existing manifest-error UI / SIGTERM-restart-suppress
  * path.
  */
+/**
+ * Per-content-key retry salts for `inspectBundle` (same mechanism as
+ * `manifest.ts`'s `importRetryStates`, kept local because the two
+ * import through different URL schemes): Node's ESM registry caches
+ * FAILED evaluations by URL, so a bundle whose top-level code threw
+ * because of an EXTERNAL condition (missing data file, unreachable
+ * service) would pin the coordinator in the error state even after
+ * the condition recovers, as long as rebuilds emit byte-identical
+ * bundles (same content key). Bumping a salt after a failure forces
+ * one fresh evaluation per subsequent attempt (Codex/cubic P2,
+ * round 86).
+ */
+const inspectRetryStates = new Map<string, { salt: number; failed: boolean }>();
+
 async function inspectBundle(outFile: string): Promise<InspectionResult> {
-  const mod = (await import(moduleCacheBustUrl(outFile))) as Record<
-    string,
-    unknown
-  >;
+  const baseUrl = moduleCacheBustUrl(outFile);
+  const state = inspectRetryStates.get(baseUrl);
+  if (state?.failed) {
+    state.salt++;
+    // Cleared in the same synchronous block as the bump so concurrent
+    // inspections of one build coalesce onto one salted URL (mirrors
+    // manifest.ts). A failing retry re-arms in the catch below.
+    state.failed = false;
+  }
+  const salt = state?.salt ?? 0;
+  const url = salt === 0 ? baseUrl : `${baseUrl}&r=${salt}`;
+  let mod: Record<string, unknown>;
+  try {
+    mod = (await import(url)) as Record<string, unknown>;
+  } catch (err) {
+    const failedState = inspectRetryStates.get(baseUrl) ?? {
+      salt: 0,
+      failed: false,
+    };
+    failedState.failed = true;
+    inspectRetryStates.set(baseUrl, failedState);
+    throw err;
+  }
   const inspection = findInspectableTrainer(mod);
   if (!inspection) return null;
   return {
@@ -430,10 +448,19 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
   function startWatcher(): void {
     if (watcher || disposed) return;
     if (!existsSync(resolved.entry)) {
-      broadcast({
-        type: "error",
-        message: `Build entry not found: ${resolved.entry}. Create ${BUILD_DEFAULTS.entry} or pass an explicit entry argument.`,
-      });
+      // Broadcast the missing-entry error ONCE per wait period
+      // (sentry/cubic, round 86): `startWatcher` re-enters on every
+      // `subscribe()`, and an unconditional broadcast here pushed a
+      // duplicate error frame to every EXISTING subscriber each time
+      // a new SSE client connected (the newcomer already receives
+      // the cached `lastEvent` via subscribe()'s replay). An active
+      // `entryWaitTimer` means the error state is already published.
+      if (!entryWaitTimer) {
+        broadcast({
+          type: "error",
+          message: `Build entry not found: ${resolved.entry}. Create ${BUILD_DEFAULTS.entry} or pass an explicit entry argument.`,
+        });
+      }
       // Hand off to a low-frequency poll so an SPA already connected to
       // `/api/dev/events` transitions from "error" to "ready" the moment
       // the user creates the entry file (no manual reconnect required).
@@ -488,7 +515,16 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
     try {
       watcher = watch({
         ...rolldownInputOptions(resolved),
-        output: { file: stagingFile, format: "esm" },
+        // `inlineDynamicImports`: the pipeline is single-artefact by
+        // contract (`runStart` imports exactly `index.mjs`), but a
+        // relative dynamic `import()` in user code would otherwise
+        // trigger rolldown's default code splitting and emit chunks
+        // nothing ever loads (Codex P2, round 86). Mirrors runBuild.
+        output: {
+          file: stagingFile,
+          format: "esm",
+          inlineDynamicImports: true,
+        },
       });
     } catch (err) {
       broadcast({
@@ -628,30 +664,8 @@ export function createHmrCoordinator(opts: HmrOptions): HmrCoordinator {
       // a build that wasn't inspectable).
       return lastSuccessConfigHash;
     },
-    getCurrentArtifactHash() {
-      // Fresh stat (not the cached `lastEvent.hash`). The cached
-      // hash describes the bytes the watcher last broadcast about,
-      // but the on-disk artefact may be newer (a BUNDLE_END is
-      // queued, file already written, inspection still pending) or
-      // older (next BUNDLE_END hasn't fired yet but the user just
-      // edited and saved). For the registry's pre-ready-spawn gate
-      // we want "what bytes will the child's `await import()` see
-      // RIGHT NOW".
-      //
-      // `fingerprintOrNull` does ONE statSync and returns null on
-      // failure, preserving the documented contract. A previous
-      // implementation here did `statSync(...)` first and then
-      // called `fingerprint()` (which has a `Date.now()` fallback
-      // baked in for SSE dedup uniqueness). That double-stat
-      // raced: if the file disappeared between the two calls we'd
-      // return a Date.now()-derived hash that doesn't describe any
-      // real bytes, silently violating the "null on stat failure"
-      // contract dispatchRebuild relies on for its SIGTERM-restart
-      // routing.
-      return fingerprintOrNull(resolved.outFile);
-    },
     getCurrentArtifactContentHash() {
-      // Companion to `getCurrentArtifactHash` for the registry's
+      // Read fresh for the registry's
       // pre-ready-spawn equality gate. Reads + sha256s the file
       // at call time so the result describes the exact bytes the
       // just-spawned child will see in its `await import()`.

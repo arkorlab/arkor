@@ -57,6 +57,11 @@ describe("TrainRegistry", () => {
       trainFile: "/tmp/b.ts",
     });
     reg.register(c as unknown as ChildProcess, { configHash: "match" });
+    // Arm the SIGUSR2 readiness handshake: hot-swap requires the
+    // runner's job marker to have been recorded (see dispatchRebuild).
+    reg.recordJobId(101, "j-a");
+    reg.recordJobId(102, "j-b");
+    reg.recordJobId(103, "j-c");
 
     const result = reg.dispatchRebuild("match");
     expect(result.hotSwapTargets).toEqual([
@@ -105,6 +110,7 @@ describe("TrainRegistry", () => {
       trainFile: "/tmp/preready.ts",
       spawnArtifactContentHash: "art-v1",
     });
+    reg.recordJobId(401, "j-401");
     const result = reg.dispatchRebuild("first-real-hash", "art-v1");
     // Neither bucket: no signal sent, nothing for the SPA to react to.
     expect(result.hotSwapTargets).toEqual([]);
@@ -147,6 +153,7 @@ describe("TrainRegistry", () => {
       trainFile: "/tmp/stale.ts",
       spawnArtifactContentHash: "art-new",
     });
+    reg.recordJobId(451, "j-451");
     const result = reg.dispatchRebuild("new-hash", "art-new");
     expect(result.hotSwapTargets).toEqual([]);
     expect(result.restartTargets).toEqual([]);
@@ -177,6 +184,7 @@ describe("TrainRegistry", () => {
       configHash: "same-config",
       spawnArtifactContentHash: "art-A",
     });
+    reg.recordJobId(461, "j-461");
     // Callback-only edit: same config, new bytes → hot-swap.
     const first = reg.dispatchRebuild("same-config", "art-B");
     expect(first.hotSwapTargets).toHaveLength(1);
@@ -246,31 +254,61 @@ describe("TrainRegistry", () => {
     expect(c.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
-  it("isEarlyStopRequested reflects the dispatchRebuild SIGTERM flag", () => {
-    // Regression: `/api/train`'s ReadableStream `cancel()` consults
-    // this flag to avoid sending a *second* SIGTERM to a child that
-    // HMR's `dispatchRebuild` already SIGTERMed for early-stop. A
-    // double-SIGTERM hits `installShutdownHandlers`' emergency
-    // `exit(143)` fast-path, bypassing the checkpoint-preserving
-    // cancel flow and potentially leaving the cloud run alive.
+  it("routes a hash-match to SIGTERM-restart while the runner's job marker hasn't been recorded (SIGUSR2 readiness gate)", () => {
+    // cubic P1 (round 86): SIGUSR2's default disposition TERMINATES a
+    // process with no handler, and the runner only arms its handler
+    // during startup. A callback-only rebuild landing in the
+    // spawn-to-armed window would kill the child while dispatch
+    // reported hotSwapTargets success. The recorded `Started job`
+    // marker doubles as the readiness handshake (it prints strictly
+    // after the handler is armed), so a markerless entry must route
+    // to SIGTERM-restart even on a perfect hash match, and the
+    // forcedKill flag mirrors the platform.
+    const reg = new TrainRegistry();
+    const c = fakeChild(471);
+    reg.register(c as unknown as ChildProcess, {
+      configHash: "match",
+      trainFile: "/tmp/unready.ts",
+      spawnArtifactContentHash: "art-old",
+    });
+    const result = reg.dispatchRebuild("match", "art-new");
+    expect(result.hotSwapTargets).toEqual([]);
+    expect(result.restartTargets).toEqual([
+      { pid: 471, trainFile: "/tmp/unready.ts" },
+    ]);
+    expect(c.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(c.kill).not.toHaveBeenCalledWith("SIGUSR2");
+    // Once the marker lands, the same match hot-swaps. (Re-register:
+    // the first dispatch latched earlyStopRequested.)
+    reg.unregister(471);
+    const d = fakeChild(472);
+    reg.register(d as unknown as ChildProcess, { configHash: "match" });
+    reg.recordJobId(472, "j-472");
+    const second = reg.dispatchRebuild("match", "art-newer");
+    expect(second.hotSwapTargets).toEqual([{ pid: 472, trainFile: undefined }]);
+    expect(d.kill).toHaveBeenCalledWith("SIGUSR2");
+  });
+
+  it("dispatchRebuild does not re-signal a child it already SIGTERMed (earlyStopRequested latch)", () => {
+    // The latch is internal now (the public getter was removed once
+    // the manual-Stop path stopped consulting it); its contract is
+    // observable through dispatch: a second rebuild must not pile a
+    // second SIGTERM on a child whose graceful early-stop is already
+    // in flight (the runner treats signal #2 as the exit(143)
+    // emergency path, which would defeat the checkpoint wait).
     const reg = new TrainRegistry();
     const a = fakeChild(901);
-    reg.register(a as unknown as ChildProcess, {
-      configHash: "h1",
-      trainFile: "/tmp/a.ts",
-    });
-    expect(reg.isEarlyStopRequested(901)).toBe(false);
-    // Mismatched hash → SIGTERM → flag flips on.
-    reg.dispatchRebuild("h2");
-    expect(reg.isEarlyStopRequested(901)).toBe(true);
-    // Defensive cases: non-numeric / unknown / never-registered pid.
-    expect(reg.isEarlyStopRequested(undefined)).toBe(false);
-    expect(reg.isEarlyStopRequested(99_999)).toBe(false);
-    // Once the child unregisters (close handler) the flag effectively
-    // resets: subsequent queries return false rather than retaining
-    // stale state.
+    reg.register(a as unknown as ChildProcess, { configHash: "h-old" });
+    reg.dispatchRebuild("h-new");
+    expect(a.kill).toHaveBeenCalledTimes(1);
+    const second = reg.dispatchRebuild("h-newer");
+    expect(a.kill).toHaveBeenCalledTimes(1);
+    expect(second.restartTargets).toEqual([]);
+    // Unregister clears the latch with the entry.
     reg.unregister(901);
-    expect(reg.isEarlyStopRequested(901)).toBe(false);
+    reg.register(a as unknown as ChildProcess, { configHash: "h-old" });
+    reg.dispatchRebuild("h-new2");
+    expect(a.kill).toHaveBeenCalledTimes(2);
   });
 
   it("unregister removes the child from the policy decisions", () => {
@@ -340,6 +378,7 @@ describe("TrainRegistry", () => {
       configHash: "match",
       trainFile: "/tmp/g.ts",
     });
+    reg.recordJobId(801, "j-801");
     const result = reg.dispatchRebuild("match");
     // No hot-swap (SIGUSR2 failed), no restart (correctly classified
     // as gone, NOT routed into the SIGTERM fallback path).
@@ -443,8 +482,11 @@ describe("TrainRegistry", () => {
       // Restart bucket only: hot-swap is unsafe on win32 even
       // when kill() reported "ok".
       expect(result.hotSwapTargets).toEqual([]);
+      // `forcedKill: true` rides along on win32 so the SPA's
+      // nonzero-exit suppression lets this restart through (the
+      // abrupt kill can't produce the clean exit=0 the gate wants).
       expect(result.restartTargets).toEqual([
-        { pid: 951, trainFile: "/tmp/win.ts" },
+        { pid: 951, trainFile: "/tmp/win.ts", forcedKill: true },
       ]);
       // SIGUSR2 was NEVER attempted: the platform gate skipped it
       // entirely and went straight to the SIGTERM fallback path.
@@ -490,6 +532,7 @@ describe("TrainRegistry", () => {
       configHash: "match",
       trainFile: "/tmp/win.ts",
     });
+    reg.recordJobId(901, "j-901");
     const result = reg.dispatchRebuild("match");
     // Must not appear in hot-swap (signal failed) but must appear in
     // restart (fallback succeeded) so the SPA re-spawns once the

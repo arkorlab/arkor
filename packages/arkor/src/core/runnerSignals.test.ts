@@ -402,11 +402,15 @@ describe("installCallbackReloadHandler", () => {
       writeUserBundle("v2");
       // Second signal: captures seq=2, bumps loadSeq to 2.
       process.emit("SIGUSR2", "SIGUSR2");
-      // Generous fixed wait so both imports definitely settle;
-      // we can't poll on `lastCallbacks !== null` because the v1
-      // IIFE might land first and short-circuit our wait, hiding
-      // the count assertion below.
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Bounded poll (cubic P3, round 86; was a fixed 200 ms wait
+      // that flaked on slow CI): wait until at least one replace has
+      // landed, then one extra settle tick so a not-yet-dropped v1
+      // IIFE would have had time to (incorrectly) add a second call.
+      const deadline = Date.now() + 2000;
+      while (trainer.__replace.calls < 1 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
       // Without the seq guard, both IIFEs would call
       // `replaceTrainerCallbacks` and `calls` would be 2. With the
       // guard, the older IIFE's `seq !== loadSeq` short-circuit

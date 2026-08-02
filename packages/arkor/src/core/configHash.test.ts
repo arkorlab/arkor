@@ -255,6 +255,83 @@ describe("hashJobConfig", () => {
     expect(() => hashJobConfig(config)).toThrow(/circular/i);
   });
 
+  it("consults toJSON on function values like JSON.stringify (round 86)", () => {
+    // Verified: `JSON.stringify({f: Object.assign(() => {}, {toJSON:
+    // () => "fx"})}) === '{"f":"fx"}'`. The previous unconditional
+    // function-omit meant a change in what such a value serialises
+    // could never change the hash: a cloud-config change would be
+    // misrouted through the hot-swap path.
+    const fn = Object.assign(() => undefined, { toJSON: () => "fx" });
+    const a: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: fn as unknown,
+    };
+    const b: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: "fx" as unknown,
+    };
+    expect(hashJobConfig(a)).toBe(hashJobConfig(b));
+    // A PLAIN function is still omitted (JSON parity).
+    const plainFn: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: (() => undefined) as unknown,
+    };
+    const omitted: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+    };
+    expect(hashJobConfig(plainFn)).toBe(hashJobConfig(omitted));
+  });
+
+  it("does not re-apply toJSON to a toJSON result (round 86, JSON parity)", () => {
+    // Verified: `JSON.stringify({a: {toJSON: () => ({toJSON: () =>
+    // "x", p: 1})}}) === '{"a":{"p":1}}'`: the returned object is
+    // serialised structurally (its own toJSON ignored, its function
+    // property omitted), NOT collapsed to "x". The previous recursion
+    // re-entered the full pipeline on the result, hashing this config
+    // equal to one carrying the string "x" even though their wire
+    // payloads differ.
+    const nested = {
+      toJSON: () => ({ toJSON: () => "x", p: 1 }),
+    };
+    const viaToJSON: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: nested as unknown,
+    };
+    const structural: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: { p: 1 } as unknown,
+    };
+    const collapsed: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: "x" as unknown,
+    };
+    expect(hashJobConfig(viaToJSON)).toBe(hashJobConfig(structural));
+    expect(hashJobConfig(viaToJSON)).not.toBe(hashJobConfig(collapsed));
+    // Children of a toJSON result still get their own toJSON pass
+    // (spec: only the returned value itself is exempt).
+    const childDate = {
+      toJSON: () => ({ at: new Date("2024-01-01T00:00:00.000Z") }),
+    };
+    const viaChild: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: childDate as unknown,
+    };
+    const childPlain: JobConfig = {
+      model: "m",
+      datasetSource: { type: "huggingface", name: "x" },
+      warmupSteps: { at: "2024-01-01T00:00:00.000Z" } as unknown,
+    };
+    expect(hashJobConfig(viaChild)).toBe(hashJobConfig(childPlain));
+  });
+
   it("unboxes primitive wrappers like JSON.stringify (Number/String/Boolean parity)", () => {
     // cubic (round 85): boxed primitives previously fell through to
     // the plain-object walk and serialised as "{}" (no own enumerable

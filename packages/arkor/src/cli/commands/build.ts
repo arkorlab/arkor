@@ -51,7 +51,18 @@ export async function runBuild(opts: BuildOptions = {}): Promise<BuildResult> {
 
   const bundle = await rolldown(rolldownInputOptions({ cwd, entry }));
   try {
-    await bundle.write({ file: outFile, format: "esm" });
+    // `inlineDynamicImports`: this build contract is a SINGLE
+    // artefact (`arkor start` only ever imports `index.mjs`), but a
+    // relative dynamic `import()` in user code would trigger
+    // rolldown's default code splitting and emit sibling chunks the
+    // runtime never loads: the lazy-helper pattern the docs suggest
+    // for callbacks would break at run time (Codex P2, round 86).
+    // esbuild's previous single-file behaviour inlined these.
+    await bundle.write({
+      file: outFile,
+      format: "esm",
+      inlineDynamicImports: true,
+    });
   } finally {
     await bundle.close();
   }

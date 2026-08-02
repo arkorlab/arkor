@@ -270,6 +270,13 @@ export function installCallbackReloadHandler(
     return NO_OP_DISPOSE;
   }
   return () => {
+    // Invalidate any reload still awaiting its dynamic import (cubic
+    // P2, round 86): removing the listener stops FUTURE signals, but
+    // an in-flight IIFE would otherwise resolve after `runTrainer`'s
+    // finally, evaluate user code post-run, and log a spurious
+    // "training run continues". Bumping the seq makes its
+    // `seq !== loadSeq` check drop the result instead.
+    loadSeq += 1;
     process.off(CALLBACK_RELOAD_SIGNAL, handler);
   };
 }

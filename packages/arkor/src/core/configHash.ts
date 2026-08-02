@@ -40,15 +40,43 @@ function stableStringifyRec(
   // input. Primitives can never form cycles, so we only insert and
   // check inside the object/array branches below.
   seen: WeakSet<object>,
+  // Whether to consult `toJSON` on THIS value. `JSON.stringify`
+  // applies toJSON once per property visit: the value a toJSON
+  // returns is serialised STRUCTURALLY (its own toJSON, if any, is
+  // ignored), while its child properties get the normal treatment
+  // again. Callers pass `false` exactly when recursing on a toJSON
+  // result; everywhere else defaults to `true`.
+  applyToJSON = true,
 ): string | undefined {
   if (value === null) return "null";
-  // Non-representable values: omit (undefined return) so each caller's
-  // boundary handler chooses the right substitution per its position.
-  if (
-    value === undefined ||
-    typeof value === "function" ||
-    typeof value === "symbol"
-  ) {
+  if (value === undefined || typeof value === "symbol") {
+    return undefined;
+  }
+  // Functions: `JSON.stringify` consults `toJSON` on CALLABLE objects
+  // too (verified: `JSON.stringify({f: Object.assign(() => {}, {
+  // toJSON: () => "fx" })}) === '{"f":"fx"}'`), and only omits the
+  // value when no toJSON produced a replacement. The previous
+  // unconditional omit hashed a function-with-toJSON as absent, so a
+  // change in what its toJSON serialises could NOT change the hash:
+  // a cloud-config change misclassified as callback-only (hot-swap
+  // where a restart was required). Mirror the spec: invoke toJSON
+  // first, omit only a plain function.
+  if (typeof value === "function") {
+    // `applyToJSON` is honoured here too: a pathological
+    // `f.toJSON = () => f` would otherwise recurse forever (each
+    // frame re-invoking the same toJSON), where `JSON.stringify`
+    // serialises the returned callable structurally, i.e. omits it.
+    if (applyToJSON) {
+      const fnToJSON = (value as { toJSON?: unknown }).toJSON;
+      if (typeof fnToJSON === "function") {
+        return stableStringifyRec(
+          (fnToJSON as (key: string) => unknown).call(value, key),
+          key,
+          seen,
+          false,
+        );
+      }
+    }
     return undefined;
   }
   if (typeof value !== "object") return JSON.stringify(value);
@@ -83,12 +111,23 @@ function stableStringifyRec(
     // hosting property/index see the same value JSON.stringify would.
     // If `toJSON` returns `undefined`, that propagates as the omit
     // sentinel: the spec-defined "skip me" path.
-    const maybeToJSON = (value as { toJSON?: unknown }).toJSON;
+    const maybeToJSON = applyToJSON
+      ? (value as { toJSON?: unknown }).toJSON
+      : undefined;
     if (typeof maybeToJSON === "function") {
+      // Recurse with `applyToJSON: false`: the RESULT itself is
+      // serialised structurally (Copilot, round 86: re-applying its
+      // own toJSON diverged from `JSON.stringify`, e.g.
+      // `a.toJSON() -> b` where `b.toJSON() -> "x"` hashed like
+      // `"x"` while the wire payload carries b's plain properties,
+      // letting wire-different configs hash equal). Children of the
+      // result still get the normal toJSON treatment via the
+      // default-`true` recursion below.
       return stableStringifyRec(
         (maybeToJSON as (key: string) => unknown).call(value, key),
         key,
         seen,
+        false,
       );
     }
     // Boxed primitives (`new Number(3)`, `new String("x")`,

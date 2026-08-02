@@ -191,16 +191,17 @@ export async function requestTrainerEarlyStop(
     TRAINER_REQUEST_EARLY_STOP_KEY
   ] as ((opts?: RequestEarlyStopOptions) => Promise<void>) | undefined;
   if (typeof fn !== "function") {
-    // Best-effort fallback for unbranded trainers: trainer.cancel()
-    // is part of the public Trainer interface, so it's always safe
-    // to call. Catch/swallow because the documented contract for
-    // cancel() is "best-effort" and the SIGTERM handler needs the
-    // returned promise to settle either way.
-    try {
-      await trainer.cancel();
-    } catch {
-      // intentionally ignored; see comment above.
-    }
+    // Fallback for unbranded trainers: trainer.cancel() is part of
+    // the public Trainer interface, so it's always safe to call. The
+    // rejection is deliberately PROPAGATED (Copilot + cubic, round
+    // 86; previously swallowed): unbranded trainers always take the
+    // SIGTERM-restart path, and a swallowed cancel failure made
+    // `installShutdownHandlers` exit 0, so the SPA saw a clean
+    // early-stop and spawned a replacement while the ORIGINAL cloud
+    // job was still running (double spend, zero diagnostic).
+    // Propagating lets the handler's catch mark the early-stop as
+    // failed, exit 128+signo, and suppress the auto-restart.
+    await trainer.cancel();
     return;
   }
   await fn.call(trainer, opts);

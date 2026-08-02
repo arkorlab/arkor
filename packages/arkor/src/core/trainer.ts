@@ -419,6 +419,13 @@ export function createTrainer(
         // Early-stop latch: a checkpoint just landed, so the in-flight work
         // is durable. Cancel the cloud job and end `wait()` cleanly.
         if (earlyStopRequested && earlyStopDeferred) {
+          // Mirror of the timeout-fallback's single-cancel guard
+          // (cubic P3, round 86): drop the request flag BEFORE the
+          // async cancel so the timeout firing mid-POST (or a second
+          // checkpoint racing in) observes `earlyStopRequested ===
+          // false` and doesn't issue a duplicate cancel or settle
+          // the same deferred twice.
+          earlyStopRequested = false;
           // Capture the cancel error (if any) but DON'T swallow
           // silently; propagate via the deferred's reject path so
           // the runner's `installShutdownHandlers` `.catch()` writes
@@ -827,6 +834,32 @@ export function createTrainer(
     const timeoutMs = opts.timeoutMs ?? DEFAULT_EARLY_STOP_TIMEOUT_MS;
     const timer = setTimeout(() => {
       // Timed out waiting for a checkpoint; fall back to immediate cancel.
+      // Re-check the latch FIRST (cubic P1, round 86): the terminal
+      // branches settle the latch while awaiting the user's async
+      // onCompleted/onFailed callback, but this timer can fire inside
+      // that await window. Cancelling a run that already reached a
+      // terminal status gets a 409 from cloud-api, which would reject
+      // the deferred and make the runner's shutdown path exit nonzero
+      // for a run that actually completed cleanly. If the latch is
+      // gone (settled) or the job is terminal, there is nothing left
+      // to stop: resolve-and-return without issuing cancel.
+      if (
+        !earlyStopRequested ||
+        !earlyStopDeferred ||
+        (startedJob && TERMINAL_STATUSES.has(startedJob.status))
+      ) {
+        settleEarlyStopLatch();
+        return;
+      }
+      // Single-cancel guard shared with the checkpoint branch (cubic
+      // P3, round 86): flipping `earlyStopRequested` off BEFORE the
+      // async cancel begins means a `checkpoint.saved` event landing
+      // while this fallback's cancel POST is in flight sees
+      // `earlyStopRequested === false` and does NOT issue a second
+      // cancel / re-settle the same deferred. The `.finally` below
+      // previously did this only after the POST resolved, leaving a
+      // double-cancel window.
+      earlyStopRequested = false;
       // Capture the active deferred reference: by the time the cancel POST
       // resolves, the checkpoint branch may have nulled out the shared
       // slot, but this fallback path still owns the deferred it created.
@@ -880,7 +913,10 @@ export function createTrainer(
               completedAt: new Date().toISOString(),
             };
           }
-          if (active) {
+          // `active` is non-null by construction now: the re-check
+          // guard at the top of this timer returns before the
+          // capture when the latch is already settled.
+          {
             // Resolve on success, REJECT on cancel failure so the
             // SIGTERM handler's `.catch()` writes the error to
             // stderr and the operator can see that the cloud job

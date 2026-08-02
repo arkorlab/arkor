@@ -1,5 +1,11 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, renameSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -314,17 +320,43 @@ function scheduleStudioTokenCleanup(
       // server 403s until its own next rewrite), not delete-the-token
       // outright.
       try {
-        if (existsSync(path)) {
+        // No-clobber restore (Copilot, round 86): `link(2)` fails
+        // with EEXIST when the destination exists, which closes the
+        // previous `existsSync -> renameSync` TOCTOU where a
+        // concurrent instance's freshly-written token landing
+        // between the two calls was silently REPLACED by our older
+        // claimed copy (tokens are only written at launch, so that
+        // instance's Vite session stayed broken until its next
+        // restart). link + unlink-claim is an atomic "move unless
+        // the path reappeared" on POSIX.
+        linkSync(reapPath, path);
+        unlinkSync(reapPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") {
           // Newest writer wins: discard the claimed older copy.
-          unlinkSync(reapPath);
+          try {
+            unlinkSync(reapPath);
+          } catch {
+            // best-effort
+          }
         } else {
-          renameSync(reapPath, path);
-        }
-      } catch {
-        try {
-          unlinkSync(reapPath);
-        } catch {
-          // best-effort
+          // Filesystems without hard links (exFAT and friends) land
+          // here; fall back to the pre-round-86 heuristic, which
+          // keeps its (instruction-scale, restore-the-older-token)
+          // residual window only on those filesystems.
+          try {
+            if (existsSync(path)) {
+              unlinkSync(reapPath);
+            } else {
+              renameSync(reapPath, path);
+            }
+          } catch {
+            try {
+              unlinkSync(reapPath);
+            } catch {
+              // best-effort
+            }
+          }
         }
       }
     },
@@ -478,6 +510,23 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         ui.log.warn(`Studio server error after startup: ${message}`);
         return;
       }
+      // Pre-bind failure: dispose the HMR coordinator before
+      // rejecting (Codex/cubic P1, round 86). `buildStudioApp`
+      // already subscribed the dispatch listener, so in a project
+      // with a real `src/arkor` entry the rolldown watcher is
+      // RUNNING by now; without this dispose its native handle
+      // keeps the event loop alive, so a doomed EADDRINUSE launch
+      // would print its error (bin.ts only sets `process.exitCode`)
+      // and then never exit. Fire-and-forget: the watcher teardown
+      // has no user-visible output and the process ends when the
+      // handle drops.
+      void (async () => {
+        try {
+          await hmr.dispose();
+        } catch {
+          // best-effort teardown on an already-failing launch
+        }
+      })();
       if (
         err instanceof Error &&
         (err as NodeJS.ErrnoException).code === "EADDRINUSE"

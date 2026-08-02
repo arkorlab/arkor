@@ -261,23 +261,29 @@ describe("requestTrainerEarlyStop / replaceTrainerCallbacks brand-missing fallba
     expect(cancelCalls).toHaveBeenCalledTimes(1);
   });
 
-  it("requestTrainerEarlyStop swallows a thrown cancel() so the SIGTERM handler can still settle", async () => {
-    // The runner's SIGTERM handler chains
-    // `requestTrainerEarlyStop(...).catch(...).finally(() => process.exit(0))`.
-    // If the brand-missing fallback let cancel()'s rejection bubble,
-    // the `.finally` would still fire, but the cancel error would
-    // surface as an unhandled rejection from the test runner. The
-    // documented contract for cancel() is best-effort, so swallow.
-    const trainer = {
-      name: "manual",
-      start: async () => ({ jobId: "j" }),
-      wait: async () => ({ job: {}, artifacts: [] }),
-      cancel: vi.fn(async () => {
-        throw new Error("network down");
-      }),
-    } as unknown as Trainer;
-
-    await expect(requestTrainerEarlyStop(trainer)).resolves.toBeUndefined();
+  it("requestTrainerEarlyStop PROPAGATES a thrown cancel() from unbranded trainers", async () => {
+    // Round 86 (Copilot + cubic): previously this swallowed the
+    // rejection "so the SIGTERM handler can still settle". The
+    // handler's `.catch().finally()` chain settles either way; what
+    // the swallow actually did was hide a failed cancel behind a
+    // clean exit 0, letting the SPA auto-restart on top of a cloud
+    // job that was never released. The rejection must now reach the
+    // handler so it exits nonzero and the restart is suppressed.
+    const trainer: Trainer = {
+      name: "n",
+      async start() {
+        return { jobId: "j" };
+      },
+      async wait() {
+        throw new Error("not used");
+      },
+      async cancel() {
+        throw new Error("cloud-api 503");
+      },
+    };
+    await expect(requestTrainerEarlyStop(trainer)).rejects.toThrow(
+      "cloud-api 503",
+    );
   });
 
   it("requestTrainerEarlyStop is async-shaped: synchronous throws inside the brand call become rejections", async () => {
