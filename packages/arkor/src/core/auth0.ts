@@ -1,7 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server, type ServerResponse } from "node:http";
 
-import type { Auth0Credentials } from "./credentials";
+import { SDK_VERSION } from "./version";
+
+import type { OAuthCredentials } from "./credentials";
 import type { AddressInfo } from "node:net";
 
 export interface CliConfig {
@@ -20,8 +22,12 @@ export async function fetchCliConfig(
   baseUrl: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<CliConfig> {
+  // The cloud-api SDK version gate rejects any request lacking
+  // `X-Arkor-Client` with 426 (reason=missing), so this bootstrap call must
+  // carry it just like `requestAnonymousToken` and the CloudApiClient paths.
   const res = await fetchImpl(
     `${baseUrl.replace(/\/$/, "")}/v1/auth/cli/config`,
+    { headers: { "X-Arkor-Client": `arkor/${SDK_VERSION}` } },
   );
   if (!res.ok) {
     throw new Error(
@@ -244,9 +250,9 @@ export function credentialsFromExchange(
     arkorCloudApiUrl?: string;
   },
   exchange: ExchangeCodeResult,
-): Auth0Credentials {
+): OAuthCredentials {
   return {
-    mode: "auth0",
+    mode: "oauth",
     accessToken: exchange.accessToken,
     refreshToken: exchange.refreshToken,
     expiresAt: Math.floor(Date.now() / 1000) + exchange.expiresIn,

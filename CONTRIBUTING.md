@@ -132,4 +132,6 @@ Be kind, assume good faith, and keep technical disagreement technical. Anything 
 
 ## License
 
-By contributing, you agree your contributions are licensed under the [MIT license](LICENSE.md).
+By contributing, you agree that your contributions will be published under this repository's [LICENSE](LICENSE.md) (currently the MIT license). Opening a pull request is deemed to constitute this agreement.
+
+The license may change in the future, including to a non-open-source license. By opening a pull request, you are also deemed to have agreed that your contributions may be published under any such changed license.

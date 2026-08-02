@@ -2,7 +2,7 @@ import { createParser, type EventSourceMessage } from "eventsource-parser";
 
 export interface Credentials {
   token: string;
-  mode: "auth0" | "anon";
+  mode: "oauth" | "anon";
   baseUrl: string;
   orgSlug: string | null;
   projectSlug: string | null;

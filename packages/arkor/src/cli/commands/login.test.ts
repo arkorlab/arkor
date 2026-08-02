@@ -363,7 +363,7 @@ describe("runLogin", () => {
     });
   });
 
-  it("completes the PKCE flow end-to-end and persists Auth0 credentials when --oauth + non-CI", async () => {
+  it("completes the PKCE flow end-to-end and persists OAuth credentials when --oauth + non-CI", async () => {
     // Lift the CI guard: --oauth is rejected in CI before any browser
     // interaction, so we have to pretend we're on a developer machine.
     delete process.env.CI;
@@ -430,7 +430,7 @@ describe("runLogin", () => {
 
     const creds = await readCredentials();
     expect(creds).toMatchObject({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "auth0-at",
       refreshToken: "auth0-rt",
     });
@@ -507,7 +507,7 @@ describe("runLogin", () => {
 
     expect(open).not.toHaveBeenCalled();
     expect(await readCredentials()).toMatchObject({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "no-browser-at",
     });
   });
@@ -589,7 +589,7 @@ describe("runLogin", () => {
 
     await runLogin({ oauth: true });
     expect(await readCredentials()).toMatchObject({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "still-at",
     });
   });

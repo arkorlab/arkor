@@ -209,7 +209,7 @@ export function EndpointsList() {
           // session is scoped to (no `.arkor/state.json`)". The
           // unscoped branch covers three operator configurations and
           // each needs a different next step: anonymous (the create
-          // path will bootstrap), Auth0 (must restore state.json), or
+          // path will bootstrap), OAuth (must restore state.json), or
           // not-signed-in / autoAnonymous=false (must `arkor login`
           // first; the create attempt would otherwise 401 with a
           // hint that's identical to what we surface here). The list

@@ -55,7 +55,7 @@ bun arkor login
 2. `--anonymous` が渡されたら、`/v1/auth/anonymous` から匿名トークンを要求し、`mode: "anon"` で `~/.arkor/credentials.json` に書きます。
 3. `--oauth` が渡された場合、ピッカーをスキップして直接 OAuth フローへ。
 4. フラグが渡されない場合、対話ピッカー（`OAuth (browser)` / `Anonymous`）を表示し **Anonymous** が事前選択されます。デフォルトを受け入れる（プロンプトがブロッキングしない非対話的な場面でも同様）と匿名フローが走り、OAuth を選ぶと OAuth フローが走ります。
-5. OAuth フローは PKCE ペアを生成し、クラウド API から提供されたコールバックポートのいずれかでループバック HTTP サーバーを起動して、authorize URL を開き（または表示し）、コールバックを待ちます。コードをトークンに交換する前に state を検証し、不一致は CSRF 防止のため Abort されます。得られた OAuth トークンは `mode: "auth0"` で `~/.arkor/credentials.json` に書かれます。
+5. OAuth フローは PKCE ペアを生成し、クラウド API から提供されたコールバックポートのいずれかでループバック HTTP サーバーを起動して、authorize URL を開き（または表示し）、コールバックを待ちます。コードをトークンに交換する前に state を検証し、不一致は CSRF 防止のため Abort されます。得られた OAuth トークンは `mode: "oauth"` で `~/.arkor/credentials.json` に書かれます。
 
 ループバックサーバーは `finally` ブロックで閉じられるので、login が失敗してもサーバーは残りません。
 
@@ -69,7 +69,11 @@ bun arkor login
 
 ## `arkor logout`
 
-`~/.arkor/credentials.json` を削除します。デフォルトでは確認プロンプトが出ます。
+確認後に `~/.arkor/credentials.json` を削除します。確認プロンプトのデフォルトは **No** です。
+
+匿名認証情報の場合、認証情報ファイルを自分でバックアップしていない限り、logout は元に戻せません。削除すると、その匿名 ID のローカルトークンが失われ、次の匿名ログインでは新しい `anonymousId` が作られます。OAuth 認証情報は `arkor login --oauth` を再実行すれば作り直せます。
+
+`arkor logout` はプロジェクトローカルの `.arkor/state.json` には触れません。匿名で使っていて同じワークスペースで新しい匿名セッションを始めると、この残ったファイルは前の ID の組織を指しています。read 表示は無視します（一覧は空のまま）が、最初の write（学習、ベースモデル推論、endpoint 作成）は 409／エラーで失敗し、「`.arkor/state.json` を削除して新しい匿名プロジェクトを開始するか、そのプロジェクトを所有するアカウントで `arkor login` してください」と案内されます。詳しくは [プロジェクト構成](/ja/concepts/project-structure) を参照してください。
 
 ### 概要
 
@@ -105,12 +109,14 @@ bun arkor logout
 
 | フラグ | 説明 |
 | --- | --- |
-| `-y, --yes` | 確認プロンプトをスキップ。 |
+| `-f, --force` | 確認プロンプトなしで認証情報を削除。 |
 
 ### 振る舞い
 
 - 認証情報ファイルが存在しなければ、CLI は `No credentials on file.`（認証情報ファイルがありません）と出して終了。
+- 認証情報ファイルが匿名（`mode: "anon"`）なら、logout 後にその匿名 ID を復元できないことを警告。
 - ユーザーがプロンプトを断ると `Aborted.`（中止しました）と出して削除せずに終了。
+- `--force` はプロンプトをスキップしますが、匿名認証情報を削除する前の復元不可警告は表示します。
 - `arkor logout` は `.arkor/state.json` や `.arkor/build/` 成果物には触りません。完全に最初からやり直すには `.arkor/` も手動で削除してください。
 
 ## `arkor whoami`
@@ -162,7 +168,7 @@ bun arkor whoami
 
 ## 認証情報の保存場所
 
-両モードとも同じファイル `~/.arkor/credentials.json` に書き、`mode` フィールドが `"auth0"` か `"anon"` でタグ付けされます。これにより CLI（と Studio サーバー）はどのモードを使うかわかります。レイアウト全体は [プロジェクト構成](/ja/concepts/project-structure) を参照。
+両モードとも同じファイル `~/.arkor/credentials.json` に書き、`mode` フィールドが `"oauth"` か `"anon"` でタグ付けされます。これにより CLI（と Studio サーバー）はどのモードを使うかわかります。レイアウト全体は [プロジェクト構成](/ja/concepts/project-structure) を参照。
 
 ## トークンの有効期限
 
@@ -185,7 +191,7 @@ OAuth セッションでは、認証情報ファイルにアクセストーク�
 | `Auth0 did not return a refresh token. Make sure the Application has 'offline_access' scope enabled.`（Auth0 がリフレッシュトークンを返しませんでした。Application で `offline_access` スコープを有効にしてください） | `arkor login --oauth` | OAuth のトークン交換は成功したがレスポンスに `refresh_token` が無く、CLI がアクセストークンの寿命を超えてセッションを保てない。たいていデプロイ側の設定ミス。 | OAuth アプリケーションで `offline_access` スコープを有効化してから `arkor login --oauth` を再実行。 |
 | `No credentials on file.`（認証情報ファイルがありません） | `arkor logout` | `~/.arkor/credentials.json` が存在しない。削除対象なし。 | サインインしたいなら先に `arkor login`。 |
 | `Not signed in. Run \`arkor login\` or \`arkor login --anonymous\`.`（サインインしていません。`arkor login` または `arkor login --anonymous` を実行してください） | `arkor whoami` | 上と同じ条件を別コマンドから出している。 | 同じ対処。 |
-| `Failed to fetch /v1/me (<status>). Token may be expired.`（`/v1/me` の取得に失敗しました（`<status>`）。トークンが期限切れの可能性があります） | `arkor whoami` | クラウド API が 200 と 426 以外のステータスで拒否した。多くは期限切れアクセストークン。 | 現在のモードに合わせて再ログイン: OAuth セッション（`mode: "auth0"`）なら `arkor login --oauth`、匿名セッション（`mode: "anon"`）なら `arkor login --anonymous`（新しい `anonymousId` で別ワークスペースになる点に注意）。終了コードは `0` のままで、ラッパースクリプトはメッセージを検査できる。 |
+| `Failed to fetch /v1/me (<status>). Token may be expired.`（`/v1/me` の取得に失敗しました（`<status>`）。トークンが期限切れの可能性があります） | `arkor whoami` | クラウド API が 200 と 426 以外のステータスで拒否した。多くは期限切れアクセストークン。 | 現在のモードに合わせて再ログイン: OAuth セッション（`mode: "oauth"`）なら `arkor login --oauth`、匿名セッション（`mode: "anon"`）なら `arkor login --anonymous`（新しい `anonymousId` で別ワークスペースになる点に注意）。終了コードは `0` のままで、ラッパースクリプトはメッセージを検査できる。 |
 | `426 Upgrade Required`（アップグレードヒント付き） | `arkor whoami`（および他のクラウド API 呼び出し） | デプロイがより新しい SDK バージョンを要求している。CLI は検出したパッケージマネージャー用のアップグレードコマンドを表示し、`process.exitCode = 1` を立てる。 | `arkor` パッケージをアップグレードして再実行。 |
 
 ## 関連項目

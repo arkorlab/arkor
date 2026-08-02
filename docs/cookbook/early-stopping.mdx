@@ -132,6 +132,6 @@ onLog: ({ step, loss }) => {
 
 ## What to keep in mind
 
-- **Do not throw inside the callback.** A throw is caught by the SSE reconnect loop and the run keeps going (see [SDK § Lifecycle callbacks](/sdk/callbacks)). Use the controller; that is the deterministic path.
+- **Do not throw inside the callback.** A throw rejects `wait()` immediately; it is not routed through the SSE reconnect loop and not retried (that loop only handles transport failures), so throwing to stop the run just aborts `wait()` abruptly with your error instead of stopping cleanly (see [SDK § Lifecycle callbacks](/sdk/callbacks)). Use the controller; that is the deterministic path.
 - **`abortSignal` does not cancel the backend.** This is the most common gotcha. Always pair `controller.abort()` with `trainer.cancel()` if cost matters.
 - **The `loss` field is `number | null`.** Backends only fill in the loss on metric steps; non-metric frames carry `null`. The `Number.isFinite` check also rejects `NaN`, which is the more common divergence signal in practice.

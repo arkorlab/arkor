@@ -3,20 +3,32 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import * as clack from "@clack/prompts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Module-level mocks for the libraries that would otherwise bind a port
 // or open a browser when runDev() is exercised end-to-end below.
+//
+// The default `serve` stub simulates a successful async bind: it invokes the
+// `listening` callback (2nd arg) so runDev's token-persistence + cleanup
+// registration runs, and returns a server object exposing `.on` for the
+// error handler. The callback is deferred via queueMicrotask to stay
+// faithful to the real timing contract (the real server fires 'listening'
+// asynchronously, after runDev has registered its 'error' handler). Tests
+// that need EADDRINUSE override it with `mockImplementationOnce`.
 vi.mock("@hono/node-server", () => ({
-  serve: vi.fn(),
+  serve: vi.fn((_opts: unknown, onListen?: () => void) => {
+    queueMicrotask(() => onListen?.());
+    return { on: vi.fn() };
+  }),
 }));
 vi.mock("open", () => ({
   default: vi.fn(async () => undefined),
@@ -611,6 +623,11 @@ describe("runDev", () => {
     expect(existsSync(studioTokenPath())).toBe(true);
     const contents = readFileSync(studioTokenPath(), "utf8");
     expect(contents).toMatch(/^[\w-]+$/);
+    // Atomic write (PR #193 review): the temp staging file must be gone.
+    const strays = readdirSync(join(fakeHome, ".arkor")).filter((f) =>
+      f.includes(".tmp"),
+    );
+    expect(strays).toEqual([]);
 
     expect(serve).toHaveBeenCalledTimes(1);
     const arg = vi.mocked(serve).mock.calls[0]?.[0] as {
@@ -676,19 +693,44 @@ describe("runDev", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
     try {
+      const sigtermBefore = process.listeners("SIGTERM").length;
       await expect(runDev({ port: 4203 })).resolves.toBeUndefined();
       expect(serve).toHaveBeenCalledTimes(1);
+      // Regression (ENG-933 self-review): shutdown handlers must be installed
+      // even when token persistence fails, so a SIGTERM (`docker stop`) still
+      // routes through `process.exit` and fires 'exit' to reap any train
+      // child. Previously they were gated on persistence success. This
+      // branch registers TWO cleanup hooks in the listening callback (the
+      // HMR-dispose hook, then the exit-owning studio-token hook), hence +2.
+      expect(process.listeners("SIGTERM").length).toBe(sigtermBefore + 2);
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation(
+          ((_code?: number) => undefined as never) as typeof process.exit,
+        );
+      try {
+        const handler = process.listeners("SIGTERM").at(-1) as () => void;
+        handler();
+        // cleanupHooks defers the exit past `Promise.allSettled` of every
+        // in-flight cleanup (one microtask round-trip for sync hooks).
+        await flushMicrotasks();
+        expect(exitSpy).toHaveBeenCalledWith(143);
+      } finally {
+        exitSpy.mockRestore();
+      }
     } finally {
       stdoutSpy.mockRestore();
       // afterEach's recursive rmSync(fakeHome) reaps the directory.
     }
   });
 
-  it("registers SIGINT/SIGTERM/SIGHUP handlers that clean up the token + exit", async () => {
-    // Branch coverage for scheduleStudioTokenCleanup's signal-handler
-    // body (`cleanup(); process.exit(0)`). We invoke each handler
-    // synthetically and verify the token file is removed; process.exit
-    // is stubbed so the test runner survives.
+  it("registers SIGINT/SIGTERM/SIGHUP handlers that clean up the token + exit with the signal's conventional code", async () => {
+    // Branch coverage for installShutdownHandlers's signal-handler body
+    // (`cleanup(); process.exit(128 + signal)`). We invoke each handler
+    // synthetically and verify the token file is removed and the exit code
+    // is the conventional `128 + signal number` (so a supervisor can tell
+    // the process was signalled, not exited cleanly); process.exit is
+    // stubbed so the test runner survives.
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
@@ -788,16 +830,26 @@ describe("runDev", () => {
       // Root bypasses chmod permission checks: skip on root containers.
       return;
     }
+    if (process.platform === "win32") {
+      // NTFS ignores POSIX directory modes, so the read-only-parent
+      // trigger below cannot make the atomic persist fail on Windows.
+      // The ownership-safety contract itself is covered cross-platform
+      // by the successful-persist overwrite test that follows.
+      return;
+    }
     // Pre-place a "concurrent" token (the other dev session's). Body
     // content lets us assert byte-equality after cleanup, not just
     // file existence, to rule out an unlink+recreate cycle.
     const path = studioTokenPath();
     writeFileSync(path, "concurrent-token-value", { mode: 0o600 });
-    // Make the FILE unwritable so persistStudioToken's `writeFile`
-    // throws EACCES, but leave the *directory* writable so unlinkSync
-    // (which requires dir-write, not file-write perms) would happily
-    // delete the file if the cleanup hook weren't gated.
-    chmodSync(path, 0o444);
+    // Make the PARENT DIRECTORY read-only so persistStudioToken's atomic
+    // temp+rename write fails (the temp-file `writeFile` throws EACCES).
+    // A read-only token FILE no longer works as the trigger: rename(2)
+    // over the path only needs directory-write permission, so the atomic
+    // persist would succeed and legitimately overwrite the concurrent
+    // token (last-writer-wins), which is a different scenario than the
+    // failed-persist one this test pins.
+    chmodSync(dirname(path), 0o555);
 
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
@@ -806,6 +858,11 @@ describe("runDev", () => {
       await expect(runDev({ port: 4207 })).resolves.toBeUndefined();
     } finally {
       stdoutSpy.mockRestore();
+      // Restore dir perms so the cleanup below (and afterEach's rmSync)
+      // can operate; the reap then exercises the foreign-token restore
+      // path against a WRITABLE directory, which is the realistic state
+      // at a normal shutdown.
+      chmodSync(dirname(path), 0o755);
     }
 
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
@@ -814,8 +871,6 @@ describe("runDev", () => {
       return undefined as never;
     }) as typeof process.exit);
     try {
-      // Restore read perms so we can `readFileSync` to verify content.
-      chmodSync(path, 0o644);
       const sigintListeners = process.listeners("SIGINT");
       const handler = sigintListeners.at(-1) as () => void;
       handler();
@@ -877,6 +932,108 @@ describe("runDev", () => {
     }
   });
 
+  // PR #193 review (sentry + coderabbit): once the listener has BOUND, a
+  // server 'error' event must be logged, never rejected (reject would kill an
+  // already-serving instance during the token-persistence window and is a
+  // silent no-op afterwards). Non-Error emissions must not crash the handler.
+  it("logs (does not reject) a post-bind server error, including non-Error emissions", async () => {
+    let errorCb: ((e: unknown) => void) | undefined;
+    vi.mocked(serve).mockImplementationOnce(((
+      _opts: unknown,
+      onListen?: () => void,
+    ) => {
+      queueMicrotask(() => onListen?.());
+      return {
+        on: (event: string, cb: (e: unknown) => void) => {
+          if (event === "error") errorCb = cb;
+        },
+      };
+    }) as unknown as typeof serve);
+    const warnSpy = vi.spyOn(clack.log, "warn");
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await expect(runDev({ port: 4208 })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    // A live socket fault after startup is logged, not fatal.
+    errorCb?.(new Error("EMFILE: too many open files"));
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Studio server error after startup: EMFILE"),
+    );
+    // A non-Error emission must not crash the handler either.
+    expect(() => errorCb?.("string emission")).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("string emission"),
+    );
+  });
+
+  it("rejects with a clear message on EADDRINUSE without clobbering an existing token or registering cleanup", async () => {
+    // A second `arkor dev` on a port already in use must fail on the async
+    // 'error' event WITHOUT having persisted (and thus clobbered) a shared
+    // studio-token or registered an exit handler that would delete it. The
+    // stub below skips the listening callback and fires 'error' instead.
+    vi.mocked(serve).mockImplementationOnce((() => {
+      const server = {
+        on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+          if (event === "error") {
+            queueMicrotask(() =>
+              cb(
+                Object.assign(new Error("bind failed"), {
+                  code: "EADDRINUSE",
+                }),
+              ),
+            );
+          }
+          return server;
+        },
+      };
+      return server;
+    }) as unknown as typeof serve);
+
+    const exitBefore = process.listeners("exit").length;
+    // Seed a token as if a healthy instance owns it: the doomed launch must
+    // leave the CONTENT untouched (existence alone can't catch a clobber).
+    mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
+    writeFileSync(studioTokenPath(), "healthy-instance-token");
+    await expect(runDev({ port: 4206 })).rejects.toThrow(
+      /Port 4206 is already in use/,
+    );
+    // The healthy instance's token is untouched and no cleanup handler was
+    // registered.
+    expect(readFileSync(studioTokenPath(), "utf8")).toBe(
+      "healthy-instance-token",
+    );
+    expect(process.listeners("exit").length).toBe(exitBefore);
+  });
+
+  // PR #193 review (coderabbit): the token path is a single shared file, and
+  // a second instance on a DIFFERENT port can legitimately overwrite it
+  // (last-writer-wins). This instance's shutdown must then leave the file
+  // alone: only the current owner's token may be unlinked.
+  it("does not unlink a token that another instance has since overwritten", async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4209 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    expect(existsSync(studioTokenPath())).toBe(true);
+    // Another instance (different port) overwrites the shared token file.
+    writeFileSync(studioTokenPath(), "other-instances-token");
+    // Our exit cleanup must notice it no longer owns the file and keep it.
+    const cleanup = process.listeners("exit").at(-1) as () => void;
+    cleanup();
+    expect(existsSync(studioTokenPath())).toBe(true);
+    expect(readFileSync(studioTokenPath(), "utf8")).toBe(
+      "other-instances-token",
+    );
+  });
+
   it("registers a cleanup listener that removes the studio-token file on exit", async () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
@@ -889,7 +1046,7 @@ describe("runDev", () => {
     expect(existsSync(studioTokenPath())).toBe(true);
 
     // Pull the most-recently-registered exit listener and invoke it; that
-    // exercises the unlinkSync(path) branch of scheduleStudioTokenCleanup.
+    // exercises the unlinkSync(path) branch of installShutdownHandlers.
     const exitListeners = process.listeners("exit");
     const cleanup = exitListeners.at(-1) as () => void;
     cleanup();

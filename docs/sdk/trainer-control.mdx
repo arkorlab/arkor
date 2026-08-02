@@ -100,11 +100,12 @@ Use `abortSignal` for "I no longer care about waiting on this run" (request time
 
 `wait()` keeps the SSE stream alive across transient failures by default:
 
-- A clean stream EOF after at least one received frame triggers an immediate reconnect at the base delay (`initialReconnectDelayMs`, default 1000 ms) without counting against the failure budget. The stream resumes via `Last-Event-ID`.
-- A connect error or a stream EOF without any received frame counts as a failure and goes through `handleFailure`: exponential backoff via `initialReconnectDelayMs * 2 ** attempt`, with the per-attempt delay clamped at `maxReconnectDelayMs` (default 60 000 ms) and the consecutive-failure count capped at `maxReconnectAttempts`.
+- A clean stream EOF after at least one real, parseable data frame (keepalive `ping` frames and malformed frames do not count as progress) triggers an immediate reconnect at the base delay (`initialReconnectDelayMs`, default 1000 ms) without counting against the failure budget. The stream resumes via `Last-Event-ID`.
+- A connect error, or a stream EOF that yielded no parseable data frame (including one that sent only keepalive pings or unparseable garbage), counts as a failure and goes through `handleFailure`: exponential backoff via `initialReconnectDelayMs * 2 ** attempt`, with the per-attempt delay clamped at `maxReconnectDelayMs` (default 60 000 ms) and the consecutive-failure count capped at `maxReconnectAttempts`. This is deliberate: a broken intermediary that only ever emits a ping (or garbage) and then EOFs is counted so it can't loop forever at the base delay.
+- Permanent connect errors are the exception to the retry loop: a `401` / `403` (auth), `410` (gone), or `426` (upgrade required) response rejects `wait()` immediately, since it would fail identically on every reconnect. A `404` is treated as transient and retries (a just-created job's event stream may not be visible yet), as do `408`, `429`, and `5xx`.
 - `maxReconnectAttempts` defaults to `undefined` (unlimited consecutive failures). It is not configurable through `TrainerInput`; the only way to set it (along with `reconnectDelayMs` and `maxReconnectDelayMs`) is the second `context` argument to `createTrainer`, annotated `@internal` and subject to change. For most projects this means transient SSE failures are silently retried for as long as the job runs.
 
-This same path is what catches thrown user callbacks (see [Lifecycle callbacks § Exception handling](/sdk/callbacks#exception-handling)). If you need deterministic error handling, catch inside the callback rather than relying on `wait()` to reject.
+This path is **only** for transport failures. A thrown user callback does not go through it: it rejects `wait()` immediately, without any reconnect or retry (see [Lifecycle callbacks § Exception handling](/sdk/callbacks#exception-handling)). Routing a throw through reconnect would resume past the failing event's already-advanced `Last-Event-ID`, swallowing your error. If you need deterministic, non-fatal error handling, catch inside the callback rather than relying on `wait()` to reject.
 
 ## Two-process pattern
 

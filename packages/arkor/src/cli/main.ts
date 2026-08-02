@@ -197,10 +197,10 @@ export async function main(argv: string[]): Promise<void> {
   program
     .command("logout")
     .description("Delete ~/.arkor/credentials.json")
-    .option("-y, --yes", "Skip confirmation")
+    .option("-f, --force", "Delete credentials without prompting")
     .action(
-      withTelemetry("logout", async (opts: { yes?: boolean }) => {
-        await runLogout({ yes: opts.yes });
+      withTelemetry("logout", async (opts: { force?: boolean }) => {
+        await runLogout({ force: opts.force });
       }),
     );
 

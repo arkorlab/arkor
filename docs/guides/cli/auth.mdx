@@ -93,7 +93,7 @@ Prints the current identity and the orgs you can reach.
 
 ## Sign out
 
-`arkor logout` deletes `~/.arkor/credentials.json`. The next `arkor dev` will bootstrap a fresh anonymous identity, or you can `arkor login --oauth` again.
+`arkor logout` asks before deleting `~/.arkor/credentials.json`, and the confirmation defaults to **No**. For anonymous credentials, deleting the file permanently loses access to that anonymous identity unless you backed it up yourself; the next `arkor dev` will bootstrap a fresh anonymous identity. OAuth users can run `arkor login --oauth` again.
 
 ## Reference
 

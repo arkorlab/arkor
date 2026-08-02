@@ -42,4 +42,4 @@ For richer recipes, see [Mid-run eval](/cookbook/mid-run-eval), [Early stopping]
 
 ## Reference
 
-For full type signatures, the rule that throwing inside a callback triggers SSE reconnect rather than a normal rejection, and the per-callback parameter list, see the [Callbacks reference](/sdk/callbacks). For the conceptual flow of a run, see [Run lifecycle](/concepts/lifecycle).
+For full type signatures, the rule that throwing inside a callback rejects `wait()` immediately (it is not routed to the SSE reconnect loop, which handles only transport failures), and the per-callback parameter list, see the [Callbacks reference](/sdk/callbacks). For the conceptual flow of a run, see [Run lifecycle](/concepts/lifecycle).

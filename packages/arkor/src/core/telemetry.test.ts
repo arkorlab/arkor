@@ -40,7 +40,7 @@ interface TelemetryModule {
   isEnabled: () => boolean;
   getIdentity: () => Promise<{
     distinctId: string;
-    authMode: "auth0" | "anon" | "none";
+    authMode: "oauth" | "anon" | "none";
   }>;
   withTelemetry: <TArgs extends unknown[]>(
     command: string,
@@ -156,7 +156,7 @@ describe("getIdentity", () => {
     expect(id).toEqual({ distinctId: "anon-xyz", authMode: "anon" });
   });
 
-  it("returns sub for auth0 credentials with a decodable JWT", async () => {
+  it("returns sub for oauth credentials with a decodable JWT", async () => {
     const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" }))
       .toString("base64")
       .replace(/=+$/, "")
@@ -169,7 +169,7 @@ describe("getIdentity", () => {
       .replaceAll("/", "_");
     const accessToken = `${header}.${payload}.signature`;
     writeCreds({
-      mode: "auth0",
+      mode: "oauth",
       accessToken,
       refreshToken: "rt",
       expiresAt: 0,
@@ -179,7 +179,7 @@ describe("getIdentity", () => {
     });
     const mod = await loadTelemetry({ key: "phc_test" });
     const id = await mod.getIdentity();
-    expect(id).toEqual({ distinctId: "auth0|user-123", authMode: "auth0" });
+    expect(id).toEqual({ distinctId: "auth0|user-123", authMode: "oauth" });
   });
 
   it("creates and reuses ~/.arkor/telemetry-id when no credentials exist", async () => {
@@ -214,12 +214,12 @@ describe("getIdentity", () => {
     expect(id.distinctId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it("falls back to telemetry-id when auth0 token has 3 parts but a non-JSON payload", async () => {
+  it("falls back to telemetry-id when oauth token has 3 parts but a non-JSON payload", async () => {
     // Branch coverage for the inner try/catch in decodeJwtSub. A token of
     // shape `aaa.bbb.ccc` passes the parts.length===3 guard, then JSON.parse
     // on the decoded base64 throws and the catch returns null.
     writeCreds({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "header.notvalidjsonbutbase64ish.sig",
       refreshToken: "rt",
       expiresAt: 0,
@@ -229,7 +229,7 @@ describe("getIdentity", () => {
     });
     const mod = await loadTelemetry({ key: "phc_test" });
     const id = await mod.getIdentity();
-    expect(id.authMode).toBe("auth0");
+    expect(id.authMode).toBe("oauth");
     expect(id.distinctId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
@@ -244,7 +244,7 @@ describe("getIdentity", () => {
       "base64url",
     );
     writeCreds({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: `${header}.${payload}.sig`,
       refreshToken: "rt",
       expiresAt: 0,
@@ -254,7 +254,7 @@ describe("getIdentity", () => {
     });
     const mod = await loadTelemetry({ key: "phc_test" });
     const id = await mod.getIdentity();
-    expect(id.authMode).toBe("auth0");
+    expect(id.authMode).toBe("oauth");
     expect(id.distinctId).not.toBe("");
     expect(id.distinctId).toMatch(/^[0-9a-f-]{36}$/);
   });
@@ -271,9 +271,9 @@ describe("getIdentity", () => {
     expect(id.distinctId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it("falls back to telemetry-id when auth0 token is malformed", async () => {
+  it("falls back to telemetry-id when oauth token is malformed", async () => {
     writeCreds({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "not-a-jwt",
       refreshToken: "rt",
       expiresAt: 0,
@@ -283,7 +283,7 @@ describe("getIdentity", () => {
     });
     const mod = await loadTelemetry({ key: "phc_test" });
     const id = await mod.getIdentity();
-    expect(id.authMode).toBe("auth0");
+    expect(id.authMode).toBe("oauth");
     expect(id.distinctId).toMatch(/^[0-9a-f-]{36}$/);
     expect(existsSync(join(fakeHome, ".arkor", "telemetry-id"))).toBe(true);
   });

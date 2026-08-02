@@ -1,4 +1,5 @@
 import {
+  mkdirSync,
   mkdtempSync,
   realpathSync,
   rmSync,
@@ -84,7 +85,13 @@ import {
   nodeModulesChangedSince,
   scaffold,
 } from "@arkor/cli-internal";
-import { buildCdLine, run, shellQuoteIfNeeded, shouldRunAsCli } from "./bin";
+import {
+  buildCdLine,
+  isOccupied,
+  run,
+  shellQuoteIfNeeded,
+  shouldRunAsCli,
+} from "./bin";
 
 let parentDir: string;
 const ORIG_CWD = process.cwd();
@@ -430,6 +437,62 @@ describe("create-arkor run()", () => {
 // symlink-tolerant comparison down so the regression can't
 // resurface; the fixture creates a real symlink with `symlinkSync`
 // and asserts the helper still recognises it as the entrypoint.
+describe("isOccupied", () => {
+  let occDir: string;
+  beforeEach(() => {
+    occDir = mkdtempSync(join(tmpdir(), "create-arkor-occ-"));
+  });
+  afterEach(() => {
+    rmSync(occDir, { recursive: true, force: true });
+  });
+
+  it("reports a non-existent path as free", async () => {
+    await expect(isOccupied(join(occDir, "nope"))).resolves.toBe(false);
+  });
+
+  it("reports an empty dir as free and a non-empty dir as occupied", async () => {
+    const empty = join(occDir, "empty");
+    mkdirSync(empty);
+    await expect(isOccupied(empty)).resolves.toBe(false);
+    writeFileSync(join(empty, "f.txt"), "x");
+    await expect(isOccupied(empty)).resolves.toBe(true);
+  });
+
+  it("reports a plain file as occupied", async () => {
+    const f = join(occDir, "file");
+    writeFileSync(f, "x");
+    await expect(isOccupied(f)).resolves.toBe(true);
+  });
+
+  // ENG-933: existsSync followed symlinks, so a broken (dangling) symlink
+  // reported "free" and the collision guard was bypassed. lstat inspects the
+  // link itself. Symlink-to-nonexistent needs privileges on Windows, so this
+  // case is POSIX-only.
+  it.skipIf(process.platform === "win32")(
+    "reports a broken symlink as occupied (POSIX)",
+    async () => {
+      const link = join(occDir, "dangling");
+      symlinkSync(join(occDir, "does-not-exist"), link);
+      await expect(isOccupied(link)).resolves.toBe(true);
+    },
+  );
+
+  // PR #193 review (greptile/cubic): only ENOENT means "free". Any other
+  // lstat failure (here ENOTDIR: a regular file in the parent chain, the
+  // deterministic non-root stand-in for EACCES/EIO) means the path cannot be
+  // scaffolded into, so it must report occupied instead of letting the
+  // scaffold proceed and die mid-write. Windows maps this case to ENOENT, so
+  // the assertion is POSIX-only.
+  it.skipIf(process.platform === "win32")(
+    "reports a path behind a non-ENOENT lstat error as occupied (POSIX)",
+    async () => {
+      const file = join(occDir, "plain-file");
+      writeFileSync(file, "x");
+      await expect(isOccupied(join(file, "child"))).resolves.toBe(true);
+    },
+  );
+});
+
 describe("shouldRunAsCli", () => {
   let tmp: string;
   let realFile: string;
@@ -525,6 +588,17 @@ describe("shellQuoteIfNeeded", () => {
       });
     });
 
+    // ENG-933: comma was dropped from the safe-unquote set, so a comma path
+    // is quoted on POSIX as well, which is what this case pins. The
+    // motivating hazard lives on Windows (PowerShell parses an unquoted
+    // comma as its array operator); quoting on every platform keeps the
+    // printed hint consistent.
+    it("single-quotes paths containing a comma", () => {
+      withPlatform("linux", () => {
+        expect(shellQuoteIfNeeded("my,dir")).toBe("'my,dir'");
+      });
+    });
+
     it(
       String.raw`escapes embedded single quotes with the '\'' close-literal-open sequence`,
       () => {
@@ -544,6 +618,14 @@ describe("shellQuoteIfNeeded", () => {
     it("double-quotes paths containing spaces", () => {
       withPlatform("win32", () => {
         expect(shellQuoteIfNeeded("My App")).toBe('"My App"');
+      });
+    });
+
+    // ENG-933: `cd my,dir` in PowerShell parses the comma as the array
+    // operator and errors; the path must be double-quoted.
+    it("double-quotes paths containing a comma", () => {
+      withPlatform("win32", () => {
+        expect(shellQuoteIfNeeded("my,dir")).toBe('"my,dir"');
       });
     });
 

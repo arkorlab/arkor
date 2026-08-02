@@ -1,6 +1,6 @@
 import { iterateEvents } from "@arkor/cloud-api-client";
 
-import { CloudApiClient } from "./client";
+import { CloudApiClient, CloudApiError } from "./client";
 import {
   defaultArkorCloudApiUrl,
   ensureCredentials,
@@ -54,8 +54,9 @@ export interface TrainerInternalContext {
   /**
    * Maximum number of consecutive failed reconnect attempts before
    * `wait()` rejects with the last error. Counter resets every time the
-   * stream yields at least one event (so a single mid-stream blip doesn't
-   * count against a long-running job). Undefined means unlimited.
+   * stream yields a real data event (keepalive pings excluded, so a broken
+   * intermediary that only emits pings can't mask itself as progress).
+   * Undefined means unlimited.
    */
   maxReconnectAttempts?: number;
 }
@@ -92,6 +93,24 @@ type StreamEvent =
       error: string;
       step?: number;
     });
+
+/**
+ * Wraps an error thrown from `dispatch()` (a user callback such as
+ * `onCompleted` / `onLog` / `onCheckpoint`, or an internal invariant) so the
+ * reconnect loop in `wait()` can tell it apart from a transport failure.
+ *
+ * Transport failures reconnect; a dispatch failure must reject `wait()`
+ * immediately, because `lastEventId` has already advanced past the offending
+ * event and reconnecting would silently skip it, swallowing the user's error
+ * and, for a terminal event, dropping its artifacts (so `wait()` would
+ * resolve with `artifacts: []` as if training produced nothing).
+ */
+class FatalStreamError extends Error {
+  constructor(cause: unknown) {
+    super("Trainer stream dispatch failed", { cause });
+    this.name = "FatalStreamError";
+  }
+}
 
 function buildJobConfig(input: TrainerInput): JobConfig {
   const config: JobConfig = {
@@ -225,9 +244,25 @@ export function createTrainer(
     earlyStopRequested = false;
   }
 
+  let credentialsPromise: Promise<Credentials> | null = null;
+
+  // Resolve credentials ONCE per trainer instance and share that snapshot with
+  // both the client and the project-state check. Reading them independently
+  // (as `getClient` and `resolveProjectState` used to) let an `arkor logout` /
+  // login between the two reads build the client with one identity's token
+  // while `ensureProjectState` validated / re-scoped the project under
+  // another, sending the old token to the new org (a cross-org 403). Memoised
+  // like `clientPromise` so the token the client is built with never diverges
+  // from the one the scope is reconciled against.
+  async function resolveCredentials(): Promise<Credentials> {
+    credentialsPromise ??= (async () =>
+      context.credentials ?? (await ensureCredentials()))();
+    return credentialsPromise;
+  }
+
   async function getClient(): Promise<CloudApiClient> {
     clientPromise ??= (async () => {
-      const credentials = context.credentials ?? (await ensureCredentials());
+      const credentials = await resolveCredentials();
       const baseUrl = context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
       return new CloudApiClient({ baseUrl, credentials });
     })();
@@ -235,7 +270,7 @@ export function createTrainer(
   }
 
   async function resolveProjectState(client: CloudApiClient) {
-    const credentials = context.credentials ?? (await ensureCredentials());
+    const credentials = await resolveCredentials();
     return ensureProjectState({ cwd, client, credentials });
   }
 
@@ -532,6 +567,17 @@ export function createTrainer(
         }
         return { terminal: true, artifacts: [] };
       }
+      default: {
+        // Unknown / forward-compatible event type. `sse.data` is cast to
+        // `StreamEvent` in `wait()` without runtime validation, so a future
+        // server event lands here at runtime even though the compile-time
+        // union is exhaustive. The rest of the SDK tolerates unknown shapes
+        // (loose schemas, open enums), so skip it the same way a malformed
+        // JSON frame is skipped rather than falling off the end of the
+        // function and returning `undefined` (which would throw at the
+        // `result.terminal` access and trigger a spurious reconnect).
+        return { terminal: false, artifacts: terminalResult?.artifacts ?? [] };
+      }
     }
   }
 
@@ -593,9 +639,9 @@ export function createTrainer(
       let lastEventId: string | undefined;
       let artifacts: unknown[] = [];
       let terminal = false;
-      // Consecutive failed reconnects. Reset every time the stream yields
-      // at least one event so a long-running job that briefly drops
-      // doesn't burn through `maxReconnectAttempts` over its lifetime.
+      // Consecutive failed reconnects. Reset every time the stream yields a
+      // real data event (pings excluded) so a long-running job that briefly
+      // drops doesn't burn through `maxReconnectAttempts` over its lifetime.
       let attempt = 0;
 
       const handleFailure = async (err: unknown): Promise<void> => {
@@ -621,6 +667,29 @@ export function createTrainer(
             signal: abortSignal,
           });
         } catch (err) {
+          // Permanent client errors fail identically on every reconnect.
+          // With the default `maxReconnectAttempts` unset (unlimited) that
+          // would spin forever at up to the 60 s cap and never settle
+          // `wait()`, so reject now. The set is deliberately narrow:
+          //   - 401 / 403: auth. The token is fixed for this `wait()` (no
+          //     refresh yet), so it will never become valid on retry.
+          //   - 410: the job's event stream is gone.
+          //   - 426: SDK upgrade required.
+          // Everything else falls through to the reconnect path. In
+          // particular 404 is NOT treated as permanent: `wait()` only ever
+          // streams a job it just created itself, so a 404 here is the
+          // just-created job's stream not being visible yet (backend
+          // replication lag), which resolves on retry, not a bad id. 408
+          // (request timeout), 429 (rate limit), and 5xx are transient too.
+          if (
+            err instanceof CloudApiError &&
+            (err.status === 401 ||
+              err.status === 403 ||
+              err.status === 410 ||
+              err.status === 426)
+          ) {
+            throw err;
+          }
           await handleFailure(err);
           continue;
         }
@@ -628,13 +697,15 @@ export function createTrainer(
         let receivedAny = false;
         try {
           for await (const sse of iterateEvents(response)) {
-            // Any frame from the server (including pings) means we're
-            // connected and making progress; reset the failure counter
-            // so subsequent transient blips get the full retry budget.
-            receivedAny = true;
-            attempt = 0;
             if (sse.id) lastEventId = sse.id;
-            if (sse.event === "ping") continue;
+            if (sse.event === "ping") {
+              // Keepalive only. Deliberately NOT counted as progress: a
+              // broken intermediary that emits a single ping then EOFs must
+              // still accrue toward `maxReconnectAttempts` instead of
+              // looping forever on the clean-reconnect (no-counter) path
+              // below.
+              continue;
+            }
             if (sse.event === "end") {
               terminal = true;
               break;
@@ -645,7 +716,25 @@ export function createTrainer(
             } catch {
               continue; // malformed event; skip
             }
-            const result = await dispatch(parsed, null);
+            // A parseable data frame: the stream is genuinely productive, so
+            // the connection is healthy. Reset the consecutive-failure
+            // budget. Deliberately AFTER the parse (and, like pings,
+            // malformed frames are excluded): an intermediary that returns
+            // 200 and injects unparseable garbage before EOF must still
+            // accrue toward `maxReconnectAttempts` instead of looping
+            // forever on the clean-reconnect (no-counter) path below.
+            receivedAny = true;
+            attempt = 0;
+            let result: { terminal: boolean; artifacts: unknown[] };
+            try {
+              result = await dispatch(parsed, null);
+            } catch (err) {
+              // A user callback threw (or dispatch hit an internal
+              // invariant). Not a transport failure: `lastEventId` has
+              // already advanced past this event, so reconnecting would skip
+              // it and swallow the error. Fail fast via the sentinel below.
+              throw new FatalStreamError(err);
+            }
             if (result.terminal) {
               artifacts = result.artifacts;
               terminal = true;
@@ -653,6 +742,7 @@ export function createTrainer(
             }
           }
         } catch (err) {
+          if (err instanceof FatalStreamError) throw err.cause;
           await handleFailure(err);
           continue;
         }

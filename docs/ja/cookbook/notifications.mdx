@@ -59,7 +59,7 @@ export const trainer = createTrainer({
 
 ## なぜ内側の `try / catch` が大事か
 
-Webhook リクエストが throw すると（Slack 障害、DNS の不調、コードが 200 番台以外を再 throw するなど）、コールバックは reject します。Arkor ランタイムはその reject を catch して SSE 再接続ループに送ります（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）。`maxReconnectAttempts` がデフォルトの無制限のままだと、不安定な Webhook が気付かないうちに無期限にリトライされ続け得て、リトライ間で `Last-Event-ID` が進めば元のイベントが飲み込まれます。
+Webhook リクエストが throw すると（Slack 障害、DNS の不調、コードが 200 番台以外を再 throw するなど）、コールバックは reject します。コールバックからの未捕捉の throw は、そのエラーで `trainer.wait()` を即座に reject させます（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）。これは SSE 再接続ループには送られず、`maxReconnectAttempts` の下でリトライされることもありません。つまり `onCompleted` から発火した不安定な Webhook が `wait()` 全体を中断させてしまい、それを待っている CI や cron のオーケストレーターは、本来は成功した学習を失敗として扱ってしまいます。
 
 Webhook は学習成功の判定基準ではなく副作用として扱ってください。内側で catch し、必要に応じてログに残します。
 
@@ -101,6 +101,6 @@ onCheckpoint: async ({ step, infer }) => {
 
 ## 心に留めておくこと
 
-- **内側の `try / catch` は必須。** 通知はあれば便利ですが、Webhook の障害が学習イベントストリームを暗黙のうちにリトライさせるのは望ましくありません。
+- **内側の `try / catch` は必須。** 通知はあれば便利ですが、Webhook の障害が、本来は成功した学習の `wait()` を中断させるのは望ましくありません。
 - **シークレットをトレーナーファイルに置かない。** 例では `SLACK_WEBHOOK_URL` を `process.env` から読み、Webhook が `git` に入らないようにしています。トークンベースの宛先全般に同じ考え方を適用してください。
 - **`error` は `string` であることを忘れない。** `onFailed` の `error` 引数はバックエンドが送った文字列で（[SDK § ライフサイクルコールバック](/ja/sdk/callbacks)）、`Error` インスタンスではありません。そのまま埋め込んでください。`.message` を参照しないでください。

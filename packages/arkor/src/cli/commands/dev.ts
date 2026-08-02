@@ -1,6 +1,6 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, renameSync, unlinkSync } from "node:fs";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { serve } from "@hono/node-server";
@@ -167,8 +167,39 @@ export async function ensureCredentialsForStudio(): Promise<void> {
 async function persistStudioToken(token: string): Promise<string> {
   const path = studioTokenPath();
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, token, { mode: 0o600 });
-  await chmod(path, 0o600);
+  // Atomic write, mirroring `writeCredentials`: stage to a unique 0600 temp
+  // file and rename over the shared path. A signal or crash mid-`writeFile`
+  // can then never leave a TRUNCATED token at the canonical path; that would
+  // be worse than no token, because the ownership-checked cleanup declines
+  // to remove content it doesn't recognise, stranding a corrupt file that
+  // 403s the Vite SPA workflow until the next launch rotates it. rename(2)
+  // is atomic within a filesystem, so readers observe either the previous
+  // complete token or this launch's complete token. The temp name carries a
+  // random suffix so PID-1 collisions across containers sharing ~/.arkor
+  // can't race each other's staging file.
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, token, { mode: 0o600 });
+    try {
+      // Belt-and-suspenders, same policy as `writeCredentials`: `writeFile`'s
+      // create mode is already 0600 masked by umask (never wider), so a chmod
+      // failure on an exotic mount must not discard a complete, staged token
+      // and needlessly downgrade the Vite SPA workflow to 403s. Warn and
+      // proceed to the rename.
+      await chmod(tmp, 0o600);
+    } catch (err) {
+      ui.log.warn(
+        `Could not set permissions on ${path}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    await rename(tmp, path);
+  } catch (err) {
+    // Leave nothing behind on failure; the caller's warn path covers the rest.
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw err;
+  }
   return path;
 }
 
@@ -337,45 +368,6 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // the most-recently-attached signal listener (existing tests rely
   // on this ordering to find the token-removal handler).
   const hmr = createHmrCoordinator({ cwd: process.cwd() });
-  scheduleHmrCleanup(hmr);
-
-  // Register the studio-token cleanup *unconditionally* up-front. The hook
-  // is the only one that calls `process.exit(0)` on SIGINT/SIGTERM/SIGHUP
-  // (the HMR hook above only disposes), and `registerCleanupHook` overrides
-  // Node's default "exit on signal" behaviour for any signal it listens
-  // on. If we were to gate registration behind a successful
-  // `persistStudioToken` and the persist threw, Ctrl-C would run the HMR
-  // dispose and then leave the server idle in the foreground: no exit
-  // ever fires.
-  //
-  // The cleanup body re-reads the file at exit time and only unlinks when
-  // the bytes match `studioToken`. That single token-identity check covers:
-  //   - failed persist (file never created) → readFileSync throws → no-op
-  //   - successful persist that a concurrent `arkor dev` later overwrote
-  //     in the same `$HOME` → tokens differ → no-op, that instance keeps
-  //     working
-  //   - our own token still on disk → bytes match → unlink
-  // A previous design also tracked a `tokenPersisted` boolean set after
-  // `await persistStudioToken(...)` resolved, but that had a race: a
-  // signal arriving between `writeFile` completing and the boolean
-  // flipping would skip the unlink and leave our token on disk. The
-  // bytes ARE the source of truth, so the boolean was redundant.
-  const tokenPath = studioTokenPath();
-  scheduleStudioTokenCleanup(tokenPath, studioToken);
-
-  // Persisting the token to disk is *only* needed for the Vite SPA dev
-  // workflow. The bundled `:port` flow injects the meta tag at request time
-  // via `buildStudioApp`, so a failure here (read-only $HOME on Docker /
-  // locked-down CI / restrictive umask) must not block the server.
-  try {
-    await persistStudioToken(studioToken);
-  } catch (err) {
-    ui.log.warn(
-      `Could not write ${tokenPath} (${
-        err instanceof Error ? err.message : String(err)
-      }). The Studio at http://localhost:${port} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
-    );
-  }
 
   // `autoAnonymous: true` (the default) lets the Hono server retry the
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
@@ -390,15 +382,115 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // IPv4. The host-header guard already accepts both, so the displayed URL
   // can still be `localhost`.
   const url = `http://localhost:${port}`;
-  serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
-  process.stdout.write(`Arkor Studio running on ${url}\n`);
-  // "ready (will watch …)" rather than "enabled (watching …)" because
-  // `createHmrCoordinator` is lazy: the rolldown watcher doesn't
-  // actually start until the first `subscribe()` call inside
-  // `buildStudioApp`, and on a fresh scaffold with no
-  // `src/arkor/index.ts` yet the watcher falls into the
-  // entry-wait poll loop rather than actively watching.
-  process.stdout.write(`HMR ready (will watch src/arkor)\n`);
+
+  await new Promise<void>((resolve, reject) => {
+    // Tracks whether the listener has BOUND (the `listening` callback fired)
+    // so the persistent 'error' listener below can tell a pre-bind failure
+    // (reject) from a post-startup fault (log). The boundary is deliberately
+    // the bind, not the later resolve(): an error that arrives while the
+    // token is still being persisted hits an already-serving server, so
+    // treating it as a startup failure would kill a healthy instance.
+    let bound = false;
+    // Bind FIRST, then persist the studio token and register its cleanup
+    // in the `listening` callback (after a successful bind). The token
+    // file (`~/.arkor/studio-token`) is a single shared path, so a second
+    // `arkor dev` on the same port must fail on EADDRINUSE *without* having
+    // clobbered the first instance's token or registered an exit handler
+    // that would delete it. The old flow persisted up front, so a doomed
+    // second launch overwrote the token and then, on its crash-exit,
+    // unlinked the healthy instance's file, 403-ing the Vite SPA workflow.
+    const server = serve(
+      { fetch: app.fetch, port, hostname: "127.0.0.1" },
+      () => {
+        bound = true;
+        // Cleanup hooks are registered only on SUCCESSFUL BIND: a doomed
+        // second launch failing on EADDRINUSE must not leave exit/signal
+        // listeners behind (the EADDRINUSE test pins the listener count),
+        // and must never register a handler that could touch the healthy
+        // instance's token file. HMR dispose registers FIRST so the
+        // exit-owning token hook below stays outermost; if the process
+        // dies before this callback runs, the un-disposed watcher is
+        // reaped by process death anyway.
+        scheduleHmrCleanup(hmr);
+        // Register the studio-token cleanup on SUCCESSFUL BIND (main's
+        // bind-first flow merged with this branch's cleanupHooks): the
+        // hook is registered before (and independent of) the async token
+        // persistence below, so a termination signal still routes through
+        // `process.exit` with the conventional 128+signo code even when
+        // persistence failed. The ordering contract with
+        // `scheduleHmrCleanup` still holds inside a bound instance: the
+        // token hook registers AFTER the HMR hook, so it remains the
+        // outermost exit-owning hook (exitOnSignal: true awaits the HMR
+        // dispose before exiting, and `process.exit` fires the
+        // synchronous 'exit' event that reaps /api/train children).
+        //
+        // The cleanup body claims the shared file atomically (rename-then-
+        // inspect reap) and only deletes bytes that match `studioToken`,
+        // which keeps this registration safe in every state: token never
+        // written -> nothing to claim; written by us -> claimed + removed;
+        // overwritten by a concurrent instance -> foreign bytes restored,
+        // newest writer wins.
+        scheduleStudioTokenCleanup(studioTokenPath(), studioToken);
+        // Persisting the token to disk is *only* needed for the Vite SPA
+        // dev workflow. The bundled `:port` flow injects the meta tag at
+        // request time via `buildStudioApp`, so a failure here (read-only
+        // $HOME on Docker / locked-down CI / restrictive umask) must not
+        // block the server.
+        void (async () => {
+          try {
+            await persistStudioToken(studioToken);
+          } catch (err) {
+            ui.log.warn(
+              `Could not write ${studioTokenPath()} (${
+                err instanceof Error ? err.message : String(err)
+              }). The Studio at ${url} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
+            );
+          }
+          process.stdout.write(`Arkor Studio running on ${url}\n`);
+          // "ready (will watch …)" rather than "enabled (watching …)" because
+          // `createHmrCoordinator` is lazy: the rolldown watcher doesn't
+          // actually start until the first `subscribe()` call inside
+          // `buildStudioApp`, and on a fresh scaffold with no
+          // `src/arkor/index.ts` yet the watcher falls into the
+          // entry-wait poll loop rather than actively watching.
+          process.stdout.write(`HMR ready (will watch src/arkor)\n`);
+          resolve();
+        })();
+      },
+    );
+    server.on("error", (err: unknown) => {
+      // EADDRINUSE (and friends) arrive here asynchronously. Without this
+      // listener Node rethrows them as an uncaught exception, which would
+      // also fire the process-wide exit handler and delete a *different*
+      // healthy instance's studio-token (see the bind-first note above).
+      //
+      // `err` is treated as `unknown` on purpose: a non-Error emission
+      // (string, null) must not crash THIS handler via a property access.
+      //
+      // Once bound, reject() would be a silent no-op (or, during the token-
+      // persistence window, would wrongly kill an already-serving instance),
+      // so log post-bind server errors instead: an operator watching a
+      // running Studio should see a live socket fault (EMFILE, ...) even
+      // though the process keeps serving.
+      const message = err instanceof Error ? err.message : String(err);
+      if (bound) {
+        ui.log.warn(`Studio server error after startup: ${message}`);
+        return;
+      }
+      if (
+        err instanceof Error &&
+        (err as NodeJS.ErrnoException).code === "EADDRINUSE"
+      ) {
+        reject(
+          new Error(
+            `Port ${port} is already in use. Another \`arkor dev\` may be running; pass --port to choose a different one.`,
+          ),
+        );
+        return;
+      }
+      reject(err instanceof Error ? err : new Error(message));
+    });
+  });
   if (options.open) {
     try {
       await open(url);

@@ -93,7 +93,7 @@ bun arkor whoami
 
 ## サインアウト
 
-`arkor logout` は `~/.arkor/credentials.json` を削除します。次の `arkor dev` は新しい匿名 ID を初期化しますし、`arkor login --oauth` で再ログインもできます。
+`arkor logout` は確認してから `~/.arkor/credentials.json` を削除し、確認のデフォルトは **No** です。匿名認証情報の場合、そのファイルを削除すると、バックアップしていない限り同じ匿名 ID には戻れません。次の `arkor dev` は新しい匿名 ID を初期化します。OAuth ユーザーは `arkor login --oauth` で再ログインできます。
 
 ## リファレンス
 

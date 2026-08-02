@@ -368,7 +368,7 @@ try {
 | `4xx` model rejection | Backend rejected the request (e.g. context length exceeded, unsupported message shape). | `err.message` carries the upstream message; surface it to the caller. |
 | `5xx` upstream | Inference cluster outage / cold start timeout. | The SDK does **not** retry inference requests automatically (the trainer's SSE reconnect loop is for the *job event* stream, not for `/v1/inference/chat`). Roll your own retry around `infer` if you want one. |
 
-Throws bubble out of `onCheckpoint` and are caught by the runtime's reconnect loop, so unhandled errors can lead to silent retries. Always handle inference errors locally.
+An inference error you don't catch escapes `onCheckpoint`, and a throw out of `onCheckpoint` rejects `trainer.wait()` immediately; it is not caught by the runtime's reconnect loop, which retries transport failures only. For non-fatal inference errors, catch inside the callback so a recoverable failure doesn't abort the whole run.
 
 ## Constraints
 

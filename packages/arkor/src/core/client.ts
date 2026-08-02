@@ -122,11 +122,16 @@ export class CloudApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly token: string;
+  // Resolved once so the raw `chat` / `openEventStream` paths (which tap
+  // deprecation headers manually) honour the same per-request override the
+  // typed RPC client below is wired with, instead of both diverging.
+  private readonly onDeprecation: (notice: DeprecationNotice) => void;
 
   constructor(options: CloudApiClientOptions) {
     this.token = tokenFromCredentials(options.credentials);
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.fetchImpl = options.fetch ?? fetch;
+    this.onDeprecation = options.onDeprecation ?? recordDeprecation;
     this.rpc = createArkorRpc({
       baseUrl: this.baseUrl,
       token: () => this.token,
@@ -146,7 +151,7 @@ export class CloudApiClient {
       // `studio/server.ts`. Drop this once an alpha ships the
       // upstream fix.
       onDeprecation: (notice) => {
-        (options.onDeprecation ?? recordDeprecation)(notice);
+        this.onDeprecation(notice);
         return null;
       },
     });
@@ -241,7 +246,7 @@ export class CloudApiClient {
         signal: options.signal,
       },
     );
-    tapDeprecation(res, SDK_VERSION);
+    tapDeprecation(res, SDK_VERSION, this.onDeprecation);
     if (!res.ok) {
       throw await buildCloudApiError(res);
     }
@@ -388,7 +393,7 @@ export class CloudApiClient {
         signal: input.signal,
       },
     );
-    tapDeprecation(res, SDK_VERSION);
+    tapDeprecation(res, SDK_VERSION, this.onDeprecation);
     if (!res.ok) {
       throw await buildCloudApiError(res);
     }

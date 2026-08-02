@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearRecordedDeprecation,
@@ -119,5 +119,83 @@ describe("tapDeprecation", () => {
     expect(getRecordedDeprecation()?.message).toBe(
       "Arkor SDK 1.4.0 is deprecated",
     );
+  });
+
+  // PR #193 review (codex): a throwing sink must not propagate. The typed RPC
+  // path already swallows handler failures upstream; the raw path must match,
+  // or a buggy onDeprecation override rejects an otherwise-successful
+  // chat()/openEventStream() response.
+  it("swallows (and logs) a throwing sink instead of propagating", () => {
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const res = new Response(null, {
+        status: 200,
+        headers: { Deprecation: "true", Warning: '299 - "deprecated"' },
+      });
+      expect(() =>
+        tapDeprecation(res, "1.4.0", () => {
+          throw new Error("buggy handler");
+        }),
+      ).not.toThrow();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("onDeprecation handler threw"),
+        expect.any(Error),
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  // PR #193 review (coderabbit): `(notice) => void` accepts an ASYNC handler
+  // too. Its rejected promise bypasses the synchronous try/catch and would
+  // become a process-killing unhandled rejection; tapDeprecation must probe
+  // the return value for a thenable and swallow its rejection. (vitest fails
+  // the run on unhandled rejections, so surviving the flushed microtasks IS
+  // the discriminator here.)
+  it("swallows (and logs) an async sink whose promise rejects", async () => {
+    const consoleSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const res = new Response(null, {
+        status: 200,
+        headers: { Deprecation: "true", Warning: '299 - "deprecated"' },
+      });
+      tapDeprecation(res, "1.4.0", (() =>
+        Promise.reject(
+          new Error("buggy async handler"),
+        )) as unknown as () => void);
+      // Flush microtasks so the rejection (if unhandled) would surface.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("onDeprecation handler threw"),
+        expect.any(Error),
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("routes the notice to a custom sink instead of the global recorder", () => {
+    // ENG-933: the `sink` param lets CloudApiClient thread a per-request
+    // onDeprecation override into the raw chat/openEventStream paths. When a
+    // sink is passed, the SDK-global recorder must be left untouched.
+    recordDeprecation({
+      sdkVersion: "baseline",
+      message: "baseline",
+      sunset: null,
+    });
+    const captured: { message: string }[] = [];
+    const res = new Response(null, {
+      status: 200,
+      headers: { Deprecation: "true", Warning: '299 - "via sink"' },
+    });
+    tapDeprecation(res, "1.4.0", (notice) => captured.push(notice));
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.message).toBe("via sink");
+    // Global recorder untouched.
+    expect(getRecordedDeprecation()?.sdkVersion).toBe("baseline");
   });
 });

@@ -223,7 +223,7 @@ describe("runWhoami", () => {
     // hitting our staging fake.
     delete process.env.ARKOR_CLOUD_API_URL;
     await writeCredentials({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "at-staging",
       refreshToken: "rt",
       expiresAt: 0,
@@ -254,7 +254,7 @@ describe("runWhoami", () => {
     // re-running `arkor login` (which now stamps the URL).
     delete process.env.ARKOR_CLOUD_API_URL;
     await writeCredentials({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "at-legacy",
       refreshToken: "rt",
       expiresAt: 0,
@@ -277,12 +277,12 @@ describe("runWhoami", () => {
     expect(capturedUrl).toMatch(/^https:\/\/api\.arkor\.ai\/v1\/me/);
   });
 
-  it("uses the Auth0 access token in the bearer header (auth0 mode)", async () => {
+  it("uses the Auth0 access token in the bearer header (oauth mode)", async () => {
     // Branch coverage for `creds.mode === "anon" ? creds.token : creds.accessToken`.
     // The token closure runs lazily on the first request, so the spy must
     // observe the auth0-specific token reaching /v1/me.
     await writeCredentials({
-      mode: "auth0",
+      mode: "oauth",
       accessToken: "auth0-at",
       refreshToken: "rt",
       expiresAt: 0,

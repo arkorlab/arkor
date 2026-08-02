@@ -133,7 +133,7 @@ const YARNRC_YML_PATH = ".yarnrc.yml";
 const PNPM_WORKSPACE_PATH = "pnpm-workspace.yaml";
 const AGENTS_MD_PATH = "AGENTS.md";
 const CLAUDE_MD_PATH = "CLAUDE.md";
-const DEFAULT_ARKOR_SPEC = "^0.0.2-alpha.2";
+const DEFAULT_ARKOR_SPEC = "^0.0.3-alpha.1";
 
 // Marker pair scoped to arkor; do not reuse Next.js's `nextjs-` markers.
 // Anything between these markers is treated as canonical and replaced on
@@ -202,7 +202,7 @@ ${AGENTS_BLOCK_END}`;
 // pnpm-9 compat; pnpm 10/11 don't require it but tolerate it) and
 // `allowBuilds: { esbuild: false }` (silences pnpm 11's error
 // without granting esbuild the right to run code at install time).
-// Tested against pnpm 9.15.9, 10.33.4, and 11.6.0. (PR #99 round
+// Tested against pnpm 9.15.9, 10.33.4, and 11.13.1. (PR #99 round
 // 36: CI run 25351227697 showed `package.json#pnpm
 // .onlyBuiltDependencies` had no effect on pnpm 11.)
 //
@@ -1023,9 +1023,15 @@ async function patchPackageJson(
       dirty = true;
     }
   }
+  const deps =
+    (current.dependencies as Record<string, string> | undefined) ?? {};
   const devDeps =
     (current.devDependencies as Record<string, string> | undefined) ?? {};
-  if (!devDeps.arkor) {
+  // Check BOTH fields: a user who ran `pnpm add arkor` before `arkor init`
+  // already has `arkor` under `dependencies`. Only inspecting
+  // `devDependencies` would add a second `arkor` entry, leaving it pinned in
+  // both fields, which some pnpm versions reject on install.
+  if (!devDeps.arkor && !deps.arkor) {
     devDeps.arkor = resolveArkorScaffoldSpec();
     current.devDependencies = devDeps;
     dirty = true;

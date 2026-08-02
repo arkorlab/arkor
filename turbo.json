@@ -1,6 +1,12 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
-  "globalDependencies": ["eslint.config.ts", "oxlint.config.ts"],
+  "globalDependencies": [
+    "eslint.config.ts",
+    "oxlint.config.ts",
+    "CONTRIBUTING.md",
+    "README.ja.md",
+    "docs/**"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -9,7 +15,7 @@
         "ARKOR_POSTHOG_HOST",
         "CREATE_ARKOR_BUILD_SOURCEMAP"
       ],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**", "docs/**", "CONTRIBUTING.md", "README.ja.md"]
     },
     "dev": {
       "cache": false,

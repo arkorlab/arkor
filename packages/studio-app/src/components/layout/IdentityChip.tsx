@@ -43,7 +43,7 @@ export function IdentityChip({
       </span>
     );
   }
-  const modeLabel = creds.mode === "auth0" ? "auth0" : "anonymous";
+  const modeLabel = creds.mode === "oauth" ? "oauth" : "anonymous";
   const baseUrlLabel = formatBaseUrl(creds.baseUrl);
   return (
     <span

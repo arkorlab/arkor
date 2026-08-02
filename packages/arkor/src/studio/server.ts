@@ -1,4 +1,8 @@
-import { spawn, type ChildProcessByStdio } from "node:child_process";
+import {
+  spawn,
+  type ChildProcess,
+  type ChildProcessByStdio,
+} from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
@@ -21,8 +25,12 @@ import {
   type DeprecationNotice,
 } from "../core/deprecation";
 import {
-  AUTH0_MISSING_STATE_MESSAGE,
+  ANON_STATE_MISMATCH_MESSAGE,
+  OAUTH_MISSING_STATE_MESSAGE,
+  ProjectStateMismatchError,
   ensureProjectState,
+  isOrgUsableFor,
+  isStateUsableFor,
 } from "../core/projectState";
 import { resolveBuildEntry } from "../core/rolldownConfig";
 import {
@@ -88,6 +96,19 @@ function copyDeprecationHeaders(from: Headers, to: Headers): void {
     const value = from.get(name);
     if (value !== null) to.set(name, value);
   }
+}
+
+/**
+ * The friendly empty-list envelope for the `"list"` deployment intent when
+ * there is no usable scope (fresh workspace, or a stale anonymous scope
+ * reconciled away): the Endpoints tab renders "create your first endpoint",
+ * not a load error.
+ */
+function scopeMissingResponse(): Response {
+  return Response.json(
+    { deployments: [], scopeMissing: true },
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -328,6 +349,17 @@ export function buildStudioApp(options: StudioServerOptions) {
   }
 
   // ---- API routes ---------------------------------------------------------
+  //
+  // Stale-anonymous-scope reconciliation (ENG-979): after `arkor logout` a
+  // fresh anonymous session gets a new org, but a `.arkor/state.json` from the
+  // previous identity survives; scoping a cloud call to that stale org with the
+  // new token 403s. Every route that reads state reconciles it against
+  // `isStateUsableFor` / `isOrgUsableFor` using the SAME resolved-credentials
+  // snapshot it authenticates with, never a second independently-read one:
+  // resolve once, then use that object for both the usability check and the
+  // request. Two reads would let a concurrent `logout` / `login` between them
+  // validate against one identity and send with another. State is only ever
+  // ignored, never deleted, so a hand-maintained OAuth scope is preserved.
 
   app.get("/api/credentials", async (c) => {
     const {
@@ -335,7 +367,11 @@ export function buildStudioApp(options: StudioServerOptions) {
       token,
       baseUrl: credsBaseUrl,
     } = await resolveCredentialsAndBaseUrl();
-    const state = await readState(trainCwd);
+    const rawState = await readState(trainCwd);
+    // Reconcile against the snapshot just resolved: a stale anonymous scope is
+    // dropped so the SPA shows this identity's org, not the previous one's.
+    const state =
+      rawState && isStateUsableFor(rawState, creds) ? rawState : null;
     return c.json({
       token,
       mode: creds.mode,
@@ -409,8 +445,14 @@ export function buildStudioApp(options: StudioServerOptions) {
   app.get("/api/jobs", async (c) => {
     const state = await readState(trainCwd);
     if (!state) return c.json({ jobs: [] });
-    const { token, baseUrl: credsBaseUrl } =
-      await resolveCredentialsAndBaseUrl();
+    const {
+      token,
+      baseUrl: credsBaseUrl,
+      credentials: creds,
+    } = await resolveCredentialsAndBaseUrl();
+    // Same snapshot for reconciliation and the call: a stale anonymous scope
+    // reads as "no jobs" rather than 403ing against the previous org.
+    if (!isStateUsableFor(state, creds)) return c.json({ jobs: [] });
     const rpc = createRpc(credsBaseUrl, token);
     const res = await rpc.v1.jobs.$get({
       query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
@@ -428,8 +470,17 @@ export function buildStudioApp(options: StudioServerOptions) {
     const id = c.req.param("id");
     const state = await readState(trainCwd);
     if (!state) return c.json({ error: "No project state" }, 400);
-    const { token, baseUrl: credsBaseUrl } =
-      await resolveCredentialsAndBaseUrl();
+    const {
+      token,
+      baseUrl: credsBaseUrl,
+      credentials: creds,
+    } = await resolveCredentialsAndBaseUrl();
+    // Same snapshot for reconciliation and the stream request: a stale
+    // anonymous scope is treated as "no state" rather than opening a stream
+    // scoped to the previous org.
+    if (!isStateUsableFor(state, creds)) {
+      return c.json({ error: "No project state" }, 400);
+    }
     const url = `${credsBaseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
     // Read once and forward only when truthy: an empty
     // `Last-Event-ID: ` header is semantically ambiguous upstream and
@@ -464,6 +515,21 @@ export function buildStudioApp(options: StudioServerOptions) {
   // Active `/api/train` subprocesses. The registry encapsulates the
   // signal-dispatch policy (see `studio/trainRegistry.ts`).
   const activeTrains = new TrainRegistry();
+
+  // Live `/api/train` children, reaped by a single refcounted process 'exit'
+  // listener (attached on first spawn, detached when the last child goes) so
+  // concurrent runs don't accumulate one listener each. Scoped per app: tests
+  // build many apps, and a module-level listener would leak across them.
+  const liveTrainChildren = new Set<ChildProcess>();
+  const killLiveTrainChildren = (): void => {
+    for (const child of liveTrainChildren) {
+      try {
+        child.kill();
+      } catch {
+        // already exited
+      }
+    }
+  };
 
   app.post("/api/train", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { file?: string };
@@ -648,6 +714,26 @@ export function buildStudioApp(options: StudioServerOptions) {
       // identity the child actually used.
       rpc: spawnRpc,
     });
+    // Don't let a training child outlive `arkor dev`. Ctrl-C (SIGINT) already
+    // reaches the child via the shared process group, but a SIGTERM/SIGHUP
+    // delivered only to the parent (e.g. `docker stop`) would orphan it and
+    // leak the GPU. dev.ts's signal handlers call `process.exit`, which fires
+    // 'exit' synchronously, so the shared kill hook tears children down on
+    // that path too. One refcounted process-level listener per app (attached
+    // while any child is live, detached at zero) rather than one per spawn,
+    // so >10 concurrent runs can't trip MaxListenersExceededWarning.
+    liveTrainChildren.add(child);
+    if (liveTrainChildren.size === 1) {
+      process.on("exit", killLiveTrainChildren);
+    }
+    const detachKillHook = (): void => {
+      liveTrainChildren.delete(child);
+      if (liveTrainChildren.size === 0) {
+        process.removeListener("exit", killLiveTrainChildren);
+      }
+    };
+    child.once("close", detachKillHook);
+    child.once("error", detachKillHook);
     // Hoisted out of the `ReadableStream` underlying-source so the
     // `start` handler can hand its closure-bound teardown helper to
     // the `cancel` handler. `cancel` runs in a separate invocation,
@@ -1261,6 +1347,12 @@ export function buildStudioApp(options: StudioServerOptions) {
           },
         );
       }
+      // A stale anonymous `.arkor/state.json` is a recoverable setup conflict,
+      // not a backend failure: surface the actionable message as 409 (matching
+      // the deployment path) instead of an opaque 500.
+      if (err instanceof ProjectStateMismatchError) {
+        return c.json({ error: err.message }, 409);
+      }
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
         500,
@@ -1303,12 +1395,14 @@ export function buildStudioApp(options: StudioServerOptions) {
   //      a single error-handling shape across cloud-backed routes.
 
   /**
-   * Read project state without requiring credentials. Listing deployments
-   * for a fresh workspace (no `.arkor/state.json`) is a local no-op (same
-   * behaviour as `/api/jobs`), so we must NOT call `getCredentials()`
-   * first: that path can throw on `autoAnonymous: false` setups or when
-   * the anonymous-token bootstrap fails offline, turning the empty-list
-   * read into a 500.
+   * Derive the raw `(orgSlug, projectSlug)` scope from local state WITHOUT
+   * resolving credentials. Listing deployments for a fresh workspace (no
+   * `.arkor/state.json`) is a local no-op (same behaviour as `/api/jobs`), and
+   * we must NOT mint credentials to answer it: `getCredentials()` throws on
+   * `autoAnonymous: false` or an offline mint, which would turn the empty-list
+   * read into a 500. Stale-anonymous reconciliation is therefore deferred to
+   * `withDeploymentClient`, which drops the scope against the one credentials
+   * snapshot it resolves for the call itself.
    */
   async function readScopeFromState(): Promise<{
     orgSlug: string;
@@ -1322,15 +1416,19 @@ export function buildStudioApp(options: StudioServerOptions) {
 
   /**
    * Intent of the route calling `withDeploymentClient`:
-   *   - `"read"`: pure GET. If `.arkor/state.json` is missing, return
-   *     404 without provisioning a remote project. Bookmarked detail
-   *     pages and `/keys` lookups must NOT silently create empty cloud
+   *   - `"list"`: `GET /api/deployments`. A missing OR stale-anonymous scope is
+   *     answered with a 200 `scopeMissing` empty list (same as a fresh
+   *     workspace) so the tab loads cleanly instead of surfacing a 404 / 409
+   *     load error; only a usable scope reaches the upstream list call.
+   *   - `"read"`: bookmarked detail / `/keys` GET. If `.arkor/state.json` is
+   *     missing, return 404 without provisioning a remote project. Bookmarked
+   *     detail pages and `/keys` lookups must NOT silently create empty cloud
    *     projects as a side effect.
    *   - `"create"`: `POST /api/deployments` only. This is the one
    *     route that can legitimately bootstrap a fresh workspace: an
    *     anonymous user clicks "New endpoint", we lazily run
    *     `ensureProjectState()`, persist `.arkor/state.json`, and
-   *     forward the deployment create. Auth0 callers without state get
+   *     forward the deployment create. OAuth callers without state get
    *     a 400 with the manual-state remediation.
    *   - `"mutate"`: PATCH / DELETE on `:id`, key CRUD. These need an
    *     existing deployment, which by definition needs an existing
@@ -1341,8 +1439,12 @@ export function buildStudioApp(options: StudioServerOptions) {
    *     DELETE / key request would still 404 against the empty
    *     project). Adding a deployment first via the create flow is the
    *     only way these can succeed on a fresh workspace.
+   *
+   * A present-but-stale anonymous scope (org mismatch) is never overwritten:
+   * `"list"` degrades to `scopeMissing`, every other intent returns the 409
+   * mismatch guidance.
    */
-  type ScopeIntent = "read" | "create" | "mutate";
+  type ScopeIntent = "list" | "read" | "create" | "mutate";
 
   async function withDeploymentClient<T>(
     intent: ScopeIntent,
@@ -1351,21 +1453,31 @@ export function buildStudioApp(options: StudioServerOptions) {
       scope: { orgSlug: string; projectSlug: string };
     }) => Promise<T>,
   ): Promise<Response> {
-    // Read scope from local FS first. `readScopeFromState` does not touch
-    // credentials or the network, so on a fresh workspace we can answer
-    // read-only routes with a clean 404 *without* tripping `getCredentials()`:
-    // the latter throws when no token is on disk and `autoAnonymous` is
-    // off, which would otherwise turn a documented "no deployments yet"
-    // into an opaque 500.
+    // Copy shared by the two "no usable scope" exits below (missing/invalid
+    // state, and a stale anonymous scope dropped after credential resolution)
+    // so read/mutate answer both identically.
+    const noUsableStateMessage =
+      "No usable .arkor/state.json for this workspace (missing or invalid). Create your first deployment to bootstrap one (anonymous), restore the file by hand (OAuth), or regenerate it with the correct { orgSlug, projectSlug, projectId } if it's currently corrupt.";
+    // Read scope from local FS first, WITHOUT resolving credentials. On a fresh
+    // workspace (no state) we answer read-only routes with a clean 404 without
+    // tripping the minting `getCredentials()`: that call throws when no token
+    // is on disk and `autoAnonymous` is off, which would otherwise turn a
+    // documented "no deployments yet" into an opaque 500. A stale anonymous
+    // scope (state present but not this identity's) is reconciled later,
+    // against the single credentials snapshot resolved for the call itself.
     const scope0 = await readScopeFromState().catch(() => null);
+    if (!scope0 && intent === "list") {
+      // Fresh workspace, credential-free: same empty envelope as a stale scope.
+      return scopeMissingResponse();
+    }
     if (!scope0 && (intent === "read" || intent === "mutate")) {
       // Stay neutral about whether deployments exist. For anonymous
       // workspaces the first deployment-create POST will bootstrap
-      // `.arkor/state.json` automatically; for Auth0 workspaces there
+      // `.arkor/state.json` automatically; for OAuth workspaces there
       // may be remote deployments that just aren't reachable until the
       // operator restores the state file by hand. Phrasing this as
       // "no deployments yet" misdiagnoses bookmarked detail / keys
-      // URLs hit by an Auth0 user; the actual fix is to put
+      // URLs hit by an OAuth user; the actual fix is to put
       // `.arkor/state.json` back in place.
       //
       // `"mutate"` lands here for the same reason: a PATCH / DELETE /
@@ -1382,10 +1494,7 @@ export function buildStudioApp(options: StudioServerOptions) {
       // `state.json` doesn't read "missing" and assume the file is
       // already gone.
       return Response.json(
-        {
-          error:
-            "No usable .arkor/state.json for this workspace (missing or invalid). Create your first deployment to bootstrap one (anonymous), restore the file by hand (OAuth), or regenerate it with the correct { orgSlug, projectSlug, projectId } if it's currently corrupt.",
-        },
+        { error: noUsableStateMessage },
         { status: 404, headers: { "content-type": "application/json" } },
       );
     }
@@ -1441,6 +1550,20 @@ export function buildStudioApp(options: StudioServerOptions) {
     }
     try {
       credentials = await getCredentials();
+      // Single-snapshot reconciliation: validate the scope read above against
+      // the credentials we just resolved (possibly minted on this request),
+      // not a separately-read snapshot. A present-but-unusable scope is an
+      // anonymous session whose `.arkor/state.json` points at a different org.
+      // We never overwrite that file (it may be a hand-maintained OAuth scope).
+      // `"list"` degrades to the friendly empty envelope (like a fresh
+      // workspace); every other intent returns the 409 mismatch guidance rather
+      // than a stale-org 403 or a clobbering bootstrap. This mirrors
+      // `ensureProjectState`'s CLI-side throw, and the read paths ignore the
+      // same file so `arkor dev` Studio itself stays usable.
+      if (scope && !isOrgUsableFor(scope.orgSlug, credentials)) {
+        if (intent === "list") return scopeMissingResponse();
+        return jsonWithDeprecation({ error: ANON_STATE_MISMATCH_MESSAGE }, 409);
+      }
       // Resolve the deployment client's base URL *from the credentials*
       // rather than the closure-captured `baseUrl`. The closure was
       // resolved at startup (env / production fallback only), but
@@ -1485,7 +1608,7 @@ export function buildStudioApp(options: StudioServerOptions) {
             projectSlug: state.projectSlug,
           };
         } else {
-          // Auth0 callers cannot bootstrap automatically: we don't know
+          // OAuth callers cannot bootstrap automatically: we don't know
           // which org / project the logged-in user wants the deployment in,
           // and neither `arkor login` nor `arkor init` populates
           // `.arkor/state.json` today (see docs/concepts/project-structure).
@@ -1494,7 +1617,7 @@ export function buildStudioApp(options: StudioServerOptions) {
           // so this surface and the trainer / Playground throw exactly
           // the same instruction.
           return Response.json(
-            { error: AUTH0_MISSING_STATE_MESSAGE },
+            { error: OAUTH_MISSING_STATE_MESSAGE },
             { status: 400, headers: { "content-type": "application/json" } },
           );
         }
@@ -1513,6 +1636,14 @@ export function buildStudioApp(options: StudioServerOptions) {
       // path to match. This mirrors the handler-side catch below.
       if (err instanceof CloudApiError) {
         return jsonWithDeprecation({ error: err.message }, err.status);
+      }
+      // A stale anonymous scope that raced in between the up-front
+      // reconciliation and `ensureProjectState()` (create on a workspace whose
+      // state.json appeared mid-request) surfaces here. It is the same
+      // recoverable conflict the reconciliation returns as 409, so forward the
+      // actionable message rather than the generic "Studio backend error" 500.
+      if (err instanceof ProjectStateMismatchError) {
+        return jsonWithDeprecation({ error: err.message }, 409);
       }
       // The "no credentials on file" guard from `getCredentials()` is a
       // recoverable setup problem (the operator just needs to log in or
@@ -1555,25 +1686,13 @@ export function buildStudioApp(options: StudioServerOptions) {
   }
 
   app.get("/api/deployments", async () => {
-    // List view doesn't require credentials when there's no scope yet:
-    // mirror `/api/jobs`'s local-only empty-list path so the Endpoints
-    // tab loads cleanly on fresh workspaces and offline. Surface
-    // `scopeMissing: true` so the SPA can distinguish "this project
-    // genuinely has no deployments" from "we don't know which project
-    // to look at": the latter needs different remediation copy
-    // ("create your first endpoint" for anonymous; "restore
-    // .arkor/state.json" for Auth0).
-    const scope = await readScopeFromState();
-    if (!scope) {
-      return Response.json(
-        { deployments: [], scopeMissing: true },
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        },
-      );
-    }
-    return withDeploymentClient("read", ({ client, scope }) =>
+    // The `"list"` intent owns the credential-free empty path: a missing scope
+    // (fresh workspace / offline) OR a stale anonymous scope both answer with a
+    // 200 `{ deployments: [], scopeMissing: true }` so the Endpoints tab loads
+    // cleanly and renders "create your first endpoint" (anonymous) / "restore
+    // .arkor/state.json" (OAuth) rather than a load error. Only a usable scope
+    // reaches the upstream list call.
+    return withDeploymentClient("list", ({ client, scope }) =>
       client.listDeployments(scope),
     );
   });
