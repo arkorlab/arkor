@@ -17,7 +17,7 @@ export const trainer = createTrainer({
 });
 ```
 
-`createTrainer` returns a `Trainer` object with `start` / `wait` / `cancel` methods (see [Trainer control](/sdk/trainer-control)). With one exception, the function does **not** run client-side validation on `TrainerInput`: TypeScript checks the typed fields at compile time, and the rest is forwarded to the cloud-api when `start()` creates the job, so bad values surface as backend errors once the job is created. The exception is `model`, which is checked against [`SUPPORTED_MODELS`](/models) at construction and throws immediately on an unsupported value (the `arkor build` / `arkor start` path bundles with esbuild and never typechecks, so the compile-time narrowing alone cannot gate it).
+`createTrainer` returns a `Trainer` object with `start` / `wait` / `cancel` methods (see [Trainer control](/sdk/trainer-control)). With one exception, the function does **not** run client-side validation on `TrainerInput`: TypeScript checks the typed fields at compile time, and the rest is forwarded to the cloud-api when `start()` creates the job, so bad values are reported by the backend rather than by the SDK. The exception is `model`, which is checked against [`SUPPORTED_MODELS`](/models) at construction and throws immediately on an unsupported value (the `arkor build` / `arkor start` path bundles with esbuild and never typechecks, so the compile-time narrowing alone cannot gate it).
 
 ## Signature
 
