@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { SUPPORTED_MODELS } from "./models";
+import { createTrainer } from "./trainer";
 
-import type { JobConfig, TrainerInput } from "./types";
+import type { SupportedModel } from "./models";
+import type { JobConfig } from "./types";
+
+type CreateTrainerInput = Parameters<typeof createTrainer>[0];
 
 describe("SUPPORTED_MODELS", () => {
   it("contains at least one entry", () => {
@@ -12,19 +16,23 @@ describe("SUPPORTED_MODELS", () => {
     expect(SUPPORTED_MODELS.length).toBeGreaterThan(0);
   });
 
-  it("every entry is a non-empty HuggingFace-shaped identifier", () => {
+  it("every entry is an owner/model shaped HuggingFace identifier", () => {
     // Cloud-api normalises case internally but still rejects malformed ids,
-    // so an entry like "" or "gemma 4" would type-check here and 4xx at run
-    // time. Mirrors the same guard in @arkor/studio-app's baseModels.test.ts.
+    // so an entry like "" or a bare "gemma-4" (no owner namespace) would
+    // type-check here and 4xx at run time. Deliberately stricter than the
+    // similar guard in @arkor/studio-app's baseModels.test.ts: this one
+    // requires the owner/model shape.
     for (const m of SUPPORTED_MODELS) {
-      expect(m).toMatch(/^[A-Z0-9][\w./-]*$/i);
+      expect(m).toMatch(/^[\w-]+\/[\w.-]+$/);
     }
   });
 });
 
-describe("TrainerInput.model", () => {
+describe("createTrainer model boundary", () => {
   it("accepts a supported model", () => {
-    const model: TrainerInput["model"] = SUPPORTED_MODELS[0];
+    // Asserted through the public `createTrainer` parameter type rather than
+    // `TrainerInput` so a regression in the export surface is caught too.
+    const model: CreateTrainerInput["model"] = SUPPORTED_MODELS[0];
     expect(model).toBe(SUPPORTED_MODELS[0]);
   });
 
@@ -33,8 +41,22 @@ describe("TrainerInput.model", () => {
     // as a 4xx once the job ran. If this line ever stops erroring, the field
     // has silently widened back to `string`.
     // @ts-expect-error "gema" is a typo and is not in SUPPORTED_MODELS
-    const model: TrainerInput["model"] = "unsloth/gema-4-E4B-it";
+    const model: CreateTrainerInput["model"] = "unsloth/gema-4-E4B-it";
     expect(model).toBe("unsloth/gema-4-E4B-it");
+  });
+
+  it("rejects an unsupported model at run time", () => {
+    // The CLI path (`arkor build` / `arkor start`) bundles with esbuild and
+    // never typechecks, so the compile-time narrowing is erased there. The
+    // constructor guard is what stops a typo from reaching job creation for
+    // those flows (and for plain-JavaScript callers).
+    expect(() =>
+      createTrainer({
+        name: "run",
+        model: "unsloth/gema-4-E4B-it" as unknown as SupportedModel,
+        dataset: { type: "huggingface", name: "x" },
+      }),
+    ).toThrow(/Unsupported model/);
   });
 });
 
