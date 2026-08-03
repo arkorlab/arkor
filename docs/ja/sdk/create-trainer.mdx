@@ -17,7 +17,7 @@ export const trainer = createTrainer({
 });
 ```
 
-`createTrainer` は `start` / `wait` / `cancel` メソッドを持つ `Trainer` オブジェクトを返します（[トレーナー制御](/ja/sdk/trainer-control) を参照）。この関数は `TrainerInput` のクライアント側バリデーションを **しません**: TypeScript が型付きフィールドをコンパイル時にチェックし、それ以外は `start()` 実行時にクラウド API へ転送されます。不正な値は構築時のクライアント側 throw ではなく、学習中にバックエンドエラーとして現れます。
+`createTrainer` は `start` / `wait` / `cancel` メソッドを持つ `Trainer` オブジェクトを返します（[トレーナー制御](/ja/sdk/trainer-control) を参照）。1 つの例外を除き、この関数は `TrainerInput` のクライアント側バリデーションを **しません**: TypeScript が型付きフィールドをコンパイル時にチェックし、それ以外は `start()` 実行時にクラウド API へ転送されるため、不正な値は学習中にバックエンドエラーとして現れます。例外は `model` で、生成時に [`SUPPORTED_MODELS`](/ja/models) と照合され、サポートされない値では即座に例外を投げます（`arkor build` / `arkor start` の経路は esbuild でバンドルされ型チェックが走らないため、コンパイル時の絞り込みだけではゲートできません）。
 
 ## シグネチャー
 
