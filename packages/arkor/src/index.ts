@@ -1,4 +1,6 @@
 export { createTrainer } from "./core/trainer";
+export { SUPPORTED_MODELS } from "./core/models";
+export type { SupportedModel } from "./core/models";
 export { createArkor, isArkor } from "./core/arkor";
 export { runTrainer } from "./core/runner";
 export { CloudApiError } from "./core/client";

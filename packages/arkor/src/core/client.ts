@@ -178,6 +178,12 @@ export class CloudApiClient {
     orgSlug: string;
     projectSlug: string;
     name: string;
+    /**
+     * Deliberately loose: `config.model` is `string` via `JobConfig`, so the
+     * raw client stays usable for models the backend accepts before this
+     * SDK's `SUPPORTED_MODELS` catches up. `createTrainer` is the narrowed,
+     * documented path.
+     */
     config: JobConfig;
   }): Promise<{ job: TrainingJob }> {
     // The server's Zod schema for job config is `looseObject`: any object

@@ -42,6 +42,21 @@ describe("trainingJobSchema", () => {
     expect(parsed.status).toBe("queued");
   });
 
+  it("accepts a config.model this SDK version does not know", () => {
+    // This decoder runs on the *response* side (jobDetailResponseSchema /
+    // createJobResponseSchema), so it must stay tolerant of a model the
+    // installed SDK predates. The backend is expected to widen its accepted
+    // list (roadmap Backlog) ahead of any given client upgrade; tightening
+    // `config.model` to the SupportedModel enum here would turn every poll
+    // of such a job into a ZodError and break `trainer.wait()`, `arkor
+    // start`, and Studio job polling for anyone on an older release.
+    const parsed = trainingJobSchema.parse({
+      ...valid,
+      config: { model: "unsloth/gemma-5-E8B-it" },
+    });
+    expect(parsed.config.model).toBe("unsloth/gemma-5-E8B-it");
+  });
+
   it("normalises Date timestamps to ISO-8601 strings", () => {
     // Regression: a previous implementation used `String(v)`, which
     // turns a Date into the locale-ish form (`"Tue May 12 …"`) rather
