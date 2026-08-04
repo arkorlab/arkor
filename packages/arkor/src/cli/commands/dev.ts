@@ -371,16 +371,22 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
           err instanceof Error &&
           (err as NodeJS.ErrnoException).code === "EADDRINUSE";
         // Only fall back to the next port when the caller didn't pin an
-        // exact one and attempts remain. An explicit `--port <n>` keeps
+        // exact one, attempts remain, and the next port is still in the
+        // valid 1-65535 range. Without the range check, a non-explicit
+        // port near the ceiling (e.g. runDev({ port: 65530 }) called
+        // directly, bypassing the CLI's 4000 default) could try port
+        // 65536, which `serve()` rejects synchronously before this
+        // promise's reject() can run. An explicit `--port <n>` keeps
         // today's hard-fail contract: silently landing on a different
         // port than the one the user typed would be surprising.
-        if (isAddrInUse && !portExplicit && attemptsLeft > 1) {
+        if (isAddrInUse && !portExplicit && attemptsLeft > 1 && port < 65_535) {
           ui.log.warn(
             `Port ${port} is in use, trying ${port + 1} instead. Pass --port to pin a specific one.`,
           );
           attemptBind(port + 1, attemptsLeft - 1);
           return;
         }
+
         if (isAddrInUse) {
           reject(
             new Error(

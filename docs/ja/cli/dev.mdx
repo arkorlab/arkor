@@ -67,7 +67,7 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 
 `--port` を明示的に指定したかどうかで挙動が変わります。
 
-- **`--port` を指定していない場合（デフォルトの `4000` を使用）。** `4000` が既に使用されている場合（別の `arkor dev` が残っている、無関係な dev サーバーなど）、`arkor dev` は `4001`、`4002` と自動的に次のポートを試します（最大10回まで）。再試行のたびに警告 ``Port <port> is in use, trying <port + 1> instead. Pass --port to pin a specific one.`` をログに出力し、実際にバインドできたポートは ``Arkor Studio running on http://localhost:<port>`` として表示されます。範囲内のすべてのポートが使用中の場合は、``Port <requested> is already in use, and no free port was found in <requested>-<last>. Pass --port to choose one explicitly.`` というメッセージとともに非ゼロで終了します。
+- **`--port` を指定していない場合（デフォルトの `4000` を使用）。** `4000` が既に使用されている場合（別の `arkor dev` が残っている、無関係な dev サーバーなど）、`arkor dev` は `4001`、`4002` と自動的に次のポートを試します（最大 10 回まで）。再試行のたびに警告 ``Port <port> is in use, trying <port + 1> instead. Pass --port to pin a specific one.`` をログに出力し、実際にバインドできたポートは ``Arkor Studio running on http://localhost:<port>`` として表示されます。範囲内のすべてのポートが使用中の場合は、``Port <requested> is already in use, and no free port was found in <requested>-<last>. Pass --port to choose one explicitly.`` というメッセージとともに非ゼロで終了します。
 - **`--port <n>` を明示的に指定した場合。** フォールバックは行われません。`<n>` が既に使用中の場合、`arkor dev` は即座に ``Port <n> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.`` というメッセージとともに非ゼロで終了します。これにより `--port` の挙動は予測可能になります。特定のポートを指定した場合、`arkor dev` が別のポートへ黙って切り替えることはありません。
 
 トークンファイル（`~/.arkor/studio-token`）はポートへのバインドが**成功した後**にのみ書き込まれるため、使用中のポートへの起動が失敗しても（上記のどちらの場合でも）、正常に動いている既存のインスタンスが依存するトークンを上書き・削除することはありません。
@@ -77,7 +77,7 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 | 症状 | 意味 | 対処 |
 | --- | --- | --- |
 | ``Port <n> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.``（ポート `<n>` は既に使用中です。根本のエラーは `EADDRINUSE`） | `--port <n>` を明示的に指定し、それが使用中だった。明示的なポートに対してフォールバックは行われない。 | 使用中のプロセスを停止するか、`--port <other>` を使用してください。 |
-| ``Port <requested> is already in use, and no free port was found in <requested>-<last>. Pass --port to choose one explicitly.``（ポート `<requested>` は使用中で、`<requested>`-`<last>` の範囲に空きポートが見つかりませんでした） | `--port` を指定しておらず、デフォルトの `4000` から10回目の試行までのすべてのポートが使用中だった。 | 競合しているプロセスのいずれかを停止するか、`--port <other>` を明示的に指定してください。 |
+| ``Port <requested> is already in use, and no free port was found in <requested>-<last>. Pass --port to choose one explicitly.``（ポート `<requested>` は使用中で、`<requested>`-`<last>` の範囲に空きポートが見つかりませんでした） | `--port` を指定しておらず、デフォルトの `4000` から10 回目の試行までのすべてのポートが使用中だった。 | 競合しているプロセスのいずれかを停止するか、`--port <other>` を明示的に指定してください。 |
 | `Could not reach <baseUrl> (fetch failed). Studio will keep running and retry on first /api/credentials hit.`（`<baseUrl>` に到達できませんでした（fetch 失敗）。Studio は起動を続け、初回の `/api/credentials` 受信時に再試行します） | `/v1/auth/cli/config` は成功したが、続く `/v1/auth/anonymous` がトランスポート障害で失敗。Studio サーバーは起動して再試行する。 | 接続を回復させれば `arkor dev` を再起動せずに次の `/api/credentials` ポーリングで SPA が回復。 |
 | `TypeError: fetch failed`（または同等のトランスポートエラーで `arkor dev` がそのまま終了する場合） | `/v1/auth/cli/config` 自体に届かなかったため、デプロイモードが特定できず fail-fast。 | 接続を回復してから `arkor dev` を再実行。 |
 | ``No credentials on file. Bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.``（認証情報ファイルがありません。匿名セッションを初期化します。アカウントでサインインしたい場合は `arkor login --oauth` を実行してください） | OAuth をアドバタイズしているデプロイで、この環境では初回の `arkor dev`。Studio をすぐ起動できるよう CLI が匿名で初期化している旨の案内で、エラーではない。 | 何もしなくてよい。本物のアカウントにアップグレードしたいなら、別途 `arkor login --oauth` を実行（`~/.arkor/credentials.json` を上書き）して Studio をリロード。 |
