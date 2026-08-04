@@ -12,6 +12,8 @@
  * the SPA bundle does not import from `arkor`, so unifying the two would pull
  * the SDK into the browser bundle. Keep them in sync by hand.
  */
-export const SUPPORTED_MODELS = ["unsloth/gemma-4-E4B-it"] as const;
+export const SUPPORTED_MODELS = Object.freeze([
+  "unsloth/gemma-4-E4B-it",
+] as const);
 
 export type SupportedModel = (typeof SUPPORTED_MODELS)[number];

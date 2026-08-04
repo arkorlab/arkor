@@ -16,6 +16,14 @@ describe("SUPPORTED_MODELS", () => {
     expect(SUPPORTED_MODELS.length).toBeGreaterThan(0);
   });
 
+  it("is frozen", () => {
+    // `as const` is erased at run time, and `createTrainer`'s runtime guard
+    // checks against this array. Without the freeze, a plain-JavaScript
+    // consumer (the very context the guard protects) could push into the
+    // list and defeat it.
+    expect(Object.isFrozen(SUPPORTED_MODELS)).toBe(true);
+  });
+
   it("every entry is an owner/model shaped HuggingFace identifier", () => {
     // Cloud-api normalises case internally but still rejects malformed ids,
     // so an entry like "" or a bare "gemma-4" (no owner namespace) would
