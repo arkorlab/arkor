@@ -67,7 +67,7 @@ Studio サーバーはすべての `/api/*` リクエストに 3 つのチェッ
 
 `--port` を明示的に指定したかどうかで挙動が変わります。
 
-- **`--port` を指定していない場合（デフォルトの `4000` を使用）。** `4000` が既に使用されている場合（別の `arkor dev` が残っている、無関係な dev サーバーなど）、`arkor dev` は `4001`、`4002` と自動的に次のポートを試します（最大 10 回まで）。再試行のたびに警告 ``Port <port> is in use, trying <port + 1> instead. Pass --port to pin a specific one.`` をログに出力し、実際にバインドできたポートは ``Arkor Studio running on http://localhost:<port>`` として表示されます。範囲内のすべてのポートが使用中の場合は、``Port <requested> is already in use, and no free port was found in <requested>-<last>. Pass --port to choose one explicitly.`` というメッセージとともに非ゼロで終了します。
+- **`--port` を指定していない場合（デフォルトの `4000` を使用）。** `4000` が既に使用されている場合（別の `arkor dev` が残っている、無関係な dev サーバーなど）、`arkor dev` は `4001`、`4002` と自動的に次のポートを試します（`4000` を含めて最大 10 回まで）。再試行のたびに警告 ``Port <port> is in use, trying <port + 1> instead. Pass --port to pin a specific one.`` をログに出力し、実際にバインドできたポートは ``Arkor Studio running on http://localhost:<port>`` として表示されます。範囲内のすべてのポートが使用中の場合は、``Port <requested> is already in use, and no free port was found in <requested>-<last>. Pass --port to choose one explicitly.`` というメッセージとともに非ゼロで終了します。
 - **`--port <n>` を明示的に指定した場合。** フォールバックは行われません。`<n>` が既に使用中の場合、`arkor dev` は即座に ``Port <n> is already in use. Another `arkor dev` may be running; pass --port to choose a different one.`` というメッセージとともに非ゼロで終了します。これにより `--port` の挙動は予測可能になります。特定のポートを指定した場合、`arkor dev` が別のポートへ黙って切り替えることはありません。
 
 トークンファイル（`~/.arkor/studio-token`）はポートへのバインドが**成功した後**にのみ書き込まれるため、使用中のポートへの起動が失敗しても（上記のどちらの場合でも）、正常に動いている既存のインスタンスが依存するトークンを上書き・削除することはありません。
