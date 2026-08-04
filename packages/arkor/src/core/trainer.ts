@@ -6,6 +6,7 @@ import {
   ensureCredentials,
   type Credentials,
 } from "./credentials";
+import { SUPPORTED_MODELS } from "./models";
 import { ensureProjectState } from "./projectState";
 
 import type {
@@ -159,6 +160,16 @@ export function createTrainer(
   /** @internal */
   context: TrainerInternalContext = {},
 ): Trainer {
+  // Same list the `TrainerInput.model` type narrows to, enforced at run
+  // time: the CLI path (`arkor build` / `arkor start`) bundles with esbuild
+  // and never typechecks, so the compile-time guard alone cannot gate it.
+  if (!SUPPORTED_MODELS.includes(input.model)) {
+    throw new Error(
+      `Unsupported model "${input.model}". This arkor release supports: ` +
+        `${SUPPORTED_MODELS.join(", ")}. If the backend already accepts ` +
+        "this model, upgrade arkor or submit through CloudApiClient.createJob.",
+    );
+  }
   // `baseUrl` is intentionally resolved *inside* `getClient()`, after
   // credentials are loaded, so it can follow the auth-time host stamped
   // onto anonymous and OAuth credentials by signup / `arkor login`.

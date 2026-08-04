@@ -17,7 +17,7 @@ export const trainer = createTrainer({
 });
 ```
 
-`createTrainer` は `start` / `wait` / `cancel` メソッドを持つ `Trainer` オブジェクトを返します（[トレーナー制御](/ja/sdk/trainer-control) を参照）。この関数は `TrainerInput` のクライアント側バリデーションを **しません**: TypeScript が型付きフィールドをコンパイル時にチェックし、それ以外は `start()` 実行時にクラウド API へ転送されます。不正な値は構築時のクライアント側 throw ではなく、学習中にバックエンドエラーとして現れます。
+`createTrainer` は `start` / `wait` / `cancel` メソッドを持つ `Trainer` オブジェクトを返します（[トレーナー制御](/ja/sdk/trainer-control) を参照）。1 つの例外を除き、この関数は `TrainerInput` のクライアント側バリデーションを **しません**: TypeScript が型付きフィールドをコンパイル時にチェックし、それ以外は `start()` がジョブを作成するときにクラウド API へ転送されるため、不正な値は SDK ではなくバックエンドがエラーとして報告します。例外は `model` で、生成時に [`SUPPORTED_MODELS`](/ja/models) と照合され、サポートされない値では即座に例外を投げます（`arkor build` / `arkor start` の経路は esbuild でバンドルされ型チェックが走らないため、コンパイル時の絞り込みだけではゲートできません）。
 
 ## シグネチャー
 
@@ -36,7 +36,7 @@ function createTrainer(
 | フィールド | 型 | 補足 |
 | --- | --- | --- |
 | `name` | `string` | ジョブ名。Studio とマネージドバックエンドに表示。 |
-| `model` | `string` | ベースモデル ID。現在対応しているテンプレートは `gemma-4-E4B-it` を使用（[サポートしているモデル](/ja/models) を参照）。 |
+| `model` | `SupportedModel` | ベースモデル ID。バックエンドが現在受け付けるモデルに型が絞られており、サポートされない値はコンパイルエラーになるほか、実行時にも `createTrainer` が例外を投げます（[サポートしているモデル](/ja/models) を参照）。 |
 | `dataset` | [`DatasetSource`](/ja/sdk/dataset) | HuggingFace データセット名 or blob URL。 |
 
 ## 型付きオプションフィールド
