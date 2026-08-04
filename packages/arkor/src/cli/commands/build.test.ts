@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -119,6 +120,46 @@ describe("runBuild", () => {
       process.chdir(ORIG);
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("inlines relative dynamic import() targets into the single artifact", async () => {
+    // Codex P2 (round 86): the pipeline contract is a SINGLE
+    // `.arkor/build/index.mjs` (`arkor start` imports exactly that
+    // file), but rolldown's default is automatic code splitting, so a
+    // relative dynamic `import()` in user code (the lazy-helper
+    // pattern for callbacks) would emit sibling chunks the runtime
+    // never loads. `inlineDynamicImports: true` restores esbuild's
+    // single-file behaviour; this pins it for both the artifact
+    // content and the output directory layout.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(
+      join(cwd, "src/arkor/helper.ts"),
+      "export const lazyValue = \"lazy-helper-loaded\";\n",
+    );
+    writeFileSync(
+      join(cwd, "src/arkor/index.ts"),
+      `export const arkor = Object.freeze({
+        _kind: "arkor",
+        trainer: {
+          name: "run",
+          start: async () => {
+            const { lazyValue } = await import("./helper");
+            return { jobId: lazyValue };
+          },
+          wait: async () => ({ job: {}, artifacts: [] }),
+          cancel: async () => {},
+        },
+      });
+      `,
+    );
+    const result = await runBuild({ cwd, quiet: true });
+    const files = readdirSync(join(cwd, ".arkor/build"));
+    // One artifact, no chunk siblings.
+    expect(files).toEqual(["index.mjs"]);
+    // The helper's code is inlined, not referenced via a chunk import.
+    const content = readFileSync(result.outFile, "utf8");
+    expect(content).toContain("lazy-helper-loaded");
+    expect(content).not.toMatch(/import\(["'].\/(?!helper)/);
   });
 
   it("logs a success line when quiet is not set (default)", async () => {

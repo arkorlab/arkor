@@ -1,7 +1,12 @@
-import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync, unlinkSync } from "node:fs";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  existsSync,
+  linkSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { constants as osConstants } from "node:os";
 import { dirname } from "node:path";
 
 import { serve } from "@hono/node-server";
@@ -18,8 +23,10 @@ import {
   requestAnonymousToken,
   type AnonymousCredentials,
 } from "../../core/credentials";
+import { createHmrCoordinator } from "../../studio/hmr";
 import { buildStudioApp } from "../../studio/server";
 import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
+import { registerCleanupHook } from "../cleanupHooks";
 import { ui } from "../prompts";
 
 export interface DevOptions {
@@ -203,36 +210,168 @@ async function persistStudioToken(token: string): Promise<string> {
 }
 
 /**
- * Install the process-lifetime shutdown handlers, running `cleanup` (once)
- * on normal exit and on SIGINT/SIGTERM/SIGHUP before re-exiting.
- *
- * Registered unconditionally once the server binds, NOT gated on studio-token
- * persistence: even when persistence failed (read-only `$HOME` on Docker),
- * a termination signal must still route through `process.exit` so that (a) it
- * reports the conventional `128 + signal` code and (b) the synchronous 'exit'
- * event fires, which is what lets each `/api/train` child register its own
- * kill hook (see studio/server.ts) and avoid being orphaned on `docker stop`.
- * `cleanup` itself handles the token file (a no-op when none was written).
+ * Constant-time string comparison for the token-identity check below.
+ * The "is this my token?" gate is not strictly a security-sensitive
+ * comparison (both sides are owned by the user on the local FS), but
+ * the SDK already uses `timingSafeEqual` for every other studio-token
+ * comparison (`buildStudioApp`), and keeping the same primitive here
+ * costs nothing while making the policy "tokens are always compared
+ * constant-time" uniform across the codebase.
  */
-function installShutdownHandlers(cleanup: () => void): void {
-  let cleaned = false;
-  const runCleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    cleanup();
-  };
-  process.on("exit", runCleanup);
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(sig, () => {
-      runCleanup();
-      // Exit with the conventional `128 + signal number` code (SIGINT ->
-      // 130, SIGTERM -> 143, SIGHUP -> 129) rather than 0, so a supervisor
-      // (systemd, `docker stop`, a shell `$?`) can tell the process was
-      // terminated by a signal instead of exiting cleanly. `process.exit`
-      // fires the 'exit' listener above synchronously.
-      process.exit(128 + osConstants.signals[sig]);
-    });
-  }
+function tokensEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
+function scheduleStudioTokenCleanup(
+  path: string,
+  // Token THIS process wrote. Compared against the file's current
+  // contents at unlink time so we never delete a token a concurrent
+  // `arkor dev` overwrote in the shared path. See cleanup body for
+  // the full rationale.
+  expectedToken: string,
+): void {
+  registerCleanupHook({
+    cleanup: () => {
+      // Rename-then-inspect reap (CodeRabbit, round 81). The previous
+      // read → compare → unlink sequence was a TOCTOU pair: another
+      // `arkor dev` could rewrite the shared `~/.arkor/studio-token`
+      // BETWEEN our successful read (bytes matched ours) and our
+      // unlink, so we'd delete THEIR fresh token anyway. `rename` is
+      // atomic, so claiming the file first closes that window:
+      //
+      //   1. rename(path → private reap path). Whatever file is at
+      //      `path` at the syscall instant moves; concurrent writers
+      //      that land after the rename create a NEW file at `path`
+      //      which we never touch.
+      //   2. Inspect the claimed file. Ours (bytes match) → unlink
+      //      the claimed copy; done.
+      //   3. Foreign token claimed by mistake → rename it BACK to
+      //      `path` to restore it. If the rename-back fails because
+      //      the other process re-wrote `path` meanwhile, their
+      //      newer token wins and our claimed copy (their older
+      //      token) is deleted: the live file is always the newest
+      //      writer's.
+      //
+      // The reap path carries our pid so two arkor dev processes
+      // shutting down simultaneously can't collide on the temp name.
+      //
+      // Identity-vs-persist-flag rationale (unchanged from the prior
+      // revision): a `tokenPersisted` boolean set after
+      // `await persistStudioToken(...)` had its own race (signal
+      // landing between writeFile completing and the flag flipping
+      // would leak our token); the file's bytes are the source of
+      // truth, now claimed atomically before inspection.
+      //
+      // Known residual windows, accepted as-is (both benign):
+      //   - A signal landing mid-`writeFile` leaves a PARTIAL token
+      //     at `path`. This cleanup then claims it, the byte compare
+      //     fails (looks foreign), and the rename-back restores the
+      //     partial file, which persists until the next `arkor dev`
+      //     overwrites it. Harmless: the server that wrote it is
+      //     already exiting, and a partial token authorises nothing
+      //     (`tokensEqual` is length-gated + timing-safe).
+      //   - The existsSync → renameSync pair in the foreign-token
+      //     branch below is itself an instruction-scale TOCTOU; the
+      //     losing outcome there is restore-the-older-token, never
+      //     delete-the-live-token. See that branch's comment.
+      const reapPath = `${path}.reap-${process.pid}`;
+      try {
+        renameSync(path, reapPath);
+      } catch {
+        // ENOENT: failed-persist run, or another shutdown already
+        // cleaned up. Nothing to reap.
+        return;
+      }
+      let claimed: string;
+      try {
+        claimed = readFileSync(reapPath, "utf8").trim();
+      } catch {
+        // Claimed file unreadable: delete the claim best-effort so we
+        // don't leave a stray reap file behind.
+        try {
+          unlinkSync(reapPath);
+        } catch {
+          // best-effort
+        }
+        return;
+      }
+      if (tokensEqual(claimed, expectedToken)) {
+        // Ours: the rename already removed it from the shared path;
+        // just delete the claimed copy.
+        try {
+          unlinkSync(reapPath);
+        } catch {
+          // best-effort
+        }
+        return;
+      }
+      // Foreign token: restore it, UNLESS the other process already
+      // re-wrote `path` after our rename claimed the old copy. Rename
+      // REPLACES an existing destination rather than failing, so a
+      // bare rename-back would clobber that fresher token with the
+      // older claimed one. The existence probe shrinks the clobber
+      // window from "read → unlink" (previous design, milliseconds
+      // spanning a token comparison) to the few instructions between
+      // existsSync and renameSync, and the losing outcome in that
+      // residual window is restore-the-older-token (the other dev
+      // server 403s until its own next rewrite), not delete-the-token
+      // outright.
+      try {
+        // No-clobber restore (Copilot, round 86): `link(2)` fails
+        // with EEXIST when the destination exists, which closes the
+        // previous `existsSync -> renameSync` TOCTOU where a
+        // concurrent instance's freshly-written token landing
+        // between the two calls was silently REPLACED by our older
+        // claimed copy (tokens are only written at launch, so that
+        // instance's Vite session stayed broken until its next
+        // restart). link + unlink-claim is an atomic "move unless
+        // the path reappeared" on POSIX.
+        linkSync(reapPath, path);
+        unlinkSync(reapPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+          // Newest writer wins: discard the claimed older copy.
+          try {
+            unlinkSync(reapPath);
+          } catch {
+            // best-effort
+          }
+        } else {
+          // Filesystems without hard links (exFAT and friends) land
+          // here; fall back to the pre-round-86 heuristic, which
+          // keeps its (instruction-scale, restore-the-older-token)
+          // residual window only on those filesystems.
+          try {
+            if (existsSync(path)) {
+              unlinkSync(reapPath);
+            } else {
+              renameSync(reapPath, path);
+            }
+          } catch {
+            try {
+              unlinkSync(reapPath);
+            } catch {
+              // best-effort
+            }
+          }
+        }
+      }
+    },
+    // Outermost cleanup: responsible for terminating the process after
+    // all earlier-registered hooks (e.g. HMR dispose) have run.
+    exitOnSignal: true,
+  });
+}
+
+function scheduleHmrCleanup(hmr: { dispose: () => Promise<void> }): void {
+  // Registered before the studio-token cleanup so it runs first on
+  // shutdown: Node fires signal handlers in registration order, and we
+  // want the watcher to release file handles before the outermost
+  // process.exit.
+  registerCleanupHook({ cleanup: () => hmr.dispose() });
 }
 
 export async function runDev(options: DevOptions = {}): Promise<void> {
@@ -244,10 +383,29 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // hitting `arkor start` (and therefore RCE via dynamic import).
   const studioToken = randomBytes(32).toString("base64url");
 
+  // HMR coordinator: a long-lived rolldown watcher over the user's
+  // `src/arkor` graph. The coordinator itself is lazy (`subscribe()`
+  // is what starts the watcher, not `createHmrCoordinator`), but
+  // `buildStudioApp` registers its per-rebuild signal-dispatch
+  // subscriber unconditionally: that subscriber needs to run on
+  // every BUNDLE_END regardless of whether any SSE client is
+  // connected, so it can SIGUSR2/SIGTERM active `/api/train`
+  // children and keep `lastSuccessConfigHash` warm for spawn-time
+  // capture. Net effect: the watcher starts at server boot. An
+  // `arkor dev` launched in an unbuilt project doesn't fail immediately
+  // because `startWatcher` falls through to a poll loop that waits
+  // for the entry file to appear (see `hmr.ts:entryWaitTimer`).
+  //
+  // Only CREATED here; its dispose hook is registered inside the
+  // `listening` callback below (before the studio-token hook, which
+  // must stay the most-recently-attached, exit-owning listener), so a
+  // doomed EADDRINUSE launch never leaves cleanup listeners behind.
+  const hmr = createHmrCoordinator({ cwd: process.cwd() });
+
   // `autoAnonymous: true` (the default) lets the Hono server retry the
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
   // attempt above failed (e.g. cloud-api was unreachable at launch).
-  const app = buildStudioApp({ studioToken });
+  const app = buildStudioApp({ studioToken, hmr });
   // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
   // only: `@hono/node-server` passes hostname to `net.Server.listen`, which
   // calls `dns.lookup`. On hosts where `/etc/hosts` orders `::1 localhost`
@@ -278,36 +436,34 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
       { fetch: app.fetch, port, hostname: "127.0.0.1" },
       () => {
         bound = true;
-        // Install shutdown handlers immediately on successful bind, BEFORE
-        // (and independent of) token persistence. The handlers must fire even
-        // when persistence fails so a termination signal still reaps any
-        // /api/train child and reports the right exit code. The cleanup
-        // resolves the token path directly (rather than gating on a variable
-        // assigned after persistence resolves): a signal landing after the
-        // atomic rename placed the token but before persistStudioToken's
-        // continuation ran would otherwise leave the file behind (a signal
-        // before the rename abandons only the disposable .tmp staging file,
-        // never the canonical path). The ownership check
-        // below makes the direct resolution safe in every state: not yet
-        // written -> ENOENT (caught); written by us -> matches, removed;
-        // overwritten by another instance -> differs, left alone.
-        installShutdownHandlers(() => {
-          try {
-            // Ownership check before unlinking: the token path is a single
-            // shared file, so a second `arkor dev` on a DIFFERENT port may
-            // have legitimately overwritten it since we wrote it
-            // (last-writer-wins is the documented multi-instance
-            // behaviour). Deleting it then would 403 the OTHER, still-
-            // running instance's Vite SPA workflow; only remove the file
-            // if it still holds OUR token.
-            const path = studioTokenPath();
-            if (readFileSync(path, "utf8") === studioToken) {
-              unlinkSync(path);
-            }
-          } catch {
-            // best-effort
-          }
-        });
+        // Cleanup hooks are registered only on SUCCESSFUL BIND: a doomed
+        // second launch failing on EADDRINUSE must not leave exit/signal
+        // listeners behind (the EADDRINUSE test pins the listener count),
+        // and must never register a handler that could touch the healthy
+        // instance's token file. HMR dispose registers FIRST so the
+        // exit-owning token hook below stays outermost; if the process
+        // dies before this callback runs, the un-disposed watcher is
+        // reaped by process death anyway.
+        scheduleHmrCleanup(hmr);
+        // Register the studio-token cleanup on SUCCESSFUL BIND (main's
+        // bind-first flow merged with this branch's cleanupHooks): the
+        // hook is registered before (and independent of) the async token
+        // persistence below, so a termination signal still routes through
+        // `process.exit` with the conventional 128+signo code even when
+        // persistence failed. The ordering contract with
+        // `scheduleHmrCleanup` still holds inside a bound instance: the
+        // token hook registers AFTER the HMR hook, so it remains the
+        // outermost exit-owning hook (exitOnSignal: true awaits the HMR
+        // dispose before exiting, and `process.exit` fires the
+        // synchronous 'exit' event that reaps /api/train children).
+        //
+        // The cleanup body claims the shared file atomically (rename-then-
+        // inspect reap) and only deletes bytes that match `studioToken`,
+        // which keeps this registration safe in every state: token never
+        // written -> nothing to claim; written by us -> claimed + removed;
+        // overwritten by a concurrent instance -> foreign bytes restored,
+        // newest writer wins.
+        scheduleStudioTokenCleanup(studioTokenPath(), studioToken);
         // Persisting the token to disk is *only* needed for the Vite SPA
         // dev workflow. The bundled `:port` flow injects the meta tag at
         // request time via `buildStudioApp`, so a failure here (read-only
@@ -324,6 +480,13 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
             );
           }
           process.stdout.write(`Arkor Studio running on ${url}\n`);
+          // "ready (will watch …)" rather than "enabled (watching …)" because
+          // `createHmrCoordinator` is lazy: the rolldown watcher doesn't
+          // actually start until the first `subscribe()` call inside
+          // `buildStudioApp`, and on a fresh scaffold with no
+          // `src/arkor/index.ts` yet the watcher falls into the
+          // entry-wait poll loop rather than actively watching.
+          process.stdout.write(`HMR ready (will watch src/arkor)\n`);
           resolve();
         })();
       },
@@ -347,6 +510,23 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         ui.log.warn(`Studio server error after startup: ${message}`);
         return;
       }
+      // Pre-bind failure: dispose the HMR coordinator before
+      // rejecting (Codex/cubic P1, round 86). `buildStudioApp`
+      // already subscribed the dispatch listener, so in a project
+      // with a real `src/arkor` entry the rolldown watcher is
+      // RUNNING by now; without this dispose its native handle
+      // keeps the event loop alive, so a doomed EADDRINUSE launch
+      // would print its error (bin.ts only sets `process.exitCode`)
+      // and then never exit. Fire-and-forget: the watcher teardown
+      // has no user-visible output and the process ends when the
+      // handle drops.
+      void (async () => {
+        try {
+          await hmr.dispose();
+        } catch {
+          // best-effort teardown on an already-failing launch
+        }
+      })();
       if (
         err instanceof Error &&
         (err as NodeJS.ErrnoException).code === "EADDRINUSE"
@@ -361,7 +541,6 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
       reject(err instanceof Error ? err : new Error(message));
     });
   });
-
   if (options.open) {
     try {
       await open(url);

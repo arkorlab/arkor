@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ARKOR_BIN } from "./bins";
-import { cleanup, makeTempDir, runCli } from "./spawn-cli";
+import { cleanup, makeTempDir, runCli, type RunResult } from "./spawn-cli";
 
 let cwd: string;
 
@@ -19,6 +19,28 @@ afterEach(() => {
 // Self-contained manifest source so the bundle has no `import` statements
 // to resolve at runtime, keeping the e2e test independent of whether `arkor`
 // is installed in the temp project.
+/**
+ * Failure context for clean-exit assertions. `spawn-cli` maps a
+ * signal-death close (`code === null`) to `-1`, so a bare
+ * `expect(result.code).toBe(0)` failure can't distinguish "exited 1
+ * with an error" from "killed by SIGSEGV in native teardown". This
+ * suite has flaked on macOS CI with exit -1 and no further signal;
+ * surfacing `{ code, signal }` plus stderr in the assertion message
+ * identifies the culprit directly in the CI log next time (suspected
+ * rolldown native teardown crash; see rolldown/rolldown#9722 for the
+ * adjacent worker-thread segfault family).
+ */
+// A plain throw (rather than vitest's two-arg `expect(value, message)`
+// form, which `vitest/valid-expect` rejects) so the failure output
+// carries the full context verbatim.
+function expectCleanExit(result: RunResult): void {
+  if (result.code !== 0 || result.signal !== null) {
+    throw new Error(
+      `expected a clean exit, got code=${result.code} signal=${result.signal ?? "none"}\nstderr:\n${result.stderr}`,
+    );
+  }
+}
+
 const FAKE_MANIFEST = `export const arkor = Object.freeze({
   _kind: "arkor",
   trainer: {
@@ -36,7 +58,7 @@ describe("arkor build (E2E)", () => {
     writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
 
     const result = await runCli(ARKOR_BIN, ["build"], cwd);
-    expect(result.code).toBe(0);
+    expectCleanExit(result);
 
     const outFile = join(cwd, ".arkor/build/index.mjs");
     expect(existsSync(outFile)).toBe(true);
@@ -51,7 +73,7 @@ describe("arkor build (E2E)", () => {
     writeFileSync(join(cwd, "custom.ts"), FAKE_MANIFEST);
 
     const result = await runCli(ARKOR_BIN, ["build", "custom.ts"], cwd);
-    expect(result.code).toBe(0);
+    expectCleanExit(result);
     expect(existsSync(join(cwd, ".arkor/build/index.mjs"))).toBe(true);
   });
 
@@ -70,10 +92,10 @@ describe("arkor build (E2E)", () => {
       ["init", "-y", "--skip-install", "--skip-git"],
       cwd,
     );
-    expect(initResult.code).toBe(0);
+    expectCleanExit(initResult);
 
     const buildResult = await runCli(ARKOR_BIN, ["build"], cwd);
-    expect(buildResult.code).toBe(0);
+    expectCleanExit(buildResult);
     expect(existsSync(join(cwd, ".arkor/build/index.mjs"))).toBe(true);
   });
 });

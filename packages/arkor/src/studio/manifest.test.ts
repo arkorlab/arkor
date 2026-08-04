@@ -50,10 +50,10 @@ describe("readManifestSummary cache-bust key", () => {
       return (await import(u)) as Record<string, unknown>;
     });
 
-    const first = await readManifestSummary(cwd, importSpy);
-    const second = await readManifestSummary(cwd, importSpy);
-    expect(first).toEqual({ trainer: { name: "qa-bot" } });
-    expect(second).toEqual({ trainer: { name: "qa-bot" } });
+    const first = await readManifestSummary(cwd, { importModule: importSpy });
+    const second = await readManifestSummary(cwd, { importModule: importSpy });
+    expect(first).toEqual({ trainer: { name: "qa-bot" }, configHash: null });
+    expect(second).toEqual({ trainer: { name: "qa-bot" }, configHash: null });
     // Identical source -> byte-identical bundle -> identical hash -> same URL.
     expect(urls[0]).toBe(urls[1]);
     // PR #193 review (codex): the import goes through a digest-addressed COPY
@@ -66,9 +66,12 @@ describe("readManifestSummary cache-bust key", () => {
       join(cwd, "src", "arkor", "index.ts"),
       manifestSource("renamed-bot"),
     );
-    const third = await readManifestSummary(cwd, importSpy);
+    const third = await readManifestSummary(cwd, { importModule: importSpy });
     // Edited source -> different bundle -> different hash -> the edit surfaces.
-    expect(third).toEqual({ trainer: { name: "renamed-bot" } });
+    expect(third).toEqual({
+      trainer: { name: "renamed-bot" },
+      configHash: null,
+    });
     expect(urls[2]).not.toBe(urls[0]);
   });
 
@@ -96,16 +99,16 @@ describe("readManifestSummary cache-bust key", () => {
     });
 
     // First read: the module evaluation fails (external condition).
-    await expect(readManifestSummary(cwd, importSpy)).rejects.toThrow(
-      "external condition not met",
-    );
+    await expect(
+      readManifestSummary(cwd, { importModule: importSpy }),
+    ).rejects.toThrow("external condition not met");
     // Second read, source unchanged: a DIFFERENT URL, so the recovered
     // condition is picked up instead of Node's cached rejection.
-    const second = await readManifestSummary(cwd, importSpy);
-    expect(second).toEqual({ trainer: { name: "qa-bot" } });
+    const second = await readManifestSummary(cwd, { importModule: importSpy });
+    expect(second).toEqual({ trainer: { name: "qa-bot" }, configHash: null });
     expect(urls[1]).not.toBe(urls[0]);
     // Third read: the successful salted URL is reused (no per-load growth).
-    await readManifestSummary(cwd, importSpy);
+    await readManifestSummary(cwd, { importModule: importSpy });
     expect(urls[2]).toBe(urls[1]);
   });
 
@@ -136,23 +139,23 @@ describe("readManifestSummary cache-bust key", () => {
     });
 
     // Seed the failure state.
-    await expect(readManifestSummary(cwd, importSpy)).rejects.toThrow(
-      "external condition not met",
-    );
+    await expect(
+      readManifestSummary(cwd, { importModule: importSpy }),
+    ).rejects.toThrow("external condition not met");
     // First retry: enters the import and blocks on the gate.
-    const first = readManifestSummary(cwd, importSpy);
+    const first = readManifestSummary(cwd, { importModule: importSpy });
     await vi.waitFor(() => {
       expect(importSpy).toHaveBeenCalledTimes(2);
     });
     // Second, concurrent retry while the first is still in flight.
-    const second = readManifestSummary(cwd, importSpy);
+    const second = readManifestSummary(cwd, { importModule: importSpy });
     await vi.waitFor(() => {
       expect(importSpy).toHaveBeenCalledTimes(3);
     });
     release();
     const [r1, r2] = await Promise.all([first, second]);
-    expect(r1).toEqual({ trainer: { name: "qa-bot" } });
-    expect(r2).toEqual({ trainer: { name: "qa-bot" } });
+    expect(r1).toEqual({ trainer: { name: "qa-bot" }, configHash: null });
+    expect(r2).toEqual({ trainer: { name: "qa-bot" }, configHash: null });
     // Same salted URL for both concurrent retries: no per-request salt bump.
     expect(urls[2]).toBe(urls[1]);
   });
@@ -183,7 +186,7 @@ describe("readManifestSummary cache-bust key", () => {
     });
 
     // Old-digest request: selects its snapshot, then blocks before opening.
-    const first = readManifestSummary(cwd, importSpy);
+    const first = readManifestSummary(cwd, { importModule: importSpy });
     await vi.waitFor(() => {
       expect(importSpy).toHaveBeenCalledTimes(1);
     });
@@ -193,11 +196,17 @@ describe("readManifestSummary cache-bust key", () => {
       join(cwd, "src", "arkor", "index.ts"),
       manifestSource("edited-bot"),
     );
-    const second = await readManifestSummary(cwd, importSpy);
-    expect(second).toEqual({ trainer: { name: "edited-bot" } });
+    const second = await readManifestSummary(cwd, { importModule: importSpy });
+    expect(second).toEqual({
+      trainer: { name: "edited-bot" },
+      configHash: null,
+    });
     // Release the old request: its snapshot must still exist and import.
     release();
-    await expect(first).resolves.toEqual({ trainer: { name: "qa-bot" } });
+    await expect(first).resolves.toEqual({
+      trainer: { name: "qa-bot" },
+      configHash: null,
+    });
   });
 
   // PR #193 review (coderabbit/cubic): retry state is tracked PER KEY. With a
@@ -228,17 +237,23 @@ describe("readManifestSummary cache-bust key", () => {
       });
 
       // Build A fails once.
-      await expect(readManifestSummary(cwd, importSpy)).rejects.toThrow(
-        "external condition not met",
-      );
+      await expect(
+        readManifestSummary(cwd, { importModule: importSpy }),
+      ).rejects.toThrow("external condition not met");
       // Build B (a different key) succeeds in between.
-      await expect(readManifestSummary(otherCwd, importSpy)).resolves.toEqual({
+      await expect(
+        readManifestSummary(otherCwd, { importModule: importSpy }),
+      ).resolves.toEqual({
         trainer: { name: "other-bot" },
+        configHash: null,
       });
       // Build A's next read must still bump ITS salt (fresh URL), not have
       // been reset by B's read into reusing the cached-failed base URL.
-      await expect(readManifestSummary(cwd, importSpy)).resolves.toEqual({
+      await expect(
+        readManifestSummary(cwd, { importModule: importSpy }),
+      ).resolves.toEqual({
         trainer: { name: "qa-bot" },
+        configHash: null,
       });
       expect(urls[2]).not.toBe(urls[0]);
       expect(urls[2]).toContain("?r=1");

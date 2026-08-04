@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
-import { fetchManifest, streamTraining, type ManifestResult } from "../lib/api";
+import {
+  fetchManifest,
+  isHmrEnabled,
+  openDevEvents,
+  streamTraining,
+  type DevEvent,
+  type ManifestResult,
+} from "../lib/api";
 
 import { Play, StopCircle } from "./icons";
 import { Button } from "./ui/Button";
@@ -20,14 +27,132 @@ export function RunTraining() {
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState("");
   const [manifest, setManifest] = useState<ManifestResult | null>(null);
+  const [hmrStatus, setHmrStatus] = useState<
+    "idle" | "early-stopping" | "restarting" | "hot-swapped"
+  >("idle");
   const boxRef = useRef<HTMLPreElement>(null);
   // Tracked separately from the manifest poll so navigating away
   // from Overview mid-stream tears the training stream down without
   // touching the (always-running) manifest poll.
   const trainingAbortRef = useRef<AbortController | null>(null);
+  // HMR auto-restart bookkeeping:
+  //  - lastTrainFileRef: carries the same `file?` arg into the auto
+  //    re-spawn.
+  //  - restartPendingRef: latch the SSE listener trips ONLY when *this
+  //    tab's* current child landed in `restartTargets`. Without the
+  //    pid scope, a tab whose run was hot-swapped (other tab's child
+  //    in `restartTargets`) would still latch on the broadcast and
+  //    auto-spawn a duplicate job after its own run completes.
+  //  - runningRef: short-circuit for tabs not running anything.
+  //  - currentPidRef: the spawned child's pid for the run currently
+  //    in flight, set from the `X-Arkor-Train-Pid` response header.
+  //  - hotSwapTimerRef: id for the "hot-swapped" status auto-clear
+  //    timer so unmount-during-flash doesn't leak (or trigger a
+  //    setState-after-unmount warning).
+  const lastTrainFileRef = useRef<string | undefined>(undefined);
+  const restartPendingRef = useRef(false);
+  const runningRef = useRef(false);
+  const currentPidRef = useRef<number | null>(null);
+  // Browser `window.setTimeout` returns a numeric handle, not Node's
+  // `Timeout` object; explicit `number` so TS doesn't pick up the
+  // Node typing from the global `setTimeout`.
+  const hotSwapTimerRef = useRef<number | null>(null);
+  // SSE events that arrived during the startup window: after `run()`
+  // set `runningRef.current = true` but before `streamTraining`'s
+  // `onSpawn` populated `currentPidRef`. The per-pid filter would
+  // otherwise drop any HMR dispatch landing in this window because
+  // `myPid === null`, leaving the user on stale code: a config-
+  // changing rebuild fires immediately after the Run click → server
+  // SIGTERMs the just-started child → exit reaches us → no auto-
+  // restart latch. Buffer here, drain in `onSpawn` once we know our
+  // pid so the per-pid decision can run retroactively. Cleared in
+  // `run()`'s `finally` (and on unmount) so a failed spawn doesn't
+  // leak entries into the next run.
+  const pendingPreSpawnEventsRef = useRef<DevEvent[]>([]);
+  // Grace window after the train stream closes during which the SSE
+  // handler can still latch a *late* restart event onto our just-
+  // exited child. The `/api/train` stream and `/api/dev/events` SSE
+  // are independent connections: under the race where the child
+  // exits before the matching `rebuild` event lands on the SSE
+  // channel (fast child exit, network jitter), `run()`'s finally
+  // would synchronously settle "no restart" and the user would be
+  // left on stale code despite the server-side SIGTERM. This timer
+  // defers the no-restart decision and keeps `currentPidRef` set so
+  // the SSE handler can still match per-pid; if the late event
+  // arrives within the window it sets `restartPendingRef` and the
+  // timer's callback fires the auto-restart from there. The window
+  // is short (a few hundred ms), well under user perception for
+  // the no-restart outcome but long enough to absorb realistic
+  // cross-connection delivery skew.
+  const restartGraceTimerRef = useRef<number | null>(null);
+  // Monotonic counter bumped on every HMR SSE handler invocation. Each
+  // async `fetchManifest()` started from a `ready`/`rebuild` event
+  // remembers the seq it was kicked off with; when it resolves it only
+  // calls `setManifest` if it's still the latest seq. Without this, a
+  // `ready`/`rebuild` -> async fetch -> newer `error` event sequence
+  // would let the (now-stale) fetch's `.then(setManifest)` overwrite
+  // the `{ error }` state with the last-good manifest, re-enabling
+  // the Run button against broken code until the next 5 s poll
+  // restored the error. The 5 s polling effect participates in the
+  // same fence (each `tick()` bumps the counter and gates its own
+  // `setManifest` on still being the latest seq), so a poll that
+  // started before an `error` frame landed can't overwrite the error
+  // state either; `cancelled` inside `tick()` only covers effect
+  // teardown, not cross-channel ordering.
+  const manifestFetchSeqRef = useRef(0);
+  // Latest build state seen on the SSE channel: `true` between an
+  // `error` frame and the next successful `ready`/`rebuild`. A latched
+  // auto-restart is DEFERRED while this is set (cubic P1, round 86):
+  // firing it would spawn a fresh cloud job from the last-good
+  // artifact while the manifest error is disabling the manual Run
+  // button for exactly that broken state. The deferred latch fires
+  // from the SSE handler when the next successful rebuild arrives.
+  const lastBuildErrorRef = useRef(false);
+  // True when the latched restart's target carried `forcedKill`
+  // (win32: the server's SIGTERM is an abrupt kill, so the child
+  // cannot produce the clean `exit=0` the suppression gate normally
+  // requires, and the server already fired its compensation cancel
+  // POST). Lets that one restart through the nonzero-exit gate.
+  const forcedKillLatchRef = useRef(false);
+  // Tracks "is this React tree still mounted?". The HMR auto-restart
+  // path schedules `queueMicrotask(() => run(...))` after the prior
+  // run's `finally`. Without this gate, navigating away during the
+  // tiny window between scheduling and the microtask running would
+  // fire a fresh `/api/train` POST from an unmounted view, spawning
+  // an invisible cloud job the user can't see or stop.
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
-    return () => trainingAbortRef.current?.abort();
+    // Re-arm the mounted flag every time the effect (re-)runs.
+    // React StrictMode (enabled in `main.tsx` for dev) intentionally
+    // runs setup → cleanup → setup once on mount to surface
+    // ordering bugs; without this re-arm the cleanup's
+    // `isMountedRef.current = false` would persist into the second
+    // setup, making the ref permanently false while the component
+    // is actually mounted. The HMR auto-restart paths guarded by
+    // `isMountedRef.current` would then silently no-op in every
+    // Vite dev session even though they work fine in `vite build`
+    // output (StrictMode's double-effect is a dev-only behaviour).
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Defense in depth: clearing the latch here means even if a
+      // microtask snuck past the `isMountedRef` check (concurrent
+      // edits to React's effect ordering, future refactors), it
+      // still finds nothing pending.
+      restartPendingRef.current = false;
+      forcedKillLatchRef.current = false;
+      pendingPreSpawnEventsRef.current = [];
+      trainingAbortRef.current?.abort();
+      if (hotSwapTimerRef.current !== null) {
+        clearTimeout(hotSwapTimerRef.current);
+        hotSwapTimerRef.current = null;
+      }
+      if (restartGraceTimerRef.current !== null) {
+        clearTimeout(restartGraceTimerRef.current);
+        restartGraceTimerRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -38,16 +163,24 @@ export function RunTraining() {
     // Chained setTimeout (not setInterval) so a slow /api/manifest
     // can't pile up overlapping in-flight calls.
     async function tick() {
+      // Participate in the same seq fencing the SSE handler uses: a
+      // poll that started BEFORE an HMR `error` frame landed must not
+      // overwrite the `{ error }` state when its (slow) fetch resolves
+      // afterwards. Bumping here also invalidates any older in-flight
+      // SSE-driven fetch, which is correct: this poll is newer.
+      const seq = ++manifestFetchSeqRef.current;
       try {
         const m = await fetchManifest();
-        if (!cancelled) setManifest(m);
+        if (!cancelled && seq === manifestFetchSeqRef.current) setManifest(m);
       } catch (err: unknown) {
-        if (!cancelled) {
+        if (!cancelled && seq === manifestFetchSeqRef.current) {
           setManifest({
             error: err instanceof Error ? err.message : String(err),
           });
         }
       } finally {
+        // Always re-arm the poll (seq-stale only suppresses the state
+        // write, not the polling loop itself).
         if (!cancelled) timer = setTimeout(() => void tick(), 5000);
       }
     }
@@ -58,45 +191,546 @@ export function RunTraining() {
     };
   }, []);
 
+  // HMR: listen for rebuild notifications from `arkor dev` and refresh
+  // the manifest. When a rebuild also early-stopped *this tab's*
+  // training run, the server includes the spawned pid in
+  // `restartTargets`; defer the auto re-invocation until the current
+  // `streamTraining` resolves so we don't run two cloud jobs at once.
+  //
+  // Gated by `isHmrEnabled()` (server-injected `<meta>` flag) rather
+  // than `import.meta.env.DEV`: the SPA is shipped via `vite build`
+  // and served by `arkor dev` as static assets, so DEV is `false` in
+  // every real session. The server-side flag is `true` exactly when
+  // `arkor dev` wired in an HMR coordinator, i.e. when
+  // `/api/dev/events` actually exists. Without this flag the
+  // EventSource would either be dead in real dev sessions (DEV gate)
+  // or retry forever against a 404 (no gate).
+  useEffect(() => {
+    if (!isHmrEnabled()) return;
+    const es = openDevEvents();
+    // Typed as `Event` (not `MessageEvent`) because the same handler
+    // is registered for the `error` event, which EventSource fires
+    // as a plain `Event` on connection failures (server crashed,
+    // browser dropped the SSE) carry no `.data`. Custom
+    // server-sent events (`event: ready` / `event: rebuild` / the
+    // SSE `event: error` frame the HMR server emits) all arrive as
+    // `MessageEvent` instances, so we narrow before reading
+    // `.data`. EventSource will auto-retry connection failures, so
+    // there's nothing to do for them other than not crash.
+    const onMessage = (raw: Event) => {
+      if (!(raw instanceof MessageEvent)) return;
+      let payload: DevEvent;
+      try {
+        // `MessageEvent.data` is typed `any`; the SSE frames the HMR
+        // server emits are always JSON strings, so assert `string`
+        // before handing it to `JSON.parse` to satisfy
+        // `no-unsafe-argument`.
+        payload = JSON.parse(raw.data as string) as DevEvent;
+      } catch {
+        return;
+      }
+      // Bump first so any in-flight async fetch from a prior
+      // `ready`/`rebuild` event is invalidated before we touch
+      // `setManifest` below.
+      const seq = ++manifestFetchSeqRef.current;
+      if (payload.type === "error") {
+        lastBuildErrorRef.current = true;
+        setManifest({ error: payload.message ?? "Build failed" });
+        setHmrStatus("idle");
+        // Codex P2 (PR #101 round 79): do NOT clear `restartPendingRef`
+        // here. An earlier version cleared the latch on error to avoid
+        // "auto-restart against stale code if the child exits before
+        // the user fixes things." But the server's `dispatchRebuild`
+        // skips entries flagged `earlyStopRequested` (already SIGTERMed),
+        // so a subsequent successful rebuild after the user's fix
+        // won't re-emit this child's pid in `restartTargets`. If we'd
+        // already cleared the latch, the fixed-and-ready child has
+        // *no* surviving restart signal and exits to an idle UI; the
+        // user has to click Run manually. Keeping the latch lets the
+        // post-exit auto-spawn pick up the latest artefact on disk
+        // (which is the FIXED build when the user fixed before exit,
+        // or the last-good build when they didn't; the manifest UI
+        // surfaces the error either way, so stale-good-code background
+        // churn is bounded and visible).
+        //
+        // The pre-spawn buffer is deliberately KEPT (cubic, round
+        // 86; an earlier revision cleared it here). It exists for
+        // the same reason the latch survives: a restart-targeting
+        // event that arrived before `onSpawn` learned our pid is
+        // the server's only restart signal for this child, and a
+        // build-error frame racing in ahead of `onSpawn` must not
+        // erase it (the drained latch then defers on
+        // `lastBuildErrorRef` like any other latch). Failed spawns
+        // clear the buffer in `run()`'s post-sequence.
+        return;
+      }
+      // A successful build clears the error state and releases any
+      // restart latch that was deferred while the build was broken
+      // (see `lastBuildErrorRef`): this rebuild IS the "fixed" state
+      // the deferral was waiting for, so re-spawn from it now. The
+      // idle/pid checks scope the release to the deferred case (a
+      // running child's latch is consumed by run()'s post-exit
+      // sequence as usual).
+      lastBuildErrorRef.current = false;
+      if (
+        !runningRef.current &&
+        currentPidRef.current === null &&
+        restartPendingRef.current
+      ) {
+        restartPendingRef.current = false;
+        forcedKillLatchRef.current = false;
+        setHmrStatus("restarting");
+        const fileForRestart = lastTrainFileRef.current;
+        queueMicrotask(() => {
+          if (!isMountedRef.current) return;
+          void runRef.current(fileForRestart);
+        });
+      }
+      // Always refresh the manifest on ready/rebuild. Version-gate the
+      // late `setManifest` so a slow `/api/manifest` response from this
+      // event can't overwrite a fresher `error` state.
+      void fetchManifest()
+        .then((m) => {
+          if (seq === manifestFetchSeqRef.current) setManifest(m);
+        })
+        .catch((err: unknown) => {
+          if (seq === manifestFetchSeqRef.current) {
+            setManifest({
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
+      // Per-child decision based on the spawned pid: a single rebuild
+      // can produce mixed outcomes (one child hot-swapped, another
+      // restarted), and `payload.restart` / `payload.hotSwap` reflect
+      // *aggregate* truth across all active children. Filter to "did
+      // *my* child land in this bucket?" so a tab whose run was
+      // hot-swapped doesn't latch onto a sibling tab's restart.
+      const myPid = currentPidRef.current;
+      // Pre-spawn race: if we've started a run but `onSpawn` hasn't
+      // populated our pid yet, the dispatch result for our own child
+      // would be silently ignored. Stash the payload and let
+      // `onSpawn` re-run the per-pid decision once the pid arrives.
+      if (myPid === null && runningRef.current) {
+        pendingPreSpawnEventsRef.current.push(payload);
+        return;
+      }
+      // Don't gate `myRestart` on `runningRef.current`: the
+      // `/api/train` stream and `/api/dev/events` SSE channel are
+      // independent connections, so a fast child exit can race the
+      // SSE delivery and flip `runningRef` to false JUST BEFORE the
+      // matching `rebuild` event lands here. Per-pid filtering via
+      // `currentPidRef` is what scopes the latch to *this tab's*
+      // child; `run()`'s finally keeps `currentPidRef` set during a
+      // brief grace window after the train stream closes for
+      // exactly this reason. Without dropping the `runningRef`
+      // gate, post-exit restart events would silently no-op and
+      // leave the tab on stale code.
+      const myRestartTarget =
+        myPid === null
+          ? undefined
+          : payload.restartTargets?.find((t) => t.pid === myPid);
+      const myRestart = myRestartTarget !== undefined;
+      const myHotSwap =
+        myPid !== null &&
+        (payload.hotSwapTargets?.some((t) => t.pid === myPid) ?? false);
+      if (myRestart) {
+        // Training run is early-stopping; the active stream will
+        // resolve once the next checkpoint lands and the subprocess
+        // exits cleanly. The `finally` block of `run()` picks up the
+        // pending flag and re-spawns with the same args.
+        restartPendingRef.current = true;
+        forcedKillLatchRef.current = myRestartTarget.forcedKill === true;
+        setHmrStatus("early-stopping");
+      } else if (myHotSwap) {
+        // Callbacks were swapped in place; the cloud-side run is
+        // unaffected. Flash a brief "hot-swapped" indicator so users
+        // know the new code is live. The previous timer (if any) is
+        // cleared so two close-together rebuilds don't race for the
+        // status reset.
+        setHmrStatus("hot-swapped");
+        if (hotSwapTimerRef.current !== null) {
+          clearTimeout(hotSwapTimerRef.current);
+        }
+        hotSwapTimerRef.current = window.setTimeout(() => {
+          setHmrStatus((s) => (s === "hot-swapped" ? "idle" : s));
+          hotSwapTimerRef.current = null;
+        }, 1500);
+      } else {
+        // Nothing pertaining to this tab's child. Don't blanket-
+        // reset `hmrStatus` here: another tab's `early-stopping` /
+        // `restarting` event is irrelevant to us, but so is a
+        // stale "hot-swapped" flash whose 1.5 s timer is still
+        // running. Reset ONLY the timer-driven "hot-swapped" label
+        // (mirroring the inverse predicate in the timer body
+        // below) so it can't get stuck if a sibling rebuild lands
+        // mid-flash; the user-driven "early-stopping" /
+        // "restarting" spans clear themselves via `run()`'s
+        // `finally` / `onSpawn` transitions and shouldn't be
+        // preempted by an out-of-band sibling event.
+        if (!runningRef.current) {
+          setHmrStatus((s) => (s === "hot-swapped" ? "idle" : s));
+        }
+      }
+    };
+    es.addEventListener("ready", onMessage);
+    es.addEventListener("rebuild", onMessage);
+    es.addEventListener("error", onMessage);
+    return () => {
+      es.close();
+    };
+  }, []);
+
   useEffect(() => {
     if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
   }, [log]);
 
-  async function run() {
+  /**
+   * Latest-`run` ref for the SSE effect's deferred-restart release:
+   * the effect mounts once (empty deps) but must invoke the CURRENT
+   * render's `run` closure; calling through the ref keeps
+   * `react-hooks/exhaustive-deps` satisfied without re-subscribing
+   * the EventSource on every render.
+   */
+  const runRef = useRef<(file?: string) => Promise<void>>(
+    // Placeholder until the render below assigns the real closure;
+    // resolves immediately so a (theoretically) early caller no-ops.
+    () => Promise.resolve(),
+  );
+  async function run(file?: string): Promise<void> {
+    runningRef.current = true;
+    lastTrainFileRef.current = file;
+    // Reset the pid before each spawn so a stale value from a prior
+    // run can't accidentally match a new HMR restart broadcast in the
+    // window between this assignment and `streamTraining` invoking
+    // `onSpawn`.
+    currentPidRef.current = null;
+    // Drop any restart latch left over from a PRIOR run's lifecycle.
+    // The leak path: run A exits, its 250 ms grace timer is armed, a
+    // late restart event for A's pid latches, and the user manually
+    // clicks Run before the timer fires. The timer's disown branch
+    // (`currentPidRef !== pidAtExit`) then returns without clearing
+    // the latch, so run B would inherit A's stale restart intent and
+    // auto-spawn an unrequested third run when B eventually finishes
+    // hours later. Every legitimate latch for THIS run is set after
+    // this point (SSE handler / onSpawn drain), so clearing here can
+    // never lose a real signal.
+    restartPendingRef.current = false;
+    forcedKillLatchRef.current = false;
     setRunning(true);
     setLog("");
     const ac = new AbortController();
     trainingAbortRef.current?.abort();
     trainingAbortRef.current = ac;
+    // Exit code parsed off the train stream's trailing `exit=` marker.
+    // `null` = unknown (aborted stream, marker missing). Spawn
+    // failures (`error=` marker) REJECT out of `streamTraining` and
+    // are tracked via `streamFailed` below.
+    let exitCode: number | null = null;
+    // Set when the stream threw for a reason other than our own
+    // abort: spawn failure (`error=` marker), /api/train non-2xx,
+    // network drop. Treated like a nonzero exit by the suppression
+    // gate below so a failed-to-start run can't be auto-restarted
+    // into a loop of identical failures.
+    let streamFailed = false;
     try {
-      await streamTraining(
+      exitCode = await streamTraining(
         (chunk) => {
           if (ac.signal.aborted) return;
           setLog((prev) => appendCapped(prev, chunk));
         },
-        undefined,
+        file,
         ac.signal,
+        (pid) => {
+          currentPidRef.current = pid;
+          // Clear the "Restarting with updated code…" status as soon
+          // as the new run starts spawning. Without this the label
+          // stays pinned for the entire restarted run because
+          // `setHmrStatus("restarting")` is set in the *prior* run's
+          // `finally` and nothing else clears it. We only knock out
+          // "restarting" specifically; "early-stopping" / "hot-
+          // swapped" should land via their own state transitions.
+          setHmrStatus((s) => (s === "restarting" ? "idle" : s));
+          // Drain any HMR events that landed in the pre-spawn race
+          // window. Apply the same per-pid decision retroactively now
+          // that the pid is known. Restart wins over hot-swap (a
+          // stale child got SIGTERM'd → must re-spawn), so collapse
+          // the buffer's findings into a single decision rather than
+          // dispatching every buffered event verbatim.
+          const buffered = pendingPreSpawnEventsRef.current;
+          pendingPreSpawnEventsRef.current = [];
+          let restartHit:
+            | { pid: number; trainFile?: string; forcedKill?: boolean }
+            | undefined;
+          let hotSwapHit = false;
+          for (const ev of buffered) {
+            const hit = ev.restartTargets?.find((t) => t.pid === pid);
+            if (hit) {
+              restartHit = hit;
+              break;
+            }
+            if (ev.hotSwapTargets?.some((t) => t.pid === pid)) {
+              hotSwapHit = true;
+            }
+          }
+          if (restartHit) {
+            restartPendingRef.current = true;
+            forcedKillLatchRef.current = restartHit.forcedKill === true;
+            setHmrStatus("early-stopping");
+          } else if (hotSwapHit) {
+            setHmrStatus("hot-swapped");
+            if (hotSwapTimerRef.current !== null) {
+              clearTimeout(hotSwapTimerRef.current);
+            }
+            hotSwapTimerRef.current = window.setTimeout(() => {
+              setHmrStatus((s) => (s === "hot-swapped" ? "idle" : s));
+              hotSwapTimerRef.current = null;
+            }, 1500);
+          }
+        },
       );
     } catch (err) {
       // Aborts are expected when the user navigates away mid-stream;
-      // don't surface them as errors in the log.
-      if (ac.signal.aborted) return;
+      // don't surface them as errors in the log. Non-abort errors
+      // get logged; in both cases the post-handler block below
+      // (formerly a `finally`) runs the same cleanup. Lint's
+      // `no-unsafe-finally` rule disallows `return` inside `finally`
+      // because such returns clobber a re-throw from the surrounding
+      // `catch`; we sidestep the rule by lifting the cleanup into
+      // a normal post-try/catch sequence, which has the same effect
+      // here because the `catch` block above never re-throws.
+      if (!ac.signal.aborted) {
+        streamFailed = true;
+        setLog((prev) =>
+          appendCapped(
+            prev,
+            `\n[error] ${err instanceof Error ? err.message : String(err)}\n`,
+          ),
+        );
+      }
+    }
+    runningRef.current = false;
+    // DO NOT null `currentPidRef` here: the SSE handler needs to
+    // be able to match per-pid during the post-exit grace window
+    // below to catch a `rebuild` event that races behind the
+    // train stream's close on the separate connection. Captured
+    // here so the grace timer can detect "a new run started
+    // during the window" by comparing the current ref against
+    // `pidAtExit` and skipping its cleanup in that case.
+    const pidAtExit = currentPidRef.current;
+    // Drop any pre-spawn buffer entries that survived a failed
+    // run (spawn errored before `onSpawn` could drain). Without
+    // this they'd be carried into the next run and falsely match
+    // the new pid only by luck.
+    pendingPreSpawnEventsRef.current = [];
+    if (trainingAbortRef.current === ac) trainingAbortRef.current = null;
+    // Always release the running flag, including the user-initiated
+    // abort path. setState on an already-unmounted component is a
+    // no-op in React 18+, so the unmount-cleanup case handles itself.
+    setRunning(false);
+
+    if (ac.signal.aborted) {
+      // User Stop wins over any pending or in-flight HMR restart:
+      // clear everything synchronously and skip the grace window
+      // so the tab really settles instead of bouncing back up.
+      restartPendingRef.current = false;
+      currentPidRef.current = null;
+      setHmrStatus("idle");
+      if (restartGraceTimerRef.current !== null) {
+        clearTimeout(restartGraceTimerRef.current);
+        restartGraceTimerRef.current = null;
+      }
+      return;
+    }
+
+    // Codex P1 (PR #101 round 80): a NONZERO exit suppresses auto-
+    // restart. The runner exits 143 when an HMR-triggered early-stop
+    // failed to cancel the cloud job (cancel POST rejected); spawning
+    // a fresh run on top of that would overlap a new cloud job with
+    // the one whose cancel never landed (double GPU spend, no
+    // operator signal). Any other nonzero exit is a crash, and
+    // restarting a crashing run in a loop would churn cloud jobs
+    // with the same broken artefact. Exit 0 (graceful early-stop
+    // succeeded) and `null` (no marker parsed: spawn failure path
+    // already surfaced its own error) keep the existing restart
+    // behaviour.
+    // `streamFailed` (spawn failure / non-2xx / network drop) takes
+    // the same suppression branch (qodo, round 83): before the
+    // `error=` marker rejected out of `streamTraining`, a
+    // failed-to-start run resolved `null` and slipped past this gate
+    // as "non-failure", leaving a latched restart free to re-spawn
+    // the same failing configuration.
+    //
+    // `exitCode === null` on the non-aborted path is suppressed too
+    // (qodo, round 84): the server's exit marker carries the child's
+    // `close` code, which is literally `null` when the child died to
+    // a SIGNAL (OS OOM-kill, external SIGKILL); the SPA parser also
+    // yields null for a truncated stream. Either way the child never
+    // ran its graceful early-stop, so its cloud `cancel()` may not
+    // have gone out; only an explicit `exit=0` proves the clean
+    // early-stop that auto-restart is designed for. (User aborts
+    // never reach here: the `ac.signal.aborted` branch above returns
+    // first.)
+    // win32 carve-out (Codex P2, round 86): a `forcedKill` restart
+    // target means the server's SIGTERM was an abrupt kill, the exit
+    // marker CANNOT be a clean `exit=0`, and the server has already
+    // fired its compensation cancel POST for the cloud job. The
+    // advertised restart must go through despite the nonzero/absent
+    // code; every other nonzero/unknown exit still suppresses.
+    // TS's flow analysis pins both refs to `false` across the await
+    // (it can't see the SSE handler's cross-closure writes), so the
+    // rule mis-flags both operands; the runtime reads are real. The
+    // explicit `boolean` widening keeps DOWNSTREAM uses clean.
+    /* eslint-disable @typescript-eslint/no-unnecessary-condition --
+       const-narrowing re-pins `forcedRestart` to the literal `false`
+       even through the boolean annotation, so the `if` below trips
+       the rule too; the disable spans both lines. */
+    const forcedRestart: boolean =
+      restartPendingRef.current && forcedKillLatchRef.current;
+    if (streamFailed || (exitCode !== 0 && !forcedRestart)) {
+      /* eslint-enable @typescript-eslint/no-unnecessary-condition */
+      // The HMR-specific "auto-restart suppressed" note is only
+      // meaningful when a restart was actually latched for this run;
+      // a plain (non-HMR, or simply not-restart-targeted) failing
+      // run would otherwise get a confusing message about a restart
+      // nobody scheduled. The state RESET below runs either way:
+      // clearing the latch and pid unconditionally is what keeps a
+      // late-arriving restart event from re-spawning a failed run.
+      const hadPendingRestart = restartPendingRef.current;
+      restartPendingRef.current = false;
+      forcedKillLatchRef.current = false;
+      currentPidRef.current = null;
+      setHmrStatus("idle");
+      if (restartGraceTimerRef.current !== null) {
+        clearTimeout(restartGraceTimerRef.current);
+        restartGraceTimerRef.current = null;
+      }
+      // Same narrowing false positive as the fast-path check below:
+      // the ref is written by the SSE handler / onSpawn drain across
+      // the `streamTraining` await, which TS's flow analysis can't
+      // see, so `hadPendingRestart` (captured from it above) gets
+      // pinned to the literal `false` type here.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (hadPendingRestart) {
+        setLog((prev) =>
+          appendCapped(
+            prev,
+            streamFailed
+              ? `\n[hmr] run did not complete cleanly; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`
+              : exitCode === null
+                ? `\n[hmr] run ended without an exit status (signal kill or truncated stream); auto-restart suppressed. Press Run to start a new job.\n`
+                : `\n[hmr] run exited with code ${exitCode}; auto-restart suppressed. Fix the issue and press Run to start a new job.\n`,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Deferral (cubic P1, round 86): a latched restart while the
+    // BUILD IS BROKEN must not fire. It would spawn a fresh cloud job
+    // from the last-good artifact at the very moment the manifest
+    // error is disabling the manual Run button for that same broken
+    // state. Keep the latch armed and settle to idle; the SSE
+    // handler releases it on the next successful rebuild (which is
+    // the artifact the user actually wants to run).
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (restartPendingRef.current && lastBuildErrorRef.current) {
+      currentPidRef.current = null;
+      setHmrStatus("idle");
+      if (restartGraceTimerRef.current !== null) {
+        clearTimeout(restartGraceTimerRef.current);
+        restartGraceTimerRef.current = null;
+      }
       setLog((prev) =>
         appendCapped(
           prev,
-          `\n[error] ${err instanceof Error ? err.message : String(err)}\n`,
+          `\n[hmr] the current build is failing; auto-restart deferred until the next successful rebuild.\n`,
         ),
       );
-    } finally {
-      if (trainingAbortRef.current === ac) trainingAbortRef.current = null;
-      // Always release the running flag, including the user-initiated
-      // abort path. setState on an already-unmounted component is a
-      // no-op in React 18+, so the unmount-cleanup case handles itself.
-      setRunning(false);
+      return;
     }
+
+    // Same cross-closure narrowing false positive as above: the ref
+    // is written by the SSE handler / onSpawn drain across the
+    // `streamTraining` await; the runtime branch is real.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (restartPendingRef.current) {
+      // Fast path: SSE event already landed before exit. Fire the
+      // restart synchronously without waiting for the grace
+      // window so the common case has no perceptible delay.
+      restartPendingRef.current = false;
+      forcedKillLatchRef.current = false;
+      currentPidRef.current = null;
+      setHmrStatus("restarting");
+      const fileForRestart = lastTrainFileRef.current;
+      queueMicrotask(() => {
+        // Don't auto-spawn a fresh /api/train request from an
+        // unmounted view: the user navigated away in the small
+        // window between scheduling and running this microtask, so
+        // their intent was "stop interacting with this view", not
+        // "kick off another cloud job invisibly". The unmount
+        // cleanup also clears `restartPendingRef` defensively.
+        if (!isMountedRef.current) return;
+        void run(fileForRestart);
+      });
+      return;
+    }
+
+    // Slow path: SSE rebuild event might still be in flight on a
+    // separate connection. Defer the "no restart" decision so the
+    // SSE handler has time to land and flip `restartPendingRef`.
+    // `currentPidRef` stays set for the grace window so that
+    // late event can still match per-pid.
+    //
+    // Skip the grace window entirely when HMR isn't enabled:
+    // without an `/api/dev/events` subscription nothing can ever
+    // flip `restartPendingRef`, so the 250 ms timer + closure
+    // would just churn microtasks and delay `setHmrStatus("idle")`
+    // for no benefit. `isHmrEnabled()` reads the same
+    // server-injected meta the SSE effect above gates on, so this
+    // mirrors that condition exactly.
+    if (!isHmrEnabled()) {
+      currentPidRef.current = null;
+      setHmrStatus("idle");
+      return;
+    }
+    if (restartGraceTimerRef.current !== null) {
+      clearTimeout(restartGraceTimerRef.current);
+    }
+    restartGraceTimerRef.current = window.setTimeout(() => {
+      restartGraceTimerRef.current = null;
+      // A new run started during the window (overwrote the pid).
+      // Leave its lifecycle alone; its own finally will manage
+      // the cleanup eventually.
+      if (currentPidRef.current !== pidAtExit) return;
+      currentPidRef.current = null;
+      if (!isMountedRef.current) return;
+      if (restartPendingRef.current) {
+        if (lastBuildErrorRef.current) {
+          // Same deferral as the fast path: hold the latch for the
+          // next successful rebuild instead of spawning from a
+          // broken build's last-good artifact.
+          setHmrStatus("idle");
+          return;
+        }
+        restartPendingRef.current = false;
+        forcedKillLatchRef.current = false;
+        setHmrStatus("restarting");
+        const fileForRestart = lastTrainFileRef.current;
+        void run(fileForRestart);
+      } else {
+        setHmrStatus("idle");
+      }
+    }, 250);
   }
 
+  runRef.current = run;
+
   function stop() {
+    // A user Stop click also cancels any pending HMR auto-restart so
+    // the run finally settles instead of bouncing back up.
+    restartPendingRef.current = false;
+    forcedKillLatchRef.current = false;
     trainingAbortRef.current?.abort();
   }
 
@@ -158,7 +792,7 @@ export function RunTraining() {
           // affordance; clicking aborts the in-flight stream so the
           // visible StopCircle icon actually does what the user
           // expects. When idle, it kicks off a new run.
-          onClick={running ? stop : run}
+          onClick={running ? stop : () => run(lastTrainFileRef.current)}
           disabled={!running && !hasTrainer}
           leadingIcon={running ? <StopCircle /> : <Play />}
         >
@@ -169,6 +803,15 @@ export function RunTraining() {
               : "Run training"}
         </Button>
       </div>
+
+      {hmrStatus !== "idle" && (
+        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+          {hmrStatus === "early-stopping" && "Stopping at next checkpoint…"}
+          {hmrStatus === "restarting" && "Restarting with updated code…"}
+          {hmrStatus === "hot-swapped" &&
+            "Callbacks hot-swapped: run continues."}
+        </div>
+      )}
 
       {(running || log) && (
         <pre

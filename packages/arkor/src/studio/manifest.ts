@@ -5,7 +5,11 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { runBuild } from "../cli/commands/build";
-import { isArkor } from "../core/arkor";
+import { hashJobConfig } from "../core/configHash";
+import {
+  findTrainerInModule,
+  getTrainerInspection,
+} from "../core/trainerInspection";
 
 /**
  * Wire-friendly snapshot of the user's `createArkor({...})` manifest. Mirrors
@@ -14,41 +18,25 @@ import { isArkor } from "../core/arkor";
  */
 export interface ManifestSummary {
   trainer: { name: string } | null;
+  /**
+   * Stable hash of the trainer's cloud-side `JobConfig`. Used by HMR to
+   * decide whether a rebuild only changed in-process callbacks (hash
+   * unchanged → hot-swap) or also touched cloud-side training config
+   * (hash changed → restart with `requestEarlyStop`). `null` when no
+   * inspectable trainer is present.
+   */
+  configHash: string | null;
   // future: deploy: { name: string } | null;
   // future: eval:   { name: string } | null;
 }
 
-const EMPTY: ManifestSummary = { trainer: null };
+const EMPTY: ManifestSummary = { trainer: null, configHash: null };
 
-/**
- * Build the user's `src/arkor/index.ts` and import the artifact to extract a
- * serialisable summary of its manifest. The Studio UI hits this on home-page
- * load to show *what* the project contains (just the trainer name today;
- * deploy / eval slots when those primitives land).
- *
- * Each call rebuilds and re-imports so edits to the user's source surface
- * without restarting Studio, while unedited reloads reuse Node's ESM cache.
- *
- * The import goes through a CONTENT-ADDRESSED copy of the bundle
- * (`index.<sha256-prefix>.mjs`, written from the exact bytes that were
- * hashed), NOT the mutable `index.mjs` with a hash query. Two reasons:
- *
- *  - Keying: Node's ESM registry keys modules by full URL and retains every
- *    distinct URL permanently, so a per-call unique key (`Date.now()`, or an
- *    mtime, which esbuild refreshes every rebuild) would leak one module per
- *    home-page load across a long `arkor dev` session. A content hash busts
- *    the cache exactly when the user's source actually changed.
- *  - Integrity: importing the mutable `index.mjs` under a hash QUERY had a
- *    TOCTOU: a concurrent rebuild could overwrite the file between hashing
- *    and import, caching build B's module under build A's key; an editor
- *    undo back to A's exact bytes then served B's manifest until restart.
- *    Importing a copy written from the hashed bytes makes the URL name the
- *    evaluated bytes by construction. The copy lives in the same directory,
- *    so relative and bare-specifier resolution match `index.mjs` exactly.
- *
- * `importModule` is an injectable seam (default: dynamic `import`) so tests can
- * observe the import URL and assert the reuse-vs-bust behaviour directly.
- */
+/** Injectable import seam so tests can observe URLs and control failures. */
+export type ImportModuleFn = (url: string) => Promise<Record<string, unknown>>;
+
+const defaultImportModule: ImportModuleFn = (u) =>
+  import(u) as Promise<Record<string, unknown>>;
 
 // Node's ESM registry caches FAILED evaluations by URL too: a bundle whose
 // top-level code threw because of an external runtime condition (e.g. a
@@ -95,12 +83,39 @@ function releaseContentFile(path: string): void {
   }
 }
 
-export async function readManifestSummary(
-  cwd: string,
-  importModule: (url: string) => Promise<Record<string, unknown>> = (u) =>
-    import(u) as Promise<Record<string, unknown>>,
+/**
+ * Dynamic-import an already-built artefact and pull a serialisable summary
+ * off its trainer.
+ *
+ * Split out of `readManifestSummary` so callers that already have a fresh
+ * artefact (the HMR coordinator keeps `.arkor/build/index.mjs` continuously
+ * rebuilt) can inspect it without paying for a redundant `runBuild()`.
+ *
+ * The import goes through a CONTENT-ADDRESSED copy of the bundle
+ * (`index.<sha256-prefix>.mjs`, written from the exact bytes that were
+ * hashed), NOT the mutable `index.mjs` with a hash query. Two reasons:
+ *
+ *  - Keying: Node's ESM registry keys modules by full URL and retains every
+ *    distinct URL permanently, so a per-call unique key (`Date.now()`, or an
+ *    mtime, which the bundler refreshes every rebuild) would leak one module
+ *    per home-page load across a long `arkor dev` session. A content hash
+ *    busts the cache exactly when the user's source actually changed.
+ *  - Integrity: importing the mutable `index.mjs` under a hash QUERY had a
+ *    TOCTOU: a concurrent rebuild (including the HMR watcher's atomic
+ *    rename-publish) could overwrite the file between hashing and import,
+ *    caching build B's module under build A's key; an editor undo back to
+ *    A's exact bytes then served B's manifest until restart. Importing a
+ *    copy written from the hashed bytes makes the URL name the evaluated
+ *    bytes by construction. The copy lives in the same directory, so
+ *    relative and bare-specifier resolution match `index.mjs` exactly.
+ *
+ * `importModule` is an injectable seam (default: dynamic `import`) so tests
+ * can observe the import URL and assert the reuse-vs-bust behaviour directly.
+ */
+export async function summariseBuiltManifest(
+  outFile: string,
+  importModule: ImportModuleFn = defaultImportModule,
 ): Promise<ManifestSummary> {
-  const { outFile } = await runBuild({ cwd, quiet: true });
   const bytes = await readFile(outFile);
   const digest = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
   // Materialise the exact hashed bytes at a digest-addressed sibling and
@@ -122,7 +137,9 @@ export async function readManifestSummary(
       // so the directory holds at most a couple of snapshots. Skips any
       // snapshot an in-flight request still references (see
       // activeContentFiles above); other failures (e.g. Windows EBUSY) are
-      // swallowed and retried by a later request's cleanup pass.
+      // swallowed and retried by a later request's cleanup pass. The
+      // pattern is scoped to `index.<hex16>.mjs`, so the watcher-owned
+      // `index.mjs` and its `.hmr-staging` sibling are never touched.
       try {
         for (const entry of await readdir(buildDir)) {
           const full = join(buildDir, entry);
@@ -175,8 +192,102 @@ export async function readManifestSummary(
   } finally {
     releaseContentFile(contentFile);
   }
-  const candidate = mod.arkor ?? mod.default;
-  if (!isArkor(candidate)) return EMPTY;
-  const trainer = candidate.trainer ? { name: candidate.trainer.name } : null;
-  return { trainer };
+  // Walk every trainer export shape `runner.ts` accepts via the shared
+  // helper (named `arkor` manifest or bare Trainer, named `trainer`,
+  // default Arkor manifest, bare default Trainer, `default.trainer`) so
+  // manifest summary, HMR routing, and runtime execution all agree about
+  // which exports count as a trainer.
+  const trainer = findTrainerInModule(mod);
+  if (!trainer) return EMPTY;
+  // Trainer name renders in the UI even for hand-rolled trainers that
+  // bypass `createTrainer` and therefore don't carry the SDK inspection
+  // brand. The brand is required only for the `configHash` used by HMR
+  // routing; without it, HMR conservatively SIGTERM-restarts on every
+  // rebuild (correct fallback).
+  const name =
+    typeof trainer.name === "string" ? trainer.name : "(unnamed trainer)";
+  const inspection = getTrainerInspection(trainer);
+  // `hashJobConfig` throws on unhashable configs (circular refs in an
+  // `unknown` field, etc.). For the manifest the trainer NAME is
+  // still perfectly renderable, so degrade to `configHash: null`
+  // (the documented "config not diffable -> conservative
+  // SIGTERM-restart" state) instead of 400-ing the whole summary
+  // (cubic P2, round 86). `runnerSignals` makes the same choice;
+  // only `hmr`'s inspection propagates, because there the throw is
+  // what surfaces the error frame.
+  let configHash: string | null = null;
+  if (inspection) {
+    try {
+      configHash = hashJobConfig(inspection.config);
+    } catch {
+      // unhashable config: fall through with null
+    }
+  }
+  return {
+    trainer: { name },
+    configHash,
+  };
+}
+
+export interface ReadManifestOptions {
+  /**
+   * HMR-aware fast path: when set, `runBuild()` is NEVER invoked; the
+   * watcher owns `.arkor/build/index.mjs` end to end and this artefact
+   * is inspected directly. Re-running `runBuild()` on every
+   * `/api/manifest` poll (every ~5 s + on every rebuild SSE event) is
+   * wasted CPU AND races the watcher writing to the same path. A
+   * missing artefact (fresh scaffold, first poll landing before the
+   * watcher's first BUNDLE_END) yields the empty summary for that
+   * poll; the watcher's BUNDLE_END SSE event triggers an immediate SPA
+   * refetch, so the empty state lasts one poll at most.
+   *
+   * Pass `coordinator.outFile`-equivalent (e.g.
+   * `resolveBuildEntry({ cwd }).outFile`) here when the server has
+   * an active `HmrCoordinator`; leave undefined when HMR is off so
+   * the build path runs as before.
+   */
+  prebuiltOutFile?: string;
+  /** Test seam forwarded to `summariseBuiltManifest`. */
+  importModule?: ImportModuleFn;
+}
+
+/**
+ * Build the user's `src/arkor/index.ts` and import the artifact to
+ * extract a serialisable summary of its manifest. The Studio UI hits
+ * this on home-page load to show *what* the project contains (just the
+ * trainer name today; deploy / eval slots when those primitives land).
+ *
+ * Each call rebuilds and re-imports so edits to the user's source
+ * surface without restarting Studio, while unedited reloads reuse
+ * Node's ESM cache (see `summariseBuiltManifest` for the
+ * content-addressed import that makes that sound). When
+ * `prebuiltOutFile` is supplied (HMR-enabled servers), the `runBuild()`
+ * step is bypassed entirely (see `ReadManifestOptions.prebuiltOutFile`).
+ */
+export async function readManifestSummary(
+  cwd: string,
+  opts: ReadManifestOptions = {},
+): Promise<ManifestSummary> {
+  if (opts.prebuiltOutFile) {
+    // HMR mode: the watcher owns `.arkor/build/index.mjs` end to end.
+    // When the artefact doesn't exist yet (fresh scaffold, first poll
+    // landing before the watcher's first BUNDLE_END), return the
+    // empty summary instead of bootstrapping via `runBuild()`
+    // (CodeRabbit, round 82): that bootstrap wrote the watcher-owned
+    // outFile OUTSIDE the staging + rename protocol, so a concurrent
+    // `/api/train` spawn (whose `runStart` skips its own rebuild the
+    // moment the file exists) could dynamic-import partial bytes.
+    if (!existsSync(opts.prebuiltOutFile)) return EMPTY;
+    // No `runBuild()` fallback on import failure either, deliberately:
+    // an import failure of an EXISTING atomically-published artefact
+    // means the bundle genuinely throws at import time; rebuilding the
+    // same source can't fix that, and a fallback build would race the
+    // watcher. Rethrowing lets `/api/manifest` surface the import
+    // error as a 400 (the HMR coordinator broadcasts its own matching
+    // `error` frame for the same broken bundle, so both channels
+    // agree).
+    return summariseBuiltManifest(opts.prebuiltOutFile, opts.importModule);
+  }
+  const { outFile } = await runBuild({ cwd, quiet: true });
+  return summariseBuiltManifest(outFile, opts.importModule);
 }

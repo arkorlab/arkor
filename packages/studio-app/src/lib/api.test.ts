@@ -13,6 +13,7 @@ import {
   fetchJobs,
   fetchManifest,
   fetchMe,
+  isHmrEnabled,
   revokeDeploymentKey,
   streamInferenceContent,
   streamTraining,
@@ -346,6 +347,54 @@ describe("streamTraining", () => {
     expect(received.join("")).toBe("one two three");
   });
 
+  it("returns the exit code parsed off the trailing `exit=` marker", async () => {
+    // Codex P1 (round 80): the SPA suppresses HMR auto-restart when
+    // the child exited nonzero (143 = early-stop whose cancel POST
+    // rejected). The exit code rides the stream as the server's
+    // trailing `\n---\nexit=<code>\n` marker; streamTraining parses
+    // it from the tail and returns it so `run()` can gate the
+    // restart. Split the marker across chunks to prove the rolling
+    // tail buffer reassembles it.
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["trainer says hi\n", "\n---\nexit", "=143\n"]),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).resolves.toBe(143);
+  });
+
+  it("returns 0 for a clean exit marker", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["done\n", "\n---\nexit=0\n"]),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).resolves.toBe(0);
+  });
+
+  it("returns null when no marker is present (aborted / truncated body)", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["partial output, no marker"]),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).resolves.toBeNull();
+  });
+
+  it("rejects with the spawn error when the stream ends with the `error=` marker", async () => {
+    // qodo (round 83): the server terminates the stream with
+    // `\n---\nerror=<msg>\n` (no `exit=`) when the child's async
+    // spawn machinery fails (bin ENOENT, EACCES). Resolving `null`
+    // there made spawn failures indistinguishable from aborted
+    // streams, and RunTraining's nonzero-exit suppression gate
+    // treated them as non-failures. The marker now rejects so
+    // callers land in their existing error path. The message is
+    // long on purpose: the old 64-byte tail buffer would have
+    // sliced off the marker prefix for any realistic ENOENT path.
+    const reason =
+      "spawn ENOENT: /home/user/some/deeply/nested/project/dir/node_modules/.bin/arkor-training-binary";
+    globalThis.fetch = vi.fn(async () =>
+      mockChunkedResponse(["boot log\n", `\n---\nerror=${reason}\n`]),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).rejects.toThrow(
+      /failed to start.*arkor-training-binary/,
+    );
+  });
+
   it("forwards the file argument to /api/train when supplied", async () => {
     let captured: { url: string; body: string } = { url: "", body: "" };
     globalThis.fetch = vi.fn(async (input, init) => {
@@ -368,6 +417,54 @@ describe("streamTraining", () => {
     }) as typeof fetch;
     await streamTraining(() => undefined);
     expect(JSON.parse(captured)).toEqual({});
+  });
+
+  it("throws with the response body when /api/train returns non-2xx", async () => {
+    // Regression: previously `streamTraining` ignored `res.ok` and
+    // proceeded to call `onSpawn` + read the body even on 403/500
+    // failures. The SPA would treat a failed spawn (auth rejection,
+    // server-side EACCES surfacing as 500, etc.) as a normal
+    // completion: `onChunk` got nothing, `onSpawn` was called with
+    // a `null` pid, and `run()` resolved cleanly. The user saw an
+    // idle UI with no log line and no clue what went wrong. Fail
+    // fast so the caller's catch path surfaces the server's reason.
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response("anonymous tokens disabled", {
+          status: 403,
+          statusText: "Forbidden",
+        }),
+    ) as typeof fetch;
+    const onChunkCalls: string[] = [];
+    let onSpawnCalls = 0;
+    await expect(
+      streamTraining(
+        (t) => onChunkCalls.push(t),
+        undefined,
+        undefined,
+        () => {
+          onSpawnCalls += 1;
+        },
+      ),
+    ).rejects.toThrow(/403.*anonymous tokens disabled/);
+    // The body must NOT have been streamed and `onSpawn` must NOT
+    // have been called with the bogus null pid; both would mislead
+    // the SPA into treating the failure as a successful run.
+    expect(onChunkCalls).toEqual([]);
+    expect(onSpawnCalls).toBe(0);
+  });
+
+  it("falls back to the bare status when the error response body is empty", async () => {
+    // Belt-and-braces for upstreams that return non-2xx with no
+    // body. The status code is enough to surface the failure to
+    // the user; we just don't want a `: undefined` suffix.
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(null, { status: 500, statusText: "Server Error" }),
+    ) as typeof fetch;
+    await expect(streamTraining(() => undefined)).rejects.toThrow(
+      /^\/api\/train failed \(500 Server Error\)$/,
+    );
   });
 
   it("returns silently when the response has no body (e.g. 204 from upstream)", async () => {
@@ -549,6 +646,78 @@ describe("streamInferenceContent abort", () => {
       }
     })();
     await expect(consume).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("isHmrEnabled", () => {
+  // Regression: a previous version of `RunTraining` gated its
+  // EventSource subscription on `import.meta.env.DEV`, which is
+  // baked to `false` by `vite build` and therefore *always* false
+  // in a real `arkor dev` session (the SPA is shipped as static
+  // assets). The new server-side `<meta name="arkor-hmr-enabled">`
+  // tag is what tells the SPA whether HMR is actually wired in;
+  // these tests pin the contract.
+  //
+  // The package's vitest config doesn't load jsdom (the rest of the
+  // suite runs in Node), so we stub the minimal `document` API
+  // `isHmrEnabled` uses (`querySelector('meta[name=...]')`)
+  // directly on `globalThis`. The reader's contract is just "look
+  // up a meta tag and return its content === 'true'", which a tiny
+  // hand-rolled stub covers without dragging the whole DOM in.
+  function withMetaContent(value: string | null, fn: () => void) {
+    const fakeDocument = {
+      querySelector: (selector: string) => {
+        if (selector !== 'meta[name="arkor-hmr-enabled"]') return null;
+        if (value === null) return null;
+        return { getAttribute: () => value };
+      },
+    };
+    const had = "document" in globalThis;
+    const previous = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = fakeDocument;
+    try {
+      fn();
+    } finally {
+      if (had) (globalThis as { document?: unknown }).document = previous;
+      else delete (globalThis as { document?: unknown }).document;
+    }
+  }
+
+  it("returns true when the server-injected meta says HMR is on", () => {
+    withMetaContent("true", () => {
+      expect(isHmrEnabled()).toBe(true);
+    });
+  });
+
+  it("returns false when the meta tag is missing entirely", () => {
+    // No injection → SPA must NOT open `/api/dev/events` (which
+    // would 404 and EventSource-retry forever in a non-HMR build).
+    withMetaContent(null, () => {
+      expect(isHmrEnabled()).toBe(false);
+    });
+  });
+
+  it("returns false for any meta content other than the literal `true`", () => {
+    // Defensive: don't fail open on a malformed/legacy server that
+    // injects an empty value or a placeholder.
+    withMetaContent("", () => expect(isHmrEnabled()).toBe(false));
+    withMetaContent("false", () => expect(isHmrEnabled()).toBe(false));
+    withMetaContent("yes", () => expect(isHmrEnabled()).toBe(false));
+  });
+
+  it("returns false when there is no document at all (Node SSR / module-load probe)", () => {
+    // The reader is called during component render; in any non-DOM
+    // host (test fixtures that import the module without jsdom, a
+    // hypothetical SSR pre-render) it must return false rather than
+    // throwing on `document` being undefined.
+    const had = "document" in globalThis;
+    const previous = (globalThis as { document?: unknown }).document;
+    delete (globalThis as { document?: unknown }).document;
+    try {
+      expect(isHmrEnabled()).toBe(false);
+    } finally {
+      if (had) (globalThis as { document?: unknown }).document = previous;
+    }
   });
 });
 
