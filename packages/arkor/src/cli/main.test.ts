@@ -197,13 +197,23 @@ describe("main (CLI Commander wiring)", () => {
 
   it("dispatches `dev` with the parsed port + --open flag", async () => {
     await main(["dev", "--port", "4500", "--open"]);
-    expect(runDev).toHaveBeenCalledWith({ port: 4500, open: true });
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4500,
+      open: true,
+      portExplicit: true,
+    });
   });
 
   it("falls back to port 4000 when --port is non-numeric", async () => {
     // Branch coverage for the `Number(opts.port) || 4000` defaulting.
+    // The user still typed --port explicitly (even though the value was
+    // garbage), so portExplicit is still true here.
     await main(["dev", "--port", "not-a-number"]);
-    expect(runDev).toHaveBeenCalledWith({ port: 4000, open: false });
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4000,
+      open: false,
+      portExplicit: true,
+    });
   });
 
   it("flushes a recorded deprecation warning after parse and awaits shutdownTelemetry", async () => {

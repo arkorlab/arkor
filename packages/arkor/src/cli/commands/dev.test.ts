@@ -821,7 +821,7 @@ describe("runDev", () => {
     // leave the CONTENT untouched (existence alone can't catch a clobber).
     mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
     writeFileSync(studioTokenPath(), "healthy-instance-token");
-    await expect(runDev({ port: 4206 })).rejects.toThrow(
+    await expect(runDev({ port: 4206, portExplicit: true })).rejects.toThrow(
       /Port 4206 is already in use/,
     );
     // The healthy instance's token is untouched and no cleanup handler was
@@ -832,10 +832,68 @@ describe("runDev", () => {
     expect(process.listeners("exit").length).toBe(exitBefore);
   });
 
+  it("falls back to the next free port when --port was not explicit", async () => {
+    let call = 0;
+    vi.mocked(serve).mockImplementation(((
+      opts: { port: number },
+      onListen?: () => void,
+    ) => {
+      call++;
+      if (call === 1) {
+        const server = {
+          on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+            if (event === "error") {
+              queueMicrotask(() =>
+                cb(Object.assign(new Error("bind failed"), { code: "EADDRINUSE" })),
+              );
+            }
+            return server;
+          },
+        };
+        return server;
+      }
+      queueMicrotask(() => onListen?.());
+      return { on: vi.fn() };
+    }) as unknown as typeof serve);
+
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4300 });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    expect(serve).toHaveBeenCalledTimes(2);
+    const secondCallArg = vi.mocked(serve).mock.calls[1]?.[0] as {
+      port: number;
+    };
+    expect(secondCallArg.port).toBe(4301);
+  });
+
+  it("does not retry when --port was explicit, even on EADDRINUSE", async () => {
+    vi.mocked(serve).mockImplementationOnce((() => {
+      const server = {
+        on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+          if (event === "error") {
+            queueMicrotask(() =>
+              cb(Object.assign(new Error("bind failed"), { code: "EADDRINUSE" })),
+            );
+          }
+          return server;
+        },
+      };
+      return server;
+    }) as unknown as typeof serve);
+
+    await expect(
+      runDev({ port: 4301, portExplicit: true }),
+    ).rejects.toThrow(/Port 4301 is already in use/);
+    expect(serve).toHaveBeenCalledTimes(1);
+  });
+
   // PR #193 review (coderabbit): the token path is a single shared file, and
-  // a second instance on a DIFFERENT port can legitimately overwrite it
-  // (last-writer-wins). This instance's shutdown must then leave the file
-  // alone: only the current owner's token may be unlinked.
   it("does not unlink a token that another instance has since overwritten", async () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")

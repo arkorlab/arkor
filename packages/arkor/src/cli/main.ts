@@ -244,9 +244,10 @@ export async function main(argv: string[]): Promise<void> {
     .action(
       withTelemetry(
         "dev",
-        async (opts: { port: string; open?: boolean }) => {
+        async (opts: { port: string; open?: boolean }, command: Command) => {
           await runDev({
             port: Number(opts.port) || 4000,
+            portExplicit: command.getOptionValueSource("port") === "cli",
             open: opts.open === true,
           });
         },
