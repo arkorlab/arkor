@@ -216,6 +216,19 @@ describe("main (CLI Commander wiring)", () => {
     });
   });
 
+  it("dispatches `dev` with no --port, defaulting to portExplicit: false", async () => {
+    // PR #212 review point 5: the existing dev tests above all pass an
+    // explicit --port, so none of them cover getOptionValueSource("port")
+    // falling through to commander's default ("4000") rather than "cli".
+    await main(["dev"]);
+    expect(runDev).toHaveBeenCalledWith(
+      expect.objectContaining({
+        port: 4000,
+        portExplicit: false,
+      }),
+    );
+  });
+
   it("flushes a recorded deprecation warning after parse and awaits shutdownTelemetry", async () => {
     mockDeprecation.value = {
       sdkVersion: "1.4.0",

@@ -833,29 +833,29 @@ describe("runDev", () => {
   });
 
   it("falls back to the next free port when --port was not explicit", async () => {
-    let call = 0;
-    vi.mocked(serve).mockImplementation(((
-      opts: { port: number },
-      onListen?: () => void,
-    ) => {
-      call++;
-      if (call === 1) {
-        const server = {
-          on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
-            if (event === "error") {
-              queueMicrotask(() =>
-                cb(Object.assign(new Error("bind failed"), { code: "EADDRINUSE" })),
-              );
-            }
-            return server;
-          },
-        };
-        return server;
-      }
-      queueMicrotask(() => onListen?.());
-      return { on: vi.fn() };
+    // Matches this file's mock convention: mockImplementationOnce for the
+    // ONE failing attempt, then let the module-level default (a successful
+    // bind) take over for the retry, rather than a persistent counter-based
+    // override that could leak into later tests (flagged in PR #212 review).
+    vi.mocked(serve).mockImplementationOnce((() => {
+      const server = {
+        on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+          if (event === "error") {
+            queueMicrotask(() =>
+              cb(
+                Object.assign(new Error("bind failed"), {
+                  code: "EADDRINUSE",
+                }),
+              ),
+            );
+          }
+          return server;
+        },
+      };
+      return server;
     }) as unknown as typeof serve);
 
+    const warnSpy = vi.spyOn(clack.log, "warn");
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
@@ -870,6 +870,10 @@ describe("runDev", () => {
       port: number;
     };
     expect(secondCallArg.port).toBe(4301);
+    // PR #212 review point 3: fallback must be visible to the user.
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Port 4300 is in use, trying 4301 instead. Pass --port to pin a specific one.",
+    );
   });
 
   it("does not retry when --port was explicit, even on EADDRINUSE", async () => {
@@ -878,7 +882,11 @@ describe("runDev", () => {
         on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
           if (event === "error") {
             queueMicrotask(() =>
-              cb(Object.assign(new Error("bind failed"), { code: "EADDRINUSE" })),
+              cb(
+                Object.assign(new Error("bind failed"), {
+                  code: "EADDRINUSE",
+                }),
+              ),
             );
           }
           return server;
@@ -887,13 +895,49 @@ describe("runDev", () => {
       return server;
     }) as unknown as typeof serve);
 
-    await expect(
-      runDev({ port: 4301, portExplicit: true }),
-    ).rejects.toThrow(/Port 4301 is already in use/);
+    const warnSpy = vi.spyOn(clack.log, "warn");
+
+    await expect(runDev({ port: 4301, portExplicit: true })).rejects.toThrow(
+      /Port 4301 is already in use/,
+    );
     expect(serve).toHaveBeenCalledTimes(1);
+    // PR #212 review point 3: no fallback warning on an explicit port.
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("trying"));
+  });
+
+  // PR #212 review (Nicolas0315): nothing exercised the MAX_PORT_ATTEMPTS
+  // upper bound or the range-style exhaustion error message.
+  it("stops after MAX_PORT_ATTEMPTS and reports the scanned range when every port is busy", async () => {
+    for (let i = 0; i < 10; i++) {
+      vi.mocked(serve).mockImplementationOnce((() => {
+        const server = {
+          on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+            if (event === "error") {
+              queueMicrotask(() =>
+                cb(
+                  Object.assign(new Error("bind failed"), {
+                    code: "EADDRINUSE",
+                  }),
+                ),
+              );
+            }
+            return server;
+          },
+        };
+        return server;
+      }) as unknown as typeof serve);
+    }
+
+    await expect(runDev({ port: 4302 })).rejects.toThrow(
+      /Port 4302 is already in use, and no free port was found in 4302-4311/,
+    );
+    expect(serve).toHaveBeenCalledTimes(10);
   });
 
   // PR #193 review (coderabbit): the token path is a single shared file, and
+  // a second instance on a DIFFERENT port can legitimately overwrite it
+  // (last-writer-wins). This instance's shutdown must then leave the file
+  // alone: only the current owner's token may be unlinked.
   it("does not unlink a token that another instance has since overwritten", async () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")

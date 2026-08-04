@@ -65,16 +65,43 @@ export async function ensureCredentialsForStudio(): Promise<void> {
     cfg?.auth0Domain && cfg.clientId && cfg.audience,
   );
   if (oauthAvailable) {
+    // Point at `--oauth` rather than the bare `arkor login`. Anyone who
+    // acts on this message already implicitly accepted the anon path
+    // (they ran `arkor dev` without logging in first); their only reason
+    // to follow up is to upgrade to OAuth, so the interactive picker
+    // would just add friction. Surface the fast path directly.
     ui.log.info(
       "No credentials on file. Bootstrapping an anonymous session. Run `arkor login --oauth` to sign in to your account instead.",
     );
   } else {
     ui.log.info("No credentials on file. Requesting an anonymous token.");
   }
+  // Scoped to just `requestAnonymousToken` on purpose: this is where we
+  // decide whether the network failure is recoverable (transport blip vs
+  // permanent rejection vs OAuth-only deployment). Local failures from
+  // `writeCredentials` (EACCES/EROFS/EISDIR on `~/.arkor/credentials.json`)
+  // would be miscategorised here, so they live outside this try block and
+  // surface with their original fs message intact.
   let anon: Awaited<ReturnType<typeof requestAnonymousToken>>;
   try {
     anon = await requestAnonymousToken(baseUrl, "cli");
   } catch (err) {
+    // Decide whether to swallow the failure or surface it. Two filters:
+    //
+    // 1. `TypeError("fetch failed")` is undici's contract for transient
+    //    transport failures (ECONNREFUSED/ETIMEDOUT/ENOTFOUND/etc.) where
+    //    the cloud-api may come back. Other TypeErrors are config errors
+    //    ("Invalid URL", "URL scheme must be a HTTP(S) scheme") that keep
+    //    failing on every retry. Plain Errors (non-2xx responses, ZodError
+    //    on garbage responses) also keep failing on retry.
+    //
+    // 2. `deploymentModeKnown` guards against silently starting a broken
+    //    Studio when we couldn't reach the cloud-api at all. If
+    //    `fetchCliConfig` itself failed we don't know whether
+    //    `/v1/auth/anonymous` is even enabled on this deployment, so the
+    //    server-side retry on `/api/credentials` could keep failing
+    //    indefinitely. Fail fast so the user sees the real cause and can
+    //    re-run once connectivity is back.
     const isTransportFailure =
       err instanceof TypeError && err.message === "fetch failed";
     if (isTransportFailure && deploymentModeKnown) {
@@ -83,12 +110,32 @@ export async function ensureCredentialsForStudio(): Promise<void> {
       );
       return;
     }
+    // OAuth-only deployments (`/v1/auth/cli/config` advertises Auth0 but
+    // `/v1/auth/anonymous` is disabled) used to be handled by delegating to
+    // `runLogin()` here. The new flow always tries anon first, so a
+    // permanent rejection of `/v1/auth/anonymous` would leave the user with
+    // a bare "Failed to acquire anonymous token (4xx)" error and no way
+    // forward. Wrap the error with an explicit pointer at `arkor login
+    // --oauth` so first-run users on those deployments still have a
+    // discoverable next step.
+    //
+    // Gate on `AnonymousTokenRejectedError` *and* a 4xx status so the
+    // wrap fires only for genuine deployment rejection (401/403/404 et
+    // al). 5xx is a transient cloud-api failure where retrying makes
+    // sense, ZodErrors signal a malformed response (server bug), and fs
+    // failures are out of scope for the anon endpoint entirely: none of
+    // these should be mislabelled as a sign-in requirement.
     if (
       err instanceof AnonymousTokenRejectedError &&
       err.status >= 400 &&
       err.status < 500 &&
       oauthAvailable
     ) {
+      // Surface only the status code at the top level: the inner
+      // `err.message` already starts with "Failed to acquire…" and
+      // includes the response-body snippet, which would double-prefix the
+      // wrap and risk leaking noisy HTML/JSON error pages. The full
+      // detail is preserved on `cause` for debugging.
       throw new Error(
         `Failed to bootstrap an anonymous session (HTTP ${err.status}). This deployment may require sign-in. Run \`arkor login --oauth\` and try again.`,
         { cause: err },
@@ -108,6 +155,7 @@ export async function ensureCredentialsForStudio(): Promise<void> {
   ui.log.info(
     `Anonymous id: ${anon.anonymousId}. Arkor Cloud uses this id to recognise this client across sessions. Keep \`${credentialsPath()}\` to stay signed in as the same anonymous identity.`,
   );
+  // see ../anonymous.ts for wording rationale and gating contract.
   if (oauthAvailable) {
     ui.log.warn(ANON_PERSISTENCE_NUDGE);
   }
@@ -124,10 +172,25 @@ export async function ensureCredentialsForStudio(): Promise<void> {
 async function persistStudioToken(token: string): Promise<string> {
   const path = studioTokenPath();
   await mkdir(dirname(path), { recursive: true });
+  // Atomic write, mirroring `writeCredentials`: stage to a unique 0600 temp
+  // file and rename over the shared path. A signal or crash mid-`writeFile`
+  // can then never leave a TRUNCATED token at the canonical path; that would
+  // be worse than no token, because the ownership-checked cleanup declines
+  // to remove content it doesn't recognise, stranding a corrupt file that
+  // 403s the Vite SPA workflow until the next launch rotates it. rename(2)
+  // is atomic within a filesystem, so readers observe either the previous
+  // complete token or this launch's complete token. The temp name carries a
+  // random suffix so PID-1 collisions across containers sharing ~/.arkor
+  // can't race each other's staging file.
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(tmp, token, { mode: 0o600 });
     try {
+      // Belt-and-suspenders, same policy as `writeCredentials`: `writeFile`'s
+      // create mode is already 0600 masked by umask (never wider), so a chmod
+      // failure on an exotic mount must not discard a complete, staged token
+      // and needlessly downgrade the Vite SPA workflow to 403s. Warn and
+      // proceed to the rename.
       await chmod(tmp, 0o600);
     } catch (err) {
       ui.log.warn(
@@ -138,6 +201,7 @@ async function persistStudioToken(token: string): Promise<string> {
     }
     await rename(tmp, path);
   } catch (err) {
+    // Leave nothing behind on failure; the caller's warn path covers the rest.
     await rm(tmp, { force: true }).catch(() => undefined);
     throw err;
   }
@@ -147,6 +211,14 @@ async function persistStudioToken(token: string): Promise<string> {
 /**
  * Install the process-lifetime shutdown handlers, running `cleanup` (once)
  * on normal exit and on SIGINT/SIGTERM/SIGHUP before re-exiting.
+ *
+ * Registered unconditionally once the server binds, NOT gated on studio-token
+ * persistence: even when persistence failed (read-only `$HOME` on Docker),
+ * a termination signal must still route through `process.exit` so that (a) it
+ * reports the conventional `128 + signal` code and (b) the synchronous 'exit'
+ * event fires, which is what lets each `/api/train` child register its own
+ * kill hook (see studio/server.ts) and avoid being orphaned on `docker stop`.
+ * `cleanup` itself handles the token file (a no-op when none was written).
  */
 function installShutdownHandlers(cleanup: () => void): void {
   let cleaned = false;
@@ -159,6 +231,11 @@ function installShutdownHandlers(cleanup: () => void): void {
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
       runCleanup();
+      // Exit with the conventional `128 + signal number` code (SIGINT ->
+      // 130, SIGTERM -> 143, SIGHUP -> 129) rather than 0, so a supervisor
+      // (systemd, `docker stop`, a shell `$?`) can tell the process was
+      // terminated by a signal instead of exiting cleanly. `process.exit`
+      // fires the 'exit' listener above synchronously.
       process.exit(128 + osConstants.signals[sig]);
     });
   }
@@ -179,6 +256,9 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // hitting `arkor start` (and therefore RCE via dynamic import).
   const studioToken = randomBytes(32).toString("base64url");
 
+  // `autoAnonymous: true` (the default) lets the Hono server retry the
+  // anonymous bootstrap on first `/api/credentials` hit if the up-front
+  // attempt above failed (e.g. cloud-api was unreachable at launch).
   const app = buildStudioApp({ studioToken });
 
   // Filled in once the server actually binds; may differ from
@@ -186,25 +266,60 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   let boundPort = requestedPort;
 
   await new Promise<void>((resolve, reject) => {
-    // Tracks whether the listener has BOUND so the persistent 'error'
-    // listener can tell a pre-bind failure (reject/retry) from a
-    // post-startup fault (log).
+    // Tracks whether the listener has BOUND (the `listening` callback fired)
+    // so the persistent 'error' listener below can tell a pre-bind failure
+    // (reject) from a post-startup fault (log). The boundary is deliberately
+    // the bind, not the later resolve(): an error that arrives while the
+    // token is still being persisted hits an already-serving server, so
+    // treating it as a startup failure would kill a healthy instance.
     let bound = false;
 
-    // Attempts a bind on `port`. On EADDRINUSE, retries on `port + 1` as
-    // long as the port wasn't explicit and attempts remain; otherwise
-    // rejects. Bind FIRST, then persist the studio token (see original
-    // comment below) so a doomed retry never clobbers a healthy
-    // instance's token file.
+    // Bind FIRST, then persist the studio token and register its cleanup
+    // in the `listening` callback (after a successful bind). The token
+    // file (`~/.arkor/studio-token`) is a single shared path, so a second
+    // `arkor dev` on the same port must fail on EADDRINUSE (or, for a
+    // non-explicit port, retry the next one) *without* having clobbered
+    // the first instance's token or registered an exit handler that would
+    // delete it. The old flow persisted up front, so a doomed second
+    // launch overwrote the token and then, on its crash-exit, unlinked
+    // the healthy instance's file, 403-ing the Vite SPA workflow.
     const attemptBind = (port: number, attemptsLeft: number) => {
+      // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
+      // only: `@hono/node-server` passes hostname to `net.Server.listen`, which
+      // calls `dns.lookup`. On hosts where `/etc/hosts` orders `::1 localhost`
+      // before `127.0.0.1 localhost`, a "localhost" bind would refuse IPv4
+      // connections, breaking the studio-app Vite proxy (hardcoded to
+      // `http://127.0.0.1:4000`) and any browser that resolves localhost to
+      // IPv4. The host-header guard already accepts both, so the displayed URL
+      // can still be `localhost`.
       const url = `http://localhost:${port}`;
       const server = serve(
         { fetch: app.fetch, port, hostname: "127.0.0.1" },
         () => {
           bound = true;
           boundPort = port;
+          // Install shutdown handlers immediately on successful bind, BEFORE
+          // (and independent of) token persistence. The handlers must fire even
+          // when persistence fails so a termination signal still reaps any
+          // /api/train child and reports the right exit code. The cleanup
+          // resolves the token path directly (rather than gating on a variable
+          // assigned after persistence resolves): a signal landing after the
+          // atomic rename placed the token but before persistStudioToken's
+          // continuation ran would otherwise leave the file behind (a signal
+          // before the rename abandons only the disposable .tmp staging file,
+          // never the canonical path). The ownership check
+          // below makes the direct resolution safe in every state: not yet
+          // written -> ENOENT (caught); written by us -> matches, removed;
+          // overwritten by another instance -> differs, left alone.
           installShutdownHandlers(() => {
             try {
+              // Ownership check before unlinking: the token path is a single
+              // shared file, so a second `arkor dev` on a DIFFERENT port may
+              // have legitimately overwritten it since we wrote it
+              // (last-writer-wins is the documented multi-instance
+              // behaviour). Deleting it then would 403 the OTHER, still-
+              // running instance's Vite SPA workflow; only remove the file
+              // if it still holds OUR token.
               const path = studioTokenPath();
               if (readFileSync(path, "utf8") === studioToken) {
                 unlinkSync(path);
@@ -213,6 +328,11 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
               // best-effort
             }
           });
+          // Persisting the token to disk is *only* needed for the Vite SPA
+          // dev workflow. The bundled `:port` flow injects the meta tag at
+          // request time via `buildStudioApp`, so a failure here (read-only
+          // $HOME on Docker / locked-down CI / restrictive umask) must not
+          // block the server.
           void (async () => {
             try {
               await persistStudioToken(studioToken);
@@ -229,6 +349,19 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         },
       );
       server.on("error", (err: unknown) => {
+        // EADDRINUSE (and friends) arrive here asynchronously. Without this
+        // listener Node rethrows them as an uncaught exception, which would
+        // also fire the process-wide exit handler and delete a *different*
+        // healthy instance's studio-token (see the bind-first note above).
+        //
+        // `err` is treated as `unknown` on purpose: a non-Error emission
+        // (string, null) must not crash THIS handler via a property access.
+        //
+        // Once bound, reject() would be a silent no-op (or, during the token-
+        // persistence window, would wrongly kill an already-serving instance),
+        // so log post-bind server errors instead: an operator watching a
+        // running Studio should see a live socket fault (EMFILE, ...) even
+        // though the process keeps serving.
         const message = err instanceof Error ? err.message : String(err);
         if (bound) {
           ui.log.warn(`Studio server error after startup: ${message}`);
@@ -242,6 +375,9 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
         // today's hard-fail contract: silently landing on a different
         // port than the one the user typed would be surprising.
         if (isAddrInUse && !portExplicit && attemptsLeft > 1) {
+          ui.log.warn(
+            `Port ${port} is in use, trying ${port + 1} instead. Pass --port to pin a specific one.`,
+          );
           attemptBind(port + 1, attemptsLeft - 1);
           return;
         }
