@@ -1339,7 +1339,9 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
     });
   });
 
-  describe("/api/manifest", () => {
+  // Each test here runs a real esbuild bundle via readManifestSummary; slow
+  // CI shards (notably windows-latest) have blown the default 5s budget.
+  describe("/api/manifest", { timeout: 30_000 }, () => {
     const FAKE_MANIFEST_SOURCE = `export const arkor = Object.freeze({
       _kind: "arkor",
       trainer: {
