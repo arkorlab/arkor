@@ -236,7 +236,7 @@ export async function runInit(options: InitOptions): Promise<void> {
       // tell the user to fix `.yarnrc.yml` before running `yarn
       // install`. Running install ourselves first would produce an
       // empty `node_modules` (yarn 4 PnP) and leave `arkor dev` /
-      // `arkor train` broken: the install becomes worse than
+      // `arkor start` broken: the install becomes worse than
       // useless. Skip and surface the manual-retry hint instead, so
       // the user fixes the config first and retries.
       ui.log.info(

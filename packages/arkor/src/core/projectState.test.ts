@@ -320,6 +320,47 @@ describe("ensureProjectState", () => {
     }
   });
 
+  it("does not emit a trailing hyphen when the 40-char truncation lands on a separator", async () => {
+    // Regression: the dash-trim used to run BEFORE the 40-char truncation, so
+    // a basename whose 40th character is a separator got the hyphen put back
+    // by the cut (`<39 chars>-tail` -> `<39 chars>-`). Slugs feed a URL path,
+    // so a trailing hyphen is both ugly and a needless 409-collision risk.
+    const captured: { name: string; slug: string }[] = [];
+    const createProject = vi
+      .fn()
+      .mockImplementation(async (input: { name: string; slug: string }) => {
+        captured.push({ name: input.name, slug: input.slug });
+        return {
+          project: { id: "pid", slug: input.slug, name: input.name },
+        };
+      });
+    const client = fakeClient({
+      createProject:
+        createProject as unknown as CloudApiClient["createProject"],
+    });
+
+    const parent = mkdtempSync(join(tmpdir(), "trunc-"));
+    const { mkdirSync } = await import("node:fs");
+    // 39 safe chars, then the separator that lands exactly on the boundary.
+    const longName = `${"a".repeat(39)}-tail`;
+    const dir = join(parent, longName);
+    mkdirSync(dir);
+
+    try {
+      const state = await ensureProjectState({
+        cwd: dir,
+        client,
+        credentials: anonCreds,
+      });
+      expect(state.projectSlug).toBe("a".repeat(39));
+      expect(state.projectSlug).not.toMatch(/-$/);
+      expect(state.projectSlug.length).toBeLessThanOrEqual(40);
+      expect(captured[0]?.slug).toBe("a".repeat(39));
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   it("falls back to 'project' as the basename when cwd has no extractable component", async () => {
     // `"".split(/[/\\]/).filter(Boolean).pop()` is `undefined`. Without
     // the `?? "project"` fallback, basename would be undefined and slug

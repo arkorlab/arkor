@@ -174,6 +174,15 @@ export async function runCli(
   argv: string[],
   cwd: string,
   extraEnv: NodeJS.ProcessEnv = {},
+  /**
+   * Hard wall-clock cap. `runCli` waits for process exit, so a command that
+   * is supposed to terminate but regresses into a long-running server (the
+   * `arkor dev` strict gate is the live example) would otherwise hang until
+   * vitest's own timeout AND leave the child running, still holding whatever
+   * port it bound. With this set the child is killed and the call rejects
+   * with an explicit message. Omit it for commands that exit on their own.
+   */
+  timeoutMs?: number,
 ): Promise<RunResult> {
   // Only the darwin + CI combination can ever fire the retry, so only
   // that combination pays the snapshot cost. Linux/Windows CI jobs and
@@ -182,7 +191,7 @@ export async function runCli(
   const canRetry = process.platform === "darwin" && Boolean(process.env.CI);
   const snapshotDir = canRetry ? snapshotCwd(cwd) : undefined;
   try {
-    let result = await runCliOnce(binPath, argv, cwd, extraEnv);
+    let result = await runCliOnce(binPath, argv, cwd, extraEnv, timeoutMs);
     if (
       snapshotDir !== undefined &&
       shouldRetryAfterSigkill(result, process.platform, Boolean(process.env.CI))
@@ -191,7 +200,7 @@ export async function runCli(
         `[runCli] retrying after SIGKILL at ${result.elapsedMs}ms (${binPath} ${argv.join(" ")})\n`,
       );
       restoreFromSnapshot(cwd, snapshotDir);
-      result = await runCliOnce(binPath, argv, cwd, extraEnv);
+      result = await runCliOnce(binPath, argv, cwd, extraEnv, timeoutMs);
     }
     return result;
   } finally {
@@ -250,6 +259,7 @@ function runCliOnce(
   argv: string[],
   cwd: string,
   extraEnv: NodeJS.ProcessEnv,
+  timeoutMs?: number,
 ): Promise<RunResult> {
   // `pnpm test` propagates the workspace's pnpm config to children as
   // `npm_config_*` / `pnpm_config_*` env vars (e.g. minimumReleaseAge from
@@ -449,16 +459,48 @@ function runCliOnce(
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
+    // Wall-clock guard. SIGKILL directly rather than SIGTERM-then-escalate:
+    // the point is to stop a child that is NOT going to exit on its own, and
+    // a graceful stop would let `arkor dev`'s shutdown handlers run and mask
+    // the hang as a normal exit.
+    let timedOut = false;
+    const timer =
+      timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true;
+            try {
+              child.kill("SIGKILL");
+            } catch {
+              // already gone
+            }
+          }, timeoutMs);
+    const clearTimer = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+    };
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     child.stdout?.on("data", (c: Buffer) => out.push(c));
     child.stderr?.on("data", (c: Buffer) => err.push(c));
     child.on("error", (err) => {
+      clearTimer();
       cleanup();
       reject(err);
     });
     child.on("close", (code, signal) => {
+      clearTimer();
       cleanup();
+      if (timedOut) {
+        reject(
+          new Error(
+            `runCli timed out after ${String(timeoutMs)}ms and killed the child: ` +
+              `${binPath} ${argv.join(" ")}\n` +
+              `stdout so far: ${Buffer.concat(out).toString("utf8")}\n` +
+              `stderr so far: ${Buffer.concat(err).toString("utf8")}`,
+          ),
+        );
+        return;
+      }
       resolve({
         code: code ?? -1,
         signal,

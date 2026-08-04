@@ -9,6 +9,14 @@ import { basename, resolve } from "node:path";
  * produce a stderr message listing the suggested re-invocation rather than
  * running with hidden defaults.
  *
+ * `arkor dev` is a THIRD consumer with a different shape (see
+ * `formatClaudeCodeAgentModeMessage`): it has no curated flag list and no
+ * `--yes` escape hatch. Under `CLAUDECODE=1` a plain `arkor dev` always exits
+ * 1 and demands `--agent`, because the failure there is not "a prompt would
+ * hang" but "a long-running browser-oriented server is the wrong thing to
+ * hand an agent at all". Everything below about curated flags and `--yes`
+ * describes the scaffolders only.
+ *
  * "Curated" (not "every interactive prompt") because the runtime defaults
  * for a couple of decisions are well-understood enough that forcing them
  * would just add noise:
@@ -273,5 +281,27 @@ export function formatClaudeCodeMissingMessage(
     lines.push(`  ${m.flag}`, `      ${m.description}`);
   }
   lines.push("Or pass -y/--yes to accept all defaults.");
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Render the stderr block printed when `arkor dev` runs under CLAUDECODE=1
+ * without `--agent`. A separate helper (rather than an optional footer on
+ * `formatClaudeCodeMissingMessage`) because the shape differs: `dev` has no
+ * missing-flags list and no `-y/--yes` escape hatch; the only way forward is
+ * the explicit `--agent` opt-in. Kept pure so main.ts and tests share the
+ * wording. The `command` parameter mirrors the scaffolder formatter for
+ * symmetry and testability.
+ */
+export function formatClaudeCodeAgentModeMessage(command: string): string {
+  const lines = [
+    `${command}: CLAUDECODE=1 detected. Interactive Studio use is disabled.`,
+    "Re-run with the --agent flag:",
+    "  --agent",
+    "      Runs the same Studio server headlessly and writes a JSON session",
+    "      file ({ token, url, port, pid }) under .arkor/agent/ in the",
+    "      project. Read the token from that file and send it as the",
+    "      X-Arkor-Studio-Token header on /api/* requests.",
+  ];
   return `${lines.join("\n")}\n`;
 }

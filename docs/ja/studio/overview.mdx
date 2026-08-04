@@ -26,7 +26,7 @@ Jobs ページは `#/jobs/:id` でジョブ単位の詳細（ライブステー�
 
 ```
 Studio（ブラウザータブ、http://localhost:4000）
-   │  ループバック上の /api/*、CSRF トークン必須
+   │  ループバック上の /api/*、CSRF トークン必須（GET /api/status を除く）
    ▼
 arkor CLI（ローカル）
    │  認証付き HTTPS
@@ -36,8 +36,8 @@ Arkor マネージドバックエンド
 
 `/api/*` リクエストごとに 3 つのチェックが走ります:
 
-1. **Host ヘッダーのガード。** `127.0.0.1` と `localhost` のみ受理。`127.0.0.1` に DNS リバインディングされる悪意あるサイトに誘導された被害者でも、送信されるのは `Host: evil.com` で、ミドルウェアは HTTP 403 で拒否します。
-2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダー `X-Arkor-Studio-Token`、または `EventSource` リクエスト用に `?studioToken=`）。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較には `timingSafeEqual` を使用しているため、タイミング攻撃に対して安全です。
+1. **Host ヘッダーのガード。** 静的 HTML を含む**すべてのリクエスト**について、`127.0.0.1` と `localhost` のみ受理します。`127.0.0.1` に DNS リバインディングされる悪意あるサイトに誘導された被害者でも、送信されるのは `Host: evil.com` なので、トークンを埋め込んだ HTML を配信する前に HTTP 403 で拒否します。
+2. **起動ごとの CSRF トークン。** `arkor dev` は起動ごとに 32 バイトのトークン（base64url）を生成し、`<meta name="arkor-studio-token">` として `index.html` にインジェクトし、すべての `/api/*` 呼び出しに必須化します（ヘッダー `X-Arkor-Studio-Token`）。`EventSource` はカスタムヘッダーを送れないため、ジョブイベントストリームだけは `?studioToken=` も受け付けます。ミューテーション系ルートはクエリ文字列のトークンを受け付けません。クロスオリジンタブは meta を読めないので、preflight をスキップする「simple」なクロスオリジン POST も拒否されます。比較には `timingSafeEqual` を使用しているため、タイミング攻撃に対して安全です。唯一の例外は `GET /api/status` で、これはトークン不要です（ループバック + Host ガードは適用）。機密ゼロでユーザーコードを実行しないため、`arkor dev` のポート競合プローブがトークンを送信せずに占有者を確認できます。
 3. **CORS なし。** SPA は同一オリジンなので CORS には意味がありません。`*` を反射すると「simple」なクロスオリジン POST（`text/plain`、`urlencoded`）を素通りさせてしまうので、トークンチェックがそれを拒否します。
 
 トークンは `arkor dev` 起動のたびにローテートされるので、前回起動時の古いタブはリロードするまで HTTP 403 で失敗します。
@@ -48,7 +48,7 @@ Arkor マネージドバックエンド
 | --- | --- |
 | **Run training** | Overview ページ (`#/`) のボタン。`POST /api/train` を呼ぶと `arkor start` がサブプロセスとして起動し、stdout/stderr が生のテキストとしてページにストリーミングされます。 |
 | **Jobs リスト** | `#/jobs`。5 秒間隔の自動ポーリングに加えて手動 Refresh ボタン、名前 / ID での検索、status フィルター（`All` / `Running` / `Completed` / `Queued` / `Failed` / `Cancelled`）を備えます。列: Status、Name（詳細へリンク）、Created、ID。 |
-| **Job 詳細** | `#/jobs/:id`。ライブステータスバッジ、SVG の Loss チャート、生イベントログ（直近 50 行）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
+| **Job 詳細** | `#/jobs/:id`。ライブステータスバッジ、SVG の Loss チャート、生イベントログ（直近 500 件）。Server-Sent Events 経由で `/api/jobs/:id/events` からストリーム。 |
 | **Playground** | `#/playground` のチャット UI。2 モード: 1 つの対応ベースモデル、または任意の完了済みジョブの最終アダプター。 |
 | **Endpoints** | `#/endpoints` の `*.arkor.app` URL 管理。Deployment の作成、enabled / auth mode の切替、API キーの発行と revoke。SDK の [`CloudApiClient`](/ja/sdk/deployments) と等価で、UI で行えるすべての操作にプログラマティックな呼び出しが対応。 |
 
@@ -60,7 +60,7 @@ Arkor マネージドバックエンド
 | --- | --- |
 | 動作中ジョブのキャンセル / 一時停止 | 自前コードから [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼ぶ。 |
 | Playground での中間チェックポイントアダプター選択 | トレーナー内で [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使う。SDK の `infer` は直前に保存されたチェックポイントに紐づく。 |
-| Jobs リストのページング | 現状のポーリング一覧ビューでは対象外。サーバーが完全な一覧を返す前提。 |
+| Jobs リストのページング | 現状のポーリング一覧ビューでは対象外。サーバーが完全な一覧を返す前提。検索と状態フィルターは**実装済み**です（その完全な一覧に対するクライアントサイド処理）。 |
 | プロジェクトごとの複数トレーナー | `/api/manifest` が単一の `trainer` を返す。SDK の [`createArkor`](/ja/sdk/create-arkor) も 1 つしか受け付けない。 |
 | Playground から `temperature` / `topP` / `maxTokens` を調整 | HTTP API（[`InferArgs`](/ja/sdk/infer)）はこれらを受け付ける。SDK から `infer` を呼ぶ際に渡してください。 |
 | Loss チャートのズーム、エクスポート、ツールチップ | チャートは静的な SVG パス。 |

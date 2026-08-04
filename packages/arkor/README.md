@@ -87,7 +87,7 @@ login` / `arkor logout`.
 |---|---|
 | `arkor init` | Scaffold a project in the current directory |
 | `arkor login` / `logout` / `whoami` | OAuth (PKCE) / anonymous tokens |
-| `arkor dev` | Launch the local Studio (hot reload + GUI) |
+| `arkor dev` | Launch the local Studio (GUI; add `--agent` for coding agents). Does not watch your trainer files |
 | `arkor build [entry]` | Bundle `src/arkor/index.ts` (or `entry`) to `.arkor/build/index.mjs` |
 | `arkor start [entry]` | Run the build artifact; rebuilds when an entry is supplied |
 
@@ -100,10 +100,19 @@ project's installed copy. Relative imports get inlined.
 `arkor dev` boots a Hono server on `127.0.0.1:4000` and serves a Vite +
 React SPA from the same origin. Two roles:
 
-- **Hot reload** for the user's TypeScript so the UI reflects current
-  source without restarts.
+- **Picks up source edits without a restart**: the Overview page polls
+  `/api/manifest` every 5s, and each call re-runs the esbuild bundle into
+  `.arkor/build/index.mjs` and re-imports it. Run training spawns `arkor start`
+  against that same artifact, so a trainer edit is live within ~5s (and a newly
+  added trainer lights up the button) with no page reload. This is a poll on
+  the open page, not a filesystem watcher: with Studio closed, nothing rebuilds.
 - **GUI operations**: running training, inspecting jobs, mid-training
   inference in a Playground.
+
+For coding agents, `arkor dev --agent` serves the same Studio headlessly and
+writes the per-launch token to a JSON session file under
+`<project>/.arkor/agent/`, printing its path to stdout. Under `CLAUDECODE=1` a
+plain `arkor dev` refuses to start and asks for `--agent`.
 
 Studio is loopback-only and per-launch CSRF-token-gated:
 
@@ -115,6 +124,12 @@ Studio is loopback-only and per-launch CSRF-token-gated:
   headers. Mutation routes never accept the token from the query string.
   The token is generated on every `arkor dev` launch and injected into the
   served `index.html` as a `<meta>` tag the same-origin SPA reads at startup.
+- `GET /api/status` is the one token-exempt route (still behind the `Host` and
+  loopback guards). It is secrets-free and never runs project code: it reports
+  liveness, version, mode, url, pid, cwd and the endpoint list, never the token
+  or credentials. The exemption exists so a coding agent, and `arkor dev`'s own
+  port-collision probe, can confirm an occupant without transmitting the token
+  to an unverified peer.
 
 ## Public exports
 
@@ -149,12 +164,18 @@ training from a custom Node script). `arkor start` uses it under the hood.
 ## Telemetry
 
 The CLI sends anonymous usage events to PostHog so we can see which commands
-are being run and where they fail. Three events are emitted per invocation:
+are being run and where they fail. An invocation emits `cli_command_started`
+and then at most one terminal event, never all three:
 
 - `cli_command_started`
-- `cli_command_completed` (includes `duration_ms`)
+- `cli_command_completed` (includes `duration_ms`) on success. Suppressed for
+  long-running commands: a serving `arkor dev` emits only
+  `cli_command_started`, since it has no meaningful completion. (`arkor dev`
+  that instead connects to an already-running Studio and exits does emit it.)
 - `cli_command_failed` (includes `duration_ms`, `error_name`, and the first
-  200 chars of `error_message`)
+  200 chars of `error_message`). That message is sent verbatim and is not
+  scrubbed, so it can contain local absolute paths (for example the project
+  directory or `~/.arkor/...`). Opt out below if that matters to you.
 
 Each event carries `command`, `sdk_version`, `node_version`, `platform`, and
 `auth_mode` (`oauth` / `anon` / `none`). The distinct ID is the `sub` claim

@@ -75,6 +75,8 @@ bun create arkor my-arkor-app --template triage
 
 Claude Code spawns child processes with `CLAUDECODE=1`, and it cannot answer interactive prompts. To prevent the agent from silently scaffolding with hidden defaults, `create-arkor` flips into a strict mode under this env var: a curated set of flags becomes required (see the list below), and a missing one produces a stderr message listing the suggested re-invocation rather than running. The same rule applies to [`arkor init`](/cli/init#claude-code-claudecode=1-strict-mode), with one extra requirement here: `[dir]` (or `--name`) is also mandatory, since `create-arkor`'s default fallback for a missing positional is the generic `arkor-project/` subdirectory, almost always an oversight rather than an intentional choice. Inputs that contain no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!`) are rejected as well, because `sanitise()` would collapse them back to that same generic fallback. Deliberate names whose final slug *happens* to be `arkor-project` (for example `Arkor Project`, `arkor_project`, `Arkor.Project`, or anything else where a separator gets rewritten to `-`) are accepted: the alphanumeric content shows the agent typed a real name.
 
+`arkor dev` is gated under the same env var but in a different shape: it has no curated flag list and no `-y`/`--yes` escape hatch, and instead always requires `--agent` (see step 3 below).
+
 Required flags (or pass `-y`/`--yes` to opt back into "accept all defaults"):
 
 - `[dir]` (e.g. `my-arkor-app`) or `--name <name>`: explicit project name. Values with no ASCII letter or digit (empty, whitespace-only, or punctuation-only like `!!!`) are rejected because they would collapse to the generic `arkor-project` fallback; deliberate inputs that *happen* to sanitise to `arkor-project` (`Arkor Project`, `arkor_project`, …) are accepted.
@@ -146,6 +148,8 @@ bun dev
 
 This runs `arkor dev`, which boots Studio at `http://localhost:4000`. Studio is the UI; `arkor dev` itself does not start training and does not watch your trainer files.
 
+Under `CLAUDECODE=1` this step is different: a plain `arkor dev` exits `1` and asks for `--agent` instead of starting a browser-oriented server the agent cannot drive. Run `arkor dev --agent`, which serves the same Studio headlessly and writes a JSON session file holding the API token. See [`arkor dev` § Claude Code (`CLAUDECODE=1`) strict mode](/cli/dev#claude-code-claudecode=1-strict-mode).
+
 In the browser, click **Run training**. Studio submits the job to the managed backend in the background and streams the output back into the page. The first time you trigger anything, an anonymous workspace is created automatically: no signup, no credit card.
 
 Once a run is in flight, three views matter:
@@ -154,7 +158,7 @@ Once a run is in flight, three views matter:
 - **Loss chart and event log.** As the run streams from the managed GPU, the loss curve updates and the log tail shows training events. The first run takes 7 to 12 minutes depending on the template.
 - **Playground.** After a job completes, pick the final adapter from the selector and chat with it. Use the mode toggle to switch between the base model and the adapter. To run inference on intermediate checkpoints while a run is still in flight, use `onCheckpoint` callbacks instead of Studio.
 
-If you edit `src/arkor/` between runs, refresh the Run training page (or run `arkor build`) before the next click so the new code is what runs.
+If you edit `src/arkor/` between runs, the change is picked up automatically within about 5 seconds while the Overview page is open (its manifest poll re-runs the build). No refresh needed.
 
 ## 4. Tie runs to an account (optional)
 
@@ -193,5 +197,5 @@ A few caveats. Running `arkor login` without a flag opens an interactive picker 
 ## 5. Where to go next
 
 - **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
-- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. Refresh the Run training page (or run `arkor build`) before the next click so your edits land.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. With the Overview page open, your edits land on the next click about 5 seconds later.
 - **Try another template.** Re-run the scaffolder with a different `--template` to compare.

@@ -156,6 +156,53 @@ describe("Studio server", () => {
     expect(await res.text()).toBe("console.log('studio')");
   });
 
+  it("refuses to serve files outside assetsDir (path traversal on the token-free GET *)", async () => {
+    // `GET *` is the one token-FREE route (the browser must be able to load
+    // the SPA before it can read the token out of it), so an unconstrained
+    // join would be an arbitrary local file read for anything that reaches the
+    // loopback port. Plant a secret one level above assetsDir and try to walk
+    // out to it.
+    //
+    // HONEST SCOPE: on POSIX this is a contract test, NOT a mutation-detecting
+    // one, and deleting the containment check in server.ts leaves it green.
+    // That is because nothing reaches the handler with a real `..` segment
+    // here (measured on Hono 4.12 / Node 24):
+    //
+    //   /../x      -> c.req.path "/x"       URL parsing collapses it
+    //   /%2e%2e/x  -> c.req.path "/x"       encoded dots are collapsed too
+    //   /..%2fx    -> c.req.path "/..%2fx"  decodeURI keeps reserved %2F
+    //   /..%5cx    -> c.req.path "/..\x"    %5C decodes, but on POSIX a
+    //                                       backslash is an ordinary filename
+    //                                       character, so it still cannot escape
+    //
+    // The guard earns its keep on WINDOWS, where `resolve` treats that decoded
+    // backslash as a separator and `/..%5cx` does escape. We cannot exercise
+    // win32 path semantics from a POSIX runner, so this test pins the
+    // observable contract on every platform and becomes mutation-detecting on
+    // Windows CI.
+    const secret = join(assetsDir, "..", "arkor-traversal-secret.txt");
+    writeFileSync(secret, "TOP-SECRET");
+    try {
+      const app = build();
+      for (const path of [
+        "/%2e%2e/arkor-traversal-secret.txt",
+        "/assets/%2e%2e/%2e%2e/arkor-traversal-secret.txt",
+        "/..%5carkor-traversal-secret.txt",
+      ]) {
+        const res = await app.request(path, {
+          headers: { host: "127.0.0.1:4000" },
+        });
+        const body = await res.text();
+        expect({ path, leaked: body.includes("TOP-SECRET") }).toEqual({
+          path,
+          leaked: false,
+        });
+      }
+    } finally {
+      rmSync(secret, { force: true });
+    }
+  });
+
   it("falls back to index.html for unknown extensionless paths (SPA hash router)", async () => {
     // Lines 404-407: the React app uses a router that produces paths like
     // /jobs/:id which aren't on disk. The handler must serve index.html so
@@ -218,6 +265,60 @@ describe("Studio server", () => {
     expect(res.status).toBe(403);
   });
 
+  it("never emits CORS headers (the SPA is same-origin by design)", async () => {
+    // Third pillar of the Studio CSRF model, alongside the Host guard and the
+    // token, and the only one with no test until now. Reflecting `*` would let
+    // a "simple" cross-origin POST (text/plain, urlencoded) skip preflight and
+    // reach a handler; the token check would still reject it, but adding CORS
+    // would remove a whole layer for no benefit, since the SPA is same-origin.
+    // Assert the absence directly so a future `app.use(cors())` fails here.
+    const app = build();
+    const responses = [
+      // Static HTML, an authorised /api/* call, and a rejected one: a CORS
+      // middleware could plausibly be mounted on any of these paths.
+      await app.request("/", { headers: { host: "127.0.0.1:4000" } }),
+      await app.request("/api/status", { headers: { host: "127.0.0.1:4000" } }),
+      await app.request("/api/credentials", {
+        headers: { host: "127.0.0.1:4000", origin: "http://evil.example" },
+      }),
+      await app.request("/api/credentials", {
+        method: "OPTIONS",
+        headers: {
+          host: "127.0.0.1:4000",
+          origin: "http://evil.example",
+          "access-control-request-method": "POST",
+        },
+      }),
+    ];
+    for (const res of responses) {
+      const cors = [...res.headers.keys()].filter((h) =>
+        h.toLowerCase().startsWith("access-control-"),
+      );
+      expect(cors).toEqual([]);
+    }
+  });
+
+  it("rejects NESTED /api/* routes without a studio token", async () => {
+    // The deny-direction tests above all use single-segment paths
+    // (/api/credentials). Hono's `/api/*` matches multi-segment paths too, but
+    // nothing pinned that: narrowing the middleware pattern (e.g. to
+    // `/api/:route`) would leave every nested route unauthenticated with the
+    // rest of the suite still green. These are the RCE-adjacent and
+    // secret-bearing ones, so cover the shapes explicitly.
+    const app = build();
+    for (const path of [
+      "/api/jobs/some-id/events",
+      "/api/deployments/some-id",
+      "/api/deployments/some-id/keys",
+      "/api/deployments/some-id/keys/some-key",
+    ]) {
+      const res = await app.request(path, {
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect({ path, status: res.status }).toEqual({ path, status: 403 });
+    }
+  });
+
   it("rejects /api/* with a wrong studio token", async () => {
     const app = build();
     const res = await app.request("/api/credentials", {
@@ -261,6 +362,143 @@ describe("Studio server", () => {
       { headers: { host: "127.0.0.1:4000" } },
     );
     expect(res.status).toBe(403);
+  });
+
+  describe("GET /api/status", () => {
+    it("is token-exempt: returns 200 WITHOUT a studio token", async () => {
+      // The one token-exempt /api/* route, so the port-collision probe can
+      // confirm an occupant without disclosing the CSRF token. Still behind
+      // the loopback Host guard (asserted below).
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("still enforces the non-loopback Host guard (no token involved)", async () => {
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: { host: "evil.example:4000" },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("does not exempt other /api/* routes from the token check", async () => {
+      // Scope guard: the exemption is /api/status only. A sibling GET still
+      // 403s without the token.
+      const app = build();
+      const res = await app.request("/api/credentials", {
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("does not exempt NON-GET methods on /api/status from the token check", async () => {
+      // The exemption is scoped to `method === "GET" && path === "/api/status"`.
+      // The sibling test above pins only the PATH half; without this one the
+      // method half is silently removable (dropping `c.req.method === "GET"`
+      // leaves the whole suite green), which would hand an unauthenticated
+      // loopback peer any future non-GET handler mounted on this path.
+      const app = build();
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        const res = await app.request("/api/status", {
+          method,
+          headers: { host: "127.0.0.1:4000" },
+        });
+        // 403 from the token middleware, never 404/405 from the router: the
+        // request must be rejected BEFORE routing.
+        expect({ method, status: res.status }).toEqual({ method, status: 403 });
+      }
+    });
+
+    it("returns safe metadata and the endpoint list", async () => {
+      // No credentials are written and `autoAnonymous` is false: if the
+      // handler ever touched the credential path, `getCredentials` would
+      // throw and this request would 500. Passing proves the endpoint is
+      // credentials-free.
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        status: "ok",
+        server: "arkor-studio",
+        mode: "studio",
+        url: null,
+        pid: process.pid,
+        cwd: trainCwd,
+      });
+      expect(typeof body.version).toBe("string");
+      // Assert the FULL contract, not a spot-check: the endpoints array is the
+      // agent's discovery surface, so a dropped/renamed/reordered route is a
+      // silent contract break. `/api/status` must lead (it is the probe's own
+      // entry) and no route may carry the studio token or credentials.
+      expect(body.endpoints).toEqual([
+        "GET /api/status",
+        "GET /api/credentials",
+        "GET /api/me",
+        "GET /api/manifest",
+        "GET /api/jobs",
+        "GET /api/jobs/:id/events",
+        "POST /api/train",
+        "POST /api/inference/chat",
+        "GET /api/deployments",
+        "POST /api/deployments",
+        "GET /api/deployments/:id",
+        "PATCH /api/deployments/:id",
+        "DELETE /api/deployments/:id",
+        "GET /api/deployments/:id/keys",
+        "POST /api/deployments/:id/keys",
+        "DELETE /api/deployments/:id/keys/:keyId",
+      ]);
+      expect(body.endpoints).toContain("POST /api/train");
+      expect(body.endpoints).toContain("GET /api/jobs/:id/events");
+    });
+
+    it("echoes mode and url when launched as an agent session", async () => {
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        mode: "agent",
+        // The 127.0.0.1 LITERAL, matching what runDev actually passes
+        // (`agentUrl`). Seeding the `localhost` form here would make this test
+        // assert exactly the shape StudioServerOptions.url documents as wrong,
+        // and an agent HTTP client without Happy-Eyeballs may not reach it.
+        url: "http://127.0.0.1:4123",
+      });
+      const res = await app.request("/api/status", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.mode).toBe("agent");
+      expect(body.url).toBe("http://127.0.0.1:4123");
+    });
+
+    it("never includes the studio token or credential material in the body", async () => {
+      await writeCredentials(ANON_CREDS);
+      const app = build();
+      const res = await app.request("/api/status", {
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      const raw = await res.text();
+      expect(raw).not.toContain(STUDIO_TOKEN);
+      expect(raw).not.toContain(ANON_CREDS.token);
+      expect(raw).not.toContain(ANON_CREDS.anonymousId);
+    });
   });
 
   it("returns project state from the Studio training cwd", async () => {
@@ -583,6 +821,82 @@ process.exit(0);
       expect(argv[0]).toBe("start");
       expect(argv[1]).toMatch(/[\\/]src[\\/]arkor[\\/]trainer\.ts$/);
       expect(text).toContain("exit=0");
+    });
+
+    // The whole child-reaping mechanism (`liveTrainChildren`, the refcounted
+    // `process.on("exit", killLiveTrainChildren)` attach, and the
+    // `detachKillHook` release) had no coverage: deleting any part of it left
+    // this suite green, even though dev.ts's shutdown handlers depend on it to
+    // avoid orphaning a training child (and leaking a GPU) on `docker stop`.
+    it("attaches ONE refcounted exit hook while a child is live, kills the child through it, and detaches at zero", async () => {
+      await writeCredentials(ANON_CREDS);
+      // A child that would outlive the request unless something kills it.
+      const sleepBin = join(trainCwd, "sleep-bin.mjs");
+      writeFileSync(
+        sleepBin,
+        'process.stdout.write("[sleeping]\\n");\nsetTimeout(() => { process.exit(0); }, 30_000);\n',
+      );
+      const app = buildStudioApp({
+        baseUrl: "http://mock",
+        assetsDir,
+        autoAnonymous: false,
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath: sleepBin,
+      });
+
+      const before = process.listeners("exit").length;
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let seen = "";
+      try {
+        // Read until the child has actually started (proves it is spawned and
+        // therefore registered) rather than sleeping a fixed interval.
+        while (!seen.includes("[sleeping]")) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          seen += decoder.decode(value, { stream: true });
+        }
+        expect(seen).toContain("[sleeping]");
+
+        // Exactly one hook, not one per spawn (a per-spawn listener would trip
+        // MaxListenersExceededWarning past 10 concurrent runs).
+        const during = process.listeners("exit");
+        expect(during.length).toBe(before + 1);
+
+        // Invoking the hook must kill the live child. Without it the child
+        // would sit in its 30s timer and orphan.
+        const hook = during.at(-1) as () => void;
+        hook();
+
+        // Drain: the stream terminates because the child died.
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          seen += decoder.decode(value, { stream: true });
+        }
+        // Killed by signal, so not a clean exit=0.
+        expect(seen).not.toContain("exit=0");
+      } finally {
+        reader.releaseLock();
+      }
+
+      // ...and the hook is released once no child is live, so `arkor dev` does
+      // not accumulate listeners across runs.
+      await vi.waitFor(() => {
+        expect(process.listeners("exit").length).toBe(before);
+      });
     });
 
     it("surfaces ENOENT-grade errors when binPath does not exist", async () => {

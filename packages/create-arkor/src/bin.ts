@@ -543,7 +543,7 @@ export async function run(options: RunOptions): Promise<void> {
       // tell the user to fix `.yarnrc.yml` before running `yarn
       // install`. Running install ourselves first would produce an
       // empty `node_modules` (yarn 4 PnP) and leave `arkor dev` /
-      // `arkor train` broken: the install becomes worse than
+      // `arkor start` broken: the install becomes worse than
       // useless. Skip and surface the manual-retry hint instead.
       // Round 40 follow-up #4 (Codex P2, PR #99): no shell-chain
       // separator works across all four supported shells (`&&`

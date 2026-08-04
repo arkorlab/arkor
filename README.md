@@ -44,7 +44,7 @@ pnpm dev
 ```
 
 **No signup required:** 
-`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it provisions a throwaway anonymous workspace so you can fire off a real training run right away. 
+`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it provisions a throwaway anonymous workspace so you can fire off a real training run right away. Coding agents should use `arkor dev --agent`, which serves the same Studio headlessly and writes an API token to a JSON session file under `.arkor/agent/`; under `CLAUDECODE=1` a plain `arkor dev` refuses to start and asks for the flag. 
 
 Run `arkor login --oauth` later if you want to claim your work under an account.
 
@@ -145,7 +145,7 @@ my-arkor-app/
 
 `arkor dev` boots a [Hono](https://hono.dev) server on `127.0.0.1:4000` that serves a Vite + React SPA from the same origin. 
 
-The Studio server rejects non-loopback `Host` headers before serving HTML, and the SPA talks to your code via per-launch CSRF-token-gated `/api/*` routes; your code talks to the Arkor training backend over authenticated HTTPS. 
+The Studio server rejects non-loopback `Host` headers before serving HTML (DNS-rebinding defence), and the SPA talks to your code via per-launch CSRF-token-gated `/api/*` routes; your code talks to the Arkor training backend over authenticated HTTPS. 
 
 Training runs on managed GPUs; checkpoints stream back as SSE events that fire your `callbacks.*` in process.
 

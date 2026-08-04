@@ -154,9 +154,13 @@ export async function ensureProjectState(
   // unambiguously O(n).
   let start = 0;
   while (start < dashy.length && dashy[start] === "-") start++;
-  let end = dashy.length;
+  // Truncate to the 40-char budget BEFORE the trailing-dash trim, not after.
+  // Trimming first lets the cut re-introduce the very hyphen the trim exists
+  // to remove: a directory whose 40th character is a separator (e.g.
+  // `<39 chars>-tail`) yielded the slug `<39 chars>-`.
+  let end = Math.min(dashy.length, start + 40);
   while (end > start && dashy[end - 1] === "-") end--;
-  const projectSlug = dashy.slice(start, end).slice(0, 40) || "project";
+  const projectSlug = dashy.slice(start, end) || "project";
 
   let project: { id: string; slug: string };
   try {

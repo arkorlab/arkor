@@ -6,10 +6,12 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import type * as FsPromises from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import * as clack from "@clack/prompts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +36,28 @@ vi.mock("open", () => ({
   default: vi.fn(async () => undefined),
 }));
 
+// Record `rename` calls so a test can pin the agent session file's atomic
+// temp+rename publish. `vi.spyOn` cannot be used here (ESM module namespaces
+// are non-configurable), and a `vi.fn` in the factory would be neutered by the
+// `vi.restoreAllMocks()` in afterEach, so use a hoisted array plus a plain
+// pass-through wrapper: behaviour is byte-identical to the real fs.
+const { renameCalls } = vi.hoisted(() => ({
+  renameCalls: [] as [string, string][],
+}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FsPromises>();
+  return {
+    ...actual,
+    rename: async (
+      from: Parameters<typeof actual.rename>[0],
+      to: Parameters<typeof actual.rename>[1],
+    ) => {
+      renameCalls.push([String(from), String(to)]);
+      return actual.rename(from, to);
+    },
+  };
+});
+
 import { serve } from "@hono/node-server";
 import open from "open";
 
@@ -48,7 +72,7 @@ import {
   type AnonymousCredentials,
 } from "../../core/credentials";
 
-import { ensureCredentialsForStudio, runDev } from "./dev";
+import { ensureCredentialsForStudio, isUntrustedPeerPath, runDev } from "./dev";
 
 let fakeHome: string;
 const ORIG_HOME = process.env.HOME;
@@ -80,6 +104,63 @@ afterEach(() => {
   // would otherwise leak across tests and accumulate call records.
   vi.restoreAllMocks();
   rmSync(fakeHome, { recursive: true, force: true });
+});
+
+describe("isUntrustedPeerPath", () => {
+  // The adoption filter's /proc family is exercised end to end by the
+  // "no /proc/self/cwd bypass" test below, but the /dev/fd and UNC branches
+  // cannot be: they never resolve to the project root, so a probe using them
+  // falls back for the wrong reason and the branch could be deleted unnoticed.
+  // Pin them directly instead.
+  it("rejects the process-relative /proc family, including traversal", () => {
+    for (const p of [
+      "/proc",
+      "/proc/self/cwd",
+      "/proc/1234/cwd",
+      "/proc/thread-self/cwd",
+      // `..` traversal must not sneak past the prefix test.
+      "/proc/self/../self/cwd",
+    ]) {
+      expect({ p, rejected: isUntrustedPeerPath(p) }).toEqual({
+        p,
+        rejected: true,
+      });
+    }
+  });
+
+  it("rejects the /dev/fd family", () => {
+    for (const p of ["/dev/fd", "/dev/fd/1"]) {
+      expect({ p, rejected: isUntrustedPeerPath(p) }).toEqual({
+        p,
+        rejected: true,
+      });
+    }
+  });
+
+  it("accepts ordinary absolute project paths, including near-miss prefixes", () => {
+    for (const p of [
+      "/home/u/proj",
+      "/",
+      // Near misses: the guard must match path SEGMENTS, not raw prefixes,
+      // or these legitimate directories would be refused.
+      "/procfs-notreally",
+      "/dev/fdisk",
+      "/home/u/proc",
+    ]) {
+      expect({ p, rejected: isUntrustedPeerPath(p) }).toEqual({
+        p,
+        rejected: false,
+      });
+    }
+  });
+
+  it.runIf(process.platform === "win32")("rejects UNC paths on Windows", () => {
+    // Windows-only on purpose: `path.posix.normalize` collapses a leading
+    // `//` to `/`, so this branch cannot fire on POSIX. Asserting it there
+    // would encode the opposite of the real behaviour.
+    expect(isUntrustedPeerPath("//host/share")).toBe(true);
+    expect(isUntrustedPeerPath(String.raw`\\host\share`)).toBe(true);
+  });
 });
 
 describe("ensureCredentialsForStudio", () => {
@@ -615,7 +696,14 @@ describe("runDev", () => {
     expect(existsSync(studioTokenPath())).toBe(true);
     const contents = readFileSync(studioTokenPath(), "utf8");
     expect(contents).toMatch(/^[\w-]+$/);
-    // Atomic write (PR #193 review): the temp staging file must be gone.
+    // Atomic write (PR #193 review). "No .tmp stray" alone does NOT pin this:
+    // a plain direct write leaves no stray either. Assert the rename that makes
+    // the publish atomic, so swapping temp+rename for a direct write fails here
+    // (same reasoning as the agent session file's atomicity test below).
+    const homeRename = renameCalls.find((c) => c[1] === studioTokenPath());
+    expect(homeRename).toBeDefined();
+    expect(String(homeRename?.[0])).toMatch(/\.tmp$/);
+    expect(dirname(String(homeRename?.[0]))).toBe(dirname(studioTokenPath()));
     const strays = readdirSync(join(fakeHome, ".arkor")).filter((f) =>
       f.includes(".tmp"),
     );
@@ -664,7 +752,9 @@ describe("runDev", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
     try {
-      await expect(runDev({ port: 4202, open: true })).resolves.toBeUndefined();
+      await expect(runDev({ port: 4202, open: true })).resolves.toEqual({
+        adopted: false,
+      });
     } finally {
       stdoutSpy.mockRestore();
     }
@@ -682,10 +772,20 @@ describe("runDev", () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
+    const warnSpy = vi.spyOn(clack.log, "warn").mockImplementation(() => {});
     try {
       const sigtermBefore = process.listeners("SIGTERM").length;
-      await expect(runDev({ port: 4203 })).resolves.toBeUndefined();
+      await expect(runDev({ port: 4203 })).resolves.toEqual({
+        adopted: false,
+      });
       expect(serve).toHaveBeenCalledTimes(1);
+      // Assert the failure actually happened AND was surfaced. Without these
+      // the test passes even if the warn is deleted, and even if the injected
+      // EACCES never fires (leaving the whole branch unexercised).
+      expect(existsSync(studioTokenPath())).toBe(false);
+      expect(warnSpy.mock.calls.map((c) => c[0]).join("\n")).toMatch(
+        /Could not write .*studio-token.*Vite SPA dev workflow/s,
+      );
       // Regression (ENG-933 self-review): shutdown handlers must be installed
       // even when token persistence fails, so a SIGTERM (`docker stop`) still
       // routes through `process.exit` and fires 'exit' to reap any train
@@ -705,6 +805,7 @@ describe("runDev", () => {
       }
     } finally {
       stdoutSpy.mockRestore();
+      warnSpy.mockRestore();
       // Restore writable for afterEach rmSync.
       chmodSync(join(fakeHome, ".arkor"), 0o755);
     }
@@ -777,7 +878,9 @@ describe("runDev", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation((() => true) as typeof process.stdout.write);
     try {
-      await expect(runDev({ port: 4208 })).resolves.toBeUndefined();
+      await expect(runDev({ port: 4208 })).resolves.toEqual({
+        adopted: false,
+      });
     } finally {
       stdoutSpy.mockRestore();
     }
@@ -821,8 +924,17 @@ describe("runDev", () => {
     // leave the CONTENT untouched (existence alone can't catch a clobber).
     mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
     writeFileSync(studioTokenPath(), "healthy-instance-token");
+    // Pin the CLASS, not just the message: bin.ts prints ExpectedCliError
+    // stack-free, and port-in-use is the most common `arkor dev` failure, so
+    // downgrading it to a plain Error would dump a minified dist stack for a
+    // routine collision. A message-only assertion would not catch that.
     await expect(runDev({ port: 4206 })).rejects.toThrow(
-      /Port 4206 is already in use/,
+      expect.objectContaining({
+        name: "ExpectedCliError",
+        message: expect.stringMatching(
+          /Port 4206 is already in use/,
+        ) as unknown as string,
+      }),
     );
     // The healthy instance's token is untouched and no cleanup handler was
     // registered.
@@ -867,6 +979,7 @@ describe("runDev", () => {
       stdoutSpy.mockRestore();
     }
     expect(existsSync(studioTokenPath())).toBe(true);
+    const ourToken = readFileSync(studioTokenPath(), "utf8");
 
     // Pull the most-recently-registered exit listener and invoke it; that
     // exercises the unlinkSync(path) branch of installShutdownHandlers.
@@ -875,8 +988,633 @@ describe("runDev", () => {
     cleanup();
     expect(existsSync(studioTokenPath())).toBe(false);
 
-    // A second invocation must short-circuit (the `cleaned` guard) so it
-    // doesn't throw on the now-missing file.
+    // A second invocation must short-circuit on the `cleaned` guard: the body
+    // must not run twice. Asserting only `not.toThrow()` could not detect the
+    // guard's removal, because every fs call inside the cleanup closure is
+    // already individually try/caught, so a second run is silent either way.
+    // Re-create the file with OUR OWN token instead: the ownership check would
+    // then happily match, so `cleaned` is the only thing left that can save it.
+    // Without the guard the second call deletes this file.
+    writeFileSync(studioTokenPath(), ourToken);
     expect(() => cleanup()).not.toThrow();
+    expect(existsSync(studioTokenPath())).toBe(true);
+    expect(readFileSync(studioTokenPath(), "utf8")).toBe(ourToken);
+  });
+
+  describe("agent mode", () => {
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = mkdtempSync(join(tmpdir(), "arkor-dev-agent-proj-"));
+    });
+
+    afterEach(() => {
+      rmSync(projectDir, { recursive: true, force: true });
+    });
+
+    /** Run runDev with a captured stdout and return the joined output. */
+    async function runDevCapturingStdout(
+      options: Parameters<typeof runDev>[0],
+    ): Promise<string> {
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await runDev(options);
+        return stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    }
+
+    function sessionPathFrom(stdout: string): string {
+      const match = /^Arkor Studio agent session file: (.+)$/m.exec(stdout);
+      expect(match).not.toBeNull();
+      return match![1];
+    }
+
+    it("writes the session file, prints the three-line contract, and still persists the home token", async () => {
+      const stdout = await runDevCapturingStdout({
+        port: 4310,
+        agent: true,
+        cwd: projectDir,
+      });
+      expect(stdout).toContain("Arkor Studio running on http://localhost:4310");
+      const sessionPath = sessionPathFrom(stdout);
+      expect(stdout).toContain(
+        "Read the token from that file and send it as the X-Arkor-Studio-Token header on /api/* requests.",
+      );
+      // Path shape: <project>/.arkor/agent/session-<pid>-<uuid>.json.
+      expect(sessionPath.startsWith(join(projectDir, ".arkor", "agent"))).toBe(
+        true,
+      );
+      expect(sessionPath).toMatch(/session-\d+-[0-9a-f-]+\.json$/);
+      const payload = JSON.parse(readFileSync(sessionPath, "utf8")) as {
+        token: string;
+        url: string;
+        port: number;
+        pid: number;
+      };
+      // Agent-facing URL is the 127.0.0.1 literal (matches the bind), not the
+      // localhost display name, so a non-Happy-Eyeballs client always reaches it.
+      expect(payload.url).toBe("http://127.0.0.1:4310");
+      expect(payload.port).toBe(4310);
+      expect(payload.pid).toBe(process.pid);
+      expect(payload.token).toMatch(/^[\w-]+$/);
+      // The SERVER must be given that same agent-facing URL, not the localhost
+      // display form: `/api/status` echoes it, and that echo is what an agent
+      // reads back. Drive the real app through the handler runDev passed to
+      // `serve`, so passing the display url here fails.
+      const served = vi.mocked(serve).mock.calls[0]?.[0] as {
+        fetch: (req: Request) => Promise<Response>;
+      };
+      const statusRes = await served.fetch(
+        new Request("http://127.0.0.1:4310/api/status", {
+          headers: { host: "127.0.0.1:4310" },
+        }),
+      );
+      const statusBody = (await statusRes.json()) as Record<string, unknown>;
+      expect(statusBody.mode).toBe("agent");
+      expect(statusBody.url).toBe("http://127.0.0.1:4310");
+      // The home token is still written in agent mode (user-facing contract:
+      // the Vite SPA dev workflow reads it). NOT for the port-collision probe:
+      // that hits the token-exempt /api/status and sends no token at all.
+      expect(readFileSync(studioTokenPath(), "utf8")).toBe(payload.token);
+      // Agent mode never opens a browser implicitly.
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it("tightens only the agent leaf to 0700 (not the parent .arkor) and writes the file 0600 with no .tmp strays", async () => {
+      if (process.platform === "win32") {
+        // POSIX modes are a no-op on Windows.
+        return;
+      }
+      const stdout = await runDevCapturingStdout({
+        port: 4311,
+        agent: true,
+        cwd: projectDir,
+      });
+      const sessionPath = sessionPathFrom(stdout);
+      const { statSync } = await import("node:fs");
+      const agentDir = join(projectDir, ".arkor", "agent");
+      const dotArkor = join(projectDir, ".arkor");
+      expect(statSync(agentDir).mode & 0o777).toBe(0o700);
+      expect(statSync(sessionPath).mode & 0o777).toBe(0o600);
+      // The parent .arkor must NOT be forced 0700: it uses the default mode,
+      // matching `arkor build`/state.ts. Compare against a control dir created
+      // the same way so the assertion is umask-independent.
+      mkdirSync(join(projectDir, "control-dir"), { recursive: true });
+      expect(statSync(dotArkor).mode & 0o777).toBe(
+        statSync(join(projectDir, "control-dir")).mode & 0o777,
+      );
+      const strays = readdirSync(agentDir).filter((f) => f.includes(".tmp"));
+      expect(strays).toEqual([]);
+    });
+
+    it("publishes the session file atomically (temp file + rename, never a direct write)", async () => {
+      // The "no .tmp strays" assertion above passes vacuously if the atomic
+      // temp+rename is swapped for a plain writeFile to the final path, so it
+      // does NOT pin atomicity. Readers (the agent, a concurrent `ls -t`) must
+      // never observe a partially written session file, which is the whole
+      // reason for the staging write. Spy on rename to pin it: a direct write
+      // never calls rename and fails here.
+      renameCalls.length = 0;
+      const stdout = await runDevCapturingStdout({
+        port: 4312,
+        agent: true,
+        cwd: projectDir,
+      });
+      const sessionPath = sessionPathFrom(stdout);
+      const call = renameCalls.find((c) => c[1] === sessionPath);
+      expect(call).toBeDefined();
+      // Staged under a .tmp sibling in the SAME directory: rename is only
+      // atomic within a filesystem, so a cross-device staging path would
+      // silently degrade to copy+unlink.
+      const from = String(call?.[0]);
+      expect(from).toMatch(/\.tmp$/);
+      expect(dirname(from)).toBe(dirname(sessionPath));
+    });
+
+    it("unlinks the session file from the exit cleanup and on signals", async () => {
+      const stdout = await runDevCapturingStdout({
+        port: 4312,
+        agent: true,
+        cwd: projectDir,
+      });
+      const sessionPath = sessionPathFrom(stdout);
+      expect(existsSync(sessionPath)).toBe(true);
+      const exitSpy = vi
+        .spyOn(process, "exit")
+        .mockImplementation(
+          ((_code?: number) => undefined as never) as typeof process.exit,
+        );
+      try {
+        const handler = process.listeners("SIGINT").at(-1) as () => void;
+        handler();
+        expect(exitSpy).toHaveBeenCalledWith(130);
+      } finally {
+        exitSpy.mockRestore();
+      }
+      expect(existsSync(sessionPath)).toBe(false);
+      // The home token was ours too, so the same cleanup removed it.
+      expect(existsSync(studioTokenPath())).toBe(false);
+    });
+
+    it("aborts startup (hard-fail) when the session file cannot be written", async () => {
+      if (process.platform === "win32") {
+        // chmod maps to the read-only attribute on Windows, which does not
+        // block creating entries inside the directory, so the failure this
+        // test injects never happens there.
+        return;
+      }
+      if (typeof process.getuid === "function" && process.getuid() === 0) {
+        // Root bypasses chmod permission checks; skip on root containers.
+        return;
+      }
+      // A read-only <project>/.arkor makes `mkdir .arkor/agent` fail. Unlike
+      // the home token (warn-and-continue), agent mode must reject: the
+      // session file is the agent's only token channel.
+      mkdirSync(join(projectDir, ".arkor"), { recursive: true });
+      chmodSync(join(projectDir, ".arkor"), 0o555);
+      const closeSpy = vi.fn();
+      vi.mocked(serve).mockImplementationOnce(((
+        _opts: unknown,
+        onListen?: () => void,
+      ) => {
+        queueMicrotask(() => onListen?.());
+        return { on: vi.fn(), close: closeSpy };
+      }) as unknown as typeof serve);
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        // ExpectedCliError (not the raw fs Error) so bin.ts prints the one
+        // actionable line without a minified stack; reverting to the raw
+        // error must fail here.
+        await expect(
+          runDev({ port: 4313, agent: true, cwd: projectDir }),
+        ).rejects.toMatchObject({
+          name: "ExpectedCliError",
+          message: expect.stringMatching(/Could not write the agent session/),
+        });
+      } finally {
+        stdoutSpy.mockRestore();
+        chmodSync(join(projectDir, ".arkor"), 0o755);
+      }
+      expect(closeSpy).toHaveBeenCalled();
+    });
+
+    it("does not create .arkor/agent in normal (non-agent) mode", async () => {
+      await runDevCapturingStdout({ port: 4314, cwd: projectDir });
+      expect(existsSync(join(projectDir, ".arkor"))).toBe(false);
+    });
+
+    it("cleanup removes only this launch's session file (+ its .tmp), never a co-located session sharing this pid", async () => {
+      const stdout = await runDevCapturingStdout({
+        port: 4315,
+        agent: true,
+        cwd: projectDir,
+      });
+      const sessionPath = sessionPathFrom(stdout);
+      const dir = join(projectDir, ".arkor", "agent");
+      // A co-located session file that happens to share this pid but a
+      // different uuid: this is a DIFFERENT live session (real when two
+      // containers bind-mount the same project, both running as pid 1). The
+      // old pid-prefix sweep deleted it; the exact-path cleanup must not.
+      const otherSameP = join(dir, `session-${process.pid}-otheruuid.json`);
+      writeFileSync(otherSameP, "{}");
+      // A stray .tmp for OUR session path (a signal-mid-write remnant) is ours.
+      writeFileSync(`${sessionPath}.tmp`, "{}");
+
+      const cleanup = process.listeners("exit").at(-1) as () => void;
+      cleanup();
+      expect(existsSync(sessionPath)).toBe(false);
+      expect(existsSync(`${sessionPath}.tmp`)).toBe(false);
+      // The co-located same-pid session is untouched.
+      expect(existsSync(otherSameP)).toBe(true);
+    });
+
+    it("does not delete OTHER session files in the agent dir (no pid-liveness sweep)", async () => {
+      // A pid-liveness sweep (process.kill) is unsafe when the project dir is
+      // a shared bind-mount across containers (pids are namespace-local, so a
+      // live foreign session looks dead). Agent startup must therefore leave
+      // every other session file untouched and only ever manage its own.
+      const dir = join(projectDir, ".arkor", "agent");
+      mkdirSync(dir, { recursive: true });
+      const foreign = join(dir, `session-999999999-foreign.json`);
+      writeFileSync(foreign, "{}");
+      const stdout = await runDevCapturingStdout({
+        port: 4316,
+        agent: true,
+        cwd: projectDir,
+      });
+      const ours = sessionPathFrom(stdout);
+      expect(existsSync(ours)).toBe(true);
+      // The unrelated file survived: no sweep ran.
+      expect(existsSync(foreign)).toBe(true);
+    });
+  });
+
+  describe("port-collision connect (EADDRINUSE probe)", () => {
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = mkdtempSync(join(tmpdir(), "arkor-dev-probe-proj-"));
+    });
+
+    afterEach(() => {
+      rmSync(projectDir, { recursive: true, force: true });
+    });
+
+    /** serve stub that skips the listening callback and fires EADDRINUSE. */
+    function mockServeAddrInUse(closeSpy?: () => void): void {
+      vi.mocked(serve).mockImplementationOnce((() => {
+        const server = {
+          close: closeSpy ?? vi.fn(),
+          on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+            if (event === "error") {
+              queueMicrotask(() =>
+                cb(
+                  Object.assign(new Error("bind failed"), {
+                    code: "EADDRINUSE",
+                  }),
+                ),
+              );
+            }
+            return server;
+          },
+        };
+        return server;
+      }) as unknown as typeof serve);
+    }
+
+    /** Stub the /api/status probe response (JSON body). */
+    function mockProbe(
+      body: unknown,
+      init?: ResponseInit,
+    ): ReturnType<typeof vi.fn> {
+      const fetchSpy = vi.fn(async () => Response.json(body, init));
+      globalThis.fetch = fetchSpy as unknown as typeof fetch;
+      return fetchSpy;
+    }
+
+    it("connects to a running Studio serving THIS project: resolves adopted, prints the URL, closes its own listener, registers no cleanup, sends no token", async () => {
+      // dev.ts wraps the adopt-path `server.close()` in try/catch, so without
+      // this spy nothing keeps that call alive under mutation (deleting it left
+      // the whole suite green). Inject it and assert below.
+      const closeSpy = vi.fn();
+      mockServeAddrInUse(closeSpy);
+      // Occupant reports it is an Arkor Studio serving the same project root.
+      const fetchSpy = mockProbe({ server: "arkor-studio", cwd: projectDir });
+      const exitBefore = process.listeners("exit").length;
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(runDev({ port: 4320, cwd: projectDir })).resolves.toEqual({
+          adopted: true,
+        });
+        const stdout = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+        expect(stdout).toContain(
+          "Arkor Studio already running on http://localhost:4320",
+        );
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      // Probe hit /api/status over 127.0.0.1 (not localhost) with NO token
+      // header (the endpoint is token-exempt; nothing is disclosed).
+      const [reqUrl, reqInit] = fetchSpy.mock.calls[0] as unknown as [
+        URL,
+        RequestInit | undefined,
+      ];
+      expect(String(reqUrl)).toBe("http://127.0.0.1:4320/api/status");
+      expect(reqInit?.headers).toBeUndefined();
+      // The probe is time-bounded by an AbortSignal (Node fetch has no default
+      // timeout): without it, an occupant that accepts TCP but never responds
+      // would hang `arkor dev` forever. Assert the signal is passed so removing
+      // the timeout guard fails here (the exact DURATION is pinned by the
+      // "time-bounds the probe with AbortSignal.timeout(1500)" test below).
+      expect(reqInit?.signal).toBeInstanceOf(AbortSignal);
+      // Never follow a redirect from an untrusted occupant (no blind SSRF).
+      expect(reqInit?.redirect).toBe("manual");
+      // The adopted instance owns the port; this launch must release the
+      // listener object it created instead of leaking it.
+      expect(closeSpy).toHaveBeenCalled();
+      // No shutdown handler was registered by this doomed launch.
+      expect(process.listeners("exit").length).toBe(exitBefore);
+    });
+
+    it("honors --open against the existing instance", async () => {
+      mockServeAddrInUse();
+      mockProbe({ server: "arkor-studio", cwd: projectDir });
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(
+          runDev({ port: 4321, open: true, cwd: projectDir }),
+        ).resolves.toEqual({ adopted: true });
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      expect(open).toHaveBeenCalledWith("http://localhost:4321");
+    });
+
+    it("adopts when the occupant's cwd is a SYMLINK that realpath-resolves to this project (pins realpathSync)", async () => {
+      if (process.platform === "win32") {
+        // Symlink creation needs privileges on Windows; the realpath path is
+        // exercised on POSIX where the connect flow matters most.
+        return;
+      }
+      mockServeAddrInUse();
+      // The occupant reports a DIFFERENT path STRING that resolves to the same
+      // real directory. A plain string compare would reject (no adopt); only
+      // realpathSync(b.cwd) === realpathSync(projectRoot) matches. Reverting
+      // the canonicalization to a string compare makes this test fail.
+      const linkPath = `${projectDir}-link`;
+      symlinkSync(projectDir, linkPath);
+      try {
+        mockProbe({ server: "arkor-studio", cwd: linkPath });
+        await expect(runDev({ port: 4328, cwd: projectDir })).resolves.toEqual({
+          adopted: true,
+        });
+      } finally {
+        rmSync(linkPath, { force: true });
+      }
+    });
+
+    it("falls back to the port-in-use error when the occupant serves a DIFFERENT project", async () => {
+      mockServeAddrInUse();
+      // Same-machine Arkor Studio, but a different project root -> do NOT adopt.
+      const otherProject = mkdtempSync(join(tmpdir(), "arkor-dev-other-"));
+      try {
+        mockProbe({ server: "arkor-studio", cwd: otherProject });
+        await expect(runDev({ port: 4322, cwd: projectDir })).rejects.toThrow(
+          /Port 4322 is already in use/,
+        );
+      } finally {
+        rmSync(otherProject, { recursive: true, force: true });
+      }
+    });
+
+    it("falls back when the occupant reports a RELATIVE cwd (no `.`-bypass of the project match)", async () => {
+      // A hostile occupant returning `cwd: "."` must NOT be adopted. This test
+      // is load-bearing only when it reproduces the production invariant
+      // `projectRoot === process.cwd()` (since `realpathSync(".")` resolves
+      // against the prober's process.cwd()): passing a /tmp `projectDir` here
+      // would make the guard untestable (realpathSync(".") != that /tmp path
+      // regardless of the guard). So pin projectRoot to process.cwd(): without
+      // the `isAbsolute` guard, `realpathSync(".") === realpathSync(cwd)` would
+      // wrongly adopt; with it, the launch rejects.
+      mockServeAddrInUse();
+      mockProbe({ server: "arkor-studio", cwd: "." });
+      await expect(runDev({ port: 4327, cwd: process.cwd() })).rejects.toThrow(
+        /Port 4327 is already in use/,
+      );
+    });
+
+    it.runIf(process.platform === "linux")(
+      "falls back when the occupant reports a process-relative magic path (no /proc/self/cwd bypass)",
+      async () => {
+        // `/proc/self/cwd` is ABSOLUTE, so it clears the isAbsolute guard, but
+        // `realpathSync` resolves it against the PROBER. Without the
+        // process-relative carve-out it would resolve to our own projectRoot
+        // and adopt a hostile occupant that never knew where the project is.
+        // Same projectRoot === process.cwd() pinning rationale as the test
+        // above. Linux-only: /proc/self/cwd does not exist elsewhere, so the
+        // resolve would throw and the probe would fall back anyway, making the
+        // assertion pass for the wrong reason.
+        mockServeAddrInUse();
+        mockProbe({ server: "arkor-studio", cwd: "/proc/self/cwd" });
+        await expect(
+          runDev({ port: 4328, cwd: process.cwd() }),
+        ).rejects.toThrow(/Port 4328 is already in use/);
+      },
+    );
+
+    it("falls back when the occupant streams an over-cap body even if it WOULD otherwise match (byte cap)", async () => {
+      mockServeAddrInUse();
+      // A 200 whose body has the right discriminator + cwd but is > 64 KiB.
+      // Only the byte cap can reject it, so this isolates readCapped: with an
+      // uncapped `res.json()` the launch would wrongly adopt.
+      mockProbe({
+        server: "arkor-studio",
+        cwd: projectDir,
+        filler: "x".repeat(70 * 1024),
+      });
+      await expect(runDev({ port: 4329, cwd: projectDir })).rejects.toThrow(
+        /Port 4329 is already in use/,
+      );
+    });
+
+    it("falls back on a non-200 even when the body WOULD otherwise match (isolates the res.ok guard)", async () => {
+      mockServeAddrInUse();
+      // Body has the right discriminator AND a matching cwd, so only the
+      // `if (!res.ok) return false` branch can reject it. This keeps the test
+      // load-bearing for that guard specifically (a body that also failed the
+      // discriminator would pass whether or not the status check existed).
+      mockProbe({ server: "arkor-studio", cwd: projectDir }, { status: 404 });
+      await expect(runDev({ port: 4323, cwd: projectDir })).rejects.toThrow(
+        /Port 4323 is already in use/,
+      );
+    });
+
+    it("falls back when the probe request itself fails (timeout / refused)", async () => {
+      mockServeAddrInUse();
+      globalThis.fetch = vi.fn(async () => {
+        throw new Error("The operation was aborted due to timeout");
+      }) as unknown as typeof fetch;
+      await expect(runDev({ port: 4324, cwd: projectDir })).rejects.toThrow(
+        /Port 4324 is already in use/,
+      );
+    });
+
+    it("falls back when the occupant is not an Arkor Studio (missing discriminator)", async () => {
+      mockServeAddrInUse();
+      mockProbe({ status: "ok", server: "something-else", cwd: projectDir });
+      await expect(runDev({ port: 4325, cwd: projectDir })).rejects.toThrow(
+        /Port 4325 is already in use/,
+      );
+    });
+
+    it("agent mode never probes: EADDRINUSE stays a hard error and writes no session file", async () => {
+      mockServeAddrInUse();
+      const fetchSpy = mockProbe({ server: "arkor-studio", cwd: projectDir });
+      await expect(
+        runDev({ port: 4326, agent: true, cwd: projectDir }),
+      ).rejects.toThrow(/Port 4326 is already in use/);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      // Bind-first ordering: the session file is written only in the listening
+      // callback, so a doomed busy-port launch leaves no `.arkor/agent`.
+      expect(existsSync(join(projectDir, ".arkor", "agent"))).toBe(false);
+    });
+
+    it("wraps a non-EADDRINUSE pre-bind error (e.g. EACCES on a privileged port) in a clean ExpectedCliError", async () => {
+      // parseDevPort now permits 1-1023, so a non-root `arkor dev --port 80`
+      // hits EACCES. That must print a clean actionable line, not a minified
+      // dist stack, so runDev rejects with an ExpectedCliError.
+      vi.mocked(serve).mockImplementationOnce((() => {
+        const server = {
+          close: vi.fn(),
+          on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+            if (event === "error") {
+              queueMicrotask(() =>
+                cb(Object.assign(new Error("bind EACCES"), { code: "EACCES" })),
+              );
+            }
+            return server;
+          },
+        };
+        return server;
+      }) as unknown as typeof serve);
+      await expect(runDev({ port: 80, cwd: projectDir })).rejects.toMatchObject(
+        {
+          name: "ExpectedCliError",
+          message: expect.stringMatching(/Could not bind port 80:.*EACCES/),
+        },
+      );
+    });
+
+    it("time-bounds the probe with AbortSignal.timeout(1500) and falls back when the occupant never responds", async () => {
+      // Asserts the probe is TIME-BOUNDED, not merely that some signal is
+      // passed. NOTE: vitest fake timers do NOT drive AbortSignal.timeout (it
+      // uses an internal, unmockable timer), so we cannot advance a fake clock
+      // to fire it. Instead we spy on AbortSignal.timeout: this both proves the
+      // production code requests the 1500ms bound (an unbounded
+      // `new AbortController().signal` never calls it -> the toHaveBeenCalled
+      // assertion fails) AND lets us fire the abort synchronously so the test
+      // stays fast (no real 1.5s wall-clock wait).
+      mockServeAddrInUse();
+      const timeoutSpy = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockImplementation((ms) => {
+          const ac = new AbortController();
+          // Fire on the next microtask so the mocked fetch below (which only
+          // rejects on abort) settles promptly, standing in for the real
+          // occupant that accepts the connection but never responds.
+          queueMicrotask(() => {
+            ac.abort(new Error(`stub timeout after ${String(ms)}ms`));
+          });
+          return ac.signal;
+        });
+      globalThis.fetch = vi.fn(
+        (_url: unknown, init?: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            // probeExistingStudio catches every throw, so the rejection reason
+            // is irrelevant; a plain Error keeps prefer-promise-reject-errors
+            // happy. What matters is that ONLY the abort fires it.
+            init?.signal?.addEventListener("abort", () => {
+              reject(new Error("aborted by AbortSignal.timeout"));
+            });
+          }),
+      ) as unknown as typeof fetch;
+      try {
+        await expect(runDev({ port: 4332, cwd: projectDir })).rejects.toThrow(
+          /Port 4332 is already in use/,
+        );
+        // The exact bound is the contract; assert it, not just "was called".
+        expect(timeoutSpy).toHaveBeenCalledWith(1500);
+      } finally {
+        timeoutSpy.mockRestore();
+      }
+    });
+
+    it("adopts an existing Studio even when first-run credential bootstrap hard-fails (offline)", async () => {
+      // Deferred bootstrap: with no credentials AND the config fetch failing,
+      // ensureCredentialsForStudio throws, but the adopt path needs no
+      // credentials, so a first-run offline launch must still connect.
+      rmSync(join(fakeHome, ".arkor", "credentials.json"), { force: true });
+      mockServeAddrInUse();
+      globalThis.fetch = vi.fn(async (input: unknown) => {
+        if (String(input).includes("/api/status")) {
+          return Response.json({ server: "arkor-studio", cwd: projectDir });
+        }
+        throw new TypeError("fetch failed"); // config/anon bootstrap fails
+      }) as unknown as typeof fetch;
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(runDev({ port: 4330, cwd: projectDir })).resolves.toEqual({
+          adopted: true,
+        });
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    });
+
+    it("still rejects when bootstrap hard-fails AND this process actually serves", async () => {
+      // The deferral only helps the adopt path: if we bind and serve (serving
+      // needs credentials), the deferred bootstrap error is surfaced.
+      rmSync(join(fakeHome, ".arkor", "credentials.json"), { force: true });
+      // Bind succeeds (listening fires), but expose a close spy: the reject
+      // path must also CLOSE the just-bound listener, or a failed launch
+      // would leak a live socket until process exit. The default serve stub
+      // has no `close`, and dev.ts wraps the call in try/catch, so without
+      // this spy the assertion below is the only thing keeping the
+      // `server.close()` call alive under mutation.
+      const closeSpy = vi.fn();
+      vi.mocked(serve).mockImplementationOnce(((
+        _opts: unknown,
+        onListen?: () => void,
+      ) => {
+        queueMicrotask(() => onListen?.());
+        return { on: vi.fn(), close: closeSpy };
+      }) as unknown as typeof serve);
+      globalThis.fetch = vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }) as unknown as typeof fetch;
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await expect(runDev({ port: 4331, cwd: projectDir })).rejects.toThrow(
+          /fetch failed/,
+        );
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      expect(closeSpy).toHaveBeenCalled();
+    });
   });
 });

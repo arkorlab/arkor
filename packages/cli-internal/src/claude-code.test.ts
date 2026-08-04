@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  formatClaudeCodeAgentModeMessage,
   formatClaudeCodeMissingMessage,
   isClaudeCode,
   missingClaudeCodeFlags,
@@ -419,5 +420,25 @@ describe("formatClaudeCodeMissingMessage", () => {
     expect(out).toContain("Init a git repo or skip git.");
     expect(out).toContain("-y/--yes");
     expect(out.endsWith("\n")).toBe(true);
+  });
+});
+
+describe("formatClaudeCodeAgentModeMessage", () => {
+  it("renders the command name, the --agent flag, and the header contract", () => {
+    const out = formatClaudeCodeAgentModeMessage("arkor dev");
+    expect(out).toContain(
+      "arkor dev: CLAUDECODE=1 detected. Interactive Studio use is disabled.",
+    );
+    expect(out).toContain("Re-run with the --agent flag:");
+    expect(out).toContain("  --agent");
+    expect(out).toContain("X-Arkor-Studio-Token");
+    expect(out).toContain(".arkor/agent/");
+    expect(out.endsWith("\n")).toBe(true);
+  });
+
+  it("does not offer the -y/--yes escape hatch (dev has no defaults mode)", () => {
+    const out = formatClaudeCodeAgentModeMessage("arkor dev");
+    expect(out).not.toContain("--yes");
+    expect(out).not.toContain("-y");
   });
 });

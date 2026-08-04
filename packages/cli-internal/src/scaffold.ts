@@ -38,7 +38,7 @@ export interface ScaffoldOptions {
    * Plug'n'Play default. PnP omits `node_modules/` and requires a
    * runtime loader to resolve modules; the arkor runtime (esbuild →
    * `node ./.arkor/build/index.mjs`) doesn't load PnP, so a vanilla
-   * yarn-4 install would leave `arkor dev` / `arkor train` unable to
+   * yarn-4 install would leave `arkor dev` / `arkor start` unable to
    * find their dependencies. yarn 1.x ignores `.yarnrc.yml` (it reads
    * `.yarnrc`), so the file is harmless on the classic line.
    *
@@ -452,7 +452,7 @@ interface YarnConfigPatchResult {
    * Set when the existing `.yarnrc.yml` had `nodeLinker:` pinned to
    * a value other than `node-modules` and we elected to keep it.
    * `scaffold()` turns this into a user-facing warning: the project
-   * will install but `arkor dev` / `arkor train` will fail until the
+   * will install but `arkor dev` / `arkor start` will fail until the
    * linker is changed.
    */
   conflictingNodeLinker?: string;
@@ -482,7 +482,7 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
     `Existing .yarnrc.yml pins \`nodeLinker: ${existingValue}\`. ` +
     `arkor's runtime can't resolve dependencies through anything ` +
     `other than \`nodeLinker: node-modules\`. \`arkor dev\` and ` +
-    `\`arkor train\` will fail until you change the value to ` +
+    `\`arkor start\` will fail until you change the value to ` +
     `\`node-modules\`.`
   );
 }
@@ -491,7 +491,7 @@ function buildYarnLinkerConflictWarning(existingValue: string): string {
 // existing project but no usable `nodeLinker: node-modules` setup.
 // arkor's runtime can't resolve dependencies through Plug'n'Play
 // (yarn-berry's default), so `yarn install` would land on PnP and
-// `arkor dev` / `arkor train` would break.
+// `arkor dev` / `arkor start` would break.
 //
 // Path-agnostic copy: emitted from BOTH the explicit `--use-yarn`
 // patch path (via `needsBerryCaveat`) AND the
@@ -516,7 +516,7 @@ function buildYarnBerryCaveatAdvisory(): string {
     `yarn 2+ (yarn-berry) on an existing project, but ` +
     `\`nodeLinker: node-modules\` isn't set. arkor's runtime can't ` +
     `resolve dependencies through Plug'n'Play (yarn-berry's default), ` +
-    `so \`arkor dev\` and \`arkor train\` will fail until the linker ` +
+    `so \`arkor dev\` and \`arkor start\` will fail until the linker ` +
     `is set. Before running \`yarn install\`, add ` +
     `\`nodeLinker: node-modules\` to \`.yarnrc.yml\`.`
   );

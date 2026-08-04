@@ -27,11 +27,13 @@ export {
   type NodeModulesSnapshot,
 } from "./install";
 export { gitInitialCommit, isInGitRepo, type InitialCommitResult } from "./git";
+export { ExpectedCliError } from "./errors";
 export { sanitise } from "./sanitise";
 export {
   ClaudeCodeStrictExit,
   isClaudeCode,
   missingClaudeCodeFlags,
+  formatClaudeCodeAgentModeMessage,
   formatClaudeCodeMissingMessage,
   type ClaudeCodeOptionsCheck,
   type MissingClaudeCodeFlag,
