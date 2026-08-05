@@ -24,6 +24,12 @@ import { ui } from "../prompts";
 
 export interface DevOptions {
   port?: number;
+  // True when the user typed `--port <n>` on the CLI; false/undefined when
+  // the value came from commander's default ("4000"). Only affects
+  // EADDRINUSE handling: an explicit port fails hard, a defaulted port
+  // falls back to the next free one. Set in `main.ts` via
+  // `command.getOptionValueSource("port") === "cli"`.
+  portExplicit?: boolean;
   open?: boolean;
 }
 
@@ -235,10 +241,16 @@ function installShutdownHandlers(cleanup: () => void): void {
   }
 }
 
+// How many ports to try in total (requestedPort, +1, +2, ...) before giving
+// up when the port was NOT explicitly requested. Capped so a long run of
+// busy ports fails fast instead of scanning forever.
+const MAX_PORT_ATTEMPTS = 10;
+
 export async function runDev(options: DevOptions = {}): Promise<void> {
   await ensureCredentialsForStudio();
 
-  const port = options.port ?? 4000;
+  const requestedPort = options.port ?? 4000;
+  const portExplicit = options.portExplicit ?? false;
   // Per-launch CSRF token: injected into index.html as <meta>, required on
   // every /api/* request. Prevents another tab on the same machine from
   // hitting `arkor start` (and therefore RCE via dynamic import).
@@ -248,15 +260,10 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
   // attempt above failed (e.g. cloud-api was unreachable at launch).
   const app = buildStudioApp({ studioToken });
-  // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
-  // only: `@hono/node-server` passes hostname to `net.Server.listen`, which
-  // calls `dns.lookup`. On hosts where `/etc/hosts` orders `::1 localhost`
-  // before `127.0.0.1 localhost`, a "localhost" bind would refuse IPv4
-  // connections, breaking the studio-app Vite proxy (hardcoded to
-  // `http://127.0.0.1:4000`) and any browser that resolves localhost to
-  // IPv4. The host-header guard already accepts both, so the displayed URL
-  // can still be `localhost`.
-  const url = `http://localhost:${port}`;
+
+  // Filled in once the server actually binds; may differ from
+  // `requestedPort` when we fell back to a free one.
+  let boundPort = requestedPort;
 
   await new Promise<void>((resolve, reject) => {
     // Tracks whether the listener has BOUND (the `listening` callback fired)
@@ -266,105 +273,140 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     // token is still being persisted hits an already-serving server, so
     // treating it as a startup failure would kill a healthy instance.
     let bound = false;
+
     // Bind FIRST, then persist the studio token and register its cleanup
     // in the `listening` callback (after a successful bind). The token
     // file (`~/.arkor/studio-token`) is a single shared path, so a second
-    // `arkor dev` on the same port must fail on EADDRINUSE *without* having
-    // clobbered the first instance's token or registered an exit handler
-    // that would delete it. The old flow persisted up front, so a doomed
-    // second launch overwrote the token and then, on its crash-exit,
-    // unlinked the healthy instance's file, 403-ing the Vite SPA workflow.
-    const server = serve(
-      { fetch: app.fetch, port, hostname: "127.0.0.1" },
-      () => {
-        bound = true;
-        // Install shutdown handlers immediately on successful bind, BEFORE
-        // (and independent of) token persistence. The handlers must fire even
-        // when persistence fails so a termination signal still reaps any
-        // /api/train child and reports the right exit code. The cleanup
-        // resolves the token path directly (rather than gating on a variable
-        // assigned after persistence resolves): a signal landing after the
-        // atomic rename placed the token but before persistStudioToken's
-        // continuation ran would otherwise leave the file behind (a signal
-        // before the rename abandons only the disposable .tmp staging file,
-        // never the canonical path). The ownership check
-        // below makes the direct resolution safe in every state: not yet
-        // written -> ENOENT (caught); written by us -> matches, removed;
-        // overwritten by another instance -> differs, left alone.
-        installShutdownHandlers(() => {
-          try {
-            // Ownership check before unlinking: the token path is a single
-            // shared file, so a second `arkor dev` on a DIFFERENT port may
-            // have legitimately overwritten it since we wrote it
-            // (last-writer-wins is the documented multi-instance
-            // behaviour). Deleting it then would 403 the OTHER, still-
-            // running instance's Vite SPA workflow; only remove the file
-            // if it still holds OUR token.
-            const path = studioTokenPath();
-            if (readFileSync(path, "utf8") === studioToken) {
-              unlinkSync(path);
+    // `arkor dev` on the same port must fail on EADDRINUSE (or, for a
+    // non-explicit port, retry the next one) *without* having clobbered
+    // the first instance's token or registered an exit handler that would
+    // delete it. The old flow persisted up front, so a doomed second
+    // launch overwrote the token and then, on its crash-exit, unlinked
+    // the healthy instance's file, 403-ing the Vite SPA workflow.
+    const attemptBind = (port: number, attemptsLeft: number) => {
+      // Bind to 127.0.0.1 (not "localhost") so the listener can't end up on `::1`
+      // only: `@hono/node-server` passes hostname to `net.Server.listen`, which
+      // calls `dns.lookup`. On hosts where `/etc/hosts` orders `::1 localhost`
+      // before `127.0.0.1 localhost`, a "localhost" bind would refuse IPv4
+      // connections, breaking the studio-app Vite proxy (hardcoded to
+      // `http://127.0.0.1:4000`) and any browser that resolves localhost to
+      // IPv4. The host-header guard already accepts both, so the displayed URL
+      // can still be `localhost`.
+      const url = `http://localhost:${port}`;
+      const server = serve(
+        { fetch: app.fetch, port, hostname: "127.0.0.1" },
+        () => {
+          bound = true;
+          boundPort = port;
+          // Install shutdown handlers immediately on successful bind, BEFORE
+          // (and independent of) token persistence. The handlers must fire even
+          // when persistence fails so a termination signal still reaps any
+          // /api/train child and reports the right exit code. The cleanup
+          // resolves the token path directly (rather than gating on a variable
+          // assigned after persistence resolves): a signal landing after the
+          // atomic rename placed the token but before persistStudioToken's
+          // continuation ran would otherwise leave the file behind (a signal
+          // before the rename abandons only the disposable .tmp staging file,
+          // never the canonical path). The ownership check
+          // below makes the direct resolution safe in every state: not yet
+          // written -> ENOENT (caught); written by us -> matches, removed;
+          // overwritten by another instance -> differs, left alone.
+          installShutdownHandlers(() => {
+            try {
+              // Ownership check before unlinking: the token path is a single
+              // shared file, so a second `arkor dev` on a DIFFERENT port may
+              // have legitimately overwritten it since we wrote it
+              // (last-writer-wins is the documented multi-instance
+              // behaviour). Deleting it then would 403 the OTHER, still-
+              // running instance's Vite SPA workflow; only remove the file
+              // if it still holds OUR token.
+              const path = studioTokenPath();
+              if (readFileSync(path, "utf8") === studioToken) {
+                unlinkSync(path);
+              }
+            } catch {
+              // best-effort
             }
-          } catch {
-            // best-effort
-          }
-        });
-        // Persisting the token to disk is *only* needed for the Vite SPA
-        // dev workflow. The bundled `:port` flow injects the meta tag at
-        // request time via `buildStudioApp`, so a failure here (read-only
-        // $HOME on Docker / locked-down CI / restrictive umask) must not
-        // block the server.
-        void (async () => {
-          try {
-            await persistStudioToken(studioToken);
-          } catch (err) {
-            ui.log.warn(
-              `Could not write ${studioTokenPath()} (${
-                err instanceof Error ? err.message : String(err)
-              }). The Studio at ${url} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
-            );
-          }
-          process.stdout.write(`Arkor Studio running on ${url}\n`);
-          resolve();
-        })();
-      },
-    );
-    server.on("error", (err: unknown) => {
-      // EADDRINUSE (and friends) arrive here asynchronously. Without this
-      // listener Node rethrows them as an uncaught exception, which would
-      // also fire the process-wide exit handler and delete a *different*
-      // healthy instance's studio-token (see the bind-first note above).
-      //
-      // `err` is treated as `unknown` on purpose: a non-Error emission
-      // (string, null) must not crash THIS handler via a property access.
-      //
-      // Once bound, reject() would be a silent no-op (or, during the token-
-      // persistence window, would wrongly kill an already-serving instance),
-      // so log post-bind server errors instead: an operator watching a
-      // running Studio should see a live socket fault (EMFILE, ...) even
-      // though the process keeps serving.
-      const message = err instanceof Error ? err.message : String(err);
-      if (bound) {
-        ui.log.warn(`Studio server error after startup: ${message}`);
-        return;
-      }
-      if (
-        err instanceof Error &&
-        (err as NodeJS.ErrnoException).code === "EADDRINUSE"
-      ) {
-        reject(
-          new Error(
-            `Port ${port} is already in use. Another \`arkor dev\` may be running; pass --port to choose a different one.`,
-          ),
-        );
-        return;
-      }
-      reject(err instanceof Error ? err : new Error(message));
-    });
+          });
+          // Persisting the token to disk is *only* needed for the Vite SPA
+          // dev workflow. The bundled `:port` flow injects the meta tag at
+          // request time via `buildStudioApp`, so a failure here (read-only
+          // $HOME on Docker / locked-down CI / restrictive umask) must not
+          // block the server.
+          void (async () => {
+            try {
+              await persistStudioToken(studioToken);
+            } catch (err) {
+              ui.log.warn(
+                `Could not write ${studioTokenPath()} (${
+                  err instanceof Error ? err.message : String(err)
+                }). The Studio at ${url} is unaffected, but the Vite SPA dev workflow will see 403s on /api/*.`,
+              );
+            }
+            process.stdout.write(`Arkor Studio running on ${url}\n`);
+            resolve();
+          })();
+        },
+      );
+      server.on("error", (err: unknown) => {
+        // EADDRINUSE (and friends) arrive here asynchronously. Without this
+        // listener Node rethrows them as an uncaught exception, which would
+        // also fire the process-wide exit handler and delete a *different*
+        // healthy instance's studio-token (see the bind-first note above).
+        //
+        // `err` is treated as `unknown` on purpose: a non-Error emission
+        // (string, null) must not crash THIS handler via a property access.
+        //
+        // Once bound, reject() would be a silent no-op (or, during the token-
+        // persistence window, would wrongly kill an already-serving instance),
+        // so log post-bind server errors instead: an operator watching a
+        // running Studio should see a live socket fault (EMFILE, ...) even
+        // though the process keeps serving.
+        const message = err instanceof Error ? err.message : String(err);
+        if (bound) {
+          ui.log.warn(`Studio server error after startup: ${message}`);
+          return;
+        }
+        const isAddrInUse =
+          err instanceof Error &&
+          (err as NodeJS.ErrnoException).code === "EADDRINUSE";
+        // Only fall back to the next port when the caller didn't pin an
+        // exact one, attempts remain, and the next port is still in the
+        // valid 1-65535 range. Without the range check, a non-explicit
+        // port near the ceiling (e.g. runDev({ port: 65530 }) called
+        // directly, bypassing the CLI's 4000 default) could try port
+        // 65536, which `serve()` rejects synchronously before this
+        // promise's reject() can run. An explicit `--port <n>` keeps
+        // today's hard-fail contract: silently landing on a different
+        // port than the one the user typed would be surprising.
+        if (isAddrInUse && !portExplicit && attemptsLeft > 1 && port < 65_535) {
+          ui.log.warn(
+            `Port ${port} is in use, trying ${port + 1} instead. Pass --port to pin a specific one.`,
+          );
+          attemptBind(port + 1, attemptsLeft - 1);
+          return;
+        }
+
+        if (isAddrInUse) {
+          reject(
+            new Error(
+              portExplicit
+                ? `Port ${port} is already in use. Another \`arkor dev\` may be running; pass --port to choose a different one.`
+                : `Port ${requestedPort} is already in use, and no free port was found in ${requestedPort}-${port}. Pass --port to choose one explicitly.`,
+            ),
+          );
+          return;
+        }
+        reject(err instanceof Error ? err : new Error(message));
+      });
+    };
+
+    attemptBind(requestedPort, MAX_PORT_ATTEMPTS);
   });
 
   if (options.open) {
     try {
-      await open(url);
+      await open(`http://localhost:${boundPort}`);
     } catch {
       // fall through
     }

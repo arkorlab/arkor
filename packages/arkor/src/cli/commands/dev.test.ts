@@ -562,6 +562,27 @@ describe("ensureCredentialsForStudio", () => {
   });
 });
 
+// Simulates one failed bind attempt: `serve()` returns a stub whose
+// registered 'error' listener asynchronously fires an error carrying `code`,
+// mirroring how @hono/node-server reports a busy port. Uses
+// `mockImplementationOnce` so the module-level default (a successful bind)
+// still takes over on the next call, matching this file's mock convention.
+function mockBindFailureOnce(code = "EADDRINUSE"): void {
+  vi.mocked(serve).mockImplementationOnce((() => {
+    const server = {
+      on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
+        if (event === "error") {
+          queueMicrotask(() =>
+            cb(Object.assign(new Error("bind failed"), { code })),
+          );
+        }
+        return server;
+      },
+    };
+    return server;
+  }) as unknown as typeof serve);
+}
+
 describe("runDev", () => {
   // Track exit/signal listeners we add via installShutdownHandlers so
   // we can remove them between tests; otherwise vitest's worker would
@@ -798,30 +819,14 @@ describe("runDev", () => {
     // 'error' event WITHOUT having persisted (and thus clobbered) a shared
     // studio-token or registered an exit handler that would delete it. The
     // stub below skips the listening callback and fires 'error' instead.
-    vi.mocked(serve).mockImplementationOnce((() => {
-      const server = {
-        on: (event: string, cb: (err: NodeJS.ErrnoException) => void) => {
-          if (event === "error") {
-            queueMicrotask(() =>
-              cb(
-                Object.assign(new Error("bind failed"), {
-                  code: "EADDRINUSE",
-                }),
-              ),
-            );
-          }
-          return server;
-        },
-      };
-      return server;
-    }) as unknown as typeof serve);
+    mockBindFailureOnce();
 
     const exitBefore = process.listeners("exit").length;
     // Seed a token as if a healthy instance owns it: the doomed launch must
     // leave the CONTENT untouched (existence alone can't catch a clobber).
     mkdirSync(join(fakeHome, ".arkor"), { recursive: true });
     writeFileSync(studioTokenPath(), "healthy-instance-token");
-    await expect(runDev({ port: 4206 })).rejects.toThrow(
+    await expect(runDev({ port: 4206, portExplicit: true })).rejects.toThrow(
       /Port 4206 is already in use/,
     );
     // The healthy instance's token is untouched and no cleanup handler was
@@ -830,6 +835,70 @@ describe("runDev", () => {
       "healthy-instance-token",
     );
     expect(process.listeners("exit").length).toBe(exitBefore);
+  });
+
+  it("falls back to the next free port when --port was not explicit", async () => {
+    // Matches this file's mock convention: one failing attempt, then let
+    // the module-level default (a successful bind) take over for the
+    // retry, rather than a persistent counter-based override that could
+    // leak into later tests.
+    mockBindFailureOnce();
+
+    const warnSpy = vi.spyOn(clack.log, "warn");
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      stdoutChunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4300, open: true });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    expect(serve).toHaveBeenCalledTimes(2);
+    const secondCallArg = vi.mocked(serve).mock.calls[1]?.[0] as {
+      port: number;
+    };
+    expect(secondCallArg.port).toBe(4301);
+    // The fallback must be visible to the user, so assert the warning text.
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Port 4300 is in use, trying 4301 instead. Pass --port to pin a specific one.",
+    );
+    // `open` and the startup line must follow the port actually bound
+    // (4301), not the originally requested one (4300).
+    expect(open).toHaveBeenCalledWith("http://localhost:4301");
+    expect(stdoutChunks.join("")).toContain(
+      "Arkor Studio running on http://localhost:4301",
+    );
+  });
+
+  it("does not retry when --port was explicit, even on EADDRINUSE", async () => {
+    mockBindFailureOnce();
+
+    const warnSpy = vi.spyOn(clack.log, "warn");
+
+    await expect(runDev({ port: 4301, portExplicit: true })).rejects.toThrow(
+      /Port 4301 is already in use/,
+    );
+    expect(serve).toHaveBeenCalledTimes(1);
+    // No fallback warning should fire when the port was explicit.
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("trying"));
+  });
+
+  // Nothing exercised the MAX_PORT_ATTEMPTS
+  // upper bound or the range-style exhaustion error message.
+  it("stops after MAX_PORT_ATTEMPTS and reports the scanned range when every port is busy", async () => {
+    for (let i = 0; i < 10; i++) {
+      mockBindFailureOnce();
+    }
+
+    await expect(runDev({ port: 4302 })).rejects.toThrow(
+      /Port 4302 is already in use, and no free port was found in 4302-4311/,
+    );
+    expect(serve).toHaveBeenCalledTimes(10);
   });
 
   // PR #193 review (coderabbit): the token path is a single shared file, and
