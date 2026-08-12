@@ -58,6 +58,33 @@ describe("runTrainer: entry extraction", () => {
       /Training entry not found/,
     );
   });
+  it("wraps an import-time failure with context, preserving the original error as cause", async () => {
+    // The entry file EXISTS (so we skip the "not found" branch above) but
+    // throws while being imported, e.g. because one of its own imports is
+    // broken. This is the scenario from arkorlab/arkor#221: the failure
+    // happens while loading the entry, before training ever starts, and
+    // that should be obvious from the error message rather than surfacing
+    // as a bare "Cannot find module" with no indication of where it came
+    // from.
+    const entry = join(cwd, "broken-entry.mjs");
+    writeFileSync(
+      entry,
+      `import "./does-not-exist.mjs";\nexport const trainer = {};\n`,
+    );
+
+    const failure = await runTrainer(entry).then(
+      () => null,
+      (err: unknown) => err,
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    const err = failure as Error;
+    expect(err.message).toBe(`Failed to load training entry: ${entry}`);
+    // The original import error (module-not-found) must still be reachable
+    // via `cause`, not swallowed by the new wrapper message.
+    expect(err.cause).toBeInstanceOf(Error);
+    expect((err.cause as Error).message).toMatch(/does-not-exist/);
+  });
 
   it("runs when the entry default-exports a Trainer", async () => {
     const entry = join(cwd, "entry.mjs");
