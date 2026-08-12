@@ -128,7 +128,7 @@ We err on the side of accepting PRs, even rough ones. Tiny contributions (a typo
 
 ## Code of conduct
 
-Be kind, assume good faith, and keep technical disagreement technical. Anything else (harassment, personal attacks, exclusionary behavior) is grounds for being asked to leave. The maintainers' call is final.
+All Arkor community spaces follow our [Code of Conduct](CODE_OF_CONDUCT.md). It also covers collaboration etiquette: how issues get claimed and assigned, how to avoid duplicate PRs, and how to communicate with maintainers. The short version: be kind, assume good faith, and keep technical disagreement technical. Anything else (harassment, personal attacks, exclusionary behavior) is grounds for being asked to leave. The maintainers' call is final.
 
 ## License
 
