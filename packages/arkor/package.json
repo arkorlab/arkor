@@ -36,7 +36,9 @@
     "dist",
     "docs",
     "CONTRIBUTING.md",
-    "README.ja.md"
+    "README.ja.md",
+    "CODE_OF_CONDUCT.md",
+    "CODE_OF_CONDUCT.ja.md"
   ],
   "engines": {
     "node": ">=22.22.0"

@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Arkor is built in the open, with and for people who want TypeScript-native fine-tuning to exist. This document describes how we treat each other in every Arkor community space: this GitHub repository (issues, pull requests, discussions), the [Discord server](https://discord.gg/YujCZYGrEZ), and any official account or event where someone represents the project.
+Arkor is built in the open, with and for people who want TypeScript-native fine-tuning to exist. This document describes how we treat each other in every Arkor community space: this GitHub repository (issues, pull requests, discussions), the [Discord server](https://discord.arkor.ai), and any official account or event where someone represents the project.
 
 It has two parts: **how we behave** (the conduct baseline) and **how we collaborate** (etiquette for issues, pull requests, and talking to maintainers). Both are binding.
 
