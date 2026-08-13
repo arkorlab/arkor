@@ -6,6 +6,7 @@ dist/
 
 # Generated copies of root files (see packages/*/scripts/copy-root-files.mjs)
 packages/*/CONTRIBUTING.md
+packages/*/CONTRIBUTING.ja.md
 packages/*/README.ja.md
 packages/*/CODE_OF_CONDUCT.md
 packages/*/CODE_OF_CONDUCT.ja.md

@@ -19,7 +19,7 @@
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-000" alt="MIT"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A522.22.0-000" alt="node ≥22.22.0">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="alpha">
-  <a href="https://discord.gg/YujCZYGrEZ"><img src="https://img.shields.io/badge/discord-join-5865F2" alt="Discord"></a>
+  <a href="https://discord.arkor.ai"><img src="https://img.shields.io/badge/discord-join-5865F2" alt="Discord"></a>
 </p>
 
 <p align="center">
@@ -173,7 +173,7 @@ pnpm / npm / yarn / bun で動作します。
 
 - 動いてほしいモデル + データセット + ワークフローについて **[Issue を立ててください](https://github.com/arkorlab/arkor/issues/new)**。すべて読んでいます。
 - `0.1` に向かう過程の更新を受け取りたければ **リポジトリにスターを** ください。
-- ライブな議論や早期アクセスの通知が欲しければ **[Discord に参加](https://discord.gg/YujCZYGrEZ)** してください。
+- ライブな議論や早期アクセスの通知が欲しければ **[Discord に参加](https://discord.arkor.ai)** してください。
 
 開発セットアップについては [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) を参照してください。
 
