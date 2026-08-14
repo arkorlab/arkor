@@ -17,7 +17,7 @@ export const trainer = createTrainer({
 });
 ```
 
-`createTrainer` returns a `Trainer` object with `start` / `wait` / `cancel` methods (see [Trainer control](/sdk/trainer-control)). The function does **not** run client-side validation on `TrainerInput`: TypeScript checks the typed fields at compile time, and the rest is forwarded to the cloud-api when `start()` runs. Bad values surface as backend errors during the run, not as client-side throws at construction.
+`createTrainer` returns a `Trainer` object with `start` / `wait` / `cancel` methods (see [Trainer control](/sdk/trainer-control)). With one exception, the function does **not** run client-side validation on `TrainerInput`: TypeScript checks the typed fields at compile time, and the rest is forwarded to the cloud-api when `start()` creates the job, so bad values are reported by the backend rather than by the SDK. The exception is `model`, which is checked against [`SUPPORTED_MODELS`](/models) at construction and throws immediately on an unsupported value (the `arkor build` / `arkor start` path bundles with esbuild and never typechecks, so the compile-time narrowing alone cannot gate it).
 
 ## Signature
 
@@ -36,7 +36,7 @@ The full `TrainerInput` shape is described under Parameters below; the returned 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `name` | `string` | Run name, shown in Studio and on the managed backend. |
-| `model` | `string` | Base model identifier. Today the curated templates use `gemma-4-E4B-it` (see [Supported models](/models)). |
+| `model` | `SupportedModel` | Base model identifier, narrowed to the models the backend accepts today. An unsupported value is a compile error, and `createTrainer` throws on it at run time (see [Supported models](/models)). |
 | `dataset` | [`DatasetSource`](/sdk/dataset) | HuggingFace dataset name or blob URL. |
 
 ## Typed optional fields

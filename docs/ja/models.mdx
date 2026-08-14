@@ -19,6 +19,29 @@ export const trainer = createTrainer({
 });
 ```
 
+## リストはコンパイラーが強制します
+
+`model` の型は素の `string` ではなく、サポートしているリストから導出したユニオン `SupportedModel` です。タイプミスはコンパイルが通りません。
+
+```ts
+createTrainer({
+  name: "support-bot-v1",
+  // 型 '"unsloth/gema-4-E4B-it"' を型 'SupportedModel' に代入できません。
+  model: "unsloth/gema-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+});
+```
+
+同じリストはトレーナーの生成時にも強制されます。`createTrainer` はリスト外のモデルで例外を投げるため、型チェッカーを通らないフロー（素の JavaScript や、esbuild でバンドルする `arkor build` / `arkor start`）でも、バックエンドの 4xx ではなく手元で早期に失敗します。
+
+型とリストの両方がエクスポートされているので、実行時にリストを走査できます（ピッカーを描画する場合など）。
+
+```ts
+import { SUPPORTED_MODELS, type SupportedModel } from "arkor";
+```
+
+この絞り込みが効くのは*送る側*です。バックエンドから読み戻したジョブ（`TrainingJob.config.model`）は `string` のままです。インストール済みの SDK より後に追加されたモデルをバックエンドが動かしている可能性があるためです。
+
 ## なぜ今、1 つのモデルだけなのか
 
 アルファ段階の優先順位は、広いカタログを揃えることではなく、1 つのベースモデルで学習も推論も速いと感じてもらうことです。`arkor dev` から `arkor start` を経てチャット可能なチェックポイントに至るまでの流れ全体を、その 1 つのモデルに対してチューニングすることで、最適化が複数モデルに分散することなく各実行に積み上がっていきます。

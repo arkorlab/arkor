@@ -19,6 +19,29 @@ export const trainer = createTrainer({
 });
 ```
 
+## The list is enforced by the compiler
+
+`model` is typed as `SupportedModel`, a union derived from the supported list rather than a plain `string`. A typo does not compile:
+
+```ts
+createTrainer({
+  name: "support-bot-v1",
+  // Type '"unsloth/gema-4-E4B-it"' is not assignable to type 'SupportedModel'.
+  model: "unsloth/gema-4-E4B-it",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+});
+```
+
+The same list is enforced when the trainer is constructed: `createTrainer` throws on a model outside it. Flows that never run a typechecker (plain JavaScript, or `arkor build` / `arkor start`, which bundle with esbuild) fail fast locally instead of surfacing a 4xx from the backend.
+
+Both the type and the list itself are exported, so you can iterate the list at run time (to render a picker, for example):
+
+```ts
+import { SUPPORTED_MODELS, type SupportedModel } from "arkor";
+```
+
+Note that this narrowing applies to what you *send*. A job read back from the backend (`TrainingJob.config.model`) stays a `string`, because the backend can run a model your installed version of the SDK predates.
+
 ## Why one model, right now
 
 The priority in alpha is making both training and inference feel fast on one base model, not building a wide catalog. Tuning the whole path from `arkor dev` through `arkor start` to a chat-ready checkpoint against one model means optimizations to that model compound across runs, instead of getting diluted across many.

@@ -4,6 +4,8 @@
  * Job/event shapes are declared structurally; the server is the authority for
  * field presence. Runtime validation lives in `schemas.ts`.
  */
+import type { SupportedModel } from "./models";
+
 export type JobStatus =
   | "queued"
   | "running"
@@ -31,6 +33,11 @@ export type DatasetSource = HuggingfaceDatasetSource | BlobDatasetSource;
  * compose a `TrainerInput` and the SDK translates to this.
  */
 export interface JobConfig {
+  /**
+   * Stays `string`: this shape is also the decoded server response
+   * (`TrainingJob.config`), which may carry models this SDK version predates.
+   * Narrowing lives on `TrainerInput.model`.
+   */
   model: string;
   datasetSource: DatasetSource;
   datasetFormat?: unknown;
@@ -302,8 +309,8 @@ export interface LoraConfig {
 export interface TrainerInput {
   /** Human-readable run name; shown in Studio + Web UI. */
   name: string;
-  /** Base model identifier (HuggingFace path, etc.). */
-  model: string;
+  /** Base model identifier. Narrowed to what cloud-api accepts today. */
+  model: SupportedModel;
   /** Dataset source (HuggingFace name or blob URL). */
   dataset: DatasetSource;
   /** LoRA / quantisation knobs. */

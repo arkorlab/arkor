@@ -5,10 +5,19 @@ import { join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { CloudApiError } from "./client";
+import { SUPPORTED_MODELS } from "./models";
 import { writeState } from "./state";
 import { createTrainer } from "./trainer";
 
 import type { AnonymousCredentials } from "./credentials";
+
+/**
+ * Base model for `createTrainer` inputs. Derived from the supported list so
+ * these fixtures keep type-checking if the list widens. Job fixtures that
+ * stand in for a *server* response keep an arbitrary string, because
+ * `JobConfig.model` is deliberately not narrowed.
+ */
+const MODEL = SUPPORTED_MODELS[0];
 
 interface Expectation {
   method: string;
@@ -139,7 +148,7 @@ describe("createTrainer (config builder branches)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
         lora: { r: 16, alpha: 32, maxLength: 2048, loadIn4bit: true },
         maxSteps: 100,
@@ -276,7 +285,7 @@ describe("createTrainer (credentials defaulting)", () => {
         const trainer = createTrainer(
           {
             name: "run",
-            model: "m",
+            model: MODEL,
             dataset: { type: "huggingface", name: "x" },
           },
           // Note: NO `credentials` here; trainer must call ensureCredentials.
@@ -390,7 +399,7 @@ describe("createTrainer (SSE event stream)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onStarted: ({ job }) => void calls.push(`onStarted(${job.status})`),
@@ -476,7 +485,7 @@ describe("createTrainer (SSE event stream)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onFailed: ({ error }) => {
@@ -554,7 +563,7 @@ describe("createTrainer (SSE event stream)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onCheckpoint: async ({ infer }) => {
@@ -642,7 +651,7 @@ describe("createTrainer (SSE event stream)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onCheckpoint: async ({ infer }) => {
@@ -780,7 +789,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
       },
       {
@@ -834,7 +843,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
       },
       {
@@ -881,7 +890,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
       },
       {
@@ -932,7 +941,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const trainer = createTrainer(
         {
           name: "run",
-          model: "m",
+          model: MODEL,
           dataset: { type: "huggingface", name: "x" },
         },
         {
@@ -1029,7 +1038,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
       },
       {
@@ -1095,7 +1104,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
       },
       {
@@ -1163,7 +1172,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
       },
       {
@@ -1270,7 +1279,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
       },
       {
@@ -1303,7 +1312,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
       },
       { baseUrl: "http://mock", credentials: creds, cwd },
@@ -1361,7 +1370,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
         abortSignal: ac.signal,
       },
@@ -1421,7 +1430,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       const trainer = createTrainer(
         {
           name: "run",
-          model: "m",
+          model: MODEL,
           dataset: { type: "huggingface", name: "x" },
         },
         {
@@ -1502,7 +1511,11 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
       },
     ]);
     const trainer = createTrainer(
-      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
       { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
     );
     const original = globalThis.fetch;
@@ -1543,7 +1556,7 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
     const trainer = createTrainer(
       {
         name: "run",
-        model: "m",
+        model: MODEL,
         dataset: { type: "huggingface", name: "x" },
         callbacks: {
           onCompleted: () => {
@@ -1598,7 +1611,11 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }) as typeof fetch;
     const trainer = createTrainer(
-      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
       { baseUrl: "http://mock", credentials: creds, cwd, reconnectDelayMs: 1 },
     );
     const original = globalThis.fetch;
@@ -1653,7 +1670,11 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }) as typeof fetch;
     const trainer = createTrainer(
-      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
       {
         baseUrl: "http://mock",
         credentials: creds,
@@ -1714,7 +1735,11 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }) as typeof fetch;
     const trainer = createTrainer(
-      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
       {
         baseUrl: "http://mock",
         credentials: creds,
@@ -1752,7 +1777,11 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
       { kind: "stream", chunks: [garbage] },
     ]);
     const trainer = createTrainer(
-      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
       {
         baseUrl: "http://mock",
         credentials: creds,
@@ -1788,7 +1817,11 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
       { kind: "stream", chunks: ["event: ping\ndata: \n\n"] },
     ]);
     const trainer = createTrainer(
-      { name: "run", model: "m", dataset: { type: "huggingface", name: "x" } },
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
       {
         baseUrl: "http://mock",
         credentials: creds,

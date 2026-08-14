@@ -19,7 +19,7 @@
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-000" alt="MIT"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A522.22.0-000" alt="node ≥22.22.0">
   <img src="https://img.shields.io/badge/status-alpha-orange" alt="alpha">
-  <a href="https://discord.arkor.ai"><img src="https://img.shields.io/badge/discord-join-5865F2" alt="Discord"></a>
+  <a href="https://discord.arkor.ai/"><img src="https://img.shields.io/badge/discord-join-5865F2" alt="Discord"></a>
 </p>
 
 <p align="center">
@@ -166,7 +166,7 @@ Works with pnpm / npm / yarn / bun.
 
 - **[File an issue](https://github.com/arkorlab/arkor/issues/new)** with the model + dataset + workflow you wish worked. We read everything.
 - **Star the repo** if you want updates as we move toward `0.1`.
-- **[Join Discord](https://discord.arkor.ai)** for live discussion and early-access pings.
+- **[Join Discord](https://discord.arkor.ai/)** for live discussion and early-access pings.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 

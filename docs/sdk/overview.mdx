@@ -53,6 +53,7 @@ These are exported for code that drives Arkor outside the CLI flow, e.g. running
 | `credentialsPath()` | `core/credentials.ts` | Absolute path to `~/.arkor/credentials.json`. |
 | `readState(cwd?)` / `writeState(state, cwd?)` / `statePath(cwd?)` | `core/state.ts` | Read or write `.arkor/state.json` (project routing). |
 | `isArkor(value)` | `core/arkor.ts` | Type guard for the manifest. |
+| `SUPPORTED_MODELS` | `core/models.ts` | The base models `createTrainer` accepts, as a readonly array; the `SupportedModel` union is derived from it. See [Supported models](/models). |
 | [`CloudApiClient`](/sdk/deployments) | `core/client.ts` | Typed client for the cloud API. Exposes `listDeployments` / `createDeployment` / `createDeploymentKey` etc. for managing `*.arkor.app` inference URLs. See [Deployments](/sdk/deployments) for the full method list and examples. |
 | `CloudApiError` | `core/client.ts` | Error class thrown by `CloudApiClient` on non-2xx responses. Carries `.status` and the structured `{ error }` body verbatim; branch on `instanceof CloudApiError && err.status === 409` to handle slug collisions, etc. |
 | `defaultArkorCloudApiUrl(credentials?)` | `core/credentials.ts` | Resolve the cloud API base URL the SDK should target. Priority: `ARKOR_CLOUD_API_URL` env var → the URL stored on the loaded credentials (anonymous credentials carry it from signup; OAuth credentials carry it since `arkor login` was updated to persist the auth-time URL) → the production endpoint. Use this when constructing a `CloudApiClient` from `readCredentials()` / `ensureCredentials()` so a script keeps targeting the same staging / self-hosted control plane the user authenticated against. |
@@ -61,7 +62,7 @@ These are exported for code that drives Arkor outside the CLI flow, e.g. running
 
 Public type exports (from `arkor`):
 
-`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `OAuthCredentials`, `AnonymousCredentials`, and `Credentials` for the auth helpers.
+`Arkor`, `ArkorInput`, `ArkorProjectState`, `BlobDatasetSource`, `DatasetSource`, `HuggingfaceDatasetSource`, `JobStatus`, `LoraConfig`, `SupportedModel`, `Trainer`, `TrainerCallbacks`, `TrainerInput`, `TrainingJob`, `TrainingResult`, plus `OAuthCredentials`, `AnonymousCredentials`, and `Credentials` for the auth helpers.
 
 Deployment-related type-only exports (see [Deployments](/sdk/deployments)): `CloudApiClientOptions`, `DeploymentTarget`, `DeploymentAuthMode`, `DeploymentRunRetentionMode`, `DeploymentDto`, `DeploymentKeyDto`, `DeploymentScope`, `CreateDeploymentInput`, `UpdateDeploymentInput`, `CreateDeploymentKeyInput`, `CreateDeploymentKeyResult`. The runtime `CloudApiClient` and `CloudApiError` classes are listed under Utilities above; they're value exports, not types, so import them as values.
 
