@@ -61,8 +61,8 @@ There are two private E2E suites, with different scopes:
 
 | Suite | Scope | Tooling |
 | --- | --- | --- |
-| [`e2e/cli`](e2e/cli) | The `arkor` and `create-arkor` CLI surfaces: spawning, scaffolding, build, exit codes, stdout/stderr | vitest spawning the built `dist/bin.mjs` |
-| [`e2e/studio`](e2e/studio) | The Studio SPA served by `arkor dev`: `<meta>` token injection, `/api/*` auth contract, page-level rendering, SSE streaming | Playwright driving Chromium against a real `arkor dev` + an in-process fake cloud-api |
+| [`e2e/cli`](https://github.com/arkorlab/arkor/tree/main/e2e/cli) | The `arkor` and `create-arkor` CLI surfaces: spawning, scaffolding, build, exit codes, stdout/stderr | vitest spawning the built `dist/bin.mjs` |
+| [`e2e/studio`](https://github.com/arkorlab/arkor/tree/main/e2e/studio) | The Studio SPA served by `arkor dev`: `<meta>` token injection, `/api/*` auth contract, page-level rendering, SSE streaming | Playwright driving Chromium against a real `arkor dev` + an in-process fake cloud-api |
 
 Both suites consume the built `dist/bin.mjs` of `arkor` (and, for `e2e/cli`, `create-arkor`). When you run `pnpm test` from the repo root, Turbo's `^build` already produces those artifacts, but standalone (`pnpm --filter @arkor/e2e-* test`) needs them up front.
 
@@ -104,7 +104,7 @@ Studio runs at `http://127.0.0.1:4000` with a CSRF token injected per launch.
 
 We avoid the em dash (U+2014) anywhere in code. Reach for a colon, a period, a comma, parentheses, a spaced hyphen (`" - "`), or a reworded sentence instead. A local ESLint rule, `local/no-em-dash`, enforces this across comments and string or template literals in every package, with no carve-out: CLI runtime messages, generated-file template bodies, and test names all follow the same rule.
 
-Markdown (including this file) is not linted by the rule. To extend the same convention to yaml, md, json, html, and root-level config, the [`scripts/check-no-em-dash.mts`](scripts/check-no-em-dash.mts) repo-wide guard scans every tracked file via `git grep` and fails on the em-dash glyph or its HTML entity. Run it locally with:
+Markdown (including this file) is not linted by the rule. To extend the same convention to yaml, md, json, html, and root-level config, the [`scripts/check-no-em-dash.mts`](https://github.com/arkorlab/arkor/blob/main/scripts/check-no-em-dash.mts) repo-wide guard scans every tracked file via `git grep` and fails on the em-dash glyph or its HTML entity. Run it locally with:
 
 ```bash
 pnpm check:no-em-dash
