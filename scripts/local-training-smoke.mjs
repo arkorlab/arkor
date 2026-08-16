@@ -44,7 +44,47 @@ const TIMEOUT_MS = 20 * 60_000;
 
 function fail(message) {
   console.error(`[smoke] FAIL: ${message}`);
+  dumpDiagnostics();
   process.exit(1);
+}
+
+/**
+ * On failure, print everything a debugger would want from the (about to be
+ * discarded) runner VM: the callback marker file, and each job's run.json,
+ * events.jsonl, and console.log.
+ */
+function dumpDiagnostics() {
+  const dump = (label, path) => {
+    try {
+      console.error(`\n[smoke] ---- ${label} (${path}) ----`);
+      console.error(readFileSync(path, "utf8"));
+    } catch (error) {
+      console.error(`[smoke] (${label}: ${error.code ?? error})`);
+    }
+  };
+  let dir;
+  let marker;
+  try {
+    dir = projectDir;
+    marker = markerPath;
+  } catch {
+    // fail() ran before the project constants were declared (the early
+    // missing-build checks); accessing them here would hit the TDZ.
+    return;
+  }
+  dump("markers", marker);
+  const jobsDir = join(dir, ".arkor", "local", "jobs");
+  let jobIds = [];
+  try {
+    jobIds = readdirSync(jobsDir);
+  } catch {
+    console.error(`[smoke] (no jobs dir at ${jobsDir})`);
+  }
+  for (const jobId of jobIds) {
+    dump(`run.json ${jobId}`, join(jobsDir, jobId, "run.json"));
+    dump(`events.jsonl ${jobId}`, join(jobsDir, jobId, "events.jsonl"));
+    dump(`console.log ${jobId}`, join(jobsDir, jobId, "console.log"));
+  }
 }
 
 if (!existsSync(ARKOR_BIN)) {

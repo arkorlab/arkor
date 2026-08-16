@@ -119,7 +119,19 @@ def main() -> int:
 
     from mlx_lm import lora as lora_mod
 
-    lora_mod.run(args, training_callback=callback)
+    if hasattr(lora_mod, "get_reporting_callbacks"):
+        # Pinned mlx-lm 0.31.x unconditionally overwrites the
+        # `training_callback` parameter inside run() with the result of
+        # `get_reporting_callbacks(args.report_to, ...)`, discarding
+        # whatever the caller passed (verified against the 0.31.3 source;
+        # without this, no log/checkpoint events ever reach arkor). The
+        # factory is a module-level name in lora.py, so patching the module
+        # attribute routes OUR callback through run(). `report_to` is
+        # always None here, so no real reporting integration is displaced.
+        lora_mod.get_reporting_callbacks = lambda *_args, **_kwargs: callback
+        lora_mod.run(args)
+    else:
+        lora_mod.run(args, training_callback=callback)
 
     # Flush any checkpoint saved after the last loss report, then publish
     # the final adapter under a stable, normalised path.
