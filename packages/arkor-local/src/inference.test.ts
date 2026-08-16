@@ -156,19 +156,28 @@ describe("InferenceManager", () => {
     expect(res.status).toBe(499);
   });
 
-  it("stops the child after the idle timeout", async () => {
+  it("stops the child after the idle timeout, but only once the body is consumed", async () => {
     const { manager: m, spawned } = makeManager(fakeServerBackend(), {
       idleShutdownMs: 200,
     });
-    await m.handleChat(CHAT_ARGS);
+    const res = await m.handleChat(CHAT_ARGS);
     const child = firstSpawned(spawned);
+    // While the streamed body is unconsumed the request counts as in
+    // flight and the idle timer must not fire.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(child.exitCode).toBeNull();
+    expect(child.signalCode).toBeNull();
+    // Consuming the body ends the in-flight window; the idle timer then
+    // reaps the child.
+    await res.text();
     await waitFor(() => child.exitCode !== null || child.signalCode !== null);
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
   });
 
   it("closeAll stops the child", async () => {
     const { manager: m, spawned } = makeManager(fakeServerBackend());
-    await m.handleChat(CHAT_ARGS);
+    const res = await m.handleChat(CHAT_ARGS);
+    await res.text();
     await m.closeAll();
     const child = firstSpawned(spawned);
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);

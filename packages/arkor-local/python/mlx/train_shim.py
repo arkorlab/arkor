@@ -36,8 +36,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dataset_prep import DatasetPrepError, prepare_data  # noqa: E402
 
 
+def _json_safe(value):
+    """Replace non-finite floats with None, recursively.
+
+    json.dumps would otherwise emit the bare tokens NaN/Infinity (invalid
+    JSON), and the Node parser would drop the whole protocol line as
+    malformed; a diverging run (NaN loss) would lose every log event.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    # numpy / mlx scalars from the training callback expose .item();
+    # anything else non-JSON-native is dropped rather than crashing emit
+    # inside a TrainingCallback (which would abort the whole run).
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return _json_safe(item())
+        except Exception:
+            return None
+    return None
+
+
 def emit(payload: dict) -> None:
-    print(MARKER + json.dumps(payload), flush=True)
+    print(MARKER + json.dumps(_json_safe(payload)), flush=True)
 
 
 def log(message: str) -> None:

@@ -253,9 +253,20 @@ export class JobStore {
     if (this.closed) return;
     const state = this.ensureRuntime(jobId);
     if (state.consoleTruncated) return;
-    state.consoleStream ??= createWriteStream(this.consoleLogPath(jobId), {
-      flags: "a",
-    });
+    if (!state.consoleStream) {
+      const stream = createWriteStream(this.consoleLogPath(jobId), {
+        flags: "a",
+      });
+      // A failed open or write (ENOSPC, EACCES, tree removed) emits
+      // 'error' on the stream; without a listener that is an uncaught
+      // exception that would take down the whole server process over a
+      // diagnostics file. Disable console capture for this job instead.
+      stream.on("error", () => {
+        state.consoleTruncated = true;
+        state.consoleStream = null;
+      });
+      state.consoleStream = stream;
+    }
     if (state.consoleBytes >= this.consoleByteCap) {
       state.consoleTruncated = true;
       state.consoleStream.write(

@@ -188,21 +188,31 @@ export function buildLocalApp(options: LocalAppOptions): Hono {
     const hadChild = await runManager.cancel(jobId);
     if (!hadChild) {
       // Queued but never spawned (or the child is already gone): terminate
-      // the record directly so the stream still ends.
-      const timestamp = new Date().toISOString();
-      await store.appendEvent(jobId, {
-        type: "training.failed",
-        jobId,
-        timestamp,
-        error: "Job cancelled",
-      });
-      await store.updateJob(jobId, (r) => {
-        r.job.status = "cancelled";
-        r.job.error = "Job cancelled";
-        r.job.completedAt = timestamp;
-        r.pid = null;
-      });
-      store.notifyEnded(jobId);
+      // the record directly so the stream still ends. Re-read first: the
+      // child's exit synthesis can have terminalised the record between
+      // the status check above and cancel() returning false, and a second
+      // terminal event would break the one-terminal-per-job contract.
+      const current = await store.getJob(jobId);
+      if (current && !isTerminalStatus(current.job.status)) {
+        const timestamp = new Date().toISOString();
+        await store.appendEvent(jobId, {
+          type: "training.failed",
+          jobId,
+          timestamp,
+          error: "Job cancelled",
+        });
+        await store.updateJob(jobId, (r) => {
+          r.job.status = "cancelled";
+          r.job.error = "Job cancelled";
+          r.job.completedAt = timestamp;
+          r.pid = null;
+        });
+        store.notifyEnded(jobId);
+      } else {
+        // The job ended on its own; the parked pre-spawn cancellation can
+        // never be consumed (this jobId will not start again).
+        runManager.forgetPreSpawnCancel(jobId);
+      }
     }
     const updated = await store.getJob(jobId);
     return c.json({ job: updated?.job ?? record.job });

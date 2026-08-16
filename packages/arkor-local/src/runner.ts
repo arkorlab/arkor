@@ -134,6 +134,15 @@ export class RunManager {
     return true;
   }
 
+  /**
+   * Drop a parked pre-spawn cancellation. Called by the cancel route once
+   * it has terminalised (or found already terminal) the job record itself:
+   * the jobId will never start again, so a stale entry would only leak.
+   */
+  forgetPreSpawnCancel(jobId: string): void {
+    this.preSpawnCancelled.delete(jobId);
+  }
+
   /** Kill every live child; used when the local server shuts down. */
   async closeAll(): Promise<void> {
     await Promise.all([...this.live.keys()].map((jobId) => this.cancel(jobId)));
@@ -183,10 +192,21 @@ export class RunManager {
     let pipeline = Promise.resolve();
     const enqueue = (task: () => Promise<void>) => {
       pipeline = pipeline.then(task).catch(async (error: unknown) => {
-        await this.recordFailure(
-          jobId,
-          `failed to record training progress: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        // This handler must NEVER throw: a rejected link would skip every
+        // later `.then` task in the chain, including the terminal
+        // synthesis and the `resolveDone()` task, leaving `run.done`
+        // unresolved forever (cancel()/closeAll() would hang and the SDK's
+        // wait() would spin on pings).
+        try {
+          await this.recordFailure(
+            jobId,
+            `failed to record training progress: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        } catch {
+          // The store itself is failing (disk full, tree removed): there
+          // is nowhere left to record. Killing the child below is the
+          // remaining safety action.
+        }
         this.signal(child, "SIGKILL");
       });
     };
@@ -285,6 +305,19 @@ export class RunManager {
     if (run.terminalRecorded) return;
     const timestamp = new Date().toISOString();
     const streamEvent = toStreamEvent(event, jobId, timestamp);
+    if (
+      (streamEvent.type === "training.completed" ||
+        streamEvent.type === "training.failed") &&
+      (await this.storeAlreadyTerminal(jobId))
+    ) {
+      // Someone else terminalised the record while this child was still
+      // running (a cancel that raced the exit, or a second server instance
+      // sharing `.arkor/local/`). Appending another terminal event would
+      // violate the one-terminal-per-job contract, and updating the status
+      // would resurrect a cancelled job.
+      run.terminalRecorded = true;
+      return;
+    }
     await this.store.appendEvent(jobId, streamEvent);
     switch (streamEvent.type) {
       case "training.started": {
