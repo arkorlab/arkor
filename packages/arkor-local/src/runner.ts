@@ -43,6 +43,12 @@ export class RunManager {
   private readonly spawnImpl: typeof nodeSpawn;
   private readonly gracePeriodMs: number;
   private readonly live = new Map<string, LiveRun>();
+  /**
+   * Jobs cancelled before their child spawned (cancel raced startRun's
+   * async run.json write). startRun consults this to skip or kill the
+   * spawn; entries are removed as soon as they are honoured.
+   */
+  private readonly preSpawnCancelled = new Set<string>();
 
   constructor(options: RunManagerOptions) {
     this.store = options.store;
@@ -78,7 +84,19 @@ export class RunManager {
       for (const warning of run.warnings) {
         this.store.appendConsole(jobId, `[arkor] ${warning}\n`);
       }
+      // A cancel can land while the awaits above are in flight; at that
+      // point there is no live child, so `cancel()` parked the request in
+      // `preSpawnCancelled` and the caller terminalised the record. Honour
+      // it here instead of spawning a child for a job that already ended.
+      if (this.preSpawnCancelled.delete(jobId)) return;
       this.spawnChild(jobId, run.spec, paths);
+      // Belt for the residual microtask window: a cancel that raced the
+      // check above finds the child live on its own retry path below, but
+      // one that landed between the check and the spawn returns false to
+      // its caller while a child now exists. Sweep it up.
+      if (this.preSpawnCancelled.delete(jobId)) {
+        await this.cancel(jobId);
+      }
     } catch (error) {
       await this.recordFailure(
         jobId,
@@ -96,7 +114,14 @@ export class RunManager {
    */
   async cancel(jobId: string): Promise<boolean> {
     const run = this.live.get(jobId);
-    if (!run) return false;
+    if (!run) {
+      // No live child YET: either the job truly has none, or startRun is
+      // mid-flight between job creation and spawn. Park the cancellation so
+      // startRun skips (or kills) the spawn; the caller terminalises the
+      // job record itself when it sees `false`.
+      this.preSpawnCancelled.add(jobId);
+      return false;
+    }
     run.cancelRequested = true;
     this.signal(run.child, "SIGTERM");
     run.killTimer = setTimeout(() => {
@@ -198,6 +223,7 @@ export class RunManager {
       enqueue(async () => {
         if (run.terminalRecorded) return;
         run.terminalRecorded = true;
+        if (await this.storeAlreadyTerminal(jobId)) return;
         await this.failJob(jobId, `failed to start trainer: ${error.message}`);
       });
       // Chained behind the terminal task above, so `run.done` observers see
@@ -214,6 +240,11 @@ export class RunManager {
       enqueue(async () => {
         if (run.terminalRecorded) return;
         run.terminalRecorded = true;
+        // The record can already be terminal when a pre-spawn cancel
+        // terminalised it and the belt path in startRun killed this child
+        // afterwards; synthesising a second terminal event would corrupt
+        // the stream contract (exactly one terminal per job).
+        if (await this.storeAlreadyTerminal(jobId)) return;
         if (run.cancelRequested) {
           await this.failJob(jobId, "Job cancelled", "cancelled");
           return;
@@ -316,9 +347,13 @@ export class RunManager {
    * failed). Distinct from failJob so callers without a LiveRun can use it.
    */
   private async recordFailure(jobId: string, error: string): Promise<void> {
-    const record = await this.store.getJob(jobId);
-    if (record && isTerminalStatus(record.job.status)) return;
+    if (await this.storeAlreadyTerminal(jobId)) return;
     await this.failJob(jobId, error);
+  }
+
+  private async storeAlreadyTerminal(jobId: string): Promise<boolean> {
+    const record = await this.store.getJob(jobId);
+    return record !== null && isTerminalStatus(record.job.status);
   }
 
   private finishRun(jobId: string, run: LiveRun): void {

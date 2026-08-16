@@ -308,6 +308,82 @@ describe("event stream", () => {
     const res = await app.request("/v1/jobs/nope/events/stream", authed());
     expect(res.status).toBe(404);
   });
+
+  it("streams live events after replay, in order and without duplicates", async () => {
+    const app = makeApp();
+    const record = await store.createJob({
+      name: "live",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      backendId: "fake",
+    });
+    const jobId = record.job.id;
+    const logEvent = (step: number) =>
+      ({
+        type: "training.log",
+        jobId,
+        timestamp: "2026-01-01T00:00:00Z",
+        step,
+        loss: 1,
+        evalLoss: null,
+        learningRate: null,
+        epoch: null,
+        samplesPerSecond: null,
+      }) as const;
+    await store.appendEvent(jobId, logEvent(1));
+    await store.appendEvent(jobId, logEvent(2));
+
+    const res = await app.request(
+      `/v1/jobs/${jobId}/events/stream`,
+      authed({ headers: { "last-event-id": "1" } }),
+    );
+    expect(res.status).toBe(200);
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("no stream body");
+    const decoder = new TextDecoder();
+    let received = "";
+    const readUntil = async (needle: string) => {
+      const deadline = Date.now() + 10_000;
+      while (!received.includes(needle)) {
+        if (Date.now() > deadline) {
+          throw new Error(`never received ${needle}; got: ${received}`);
+        }
+        const { value, done } = await reader.read();
+        if (done) break;
+        received += decoder.decode(value, { stream: true });
+      }
+    };
+    // Replay: seq 2 only (Last-Event-ID: 1).
+    await readUntil("id: 2\n");
+    expect(received).not.toContain("id: 1\n");
+
+    // Live append lands on the open stream.
+    await store.appendEvent(jobId, logEvent(3));
+    await readUntil("id: 3\n");
+
+    // Terminal append + end notification close the stream in order.
+    await store.appendEvent(jobId, {
+      type: "training.completed",
+      jobId,
+      timestamp: "2026-01-01T00:00:01Z",
+      artifacts: [],
+    });
+    await store.updateJob(jobId, (r) => {
+      r.job.status = "completed";
+    });
+    store.notifyEnded(jobId);
+    await readUntil("event: end");
+    // Ordered ids, no duplicates.
+    const ids = [...received.matchAll(/^id: (\d+)$/gm)].map((m) =>
+      Number(m[1]),
+    );
+    expect(ids).toEqual([2, 3, 4]);
+    expect(received.indexOf("training.completed")).toBeLessThan(
+      received.indexOf("event: end"),
+    );
+  });
 });
 
 describe("chat route", () => {

@@ -380,12 +380,27 @@ function sseResponse(
       }, SSE_PING_INTERVAL_MS);
       ping.unref();
 
-      // Subscribe BEFORE replaying: an event appended between replay and
-      // subscription would otherwise be lost. The `seq <= lastSentSeq`
-      // guard inside writeEvent deduplicates the overlap.
+      // Subscribe BEFORE replaying so nothing appended between the replay
+      // read and the subscription is lost, but BUFFER live events until the
+      // replay has been written: writing a live event (say seq 5) ahead of
+      // replayed history (3, 4) would advance `lastSentSeq` past the
+      // replayed rows and the dedupe guard would silently drop them. The
+      // buffer preserves ordering; the guard then removes the overlap.
+      // Object properties (not `let` bindings) because the subscriber
+      // closures mutate them across the awaits below.
+      const phase = { replaying: true, endDeferred: false };
+      const buffered: StoredEvent[] = [];
       const unsubscribe = store.subscribe(jobId, {
-        onEvent: writeEvent,
-        onEnd: finish,
+        onEvent: (stored) => {
+          if (phase.replaying) buffered.push(stored);
+          else writeEvent(stored);
+        },
+        onEnd: () => {
+          // Deferred so the terminal event (buffered or replayed) is
+          // written before the `end` marker.
+          if (phase.replaying) phase.endDeferred = true;
+          else finish();
+        },
       });
       cleanup = () => {
         clearInterval(ping);
@@ -394,6 +409,13 @@ function sseResponse(
 
       for (const stored of await store.replayAfter(jobId, afterSeq)) {
         writeEvent(stored);
+      }
+      phase.replaying = false;
+      for (const stored of buffered) writeEvent(stored);
+      buffered.length = 0;
+      if (phase.endDeferred) {
+        finish();
+        return;
       }
       // A job that ended before this connection replays its history and
       // closes immediately; there will be no live `end` notification.

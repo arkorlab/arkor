@@ -279,6 +279,52 @@ describe("RunManager cancel", () => {
     await expect(manager.cancel("no-such-job")).resolves.toBe(false);
   });
 
+  it("honours a cancel that lands before the child spawns", async () => {
+    // The cancel route's race: POST /v1/jobs fires startRun asynchronously,
+    // and a cancel can arrive while run.json is still being written. The
+    // runner must then never spawn the child (the route already
+    // terminalised the record after seeing `false`).
+    const backend = fixtureBackend({
+      chunks: [marker({ type: "started" })],
+      hang: true,
+    });
+    const record = await store.createJob({
+      name: "run",
+      config: CONFIG,
+      backendId: backend.id,
+    });
+    const jobId = record.job.id;
+
+    // Cancel first (no live child yet), as the route would.
+    await expect(manager.cancel(jobId)).resolves.toBe(false);
+    const timestamp = new Date().toISOString();
+    await store.appendEvent(jobId, {
+      type: "training.failed",
+      jobId,
+      timestamp,
+      error: "Job cancelled",
+    });
+    await store.updateJob(jobId, (r) => {
+      r.job.status = "cancelled";
+      r.job.error = "Job cancelled";
+      r.job.completedAt = timestamp;
+    });
+
+    await manager.startRun({
+      jobId,
+      config: CONFIG,
+      backend,
+      paths: store.paths(jobId, "/unused-shim-dir"),
+    });
+    // Give any (buggy) spawn a moment to register.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(manager.liveCount).toBe(0);
+    // Exactly one terminal event: the runner appended nothing on top.
+    const events = await store.replayAfter(jobId, 0);
+    expect(events.map((e) => e.event.type)).toEqual(["training.failed"]);
+    expect((await store.getJob(jobId))?.job.status).toBe("cancelled");
+  });
+
   it("closeAll cancels every live child", async () => {
     const first = await launch(
       fixtureBackend({ chunks: [marker({ type: "started" })], hang: true }),

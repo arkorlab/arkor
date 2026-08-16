@@ -247,6 +247,10 @@ export class JobStore {
    * child cannot fill the disk while the file still explains itself.
    */
   appendConsole(jobId: string, text: string): void {
+    // Straggler writes after close() (a child's buffered stderr draining
+    // during shutdown) must not re-open a stream that would never be
+    // flushed again.
+    if (this.closed) return;
     const state = this.ensureRuntime(jobId);
     if (state.consoleTruncated) return;
     state.consoleStream ??= createWriteStream(this.consoleLogPath(jobId), {
@@ -265,11 +269,14 @@ export class JobStore {
 
   /** Flush and close per-job console streams. */
   close(): void {
+    this.closed = true;
     for (const state of this.runtime.values()) {
       state.consoleStream?.end();
       state.consoleStream = null;
     }
   }
+
+  private closed = false;
 
   /**
    * Mark jobs that claim to be running but whose supervising process is
