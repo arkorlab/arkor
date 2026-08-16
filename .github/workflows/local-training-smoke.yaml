@@ -3,23 +3,20 @@ name: Local training smoke (MLX)
 # Real-hardware verification of `arkor start --local`: trains a tiny model
 # with the actual uv-resolved mlx-lm stack on Apple Silicon macOS and chats
 # against the trained adapter (see scripts/local-training-smoke.mjs for the
-# exact assertions). Deliberately a separate workflow from ci.yaml: the
-# model download and Python environment resolution would slow every PR, and
-# the fake-uv unit / e2e suites already gate the Node-side contract there.
+# exact assertions). A separate workflow from ci.yaml so its heavyweight
+# setup (model download, Python environment resolution) has its own caches
+# and its own timeout without complicating the matrix there.
 #
-# Triggers: nightly (catches mlx-lm ecosystem drift against the pin),
-# manual dispatch (branch verification), and PRs labelled
-# `local-training` (opt-in pre-merge run for changes to the local stack).
+# Triggers mirror ci.yaml (every push and pull request) plus a nightly
+# schedule that catches mlx-lm ecosystem drift against the pin even when
+# the repo is quiet, and manual dispatch for ad-hoc branch verification.
 
 on:
+  push:
+  pull_request:
   schedule:
     - cron: "17 19 * * *" # daily, 19:17 UTC (04:17 JST)
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
-
-permissions:
-  contents: read
 
 concurrency:
   group: local-training-smoke-${{ github.ref }}
@@ -27,9 +24,6 @@ concurrency:
 
 jobs:
   smoke:
-    if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'local-training')
     # macos-15 runners are Apple Silicon (M-series): the MLX preflight
     # (darwin/arm64) passes for real, no fakes anywhere in this lane.
     runs-on: macos-15

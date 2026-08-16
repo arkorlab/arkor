@@ -2,7 +2,9 @@
 /**
  * Real-hardware smoke test for local MLX training, run by
  * `.github/workflows/local-training-smoke.yaml` on an Apple Silicon macOS
- * runner (and runnable by hand on any Apple Silicon Mac with uv installed):
+ * runner for every push and pull request (plus nightly and on manual
+ * dispatch), and runnable by hand on any Apple Silicon Mac with uv
+ * installed:
  *
  *   node scripts/local-training-smoke.mjs
  *
