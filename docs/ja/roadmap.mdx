@@ -32,9 +32,9 @@ Arkor はアルファ段階なので、このページは意図的に最小限�
     既存の HuggingFace 名と blob URL に加えて、ローカルの JSONL ファイルを学習データセットとしてアップロードできるようにする。
   </Card>
 
-  <Card title="ローカル GPU での学習" icon="microchip" href="/ja/sdk/create-trainer">
+  <Card title="ローカル GPU での学習" icon="microchip" href="/ja/cli/local-training">
     <div id="local-gpu-training" />
-    全ジョブを Arkor のマネージド GPU に流す代わりに、自前の GPU で学習を走らせる。
+    Apple Silicon 向けに出荷済み: `arkor start --local` と `arkor dev --local` が、MLX と `@arkor/local` パッケージ経由で自分のマシン上での学習 (とチャット) を実行する。次は同じバックエンドインターフェースを通じた Linux / Windows 向けの NVIDIA (CUDA) と ROCm バックエンド。
   </Card>
 
   <Card title="Studio からのドライラン" icon="flask" href="/ja/concepts/studio">

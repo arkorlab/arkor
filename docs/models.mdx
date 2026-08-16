@@ -19,20 +19,21 @@ export const trainer = createTrainer({
 });
 ```
 
-## The list is enforced by the compiler
+## How the list is enforced
 
-`model` is typed as `SupportedModel`, a union derived from the supported list rather than a plain `string`. A typo does not compile:
+`model` is typed as `SupportedModel | (string & {})`: the union keeps IDE autocompletion on the supported list while still admitting any string, because [local training](/cli/local-training) accepts arbitrary HuggingFace ids. The real gate for cloud runs is at construction time: `createTrainer` throws on a model outside the supported list unless the run targets a local server, so flows that never run a typechecker (plain JavaScript, or `arkor build` / `arkor start`, which bundle with esbuild) still fail fast locally instead of surfacing a 4xx from the backend.
 
 ```ts
 createTrainer({
   name: "support-bot-v1",
-  // Type '"unsloth/gema-4-E4B-it"' is not assignable to type 'SupportedModel'.
+  // Throws at construction time for cloud runs:
+  // Unsupported model "unsloth/gema-4-E4B-it". This arkor release supports: ...
   model: "unsloth/gema-4-E4B-it",
   dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
 });
 ```
 
-The same list is enforced when the trainer is constructed: `createTrainer` throws on a model outside it. Flows that never run a typechecker (plain JavaScript, or `arkor build` / `arkor start`, which bundle with esbuild) fail fast locally instead of surfacing a 4xx from the backend.
+With `arkor start --local`, the same call accepts any HuggingFace id (the local backend surfaces its own error if the model is unusable); `mlx-community/*` conversions are the recommended pick there.
 
 Both the type and the list itself are exported, so you can iterate the list at run time (to render a picker, for example):
 

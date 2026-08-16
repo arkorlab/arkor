@@ -44,6 +44,7 @@
                   "guides/cli/init",
                   "guides/cli/dev",
                   "guides/cli/build-and-start",
+                  "guides/cli/local-training",
                   "guides/cli/auth"
                 ]
               },
@@ -97,6 +98,7 @@
                   "cli/init",
                   "cli/dev",
                   "cli/build-and-start",
+                  "cli/local-training",
                   "cli/auth"
                 ]
               },
@@ -157,6 +159,7 @@
                   "ja/guides/cli/init",
                   "ja/guides/cli/dev",
                   "ja/guides/cli/build-and-start",
+                  "ja/guides/cli/local-training",
                   "ja/guides/cli/auth"
                 ]
               },
@@ -210,6 +213,7 @@
                   "ja/cli/init",
                   "ja/cli/dev",
                   "ja/cli/build-and-start",
+                  "ja/cli/local-training",
                   "ja/cli/auth"
                 ]
               },

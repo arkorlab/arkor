@@ -1,0 +1,153 @@
+---
+title: "Local training (--local)"
+description: "Train and chat on your own machine with MLX via @arkor/local, behind the same API contract as Arkor Cloud."
+---
+
+# Local training (`--local`)
+
+`arkor start --local` and `arkor dev --local` run training (and inference) on your own machine instead of Arkor Cloud. The first supported backend is [MLX](https://github.com/ml-explore/mlx) on Apple Silicon Macs; the backend interface is designed so NVIDIA (CUDA) and ROCm backends for Linux / Windows can be added later without changing the rest of the stack.
+
+Local mode works by booting a **local training server** inside the CLI process that implements the same API subset the cloud exposes (`POST /v1/jobs`, the SSE event stream, `POST /v1/inference/chat`). The SDK, Studio's jobs list, the live loss chart, and the Playground all work unchanged because they cannot tell the difference.
+
+## Requirements
+
+- An Apple Silicon Mac (M1 or newer). Intel Macs are not supported by MLX upstream.
+- [uv](https://docs.astral.sh/uv/) on your `PATH`: `brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`. The CLI never installs uv for you. Python packages (a pinned `mlx-lm` and its dependencies) are resolved by uv into its own cached environment on first run; nothing is added to your project.
+- The `@arkor/local` package installed in your project. The local runtime ships separately so the core `arkor` package stays small:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm add -D @arkor/local
+```
+
+```bash npm
+npm install -D @arkor/local
+```
+
+```bash yarn
+yarn add -D @arkor/local
+```
+
+```bash yarn-berry
+yarn add -D @arkor/local
+```
+
+```bash bun
+bun add -D @arkor/local
+```
+
+</CodeGroup>
+
+## Synopsis
+
+```
+arkor start --local [entry]
+arkor dev --local [options]
+```
+
+| Flag | Applies to | Description |
+| --- | --- | --- |
+| `--local` | `start`, `dev` | Run against the local training server instead of Arkor Cloud. |
+| `--backend <id>` | `start`, `dev` | Pick a specific local backend (today: `mlx`). Implies `--local`. Without it, the first backend whose preflight passes is used. |
+
+## How it works
+
+1. **Load the runtime.** The CLI resolves `@arkor/local` from your project's `node_modules` (the same resolution model as the build artifact resolving `arkor`). A version handshake turns an incompatible pairing into an actionable "upgrade arkor / upgrade @arkor/local" error.
+2. **Preflight.** The backend checks its prerequisites (Apple Silicon, uv reachable) before anything binds or spawns. Failures print the reason and remediation, and nothing else happens.
+3. **Local server.** A loopback-only Hono server binds an ephemeral port with a per-launch bearer token (the same threat model as Studio's CSRF token: the host-header guard alone would not stop a cross-origin POST from another local browser tab reaching an endpoint that spawns processes).
+4. **Hand-off.** The server's URL and token are handed to the trainer through `ARKOR_LOCAL_SERVER_URL` / `ARKOR_LOCAL_SERVER_TOKEN`. These are set in-process (and injected into Studio's Run-training children); they are managed by the CLI and not meant to be set by hand.
+5. **Training.** `POST /v1/jobs` validates your config against the backend, then spawns `uv run --with "mlx-lm[train]==<pinned>" python train_shim.py` supervising a Python shim that prepares the dataset, drives mlx-lm LoRA fine-tuning, and reports structured progress. The SDK's `trainer.wait()` consumes the same `training.*` SSE events it would from the cloud.
+6. **No cloud contact, no credentials.** Local mode never reads or writes `~/.arkor/credentials.json`, never creates cloud projects, and ignores `.arkor/state.json`. Your cloud identity (or lack of one) is untouched.
+
+## What lands on disk
+
+Everything lives under the project's gitignored `.arkor/local/`:
+
+```
+.arkor/local/
+  inference.log            output of the local inference server child
+  jobs/<jobId>/
+    job.json               job record (id, status, config, timestamps)
+    events.jsonl           full event history (powers reconnect replay)
+    run.json               the training shim's input
+    console.log            raw trainer output (tracebacks live here)
+    data/                  prepared train.jsonl / valid.jsonl
+    adapters/
+      step-<N>/            one directory per saved checkpoint
+      final/               the finished LoRA adapter
+        adapters.safetensors
+        adapter_config.json
+```
+
+Job history is durable: restarting `arkor dev --local` keeps the jobs list, and reconnecting event streams replay from where they left off. Jobs whose process died while the server was away are marked failed on the next launch instead of showing as running forever.
+
+## Config support (MLX backend)
+
+`createTrainer` fields map onto mlx-lm as follows. Rejected fields fail the job at submit time with a per-field message; ignored fields log a note into the job's `console.log`.
+
+| Field | Local behavior |
+| --- | --- |
+| `model` | Any HuggingFace id. The `SUPPORTED_MODELS` gate applies to cloud runs only; for local runs prefer MLX-converted models such as the `mlx-community/*` conversions (pre-quantised `*-4bit` builds keep memory low). |
+| `dataset` | Both source types work: `huggingface` (downloaded via the `datasets` library, `split` / `subset` honoured) and `blob` (direct JSONL URL, optional bearer token). |
+| `datasetFormat` | `chatml`, `sharegpt`, `alpaca`, `text`, `prompt_completion`, each with `columnMapping`. `pretokenized` is rejected. |
+| `maxSteps` / `numTrainEpochs` | One of the two is required (an unbounded run cannot be sized). Epochs are converted to iterations from the dataset size. |
+| `batchSize`, `learningRate`, `lora.r`, `lora.alpha`, `lora.maxLength` | Mapped directly (`alpha / r` becomes mlx-lm's LoRA scale). |
+| `optim` | `adam`, `adamw`, `muon`, `sgd`, `adafactor`. Quantised aliases like `adamw_8bit` degrade to plain `adamw` with a logged note (8-bit optimizers are a CUDA concept). |
+| `lrSchedulerType` | `constant`, `linear`, `cosine`; `warmupSteps` and `weightDecay` apply on top. |
+| `loggingSteps`, `saveSteps`, `evalSteps` | Numbers or `{steps}` / `{ratio}` objects; ratios resolve against the total iteration count. |
+| `trainOnResponsesOnly` | Maps to mlx-lm's prompt masking. |
+| `datasetSplit` | Splits a held-out validation set with the given `testSize` / `seed`. When the dataset has no validation split and none is configured, a 10% slice is held out automatically (mlx-lm requires a validation set to train). |
+| `lora.loadIn4bit` | Ignored with a note: quantisation is a property of the model you pick, so choose an `mlx-community/*-4bit` conversion instead. |
+| `dryRun` | Validates the config and prepares the dataset, then completes without training. |
+
+## Local inference
+
+The local server also implements `POST /v1/inference/chat`, backed by a lazily started `mlx_lm server` child (OpenAI-compatible):
+
+- **`onCheckpoint` callbacks** can call `ctx.infer(...)` mid-training exactly as they do against the cloud; the request runs against that checkpoint's adapter.
+- **Studio's Playground** works against trained adapters (pick a run) or a base model.
+- The inference child is reused across requests for the same model + adapter, replaced when a different one is requested, and shut down after 10 idle minutes to free unified memory. Its output lands in `.arkor/local/inference.log`.
+
+`tools`, `toolChoice`, `responseFormat`, and `structuredOutputs` are rejected with an explicit 400 in local mode rather than being silently dropped.
+
+## Studio in local mode
+
+`arkor dev --local` serves the same Studio UI with every cloud proxy repointed at the local server:
+
+- The identity chip shows **local**; no anonymous session is bootstrapped.
+- Jobs list, job detail (live loss chart, event stream, reconnect replay), Run training, and the Playground work as usual.
+- The Endpoints tab shows its empty state: deployments are a cloud capability and mutation attempts return an explicit 501.
+
+## Cancellation and crash behavior
+
+- Cancelling a run (Studio or `trainer.cancel()`) sends SIGTERM to the whole training process group (uv and Python), escalating to SIGKILL after 5 seconds. This works during any phase, including dataset download.
+- If the CLI exits while a run is live (Ctrl-C, SIGTERM, `docker stop`), the children are reaped on the way out.
+- If the machine or process dies uncleanly, the next local launch marks orphaned "running" jobs as failed with an explanatory event instead of leaving them stuck.
+
+## Errors
+
+| Symptom | What it means | Fix |
+| --- | --- | --- |
+| `Local training requires the @arkor/local package, which is not installed in <dir>.` | The runtime package is missing from the project. | Install it: `pnpm add -D @arkor/local` (or your package manager's equivalent). |
+| `arkor and the installed @arkor/local are incompatible. Upgrade ...` | The two packages speak different protocol versions. | Follow the direction in the message: upgrade whichever side is older. |
+| `No local training backend is available on this machine: mlx: the MLX backend requires an Apple Silicon Mac (...)` | You are not on Apple Silicon macOS. | Run on an Apple Silicon Mac, or use cloud training. CUDA / ROCm backends are on the roadmap. |
+| `... uv is not available on PATH ...` | The uv binary could not be probed. | Install uv (`brew install uv`) and re-run. |
+| `the local training backend cannot run this config: ...` | A config field the MLX backend rejects (see the table above). | Adjust the listed fields; each line names the field and the accepted values. |
+| `trainer exited with code <n>; see .arkor/local/jobs/<id>/console.log` | The Python side crashed (bad model id, download failure, out of memory, ...). | Open the referenced `console.log`; the full traceback is there. |
+| `local inference server failed to start: ... (see .arkor/local/inference.log)` | The `mlx_lm server` child never became ready (often a first-time model download timing out). | Check the log; retry once the model is cached. |
+
+## Deliberately not supported (v1)
+
+- Deployments / endpoints (cloud-only; Studio shows an empty state and mutations return 501).
+- `tools`, `responseFormat`, `structuredOutputs`, and embeddings in local inference.
+- `datasetFormat: "pretokenized"`.
+- Free-text base-model entry in the Playground UI (the SDK path accepts any model already).
+- CUDA / ROCm backends: the backend interface, registry, and shim protocol are in place, but MLX is the only implementation today.
+
+## See also
+
+- [`arkor build` / `arkor start`](/cli/build-and-start) for the run pipeline `--local` plugs into
+- [`arkor dev`](/cli/dev) for the Studio server the local mode repoints
+- [Supported models](/models) for the cloud-side model gate this mode relaxes
+- [Roadmap](/roadmap#local-gpu-training) for where local training goes next
