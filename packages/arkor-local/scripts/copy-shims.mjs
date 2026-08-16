@@ -21,5 +21,11 @@ if (!existsSync(src)) {
 
 await mkdir(join(pkgRoot, "dist"), { recursive: true });
 await rm(dst, { recursive: true, force: true });
-await cp(src, dst, { recursive: true });
+await cp(src, dst, {
+  recursive: true,
+  // Local tooling (py_compile checks, an editor's language server) can drop
+  // __pycache__ next to the shims; shipping stale bytecode would shadow the
+  // .py sources at run time on version-matched Pythons.
+  filter: (source) => !source.includes("__pycache__"),
+});
 console.log(`Copied ${src} -> ${dst}`);
