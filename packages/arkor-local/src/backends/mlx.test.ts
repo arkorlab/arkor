@@ -177,7 +177,10 @@ describe("mlxBackend.validateConfig", () => {
 
 describe("mlxBackend.buildTrainRun", () => {
   it("builds the uv invocation around the bundled shim", () => {
-    const run = mlxBackend.buildTrainRun({ config: baseConfig(), paths: PATHS });
+    const run = mlxBackend.buildTrainRun({
+      config: baseConfig(),
+      paths: PATHS,
+    });
     expect(run.spec.command).toBe("uv");
     expect(run.spec.argv).toEqual([
       "run",
@@ -254,7 +257,10 @@ describe("mlxBackend.buildTrainRun", () => {
   });
 
   it("defaults optimizer, schedule, and dataset format when unset", () => {
-    const run = mlxBackend.buildTrainRun({ config: baseConfig(), paths: PATHS });
+    const run = mlxBackend.buildTrainRun({
+      config: baseConfig(),
+      paths: PATHS,
+    });
     expect(run.runJson).toMatchObject({
       datasetFormat: { type: "chatml" },
       train: {

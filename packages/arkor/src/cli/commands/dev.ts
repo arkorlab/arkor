@@ -18,9 +18,13 @@ import {
   requestAnonymousToken,
   type AnonymousCredentials,
 } from "../../core/credentials";
+import { LOCAL_BACKEND_ENV } from "../../core/local-mode";
 import { buildStudioApp } from "../../studio/server";
 import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
+import { loadLocalRuntime } from "../local-runtime-loader";
 import { ui } from "../prompts";
+
+import type { LoadedLocalServer } from "../local-runtime-loader";
 
 export interface DevOptions {
   port?: number;
@@ -31,6 +35,15 @@ export interface DevOptions {
   // `command.getOptionValueSource("port") === "cli"`.
   portExplicit?: boolean;
   open?: boolean;
+  /**
+   * Run Studio against a local training server (`@arkor/local`) instead of
+   * Arkor Cloud: no credentials bootstrap, every `/api/*` cloud proxy is
+   * repointed at the local server, and `/api/train` children inherit the
+   * env hand-off so their jobs land in the same local job store.
+   */
+  local?: boolean;
+  /** Local backend id override (`--backend <id>`); auto-detects when unset. */
+  backend?: string;
 }
 
 /**
@@ -247,7 +260,21 @@ function installShutdownHandlers(cleanup: () => void): void {
 const MAX_PORT_ATTEMPTS = 10;
 
 export async function runDev(options: DevOptions = {}): Promise<void> {
-  await ensureCredentialsForStudio();
+  // Local mode boots the training server FIRST (fail fast on preflight:
+  // no point binding Studio when uv or the platform is missing) and skips
+  // the credentials bootstrap entirely; local runs never mint or persist
+  // an identity.
+  let localServer: LoadedLocalServer | null = null;
+  if (options.local) {
+    const cwd = process.cwd();
+    const runtime = await loadLocalRuntime(cwd);
+    localServer = await runtime.startServer({
+      cwd,
+      backendId: options.backend ?? process.env[LOCAL_BACKEND_ENV],
+    });
+  } else {
+    await ensureCredentialsForStudio();
+  }
 
   const requestedPort = options.port ?? 4000;
   const portExplicit = options.portExplicit ?? false;
@@ -259,7 +286,18 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // `autoAnonymous: true` (the default) lets the Hono server retry the
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
   // attempt above failed (e.g. cloud-api was unreachable at launch).
-  const app = buildStudioApp({ studioToken });
+  const app = buildStudioApp({
+    studioToken,
+    ...(localServer
+      ? {
+          local: {
+            serverUrl: localServer.url,
+            serverToken: localServer.token,
+            backendDisplayName: localServer.backend.displayName,
+          },
+        }
+      : {}),
+  });
 
   // Filled in once the server actually binds; may differ from
   // `requestedPort` when we fell back to a free one.
@@ -402,7 +440,23 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     };
 
     attemptBind(requestedPort, MAX_PORT_ATTEMPTS);
+  }).catch(async (err: unknown) => {
+    // A Studio bind failure must not leave the local training server (and
+    // its process-exit reapers) running behind a rethrown error.
+    if (localServer) await localServer.close();
+    throw err;
   });
+
+  if (localServer) {
+    // Teardown note: no extra shutdown handler is needed for the local
+    // server. It lives in THIS process, and its RunManager / Infer-
+    // enceManager attach their own refcounted process-'exit' reapers, so
+    // the `process.exit(128 + n)` path installed above already kills any
+    // training or inference children, exactly like /api/train children.
+    process.stdout.write(
+      `Local training via ${localServer.backend.displayName} at ${localServer.url}\n`,
+    );
+  }
 
   if (options.open) {
     try {

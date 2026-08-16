@@ -2,7 +2,8 @@ import { createParser, type EventSourceMessage } from "eventsource-parser";
 
 export interface Credentials {
   token: string;
-  mode: "oauth" | "anon";
+  /** `"local"` when Studio runs against a local training server (`arkor dev --local`). */
+  mode: "oauth" | "anon" | "local";
   baseUrl: string;
   orgSlug: string | null;
   projectSlug: string | null;

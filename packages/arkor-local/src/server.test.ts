@@ -252,9 +252,9 @@ describe("cancel route", () => {
       authed({ method: "POST" }),
     );
     expect(again.status).toBe(200);
-    expect(((await again.json()) as { job: { status: string } }).job.status).toBe(
-      "cancelled",
-    );
+    expect(
+      ((await again.json()) as { job: { status: string } }).job.status,
+    ).toBe("cancelled");
   });
 
   it("cancels a queued job that has no live child", async () => {
@@ -401,9 +401,7 @@ describe("chat route", () => {
       authed({ method: "POST", body: JSON.stringify(CHAT_BODY) }),
     );
     expect(res.status).toBe(200);
-    expect(calls).toEqual([
-      { model: "mlx-community/tiny", adapterPath: null },
-    ]);
+    expect(calls).toEqual([{ model: "mlx-community/tiny", adapterPath: null }]);
   });
 
   it("resolves adapter jobs to their normalised adapter directory", async () => {

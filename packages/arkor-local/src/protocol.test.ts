@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  PROTOCOL_MARKER,
-  parseProtocolLine,
-  toStreamEvent,
-} from "./protocol";
+import { PROTOCOL_MARKER, parseProtocolLine, toStreamEvent } from "./protocol";
 
 function line(payload: unknown): string {
   return `${PROTOCOL_MARKER}${JSON.stringify(payload)}`;
@@ -36,7 +32,9 @@ describe("parseProtocolLine", () => {
       event: { type: "log", step: 10, loss: 2.5, learningRate: 1e-5 },
     });
     expect(
-      parseProtocolLine(line({ type: "checkpoint", step: 50, adapterDir: "/a" })),
+      parseProtocolLine(
+        line({ type: "checkpoint", step: 50, adapterDir: "/a" }),
+      ),
     ).toEqual({
       kind: "event",
       event: { type: "checkpoint", step: 50, adapterDir: "/a" },
@@ -129,7 +127,11 @@ describe("toStreamEvent", () => {
   it("maps checkpoint to checkpoint.saved with a local-adapter artifact", () => {
     expect(
       toStreamEvent(
-        { type: "checkpoint", step: 50, adapterDir: "/jobs/j1/adapters/step-50" },
+        {
+          type: "checkpoint",
+          step: 50,
+          adapterDir: "/jobs/j1/adapters/step-50",
+        },
         "j1",
         TS,
       ),
@@ -138,9 +140,7 @@ describe("toStreamEvent", () => {
       jobId: "j1",
       timestamp: TS,
       step: 50,
-      artifacts: [
-        { type: "local-adapter", path: "/jobs/j1/adapters/step-50" },
-      ],
+      artifacts: [{ type: "local-adapter", path: "/jobs/j1/adapters/step-50" }],
     });
   });
 

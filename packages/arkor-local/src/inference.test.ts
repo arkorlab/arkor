@@ -52,7 +52,11 @@ function makeManager(
   options: { readinessTimeoutMs?: number; idleShutdownMs?: number } = {},
 ): { manager: InferenceManager; spawned: ChildProcess[] } {
   const spawned: ChildProcess[] = [];
-  const spawnImpl: typeof spawn = ((command: string, args: string[], opts: object) => {
+  const spawnImpl: typeof spawn = ((
+    command: string,
+    args: string[],
+    opts: object,
+  ) => {
     const child = spawn(command, args, opts as Parameters<typeof spawn>[2]);
     spawned.push(child);
     return child;
@@ -115,7 +119,9 @@ describe("InferenceManager", () => {
     await m.handleChat({ ...CHAT_ARGS, adapterPath: "/some/adapter" });
     expect(spawned).toHaveLength(2);
     // The first child was stopped as part of the swap.
-    await waitFor(() => spawned[0]?.exitCode !== null || spawned[0]?.signalCode !== null);
+    await waitFor(
+      () => spawned[0]?.exitCode !== null || spawned[0]?.signalCode !== null,
+    );
   });
 
   it("respawns after the child dies", async () => {
@@ -132,10 +138,9 @@ describe("InferenceManager", () => {
   });
 
   it("returns 502 with the log path when readiness times out", async () => {
-    const { manager: m } = makeManager(
-      fakeServerBackend(["--never-listen"]),
-      { readinessTimeoutMs: 600 },
-    );
+    const { manager: m } = makeManager(fakeServerBackend(["--never-listen"]), {
+      readinessTimeoutMs: 600,
+    });
     const res = await m.handleChat(CHAT_ARGS);
     expect(res.status).toBe(502);
     const { error } = (await res.json()) as { error: string };

@@ -194,7 +194,9 @@ export const mlxBackend: LocalTrainingBackend = {
         warmupSteps: expect(normaliseWarmupSteps(config.warmupSteps)),
         // `{ratio}` shapes resolve inside the shim: epoch-based runs only
         // learn their total iteration count after the dataset is sized.
-        loggingSteps: expect(normaliseSteps("loggingSteps", config.loggingSteps)),
+        loggingSteps: expect(
+          normaliseSteps("loggingSteps", config.loggingSteps),
+        ),
         saveSteps: expect(normaliseSteps("saveSteps", config.saveSteps)),
         evalSteps: expect(normaliseSteps("evalSteps", config.evalSteps)),
         maskPrompt: expect(
@@ -266,12 +268,12 @@ function normaliseDatasetFormat(
   value: unknown,
 ): NormalisedDatasetFormat | Error {
   if (value === undefined) return { type: "chatml" };
-  const raw =
-    typeof value === "string"
-      ? { type: value }
-      : (typeof value === "object" && value !== null
-        ? (value as { type?: unknown; columnMapping?: unknown })
-        : null);
+  let raw: { type?: unknown; columnMapping?: unknown } | null = null;
+  if (typeof value === "string") {
+    raw = { type: value };
+  } else if (typeof value === "object" && value !== null) {
+    raw = value as { type?: unknown; columnMapping?: unknown };
+  }
   if (!raw || typeof raw.type !== "string") {
     return new Error(
       "datasetFormat must be a format name or an object with a `type` field",
@@ -279,7 +281,7 @@ function normaliseDatasetFormat(
   }
   if (raw.type === "pretokenized") {
     return new Error(
-      "datasetFormat \"pretokenized\" is not supported by the MLX backend",
+      'datasetFormat "pretokenized" is not supported by the MLX backend',
     );
   }
   if (!(DATASET_FORMATS as readonly string[]).includes(raw.type)) {
@@ -401,7 +403,10 @@ function normaliseDatasetSplit(
   ) {
     return new Error("datasetSplit.testSize must be a number in (0, 1)");
   }
-  if (seed !== undefined && !(typeof seed === "number" && Number.isInteger(seed))) {
+  if (
+    seed !== undefined &&
+    !(typeof seed === "number" && Number.isInteger(seed))
+  ) {
     return new Error("datasetSplit.seed must be an integer");
   }
   return {

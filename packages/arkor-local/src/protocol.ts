@@ -53,7 +53,11 @@ export const shimCheckpointSchema = z.object({
 export const shimCompletedSchema = z.object({
   type: z.literal("completed"),
   /** Absolute path of the final adapter directory; null for dry runs. */
-  adapterDir: z.string().min(1).nullish().transform((v) => v ?? null),
+  adapterDir: z
+    .string()
+    .min(1)
+    .nullish()
+    .transform((v) => v ?? null),
   metrics: z.record(z.string(), z.unknown()).optional(),
 });
 

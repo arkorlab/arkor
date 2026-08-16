@@ -377,16 +377,17 @@ function makeLineSplitter(onLine: (line: string) => void): {
   push(chunk: Buffer): void;
   flush(): void;
 } {
+  const NEWLINE_BYTE = 10;
   let carry: Buffer = Buffer.alloc(0);
   return {
     push(chunk: Buffer) {
       carry = carry.length > 0 ? Buffer.concat([carry, chunk]) : chunk;
-      let idx = carry.indexOf(0x0A);
+      let idx = carry.indexOf(NEWLINE_BYTE);
       while (idx !== -1) {
         const line = carry.subarray(0, idx).toString("utf8").replace(/\r$/, "");
         carry = carry.subarray(idx + 1);
         onLine(line);
-        idx = carry.indexOf(0x0A);
+        idx = carry.indexOf(NEWLINE_BYTE);
       }
     },
     flush() {

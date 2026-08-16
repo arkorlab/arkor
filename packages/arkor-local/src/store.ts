@@ -373,4 +373,3 @@ function isPidAlive(pid: number): boolean {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
-

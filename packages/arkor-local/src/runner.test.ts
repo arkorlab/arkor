@@ -11,10 +11,7 @@ import { JobStore, isTerminalStatus } from "./store";
 import { RunManager } from "./runner";
 
 import type { JobConfig } from "arkor";
-import type {
-  LocalTrainingBackend,
-  TrainRunPaths,
-} from "./backends/types";
+import type { LocalTrainingBackend, TrainRunPaths } from "./backends/types";
 
 const FIXTURE = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -46,9 +43,12 @@ const CONFIG: JobConfig = {
  * Backend whose "shim" is the fake-trainer fixture; the fixture block rides
  * inside run.json, so each test controls the child's behaviour.
  */
-function fixtureBackend(fixture: Record<string, unknown>, opts?: {
-  command?: string;
-}): LocalTrainingBackend {
+function fixtureBackend(
+  fixture: Record<string, unknown>,
+  opts?: {
+    command?: string;
+  },
+): LocalTrainingBackend {
   return {
     id: "fake",
     displayName: "Fake backend",
@@ -74,11 +74,19 @@ async function launch(
     backendId: backend.id,
   });
   const paths = store.paths(record.job.id, "/unused-shim-dir");
-  await manager.startRun({ jobId: record.job.id, config: CONFIG, backend, paths });
+  await manager.startRun({
+    jobId: record.job.id,
+    config: CONFIG,
+    backend,
+    paths,
+  });
   return { jobId: record.job.id, paths };
 }
 
-async function waitForTerminal(jobId: string, timeoutMs = 15_000): Promise<void> {
+async function waitForTerminal(
+  jobId: string,
+  timeoutMs = 15_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const record = await store.getJob(jobId);
@@ -201,7 +209,11 @@ describe("RunManager failure paths", () => {
       fixtureBackend({
         chunks: [
           marker({ type: "started" }),
-          marker({ type: "failed", error: "model not found on the Hub", step: 0 }),
+          marker({
+            type: "failed",
+            error: "model not found on the Hub",
+            step: 0,
+          }),
         ],
         exitCode: 1,
       }),

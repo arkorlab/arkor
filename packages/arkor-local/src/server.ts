@@ -285,10 +285,7 @@ async function resolveChatTarget(
   if (body.adapter) {
     const record = await store.getJob(body.adapter.jobId);
     if (!record) {
-      return c.json(
-        { error: `unknown local job: ${body.adapter.jobId}` },
-        404,
-      );
+      return c.json({ error: `unknown local job: ${body.adapter.jobId}` }, 404);
     }
     const adapterPath = await resolveAdapterDir(
       store,

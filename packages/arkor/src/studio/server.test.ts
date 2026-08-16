@@ -2792,4 +2792,213 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       });
     });
   });
+
+  describe("local mode", () => {
+    const LOCAL_TOKEN = "local-server-token-0123456789abcdef";
+
+    interface RecordedLocalRequest {
+      method: string;
+      url: string;
+      auth: string | null;
+      lastEventId: string | null;
+      body: string;
+    }
+
+    /** Minimal fake local training server on an ephemeral loopback port. */
+    async function startFakeLocalServer(): Promise<{
+      url: string;
+      requests: RecordedLocalRequest[];
+      close: () => Promise<void>;
+    }> {
+      const { createServer } = await import("node:http");
+      const requests: RecordedLocalRequest[] = [];
+      const server = createServer((req, res) => {
+        let body = "";
+        req.on("data", (chunk: Buffer) => (body += chunk.toString("utf8")));
+        req.on("end", () => {
+          requests.push({
+            method: req.method ?? "",
+            url: req.url ?? "",
+            auth: req.headers.authorization ?? null,
+            lastEventId:
+              (req.headers["last-event-id"] as string | undefined) ?? null,
+            body,
+          });
+          if (req.url?.includes("/events/stream")) {
+            res.writeHead(200, { "content-type": "text/event-stream" });
+            res.end(
+              "id: 1\nevent: training.log\ndata: {}\n\nevent: end\ndata: {}\n\n",
+            );
+            return;
+          }
+          if (req.url?.includes("/v1/inference/chat")) {
+            res.writeHead(200, { "content-type": "text/event-stream" });
+            res.end(
+              'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n',
+            );
+            return;
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ jobs: [{ id: "local-job-1" }] }));
+        });
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("fake local server failed to bind");
+      }
+      return {
+        url: `http://127.0.0.1:${address.port}`,
+        requests,
+        close: () => new Promise((resolve) => server.close(() => resolve())),
+      };
+    }
+
+    function buildLocal(serverUrl: string, binPath?: string) {
+      return buildStudioApp({
+        // Deliberately no baseUrl: nothing may fall back to a cloud URL.
+        assetsDir,
+        // autoAnonymous left at its default (true) ON PURPOSE: local mode
+        // must not mint anonymous credentials even when the flag allows it.
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath,
+        local: { serverUrl, serverToken: LOCAL_TOKEN },
+      });
+    }
+
+    const authedHeaders = {
+      host: "127.0.0.1:4000",
+      "x-arkor-studio-token": STUDIO_TOKEN,
+    };
+
+    it("answers /api/credentials locally without reading or writing disk credentials", async () => {
+      const app = buildLocal("http://127.0.0.1:1");
+      const res = await app.request("/api/credentials", {
+        headers: authedHeaders,
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        token: "",
+        mode: "local",
+        baseUrl: "http://127.0.0.1:1",
+        orgSlug: "local",
+        projectSlug: "local",
+      });
+      // No anonymous identity was minted or persisted.
+      expect(existsSync(join(fakeHome, ".arkor", "credentials.json"))).toBe(
+        false,
+      );
+    });
+
+    it("proxies /api/jobs to the local server with the local bearer and no state.json", async () => {
+      const fake = await startFakeLocalServer();
+      try {
+        const app = buildLocal(fake.url);
+        // No .arkor/state.json exists in trainCwd; cloud mode would return
+        // an empty list without ever calling upstream.
+        const res = await app.request("/api/jobs", { headers: authedHeaders });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ jobs: [{ id: "local-job-1" }] });
+        expect(fake.requests).toHaveLength(1);
+        expect(fake.requests[0]?.url).toContain("/v1/jobs");
+        expect(fake.requests[0]?.auth).toBe(`Bearer ${LOCAL_TOKEN}`);
+      } finally {
+        await fake.close();
+      }
+    });
+
+    it("proxies /api/jobs/:id/events to the local stream and forwards Last-Event-ID", async () => {
+      const fake = await startFakeLocalServer();
+      try {
+        const app = buildLocal(fake.url);
+        const res = await app.request("/api/jobs/local-job-1/events", {
+          headers: { ...authedHeaders, "Last-Event-ID": "7" },
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toContain("text/event-stream");
+        const text = await res.text();
+        expect(text).toContain("event: end");
+        expect(fake.requests[0]?.url).toContain(
+          "/v1/jobs/local-job-1/events/stream",
+        );
+        expect(fake.requests[0]?.lastEventId).toBe("7");
+        expect(fake.requests[0]?.auth).toBe(`Bearer ${LOCAL_TOKEN}`);
+      } finally {
+        await fake.close();
+      }
+    });
+
+    it("proxies /api/inference/chat without bootstrapping project state", async () => {
+      const fake = await startFakeLocalServer();
+      try {
+        const app = buildLocal(fake.url);
+        const res = await app.request("/api/inference/chat", {
+          method: "POST",
+          headers: { ...authedHeaders, "content-type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: "hi" }],
+            baseModel: "mlx-community/tiny",
+          }),
+        });
+        expect(res.status).toBe(200);
+        expect(await res.text()).toContain("[DONE]");
+        expect(fake.requests[0]?.url).toContain("/v1/inference/chat");
+        expect(fake.requests[0]?.auth).toBe(`Bearer ${LOCAL_TOKEN}`);
+        // ensureProjectState was skipped: nothing wrote .arkor/state.json.
+        expect(await readState(trainCwd)).toBeNull();
+      } finally {
+        await fake.close();
+      }
+    });
+
+    it("answers deployments locally: friendly empty list, 501 mutations", async () => {
+      const app = buildLocal("http://127.0.0.1:1");
+      const list = await app.request("/api/deployments", {
+        headers: authedHeaders,
+      });
+      expect(list.status).toBe(200);
+      expect(await list.json()).toEqual({
+        deployments: [],
+        scopeMissing: true,
+      });
+
+      const create = await app.request("/api/deployments", {
+        method: "POST",
+        headers: { ...authedHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(create.status).toBe(501);
+
+      const del = await app.request("/api/deployments/dep-1", {
+        method: "DELETE",
+        headers: authedHeaders,
+      });
+      expect(del.status).toBe(501);
+      expect(((await del.json()) as { error: string }).error).toContain(
+        "local mode",
+      );
+    });
+
+    it("injects the env hand-off into /api/train children", async () => {
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      writeFileSync(
+        fakeBin,
+        `process.stdout.write("[env] url=" + process.env.ARKOR_LOCAL_SERVER_URL + " token=" + process.env.ARKOR_LOCAL_SERVER_TOKEN + "\\n");\nprocess.exit(0);\n`,
+      );
+      const app = buildLocal("http://127.0.0.1:45678", fakeBin);
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: { ...authedHeaders, "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain("url=http://127.0.0.1:45678");
+      expect(text).toContain(`token=${LOCAL_TOKEN}`);
+      expect(text).toContain("exit=0");
+    });
+  });
 });
