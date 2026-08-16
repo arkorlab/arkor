@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-    <img src="assets/logo.svg" alt="Arkor" width="96">
-  </picture>
+  <img src="assets/oddphin-rounded.png" alt="Oddphin, the Arkor mascot" width="96">
 </p>
 
 <h1 align="center">Arkor</h1>
