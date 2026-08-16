@@ -51,23 +51,19 @@ export const trainer = createTrainer({
 <CodeGroup>
 
 ```bash pnpm
-pnpm arkor start --local
+pnpm start --local
 ```
 
 ```bash npm
-npm arkor start --local
+npm start -- --local
 ```
 
 ```bash yarn
-yarn arkor start --local
-```
-
-```bash yarn-berry
-yarn run arkor start --local
+yarn start --local
 ```
 
 ```bash bun
-bun arkor start --local
+bun start --local
 ```
 
 </CodeGroup>
@@ -79,28 +75,24 @@ bun arkor start --local
 <CodeGroup>
 
 ```bash pnpm
-pnpm arkor dev --local
+pnpm dev --local
 ```
 
 ```bash npm
-npm arkor dev --local
+npm run dev -- --local
 ```
 
 ```bash yarn
-yarn arkor dev --local
-```
-
-```bash yarn-berry
-yarn run arkor dev --local
+yarn dev --local
 ```
 
 ```bash bun
-bun arkor dev --local
+bun dev --local
 ```
 
 </CodeGroup>
 
-Studio はいつもどおり開きますが、すべてのクラウド呼び出しはプロセス内のローカルサーバーへ向き直っています: 識別チップは **local** と表示され、Run training はローカルジョブを開始し、ロスチャートはライブでストリームされ、Playground はローカルの `mlx_lm server` を通じて学習済みアダプタとチャットします。資格情報は作成されず、モデルとデータセットのダウンロード以外は何もマシンの外に出ません。
+Studio はいつもどおり開きますが、すべてのクラウド呼び出しはプロセス内のローカルサーバーへ向き直っています: 識別チップは **local** と表示され、Run training はローカルジョブを開始し、ロスチャートはライブでストリームされ、Playground はローカルの `mlx_lm server` を通じて学習済みアダプタとチャットします。資格情報は作成されず、モデルとデータセットのダウンロード、そして CLI の通常の匿名利用テレメトリ (`DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` で無効化可能) 以外は何もマシンの外に出ません。
 
 ## 次に読む
 

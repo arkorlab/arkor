@@ -8,6 +8,7 @@ import {
 } from "../../core/local-mode";
 import { runTrainer } from "../../core/runner";
 import { loadLocalRuntime } from "../local-runtime-loader";
+import { ui } from "../prompts";
 
 import { runBuild } from "./build";
 
@@ -69,7 +70,7 @@ export async function runStart(opts: StartOptions = {}): Promise<void> {
     // arkor copy, and the env contract is the only channel that reaches it.
     process.env[LOCAL_SERVER_URL_ENV] = localServer.url;
     process.env[LOCAL_SERVER_TOKEN_ENV] = localServer.token;
-    console.log(
+    ui.log.info(
       `Local training via ${localServer.backend.displayName} at ${localServer.url}`,
     );
   }
@@ -83,8 +84,18 @@ export async function runStart(opts: StartOptions = {}): Promise<void> {
     await runTrainer(outFile);
   } finally {
     if (localServer) {
-      // The server owns training/inference children; closing it reaps them.
-      await localServer.close();
+      try {
+        // The server owns training/inference children; closing it reaps
+        // them. A close failure must not mask the run's own outcome (an
+        // error thrown from the try block above would be replaced by one
+        // thrown out of finally), so it is reported and swallowed.
+        await localServer.close();
+      } catch (error) {
+        console.warn(
+          "warning: failed to shut down the local training server cleanly:",
+          error instanceof Error ? error.message : error,
+        );
+      }
       // Reflect.deleteProperty instead of `delete` with a computed key: the
       // env names live in core/local-mode.ts as the single source of truth,
       // and assigning `undefined` would store the string "undefined".

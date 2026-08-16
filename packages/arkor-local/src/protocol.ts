@@ -52,12 +52,13 @@ export const shimCheckpointSchema = z.object({
 
 export const shimCompletedSchema = z.object({
   type: z.literal("completed"),
-  /** Absolute path of the final adapter directory; null for dry runs. */
-  adapterDir: z
-    .string()
-    .min(1)
-    .nullish()
-    .transform((v) => v ?? null),
+  /**
+   * Absolute path of the final adapter directory; an EXPLICIT null marks a
+   * dry run. `.nullable()` (not `.nullish()`) so an accidentally omitted
+   * field is rejected as malformed instead of silently becoming a
+   * no-artifact completion.
+   */
+  adapterDir: z.string().min(1).nullable(),
   metrics: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -118,6 +119,12 @@ export function parseProtocolLine(line: string): ParsedProtocolLine {
  * `training.completed` / `training.failed`). The local server emits exactly
  * these so `trainer.wait()` and the Studio job detail page work unchanged.
  */
+/** Artifact entry attached to checkpoint / completion events. */
+export interface LocalAdapterArtifact {
+  type: "local-adapter";
+  path: string;
+}
+
 export interface LocalStreamEventBase {
   type: string;
   jobId: string;
@@ -138,24 +145,18 @@ export type LocalStreamEvent =
   | (LocalStreamEventBase & {
       type: "checkpoint.saved";
       step: number;
-      artifacts: unknown[];
+      artifacts: LocalAdapterArtifact[];
     })
   | (LocalStreamEventBase & {
       type: "training.completed";
-      metrics?: unknown;
-      artifacts: unknown[];
+      metrics?: Record<string, unknown>;
+      artifacts: LocalAdapterArtifact[];
     })
   | (LocalStreamEventBase & {
       type: "training.failed";
       error: string;
       step?: number;
     });
-
-/** Artifact entry attached to checkpoint / completion events. */
-export interface LocalAdapterArtifact {
-  type: "local-adapter";
-  path: string;
-}
 
 /**
  * Translate a shim event into the SSE shape. `jobId` and `timestamp` are

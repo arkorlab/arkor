@@ -22,7 +22,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const runFlag = process.argv.indexOf("--run");
-const runPath = process.argv[runFlag + 1];
+const runPath = runFlag === -1 ? undefined : process.argv[runFlag + 1];
+if (!runPath) {
+  // Thrown (not process.exit) so the child dies non-zero with a stack the
+  // runner captures in console.log, satisfying unicorn/no-process-exit.
+  throw new Error("fake-trainer: missing --run <run.json>");
+}
 const run = JSON.parse(readFileSync(runPath, "utf8"));
 const fixture = run.fixture ?? {};
 const jobDir = dirname(runPath);

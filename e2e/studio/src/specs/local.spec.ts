@@ -25,8 +25,8 @@ const UNREACHABLE_CLOUD = "http://127.0.0.1:9";
 test.describe("arkor dev --local", () => {
   test.skip(!APPLE_SILICON, "requires Apple Silicon macOS (MLX preflight)");
 
-  let paths: LocalFixturePaths;
-  let studio: StudioHandle;
+  let paths: LocalFixturePaths | undefined;
+  let studio: StudioHandle | undefined;
 
   test.beforeEach(async () => {
     paths = createLocalFixture();
@@ -42,22 +42,33 @@ test.describe("arkor dev --local", () => {
   });
 
   test.afterEach(async () => {
-    await studio.kill();
-    cleanup(paths.home);
-    cleanup(paths.projectDir);
+    // startStudio can throw mid-beforeEach (spawn failure); the teardown
+    // must still clean whatever did get created, and must reset the vars
+    // so a later test cannot see a stale handle.
+    await studio?.kill();
+    if (paths) {
+      cleanup(paths.home);
+      cleanup(paths.projectDir);
+    }
+    studio = undefined;
+    paths = undefined;
   });
 
   test("identity chip shows local mode without cloud contact", async ({
     page,
   }) => {
-    await page.goto(studio.url);
+    const handle = studio;
+    if (!handle) throw new Error("studio failed to start");
+    await page.goto(handle.url);
     await expect(page.getByText("local").first()).toBeVisible();
   });
 
   test("Run training completes through the local server and lights up the jobs UI", async ({
     page,
   }) => {
-    await page.goto(studio.url);
+    const handle = studio;
+    if (!handle) throw new Error("studio failed to start");
+    await page.goto(handle.url);
     // The manifest tile resolves through /api/manifest (local build of the
     // linked SDK manifest).
     await expect(
@@ -67,22 +78,24 @@ test.describe("arkor dev --local", () => {
     // Kick a run through the same API the Run Training button uses; the
     // /api/train child inherits the env hand-off and registers its job in
     // the dev server's local job store.
-    const trainRes = await fetch(`${studio.url}/api/train`, {
+    const trainRes = await fetch(`${handle.url}/api/train`, {
       method: "POST",
       headers: {
-        "x-arkor-studio-token": studio.token,
+        "x-arkor-studio-token": handle.token,
         "content-type": "application/json",
       },
       body: JSON.stringify({}),
     });
-    expect(trainRes.status).toBe(200);
     const streamText = await trainRes.text();
+    // Include the body in the assertion so a failure shows the server's
+    // error message, not just "expected 200, got 400".
+    expect(`${String(trainRes.status)}: ${streamText}`).toMatch(/^200: /);
     expect(streamText).toContain("finished with status=completed");
     expect(streamText).toContain("exit=0");
 
     // The job is listed from the durable local store.
-    const jobsRes = await fetch(`${studio.url}/api/jobs`, {
-      headers: { "x-arkor-studio-token": studio.token },
+    const jobsRes = await fetch(`${handle.url}/api/jobs`, {
+      headers: { "x-arkor-studio-token": handle.token },
     });
     const { jobs } = (await jobsRes.json()) as {
       jobs: { id: string; name: string; status: string }[];
@@ -93,8 +106,11 @@ test.describe("arkor dev --local", () => {
 
     // The job detail page replays the SSE history from the local server:
     // status, loss chart data, and the completion event all render.
-    await page.goto(`${studio.url}/#/jobs/${jobs[0]?.id ?? ""}`);
-    await expect(page.getByText(/completed/i).first()).toBeVisible({
+    await page.goto(`${handle.url}/#/jobs/${jobs[0]?.id ?? ""}`);
+    // Exact match: a loose /completed/i would also match the
+    // "training.completed" event row asserted below, hiding a missing
+    // status badge.
+    await expect(page.getByText(/^completed$/i).first()).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByText("training.completed").first()).toBeVisible();

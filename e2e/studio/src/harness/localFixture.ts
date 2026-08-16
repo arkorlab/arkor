@@ -45,7 +45,12 @@ export const arkor = createArkor({
 const FAKE_TRAINER = String.raw`import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const runPath = process.argv[process.argv.indexOf("--run") + 1];
+const runIdx = process.argv.indexOf("--run");
+const runPath = runIdx === -1 ? undefined : process.argv[runIdx + 1];
+if (!runPath) {
+  process.stderr.write("fake-trainer: missing --run <run.json>\n");
+  process.exit(2);
+}
 const run = JSON.parse(readFileSync(runPath, "utf8"));
 const finalDir = join(run.paths.adaptersDir, "final");
 mkdirSync(finalDir, { recursive: true });
@@ -77,6 +82,10 @@ for a in "$@"; do
   if [ "$prev" = "--run" ]; then RUN="$a"; fi
   prev="$a"
 done
+if [ -z "$RUN" ]; then
+  echo "fake uv: no --run argument found in: $*" >&2
+  exit 2
+fi
 exec "${process.execPath}" "${trainerPath}" --run "$RUN"
 `,
   );

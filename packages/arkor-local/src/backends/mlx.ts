@@ -102,12 +102,37 @@ export const mlxBackend: LocalTrainingBackend = {
   validateConfig(config: JobConfig): ConfigValidation {
     const errors: string[] = [];
 
-    if (config.maxSteps === undefined && config.numTrainEpochs === undefined) {
+    // null AND undefined both count as absent: configs arrive as parsed
+    // JSON, where an explicit `null` is representable.
+    const absent = (value: unknown): value is null | undefined =>
+      value === null || value === undefined;
+    if (absent(config.maxSteps) && absent(config.numTrainEpochs)) {
       errors.push(
         "maxSteps or numTrainEpochs is required for local MLX training " +
           "(an unbounded run cannot be sized)",
       );
     }
+    for (const [field, value, kind] of [
+      ["maxSteps", config.maxSteps, "positive integer"],
+      ["numTrainEpochs", config.numTrainEpochs, "positive number"],
+      ["batchSize", config.batchSize, "positive integer"],
+      ["learningRate", config.learningRate, "positive number"],
+      ["loraR", config.loraR, "positive integer"],
+      ["loraAlpha", config.loraAlpha, "positive number"],
+      ["maxLength", config.maxLength, "positive integer"],
+    ] as const) {
+      if (absent(value)) continue;
+      const isInteger = kind === "positive integer";
+      const valid =
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        value > 0 &&
+        (!isInteger || Number.isInteger(value));
+      if (!valid) errors.push(`${field} must be a ${kind}`);
+    }
+
+    const source = validateDatasetSource(config.datasetSource);
+    if (source instanceof Error) errors.push(source.message);
 
     const format = normaliseDatasetFormat(config.datasetFormat);
     if (format instanceof Error) errors.push(format.message);
@@ -166,7 +191,9 @@ export const mlxBackend: LocalTrainingBackend = {
           `quantisation suffix; using plain "${optim.value}" instead`,
       );
     }
-    if (config.loadIn4bit !== undefined) {
+    // Only a truthy value asked for something the backend cannot honour;
+    // `loadIn4bit: false` matches the behaviour and deserves no noise.
+    if (config.loadIn4bit === true) {
       warnings.push(
         "loadIn4bit is ignored by the MLX backend: quantisation is a " +
           "property of the chosen model. Pick a pre-quantised model " +
@@ -262,6 +289,46 @@ export const mlxBackend: LocalTrainingBackend = {
 function expect<T>(value: T | Error): T {
   if (value instanceof Error) throw value;
   return value;
+}
+
+/**
+ * Validate the dataset-source union. The HTTP envelope deliberately accepts
+ * any `type` string and defers to the backend, so a malformed source must
+ * be rejected here, before a job record is created and a uv child spawns.
+ */
+function validateDatasetSource(value: unknown): true | Error {
+  if (typeof value !== "object" || value === null) {
+    return new Error("datasetSource must be an object");
+  }
+  const source = value as { type?: unknown; name?: unknown; url?: unknown };
+  if (source.type === "huggingface") {
+    if (typeof source.name !== "string" || source.name.length === 0) {
+      return new Error(
+        "datasetSource.name (the HuggingFace dataset id) is required",
+      );
+    }
+    return true;
+  }
+  if (source.type === "blob") {
+    if (typeof source.url !== "string" || source.url.length === 0) {
+      return new Error("datasetSource.url is required for blob datasets");
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(source.url);
+    } catch {
+      return new Error(`datasetSource.url is not a valid URL: ${source.url}`);
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return new Error(
+        `datasetSource.url must be http(s), got ${parsed.protocol}//`,
+      );
+    }
+    return true;
+  }
+  return new Error(
+    `datasetSource.type must be "huggingface" or "blob", got ${JSON.stringify(source.type)}`,
+  );
 }
 
 function normaliseDatasetFormat(

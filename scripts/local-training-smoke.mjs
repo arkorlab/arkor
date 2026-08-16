@@ -45,6 +45,8 @@ const TIMEOUT_MS = 20 * 60_000;
 function fail(message) {
   console.error(`[smoke] FAIL: ${message}`);
   dumpDiagnostics();
+  // Note: projectDir is intentionally NOT removed on failure so a maintainer
+  // (or an uploaded CI artifact step) can inspect the job dir post-mortem.
   process.exit(1);
 }
 
@@ -157,20 +159,32 @@ export const arkor = createArkor({
         marker({ kind: "log", step, loss });
       },
       onCheckpoint: async (ctx) => {
-        const res = await ctx.infer({
-          messages: [{ role: "user", content: "Say hello." }],
-          maxTokens: 16,
-          stream: false,
-        });
-        const body = (await res.json()) as {
-          choices?: { message?: { content?: string } }[];
-        };
-        marker({
-          kind: "infer",
-          step: ctx.step,
-          status: res.status,
-          content: body.choices?.[0]?.message?.content ?? null,
-        });
+        // Record inference failures as their own marker: without this, a
+        // rejected infer() only surfaces as a generic non-zero exit and the
+        // report misleadingly says "onCheckpoint.infer never ran".
+        try {
+          const res = await ctx.infer({
+            messages: [{ role: "user", content: "Say hello." }],
+            maxTokens: 16,
+            stream: false,
+          });
+          const body = (await res.json()) as {
+            choices?: { message?: { content?: string } }[];
+          };
+          marker({
+            kind: "infer",
+            step: ctx.step,
+            status: res.status,
+            content: body.choices?.[0]?.message?.content ?? null,
+          });
+        } catch (error) {
+          marker({
+            kind: "infer-error",
+            step: ctx.step,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
       },
       onCompleted: ({ artifacts }) => {
         marker({ kind: "completed", artifacts });
@@ -184,9 +198,12 @@ export const arkor = createArkor({
 // ---- run -------------------------------------------------------------------
 
 console.log(`[smoke] running: node ${ARKOR_BIN} start --local`);
+// detached: the CLI is its own process group, so a timeout kill below can
+// take out uv / python / mlx_lm server grandchildren too, not just the CLI.
 const child = spawn(process.execPath, [ARKOR_BIN, "start", "--local"], {
   cwd: projectDir,
   stdio: ["ignore", "pipe", "pipe"],
+  detached: true,
   env: { ...process.env, ARKOR_TELEMETRY_DISABLED: "1", CI: "1" },
 });
 let stdout = "";
@@ -199,8 +216,20 @@ child.stderr.on("data", (d) => process.stderr.write(d));
 const code = await new Promise((resolve) => {
   const timer = setTimeout(() => {
     console.error(`[smoke] timed out after ${TIMEOUT_MS}ms`);
-    child.kill("SIGKILL");
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      child.kill("SIGKILL");
+    }
   }, TIMEOUT_MS);
+  child.on("error", (error) => {
+    // EACCES/EMFILE-class spawn failures emit 'error' (and possibly no
+    // 'close'); report them through the normal FAIL path instead of dying
+    // with an uncaught exception.
+    clearTimeout(timer);
+    blobServer.close();
+    fail(`failed to spawn arkor start --local: ${error.message}`);
+  });
   child.on("close", (c) => {
     clearTimeout(timer);
     resolve(c);
@@ -215,10 +244,12 @@ if (!stdout.includes("finished with status=completed")) {
   fail("stdout does not report a completed job");
 }
 
-const markers = readFileSync(markerPath, "utf8")
-  .trim()
-  .split("\n")
-  .map((line) => JSON.parse(line));
+if (!existsSync(markerPath)) {
+  fail("the trainer callbacks never wrote the marker file");
+}
+const markerText = readFileSync(markerPath, "utf8").trim();
+if (!markerText) fail("the marker file is empty");
+const markers = markerText.split("\n").map((line) => JSON.parse(line));
 
 const logs = markers.filter((m) => m.kind === "log");
 if (logs.length === 0) fail("no training.log events reached the SDK callback");

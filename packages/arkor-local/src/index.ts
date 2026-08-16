@@ -14,6 +14,12 @@ import type { LocalServer } from "./server";
  * {@link createLocalRuntime}'s surface changes incompatibly; the CLI turns a
  * mismatch into an actionable "upgrade arkor / upgrade @arkor/local" error
  * instead of a TypeError deep inside a training run.
+ *
+ * Scope: the version guards ONLY the `createLocalRuntime` entry point the
+ * CLI consumes. Every other export below (JobStore, RunManager,
+ * InferenceManager, the backend types, ...) is exposed for tests and
+ * advanced integrations and carries no stability promise while the package
+ * is in alpha.
  */
 export const LOCAL_RUNTIME_PROTOCOL_VERSION = 1;
 

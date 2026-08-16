@@ -215,6 +215,22 @@ describe("main (CLI Commander wiring)", () => {
       local: true,
       backend: "mlx",
     });
+    // Both flags together are also valid (not mutually exclusive).
+    await main(["start", "--local", "--backend", "mlx"]);
+    expect(runStart).toHaveBeenLastCalledWith({
+      entry: undefined,
+      local: true,
+      backend: "mlx",
+    });
+    // An empty backend id falls back to auto-detect instead of asking the
+    // runtime for a backend literally named "".
+    await main(["start", "--local", "--backend", ""]);
+    expect(runStart).toHaveBeenLastCalledWith({
+      entry: undefined,
+      local: true,
+      backend: undefined,
+    });
+    expect(runStart).toHaveBeenCalledTimes(4);
   });
 
   it("dispatches `dev` with the parsed port + --open flag", async () => {

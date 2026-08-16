@@ -118,6 +118,11 @@ describe("selectBackend", () => {
     });
     const promise = selectBackend({ backends: [a, b], env: env(okProbe) });
     await expect(promise).rejects.toBeInstanceOf(BackendSelectionError);
+    // bin.ts matches this error by `.name` (instanceof does not survive the
+    // dynamic-import boundary between the CLI bundle and @arkor/local).
+    await expect(promise).rejects.toMatchObject({
+      name: "BackendSelectionError",
+    });
     await expect(promise).rejects.toThrow(/mlx.*Apple Silicon/s);
     await expect(promise).rejects.toThrow(/cuda.*nvidia-smi/s);
     await expect(promise).rejects.toThrow(/Install the NVIDIA driver/);

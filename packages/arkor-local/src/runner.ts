@@ -76,10 +76,12 @@ export class RunManager {
     const { jobId, config, backend, paths } = args;
     try {
       const run = backend.buildTrainRun({ config, paths });
+      // 0600: run.json can carry the blob dataset bearer token; keep it
+      // owner-only in shared project / CI workspaces (same as job.json).
       await writeFile(
         paths.runJsonPath,
         `${JSON.stringify(run.runJson, null, 2)}\n`,
-        "utf8",
+        { encoding: "utf8", mode: 0o600 },
       );
       for (const warning of run.warnings) {
         this.store.appendConsole(jobId, `[arkor] ${warning}\n`);
@@ -88,6 +90,11 @@ export class RunManager {
       // point there is no live child, so `cancel()` parked the request in
       // `preSpawnCancelled` and the caller terminalised the record. Honour
       // it here instead of spawning a child for a job that already ended.
+      // The same applies when the whole server shut down mid-launch.
+      if (this.closed) {
+        await this.recordFailure(jobId, "local server shut down before launch");
+        return;
+      }
       if (this.preSpawnCancelled.delete(jobId)) return;
       this.spawnChild(jobId, run.spec, paths);
       // Belt for the residual microtask window: a cancel that raced the
@@ -145,8 +152,13 @@ export class RunManager {
 
   /** Kill every live child; used when the local server shuts down. */
   async closeAll(): Promise<void> {
+    // Set before cancelling so a startRun still awaiting its run.json
+    // write cannot spawn a child into a closed server.
+    this.closed = true;
     await Promise.all([...this.live.keys()].map((jobId) => this.cancel(jobId)));
   }
+
+  private closed = false;
 
   private spawnChild(jobId: string, spec: RunSpec, paths: TrainRunPaths): void {
     const child = this.spawnImpl(spec.command, spec.argv, {
@@ -180,12 +192,21 @@ export class RunManager {
     this.attachReaper(child);
 
     // Record the supervising pid so a later `reconcileOrphans` can tell a
-    // live run from a crashed one.
+    // live run from a crashed one. Serialised against the event pipeline's
+    // status writes by the store's per-job record queue. A failure is
+    // logged (not fatal): the run itself is healthy, but a pid-less
+    // running record would be mis-reconciled as an orphan after a crash.
     void this.store
       .updateJob(jobId, (r) => {
         r.pid = child.pid ?? null;
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        this.store.appendConsole(
+          jobId,
+          `[arkor] failed to record the trainer pid (${error instanceof Error ? error.message : String(error)}); ` +
+            "crash reconciliation may misjudge this job after a restart\n",
+        );
+      });
 
     // Serialise event handling: protocol lines mutate job.json and append
     // to events.jsonl, and ordering is part of the contract.
@@ -254,7 +275,7 @@ export class RunManager {
       this.finishRun(jobId, run);
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       stdoutSplitter.flush();
       stderrSplitter.flush();
       enqueue(async () => {
@@ -280,10 +301,14 @@ export class RunManager {
           );
           return;
         }
-        await this.failJob(
-          jobId,
-          `trainer exited with code ${String(code)}; see ${consolePath}`,
-        );
+        // `code` is null when a signal terminated the child (external
+        // kill, OOM killer, the process-exit reaper); report the signal
+        // instead of the meaningless "code null".
+        const cause =
+          code === null
+            ? `was terminated by ${signal ?? "an unknown signal"}`
+            : `exited with code ${String(code)}`;
+        await this.failJob(jobId, `trainer ${cause}; see ${consolePath}`);
       });
       // Chained behind the terminal task above, so `run.done` observers see
       // the terminal event already recorded.
@@ -305,16 +330,15 @@ export class RunManager {
     if (run.terminalRecorded) return;
     const timestamp = new Date().toISOString();
     const streamEvent = toStreamEvent(event, jobId, timestamp);
-    if (
-      (streamEvent.type === "training.completed" ||
-        streamEvent.type === "training.failed") &&
-      (await this.storeAlreadyTerminal(jobId))
-    ) {
+    if (await this.storeAlreadyTerminal(jobId)) {
       // Someone else terminalised the record while this child was still
       // running (a cancel that raced the exit, or a second server instance
-      // sharing `.arkor/local/`). Appending another terminal event would
-      // violate the one-terminal-per-job contract, and updating the status
-      // would resurrect a cancelled job.
+      // sharing `.arkor/local/`). Every event type is dropped, not just the
+      // terminal ones: appending another terminal would violate the
+      // one-terminal-per-job contract, a late `started` would flip the
+      // status back to running (resurrecting a cancelled job and unlocking
+      // a second terminal from the exit synthesis), and log/checkpoint
+      // events would trail after the stream's `end`.
       run.terminalRecorded = true;
       return;
     }
@@ -440,13 +464,28 @@ export class RunManager {
 /**
  * Incremental newline splitter that is safe against chunks tearing lines
  * (and multi-byte characters) at arbitrary byte boundaries.
+ *
+ * The carry is bounded: a child that streams without ever emitting a
+ * newline (a `\r`-redrawing progress bar is the ordinary case) would
+ * otherwise grow the buffer without limit and pay quadratic re-copying.
+ * Past the cap the partial line is force-flushed as console output; only
+ * protocol lines need exact line framing, and those are short and always
+ * newline-terminated.
  */
+const MAX_CARRY_BYTES = 1024 * 1024;
+
 function makeLineSplitter(onLine: (line: string) => void): {
   push(chunk: Buffer): void;
   flush(): void;
 } {
   const NEWLINE_BYTE = 10;
   let carry: Buffer = Buffer.alloc(0);
+  const drain = () => {
+    if (carry.length === 0) return;
+    const line = carry.toString("utf8").replace(/\r$/, "");
+    carry = Buffer.alloc(0);
+    onLine(line);
+  };
   return {
     push(chunk: Buffer) {
       carry = carry.length > 0 ? Buffer.concat([carry, chunk]) : chunk;
@@ -457,12 +496,8 @@ function makeLineSplitter(onLine: (line: string) => void): {
         onLine(line);
         idx = carry.indexOf(NEWLINE_BYTE);
       }
+      if (carry.length > MAX_CARRY_BYTES) drain();
     },
-    flush() {
-      if (carry.length === 0) return;
-      const line = carry.toString("utf8").replace(/\r$/, "");
-      carry = Buffer.alloc(0);
-      onLine(line);
-    },
+    flush: drain,
   };
 }

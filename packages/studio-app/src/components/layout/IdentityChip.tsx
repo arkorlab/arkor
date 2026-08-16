@@ -17,7 +17,9 @@ function formatBaseUrl(baseUrl: string): string | null {
   }
 }
 
-const MODE_LABELS: Record<string, string> = {
+// Keyed by the mode union so adding a mode to `Credentials["mode"]` without
+// choosing its label is a compile error, not a raw string in the UI.
+const MODE_LABELS: Record<Credentials["mode"], string> = {
   oauth: "oauth",
   anon: "anonymous",
   local: "local",
@@ -49,7 +51,7 @@ export function IdentityChip({
       </span>
     );
   }
-  const modeLabel = MODE_LABELS[creds.mode] ?? creds.mode;
+  const modeLabel = MODE_LABELS[creds.mode];
   // Local mode's baseUrl is an ephemeral loopback port of the in-process
   // training server; the "local" label already says everything the URL would.
   const baseUrlLabel =

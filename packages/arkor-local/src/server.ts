@@ -51,6 +51,40 @@ function tokensMatch(provided: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+/**
+ * Job ids are always the UUIDs `JobStore.createJob` mints. Rejecting
+ * anything else up front is defence in depth for every `:id`-bearing route:
+ * `JobStore.jobDir` joins the id into a filesystem path, and a crafted
+ * `..%2f` segment must never reach it (the bearer token already gates the
+ * routes; this removes the traversal primitive even from a stolen token).
+ */
+const JOB_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function isValidJobId(jobId: string): boolean {
+  return JOB_ID_PATTERN.test(jobId);
+}
+
+/**
+ * Signal a process group recorded by another server instance. Failures are
+ * expected (already exited, recycled pid) and intentionally ignored.
+ */
+function killProcessGroupBestEffort(pid: number): void {
+  try {
+    if (process.platform !== "win32") {
+      process.kill(-pid, "SIGTERM");
+      return;
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // already gone
+  }
+}
+
 const createJobSchema = z.object({
   name: z.string().min(1),
   // Loose on purpose, mirroring the cloud API: the backend's validateConfig
@@ -157,13 +191,18 @@ export function buildLocalApp(options: LocalAppOptions): Hono {
     });
     // Fire and forget: every failure path inside startRun ends in a
     // training.failed event on the job, mirroring how the cloud reports
-    // post-submit failures through the stream rather than the POST.
-    void runManager.startRun({
-      jobId: record.job.id,
-      config,
-      backend,
-      paths: store.paths(record.job.id, shimDir),
-    });
+    // post-submit failures through the stream rather than the POST. The
+    // catch is a last-resort boundary: startRun handles its own failures,
+    // but if even its failure RECORDING throws (store gone mid-shutdown),
+    // an unhandled rejection here would take down the whole server.
+    runManager
+      .startRun({
+        jobId: record.job.id,
+        config,
+        backend,
+        paths: store.paths(record.job.id, shimDir),
+      })
+      .catch(() => undefined);
     return c.json({ job: record.job }, 201);
   });
 
@@ -172,13 +211,16 @@ export function buildLocalApp(options: LocalAppOptions): Hono {
   });
 
   app.get("/v1/jobs/:id", async (c) => {
-    const record = await store.getJob(c.req.param("id"));
+    const jobId = c.req.param("id");
+    if (!isValidJobId(jobId)) return c.json({ error: "job not found" }, 404);
+    const record = await store.getJob(jobId);
     if (!record) return c.json({ error: "job not found" }, 404);
     return c.json({ job: record.job });
   });
 
   app.post("/v1/jobs/:id/cancel", async (c) => {
     const jobId = c.req.param("id");
+    if (!isValidJobId(jobId)) return c.json({ error: "job not found" }, 404);
     const record = await store.getJob(jobId);
     if (!record) return c.json({ error: "job not found" }, 404);
     if (isTerminalStatus(record.job.status)) {
@@ -194,6 +236,13 @@ export function buildLocalApp(options: LocalAppOptions): Hono {
       // terminal event would break the one-terminal-per-job contract.
       const current = await store.getJob(jobId);
       if (current && !isTerminalStatus(current.job.status)) {
+        // The record can also belong to ANOTHER server instance sharing
+        // `.arkor/local/` (its RunManager holds the child, ours does not).
+        // Best-effort signal its recorded process group so "cancelled"
+        // actually stops the training instead of only relabelling it; the
+        // runner-side terminal guards keep the owner from appending a
+        // second terminal afterwards.
+        if (current.pid !== null) killProcessGroupBestEffort(current.pid);
         const timestamp = new Date().toISOString();
         await store.appendEvent(jobId, {
           type: "training.failed",
@@ -220,6 +269,7 @@ export function buildLocalApp(options: LocalAppOptions): Hono {
 
   app.get("/v1/jobs/:id/events/stream", async (c) => {
     const jobId = c.req.param("id");
+    if (!isValidJobId(jobId)) return c.json({ error: "job not found" }, 404);
     const record = await store.getJob(jobId);
     if (!record) return c.json({ error: "job not found" }, 404);
     const lastEventIdHeader = c.req.header("last-event-id");
@@ -293,6 +343,11 @@ async function resolveChatTarget(
     );
   }
   if (body.adapter) {
+    // Same traversal defence as the `:id` routes: the job id becomes a
+    // filesystem path component in resolveAdapterDir below.
+    if (!isValidJobId(body.adapter.jobId)) {
+      return c.json({ error: `unknown local job: ${body.adapter.jobId}` }, 404);
+    }
     const record = await store.getJob(body.adapter.jobId);
     if (!record) {
       return c.json({ error: `unknown local job: ${body.adapter.jobId}` }, 404);
@@ -363,7 +418,11 @@ function sseResponse(
         try {
           controller.enqueue(enc.encode(text));
         } catch {
+          // The client went away mid-write: release the subscription and
+          // the ping timer immediately instead of waiting for `cancel()`,
+          // which does not fire when the controller is already errored.
           done = true;
+          cleanup?.();
         }
       };
       const writeEvent = (stored: StoredEvent) => {
@@ -417,20 +476,33 @@ function sseResponse(
         unsubscribe();
       };
 
-      for (const stored of await store.replayAfter(jobId, afterSeq)) {
-        writeEvent(stored);
+      try {
+        for (const stored of await store.replayAfter(jobId, afterSeq)) {
+          writeEvent(stored);
+        }
+        phase.replaying = false;
+        for (const stored of buffered) writeEvent(stored);
+        buffered.length = 0;
+        if (phase.endDeferred) {
+          finish();
+          return;
+        }
+        // A job that ended before this connection replays its history and
+        // closes immediately; there will be no live `end` notification.
+        const record = await store.getJob(jobId);
+        if (record && isTerminalStatus(record.job.status)) finish();
+      } catch (error) {
+        // A failed replay read must not leak the subscription and ping
+        // timer for the process lifetime; surface the failure to the
+        // client and release everything.
+        done = true;
+        cleanup();
+        try {
+          controller.error(error);
+        } catch {
+          // already errored/closed
+        }
       }
-      phase.replaying = false;
-      for (const stored of buffered) writeEvent(stored);
-      buffered.length = 0;
-      if (phase.endDeferred) {
-        finish();
-        return;
-      }
-      // A job that ended before this connection replays its history and
-      // closes immediately; there will be no live `end` notification.
-      const record = await store.getJob(jobId);
-      if (record && isTerminalStatus(record.job.status)) finish();
     },
     cancel() {
       cleanup?.();
@@ -522,14 +594,26 @@ export async function startLocalServer(
     );
     s.once("error", reject);
   });
+  // The pre-bind reject listener above becomes a silent no-op once the
+  // promise settles, which would ALSO suppress Node's default handling of
+  // any post-startup socket fault. Log those instead of discarding them.
+  server.on("error", (error: unknown) => {
+    console.error(
+      `local training server error after startup: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
 
   return {
     url,
     token,
     backend,
     close: async () => {
-      await runManager.closeAll();
-      await chatProxy?.closeAll();
+      // Best-effort on every stage: a rejecting child teardown must not
+      // keep the later stages (and the listening socket) alive.
+      await Promise.allSettled([
+        runManager.closeAll(),
+        chatProxy?.closeAll() ?? Promise.resolve(),
+      ]);
       store.close();
       await new Promise<void>((resolve) => {
         server.close(() => {

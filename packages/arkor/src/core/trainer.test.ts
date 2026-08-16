@@ -1929,15 +1929,13 @@ describe("createTrainer (local mode)", () => {
     // Local mode must leave zero traces: no credentials mint/persist (that
     // would poison later cloud runs with a dead loopback URL) and no project
     // state bootstrap. Everything rides on the env hand-off.
-    const ORIG_HOME = process.env.HOME;
-    const ORIG_USERPROFILE = process.env.USERPROFILE;
-    const ORIG_HOMEDRIVE = process.env.HOMEDRIVE;
-    const ORIG_HOMEPATH = process.env.HOMEPATH;
+    // vi.stubEnv keeps the restore in the shared afterEach's
+    // vi.unstubAllEnvs(), matching the local hand-off stubs above.
     const fakeHome = mkdtempSync(join(tmpdir(), "arkor-local-home-"));
-    process.env.HOME = fakeHome;
-    process.env.USERPROFILE = fakeHome;
-    process.env.HOMEDRIVE = "";
-    process.env.HOMEPATH = fakeHome;
+    vi.stubEnv("HOME", fakeHome);
+    vi.stubEnv("USERPROFILE", fakeHome);
+    vi.stubEnv("HOMEDRIVE", "");
+    vi.stubEnv("HOMEPATH", fakeHome);
     try {
       const calls: { url: string; method: string; auth: string | null }[] = [];
       const fetcher: typeof fetch = (async (
@@ -1972,11 +1970,16 @@ describe("createTrainer (local mode)", () => {
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }) as typeof fetch;
 
-      const trainer = createTrainer({
-        name: "run",
-        model: "mlx-community/tiny-test-model",
-        dataset: { type: "huggingface", name: "x" },
-      });
+      const trainer = createTrainer(
+        {
+          name: "run",
+          model: "mlx-community/tiny-test-model",
+          dataset: { type: "huggingface", name: "x" },
+        },
+        // Bind to the temp project dir so the state.json assertion below
+        // watches the directory this trainer would actually write to.
+        { cwd },
+      );
       const original = globalThis.fetch;
       globalThis.fetch = fetcher;
       try {
@@ -2009,15 +2012,6 @@ describe("createTrainer (local mode)", () => {
       );
       expect(existsSync(join(cwd, ".arkor", "state.json"))).toBe(false);
     } finally {
-      if (ORIG_HOME !== undefined) process.env.HOME = ORIG_HOME;
-      else delete process.env.HOME;
-      if (ORIG_USERPROFILE !== undefined)
-        process.env.USERPROFILE = ORIG_USERPROFILE;
-      else delete process.env.USERPROFILE;
-      if (ORIG_HOMEDRIVE !== undefined) process.env.HOMEDRIVE = ORIG_HOMEDRIVE;
-      else delete process.env.HOMEDRIVE;
-      if (ORIG_HOMEPATH !== undefined) process.env.HOMEPATH = ORIG_HOMEPATH;
-      else delete process.env.HOMEPATH;
       rmSync(fakeHome, { recursive: true, force: true });
     }
   });

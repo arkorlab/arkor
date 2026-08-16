@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import random
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -42,8 +43,11 @@ def prepare_data(run: dict, log) -> dict:
     train_examples = [_convert_row(row, fmt) for row in train_rows]
     valid_examples = [_convert_row(row, fmt) for row in valid_rows]
 
-    if split_cfg.get("enabled") and not valid_examples:
-        test_size = split_cfg.get("testSize") or 0.1
+    split_enabled = split_cfg.get("enabled")
+    if split_enabled and not valid_examples:
+        test_size = split_cfg.get("testSize")
+        if test_size is None:
+            test_size = 0.1
         seed = split_cfg.get("seed")
         train_examples, valid_examples = _split(
             train_examples, test_size, 0 if seed is None else seed
@@ -52,11 +56,19 @@ def prepare_data(run: dict, log) -> dict:
             f"[arkor] datasetSplit: held out {len(valid_examples)} of "
             f"{len(train_examples) + len(valid_examples)} examples for validation"
         )
-    elif not valid_examples and not dry_run:
+    elif (
+        split_enabled is not False
+        and not valid_examples
+        and not dry_run
+        and len(train_examples) >= 2
+    ):
         # mlx-lm requires a validation set whenever it trains, and eval
         # loss reporting needs one too. Auto-holding out a slice keeps
         # train-only datasets (including the starter templates) working
-        # locally instead of failing deep inside mlx-lm.
+        # locally instead of failing deep inside mlx-lm. An explicit
+        # `datasetSplit: {enabled: false}` opts out, and single-example
+        # datasets are left whole (a holdout would empty the train set;
+        # mlx-lm's own validation reports the missing valid set clearly).
         train_examples, valid_examples = _split(train_examples, 0.1, 0)
         log(
             "[arkor] the dataset has no validation split; auto-held out "
@@ -97,7 +109,11 @@ def _load_huggingface(source: dict, log):
             "environment did not install correctly"
         ) from error
 
-    name = source["name"]
+    name = source.get("name")
+    if not name or not isinstance(name, str):
+        raise DatasetPrepError(
+            "datasetSource.type is 'huggingface' but 'name' is missing"
+        )
     subset = source.get("subset")
     split = source.get("split")
     log(f"[arkor] loading HuggingFace dataset {name}" + (f" ({subset})" if subset else ""))
@@ -124,35 +140,78 @@ def _load_huggingface(source: dict, log):
                 valid = load(candidate)
                 log(f"[arkor] using the dataset's {candidate!r} split for eval")
                 break
-            except Exception:
+            except Exception as error:
+                # Expected for datasets without that split; logged so a
+                # real failure (auth, network) is diagnosable rather than
+                # silently degrading to the auto-holdout path.
+                log(f"[arkor] no usable {candidate!r} split: {error}")
                 continue
     return train, valid
 
 
+_BLOB_TIMEOUT_SECONDS = 120
+
+
+class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Drop the Authorization header when a redirect leaves the original host.
+
+    Pre-signed blob URLs commonly redirect to a CDN host; forwarding the
+    bearer token there would leak it to a third party.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None:
+            old_host = urllib.parse.urlparse(req.full_url).netloc
+            new_host = urllib.parse.urlparse(new_req.full_url).netloc
+            if old_host != new_host:
+                new_req.remove_header("Authorization")
+        return new_req
+
+
+def _is_loopback_host(hostname):
+    return hostname in ("127.0.0.1", "localhost", "::1")
+
+
 def _load_blob(source: dict, log):
-    url = source["url"]
+    url = source.get("url")
+    if not url or not isinstance(url, str):
+        raise DatasetPrepError("datasetSource.type is 'blob' but 'url' is missing")
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise DatasetPrepError(
+            f"blob dataset URL must be http(s), got {parsed.scheme!r}"
+        )
     token = source.get("token")
+    if token and parsed.scheme != "https" and not _is_loopback_host(parsed.hostname):
+        raise DatasetPrepError(
+            "refusing to send the blob dataset token over plain http to a "
+            "non-loopback host; use an https URL"
+        )
     log(f"[arkor] downloading blob dataset from {url}")
     request = urllib.request.Request(url)
     if token:
         request.add_header("Authorization", f"Bearer {token}")
+    opener = urllib.request.build_opener(_AuthStrippingRedirectHandler())
+    rows = []
     try:
-        with urllib.request.urlopen(request) as response:
-            raw = response.read().decode("utf-8")
+        with opener.open(request, timeout=_BLOB_TIMEOUT_SECONDS) as response:
+            # Stream line by line instead of buffering the whole body:
+            # datasets can be large and JSONL is naturally line-oriented.
+            for line_number, raw_line in enumerate(response, start=1):
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError as error:
+                    raise DatasetPrepError(
+                        f"blob dataset line {line_number} is not valid JSON: {error}"
+                    ) from error
+    except DatasetPrepError:
+        raise
     except Exception as error:
         raise DatasetPrepError(f"failed to download blob dataset: {error}") from error
-
-    rows = []
-    for line_number, line in enumerate(raw.splitlines(), start=1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError as error:
-            raise DatasetPrepError(
-                f"blob dataset line {line_number} is not valid JSON: {error}"
-            ) from error
     return rows
 
 
@@ -209,8 +268,16 @@ _SHAREGPT_ROLES = {
 
 
 def _sharegpt_to_messages(conversations) -> list:
+    if not isinstance(conversations, list) or not conversations:
+        raise DatasetPrepError(
+            "sharegpt rows must carry a non-empty conversation list"
+        )
     messages = []
     for turn in conversations:
+        if not isinstance(turn, dict):
+            raise DatasetPrepError(
+                f"sharegpt conversation turns must be objects, got {type(turn).__name__}"
+            )
         speaker = turn.get("from") or turn.get("role")
         role = _SHAREGPT_ROLES.get(speaker)
         if role is None:
@@ -219,6 +286,10 @@ def _sharegpt_to_messages(conversations) -> list:
                 f"{sorted(_SHAREGPT_ROLES)})"
             )
         content = turn.get("value") if "value" in turn else turn.get("content")
+        if not isinstance(content, str):
+            raise DatasetPrepError(
+                f"sharegpt turn for {speaker!r} has no string 'value'/'content'"
+            )
         messages.append({"role": role, "content": content})
     return messages
 
@@ -228,10 +299,18 @@ def _normalise_messages(messages) -> list:
         raise DatasetPrepError("chatml rows must carry a non-empty message list")
     out = []
     for message in messages:
+        if not isinstance(message, dict):
+            raise DatasetPrepError(
+                f"chatml messages must be objects, got {type(message).__name__}"
+            )
         role = message.get("role")
         content = message.get("content")
         if role not in ("system", "user", "assistant", "tool"):
             raise DatasetPrepError(f"unsupported chat role {role!r}")
+        if not isinstance(content, str):
+            raise DatasetPrepError(
+                f"chatml message for role {role!r} has no string 'content'"
+            )
         out.append({"role": role, "content": content})
     return out
 

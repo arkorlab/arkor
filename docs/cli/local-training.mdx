@@ -58,7 +58,7 @@ arkor dev --local [options]
 3. **Local server.** A loopback-only Hono server binds an ephemeral port with a per-launch bearer token (the same threat model as Studio's CSRF token: the host-header guard alone would not stop a cross-origin POST from another local browser tab reaching an endpoint that spawns processes).
 4. **Hand-off.** The server's URL and token are handed to the trainer through `ARKOR_LOCAL_SERVER_URL` / `ARKOR_LOCAL_SERVER_TOKEN`. These are set in-process (and injected into Studio's Run-training children); they are managed by the CLI and not meant to be set by hand.
 5. **Training.** `POST /v1/jobs` validates your config against the backend, then spawns `uv run --with "mlx-lm[train]==<pinned>" python train_shim.py` supervising a Python shim that prepares the dataset, drives mlx-lm LoRA fine-tuning, and reports structured progress. The SDK's `trainer.wait()` consumes the same `training.*` SSE events it would from the cloud.
-6. **No cloud contact, no credentials.** Local mode never reads or writes `~/.arkor/credentials.json`, never creates cloud projects, and ignores `.arkor/state.json`. Your cloud identity (or lack of one) is untouched.
+6. **No cloud contact, no credentials.** Local mode never reads or writes `~/.arkor/credentials.json`, never creates cloud projects, and ignores `.arkor/state.json`. Your cloud identity (or lack of one) is untouched. The CLI's usual anonymous usage telemetry still applies to the command itself; disable it with `DO_NOT_TRACK=1` or `ARKOR_TELEMETRY_DISABLED=1`.
 
 ## What lands on disk
 

@@ -39,6 +39,39 @@ describe("readLocalMode", () => {
     ).toThrow(/must be set together/);
   });
 
+  it("rejects a non-loopback URL", () => {
+    // The bearer token rides on every request to this URL; a poisoned env
+    // value must not exfiltrate it (or the job config) to another host.
+    expect(() =>
+      readLocalMode({
+        [LOCAL_SERVER_URL_ENV]: "http://attacker.example:34567",
+        [LOCAL_SERVER_TOKEN_ENV]: "token-1234567890abcdef",
+      }),
+    ).toThrow(/loopback http URL/);
+  });
+
+  it("rejects a non-http scheme and unparsable URLs", () => {
+    for (const bad of ["https://127.0.0.1:34567", "not a url", "file:///x"]) {
+      expect(() =>
+        readLocalMode({
+          [LOCAL_SERVER_URL_ENV]: bad,
+          [LOCAL_SERVER_TOKEN_ENV]: "token-1234567890abcdef",
+        }),
+      ).toThrow(/loopback http URL/);
+    }
+  });
+
+  it("accepts localhost and IPv6 loopback forms", () => {
+    for (const good of ["http://localhost:4001", "http://[::1]:4001"]) {
+      expect(
+        readLocalMode({
+          [LOCAL_SERVER_URL_ENV]: good,
+          [LOCAL_SERVER_TOKEN_ENV]: "token-1234567890abcdef",
+        })?.baseUrl,
+      ).toBe(good);
+    }
+  });
+
   it("treats empty strings as unset", () => {
     // Shells commonly export empties when clearing variables; an empty URL
     // or token can never form a working hand-off, so both count as off.

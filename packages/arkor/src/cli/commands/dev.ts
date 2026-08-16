@@ -304,7 +304,6 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
           local: {
             serverUrl: localServer.url,
             serverToken: localServer.token,
-            backendDisplayName: localServer.backend.displayName,
           },
         }
       : {}),
@@ -456,7 +455,16 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     // its process-exit reapers) running behind a rethrown error, nor the
     // env hand-off pointing at the now-closed server.
     if (localServer) {
-      await localServer.close();
+      try {
+        await localServer.close();
+      } catch (closeError) {
+        // The bind failure is the actionable error; a close failure on the
+        // way out must not replace it.
+        console.warn(
+          "warning: failed to shut down the local training server cleanly:",
+          closeError instanceof Error ? closeError.message : closeError,
+        );
+      }
       Reflect.deleteProperty(process.env, LOCAL_SERVER_URL_ENV);
       Reflect.deleteProperty(process.env, LOCAL_SERVER_TOKEN_ENV);
     }
@@ -465,8 +473,8 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
 
   if (localServer) {
     // Teardown note: no extra shutdown handler is needed for the local
-    // server. It lives in THIS process, and its RunManager / Infer-
-    // enceManager attach their own refcounted process-'exit' reapers, so
+    // server. It lives in THIS process, and its RunManager and
+    // InferenceManager attach their own refcounted process-'exit' reapers, so
     // the `process.exit(128 + n)` path installed above already kills any
     // training or inference children, exactly like /api/train children.
     process.stdout.write(

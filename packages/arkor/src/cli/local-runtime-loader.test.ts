@@ -73,6 +73,40 @@ export function createLocalRuntime() {
     });
     await expect(promise).rejects.toBeInstanceOf(LocalRuntimeNotInstalledError);
     await expect(promise).rejects.toThrow(/pnpm add -D @arkor\/local/);
+    // bin.ts matches errors by `.name` (instanceof breaks across the
+    // dual-package boundary of a bundled CLI), so the name is contract.
+    await expect(promise).rejects.toMatchObject({
+      name: "LocalRuntimeNotInstalledError",
+    });
+  });
+
+  it("treats a manifest without an ESM entry as a corrupt install", async () => {
+    installFakeRuntime("export const LOCAL_RUNTIME_PROTOCOL_VERSION = 1;\n");
+    const pkgDir = join(cwd, "node_modules", "@arkor", "local");
+    writeFileSync(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "@arkor/local",
+        type: "module",
+        exports: { "./package.json": "./package.json" },
+      }),
+    );
+    await expect(loadLocalRuntime(cwd)).rejects.toThrow(
+      /no ESM entry in its export map/,
+    );
+  });
+
+  it("reports an unparsable package.json instead of crashing raw", async () => {
+    // Resolution itself would choke on broken JSON before our read, so the
+    // manifest path is injected to reach the parse guard directly (matching
+    // a corruption that appears after resolution, e.g. a truncated write).
+    const pkgDir = join(cwd, "node_modules", "@arkor", "local");
+    mkdirSync(pkgDir, { recursive: true });
+    const manifestPath = join(pkgDir, "package.json");
+    writeFileSync(manifestPath, "{ not json");
+    await expect(loadLocalRuntime(cwd, () => manifestPath)).rejects.toThrow(
+      /installation looks corrupt/,
+    );
   });
 
   it("asks the user to upgrade arkor when the runtime is newer", async () => {
@@ -86,6 +120,9 @@ export function createLocalRuntime() { return {}; }
     const promise = loadLocalRuntime(cwd);
     await expect(promise).rejects.toBeInstanceOf(LocalRuntimeVersionError);
     await expect(promise).rejects.toThrow(/Upgrade arkor/);
+    await expect(promise).rejects.toMatchObject({
+      name: "LocalRuntimeVersionError",
+    });
   });
 
   it("asks the user to upgrade @arkor/local when the runtime is older", async () => {

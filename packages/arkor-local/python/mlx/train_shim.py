@@ -87,8 +87,6 @@ def main() -> int:
         )
 
     emit({"type": "started"})
-    for warning in run.get("warnings", []):
-        log(f"[arkor] {warning}")
 
     prepared = prepare_data(run, log)
     train_cfg = run["train"]
@@ -114,10 +112,11 @@ def main() -> int:
     raw_dir = adapters_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    args = _build_lora_args(run, prepared, iters, batch_size, raw_dir)
-    callback = _make_callback(run, prepared, iters, batch_size, raw_dir, adapters_dir)
-
+    # The one place a missing/broken mlx-lm install surfaces.
     from mlx_lm import lora as lora_mod
+
+    args = _build_lora_args(lora_mod, run, prepared, iters, batch_size, raw_dir)
+    callback = _make_callback(prepared, batch_size, raw_dir, adapters_dir)
 
     if hasattr(lora_mod, "get_reporting_callbacks"):
         # Pinned mlx-lm 0.31.x unconditionally overwrites the
@@ -146,7 +145,13 @@ def _resolve_iterations(train_cfg: dict, train_count: int):
     max_steps = train_cfg.get("maxSteps")
     if max_steps is not None:
         return int(max_steps), batch_size
-    epochs = train_cfg["numTrainEpochs"]
+    epochs = train_cfg.get("numTrainEpochs")
+    if epochs is None:
+        # The Node-side validator rejects this before spawning; kept as
+        # defence so a bypassing caller gets a config error, not a KeyError.
+        raise RuntimeError(
+            "training needs either maxSteps or numTrainEpochs to be set"
+        )
     iters = max(1, math.ceil(epochs * train_count / batch_size))
     log(
         f"[arkor] numTrainEpochs={epochs} over {train_count} examples at "
@@ -164,9 +169,7 @@ def _steps_of(value, iters: int, default: int) -> int:
     return max(1, int(round(value["ratio"] * iters)))
 
 
-def _build_lora_args(run, prepared, iters, batch_size, raw_dir: Path):
-    from mlx_lm import lora as lora_mod
-
+def _build_lora_args(lora_mod, run, prepared, iters, batch_size, raw_dir: Path):
     train_cfg = run["train"]
     overrides = {
         "model": run["model"],
@@ -194,12 +197,13 @@ def _build_lora_args(run, prepared, iters, batch_size, raw_dir: Path):
 
     lora_params = dict(getattr(args, "lora_parameters", None) or {})
     if train_cfg.get("loraR") is not None:
-        rank = int(train_cfg["loraR"])
-        lora_params["rank"] = rank
-        if train_cfg.get("loraAlpha") is not None:
-            # mlx-lm expresses LoRA strength as `scale`; alpha / rank is the
-            # standard conversion.
-            lora_params["scale"] = float(train_cfg["loraAlpha"]) / rank
+        lora_params["rank"] = int(train_cfg["loraR"])
+    if train_cfg.get("loraAlpha") is not None:
+        # mlx-lm expresses LoRA strength as `scale`; alpha / rank is the
+        # standard conversion. Applies against the effective rank so an
+        # alpha given without an explicit loraR still takes effect.
+        rank = int(lora_params.get("rank") or 8)
+        lora_params["scale"] = float(train_cfg["loraAlpha"]) / rank
     args.lora_parameters = lora_params
 
     if train_cfg.get("weightDecay") is not None:
@@ -235,7 +239,7 @@ def _lr_schedule_config(train_cfg: dict, args, iters: int):
     return config
 
 
-def _make_callback(run, prepared, iters, batch_size, raw_dir: Path, adapters_dir: Path):
+def _make_callback(prepared, batch_size, raw_dir: Path, adapters_dir: Path):
     from mlx_lm.tuner.trainer import TrainingCallback
 
     train_count = prepared["train_count"]
@@ -277,14 +281,23 @@ def _make_callback(run, prepared, iters, batch_size, raw_dir: Path, adapters_dir
             for snapshot in sorted(raw_dir.glob("*_adapters.safetensors")):
                 if snapshot.name in self._published:
                     continue
-                self._published.add(snapshot.name)
-                step = int(snapshot.name.split("_", 1)[0])
+                prefix = snapshot.name.split("_", 1)[0]
+                if not prefix.isdigit():
+                    # Not one of mlx-lm's `{iteration:07d}_` snapshots;
+                    # skip rather than crash the training callback.
+                    self._published.add(snapshot.name)
+                    continue
+                step = int(prefix)
                 step_dir = adapters_dir / f"step-{step}"
                 step_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(snapshot, step_dir / "adapters.safetensors")
                 config = raw_dir / "adapter_config.json"
                 if config.exists():
                     shutil.copy2(config, step_dir / "adapter_config.json")
+                # Marked published only after the copies succeed so a
+                # transient failure (full disk) retries on the next report
+                # instead of silently dropping the checkpoint forever.
+                self._published.add(snapshot.name)
                 emit({"type": "checkpoint", "step": step, "adapterDir": str(step_dir)})
 
     return ArkorCallback()

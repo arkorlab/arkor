@@ -316,8 +316,8 @@ describe("RunManager cancel", () => {
       backend,
       paths: store.paths(jobId, "/unused-shim-dir"),
     });
-    // Give any (buggy) spawn a moment to register.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // startRun resolves only after the pre-spawn cancel decision, so a
+    // (buggy) spawn would already be registered here; no settling sleep.
     expect(manager.liveCount).toBe(0);
     // Exactly one terminal event: the runner appended nothing on top.
     const events = await store.replayAfter(jobId, 0);

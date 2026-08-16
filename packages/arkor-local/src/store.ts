@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createWriteStream, existsSync, type WriteStream } from "node:fs";
+import { createWriteStream, type WriteStream } from "node:fs";
 import {
   appendFile,
   mkdir,
@@ -166,7 +166,15 @@ export class JobStore {
     } catch {
       return [];
     }
-    const records = await Promise.all(entries.map((id) => this.getJob(id)));
+    // Bounded fan-out: a project that accumulated hundreds of runs must
+    // not open one file descriptor per job at once (EMFILE would silently
+    // drop jobs from the list via getJob's null path).
+    const CONCURRENCY = 16;
+    const records: (JobRecord | null)[] = [];
+    for (let i = 0; i < entries.length; i += CONCURRENCY) {
+      const chunk = entries.slice(i, i + CONCURRENCY);
+      records.push(...(await Promise.all(chunk.map((id) => this.getJob(id)))));
+    }
     return records
       .filter((r): r is JobRecord => r !== null)
       .map((r) => r.job)
@@ -211,8 +219,18 @@ export class JobStore {
       if (state.seq === 0) {
         // First append since this store instance loaded the job: continue
         // the on-disk numbering so `Last-Event-ID` stays monotonic across
-        // restarts.
-        state.seq = await this.lastPersistedSeq(jobId);
+        // restarts, and terminate any torn final line a crash left behind
+        // (appending straight after the fragment would corrupt the NEXT
+        // event too: fragment + event would parse as one malformed line).
+        const tail = await this.loadPersistedTail(jobId);
+        state.seq = tail.seq;
+        if (tail.tornTail) {
+          await appendFile(
+            join(this.jobDir(jobId), "events.jsonl"),
+            "\n",
+            "utf8",
+          );
+        }
       }
       const seq = state.seq + 1;
       const line = `${JSON.stringify({ seq, event })}\n`;
@@ -287,14 +305,23 @@ export class JobStore {
       });
       state.consoleStream = stream;
     }
-    if (state.consoleBytes >= this.consoleByteCap) {
+    const remaining = this.consoleByteCap - state.consoleBytes;
+    const size = Buffer.byteLength(text);
+    if (size >= remaining) {
+      // Write only the remaining budget (a single oversized chunk must not
+      // blow past the cap; a torn multi-byte character is acceptable in a
+      // diagnostics file), stamp the truncation notice, and close the
+      // stream so the handle is not held for the rest of the session.
       state.consoleTruncated = true;
-      state.consoleStream.write(
-        "\n[arkor] console output truncated (size cap reached)\n",
-      );
+      const stream = state.consoleStream;
+      state.consoleStream = null;
+      if (remaining > 0) {
+        stream.write(Buffer.from(text).subarray(0, remaining));
+      }
+      stream.end("\n[arkor] console output truncated (size cap reached)\n");
       return;
     }
-    state.consoleBytes += Buffer.byteLength(text);
+    state.consoleBytes += size;
     state.consoleStream.write(text);
   }
 
@@ -314,17 +341,32 @@ export class JobStore {
    * gone (crash, SIGKILL, power loss) as failed, so the UI and SDK never
    * see a phantom "running" job after a restart.
    *
-   * The pid liveness guard is what makes this safe with two concurrent
-   * `arkor dev --local` instances sharing `.arkor/local/`: instance A sees
-   * instance B's jobs, but their pids are alive, so A leaves them alone.
+   * Two guards make this safe with a second `arkor dev --local` instance
+   * sharing `.arkor/local/`:
+   *   - pid liveness: instance A sees instance B's running jobs, but their
+   *     pids are alive, so A leaves them alone;
+   *   - a grace age for pid-less non-terminal records: a job that instance
+   *     B created moments ago is legitimately `queued` with `pid: null`
+   *     until its spawn lands, so only records older than the grace window
+   *     are treated as abandoned.
    */
   async reconcileOrphans(): Promise<void> {
+    const PRE_SPAWN_GRACE_MS = 10 * 60_000;
     const jobs = await this.listJobs();
     for (const job of jobs) {
       if (isTerminalStatus(job.status)) continue;
       const record = await this.getJob(job.id);
       if (!record) continue;
       if (record.pid !== null && isPidAlive(record.pid)) continue;
+      if (record.pid === null) {
+        const age = Date.now() - Date.parse(record.job.createdAt);
+        if (!(Number.isFinite(age) && age > PRE_SPAWN_GRACE_MS)) continue;
+      }
+      // Re-read right before writing: the owning instance can complete or
+      // cancel the job while this loop is mid-flight, and overwriting a
+      // fresh terminal status with `failed` would corrupt the record.
+      const current = await this.getJob(job.id);
+      if (!current || isTerminalStatus(current.job.status)) continue;
       const timestamp = new Date().toISOString();
       const error =
         "Training was interrupted (local server or trainer process exited)";
@@ -361,34 +403,32 @@ export class JobStore {
     return state;
   }
 
-  private async lastPersistedSeq(jobId: string): Promise<number> {
-    const events = await this.readEvents(jobId);
-    return events.length > 0 ? (events.at(-1)?.seq ?? 0) : 0;
+  private async loadPersistedTail(
+    jobId: string,
+  ): Promise<{ seq: number; tornTail: boolean }> {
+    const file = join(this.jobDir(jobId), "events.jsonl");
+    let raw: string;
+    try {
+      raw = await retryWindowsFileLocks(() => readFile(file, "utf8"));
+    } catch {
+      return { seq: 0, tornTail: false };
+    }
+    const events = parseEventLines(raw);
+    return {
+      seq: events.at(-1)?.seq ?? 0,
+      tornTail: raw.length > 0 && !raw.endsWith("\n"),
+    };
   }
 
   private async readEvents(jobId: string): Promise<StoredEvent[]> {
     const file = join(this.jobDir(jobId), "events.jsonl");
-    if (!existsSync(file)) return [];
     let raw: string;
     try {
       raw = await readFile(file, "utf8");
     } catch {
       return [];
     }
-    const events: StoredEvent[] = [];
-    for (const line of raw.split("\n")) {
-      if (!line) continue;
-      try {
-        const parsed = JSON.parse(line) as Partial<StoredEvent>;
-        if (typeof parsed.seq === "number" && parsed.event !== undefined) {
-          events.push({ seq: parsed.seq, event: parsed.event });
-        }
-      } catch {
-        // A torn final line from a crash mid-append; skip it. Anything
-        // after a tear cannot exist (appends are sequential).
-      }
-    }
-    return events;
+    return parseEventLines(raw);
   }
 
   private async writeRecord(record: JobRecord): Promise<void> {
@@ -401,21 +441,46 @@ export class JobStore {
     // SSE route's getJob, a jobs-list scan) briefly holds the destination
     // open; those windows are microseconds long.
     const tmp = `${file}.${String(process.pid)}.tmp`;
-    await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    // 0600 (owner-only): the job config can carry a blob dataset bearer
+    // token, which must not be readable by other local accounts in a shared
+    // project or CI workspace. rename preserves the tmp file's mode.
+    await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     await retryWindowsFileLocks(() => rename(tmp, file));
   }
 }
 
-const RETRYABLE_FS_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+function parseEventLines(raw: string): StoredEvent[] {
+  const events: StoredEvent[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line) continue;
+    try {
+      const parsed = JSON.parse(line) as Partial<StoredEvent>;
+      if (typeof parsed.seq === "number" && parsed.event !== undefined) {
+        events.push({ seq: parsed.seq, event: parsed.event });
+      }
+    } catch {
+      // A torn final line from a crash mid-append; skip it. Anything
+      // after a tear cannot exist (appends are sequential).
+    }
+  }
+  return events;
+}
+
+const RETRYABLE_FS_CODES = new Set(["EPERM", "EBUSY"]);
 
 /**
  * Retry transient Windows file-locking failures (rename over an open file,
- * read overlapping a rename). POSIX never takes the retry path: the codes
- * above do not occur for these operations there.
+ * read overlapping a rename). Gated to Windows: on POSIX these codes mean
+ * real permission problems that deserve to surface immediately, and EACCES
+ * is deliberately NOT retried anywhere for the same reason.
  */
 async function retryWindowsFileLocks<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
+  if (process.platform !== "win32") return operation();
   const MAX_ATTEMPTS = 5;
   for (let attempt = 1; ; attempt += 1) {
     try {

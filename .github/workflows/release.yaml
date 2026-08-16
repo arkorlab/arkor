@@ -275,6 +275,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Runbook: the three lockstep packages (arkor, create-arkor,
+      # @arkor/local) publish as sequential, non-atomic steps in build.yaml.
+      # If a later publish fails after an earlier one succeeded, this job
+      # fails and the registry holds a version-skewed set; re-running the
+      # tag is blocked by preflight's "not published yet" gate. Recovery:
+      # publish the missing package(s) by hand from a clean checkout of the
+      # tag (`pnpm build && pnpm publish --filter <pkg> --tag <npm_tag>`),
+      # then re-run this postflight job. The skew window is user-visible but
+      # safe: the CLI's LOCAL_RUNTIME_PROTOCOL_VERSION handshake turns a
+      # mismatched arkor / @arkor/local pair into an actionable upgrade
+      # error rather than a silent misbehaviour.
       - name: Verify published packages
         run: |
           VERSION="${{ needs.preflight.outputs.version }}"

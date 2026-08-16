@@ -17,6 +17,12 @@ describe("parseProtocolLine", () => {
     expect(parseProtocolLine('{"type":"started"}')).toEqual({
       kind: "console",
     });
+    // The marker only counts at the start of the line: a trainer merely
+    // MENTIONING it mid-line (e.g. tqdm output quoting a log line) must not
+    // be promoted into the protocol.
+    expect(parseProtocolLine('prefix @arkor {"type":"started"}')).toEqual({
+      kind: "console",
+    });
   });
 
   it("parses every event type", () => {

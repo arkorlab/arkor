@@ -19,13 +19,13 @@ pnpm add -D @arkor/local
 Then run training locally:
 
 ```bash
-pnpm arkor start --local
+pnpm start --local
 ```
 
 or start Studio against the local runtime:
 
 ```bash
-pnpm arkor dev --local
+pnpm dev --local
 ```
 
 See the [local training guide](https://docs.arkor.ai/cli/local-training) for details.

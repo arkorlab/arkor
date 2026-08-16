@@ -58,7 +58,7 @@ arkor dev --local [options]
 3. **ローカルサーバー。** loopback 限定の Hono サーバーが、起動ごとの bearer トークン付きでエフェメラルポートに bind します (Studio の CSRF トークンと同じ脅威モデル: host ヘッダーのガードだけでは、同一マシンの別ブラウザタブからのクロスオリジン POST がプロセスを spawn するエンドポイントへ到達するのを防げません)。
 4. **ハンドオフ。** サーバーの URL とトークンは `ARKOR_LOCAL_SERVER_URL` / `ARKOR_LOCAL_SERVER_TOKEN` を通じてトレーナーへ渡されます。これらはプロセス内で設定され (Studio の Run training 子プロセスにも注入され) CLI が管理するもので、手動で設定する想定ではありません。
 5. **学習。** `POST /v1/jobs` は設定をバックエンドで検証してから、`uv run --with "mlx-lm[train]==<pinned>" python train_shim.py` を spawn します。この Python shim がデータセットを準備し、mlx-lm の LoRA ファインチューニングを駆動し、構造化された進捗を報告します。SDK の `trainer.wait()` はクラウドと同じ `training.*` SSE イベントを消費します。
-6. **クラウド接触なし、資格情報なし。** ローカルモードは `~/.arkor/credentials.json` を読み書きせず、クラウドプロジェクトを作成せず、`.arkor/state.json` を無視します。クラウドの識別情報 (の有無) には一切影響しません。
+6. **クラウド接触なし、資格情報なし。** ローカルモードは `~/.arkor/credentials.json` を読み書きせず、クラウドプロジェクトを作成せず、`.arkor/state.json` を無視します。クラウドの識別情報 (の有無) には一切影響しません。CLI の通常の匿名利用テレメトリはコマンド自体には引き続き適用されます。`DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` で無効化できます。
 
 ## ディスクに残るもの
 

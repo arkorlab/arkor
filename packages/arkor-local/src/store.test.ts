@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -125,6 +125,26 @@ describe("JobStore events", () => {
     expect(Math.max(...seqs)).toBe(10);
   });
 
+  it("keeps accepting appends after one append fails", async () => {
+    // The per-job append queue chains promises; a rejected link must not
+    // poison the chain (every later append would silently reject).
+    const id = await createJob();
+    await store.appendEvent(id, logEvent(id, 1));
+    const eventsPath = join(rootDir, "jobs", id, "events.jsonl");
+    const original = await readFile(eventsPath, "utf8");
+    // Turn the log file into a directory so the next append fails (EISDIR).
+    await rm(eventsPath);
+    await mkdir(eventsPath);
+    await expect(store.appendEvent(id, logEvent(id, 2))).rejects.toThrow();
+    // Restore and confirm the queue is still alive with correct numbering.
+    await rm(eventsPath, { recursive: true });
+    await writeFile(eventsPath, original, "utf8");
+    const seq = await store.appendEvent(id, logEvent(id, 3));
+    expect(seq).toBe(2);
+    const replayed = await store.replayAfter(id, 0);
+    expect(replayed.map((e) => e.seq)).toEqual([1, 2]);
+  });
+
   it("tolerates a torn final line from a crash mid-append", async () => {
     const id = await createJob();
     await store.appendEvent(id, logEvent(id, 1));
@@ -173,11 +193,13 @@ describe("JobStore console log", () => {
     capped.appendConsole(id, "b".repeat(30) + "\n");
     capped.appendConsole(id, "never-written\n");
     capped.close();
-    // Wait for the write stream to flush.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Poll until the write stream flushes; a fixed sleep flakes on loaded
+    // CI hosts.
+    await expect
+      .poll(() => readFile(capped.consoleLogPath(id), "utf8"))
+      .toContain("truncated");
     const content = await readFile(capped.consoleLogPath(id), "utf8");
     expect(content).toContain("a".repeat(30));
-    expect(content).toContain("truncated");
     expect(content).not.toContain("never-written");
   });
 });
@@ -210,6 +232,24 @@ describe("JobStore.reconcileOrphans", () => {
 
     expect((await store.getJob(alive))?.job.status).toBe("running");
     expect((await store.getJob(finished))?.job.status).toBe("completed");
+  });
+
+  it("leaves a fresh pid-less record alone but fails an aged one", async () => {
+    // A second instance can list a job the owning instance created moments
+    // ago: legitimately `queued` with `pid: null` until its spawn lands.
+    // Only pid-less records older than the grace window are abandoned.
+    const fresh = await createJob("fresh");
+    const aged = await createJob("aged");
+    await store.updateJob(aged, (r) => {
+      r.job.createdAt = new Date(Date.now() - 11 * 60_000).toISOString();
+    });
+
+    await store.reconcileOrphans();
+
+    expect((await store.getJob(fresh))?.job.status).toBe("queued");
+    const agedRecord = await store.getJob(aged);
+    expect(agedRecord?.job.status).toBe("failed");
+    expect(agedRecord?.job.error).toContain("interrupted");
   });
 });
 

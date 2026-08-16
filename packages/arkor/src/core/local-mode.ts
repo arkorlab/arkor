@@ -49,7 +49,36 @@ export function readLocalMode(
         "them by hand.",
     );
   }
+  if (!isLoopbackHttpUrl(baseUrl)) {
+    throw new Error(
+      `${LOCAL_SERVER_URL_ENV} must be a loopback http URL (the local ` +
+        `training server only ever binds 127.0.0.1), got ${baseUrl}. It is ` +
+        "managed by `arkor start --local` / `arkor dev --local`; unset the " +
+        "stray variable instead of setting it by hand.",
+    );
+  }
   return { baseUrl, token };
+}
+
+/**
+ * The bearer token is sent on every request to this URL, so a poisoned or
+ * mistyped value must not silently redirect job configs (and the token
+ * itself) to an arbitrary host.
+ */
+function isLoopbackHttpUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:") return false;
+  return (
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "localhost" ||
+    url.hostname === "[::1]" ||
+    url.hostname === "::1"
+  );
 }
 
 /**

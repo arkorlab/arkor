@@ -22,6 +22,21 @@ import { runStart } from "./commands/start";
 import { runWhoami } from "./commands/whoami";
 import { ui } from "./prompts";
 
+/**
+ * Shared `--local` / `--backend` resolution for `start` and `dev`.
+ * `--backend <id>` implies `--local`; an empty or whitespace-only id
+ * (`--backend ""`) is treated as absent so it falls back to auto-detect
+ * instead of asking the runtime for a backend literally named "".
+ */
+function resolveLocalFlags(opts: { local?: boolean; backend?: string }): {
+  local: boolean;
+  backend: string | undefined;
+} {
+  let backend = opts.backend?.trim();
+  if (backend === "") backend = undefined;
+  return { local: opts.local === true || backend !== undefined, backend };
+}
+
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();
   program.name("arkor").description("Arkor CLI").version(SDK_VERSION);
@@ -245,11 +260,7 @@ export async function main(argv: string[]): Promise<void> {
           entry: string | undefined,
           opts: { local?: boolean; backend?: string },
         ) => {
-          await runStart({
-            entry,
-            local: opts.local === true || opts.backend !== undefined,
-            backend: opts.backend,
-          });
+          await runStart({ entry, ...resolveLocalFlags(opts) });
         },
       ),
     );
@@ -283,8 +294,7 @@ export async function main(argv: string[]): Promise<void> {
             port: Number(opts.port) || 4000,
             portExplicit: command.getOptionValueSource("port") === "cli",
             open: opts.open === true,
-            local: opts.local === true || opts.backend !== undefined,
-            backend: opts.backend,
+            ...resolveLocalFlags(opts),
           });
         },
         { longRunning: true },

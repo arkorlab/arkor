@@ -960,10 +960,14 @@ describe("runDev --local", () => {
   const ORIG_SIGINT_LISTENERS = process.listeners("SIGINT").length;
   const ORIG_SIGTERM_LISTENERS = process.listeners("SIGTERM").length;
   const ORIG_SIGHUP_LISTENERS = process.listeners("SIGHUP").length;
+  let origLocalUrl: string | undefined;
+  let origLocalToken: string | undefined;
 
   beforeEach(() => {
     vi.mocked(serve).mockClear();
     vi.mocked(loadLocalRuntime).mockReset();
+    origLocalUrl = process.env.ARKOR_LOCAL_SERVER_URL;
+    origLocalToken = process.env.ARKOR_LOCAL_SERVER_TOKEN;
   });
 
   afterEach(() => {
@@ -978,9 +982,16 @@ describe("runDev --local", () => {
     trim("SIGTERM", ORIG_SIGTERM_LISTENERS);
     trim("SIGHUP", ORIG_SIGHUP_LISTENERS);
     // runDev sets the env hand-off for the lifetime of the dev process; in
-    // the test worker that lifetime spans other test files, so clean up.
-    delete process.env.ARKOR_LOCAL_SERVER_URL;
-    delete process.env.ARKOR_LOCAL_SERVER_TOKEN;
+    // the test worker that lifetime spans other test files, so restore
+    // whatever value each variable held before the test (not a blind
+    // delete, which would wipe an ambient value a sibling suite relies on).
+    if (origLocalUrl === undefined) delete process.env.ARKOR_LOCAL_SERVER_URL;
+    else process.env.ARKOR_LOCAL_SERVER_URL = origLocalUrl;
+    if (origLocalToken === undefined) {
+      delete process.env.ARKOR_LOCAL_SERVER_TOKEN;
+    } else {
+      process.env.ARKOR_LOCAL_SERVER_TOKEN = origLocalToken;
+    }
   });
 
   function mockRuntime() {
@@ -1058,6 +1069,25 @@ describe("runDev --local", () => {
       warnSpy.mockRestore();
     }
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to ARKOR_LOCAL_BACKEND when no --backend flag is given", async () => {
+    // Precedence contract: explicit flag > env override > auto-detect.
+    const { startServer } = mockRuntime();
+    vi.stubEnv("ARKOR_LOCAL_BACKEND", "cuda");
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4303, local: true });
+    } finally {
+      stdoutSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+    expect(startServer).toHaveBeenCalledWith({
+      cwd: process.cwd(),
+      backendId: "cuda",
+    });
   });
 
   it("surfaces loader errors before binding anything", async () => {

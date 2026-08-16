@@ -45,8 +45,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build arkor + @arkor/local
-        env:
-          ARKOR_TELEMETRY_DISABLED: "1"
         run: pnpm exec turbo run build --filter=arkor --filter=@arkor/local
 
       # uv resolves the pinned mlx-lm (see MLX_LM_SPEC in

@@ -108,9 +108,19 @@ export async function loadLocalRuntime(
     throw new LocalRuntimeNotInstalledError(cwd);
   }
   const packageDir = dirname(manifestPath);
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
-    exports?: { "."?: { import?: string } };
-  };
+  let manifest: { exports?: { "."?: { import?: string } } };
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      exports?: { "."?: { import?: string } };
+    };
+  } catch (error) {
+    throw new Error(
+      `failed to read ${LOCAL_RUNTIME_PACKAGE}'s package.json at ` +
+        `${manifestPath}; the installation looks corrupt. Reinstall it. ` +
+        `(${error instanceof Error ? error.message : String(error)})`,
+      { cause: error },
+    );
+  }
   const entryRel = manifest.exports?.["."]?.import;
   if (!entryRel) {
     throw new Error(

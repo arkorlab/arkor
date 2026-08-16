@@ -10,6 +10,10 @@ import { join } from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+import {
+  LOCAL_SERVER_TOKEN_ENV,
+  LOCAL_SERVER_URL_ENV,
+} from "../../core/local-mode";
 import { loadLocalRuntime } from "../local-runtime-loader";
 
 import { runStart } from "./start";
@@ -185,16 +189,19 @@ describe("runStart", () => {
 });
 
 describe("runStart --local", () => {
-  // A manifest that captures the env hand-off at trainer start time,
-  // proving the variables were set BEFORE the artifact's dynamic import.
-  const ENV_ECHO_MANIFEST = `export const arkor = Object.freeze({
+  // A manifest that captures the env hand-off at MODULE IMPORT time (the
+  // moment the real user bundle constructs its trainer via createTrainer),
+  // proving the variables were set BEFORE the artifact's dynamic import,
+  // not merely by the time start() runs.
+  const ENV_ECHO_MANIFEST = `const importTimeUrl = process.env.${LOCAL_SERVER_URL_ENV};
+const importTimeToken = process.env.${LOCAL_SERVER_TOKEN_ENV};
+export const arkor = Object.freeze({
   _kind: "arkor",
   trainer: {
     name: "run",
     start: async () => {
       console.log(
-        "[env-echo] url=" + process.env.ARKOR_LOCAL_SERVER_URL +
-        " token=" + process.env.ARKOR_LOCAL_SERVER_TOKEN,
+        "[env-echo] url=" + importTimeUrl + " token=" + importTimeToken,
       );
       return { jobId: "j-local" };
     },
@@ -217,8 +224,8 @@ describe("runStart --local", () => {
 
   afterEach(() => {
     vi.mocked(loadLocalRuntime).mockReset();
-    delete process.env.ARKOR_LOCAL_SERVER_URL;
-    delete process.env.ARKOR_LOCAL_SERVER_TOKEN;
+    delete process.env[LOCAL_SERVER_URL_ENV];
+    delete process.env[LOCAL_SERVER_TOKEN_ENV];
   });
 
   function mockRuntime() {
@@ -242,23 +249,31 @@ describe("runStart --local", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
       logs.push(args.join(" "));
     });
+    const writes: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write);
     try {
       await runStart({ cwd, local: true, backend: "mlx" });
     } finally {
       logSpy.mockRestore();
+      stdoutSpy.mockRestore();
     }
 
     expect(startServer).toHaveBeenCalledWith({ cwd, backendId: "mlx" });
     const output = logs.join("\n");
-    // The trainer observed the hand-off at start() time.
+    // The trainer observed the hand-off at module import time.
     expect(output).toContain("[env-echo] url=http://127.0.0.1:43210");
     expect(output).toContain("token=local-token-abcdef0123456789");
-    // The CLI announced the backend.
-    expect(output).toContain("MLX (Apple Silicon)");
+    // The CLI announced the backend (via ui.log.info, which writes stdout).
+    expect(writes.join("")).toContain("MLX (Apple Silicon)");
     // Server closed and env removed (not left as the string "undefined").
     expect(close).toHaveBeenCalledTimes(1);
-    expect(process.env.ARKOR_LOCAL_SERVER_URL).toBeUndefined();
-    expect(process.env.ARKOR_LOCAL_SERVER_TOKEN).toBeUndefined();
+    expect(process.env[LOCAL_SERVER_URL_ENV]).toBeUndefined();
+    expect(process.env[LOCAL_SERVER_TOKEN_ENV]).toBeUndefined();
   });
 
   it("closes the local server even when the trainer run fails", async () => {
@@ -266,7 +281,7 @@ describe("runStart --local", () => {
     const { close } = mockRuntime();
     await expect(runStart({ cwd, local: true })).rejects.toThrow();
     expect(close).toHaveBeenCalledTimes(1);
-    expect(process.env.ARKOR_LOCAL_SERVER_URL).toBeUndefined();
+    expect(process.env[LOCAL_SERVER_URL_ENV]).toBeUndefined();
   });
 
   it("reuses an existing env hand-off instead of booting a second server", async () => {
@@ -274,8 +289,8 @@ describe("runStart --local", () => {
     // server and injected the hand-off into this process's env.
     mkdirSync(join(cwd, "src/arkor"), { recursive: true });
     writeFileSync(join(cwd, "src/arkor/index.ts"), ENV_ECHO_MANIFEST);
-    process.env.ARKOR_LOCAL_SERVER_URL = "http://127.0.0.1:50505";
-    process.env.ARKOR_LOCAL_SERVER_TOKEN = "parent-token-0123456789abcdef";
+    process.env[LOCAL_SERVER_URL_ENV] = "http://127.0.0.1:50505";
+    process.env[LOCAL_SERVER_TOKEN_ENV] = "parent-token-0123456789abcdef";
 
     const logs: string[] = [];
     const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
@@ -290,7 +305,7 @@ describe("runStart --local", () => {
     expect(loadLocalRuntime).not.toHaveBeenCalled();
     expect(logs.join("\n")).toContain("url=http://127.0.0.1:50505");
     // The parent's hand-off survives for the parent's later children.
-    expect(process.env.ARKOR_LOCAL_SERVER_URL).toBe("http://127.0.0.1:50505");
+    expect(process.env[LOCAL_SERVER_URL_ENV]).toBe("http://127.0.0.1:50505");
   });
 
   it("does not touch the local runtime without --local", async () => {

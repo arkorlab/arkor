@@ -51,23 +51,19 @@ export const trainer = createTrainer({
 <CodeGroup>
 
 ```bash pnpm
-pnpm arkor start --local
+pnpm start --local
 ```
 
 ```bash npm
-npm arkor start --local
+npm start -- --local
 ```
 
 ```bash yarn
-yarn arkor start --local
-```
-
-```bash yarn-berry
-yarn run arkor start --local
+yarn start --local
 ```
 
 ```bash bun
-bun arkor start --local
+bun start --local
 ```
 
 </CodeGroup>
@@ -79,28 +75,24 @@ The first run resolves the Python environment and downloads the model, so it tak
 <CodeGroup>
 
 ```bash pnpm
-pnpm arkor dev --local
+pnpm dev --local
 ```
 
 ```bash npm
-npm arkor dev --local
+npm run dev -- --local
 ```
 
 ```bash yarn
-yarn arkor dev --local
-```
-
-```bash yarn-berry
-yarn run arkor dev --local
+yarn dev --local
 ```
 
 ```bash bun
-bun arkor dev --local
+bun dev --local
 ```
 
 </CodeGroup>
 
-Studio opens as usual, with every cloud call repointed at the in-process local server: the identity chip reads **local**, Run training kicks off a local job, the loss chart streams live, and the Playground chats with your trained adapter through a local `mlx_lm server`. No credentials are created and nothing leaves your machine except the model / dataset downloads.
+Studio opens as usual, with every cloud call repointed at the in-process local server: the identity chip reads **local**, Run training kicks off a local job, the loss chart streams live, and the Playground chats with your trained adapter through a local `mlx_lm server`. No credentials are created and nothing leaves your machine except the model / dataset downloads and the CLI's usual anonymous usage telemetry (disable it with `DO_NOT_TRACK=1` or `ARKOR_TELEMETRY_DISABLED=1`).
 
 ## Where to go next
 

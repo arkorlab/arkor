@@ -138,9 +138,13 @@ describe("auth boundary", () => {
 
   it("rejects a missing or malformed bearer token", async () => {
     const app = makeApp();
+    const equalLengthWrong = `${TOKEN.slice(0, -1)}X`;
     const cases: Record<string, string>[] = [
       { host: "127.0.0.1" },
       { host: "127.0.0.1", authorization: "Bearer wrong-token-abcdef123456" },
+      // Same length as the real token: exercises the timingSafeEqual body,
+      // not just the length short-circuit.
+      { host: "127.0.0.1", authorization: `Bearer ${equalLengthWrong}` },
       { host: "127.0.0.1", authorization: TOKEN },
     ];
     for (const headers of cases) {

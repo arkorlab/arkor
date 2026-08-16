@@ -75,6 +75,15 @@ export class InferenceManager implements ChatProxy {
     this.idleShutdownMs = options.idleShutdownMs ?? DEFAULT_IDLE_SHUTDOWN_MS;
   }
 
+  /**
+   * Body-lifecycle contract: the caller MUST consume or cancel the
+   * returned `Response.body`. The in-flight refcount (which parks the idle
+   * shutdown timer) is released only when the monitored body settles, so a
+   * dropped, unread body pins the inference child in memory until the
+   * process exits. The HTTP route hands ownership to the framework, which
+   * always drains or cancels; direct callers of the exported manager get
+   * the same obligation.
+   */
   async handleChat(args: {
     model: string;
     adapterPath: string | null;
@@ -139,10 +148,20 @@ export class InferenceManager implements ChatProxy {
     body: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<Response> {
+    // A requester that is already gone must not trigger a spawn or pin a
+    // (potentially minutes-long, model-downloading) readiness wait; the
+    // wait below is likewise abandoned on abort while the child itself is
+    // left to finish warming up for the next request.
+    if (signal.aborted) return new Response(null, { status: 499 });
     let child: LiveInferenceChild;
     try {
-      child = await this.ensureChild(model, adapterPath);
+      child = await abortable(this.ensureChild(model, adapterPath), signal);
     } catch (error) {
+      // The early return above narrows `signal.aborted` to false, but the
+      // flag flips asynchronously while ensureChild is awaited; the check
+      // is real, not dead.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (signal.aborted) return new Response(null, { status: 499 });
       return Response.json(
         {
           error:
@@ -166,6 +185,8 @@ export class InferenceManager implements ChatProxy {
         },
       );
     } catch (error) {
+      // Same as above: aborted can flip during the awaited fetch.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (signal.aborted) {
         // The requester is gone; the child stays warm for the next call.
         return new Response(null, { status: 499 });
@@ -196,8 +217,14 @@ export class InferenceManager implements ChatProxy {
 
   /** Stop the child and cancel timers; used on server shutdown. */
   async closeAll(): Promise<void> {
+    // Refuse new spawns first, then wait for any in-flight ensureChild:
+    // its child is assigned to `this.current` only after readiness, so
+    // snapshotting without the wait could miss a child mid-spawn, orphan
+    // it, and detach the very exit reaper that would have killed it.
+    this.closed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
+    await this.ensureChain.catch(() => undefined);
     const current = this.current;
     this.current = null;
     if (current && !current.dead) {
@@ -208,12 +235,17 @@ export class InferenceManager implements ChatProxy {
     this.logStream = null;
   }
 
+  private closed = false;
+
   private async ensureChild(
     model: string,
     adapterPath: string | null,
   ): Promise<LiveInferenceChild> {
     const key = `${model}\u0000${adapterPath ?? ""}`;
     const task = this.ensureChain.then(async () => {
+      if (this.closed) {
+        throw new Error("the local inference manager is shutting down");
+      }
       const current = this.current;
       if (current?.key === key && !current.dead) {
         await current.ready;
@@ -222,6 +254,10 @@ export class InferenceManager implements ChatProxy {
       if (current && !current.dead) {
         // Different model/adapter requested: replace the child rather than
         // running two models side by side on a memory-constrained laptop.
+        // Known trade-off: a response currently streaming from the old
+        // child is cut short. Last-request-wins matches the single-user
+        // laptop model this manager serves; queueing behind in-flight
+        // bodies would let one long generation block a model switch.
         await stopChild(current.child);
       }
       this.current = null;
@@ -269,9 +305,11 @@ export class InferenceManager implements ChatProxy {
       });
       this.logStream = stream;
     }
-    const log = this.logStream;
-    child.stdout.on("data", (chunk: Buffer) => log.write(chunk));
-    child.stderr.on("data", (chunk: Buffer) => log.write(chunk));
+    // Re-read `this.logStream` on every chunk: the 'error' handler above
+    // nulls it out, and a captured reference would keep writing into a
+    // destroyed stream.
+    child.stdout.on("data", (chunk: Buffer) => this.logStream?.write(chunk));
+    child.stderr.on("data", (chunk: Buffer) => this.logStream?.write(chunk));
 
     const live: LiveInferenceChild = {
       key,
@@ -367,7 +405,18 @@ function toOpenAiChatBody(
   return out;
 }
 
-/** Reserve an ephemeral loopback port by binding and releasing it. */
+/**
+ * Reserve an ephemeral loopback port by binding and releasing it.
+ *
+ * Known limitation (same-machine threat model): between the release and
+ * the child's own bind, another LOCAL process could claim the port, and
+ * the TCP readiness probe cannot authenticate the listener. `mlx_lm
+ * server` offers no token/socket-inheritance mechanism to close this, so
+ * the residual risk (a hostile local account intercepting prompts) is the
+ * same one a user running `mlx_lm server` by hand accepts. Multi-user
+ * shared machines should not run local inference until upstream grows an
+ * authenticated hand-off.
+ */
 async function allocatePort(): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const server = createServer();
@@ -419,6 +468,34 @@ async function waitForPort(args: {
       setTimeout(resolve, READINESS_POLL_INTERVAL_MS),
     );
   }
+}
+
+/**
+ * Resolve with `promise`, or reject as soon as `signal` aborts. The
+ * underlying work is NOT torn down: for child spawn/readiness that is
+ * exactly right (the warmed child serves the next request).
+ */
+async function abortable<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  // When the abort wins the race, the abandoned promise may still reject
+  // later; mark that branch handled so it cannot become an unhandled
+  // rejection.
+  promise.catch(() => undefined);
+  return Promise.race([
+    promise,
+    new Promise<never>((_resolve, reject) => {
+      signal.addEventListener(
+        "abort",
+        () => {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+          reject(signal.reason);
+        },
+        { once: true },
+      );
+    }),
+  ]);
 }
 
 function killGroup(child: ChildProcess, sig: NodeJS.Signals): void {

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { LOCAL_SERVER_TOKEN_ENV, LOCAL_SERVER_URL_ENV } from "./local-mode";
 import { isSupportedModel, SUPPORTED_MODELS } from "./models";
 import { createTrainer } from "./trainer";
 
@@ -66,14 +67,22 @@ describe("createTrainer model boundary", () => {
     // The CLI path (`arkor build` / `arkor start`) bundles with esbuild and
     // never typechecks, and the compile-time type admits arbitrary strings
     // for local mode. The constructor guard is what stops a typo from
-    // reaching cloud job creation.
-    expect(() =>
-      createTrainer({
-        name: "run",
-        model: "unsloth/gema-4-E4B-it",
-        dataset: { type: "huggingface", name: "x" },
-      }),
-    ).toThrow(/Unsupported model/);
+    // reaching cloud job creation. The guard is skipped under the local
+    // hand-off, so pin "outside local mode" explicitly rather than
+    // inheriting whatever the ambient shell exported.
+    vi.stubEnv(LOCAL_SERVER_URL_ENV, "");
+    vi.stubEnv(LOCAL_SERVER_TOKEN_ENV, "");
+    try {
+      expect(() =>
+        createTrainer({
+          name: "run",
+          model: "unsloth/gema-4-E4B-it",
+          dataset: { type: "huggingface", name: "x" },
+        }),
+      ).toThrow(/Unsupported model/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

@@ -107,7 +107,6 @@ export interface StudioServerOptions {
   local?: {
     serverUrl: string;
     serverToken: string;
-    backendDisplayName?: string;
   };
 }
 
