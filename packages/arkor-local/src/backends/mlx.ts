@@ -46,6 +46,7 @@ export const MLX_LM_SPEC = "mlx-lm[train]==0.31.3";
 const OPTIMIZERS: Readonly<Record<string, string>> = Object.freeze({
   adam: "adam",
   adamw: "adamw",
+  muon: "muon",
   sgd: "sgd",
   adafactor: "adafactor",
 });
