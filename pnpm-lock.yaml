@@ -206,6 +206,9 @@ importers:
 
   e2e/cli:
     devDependencies:
+      '@arkor/local':
+        specifier: workspace:*
+        version: link:../../packages/arkor-local
       '@types/node':
         specifier: 'catalog:'
         version: 24.12.2
@@ -227,6 +230,9 @@ importers:
 
   e2e/studio:
     devDependencies:
+      '@arkor/local':
+        specifier: workspace:*
+        version: link:../../packages/arkor-local
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.59.1

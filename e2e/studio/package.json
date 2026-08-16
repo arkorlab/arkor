@@ -13,6 +13,7 @@
     "test:coverage": "playwright test"
   },
   "devDependencies": {
+    "@arkor/local": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "arkor": "workspace:*",

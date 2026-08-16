@@ -288,6 +288,18 @@ function runCliOnce(
     if (lower === "claudecode") {
       continue;
     }
+    // Strip NODE_PATH: vitest sets it on its workers (pointing at its own
+    // node_modules plus pnpm's virtual store `node_modules/.pnpm/
+    // node_modules`, where EVERY workspace package is linked). Inherited by
+    // a spawned CLI it silently un-hermetics module resolution in the temp
+    // project: `arkor start --local` in a project without `@arkor/local`
+    // would still resolve the workspace copy through the leaked path and
+    // never hit the not-installed branch. Same case-insensitivity rationale
+    // as the strips above; tests that need a NODE_PATH set it via
+    // `extraEnv`, which is spread last.
+    if (lower === "node_path") {
+      continue;
+    }
     cleanEnv[key] = value;
   }
   return new Promise((resolve, reject) => {
