@@ -206,32 +206,91 @@ describe("JobStore console log", () => {
 
 describe("JobStore.reconcileOrphans", () => {
   it("fails running jobs whose pid is gone and leaves live pids alone", async () => {
+    // A real "spawn then reap" dead pid flakes on Windows CI: the OS
+    // recycles pids fast enough that the just-dead pid can belong to a
+    // fresh unrelated process when reconcile probes it. Injecting the
+    // probe keeps the reconcile logic under test deterministic; the real
+    // probe (process.kill(pid, 0)) is Node's standard liveness primitive.
+    const probed: number[] = [];
+    const probingStore = new JobStore({
+      rootDir,
+      pidProbe: (pid) => {
+        probed.push(pid);
+        return pid === process.pid;
+      },
+    });
+    const orphaned = await probingStore.createJob({
+      name: "orphaned",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      backendId: "fake",
+    });
+    const deadPid = 999_999_999;
+    await probingStore.updateJob(orphaned.job.id, (r) => {
+      r.job.status = "running";
+      r.pid = deadPid;
+    });
+    const alive = await probingStore.createJob({
+      name: "alive",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      backendId: "fake",
+    });
+    await probingStore.updateJob(alive.job.id, (r) => {
+      r.job.status = "running";
+      r.pid = process.pid;
+    });
+    const finished = await probingStore.createJob({
+      name: "finished",
+      config: {
+        model: "m",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      backendId: "fake",
+    });
+    await probingStore.updateJob(finished.job.id, (r) => {
+      r.job.status = "completed";
+    });
+
+    await probingStore.reconcileOrphans();
+    probingStore.close();
+
+    // Terminal jobs are skipped before the probe runs.
+    expect(probed.toSorted((a, b) => a - b)).toEqual(
+      [deadPid, process.pid].toSorted((a, b) => a - b),
+    );
+
+    const orphanedRecord = await probingStore.getJob(orphaned.job.id);
+    expect(orphanedRecord?.job.status).toBe("failed");
+    expect(orphanedRecord?.job.error).toContain("interrupted");
+    const orphanEvents = await probingStore.replayAfter(orphaned.job.id, 0);
+    expect(orphanEvents.at(-1)?.event.type).toBe("training.failed");
+
+    expect((await probingStore.getJob(alive.job.id))?.job.status).toBe(
+      "running",
+    );
+    expect((await probingStore.getJob(finished.job.id))?.job.status).toBe(
+      "completed",
+    );
+  });
+
+  it("treats a truly dead OS pid as not alive (real probe)", async () => {
+    // Realism check for the default probe on POSIX, where pid recycling
+    // within a test's lifetime is not a practical concern. Skipped on
+    // Windows; the injected-probe test above explains why.
+    if (process.platform === "win32") return;
     const deadPid = await spawnAndReapPid();
     const orphaned = await createJob("orphaned");
     await store.updateJob(orphaned, (r) => {
       r.job.status = "running";
       r.pid = deadPid;
     });
-    const alive = await createJob("alive");
-    await store.updateJob(alive, (r) => {
-      r.job.status = "running";
-      r.pid = process.pid;
-    });
-    const finished = await createJob("finished");
-    await store.updateJob(finished, (r) => {
-      r.job.status = "completed";
-    });
-
     await store.reconcileOrphans();
-
-    const orphanedRecord = await store.getJob(orphaned);
-    expect(orphanedRecord?.job.status).toBe("failed");
-    expect(orphanedRecord?.job.error).toContain("interrupted");
-    const orphanEvents = await store.replayAfter(orphaned, 0);
-    expect(orphanEvents.at(-1)?.event.type).toBe("training.failed");
-
-    expect((await store.getJob(alive))?.job.status).toBe("running");
-    expect((await store.getJob(finished))?.job.status).toBe("completed");
+    expect((await store.getJob(orphaned))?.job.status).toBe("failed");
   });
 
   it("leaves a fresh pid-less record alone but fails an aged one", async () => {

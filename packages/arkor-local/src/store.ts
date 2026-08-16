@@ -84,11 +84,25 @@ export function isTerminalStatus(status: string): boolean {
 export class JobStore {
   private readonly jobsDir: string;
   private readonly consoleByteCap: number;
+  private readonly pidProbe: (pid: number) => boolean;
   private readonly runtime = new Map<string, JobRuntimeState>();
 
-  constructor(options: { rootDir: string; consoleByteCap?: number }) {
+  constructor(options: {
+    rootDir: string;
+    consoleByteCap?: number;
+    /**
+     * Pid liveness probe used by {@link reconcileOrphans}. Injectable for
+     * tests: a real "spawn then reap" pid is racy on Windows, where the OS
+     * recycles pids aggressively enough that a just-dead pid can belong to
+     * a fresh unrelated process by the time the probe runs.
+     *
+     * @internal
+     */
+    pidProbe?: (pid: number) => boolean;
+  }) {
     this.jobsDir = join(options.rootDir, "jobs");
     this.consoleByteCap = options.consoleByteCap ?? MAX_CONSOLE_BYTES;
+    this.pidProbe = options.pidProbe ?? isPidAlive;
   }
 
   jobDir(jobId: string): string {
@@ -357,7 +371,7 @@ export class JobStore {
       if (isTerminalStatus(job.status)) continue;
       const record = await this.getJob(job.id);
       if (!record) continue;
-      if (record.pid !== null && isPidAlive(record.pid)) continue;
+      if (record.pid !== null && this.pidProbe(record.pid)) continue;
       if (record.pid === null) {
         const age = Date.now() - Date.parse(record.job.createdAt);
         if (!(Number.isFinite(age) && age > PRE_SPAWN_GRACE_MS)) continue;
