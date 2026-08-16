@@ -633,6 +633,16 @@ jobs:
           flags: create-arkor
           fail_ci_if_error: false
 
+      - name: Upload arkor-local coverage
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          disable_search: true
+          files: ./packages/arkor-local/coverage/lcov.info
+          flags: arkor-local
+          fail_ci_if_error: false
+
       - name: Upload cli-internal coverage
         if: ${{ !cancelled() }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -697,6 +707,15 @@ jobs:
           label: code-coverage/create-arkor
           fail-on-error: false
 
+      - name: Upload arkor-local coverage to GitHub
+        if: ${{ !cancelled() }}
+        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
+        with:
+          file: ./packages/arkor-local/coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/arkor-local
+          fail-on-error: false
+
       - name: Upload cli-internal coverage to GitHub
         if: ${{ !cancelled() }}
         uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
@@ -748,6 +767,17 @@ jobs:
           report_type: test_results
           files: ./packages/create-arkor/coverage/junit.xml
           flags: create-arkor
+          fail_ci_if_error: false
+
+      - name: Upload arkor-local test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          disable_search: true
+          report_type: test_results
+          files: ./packages/arkor-local/coverage/junit.xml
+          flags: arkor-local
           fail_ci_if_error: false
 
       - name: Upload cli-internal test results

@@ -33,7 +33,7 @@ def prepare_data(run: dict, log) -> dict:
     source = run["datasetSource"]
     fmt = run.get("datasetFormat") or {"type": "chatml"}
     split_cfg = run["train"].get("datasetSplit") or {}
-    wants_eval = run["train"].get("evalSteps") is not None
+    dry_run = bool(run["train"].get("dryRun"))
     data_dir = Path(run["paths"]["dataDir"])
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -52,14 +52,15 @@ def prepare_data(run: dict, log) -> dict:
             f"[arkor] datasetSplit: held out {len(valid_examples)} of "
             f"{len(train_examples) + len(valid_examples)} examples for validation"
         )
-    elif wants_eval and not valid_examples:
-        # evalSteps was requested but the dataset carries no validation
-        # split. Auto-holding out a slice keeps the starter templates
-        # working locally instead of failing deep inside mlx-lm.
+    elif not valid_examples and not dry_run:
+        # mlx-lm requires a validation set whenever it trains, and eval
+        # loss reporting needs one too. Auto-holding out a slice keeps
+        # train-only datasets (including the starter templates) working
+        # locally instead of failing deep inside mlx-lm.
         train_examples, valid_examples = _split(train_examples, 0.1, 0)
         log(
-            "[arkor] evalSteps is set but the dataset has no validation "
-            f"split; auto-held out {len(valid_examples)} examples "
+            "[arkor] the dataset has no validation split; auto-held out "
+            f"{len(valid_examples)} examples for validation "
             "(configure datasetSplit to control this)"
         )
 

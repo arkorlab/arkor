@@ -1,6 +1,6 @@
 {
   "name": "@arkor/local",
-  "version": "0.0.1-alpha.0",
+  "version": "0.0.3-alpha.1",
   "description": "Local training and inference runtime for arkor. Runs LoRA fine-tuning on your own machine (MLX on Apple Silicon first) behind the same API contract as Arkor Cloud.",
   "private": false,
   "type": "module",
