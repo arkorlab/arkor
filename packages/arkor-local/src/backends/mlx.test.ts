@@ -1,0 +1,331 @@
+import { describe, expect, it } from "vitest";
+
+import { MLX_LM_SPEC, mlxBackend } from "./mlx";
+
+import type { JobConfig } from "arkor";
+import type { ExecProbe, TrainRunPaths } from "./types";
+
+const okProbe: ExecProbe = () =>
+  Promise.resolve({ ok: true, stdout: "uv 0.9.0" });
+const failProbe: ExecProbe = () =>
+  Promise.resolve({ ok: false, stdout: "", error: "spawn uv ENOENT" });
+
+function baseConfig(overrides: Partial<JobConfig> = {}): JobConfig {
+  return {
+    model: "mlx-community/tiny-test-model",
+    datasetSource: { type: "huggingface", name: "org/data" },
+    maxSteps: 100,
+    ...overrides,
+  };
+}
+
+const PATHS: TrainRunPaths = {
+  jobDir: "/tmp/jobs/j1",
+  runJsonPath: "/tmp/jobs/j1/run.json",
+  adaptersDir: "/tmp/jobs/j1/adapters",
+  dataDir: "/tmp/jobs/j1/data",
+  shimDir: "/pkg/dist/shims",
+};
+
+describe("mlxBackend.preflight", () => {
+  it("passes on darwin/arm64 with uv available", async () => {
+    await expect(
+      mlxBackend.preflight({
+        platform: "darwin",
+        arch: "arm64",
+        execProbe: okProbe,
+      }),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it.each([
+    ["linux", "x64"],
+    ["linux", "arm64"],
+    ["win32", "x64"],
+    ["darwin", "x64"], // Intel Mac: MLX has no support upstream
+  ] as const)("fails on %s/%s before probing uv", async (platform, arch) => {
+    let probed = false;
+    const probe: ExecProbe = () => {
+      probed = true;
+      return Promise.resolve({ ok: true, stdout: "" });
+    };
+    const result = await mlxBackend.preflight({
+      platform,
+      arch,
+      execProbe: probe,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("Apple Silicon");
+      expect(result.reason).toContain(`${platform}/${arch}`);
+    }
+    // The platform gate must short-circuit: probing uv on a machine that can
+    // never run MLX would only muddy the error.
+    expect(probed).toBe(false);
+  });
+
+  it("fails with install guidance when uv is missing", async () => {
+    const result = await mlxBackend.preflight({
+      platform: "darwin",
+      arch: "arm64",
+      execProbe: failProbe,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("uv is not available");
+      expect(result.remediation).toContain("brew install uv");
+      expect(result.remediation).toContain("astral.sh");
+    }
+  });
+});
+
+describe("mlxBackend.validateConfig", () => {
+  it("accepts a template-shaped config", () => {
+    expect(
+      mlxBackend.validateConfig(
+        baseConfig({
+          datasetFormat: { type: "chatml" },
+          loraR: 16,
+          loraAlpha: 16,
+          loadIn4bit: false,
+          evalSteps: 25,
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("requires maxSteps or numTrainEpochs", () => {
+    const result = mlxBackend.validateConfig(
+      baseConfig({ maxSteps: undefined }),
+    );
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) {
+      expect(result.errors.join("\n")).toContain("maxSteps or numTrainEpochs");
+    }
+    expect(
+      mlxBackend.validateConfig(
+        baseConfig({ maxSteps: undefined, numTrainEpochs: 2 }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects pretokenized and unknown dataset formats", () => {
+    const pretokenized = mlxBackend.validateConfig(
+      baseConfig({ datasetFormat: { type: "pretokenized" } }),
+    );
+    expect(pretokenized).toMatchObject({ ok: false });
+    if (!pretokenized.ok) {
+      expect(pretokenized.errors[0]).toContain("pretokenized");
+    }
+    expect(
+      mlxBackend.validateConfig(baseConfig({ datasetFormat: "nonsense" })),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("accepts blob dataset sources", () => {
+    // The shim downloads blobs itself; rejecting them here would regress the
+    // cloud-parity goal.
+    expect(
+      mlxBackend.validateConfig(
+        baseConfig({
+          datasetSource: { type: "blob", url: "https://example.com/d.jsonl" },
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("collects one error per invalid field", () => {
+    const result = mlxBackend.validateConfig(
+      baseConfig({
+        maxSteps: undefined,
+        optim: "lion",
+        lrSchedulerType: "polynomial",
+        weightDecay: -1,
+        loggingSteps: { ratio: 4 },
+      }),
+    );
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(5);
+      expect(result.errors.join("\n")).toContain('optim "lion"');
+      expect(result.errors.join("\n")).toContain(
+        'lrSchedulerType "polynomial"',
+      );
+      expect(result.errors.join("\n")).toContain("weightDecay");
+      expect(result.errors.join("\n")).toContain("loggingSteps.ratio");
+    }
+  });
+
+  it("accepts supported optimizers, schedules, and step shapes", () => {
+    expect(
+      mlxBackend.validateConfig(
+        baseConfig({
+          optim: "adamw",
+          lrSchedulerType: "cosine",
+          weightDecay: 0.01,
+          warmupSteps: 10,
+          loggingSteps: 5,
+          saveSteps: { steps: 50 },
+          evalSteps: { ratio: 0.25 },
+          trainOnResponsesOnly: { enabled: true },
+          datasetSplit: { testSize: 0.1, seed: 42 },
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+});
+
+describe("mlxBackend.buildTrainRun", () => {
+  it("builds the uv invocation around the bundled shim", () => {
+    const run = mlxBackend.buildTrainRun({ config: baseConfig(), paths: PATHS });
+    expect(run.spec.command).toBe("uv");
+    expect(run.spec.argv).toEqual([
+      "run",
+      "--no-project",
+      "--with",
+      MLX_LM_SPEC,
+      "python",
+      "/pkg/dist/shims/mlx/train_shim.py",
+      "--run",
+      "/tmp/jobs/j1/run.json",
+    ]);
+  });
+
+  it("writes a complete run.json payload with normalised fields", () => {
+    const run = mlxBackend.buildTrainRun({
+      config: baseConfig({
+        datasetFormat: {
+          type: "prompt_completion",
+          columnMapping: { prompt: "q", completion: "a" },
+        },
+        batchSize: 2,
+        learningRate: 1e-5,
+        maxLength: 1024,
+        loraR: 8,
+        loraAlpha: 16,
+        optim: "adamw_8bit",
+        lrSchedulerType: "linear",
+        weightDecay: 0.01,
+        warmupSteps: 5,
+        loggingSteps: 1,
+        saveSteps: { ratio: 0.5 },
+        evalSteps: { steps: 10 },
+        trainOnResponsesOnly: true,
+        datasetSplit: { testSize: 0.2 },
+        dryRun: false,
+      }),
+      paths: PATHS,
+    });
+    expect(run.runJson).toMatchObject({
+      protocolVersion: 1,
+      backend: "mlx",
+      model: "mlx-community/tiny-test-model",
+      datasetSource: { type: "huggingface", name: "org/data" },
+      datasetFormat: {
+        type: "prompt_completion",
+        columnMapping: { prompt: "q", completion: "a" },
+      },
+      train: {
+        maxSteps: 100,
+        numTrainEpochs: null,
+        batchSize: 2,
+        learningRate: 1e-5,
+        maxSeqLength: 1024,
+        loraR: 8,
+        loraAlpha: 16,
+        optimizer: "adamw",
+        lrSchedule: "linear",
+        weightDecay: 0.01,
+        warmupSteps: 5,
+        loggingSteps: { steps: 1 },
+        saveSteps: { ratio: 0.5 },
+        evalSteps: { steps: 10 },
+        maskPrompt: true,
+        datasetSplit: { enabled: true, testSize: 0.2, seed: null },
+        dryRun: false,
+      },
+      paths: {
+        adaptersDir: "/tmp/jobs/j1/adapters",
+        dataDir: "/tmp/jobs/j1/data",
+      },
+    });
+    // The 8-bit alias degraded to plain adamw and said so.
+    expect(run.warnings.join("\n")).toContain('optim "adamw_8bit"');
+  });
+
+  it("defaults optimizer, schedule, and dataset format when unset", () => {
+    const run = mlxBackend.buildTrainRun({ config: baseConfig(), paths: PATHS });
+    expect(run.runJson).toMatchObject({
+      datasetFormat: { type: "chatml" },
+      train: {
+        optimizer: "adamw",
+        lrSchedule: "constant",
+        maskPrompt: false,
+        dryRun: false,
+      },
+    });
+    expect(run.warnings).toEqual([]);
+  });
+
+  it("warns about loadIn4bit instead of failing", () => {
+    const run = mlxBackend.buildTrainRun({
+      config: baseConfig({ loadIn4bit: true }),
+      paths: PATHS,
+    });
+    expect(run.warnings.join("\n")).toContain("loadIn4bit");
+    expect(run.warnings.join("\n")).toContain("mlx-community");
+  });
+
+  it("throws when handed a config validateConfig would reject", () => {
+    expect(() =>
+      mlxBackend.buildTrainRun({
+        config: baseConfig({ optim: "lion" }),
+        paths: PATHS,
+      }),
+    ).toThrow(/invalid config/);
+  });
+});
+
+describe("mlxBackend.inference", () => {
+  it("builds an OpenAI-compatible server invocation", () => {
+    const spec = mlxBackend.inference?.buildServerSpec({
+      model: "mlx-community/tiny-test-model",
+      adapterPath: "/jobs/j1/adapters/final",
+      host: "127.0.0.1",
+      port: 12345,
+      shimDir: "/pkg/dist/shims",
+    });
+    expect(spec).toEqual({
+      command: "uv",
+      argv: [
+        "run",
+        "--no-project",
+        "--with",
+        MLX_LM_SPEC,
+        "python",
+        "-m",
+        "mlx_lm",
+        "server",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "12345",
+        "--model",
+        "mlx-community/tiny-test-model",
+        "--adapter-path",
+        "/jobs/j1/adapters/final",
+      ],
+    });
+  });
+
+  it("omits the adapter flag for base-model serving", () => {
+    const spec = mlxBackend.inference?.buildServerSpec({
+      model: "mlx-community/tiny-test-model",
+      adapterPath: null,
+      host: "127.0.0.1",
+      port: 12345,
+      shimDir: "/pkg/dist/shims",
+    });
+    expect(spec?.argv).not.toContain("--adapter-path");
+  });
+});

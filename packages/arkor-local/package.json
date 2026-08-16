@@ -1,0 +1,66 @@
+{
+  "name": "@arkor/local",
+  "version": "0.0.1-alpha.0",
+  "description": "Local training and inference runtime for arkor. Runs LoRA fine-tuning on your own machine (MLX on Apple Silicon first) behind the same API contract as Arkor Cloud.",
+  "private": false,
+  "type": "module",
+  "homepage": "https://github.com/arkorlab/arkor#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arkorlab/arkor.git",
+    "directory": "packages/arkor-local"
+  },
+  "bugs": {
+    "url": "https://github.com/arkorlab/arkor/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "arkor",
+    "llm",
+    "lora",
+    "fine-tuning",
+    "training",
+    "mlx",
+    "local"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json --noEmit && tsdown && node scripts/copy-shims.mjs",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings . && eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.0",
+    "hono": "^4.12.23",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "arkor": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "arkor": "workspace:*",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
