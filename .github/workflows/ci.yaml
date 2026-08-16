@@ -405,6 +405,11 @@ jobs:
           pnpm install
           pnpm --filter create-arkor build
           pnpm --filter arkor build
+          # @arkor/local: the e2e suite this lane runs includes the
+          # arkor-start-local scenarios on Apple Silicon legs, and their
+          # fixture symlinks the workspace package into the temp project;
+          # without its dist the loader import dies with MODULE_NOT_FOUND.
+          pnpm --filter @arkor/local build
 
       # NOTE: an earlier "Pack arkor into a scaffold tarball" step
       # used to run `pnpm pack` and expose the result as a workflow
