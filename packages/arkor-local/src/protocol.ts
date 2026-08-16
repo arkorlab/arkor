@@ -23,9 +23,9 @@ export const PROTOCOL_MARKER = "@arkor ";
  */
 export const SHIM_PROTOCOL_VERSION = 1;
 
+// zod v4's z.number() already rejects Infinity/NaN; only null-normalise.
 const finiteOrNull = z
   .number()
-  .finite()
   .nullish()
   .transform((v) => v ?? null);
 

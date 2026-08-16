@@ -292,7 +292,7 @@ describe("mlxBackend.inference", () => {
       model: "mlx-community/tiny-test-model",
       adapterPath: "/jobs/j1/adapters/final",
       host: "127.0.0.1",
-      port: 12345,
+      port: 12_345,
       shimDir: "/pkg/dist/shims",
     });
     expect(spec).toEqual({
@@ -323,7 +323,7 @@ describe("mlxBackend.inference", () => {
       model: "mlx-community/tiny-test-model",
       adapterPath: null,
       host: "127.0.0.1",
-      port: 12345,
+      port: 12_345,
       shimDir: "/pkg/dist/shims",
     });
     expect(spec?.argv).not.toContain("--adapter-path");

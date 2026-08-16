@@ -1,9 +1,8 @@
 import { join } from "node:path";
 
-import { SHIM_PROTOCOL_VERSION } from "../protocol";
 import { probeUv } from "../preflight";
+import { SHIM_PROTOCOL_VERSION } from "../protocol";
 
-import type { JobConfig } from "arkor";
 import type {
   ConfigValidation,
   LocalTrainingBackend,
@@ -12,6 +11,7 @@ import type {
   TrainRun,
   TrainRunPaths,
 } from "./types";
+import type { JobConfig } from "arkor";
 
 /**
  * Exact mlx-lm pin used for both training and inference children.
@@ -268,9 +268,9 @@ function normaliseDatasetFormat(
   const raw =
     typeof value === "string"
       ? { type: value }
-      : typeof value === "object" && value !== null
+      : (typeof value === "object" && value !== null
         ? (value as { type?: unknown; columnMapping?: unknown })
-        : null;
+        : null);
   if (!raw || typeof raw.type !== "string") {
     return new Error(
       "datasetFormat must be a format name or an object with a `type` field",
