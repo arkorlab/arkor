@@ -38,11 +38,12 @@ export const defaultExecProbe: ExecProbe = async (command, args, timeoutMs) => {
     };
     let child: ChildProcess;
     try {
+      // Deliberately NO `shell: true` on Windows: every probe target is a
+      // real executable (`uv` ships uv.exe; GPU probes like nvidia-smi are
+      // .exe too), a cmd.exe hop would mangle quoted arguments, and keeping
+      // arguments out of a shell closes an injection surface. A backend
+      // that ever needs to probe a `.cmd` shim must resolve it explicitly.
       child = spawn(command, args, {
-        // `uv` ships a real .exe on Windows, but probes may target `.cmd`
-        // shims too; matching the repo-wide spawn policy keeps this helper
-        // usable for both.
-        shell: process.platform === "win32",
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {

@@ -977,6 +977,10 @@ describe("runDev --local", () => {
     trim("SIGINT", ORIG_SIGINT_LISTENERS);
     trim("SIGTERM", ORIG_SIGTERM_LISTENERS);
     trim("SIGHUP", ORIG_SIGHUP_LISTENERS);
+    // runDev sets the env hand-off for the lifetime of the dev process; in
+    // the test worker that lifetime spans other test files, so clean up.
+    delete process.env.ARKOR_LOCAL_SERVER_URL;
+    delete process.env.ARKOR_LOCAL_SERVER_TOKEN;
   });
 
   function mockRuntime() {
@@ -1017,6 +1021,12 @@ describe("runDev --local", () => {
       cwd: process.cwd(),
       backendId: "mlx",
     });
+    // The dev process itself carries the hand-off: /api/manifest imports
+    // the user bundle in-process, and its trainer must see local mode.
+    expect(process.env.ARKOR_LOCAL_SERVER_URL).toBe("http://127.0.0.1:43211");
+    expect(process.env.ARKOR_LOCAL_SERVER_TOKEN).toBe(
+      "local-token-abcdef0123456789",
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
     // No anonymous identity was minted into the fake HOME.
     expect(existsSync(join(fakeHome, ".arkor", "credentials.json"))).toBe(

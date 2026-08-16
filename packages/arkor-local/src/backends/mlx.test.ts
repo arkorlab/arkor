@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { MLX_LM_SPEC, mlxBackend } from "./mlx";
@@ -188,7 +190,8 @@ describe("mlxBackend.buildTrainRun", () => {
       "--with",
       MLX_LM_SPEC,
       "python",
-      "/pkg/dist/shims/mlx/train_shim.py",
+      // Built with join(): backslash-separated on Windows.
+      join(PATHS.shimDir, "mlx", "train_shim.py"),
       "--run",
       "/tmp/jobs/j1/run.json",
     ]);

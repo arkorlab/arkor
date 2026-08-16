@@ -59,6 +59,13 @@ interface JobRuntimeState {
    * appends reading the same `seq` would mint duplicate SSE ids.
    */
   appendQueue: Promise<unknown>;
+  /**
+   * Serialises `job.json` read-modify-writes per job. Concurrent updateJob
+   * calls (the runner's pid write racing the event pipeline's status
+   * writes) are safe on POSIX (rename is atomic) but collide on Windows,
+   * where renaming over a file another writer has open throws EPERM.
+   */
+  recordQueue: Promise<unknown>;
   subscribers: Set<JobSubscriber>;
   consoleStream: WriteStream | null;
   consoleBytes: number;
@@ -137,7 +144,10 @@ export class JobStore {
     const file = join(this.jobDir(jobId), "job.json");
     let raw: string;
     try {
-      raw = await readFile(file, "utf8");
+      // Retried because Windows can transiently fail a read that overlaps
+      // an in-flight atomic rename (EPERM/EBUSY); treating that as
+      // "missing job" would misroute callers into not-found branches.
+      raw = await retryWindowsFileLocks(() => readFile(file, "utf8"));
     } catch {
       return null;
     }
@@ -164,19 +174,29 @@ export class JobStore {
   }
 
   /**
-   * Read-modify-write `job.json`. Single-writer by construction: only the
-   * server instance that created a job (or reconciled it as orphaned)
-   * mutates it, so no cross-process locking is needed.
+   * Read-modify-write `job.json`. Cross-PROCESS locking is unnecessary
+   * (only the server instance that created a job, or reconciled it as
+   * orphaned, mutates it), but in-process callers are serialised through
+   * the per-job record queue below.
    */
   async updateJob(
     jobId: string,
     mutate: (record: JobRecord) => void,
   ): Promise<JobRecord> {
-    const record = await this.getJob(jobId);
-    if (!record) throw new Error(`unknown local job: ${jobId}`);
-    mutate(record);
-    await this.writeRecord(record);
-    return record;
+    // Serialised per job (see JobRuntimeState.recordQueue): the runner's
+    // fire-and-forget pid write and the event pipeline's status writes may
+    // call this concurrently, and interleaved read-modify-writes would both
+    // lose updates and hit Windows rename locking.
+    const state = this.ensureRuntime(jobId);
+    const task = state.recordQueue.then(async () => {
+      const record = await this.getJob(jobId);
+      if (!record) throw new Error(`unknown local job: ${jobId}`);
+      mutate(record);
+      await this.writeRecord(record);
+      return record;
+    });
+    state.recordQueue = task.catch(() => undefined);
+    return task;
   }
 
   /**
@@ -330,6 +350,7 @@ export class JobStore {
       state = {
         seq: 0,
         appendQueue: Promise.resolve(),
+        recordQueue: Promise.resolve(),
         subscribers: new Set(),
         consoleStream: null,
         consoleBytes: 0,
@@ -375,10 +396,37 @@ export class JobStore {
     await mkdir(jobDir, { recursive: true });
     const file = join(jobDir, "job.json");
     // Atomic tmp+rename (the credentials.ts pattern): a reader never sees a
-    // half-written job.json, even if the process dies mid-write.
+    // half-written job.json, even if the process dies mid-write. The rename
+    // is retried because Windows fails it with EPERM while any reader (an
+    // SSE route's getJob, a jobs-list scan) briefly holds the destination
+    // open; those windows are microseconds long.
     const tmp = `${file}.${String(process.pid)}.tmp`;
     await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
-    await rename(tmp, file);
+    await retryWindowsFileLocks(() => rename(tmp, file));
+  }
+}
+
+const RETRYABLE_FS_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+/**
+ * Retry transient Windows file-locking failures (rename over an open file,
+ * read overlapping a rename). POSIX never takes the retry path: the codes
+ * above do not occur for these operations there.
+ */
+async function retryWindowsFileLocks<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (attempt >= MAX_ATTEMPTS || !RETRYABLE_FS_CODES.has(code)) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10 * attempt));
+    }
   }
 }
 

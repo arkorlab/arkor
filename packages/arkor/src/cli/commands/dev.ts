@@ -18,7 +18,11 @@ import {
   requestAnonymousToken,
   type AnonymousCredentials,
 } from "../../core/credentials";
-import { LOCAL_BACKEND_ENV } from "../../core/local-mode";
+import {
+  LOCAL_BACKEND_ENV,
+  LOCAL_SERVER_TOKEN_ENV,
+  LOCAL_SERVER_URL_ENV,
+} from "../../core/local-mode";
 import { buildStudioApp } from "../../studio/server";
 import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
 import { loadLocalRuntime } from "../local-runtime-loader";
@@ -272,6 +276,13 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
       cwd,
       backendId: options.backend ?? process.env[LOCAL_BACKEND_ENV],
     });
+    // The dev-server process itself must carry the env hand-off, not just
+    // its /api/train children: Studio's /api/manifest imports the user's
+    // bundle IN THIS PROCESS, and the trainer it constructs would otherwise
+    // hit the cloud-only SUPPORTED_MODELS gate (throwing on the MLX model
+    // ids local mode exists for) and 400 the manifest tile.
+    process.env[LOCAL_SERVER_URL_ENV] = localServer.url;
+    process.env[LOCAL_SERVER_TOKEN_ENV] = localServer.token;
   } else {
     await ensureCredentialsForStudio();
   }
@@ -442,8 +453,13 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     attemptBind(requestedPort, MAX_PORT_ATTEMPTS);
   }).catch(async (err: unknown) => {
     // A Studio bind failure must not leave the local training server (and
-    // its process-exit reapers) running behind a rethrown error.
-    if (localServer) await localServer.close();
+    // its process-exit reapers) running behind a rethrown error, nor the
+    // env hand-off pointing at the now-closed server.
+    if (localServer) {
+      await localServer.close();
+      Reflect.deleteProperty(process.env, LOCAL_SERVER_URL_ENV);
+      Reflect.deleteProperty(process.env, LOCAL_SERVER_TOKEN_ENV);
+    }
     throw err;
   });
 
