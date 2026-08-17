@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
-import { createWriteStream, type WriteStream } from "node:fs";
+import { createWriteStream, statSync, type WriteStream } from "node:fs";
 import { connect, createServer } from "node:net";
 
 import type { LocalTrainingBackend } from "./backends/types";
@@ -196,9 +196,14 @@ export class InferenceManager implements ChatProxy {
         // The requester is gone; the child stays warm for the next call.
         return new Response(null, { status: 499 });
       }
-      // Connection refused mid-flight: the child died between readiness and
-      // this request. Mark it dead so the next request respawns.
+      // The child is unreachable mid-flight. Usually it died, but a live
+      // process that merely reset the connection must not survive being
+      // marked dead: `dead: true` makes both ensureChild's replace path
+      // and closeAll skip stopping it, which would leave a detached MLX
+      // process holding the model in memory. Stop it explicitly (no-op if
+      // it already exited) and track the stop for closeAll.
       child.dead = true;
+      this.trackStop(stopChild(child.child));
       return Response.json(
         {
           error:
@@ -260,6 +265,10 @@ export class InferenceManager implements ChatProxy {
     if (current && !current.dead) {
       await stopChild(current.child);
     }
+    // Idle-timer and unreachable-child stops started earlier must finish
+    // before the reaper detaches: an un-awaited SIGTERM grace period would
+    // let the parent exit while the detached child is still alive.
+    await Promise.allSettled(this.pendingStops);
     this.detachReaper();
     this.logStream?.end();
     this.logStream = null;
@@ -327,6 +336,19 @@ export class InferenceManager implements ChatProxy {
     });
     this.attachReaper(child);
     if (!this.logStream && !this.logTruncated) {
+      // The log persists across restarts (append mode); seed the byte
+      // budget from what is already on disk, otherwise every server
+      // session could add another full cap's worth.
+      try {
+        this.logBytes = statSync(this.logFile).size;
+      } catch {
+        this.logBytes = 0;
+      }
+      if (this.logBytes >= INFERENCE_LOG_BYTE_CAP) {
+        this.logTruncated = true;
+      }
+    }
+    if (!this.logStream && !this.logTruncated) {
       const stream = createWriteStream(this.logFile, { flags: "a" });
       // Same rationale as the job store's console stream: an unhandled
       // 'error' on a diagnostics file must not crash the server process.
@@ -384,10 +406,23 @@ export class InferenceManager implements ChatProxy {
       const current = this.current;
       this.current = null;
       if (current && !current.dead) {
-        void stopChild(current.child);
+        // Tracked so closeAll can await it: if shutdown starts during this
+        // stop's SIGTERM grace period, the parent must not exit before the
+        // escalation fires and the child is actually gone.
+        this.trackStop(stopChild(current.child));
       }
     }, this.idleShutdownMs);
     this.idleTimer.unref();
+  }
+
+  /** In-flight child stops that closeAll must await before returning. */
+  private readonly pendingStops = new Set<Promise<void>>();
+
+  private trackStop(stop: Promise<void>): void {
+    this.pendingStops.add(stop);
+    void stop
+      .catch(() => undefined)
+      .finally(() => this.pendingStops.delete(stop));
   }
 
   // One refcounted process-exit reaper for the (single) inference child,

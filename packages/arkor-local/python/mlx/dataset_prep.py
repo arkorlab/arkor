@@ -199,7 +199,8 @@ def _load_blob(source: dict, log):
     # Redacted: pre-signed URLs commonly carry their credential in the
     # query string, and this line lands in the durable job console.
     redacted = urllib.parse.urlunparse(
-        (parsed.scheme, parsed.netloc, parsed.path, "", "", "")
+        # rsplit("@") also drops basic-auth userinfo from the logged form.
+        (parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", "", "")
     )
     suffix = " (query redacted)" if parsed.query else ""
     log(f"[arkor] downloading blob dataset from {redacted}{suffix}")
@@ -258,8 +259,8 @@ def _column(row, name: str):
     value = _optional_column(row, name)
     if value is None:
         raise DatasetPrepError(
-            f"dataset row is missing the {name!r} column "
-            "(set datasetFormat.columnMapping if your columns differ)"
+            f"dataset row is missing the {name!r} column, or its value is "
+            "null (set datasetFormat.columnMapping if your columns differ)"
         )
     return value
 

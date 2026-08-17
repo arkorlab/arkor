@@ -316,7 +316,11 @@ def _publish_dir(raw_dir: Path, weights: Path, target_dir: Path) -> None:
     Staged in a sibling temp directory and promoted with a rename so a
     concurrent checkpoint-inference request can never resolve a
     half-written directory: `adapter_config.json` only becomes visible
-    together with complete weights.
+    together with complete weights. Re-publishing over an existing target
+    removes it first, so there is a sub-millisecond window where a
+    concurrent request 404s; that clean miss is the accepted trade-off
+    (POSIX cannot atomically replace a non-empty directory) versus ever
+    serving truncated weights.
     """
     tmp_dir = target_dir.with_name(f".{target_dir.name}.tmp-{os.getpid()}")
     if tmp_dir.exists():

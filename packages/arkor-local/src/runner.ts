@@ -131,6 +131,9 @@ export class RunManager {
     }
     run.cancelRequested = true;
     this.signal(run.child, "SIGTERM");
+    // Repeated cancels must not stack SIGKILL timers: a stale timer firing
+    // after the child exits could (rarely) signal a recycled pid.
+    if (run.killTimer) clearTimeout(run.killTimer);
     run.killTimer = setTimeout(() => {
       this.signal(run.child, "SIGKILL");
     }, this.gracePeriodMs);
@@ -309,11 +312,14 @@ export class RunManager {
         await this.failJob(jobId, `trainer ${cause}; see ${consolePath}`);
       });
       // Chained behind the terminal task above, so `run.done` observers see
-      // the terminal event already recorded.
+      // the terminal event already recorded. finishRun is deferred into the
+      // same slot: removing the run from `live` while the terminal write is
+      // still queued would open a window where cancel() reports "no child"
+      // and the route terminalises a genuinely-completed run as cancelled.
       enqueue(async () => {
+        this.finishRun(jobId, run);
         run.resolveDone();
       });
-      this.finishRun(jobId, run);
     });
   }
 
@@ -352,24 +358,24 @@ export class RunManager {
       if (won) this.store.notifyEnded(jobId);
       return;
     }
-    if (await this.storeAlreadyTerminal(jobId)) {
-      // Someone else terminalised the record while this child was still
-      // running (a cancel that raced the exit, or a second server instance
-      // sharing `.arkor/local/`). Non-terminal events are dropped too: a
-      // late `started` would flip the status back to running (resurrecting
-      // a cancelled job and unlocking a second terminal from the exit
-      // synthesis), and log/checkpoint events would trail after the
-      // stream's `end`.
-      run.terminalRecorded = true;
-      return;
-    }
-    await this.store.appendEvent(jobId, streamEvent);
-    if (streamEvent.type === "training.started") {
-      await this.store.updateJob(jobId, (r) => {
-        r.job.status = "running";
-        r.job.startedAt = timestamp;
-      });
-    }
+    // Non-terminal events (started/log/checkpoint) go through the same
+    // record-queue guard as terminal transitions: someone else can
+    // terminalise the record while this child is still running (a cancel
+    // that raced the exit, or a second server instance sharing
+    // `.arkor/local/`), and a separate check-then-append here could
+    // interleave with that transition, landing a late `started` after the
+    // terminal event and flipping a cancelled record back to running.
+    const appended = await this.store.appendUnlessTerminal(
+      jobId,
+      streamEvent,
+      streamEvent.type === "training.started"
+        ? (r) => {
+            r.job.status = "running";
+            r.job.startedAt = timestamp;
+          }
+        : undefined,
+    );
+    if (!appended) run.terminalRecorded = true;
   }
 
   /**

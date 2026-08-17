@@ -236,6 +236,73 @@ describe("JobStore.transitionToTerminal", () => {
     expect(events[0]?.event.type).toBe("training.failed");
   });
 
+  it("recovers from a crash between event append and record write", async () => {
+    // Simulate a process that appended its terminal event and died before
+    // writing job.json: the next transition must converge the record to
+    // the persisted event instead of appending a second terminal.
+    const id = await createJob();
+    await store.appendEvent(id, {
+      type: "training.completed",
+      jobId: id,
+      timestamp: "2026-01-01T00:00:05Z",
+      artifacts: [],
+    });
+    const won = await store.transitionToTerminal(
+      id,
+      {
+        type: "training.failed",
+        jobId: id,
+        timestamp: "2026-01-01T00:00:06Z",
+        error: "interrupted",
+      },
+      (r) => {
+        r.job.status = "failed";
+        r.job.error = "interrupted";
+      },
+    );
+    expect(won).toBe(true);
+    const events = await store.replayAfter(id, 0);
+    expect(events.map((e) => e.event.type)).toEqual(["training.completed"]);
+    // The persisted completion outranks the caller's failed intent.
+    expect((await store.getJob(id))?.job.status).toBe("completed");
+  });
+
+  it("appendUnlessTerminal appends on live jobs and drops on terminal ones", async () => {
+    const id = await createJob();
+    const started = await store.appendUnlessTerminal(
+      id,
+      {
+        type: "training.started",
+        jobId: id,
+        timestamp: "2026-01-01T00:00:00Z",
+      },
+      (r) => {
+        r.job.status = "running";
+      },
+    );
+    expect(started).toBe(true);
+    expect((await store.getJob(id))?.job.status).toBe("running");
+    await store.updateJob(id, (r) => {
+      r.job.status = "cancelled";
+    });
+    // A late `started` after cancellation must be dropped, not appended
+    // (it would trail the terminal event and resurrect the record).
+    const late = await store.appendUnlessTerminal(
+      id,
+      {
+        type: "training.started",
+        jobId: id,
+        timestamp: "2026-01-01T00:00:01Z",
+      },
+      (r) => {
+        r.job.status = "running";
+      },
+    );
+    expect(late).toBe(false);
+    expect((await store.getJob(id))?.job.status).toBe("cancelled");
+    expect(await store.replayAfter(id, 0)).toHaveLength(1);
+  });
+
   it("returns false for unknown jobs and already-terminal jobs", async () => {
     expect(
       await store.transitionToTerminal(

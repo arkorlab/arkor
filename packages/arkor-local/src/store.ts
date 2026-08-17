@@ -242,12 +242,65 @@ export class JobStore {
     const task = state.recordQueue.then(async () => {
       const record = await this.getJob(jobId);
       if (!record || isTerminalStatus(record.job.status)) return false;
+      // Crash recovery: a previous transition (possibly in a crashed
+      // process) can have appended its terminal event and died before the
+      // record write. Appending a second terminal would break the
+      // one-terminal-per-job contract, so converge the RECORD to the
+      // already-persisted event instead: a completed tail keeps its
+      // completion; a failed tail takes this caller's terminal intent
+      // (status/error wording may differ from the persisted event's, which
+      // is cosmetic next to a duplicated terminal).
+      const events = await this.readEvents(jobId);
+      const tail = events.at(-1)?.event;
+      if (
+        tail &&
+        (tail.type === "training.completed" || tail.type === "training.failed")
+      ) {
+        if (tail.type === "training.completed") {
+          record.job.status = "completed";
+          record.job.completedAt = tail.timestamp;
+          record.pid = null;
+        } else {
+          mutate(record);
+        }
+        await this.writeRecord(record);
+        return true;
+      }
       // appendEvent chains on the separate per-job append queue; that
       // queue never waits on the record queue, so awaiting it from inside
       // this record-queue task cannot deadlock.
       await this.appendEvent(jobId, event);
       mutate(record);
       await this.writeRecord(record);
+      return true;
+    });
+    state.recordQueue = task.catch(() => undefined);
+    return task;
+  }
+
+  /**
+   * Append a NON-terminal event (and optionally update the record) iff the
+   * job is not already terminal, as one record-queue task. The runner's
+   * `started`/log/checkpoint handling uses this so a cancel-route terminal
+   * transition cannot interleave between its check and its writes: without
+   * it, a late `started` could land after the terminal event and flip a
+   * cancelled record back to running. Returns false when the job is
+   * terminal (or gone); the event is then dropped.
+   */
+  async appendUnlessTerminal(
+    jobId: string,
+    event: LocalStreamEvent,
+    mutate?: (record: JobRecord) => void,
+  ): Promise<boolean> {
+    const state = this.ensureRuntime(jobId);
+    const task = state.recordQueue.then(async () => {
+      const record = await this.getJob(jobId);
+      if (!record || isTerminalStatus(record.job.status)) return false;
+      await this.appendEvent(jobId, event);
+      if (mutate) {
+        mutate(record);
+        await this.writeRecord(record);
+      }
       return true;
     });
     state.recordQueue = task.catch(() => undefined);

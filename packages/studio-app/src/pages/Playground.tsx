@@ -53,7 +53,12 @@ export function Playground({
     fetchJobs()
       .then(({ jobs }) => {
         if (cancelled) return;
-        const completed = jobs.filter((j) => j.status === "completed");
+        // Dry-run jobs finish "completed" but produce no adapter (the
+        // config was validated, nothing was trained), so offering them
+        // here would only yield deterministic 404s from inference.
+        const completed = jobs.filter(
+          (j) => j.status === "completed" && j.config?.dryRun !== true,
+        );
         setJobs(completed);
         // Reconcile the current selection (which may have been seeded
         // from `initialAdapterId` via the URL) against what the server

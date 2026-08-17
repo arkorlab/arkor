@@ -388,7 +388,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
           >
             Back to jobs
           </Button>
-          {status === "completed" && (
+          {status === "completed" && job?.config?.dryRun !== true && (
             <Button
               variant="primary"
               size="sm"

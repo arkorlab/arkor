@@ -34,7 +34,7 @@ bun add -D @arkor/local
 
 </CodeGroup>
 
-3. トレーナーを MLX 向きのモデルに向けます。ローカルでは任意の HuggingFace id を受け付けますが、`mlx-community` の変換が最も相性が良く、`*-4bit` ビルドはメモリを抑えられます:
+3. トレーナーを MLX 向きのモデルに向けます。ローカルでは任意の HuggingFace id を受け付けますが、`mlx-community` の変換が最も相性が良く、`*-4bit` ビルドはメモリーを抑えられます:
 
 ```ts src/arkor/trainer.ts
 export const trainer = createTrainer({
@@ -68,7 +68,7 @@ bun start --local
 
 </CodeGroup>
 
-初回実行は Python 環境の解決とモデルのダウンロードが走るため時間がかかりますが、どちらも以降はキャッシュされます。進捗はクラウドと全く同じように `onLog` / `onCheckpoint` コールバックへストリームされ、完成した LoRA アダプタは `.arkor/local/jobs/<id>/adapters/final/` に置かれます。
+初回実行は Python 環境の解決とモデルのダウンロードが走るため時間がかかりますが、どちらも以降はキャッシュされます。進捗はクラウドと全く同じように `onLog` / `onCheckpoint` コールバックへストリームされ、完成した LoRA アダプターは `.arkor/local/jobs/<id>/adapters/final/` に置かれます。
 
 ## Studio で眺める
 
@@ -92,7 +92,7 @@ bun dev --local
 
 </CodeGroup>
 
-Studio はいつもどおり開きますが、すべてのクラウド呼び出しはプロセス内のローカルサーバーへ向き直っています: 識別チップは **local** と表示され、Run training はローカルジョブを開始し、ロスチャートはライブでストリームされ、Playground はローカルの `mlx_lm server` を通じて学習済みアダプタとチャットします。資格情報は作成されず、モデルとデータセットのダウンロード、そして CLI の通常の匿名利用テレメトリ (`DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` で無効化可能) 以外は何もマシンの外に出ません。
+Studio はいつもどおり開きますが、すべてのクラウド呼び出しはプロセス内のローカルサーバーへ向き直っています: 識別チップは **local** と表示され、Run training はローカルジョブを開始し、ロスチャートはライブでストリームされ、Playground はローカルの `mlx_lm server` を通じて学習済みアダプターとチャットします。資格情報は作成されず、モデルとデータセットのダウンロード、そして CLI の通常の匿名利用テレメトリ (`DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` で無効化可能) 以外は何もマシンーの外に出ません。
 
 ## 次に読む
 

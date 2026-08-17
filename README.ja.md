@@ -78,7 +78,7 @@ Arkor はその基盤の上に立っています。
 - [x] **エンドツーエンドで動く 3 つの厳選テンプレート。** `triage`、`translate`、`redaction` は同じ Gemma 4 ベースとパブリック HuggingFace データセットを組み合わせ、数分で完走します。
 - [x] **ダッシュボードではなくコードでトレーニングに反応。** ライフサイクルコールバック (`onStarted`、`onLog`、`onCheckpoint`、`onCompleted`、`onFailed`) は、クラウドからストリーミングされる実行に応じて、完全に型付けされた状態で発火します。
 - [x] **実行が終わる前にモデルを軽くチェック。** `onCheckpoint` の中から、トレーニング中のモデルに対して `infer({ messages })` を呼び出せます。
-- [x] **自分のマシンでトレーニングもチャットも。** `arkor start --local` / `arkor dev --local` は、オプトインの [`@arkor/local`](https://www.npmjs.com/package/@arkor/local) パッケージを通じて、同じトレーナーを Apple Silicon 上のローカル MLX バックエンドで実行します (チェックポイント推論も含む)。詳しくは[ローカルトレーニングガイド](https://docs.arkor.ai/ja/cli/local-training)へ。
+- [x] **自分のマシンーでトレーニングもチャットも。** `arkor start --local` / `arkor dev --local` は、オプトインの [`@arkor/local`](https://www.npmjs.com/package/@arkor/local) パッケージを通じて、同じトレーナーを Apple Silicon 上のローカル MLX バックエンドで実行します (チェックポイント推論も含む)。詳しくは[ローカルトレーニングガイド](https://docs.arkor.ai/ja/cli/local-training)へ。
 - [x] **ローカル Studio で実行を見守る。** `arkor dev` は、ジョブ一覧、ライブの loss チャート、ログテール、ファインチューニング済みモデルとチャットできる Playground を備えた UI を開きます。
 - [x] **アカウントなしで試す。** `arkor dev` はそのまま新しい匿名ワークスペースで起動します。アカウントに紐付けたい場合は `arkor login --oauth` で Arkor Cloud の OAuth (PKCE) フローを開始してください。
 
@@ -145,7 +145,7 @@ my-arkor-app/
 | `arkor login` / `arkor logout` / `arkor whoami`    | Arkor Cloud の OAuth (PKCE) / 匿名トークン                            |
 | `arkor dev`                                        | ローカル Studio Web UI を起動 (`--local` でローカルトレーニング)      |
 | `arkor build`                                      | `src/arkor/index.ts` を `.arkor/build/index.mjs` にバンドル           |
-| `arkor start`                                      | ビルド成果物を実行 (自動ビルド。`--local` でこのマシン上で学習)       |
+| `arkor start`                                      | ビルド成果物を実行 (自動ビルド。`--local` でこのマシンー上で学習)       |
 
 スキャフォールド済みプロジェクトでは `pnpm dev` が `arkor dev` に解決されるので、ほとんどのワークフローはそのコマンド 1 つの裏に収まります。
 

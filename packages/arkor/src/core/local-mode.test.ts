@@ -47,28 +47,26 @@ describe("readLocalMode", () => {
         [LOCAL_SERVER_URL_ENV]: "http://attacker.example:34567",
         [LOCAL_SERVER_TOKEN_ENV]: "token-1234567890abcdef",
       }),
-    ).toThrow(/loopback http URL/);
+    ).toThrow(/http:\/\/127\.0\.0\.1/);
   });
 
-  it("rejects a non-http scheme and unparsable URLs", () => {
-    for (const bad of ["https://127.0.0.1:34567", "not a url", "file:///x"]) {
+  it("rejects everything but the exact shape the CLI writes", () => {
+    // `localhost` can resolve to a non-loopback address via /etc/hosts and
+    // the local server never binds IPv6, so only http://127.0.0.1:<port>
+    // (what startLocalServer produces) passes.
+    for (const bad of [
+      "https://127.0.0.1:34567",
+      "http://localhost:4001",
+      "http://[::1]:4001",
+      "not a url",
+      "file:///x",
+    ]) {
       expect(() =>
         readLocalMode({
           [LOCAL_SERVER_URL_ENV]: bad,
           [LOCAL_SERVER_TOKEN_ENV]: "token-1234567890abcdef",
         }),
-      ).toThrow(/loopback http URL/);
-    }
-  });
-
-  it("accepts localhost and IPv6 loopback forms", () => {
-    for (const good of ["http://localhost:4001", "http://[::1]:4001"]) {
-      expect(
-        readLocalMode({
-          [LOCAL_SERVER_URL_ENV]: good,
-          [LOCAL_SERVER_TOKEN_ENV]: "token-1234567890abcdef",
-        })?.baseUrl,
-      ).toBe(good);
+      ).toThrow(/http:\/\/127\.0\.0\.1/);
     }
   });
 
