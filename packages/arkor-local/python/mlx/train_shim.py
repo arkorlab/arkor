@@ -289,14 +289,24 @@ def _make_callback(prepared, batch_size, raw_dir: Path, adapters_dir: Path):
                     continue
                 step = int(prefix)
                 step_dir = adapters_dir / f"step-{step}"
-                step_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(snapshot, step_dir / "adapters.safetensors")
-                config = raw_dir / "adapter_config.json"
-                if config.exists():
-                    shutil.copy2(config, step_dir / "adapter_config.json")
+                try:
+                    step_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(snapshot, step_dir / "adapters.safetensors")
+                    config = raw_dir / "adapter_config.json"
+                    if config.exists():
+                        shutil.copy2(config, step_dir / "adapter_config.json")
+                except OSError as error:
+                    # A transient copy failure (full disk) must not abort
+                    # the training run from inside the callback. Left out
+                    # of _published so the next report retries it.
+                    log(
+                        f"[arkor] failed to publish checkpoint {snapshot.name}: "
+                        f"{error}; will retry on the next report"
+                    )
+                    continue
                 # Marked published only after the copies succeed so a
-                # transient failure (full disk) retries on the next report
-                # instead of silently dropping the checkpoint forever.
+                # transient failure retries instead of silently dropping
+                # the checkpoint forever.
                 self._published.add(snapshot.name)
                 emit({"type": "checkpoint", "step": step, "adapterDir": str(step_dir)})
 

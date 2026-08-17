@@ -66,8 +66,13 @@ function isValidJobId(jobId: string): boolean {
 }
 
 /**
- * Signal a process group recorded by another server instance. Failures are
- * expected (already exited, recycled pid) and intentionally ignored.
+ * Signal a process group recorded by another server instance. Failures
+ * (already exited) are expected and intentionally ignored. Known residual
+ * risk shared by all pid-file tooling: if the recorded pid was recycled to
+ * an unrelated process of the same user, the SIGTERM reaches that process
+ * instead. The window is narrow (the owner's crash left a stale `running`
+ * record, and only until the next restart's reconcileOrphans terminalises
+ * it), and cancel is an explicit user action on a job claiming to run.
  */
 function killProcessGroupBestEffort(pid: number): void {
   try {

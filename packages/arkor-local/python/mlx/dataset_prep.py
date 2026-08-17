@@ -162,9 +162,12 @@ class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new_req is not None:
-            old_host = urllib.parse.urlparse(req.full_url).netloc
-            new_host = urllib.parse.urlparse(new_req.full_url).netloc
-            if old_host != new_host:
+            old_url = urllib.parse.urlparse(req.full_url)
+            new_url = urllib.parse.urlparse(new_req.full_url)
+            # Also strip on an https -> http downgrade of the SAME host:
+            # the token would otherwise continue in cleartext.
+            downgraded = old_url.scheme == "https" and new_url.scheme != "https"
+            if old_url.netloc != new_url.netloc or downgraded:
                 new_req.remove_header("Authorization")
         return new_req
 
