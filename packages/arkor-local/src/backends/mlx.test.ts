@@ -310,6 +310,23 @@ describe("mlxBackend.buildTrainRun", () => {
     expect(
       (optOut.runJson.train as Record<string, unknown>).datasetSplit,
     ).toEqual({ enabled: false, testSize: null, seed: null });
+    // A bare `{}` says nothing: same as omission, NOT an opt-out.
+    const empty = mlxBackend.buildTrainRun({
+      config: baseConfig({ datasetSplit: {} }),
+      paths: PATHS,
+    });
+    expect(
+      (empty.runJson.train as Record<string, unknown>).datasetSplit,
+    ).toEqual({ enabled: null, testSize: null, seed: null });
+    // A lone seed implies an intentional split; the auto path would
+    // silently ignore it (it uses a fixed seed).
+    const seedOnly = mlxBackend.buildTrainRun({
+      config: baseConfig({ datasetSplit: { seed: 7 } }),
+      paths: PATHS,
+    });
+    expect(
+      (seedOnly.runJson.train as Record<string, unknown>).datasetSplit,
+    ).toEqual({ enabled: true, testSize: null, seed: 7 });
   });
 
   it("defaults optimizer, schedule, and dataset format when unset", () => {

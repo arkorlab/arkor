@@ -497,7 +497,12 @@ function normaliseDatasetSplit(
     return new Error("datasetSplit.seed must be an integer");
   }
   return {
-    enabled: enabled ?? testSize !== undefined,
+    // Any explicit field implies an intentional split (their seed/testSize
+    // must actually be used, not silently ignored by the auto path); a
+    // bare `{}` says nothing and keeps the shim's automatic holdout, same
+    // as omitting datasetSplit entirely.
+    enabled:
+      enabled ?? (testSize !== undefined || seed !== undefined ? true : null),
     testSize: (testSize as number | undefined) ?? null,
     seed: (seed as number | undefined) ?? null,
   };
