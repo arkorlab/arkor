@@ -158,6 +158,40 @@ describe("mlxBackend.validateConfig", () => {
     }
   });
 
+  it("rejects non-numeric and non-positive training numbers", () => {
+    const result = mlxBackend.validateConfig(
+      baseConfig({
+        maxSteps: 0,
+        batchSize: -1,
+        loraR: 0,
+      }),
+    );
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) {
+      expect(result.errors.join("\n")).toContain("maxSteps");
+      expect(result.errors.join("\n")).toContain("batchSize");
+      expect(result.errors.join("\n")).toContain("loraR");
+    }
+  });
+
+  it("rejects non-boolean dryRun and loadIn4bit values", () => {
+    // A JS caller can pass an env-derived string; "false" must not become
+    // truthy in the shim (which would skip training yet report completed).
+    const result = mlxBackend.validateConfig(
+      baseConfig({
+        dryRun: "false" as unknown as boolean,
+        loadIn4bit: "yes" as unknown as boolean,
+      }),
+    );
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) {
+      expect(result.errors.join("\n")).toContain("dryRun must be a boolean");
+      expect(result.errors.join("\n")).toContain(
+        "loadIn4bit must be a boolean",
+      );
+    }
+  });
+
   it("accepts supported optimizers, schedules, and step shapes", () => {
     expect(
       mlxBackend.validateConfig(
@@ -257,6 +291,25 @@ describe("mlxBackend.buildTrainRun", () => {
     });
     // The 8-bit alias degraded to plain adamw and said so.
     expect(run.warnings.join("\n")).toContain('optim "adamw_8bit"');
+  });
+
+  it("keeps an omitted datasetSplit distinct from an explicit opt-out", () => {
+    // `enabled: null` tells the shim "the user said nothing", which keeps
+    // its automatic 10% validation holdout; an explicit false disables it.
+    const omitted = mlxBackend.buildTrainRun({
+      config: baseConfig(),
+      paths: PATHS,
+    });
+    expect(
+      (omitted.runJson.train as Record<string, unknown>).datasetSplit,
+    ).toEqual({ enabled: null, testSize: null, seed: null });
+    const optOut = mlxBackend.buildTrainRun({
+      config: baseConfig({ datasetSplit: { enabled: false } }),
+      paths: PATHS,
+    });
+    expect(
+      (optOut.runJson.train as Record<string, unknown>).datasetSplit,
+    ).toEqual({ enabled: false, testSize: null, seed: null });
   });
 
   it("defaults optimizer, schedule, and dataset format when unset", () => {

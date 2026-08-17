@@ -526,8 +526,10 @@ describe("chat route", () => {
       }),
     );
     expect(step.status).toBe(200);
-    // Step without its own dir falls back to final.
-    const fallback = await app.request(
+    // A step with no published directory is a clean 404, NOT a silent
+    // fallback to final/: serving different weights than the requested
+    // step would corrupt checkpoint comparisons.
+    const missingStep = await app.request(
       "/v1/inference/chat",
       authed({
         method: "POST",
@@ -537,7 +539,19 @@ describe("chat route", () => {
         }),
       }),
     );
-    expect(fallback.status).toBe(200);
+    expect(missingStep.status).toBe(404);
+    // No step: resolves the final adapter.
+    const finalRes = await app.request(
+      "/v1/inference/chat",
+      authed({
+        method: "POST",
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "hi" }],
+          adapter: { jobId: record.job.id },
+        }),
+      }),
+    );
+    expect(finalRes.status).toBe(200);
     expect(calls).toEqual([
       { model: "mlx-community/tiny", adapterPath: join(adapters, "step-5") },
       { model: "mlx-community/tiny", adapterPath: join(adapters, "final") },

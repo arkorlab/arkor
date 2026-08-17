@@ -104,8 +104,21 @@ export async function loadLocalRuntime(
   let manifestPath: string;
   try {
     manifestPath = resolveManifest(`${LOCAL_RUNTIME_PACKAGE}/package.json`);
-  } catch {
-    throw new LocalRuntimeNotInstalledError(cwd);
+  } catch (error) {
+    // Only a genuine "package absent" resolution maps to the install hint.
+    // Anything else (an export map that hides ./package.json, unreadable
+    // manifest) is a CORRUPT install; telling that user to `pnpm add` the
+    // package they already have would send them down the wrong path.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") {
+      throw new LocalRuntimeNotInstalledError(cwd);
+    }
+    throw new Error(
+      `failed to resolve ${LOCAL_RUNTIME_PACKAGE} from ${cwd}; the ` +
+        "installation looks corrupt. Reinstall it. " +
+        `(${error instanceof Error ? error.message : String(error)})`,
+      { cause: error },
+    );
   }
   const packageDir = dirname(manifestPath);
   let manifest: { exports?: { "."?: { import?: string } } };

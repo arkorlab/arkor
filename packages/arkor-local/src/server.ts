@@ -73,6 +73,9 @@ function isValidJobId(jobId: string): boolean {
  * instead. The window is narrow (the owner's crash left a stale `running`
  * record, and only until the next restart's reconcileOrphans terminalises
  * it), and cancel is an explicit user action on a job claiming to run.
+ * Deliberately SIGTERM-only, no SIGKILL escalation: the trainer handles
+ * SIGTERM, and escalating a signal aimed at a possibly-recycled pid would
+ * amplify the wrongful-kill blast radius for no reliability gain.
  */
 function killProcessGroupBestEffort(pid: number): void {
   try {
@@ -235,32 +238,39 @@ export function buildLocalApp(options: LocalAppOptions): Hono {
     const hadChild = await runManager.cancel(jobId);
     if (!hadChild) {
       // Queued but never spawned (or the child is already gone): terminate
-      // the record directly so the stream still ends. Re-read first: the
-      // child's exit synthesis can have terminalised the record between
-      // the status check above and cancel() returning false, and a second
-      // terminal event would break the one-terminal-per-job contract.
+      // the record directly so the stream still ends. transitionToTerminal
+      // runs its not-terminal check and both writes as one record-queue
+      // task, so the runner's exit synthesis cannot interleave a second
+      // terminal between a stale check here and the writes.
       const current = await store.getJob(jobId);
-      if (current && !isTerminalStatus(current.job.status)) {
+      const timestamp = new Date().toISOString();
+      const won = current
+        ? await store.transitionToTerminal(
+            jobId,
+            {
+              type: "training.failed",
+              jobId,
+              timestamp,
+              error: "Job cancelled",
+            },
+            (r) => {
+              r.job.status = "cancelled";
+              r.job.error = "Job cancelled";
+              r.job.completedAt = timestamp;
+              r.pid = null;
+            },
+          )
+        : false;
+      if (won) {
         // The record can also belong to ANOTHER server instance sharing
         // `.arkor/local/` (its RunManager holds the child, ours does not).
         // Best-effort signal its recorded process group so "cancelled"
         // actually stops the training instead of only relabelling it; the
         // runner-side terminal guards keep the owner from appending a
         // second terminal afterwards.
-        if (current.pid !== null) killProcessGroupBestEffort(current.pid);
-        const timestamp = new Date().toISOString();
-        await store.appendEvent(jobId, {
-          type: "training.failed",
-          jobId,
-          timestamp,
-          error: "Job cancelled",
-        });
-        await store.updateJob(jobId, (r) => {
-          r.job.status = "cancelled";
-          r.job.error = "Job cancelled";
-          r.job.completedAt = timestamp;
-          r.pid = null;
-        });
+        if (current && current.pid !== null) {
+          killProcessGroupBestEffort(current.pid);
+        }
         store.notifyEnded(jobId);
       } else {
         // The job ended on its own; the parked pre-spawn cancellation can
@@ -389,22 +399,20 @@ async function resolveAdapterDir(
   step: number | undefined,
 ): Promise<string | null> {
   const adaptersDir = join(store.jobDir(jobId), "adapters");
-  const candidates =
+  // An explicit step resolves ONLY its own `step-<N>/` directory. Silently
+  // substituting `final/` would hand the caller different weights than the
+  // step it asked for and corrupt checkpoint comparisons; a missing
+  // checkpoint is a clean 404 instead.
+  const candidate =
     step === undefined
-      ? [join(adaptersDir, "final")]
-      : [join(adaptersDir, `step-${String(step)}`), join(adaptersDir, "final")];
-  // `final` doubles as the fallback for step-addressed requests: at
-  // onCheckpoint time the latest weights ARE that checkpoint, and mlx-lm
-  // updates the final adapter in place as it saves.
-  for (const candidate of candidates) {
-    try {
-      await access(join(candidate, "adapter_config.json"));
-      return candidate;
-    } catch {
-      // keep looking
-    }
+      ? join(adaptersDir, "final")
+      : join(adaptersDir, `step-${String(step)}`);
+  try {
+    await access(join(candidate, "adapter_config.json"));
+    return candidate;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 function sseResponse(

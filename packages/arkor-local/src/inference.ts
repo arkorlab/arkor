@@ -30,6 +30,9 @@ interface LiveInferenceChild {
 }
 
 const DEFAULT_READINESS_TIMEOUT_MS = 10 * 60_000;
+/** Session cap for inference.log, same size as the per-job console cap. */
+const INFERENCE_LOG_BYTE_CAP = 5 * 1024 * 1024;
+
 const DEFAULT_IDLE_SHUTDOWN_MS = 10 * 60_000;
 const READINESS_POLL_INTERVAL_MS = 250;
 
@@ -62,6 +65,8 @@ export class InferenceManager implements ChatProxy {
   private ensureChain: Promise<unknown> = Promise.resolve();
   private idleTimer: NodeJS.Timeout | null = null;
   private logStream: WriteStream | null = null;
+  private logBytes = 0;
+  private logTruncated = false;
   /** Requests (including their streamed bodies) currently in flight. */
   private inFlight = 0;
 
@@ -215,12 +220,37 @@ export class InferenceManager implements ChatProxy {
     return new Response(upstream.body, { status: upstream.status, headers });
   }
 
+  /**
+   * Size-capped append to inference.log, mirroring the job store's console
+   * cap: the file persists across restarts in the project's `.arkor/local/`
+   * and a verbose or crash-looping `mlx_lm server` must not fill the disk.
+   * `this.logStream` is re-read per chunk because the stream's 'error'
+   * handler nulls it out.
+   */
+  private writeLog(chunk: Buffer): void {
+    const stream = this.logStream;
+    if (!stream || this.logTruncated) return;
+    const remaining = INFERENCE_LOG_BYTE_CAP - this.logBytes;
+    if (chunk.length >= remaining) {
+      this.logTruncated = true;
+      this.logStream = null;
+      if (remaining > 0) stream.write(chunk.subarray(0, remaining));
+      stream.end("\n[arkor] inference log truncated (size cap reached)\n");
+      return;
+    }
+    this.logBytes += chunk.length;
+    stream.write(chunk);
+  }
+
   /** Stop the child and cancel timers; used on server shutdown. */
   async closeAll(): Promise<void> {
     // Refuse new spawns first, then wait for any in-flight ensureChild:
-    // its child is assigned to `this.current` only after readiness, so
-    // snapshotting without the wait could miss a child mid-spawn, orphan
-    // it, and detach the very exit reaper that would have killed it.
+    // snapshotting `this.current` without the wait could miss a child
+    // mid-spawn, orphan it, and detach the very exit reaper that would
+    // have killed it. The wait is short even when a model is still
+    // downloading: waitForPort polls `closed` and abandons the readiness
+    // wait (its catch then stops that child), so shutdown is bounded by
+    // one poll interval, not the 10-minute readiness timeout.
     this.closed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
@@ -296,7 +326,7 @@ export class InferenceManager implements ChatProxy {
       detached: process.platform !== "win32",
     });
     this.attachReaper(child);
-    if (!this.logStream) {
+    if (!this.logStream && !this.logTruncated) {
       const stream = createWriteStream(this.logFile, { flags: "a" });
       // Same rationale as the job store's console stream: an unhandled
       // 'error' on a diagnostics file must not crash the server process.
@@ -305,11 +335,12 @@ export class InferenceManager implements ChatProxy {
       });
       this.logStream = stream;
     }
-    // Re-read `this.logStream` on every chunk: the 'error' handler above
-    // nulls it out, and a captured reference would keep writing into a
-    // destroyed stream.
-    child.stdout.on("data", (chunk: Buffer) => this.logStream?.write(chunk));
-    child.stderr.on("data", (chunk: Buffer) => this.logStream?.write(chunk));
+    child.stdout.on("data", (chunk: Buffer) => {
+      this.writeLog(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      this.writeLog(chunk);
+    });
 
     const live: LiveInferenceChild = {
       key,
@@ -333,6 +364,7 @@ export class InferenceManager implements ChatProxy {
       port,
       timeoutMs: this.readinessTimeoutMs,
       isDead: () => live.dead,
+      isShuttingDown: () => this.closed,
     }).catch(async (error: unknown) => {
       // The child never became reachable; make sure it is gone and surface
       // the log path to the caller.
@@ -441,9 +473,16 @@ async function waitForPort(args: {
   port: number;
   timeoutMs: number;
   isDead: () => boolean;
+  /** Polled each round; lets shutdown abandon a minutes-long warmup wait. */
+  isShuttingDown: () => boolean;
 }): Promise<void> {
   const deadline = Date.now() + args.timeoutMs;
   for (;;) {
+    if (args.isShuttingDown()) {
+      throw new Error(
+        "the local inference manager shut down before the server became ready",
+      );
+    }
     if (args.isDead()) {
       throw new Error("inference server exited before becoming ready");
     }
@@ -483,19 +522,28 @@ async function abortable<T>(
   // later; mark that branch handled so it cannot become an unhandled
   // rejection.
   promise.catch(() => undefined);
-  return Promise.race([
-    promise,
-    new Promise<never>((_resolve, reject) => {
-      signal.addEventListener(
-        "abort",
-        () => {
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
-          reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    // The listener is removed as soon as the promise settles so repeated
+    // waits against a longer-lived signal cannot accumulate listeners.
+    void promise
+      .then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+          return undefined;
         },
-        { once: true },
-      );
-    }),
-  ]);
+        (error: unknown) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        },
+      )
+      .catch(() => undefined);
+  });
 }
 
 function killGroup(child: ChildProcess, sig: NodeJS.Signals): void {

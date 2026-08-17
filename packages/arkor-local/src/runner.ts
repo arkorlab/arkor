@@ -281,11 +281,9 @@ export class RunManager {
       enqueue(async () => {
         if (run.terminalRecorded) return;
         run.terminalRecorded = true;
-        // The record can already be terminal when a pre-spawn cancel
-        // terminalised it and the belt path in startRun killed this child
-        // afterwards; synthesising a second terminal event would corrupt
-        // the stream contract (exactly one terminal per job).
-        if (await this.storeAlreadyTerminal(jobId)) return;
+        // No separate already-terminal pre-check: failJob's atomic
+        // transition backs off when a pre-spawn cancel (or any other
+        // writer) terminalised the record first.
         if (run.cancelRequested) {
           await this.failJob(jobId, "Job cancelled", "cancelled");
           return;
@@ -330,73 +328,71 @@ export class RunManager {
     if (run.terminalRecorded) return;
     const timestamp = new Date().toISOString();
     const streamEvent = toStreamEvent(event, jobId, timestamp);
+    if (
+      streamEvent.type === "training.completed" ||
+      streamEvent.type === "training.failed"
+    ) {
+      // Terminal transitions go through the store's atomic primitive: the
+      // check and both writes share one record-queue task, so the cancel
+      // route's no-child terminalisation cannot interleave between a
+      // passed check here and the writes (one-terminal-per-job contract).
+      run.terminalRecorded = true;
+      const failed =
+        streamEvent.type === "training.failed" ? streamEvent : null;
+      const won = await this.store.transitionToTerminal(
+        jobId,
+        streamEvent,
+        (r) => {
+          r.job.status = failed ? "failed" : "completed";
+          if (failed) r.job.error = failed.error;
+          r.job.completedAt = timestamp;
+          r.pid = null;
+        },
+      );
+      if (won) this.store.notifyEnded(jobId);
+      return;
+    }
     if (await this.storeAlreadyTerminal(jobId)) {
       // Someone else terminalised the record while this child was still
       // running (a cancel that raced the exit, or a second server instance
-      // sharing `.arkor/local/`). Every event type is dropped, not just the
-      // terminal ones: appending another terminal would violate the
-      // one-terminal-per-job contract, a late `started` would flip the
-      // status back to running (resurrecting a cancelled job and unlocking
-      // a second terminal from the exit synthesis), and log/checkpoint
-      // events would trail after the stream's `end`.
+      // sharing `.arkor/local/`). Non-terminal events are dropped too: a
+      // late `started` would flip the status back to running (resurrecting
+      // a cancelled job and unlocking a second terminal from the exit
+      // synthesis), and log/checkpoint events would trail after the
+      // stream's `end`.
       run.terminalRecorded = true;
       return;
     }
     await this.store.appendEvent(jobId, streamEvent);
-    switch (streamEvent.type) {
-      case "training.started": {
-        await this.store.updateJob(jobId, (r) => {
-          r.job.status = "running";
-          r.job.startedAt = timestamp;
-        });
-        break;
-      }
-      case "training.completed": {
-        run.terminalRecorded = true;
-        await this.store.updateJob(jobId, (r) => {
-          r.job.status = "completed";
-          r.job.completedAt = timestamp;
-          r.pid = null;
-        });
-        this.store.notifyEnded(jobId);
-        break;
-      }
-      case "training.failed": {
-        run.terminalRecorded = true;
-        await this.store.updateJob(jobId, (r) => {
-          r.job.status = "failed";
-          r.job.error = streamEvent.error;
-          r.job.completedAt = timestamp;
-          r.pid = null;
-        });
-        this.store.notifyEnded(jobId);
-        break;
-      }
-      default:
-        break;
+    if (streamEvent.type === "training.started") {
+      await this.store.updateJob(jobId, (r) => {
+        r.job.status = "running";
+        r.job.startedAt = timestamp;
+      });
     }
   }
 
-  /** Append a `training.failed` and set the job's terminal status. */
+  /**
+   * Append a `training.failed` and set the job's terminal status, atomically
+   * against every other in-process terminal writer (no-op if one won).
+   */
   private async failJob(
     jobId: string,
     error: string,
     status: "failed" | "cancelled" = "failed",
   ): Promise<void> {
     const timestamp = new Date().toISOString();
-    await this.store.appendEvent(jobId, {
-      type: "training.failed",
+    const won = await this.store.transitionToTerminal(
       jobId,
-      timestamp,
-      error,
-    });
-    await this.store.updateJob(jobId, (r) => {
-      r.job.status = status;
-      r.job.error = error;
-      r.job.completedAt = timestamp;
-      r.pid = null;
-    });
-    this.store.notifyEnded(jobId);
+      { type: "training.failed", jobId, timestamp, error },
+      (r) => {
+        r.job.status = status;
+        r.job.error = error;
+        r.job.completedAt = timestamp;
+        r.pid = null;
+      },
+    );
+    if (won) this.store.notifyEnded(jobId);
   }
 
   /**
@@ -404,7 +400,6 @@ export class RunManager {
    * failed). Distinct from failJob so callers without a LiveRun can use it.
    */
   private async recordFailure(jobId: string, error: string): Promise<void> {
-    if (await this.storeAlreadyTerminal(jobId)) return;
     await this.failJob(jobId, error);
   }
 

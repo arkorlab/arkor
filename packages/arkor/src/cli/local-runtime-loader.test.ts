@@ -80,6 +80,21 @@ export function createLocalRuntime() {
     });
   });
 
+  it("does not misreport non-resolution failures as not-installed", async () => {
+    // An export map hiding ./package.json (or an unreadable manifest)
+    // resolves with a DIFFERENT error code; telling that user to install
+    // the package they already have would be the wrong remediation.
+    const promise = loadLocalRuntime(cwd, () => {
+      throw Object.assign(new Error("no exported subpath"), {
+        code: "ERR_PACKAGE_PATH_NOT_EXPORTED",
+      });
+    });
+    await expect(promise).rejects.toThrow(/installation looks corrupt/);
+    await expect(promise).rejects.not.toBeInstanceOf(
+      LocalRuntimeNotInstalledError,
+    );
+  });
+
   it("treats a manifest without an ESM entry as a corrupt install", async () => {
     installFakeRuntime("export const LOCAL_RUNTIME_PROTOCOL_VERSION = 1;\n");
     const pkgDir = join(cwd, "node_modules", "@arkor", "local");

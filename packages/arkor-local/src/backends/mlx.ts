@@ -131,6 +131,19 @@ export const mlxBackend: LocalTrainingBackend = {
       if (!valid) errors.push(`${field} must be a ${kind}`);
     }
 
+    // Boolean flags: a JS caller passing an env-derived string such as
+    // "false" must not silently become truthy in the shim (a "false" dryRun
+    // would skip training and still report the job completed).
+    for (const [field, value] of [
+      ["dryRun", config.dryRun],
+      ["loadIn4bit", config.loadIn4bit],
+    ] as const) {
+      if (absent(value)) continue;
+      if (typeof value !== "boolean") {
+        errors.push(`${field} must be a boolean`);
+      }
+    }
+
     const source = validateDatasetSource(config.datasetSource);
     if (source instanceof Error) errors.push(source.message);
 
@@ -447,9 +460,16 @@ function normaliseSteps(
 
 function normaliseDatasetSplit(
   value: unknown,
-): { enabled: boolean; testSize: number | null; seed: number | null } | Error {
+):
+  | { enabled: boolean | null; testSize: number | null; seed: number | null }
+  | Error {
   if (value === undefined) {
-    return { enabled: false, testSize: null, seed: null };
+    // `enabled: null` (NOT false) so the shim can tell "the user said
+    // nothing" from an explicit `{ enabled: false }` opt-out: omission
+    // keeps the shim's automatic 10% validation holdout, false disables
+    // it. Collapsing both to false would silently kill eval for every
+    // default-config run.
+    return { enabled: null, testSize: null, seed: null };
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return new Error(

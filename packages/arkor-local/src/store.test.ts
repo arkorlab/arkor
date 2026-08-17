@@ -204,6 +204,71 @@ describe("JobStore console log", () => {
   });
 });
 
+describe("JobStore.transitionToTerminal", () => {
+  it("lets exactly one of two concurrent terminal writers win", async () => {
+    // The runner's exit synthesis and the cancel route can race; the
+    // primitive serialises check+append+update on the record queue so the
+    // one-terminal-per-job contract holds without caller-side re-reads.
+    const id = await createJob();
+    const event = (error: string) =>
+      ({
+        type: "training.failed",
+        jobId: id,
+        timestamp: "2026-01-01T00:00:00Z",
+        error,
+      }) as const;
+    const [first, second] = await Promise.all([
+      store.transitionToTerminal(id, event("Job cancelled"), (r) => {
+        r.job.status = "cancelled";
+        r.job.error = "Job cancelled";
+      }),
+      store.transitionToTerminal(id, event("trainer exited"), (r) => {
+        r.job.status = "failed";
+        r.job.error = "trainer exited";
+      }),
+    ]);
+    expect([first, second].toSorted()).toEqual([false, true]);
+    const events = await store.replayAfter(id, 0);
+    expect(events).toHaveLength(1);
+    const record = await store.getJob(id);
+    // The stored status matches whichever writer won.
+    expect(["cancelled", "failed"]).toContain(record?.job.status);
+    expect(events[0]?.event.type).toBe("training.failed");
+  });
+
+  it("returns false for unknown jobs and already-terminal jobs", async () => {
+    expect(
+      await store.transitionToTerminal(
+        "00000000-0000-0000-0000-000000000000",
+        {
+          type: "training.failed",
+          jobId: "00000000-0000-0000-0000-000000000000",
+          timestamp: "2026-01-01T00:00:00Z",
+          error: "x",
+        },
+        () => undefined,
+      ),
+    ).toBe(false);
+    const id = await createJob();
+    await store.updateJob(id, (r) => {
+      r.job.status = "completed";
+    });
+    expect(
+      await store.transitionToTerminal(
+        id,
+        {
+          type: "training.failed",
+          jobId: id,
+          timestamp: "2026-01-01T00:00:00Z",
+          error: "x",
+        },
+        () => undefined,
+      ),
+    ).toBe(false);
+    expect(await store.replayAfter(id, 0)).toHaveLength(0);
+  });
+});
+
 describe("JobStore.reconcileOrphans", () => {
   it("fails running jobs whose pid is gone and leaves live pids alone", async () => {
     // A real "spawn then reap" dead pid flakes on Windows CI: the OS

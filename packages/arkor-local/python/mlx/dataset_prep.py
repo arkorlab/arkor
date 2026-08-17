@@ -14,6 +14,7 @@ package and executed by uv at run time; it is never an npm dependency.
 from __future__ import annotations
 
 import json
+import os
 import random
 import urllib.parse
 import urllib.request
@@ -37,6 +38,10 @@ def prepare_data(run: dict, log) -> dict:
     dry_run = bool(run["train"].get("dryRun"))
     data_dir = Path(run["paths"]["dataDir"])
     data_dir.mkdir(parents=True, exist_ok=True)
+    # Owner-only, matching the 0600 job.json/run.json writes: the prepared
+    # rows are the user's private training data and must not be readable by
+    # other accounts in a shared project or CI workspace.
+    os.chmod(data_dir, 0o700)
 
     train_rows, valid_rows = _load_rows(source, log)
 
@@ -191,7 +196,13 @@ def _load_blob(source: dict, log):
             "refusing to send the blob dataset token over plain http to a "
             "non-loopback host; use an https URL"
         )
-    log(f"[arkor] downloading blob dataset from {url}")
+    # Redacted: pre-signed URLs commonly carry their credential in the
+    # query string, and this line lands in the durable job console.
+    redacted = urllib.parse.urlunparse(
+        (parsed.scheme, parsed.netloc, parsed.path, "", "", "")
+    )
+    suffix = " (query redacted)" if parsed.query else ""
+    log(f"[arkor] downloading blob dataset from {redacted}{suffix}")
     request = urllib.request.Request(url)
     if token:
         request.add_header("Authorization", f"Bearer {token}")
@@ -331,6 +342,8 @@ def _split(examples: list, test_size: float, seed: int):
 
 
 def _write_jsonl(path: Path, examples: list) -> None:
-    with path.open("w", encoding="utf-8") as handle:
+    # 0600 for the same reason the data dir is 0700 (private training rows).
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
         for example in examples:
             handle.write(json.dumps(example, ensure_ascii=False) + "\n")

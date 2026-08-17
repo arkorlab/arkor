@@ -148,6 +148,28 @@ describe("InferenceManager", () => {
     expect(error).toContain("inference.log");
   });
 
+  it("closeAll during a warming child returns promptly and kills it", async () => {
+    // Shutdown must not sit out the (potentially 10-minute) readiness
+    // wait: waitForPort polls the closed flag and abandons the warmup.
+    const { manager: m, spawned } = makeManager(
+      fakeServerBackend(["--never-listen"]),
+      { readinessTimeoutMs: 60_000 },
+    );
+    const pending = m.handleChat(CHAT_ARGS);
+    // Let the spawn land before shutting down.
+    await waitFor(() => spawned.length === 1);
+    const started = Date.now();
+    await m.closeAll();
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const res = await pending;
+    expect(res.status).toBe(502);
+    await waitFor(() =>
+      spawned.every(
+        (child) => child.exitCode !== null || child.signalCode !== null,
+      ),
+    );
+  });
+
   it("returns 499 when the requester aborted", async () => {
     const { manager: m } = makeManager(fakeServerBackend());
     const controller = new AbortController();

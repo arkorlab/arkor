@@ -222,6 +222,39 @@ export class JobStore {
   }
 
   /**
+   * Atomically record a job's terminal transition: append the terminal
+   * stream event and update the record, iff the job is not already
+   * terminal. The check and both writes run as ONE task on the per-job
+   * record queue, so concurrent in-process writers (the runner's exit
+   * synthesis, the cancel route, reconcileOrphans) cannot each pass a
+   * separate check-then-write; exactly one wins and the rest observe
+   * `false`. Writers in OTHER processes sharing `.arkor/local/` still
+   * race (documented limitation of the shared-store setup).
+   *
+   * The caller owns the follow-up `notifyEnded` (only when `true`).
+   */
+  async transitionToTerminal(
+    jobId: string,
+    event: LocalStreamEvent,
+    mutate: (record: JobRecord) => void,
+  ): Promise<boolean> {
+    const state = this.ensureRuntime(jobId);
+    const task = state.recordQueue.then(async () => {
+      const record = await this.getJob(jobId);
+      if (!record || isTerminalStatus(record.job.status)) return false;
+      // appendEvent chains on the separate per-job append queue; that
+      // queue never waits on the record queue, so awaiting it from inside
+      // this record-queue task cannot deadlock.
+      await this.appendEvent(jobId, event);
+      mutate(record);
+      await this.writeRecord(record);
+      return true;
+    });
+    state.recordQueue = task.catch(() => undefined);
+    return task;
+  }
+
+  /**
    * Append an event to the job's log and fan it out to live subscribers.
    * Returns the sequence id (the SSE `id:` field). Failures propagate: a
    * job whose history cannot be written must fail loudly, not silently
@@ -376,27 +409,24 @@ export class JobStore {
         const age = Date.now() - Date.parse(record.job.createdAt);
         if (!(Number.isFinite(age) && age > PRE_SPAWN_GRACE_MS)) continue;
       }
-      // Re-read right before writing: the owning instance can complete or
-      // cancel the job while this loop is mid-flight, and overwriting a
-      // fresh terminal status with `failed` would corrupt the record.
-      const current = await this.getJob(job.id);
-      if (!current || isTerminalStatus(current.job.status)) continue;
+      // transitionToTerminal re-reads inside the record queue, so an
+      // in-process writer (this instance's own runner or cancel route)
+      // that terminalised the job while this loop was mid-flight wins and
+      // this pass backs off.
       const timestamp = new Date().toISOString();
       const error =
         "Training was interrupted (local server or trainer process exited)";
-      await this.appendEvent(job.id, {
-        type: "training.failed",
-        jobId: job.id,
-        timestamp,
-        error,
-      });
-      await this.updateJob(job.id, (r) => {
-        r.job.status = "failed";
-        r.job.error = error;
-        r.job.completedAt = timestamp;
-        r.pid = null;
-      });
-      this.notifyEnded(job.id);
+      const won = await this.transitionToTerminal(
+        job.id,
+        { type: "training.failed", jobId: job.id, timestamp, error },
+        (r) => {
+          r.job.status = "failed";
+          r.job.error = error;
+          r.job.completedAt = timestamp;
+          r.pid = null;
+        },
+      );
+      if (won) this.notifyEnded(job.id);
     }
   }
 

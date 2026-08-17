@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import shutil
 import sys
 import types
@@ -290,11 +291,7 @@ def _make_callback(prepared, batch_size, raw_dir: Path, adapters_dir: Path):
                 step = int(prefix)
                 step_dir = adapters_dir / f"step-{step}"
                 try:
-                    step_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(snapshot, step_dir / "adapters.safetensors")
-                    config = raw_dir / "adapter_config.json"
-                    if config.exists():
-                        shutil.copy2(config, step_dir / "adapter_config.json")
+                    _publish_dir(raw_dir, snapshot, step_dir)
                 except OSError as error:
                     # A transient copy failure (full disk) must not abort
                     # the training run from inside the callback. Left out
@@ -313,17 +310,40 @@ def _make_callback(prepared, batch_size, raw_dir: Path, adapters_dir: Path):
     return ArkorCallback()
 
 
+def _publish_dir(raw_dir: Path, weights: Path, target_dir: Path) -> None:
+    """Copy an adapter (weights + config) into ``target_dir`` atomically.
+
+    Staged in a sibling temp directory and promoted with a rename so a
+    concurrent checkpoint-inference request can never resolve a
+    half-written directory: `adapter_config.json` only becomes visible
+    together with complete weights.
+    """
+    tmp_dir = target_dir.with_name(f".{target_dir.name}.tmp-{os.getpid()}")
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir(parents=True)
+    try:
+        shutil.copy2(weights, tmp_dir / "adapters.safetensors")
+        config = raw_dir / "adapter_config.json"
+        if config.exists():
+            shutil.copy2(config, tmp_dir / "adapter_config.json")
+        # A previous partial attempt (or an idempotent re-publish) may have
+        # left the target behind; replace it wholesale.
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        tmp_dir.rename(target_dir)
+    except OSError:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+
+
 def _publish_adapter(raw_dir: Path, final_dir: Path) -> Path:
     weights = raw_dir / "adapters.safetensors"
     if not weights.exists():
         raise RuntimeError(
             f"training finished but no adapter weights were written to {raw_dir}"
         )
-    final_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(weights, final_dir / "adapters.safetensors")
-    config = raw_dir / "adapter_config.json"
-    if config.exists():
-        shutil.copy2(config, final_dir / "adapter_config.json")
+    _publish_dir(raw_dir, weights, final_dir)
     return final_dir
 
 
