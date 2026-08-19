@@ -37,8 +37,8 @@ try {
     process.exitCode = 1;
   } else {
     console.error(
-      err instanceof Error ? err : String(err),
-    );
+  err instanceof Error ? (err.stack ?? err.message) : String(err),
+);
     process.exitCode = 1;
   }
 }

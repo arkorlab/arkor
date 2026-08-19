@@ -57,13 +57,15 @@ export async function runTrainer(file?: string): Promise<void> {
 
   let mod: Record<string, unknown>;
 
-  try {
-    mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
-  } catch (error) {
-    throw new Error(`Failed to load training entry: ${abs}`, {
-      cause: error,
-    });
-  }
+try {
+  mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
+} catch (error) {
+  const causeMessage = error instanceof Error ? (error.stack ?? error.message) : String(error);
+
+  throw new Error(`Failed to load training entry: ${abs}\n${causeMessage}`, {
+    cause: error,
+  });
+}
 
   const trainer = extractTrainer(mod);
 
