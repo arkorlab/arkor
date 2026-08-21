@@ -67,6 +67,8 @@ The loss chart is an SVG plot drawn from `training.log` events. It uses min-max 
 
 Hovering shows the nearest step and whichever of `loss` / `evalLoss` are present at that step (eval-only steps don't show a `loss` value, and vice-versa). The chart shows the `Waiting for training.log events…` placeholder until at least one event with a numeric `loss` or `evalLoss` arrives; `training.log` frames where both fields are null/omitted don't count.
 
+The chart keeps at most 2,000 points per job. Once a run exceeds that, older points are compacted rather than dropped, so the shape of the whole run, including its start, stays visible at coarser resolution instead of the chart silently losing its earliest data. The first and last points, every point carrying a numeric `evalLoss`, and local loss spikes are prioritized to survive compaction.
+
 ### Advanced metrics
 
 The **Advanced** toggle in the chart's header reveals a per-series statistics panel. Each card reports:
@@ -76,6 +78,8 @@ The **Advanced** toggle in the chart's header reveals a per-series statistics pa
 - **p90** and **p95**: linearly interpolated percentiles, matching numpy's default convention.
 
 The eval card stays empty until a `training.log` event with a numeric `evalLoss` arrives.
+
+Once a run has exceeded the 2,000-point cap and the chart has compacted at least once, the training-loss statistics above describe the shape of what's currently retained rather than a strictly unbiased sample of the full run, since compaction favors keeping spikes over ordinary points. Eval-loss statistics are unaffected in the common case, since `evalLoss` points are kept in full unless that series alone exceeds the cap.
 
 ## Things this page does not do
 

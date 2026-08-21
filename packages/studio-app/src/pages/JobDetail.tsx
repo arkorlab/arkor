@@ -226,6 +226,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
         // long runs stays visible instead of being silently dropped
         // (see #215). Subsequent frames keep appending until the cap
         // is hit again, at which point we compact again.
+        //
+        // Known tradeoff: this same (possibly compacted) array feeds
+        // both the visual chart and LossChart's "Advanced" panel
+        // stats (mean / variance / percentiles / CI over `loss`,
+        // computed by `summarize()`). Because compaction intentionally
+        // over-represents local extrema relative to their true
+        // frequency, those loss stats describe the retained/visible
+        // points once compaction has run at least once, not an
+        // unbiased sample of the full run; read them as "shape of
+        // what's shown" rather than a rigorous full-run estimate.
+        // `evalLoss`-based stats are unaffected in the common case,
+        // since `compactLossPoints` keeps every finite `evalLoss`
+        // point unless that series alone would overflow the target
+        // size. A precise fix (tracking running mean/variance/
+        // percentiles independently of the necessarily-bounded visual
+        // sample) is a larger, separate change than this fix's scope.
         setPoints((prev) => {
           const next = [
             ...prev,

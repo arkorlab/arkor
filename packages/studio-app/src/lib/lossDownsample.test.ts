@@ -116,13 +116,35 @@ describe("compactLossPoints", () => {
   });
 
   it("treats loss values separated by null-loss frames as still adjacent for extrema detection", () => {
+    // targetSize is large enough for both the evalLoss point (step 1)
+    // and the extremum (step 2) to fit without competing for the same
+    // slot; see the priority-tier test below for that competing case.
     const points = [
       point(0, 1),
       point(1, null, 0.5), // no loss, only evalLoss
       point(2, 5), // local max relative to steps 0 and 3
       point(3, 1),
+      point(4, 1),
+      point(5, 1),
     ];
-    const result = compactLossPoints(points, 3);
+    const result = compactLossPoints(points, 5);
     expect(result.some((p) => p.step === 2 && p.loss === 5)).toBe(true);
+  });
+
+  it("prioritizes a sparse evalLoss point over extrema when both compete for a constrained budget", () => {
+    // A genuinely alternating loss series makes nearly every interior
+    // point a strict local min or max, so the extrema set alone can
+    // vastly exceed a small targetSize. A single evalLoss point placed
+    // away from any position an even-sample over the combined
+    // (boundary + evalLoss + extrema) set would naturally land on
+    // would be silently dropped if evalLoss and extrema were sampled
+    // together with equal priority. This must not happen: evalLoss is
+    // documented as always surviving unless it alone overflows the
+    // budget, which a single point never does.
+    const points = Array.from({ length: 21 }, (_, i) =>
+      i === 7 ? point(i, i % 2, 0.5) : point(i, i % 2),
+    );
+    const result = compactLossPoints(points, 5);
+    expect(result.some((p) => p.step === 7 && p.evalLoss === 0.5)).toBe(true);
   });
 });

@@ -2,19 +2,39 @@ import type { LossPoint } from "../components/jobs/LossChart";
 
 /**
  * Compacts `points` down to at most `targetSize` representatives while
- * preserving:
- *  - the first and last point (run boundaries)
- *  - every point carrying a finite `evalLoss` (that series is sparse
- *    relative to `loss`, so keeping all of it is cheap)
- *  - local minima/maxima of the `loss` series (so visible spikes
- *    survive compaction)
- * Remaining budget is filled with evenly-spaced points from what's
- * left, so the overall shape of the run stays visible at coarser
- * resolution.
+ * preserving, in strict priority order (each tier only yields budget to
+ * the next once it's satisfied):
+ *  1. the first and last point (run boundaries)
+ *  2. every point carrying a finite `evalLoss` (that series is sparse
+ *     relative to `loss`, so keeping all of it is normally cheap; it is
+ *     only sampled down if it alone would exceed the remaining budget,
+ *     which should be rare given how sparse it typically is)
+ *  3. local minima/maxima of the `loss` series (so visible spikes
+ *     survive compaction), sampled down if they don't fit
+ *  4. remaining budget filled with evenly-spaced points from what's
+ *     left, so the overall shape of the run stays visible at coarser
+ *     resolution
+ *
+ * The strict tiering matters: without it, a run with frequent extrema
+ * (spiky loss) could crowd out the sparse `evalLoss` series in an
+ * even-sample over the combined must-keep set, breaking the promise
+ * that `evalLoss` survives compaction.
  *
  * Output is always a subsequence of the input in original order, so
  * callers relying on the array staying sorted by `step` (e.g.
  * `LossChart`'s binary-search tooltip) are unaffected.
+ *
+ * Known limitation: when the extrema set itself exceeds the remaining
+ * budget (tier 3), the excess is stride-sampled by position, the same
+ * as the generic filler tier, rather than bucketed to preserve the
+ * frequency of oscillation. For a genuinely high-frequency oscillating
+ * series (rapid alternation, not just noisy-but-trending loss), this
+ * can produce runs of same-parity samples that visually read as a
+ * smoother or more settled curve than the underlying data actually
+ * was. A bucketed min/max scheme for this tier specifically would be
+ * a further improvement; not attempted here since it's a distinct,
+ * more involved change from fixing the tail-truncation and
+ * evalLoss-priority issues this module addresses.
  */
 export function compactLossPoints(
   points: LossPoint[],
@@ -27,11 +47,13 @@ export function compactLossPoints(
     return last ? [last] : [];
   }
 
-  const mustKeep = new Set<number>([0, points.length - 1]);
+  const boundaryIndices = new Set<number>([0, points.length - 1]);
 
+  const evalLossIndices: number[] = [];
   for (const [i, point] of points.entries()) {
+    if (boundaryIndices.has(i)) continue;
     const e = point.evalLoss;
-    if (typeof e === "number" && Number.isFinite(e)) mustKeep.add(i);
+    if (typeof e === "number" && Number.isFinite(e)) evalLossIndices.push(i);
   }
 
   // Local minima/maxima of the `loss` series, compared across the
@@ -41,9 +63,12 @@ export function compactLossPoints(
   for (const [i, point] of points.entries()) {
     if (point.loss !== null) lossIndices.push(i);
   }
+  const extremaIndices: number[] = [];
   for (let k = 1; k < lossIndices.length - 1; k++) {
+    const idx = lossIndices[k];
+    if (boundaryIndices.has(idx)) continue;
     const prev = points[lossIndices[k - 1]].loss;
-    const cur = points[lossIndices[k]].loss;
+    const cur = points[idx].loss;
     const next = points[lossIndices[k + 1]].loss;
     // `lossIndices` only holds indices where `loss !== null`, so this
     // is unreachable; the guard just keeps the comparison below
@@ -52,35 +77,55 @@ export function compactLossPoints(
     // Requiring strictness on at least one side (rather than allowing
     // `cur <= prev && cur <= next` alone) keeps flat/constant loss
     // runs from flagging almost every point as a "tied" extremum,
-    // which would otherwise flood `mustKeep` and crowd out genuine
-    // spikes once the must-keep set exceeds `targetSize` and falls
-    // back to even-sampling.
+    // which would otherwise flood this tier and crowd out `evalLoss`
+    // and generic filler once the combined set exceeds `targetSize`.
     const isMax = cur >= prev && cur >= next && (cur > prev || cur > next);
     const isMin = cur <= prev && cur <= next && (cur < prev || cur < next);
-    if (isMax || isMin) {
-      mustKeep.add(lossIndices[k]);
-    }
+    if (isMax || isMin) extremaIndices.push(idx);
   }
 
-  const mustKeepSorted = [...mustKeep].toSorted((a, b) => a - b);
+  const selected = new Set<number>(boundaryIndices);
 
-  let selected: number[];
-  if (mustKeepSorted.length >= targetSize) {
-    // Too many "must keep" points to fit the budget: evenly sample
-    // down from the must-keep set itself. `evenSample` always retains
-    // its own first/last entry, so run boundaries survive either way.
-    selected = evenSample(mustKeepSorted, targetSize);
-  } else {
-    const remainingBudget = targetSize - mustKeepSorted.length;
+  // Tier 2: evalLoss. Sampled down only if it alone exceeds what's
+  // left after boundaries, so it is never crowded out by extrema.
+  let budget = targetSize - selected.size;
+  if (budget > 0 && evalLossIndices.length > 0) {
+    const kept = evenSample(
+      evalLossIndices,
+      Math.min(budget, evalLossIndices.length),
+    );
+    for (const i of kept) selected.add(i);
+  }
+
+  // Tier 3: extrema, sampled down if they don't fit in what's left.
+  budget = targetSize - selected.size;
+  if (budget > 0 && extremaIndices.length > 0) {
+    const kept = evenSample(
+      extremaIndices,
+      Math.min(budget, extremaIndices.length),
+    );
+    for (const i of kept) selected.add(i);
+  }
+
+  // Tier 4: generic filler from everything not already selected.
+  budget = targetSize - selected.size;
+  if (budget > 0) {
     const notKept: number[] = [];
     for (const [i] of points.entries()) {
-      if (!mustKeep.has(i)) notKept.push(i);
+      if (!selected.has(i)) notKept.push(i);
     }
-    const filler = evenSample(notKept, remainingBudget);
-    selected = [...mustKeepSorted, ...filler].toSorted((a, b) => a - b);
+    const filler = evenSample(notKept, Math.min(budget, notKept.length));
+    for (const i of filler) selected.add(i);
   }
 
-  return selected.map((i) => points[i]);
+  // `[...selected].sort(...)` (not `.toSorted()`) because the Studio
+  // SPA's tsconfig pins `target: ES2022` and `Array.prototype.toSorted`
+  // is ES2023; Vite/esbuild won't polyfill it, so older evergreen
+  // browsers would throw. See `stats.ts` / `LossChart.tsx` for the same
+  // rationale.
+  // eslint-disable-next-line unicorn/no-array-sort
+  const finalSorted = [...selected].sort((a, b) => a - b);
+  return finalSorted.map((i) => points[i]);
 }
 
 /**
