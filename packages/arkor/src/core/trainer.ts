@@ -51,6 +51,19 @@ export interface TrainerInternalContext {
    * Undefined means unlimited.
    */
   maxReconnectAttempts?: number;
+  /**
+   * Maximum time in milliseconds to wait for any frame (a real event or
+   * a keepalive `ping`) before treating the connection as silently
+   * stalled and aborting the read, routing the abort into the normal
+   * reconnect path. Without this, a silently stalled connection (NAT/LB
+   * idle eviction: no frame, no EOF, no RST) would hang `wait()` until
+   * undici's own `headersTimeout` / `bodyTimeout` eventually fire
+   * (300_000 ms by default), which is an implementation detail of
+   * Node's fetch, not a contract this SDK controls. Defaults to 45_000
+   * (45 s): comfortably above a normal keepalive-ping cadence, and well
+   * inside undici's 5-minute window.
+   */
+  idleTimeoutMs?: number;
 }
 
 interface StreamEventBase {
@@ -182,6 +195,7 @@ export function createTrainer(
   const initialReconnectDelayMs = context.reconnectDelayMs ?? 1000;
   const maxReconnectDelayMs = context.maxReconnectDelayMs ?? 60_000;
   const maxReconnectAttempts = context.maxReconnectAttempts;
+  const idleTimeoutMs = context.idleTimeoutMs ?? 45_000;
   const cwd = context.cwd ?? process.cwd();
   const config = buildJobConfig(input);
 
@@ -423,12 +437,47 @@ export function createTrainer(
 
       while (!terminal) {
         let response: Response;
+        // Idle watchdog: aborts the read if no frame of any kind (a real
+        // event or a keepalive `ping`) arrives within `idleTimeoutMs`.
+        // Without this, a silently stalled connection (NAT/LB idle
+        // eviction: no frame, no EOF, no RST) hangs `wait()` until
+        // undici's own inactivity timeouts eventually fire (see
+        // `idleTimeoutMs` doc on `TrainerInternalContext`). A fresh
+        // `AbortController` per connection attempt, since a signal can't
+        // be un-aborted for the next attempt.
+        const watchdogController = new AbortController();
+        let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+        const armWatchdog = (): void => {
+          if (watchdogTimer !== undefined) clearTimeout(watchdogTimer);
+          watchdogTimer = setTimeout(() => {
+            watchdogController.abort(
+              new Error(
+                `SSE stream idle for more than ${idleTimeoutMs}ms (no frame, including pings, received); treating the connection as stalled.`,
+              ),
+            );
+          }, idleTimeoutMs);
+        };
+        const clearWatchdog = (): void => {
+          if (watchdogTimer !== undefined) clearTimeout(watchdogTimer);
+        };
+        // Combine the caller's `abortSignal` with the watchdog's own
+        // signal so either can end the read. `AbortSignal.any` mirrors
+        // whichever source signal aborts first (reason included), so
+        // `handleFailure`'s `abortSignal?.aborted` check below still
+        // reflects only a genuine *user* abort, not a watchdog trip;
+        // a watchdog trip is routed into the ordinary reconnect path
+        // below instead, exactly like any other transport failure.
+        const combinedSignal = abortSignal
+          ? AbortSignal.any([abortSignal, watchdogController.signal])
+          : watchdogController.signal;
+        armWatchdog();
         try {
           response = await client.openEventStream(startedJob.id, scope, {
             lastEventId,
-            signal: abortSignal,
+            signal: combinedSignal,
           });
         } catch (err) {
+          clearWatchdog();
           // Permanent client errors fail identically on every reconnect.
           // With the default `maxReconnectAttempts` unset (unlimited) that
           // would spin forever at up to the 60 s cap and never settle
@@ -459,6 +508,10 @@ export function createTrainer(
         let receivedAny = false;
         try {
           for await (const sse of iterateEvents(response)) {
+            // Any frame at all, including a keepalive ping, proves the
+            // connection is still alive, so rearm the idle watchdog
+            // before doing anything else with the frame.
+            armWatchdog();
             if (sse.id) lastEventId = sse.id;
             if (sse.event === "ping") {
               // Keepalive only. Deliberately NOT counted as progress: a
@@ -504,10 +557,12 @@ export function createTrainer(
             }
           }
         } catch (err) {
+          clearWatchdog();
           if (err instanceof FatalStreamError) throw err.cause;
           await handleFailure(err);
           continue;
         }
+        clearWatchdog();
 
         if (terminal) break;
 

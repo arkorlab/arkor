@@ -724,6 +724,7 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     handlers: (
       | { kind: "throw"; error: Error }
       | { kind: "stream"; chunks: string[] }
+      | { kind: "hang" }
     )[],
   ): { fetch: typeof fetch; streamCalls: () => number } {
     let streamCalls = 0;
@@ -751,6 +752,30 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
           throw new Error(`unexpected stream open #${streamCalls}`);
         }
         if (handler.kind === "throw") throw handler.error;
+        if (handler.kind === "hang") {
+          // Simulates a silently stalled connection (#214): the body
+          // never enqueues a chunk and never closes on its own. The
+          // only way it ends is via the request's abort signal, the
+          // same way a real fetch would behave once an idle watchdog
+          // (or the user) aborts a dead connection.
+          const signal = init?.signal;
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              const onAbort = () => {
+                controller.error(signal?.reason ?? new Error("aborted"));
+              };
+              if (signal?.aborted) {
+                onAbort();
+                return;
+              }
+              signal?.addEventListener("abort", onAbort, { once: true });
+            },
+          });
+          return new Response(stream, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
         return new Response(sseStream(handler.chunks), {
           status: 200,
           headers: { "content-type": "text/event-stream" },
@@ -953,6 +978,10 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
           reconnectDelayMs: 100,
           maxReconnectDelayMs: 100,
           maxReconnectAttempts: 1,
+          // A distinct, easily-filtered value so the idle watchdog's own
+          // setTimeout calls (one per connection attempt) don't get
+          // mistaken for backoff delays below; see #214.
+          idleTimeoutMs: 999_999,
         },
       );
 
@@ -962,9 +991,12 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
 
       // Single backoff between the first failure and the second attempt
       // (the second hits maxReconnectAttempts and throws without delay).
-      // Was 120 ms before the fix; must not exceed 100.
-      expect(delays).toHaveLength(1);
-      expect(delays[0]).toBeLessThanOrEqual(100);
+      // Was 120 ms before the fix; must not exceed 100. Filter out the
+      // idle watchdog's own setTimeout calls (#214), which the same spy
+      // also captures.
+      const backoffDelays = delays.filter((d) => d !== 999_999);
+      expect(backoffDelays).toHaveLength(1);
+      expect(backoffDelays[0]).toBeLessThanOrEqual(100);
     } finally {
       setTimeoutSpy.mockRestore();
       randomSpy.mockRestore();
@@ -1440,6 +1472,10 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
           reconnectDelayMs: 10,
           maxReconnectDelayMs: 1_000_000,
           maxReconnectAttempts: 2,
+          // A distinct, easily-filtered value so the idle watchdog's own
+          // setTimeout calls (one per connection attempt) don't get
+          // mistaken for backoff delays below; see #214.
+          idleTimeoutMs: 999_999,
         },
       );
 
@@ -1449,11 +1485,214 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
 
       // Two backoff delays before the third attempt errors out (the third
       // open hits maxReconnectAttempts and throws without delaying).
-      expect(delays).toEqual([10, 20]);
+      // Filter out the idle watchdog's own setTimeout calls (#214),
+      // which the same spy also captures.
+      const backoffDelays = delays.filter((d) => d !== 999_999);
+      expect(backoffDelays).toEqual([10, 20]);
     } finally {
       setTimeoutSpy.mockRestore();
       randomSpy.mockRestore();
     }
+  });
+
+  // #214: the SSE stream had no idle watchdog of its own, so a silently
+  // stalled connection (NAT/LB idle eviction: no frame, no EOF, no RST)
+  // would hang `wait()` until undici's own inactivity timeouts eventually
+  // fired. These four tests cover the watchdog added to close that gap.
+  it("aborts a silently stalled connection via the idle watchdog and reconnects (#214)", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const { fetch: fetcher, streamCalls } = streamFetcher([
+      { kind: "hang" },
+      { kind: "stream", chunks: ["id: 1\nevent: end\ndata: \n\n"] },
+    ]);
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 3,
+        // Short so the test resolves quickly; the point under test is
+        // that the watchdog fires at all, not the exact duration.
+        idleTimeoutMs: 20,
+      },
+    );
+
+    const start = Date.now();
+    await withMockedFetch(fetcher, async () => {
+      await expect(trainer.wait()).resolves.toBeDefined();
+    });
+    const elapsed = Date.now() - start;
+    // Well under undici's 300s implementation-detail timeout the watchdog
+    // exists to preempt; proves the watchdog (not some other mechanism)
+    // is what ended the stall.
+    expect(elapsed).toBeLessThan(5000);
+    expect(streamCalls()).toBe(2);
+  });
+
+  it("preserves immediate user-abort behavior during a stall, without counting it as a reconnect failure (#214)", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const { fetch: fetcher, streamCalls } = streamFetcher([{ kind: "hang" }]);
+    const ac = new AbortController();
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+        abortSignal: ac.signal,
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 5,
+        // Deliberately long: the point is that the *user* abort ends the
+        // stall, not the watchdog racing it.
+        idleTimeoutMs: 60_000,
+      },
+    );
+
+    setTimeout(() => ac.abort(new Error("user pressed Ctrl-C")), 10);
+
+    const start = Date.now();
+    await withMockedFetch(fetcher, async () => {
+      await expect(trainer.wait()).rejects.toThrow(/user pressed Ctrl-C/);
+    });
+    const elapsed = Date.now() - start;
+    // Rejected almost immediately on user abort, not after a reconnect
+    // backoff or the (deliberately huge) idle timeout.
+    expect(elapsed).toBeLessThan(2000);
+    // Never reconnected: a user abort is not routed through the ordinary
+    // failure-and-retry path.
+    expect(streamCalls()).toBe(1);
+  });
+
+  it("does not abort a healthy stream that keeps sending pings slower than idleTimeoutMs apart in total but faster individually (#214)", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const idleTimeoutMs = 100;
+    const pingGapMs = 60;
+    let streamOpens = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: minimalJobRow },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
+        streamOpens++;
+        const enc = new TextEncoder();
+        const signal = init?.signal;
+        const stream = new ReadableStream<Uint8Array>({
+          async start(controller) {
+            const wait = (ms: number) =>
+              new Promise<void>((resolve) => setTimeout(resolve, ms));
+            // Three pings spaced well under idleTimeoutMs apart, followed
+            // by a terminal event. Total elapsed (~4 * pingGapMs) comfortably
+            // exceeds idleTimeoutMs, so this only succeeds without a
+            // reconnect if each ping genuinely rearms the watchdog.
+            for (let i = 0; i < 3; i++) {
+              if (signal?.aborted) return;
+              await wait(pingGapMs);
+              controller.enqueue(enc.encode("event: ping\ndata: \n\n"));
+            }
+            if (signal?.aborted) return;
+            await wait(pingGapMs);
+            controller.enqueue(enc.encode("id: 1\nevent: end\ndata: \n\n"));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 1,
+        idleTimeoutMs,
+      },
+    );
+
+    await withMockedFetch(fetcher, async () => {
+      await expect(trainer.wait()).resolves.toBeDefined();
+    });
+    // A single open: the pings kept the watchdog from ever firing, so
+    // there was no stall to reconnect from.
+    expect(streamOpens).toBe(1);
+  });
+
+  it("exhausts maxReconnectAttempts when every connection attempt stalls (#214)", async () => {
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const { fetch: fetcher, streamCalls } = streamFetcher([
+      { kind: "hang" },
+      { kind: "hang" },
+      { kind: "hang" },
+    ]);
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 2,
+        idleTimeoutMs: 20,
+      },
+    );
+
+    await withMockedFetch(fetcher, async () => {
+      await expect(trainer.wait()).rejects.toThrow(
+        /failed 3 consecutive times/,
+      );
+    });
+    expect(streamCalls()).toBe(3);
   });
 });
 
