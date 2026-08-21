@@ -23,6 +23,7 @@ import {
   NO_VALUE_PLACEHOLDER,
   truncateMiddle,
 } from "../lib/format";
+import { compactLossPoints } from "../lib/lossDownsample";
 
 const MAX_LOSS_POINTS = 2000;
 
@@ -219,7 +220,12 @@ export function JobDetail({ jobId }: { jobId: string }) {
         if (safeLoss === null && safeEvalLoss === null) return;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
-        // chart's visual resolution at any reasonable width.
+        // chart's visual resolution at any reasonable width. Once the
+        // cap is hit, compact down to half via `compactLossPoints`
+        // (stride-doubling) rather than tail-slicing, so the start of
+        // long runs stays visible instead of being silently dropped
+        // (see #215). Subsequent frames keep appending until the cap
+        // is hit again, at which point we compact again.
         setPoints((prev) => {
           const next = [
             ...prev,
@@ -230,7 +236,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
             },
           ];
           return next.length > MAX_LOSS_POINTS
-            ? next.slice(next.length - MAX_LOSS_POINTS)
+            ? compactLossPoints(next, MAX_LOSS_POINTS / 2)
             : next;
         });
       }
