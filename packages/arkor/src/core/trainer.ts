@@ -196,6 +196,22 @@ export function createTrainer(
   const maxReconnectDelayMs = context.maxReconnectDelayMs ?? 60_000;
   const maxReconnectAttempts = context.maxReconnectAttempts;
   const idleTimeoutMs = context.idleTimeoutMs ?? 45_000;
+  // Node's `setTimeout` silently coerces NaN, values <= 0, and values
+  // above its internal 32-bit signed-int ceiling (2_147_483_647 ms,
+  // ~24.8 days) down to a ~1ms timer instead of erroring. Left
+  // unchecked, a bad `idleTimeoutMs` (e.g. a typo'd extra zero, or a
+  // deliberately "very long" value meant to mean "effectively never")
+  // would silently make the watchdog fire almost immediately instead
+  // of behaving as configured, so validate eagerly here.
+  if (
+    !Number.isFinite(idleTimeoutMs) ||
+    idleTimeoutMs <= 0 ||
+    idleTimeoutMs > 2_147_483_647
+  ) {
+    throw new RangeError(
+      `idleTimeoutMs must be a finite number greater than 0 and at most 2_147_483_647 (Node's setTimeout ceiling); got ${idleTimeoutMs}.`,
+    );
+  }
   const cwd = context.cwd ?? process.cwd();
   const config = buildJobConfig(input);
 
@@ -508,10 +524,16 @@ export function createTrainer(
         let receivedAny = false;
         try {
           for await (const sse of iterateEvents(response)) {
-            // Any frame at all, including a keepalive ping, proves the
-            // connection is still alive, so rearm the idle watchdog
-            // before doing anything else with the frame.
-            armWatchdog();
+            // A frame arrived, so the connection is proven alive up to
+            // this point: clear the watchdog immediately. It's rearmed
+            // just before control returns to `for await` to wait on the
+            // next frame, NOT immediately here, because the work below
+            // (in particular `await dispatch(...)`, which runs arbitrary
+            // user callbacks such as `onCheckpoint`) can legitimately run
+            // long. Arming eagerly would let slow-but-healthy processing
+            // trip the watchdog and burn reconnect budget on a stream
+            // that was never actually stalled.
+            clearWatchdog();
             if (sse.id) lastEventId = sse.id;
             if (sse.event === "ping") {
               // Keepalive only. Deliberately NOT counted as progress: a
@@ -519,6 +541,7 @@ export function createTrainer(
               // still accrue toward `maxReconnectAttempts` instead of
               // looping forever on the clean-reconnect (no-counter) path
               // below.
+              armWatchdog();
               continue;
             }
             if (sse.event === "end") {
@@ -529,6 +552,7 @@ export function createTrainer(
             try {
               parsed = JSON.parse(sse.data) as StreamEvent;
             } catch {
+              armWatchdog();
               continue; // malformed event; skip
             }
             // A parseable data frame: the stream is genuinely productive, so
@@ -555,6 +579,9 @@ export function createTrainer(
               terminal = true;
               break;
             }
+            // Dispatch returned and we're about to loop back to wait on
+            // the next frame: only now does the idle clock start again.
+            armWatchdog();
           }
         } catch (err) {
           clearWatchdog();

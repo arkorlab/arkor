@@ -1694,6 +1694,69 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     });
     expect(streamCalls()).toBe(3);
   });
+
+  it("does not reconnect when a lifecycle callback runs longer than idleTimeoutMs (#214 regression)", async () => {
+    // Regression for a bug the initial #214 implementation had: the
+    // watchdog stayed armed while `dispatch()` awaited a user callback
+    // (e.g. a slow `onCheckpoint` doing an `infer()` call), so a
+    // healthy connection with a merely slow callback could trip the
+    // watchdog and burn reconnect budget for no transport reason at
+    // all. The watchdog must only measure network silence between
+    // frames, not local callback processing time. Uses small real
+    // timers (not fake timers) to sidestep interaction between
+    // `vi.useFakeTimers()`'s faked `setImmediate` and the SSE-parsing
+    // pipeline's own internal scheduling.
+    await writeState(
+      { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+      cwd,
+    );
+    const idleTimeoutMs = 10;
+    const callbackDelayMs = 100; // deliberately >> idleTimeoutMs
+    const { fetch: fetcher, streamCalls } = streamFetcher([
+      {
+        kind: "stream",
+        chunks: [
+          `id: 1\nevent: training.log\ndata: ${JSON.stringify({
+            type: "training.log",
+            jobId: "j1",
+            timestamp: "2026-01-01T00:00:01Z",
+            step: 1,
+            loss: 1,
+          })}\n\n`,
+          "id: 2\nevent: end\ndata: \n\n",
+        ],
+      },
+    ]);
+
+    const trainer = createTrainer(
+      {
+        name: "run",
+        model: MODEL,
+        dataset: { type: "huggingface", name: "x" },
+        callbacks: {
+          onLog: () =>
+            new Promise<void>((resolve) =>
+              setTimeout(resolve, callbackDelayMs),
+            ),
+        },
+      },
+      {
+        baseUrl: "http://mock",
+        credentials: creds,
+        cwd,
+        reconnectDelayMs: 1,
+        maxReconnectDelayMs: 5,
+        maxReconnectAttempts: 1,
+        idleTimeoutMs,
+      },
+    );
+
+    await withMockedFetch(fetcher, async () => {
+      await expect(trainer.wait()).resolves.toBeDefined();
+    });
+    // A single open: the slow callback did not trip the watchdog.
+    expect(streamCalls()).toBe(1);
+  });
 });
 
 // Regression for ENG-933: the dispatch/reconnect boundary conflated three
