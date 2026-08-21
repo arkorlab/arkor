@@ -1702,31 +1702,85 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
     // healthy connection with a merely slow callback could trip the
     // watchdog and burn reconnect budget for no transport reason at
     // all. The watchdog must only measure network silence between
-    // frames, not local callback processing time. Uses small real
-    // timers (not fake timers) to sidestep interaction between
-    // `vi.useFakeTimers()`'s faked `setImmediate` and the SSE-parsing
-    // pipeline's own internal scheduling.
+    // frames, not local callback processing time.
+    //
+    // CodeRabbit/cubic review caught that an earlier version of this
+    // test used a fixture that queued both frames and closed
+    // immediately, so the "end" frame was already available before
+    // `onLog`'s delay even started; the test could not fail even with
+    // the bug present. This version keeps the mock connection
+    // genuinely open (and abort-aware) for the whole callback delay,
+    // only emitting `end` afterwards, so a watchdog that incorrectly
+    // fires mid-callback actually aborts the read and surfaces as a
+    // real failure here.
     await writeState(
       { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
       cwd,
     );
     const idleTimeoutMs = 10;
     const callbackDelayMs = 100; // deliberately >> idleTimeoutMs
-    const { fetch: fetcher, streamCalls } = streamFetcher([
-      {
-        kind: "stream",
-        chunks: [
-          `id: 1\nevent: training.log\ndata: ${JSON.stringify({
-            type: "training.log",
-            jobId: "j1",
-            timestamp: "2026-01-01T00:00:01Z",
-            step: 1,
-            loss: 1,
-          })}\n\n`,
-          "id: 2\nevent: end\ndata: \n\n",
-        ],
-      },
-    ]);
+    let streamOpens = 0;
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: minimalJobRow },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j1/events/stream")) {
+        streamOpens++;
+        const enc = new TextEncoder();
+        const signal = init?.signal;
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            // If the watchdog incorrectly fires while `onLog` is still
+            // running, `combinedSignal` aborts; propagate that into
+            // the body so the read actually throws, exactly like a
+            // real fetch would, instead of silently ignoring it.
+            const onAbort = () => {
+              controller.error(signal?.reason ?? new Error("aborted"));
+            };
+            if (signal?.aborted) {
+              onAbort();
+              return;
+            }
+            signal?.addEventListener("abort", onAbort, { once: true });
+
+            controller.enqueue(
+              enc.encode(
+                `id: 1\nevent: training.log\ndata: ${JSON.stringify({
+                  type: "training.log",
+                  jobId: "j1",
+                  timestamp: "2026-01-01T00:00:01Z",
+                  step: 1,
+                  loss: 1,
+                })}\n\n`,
+              ),
+            );
+            // Deliberately do NOT close yet: the connection stays open
+            // (as a real one would) while dispatch() awaits onLog().
+            // Only emit `end` once the callback delay has elapsed, so
+            // a premature watchdog trip has a real window to manifest.
+            setTimeout(() => {
+              signal?.removeEventListener("abort", onAbort);
+              if (signal?.aborted) return;
+              controller.enqueue(enc.encode("id: 2\nevent: end\ndata: \n\n"));
+              controller.close();
+            }, callbackDelayMs);
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
 
     const trainer = createTrainer(
       {
@@ -1751,11 +1805,17 @@ describe("createTrainer (reconnect backoff + max attempts)", () => {
       },
     );
 
-    await withMockedFetch(fetcher, async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
       await expect(trainer.wait()).resolves.toBeDefined();
-    });
-    // A single open: the slow callback did not trip the watchdog.
-    expect(streamCalls()).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+    // A single open: the slow callback did not trip the watchdog. If it
+    // had, the mock's abort-aware stream would have errored the read,
+    // exhausted maxReconnectAttempts=1, and rejected wait() instead.
+    expect(streamOpens).toBe(1);
   });
 });
 
