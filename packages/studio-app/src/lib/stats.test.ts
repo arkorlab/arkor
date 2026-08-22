@@ -293,4 +293,38 @@ describe("RunningStats", () => {
     expect(corrected.reservoir).toEqual([5, 7]);
     expect(corrected.count).toBe(2);
   });
+
+  it("correctRunningStats replaces the exact slot a value hit once the reservoir was already full, not just moments", () => {
+    // CodeRabbit's exact example: a reservoirSize-1 accumulator, so
+    // every subsequent value after the first must land in the same
+    // single slot via Algorithm R (there's nowhere else for a hit to
+    // go). Correcting that value must replace the reservoir entry
+    // itself, not just fix mean/variance while leaving the old value
+    // sitting in the array where p90/p95 would still report it.
+    let running = createRunningStats(1);
+    running = updateRunningStats(running, 0);
+    const hitSpy = vi.spyOn(Math, "random").mockReturnValue(0); // guarantees a hit
+    running = updateRunningStats(running, 100);
+    hitSpy.mockRestore();
+    expect(running.reservoir).toEqual([100]);
+
+    const corrected = correctRunningStats(running, 100, 0);
+    expect(corrected.reservoir).toEqual([0]);
+    expect(corrected.mean).toBe(0);
+  });
+
+  it("correctRunningStats replaces the last slot correctly even when that value was the one that completed filling the reservoir", () => {
+    // Codex's exact boundary case: at the moment the reservoir's
+    // last slot gets filled, reservoir.length already equals
+    // reservoirSize, which an implementation checking "is the
+    // reservoir still filling" *after the fact* could misread as
+    // "already full" and skip replacing entirely.
+    let running = createRunningStats(2);
+    running = updateRunningStats(running, 5);
+    running = updateRunningStats(running, 100); // completes filling
+    expect(running.reservoir).toHaveLength(2);
+
+    const corrected = correctRunningStats(running, 100, 7);
+    expect(corrected.reservoir).toEqual([5, 7]);
+  });
 });

@@ -185,6 +185,16 @@ export interface RunningStats {
   m2: number;
   reservoir: number[];
   reservoirSize: number;
+  /**
+   * The reservoir index the most recent updateRunningStats call
+   * touched (pushed to while filling, or replaced via an Algorithm R
+   * hit once full), or null if that call was a miss (full reservoir,
+   * value not sampled in). Exists so correctRunningStats can replace
+   * the exact right slot when a caller corrects the most recent
+   * value, without needing to re-derive (unreliably, after the fact)
+   * where or whether it landed in the reservoir.
+   */
+  lastReservoirIndex: number | null;
 }
 
 export function createRunningStats(
@@ -195,7 +205,14 @@ export function createRunningStats(
       `reservoirSize must be a positive integer, got ${reservoirSize}`,
     );
   }
-  return { count: 0, mean: 0, m2: 0, reservoir: [], reservoirSize };
+  return {
+    count: 0,
+    mean: 0,
+    m2: 0,
+    reservoir: [],
+    reservoirSize,
+    lastReservoirIndex: null,
+  };
 }
 
 // Pure: returns a new accumulator rather than mutating `stats`, and
@@ -224,8 +241,10 @@ export function updateRunningStats(
   const m2 = stats.m2 + delta * delta2;
 
   let reservoir = stats.reservoir;
+  let lastReservoirIndex: number | null;
   if (reservoir.length < stats.reservoirSize) {
     reservoir = [...reservoir, value];
+    lastReservoirIndex = reservoir.length - 1;
   } else {
     // Algorithm R: each of the `count` values seen so far has an
     // equal 1/count chance of being the one currently occupying any
@@ -234,10 +253,20 @@ export function updateRunningStats(
     if (j < stats.reservoirSize) {
       reservoir = [...reservoir];
       reservoir[j] = value;
+      lastReservoirIndex = j;
+    } else {
+      lastReservoirIndex = null;
     }
   }
 
-  return { count, mean, m2, reservoir, reservoirSize: stats.reservoirSize };
+  return {
+    count,
+    mean,
+    m2,
+    reservoir,
+    reservoirSize: stats.reservoirSize,
+    lastReservoirIndex,
+  };
 }
 
 // Snapshots a RunningStats accumulator into the same LossStats shape
@@ -292,6 +321,7 @@ function removeMostRecentRunningStat(
       m2: 0,
       reservoir: stats.reservoir,
       reservoirSize: stats.reservoirSize,
+      lastReservoirIndex: stats.lastReservoirIndex,
     };
   }
   const mean = (stats.mean * stats.count - value) / count;
@@ -304,6 +334,7 @@ function removeMostRecentRunningStat(
     m2,
     reservoir: stats.reservoir,
     reservoirSize: stats.reservoirSize,
+    lastReservoirIndex: stats.lastReservoirIndex,
   };
 }
 
@@ -315,29 +346,23 @@ function removeMostRecentRunningStat(
 // place instead of `oldValue` (via removeMostRecentRunningStat, pure
 // moment math with no reservoir side effects of its own).
 //
-// The reservoir needs separate handling depending on whether it was
-// still filling up (below `reservoirSize`) at the moment `oldValue`
-// was added. If so, `oldValue` is guaranteed to be sitting at the
-// reservoir's last index: pushes always land at the end, and since
-// this only ever corrects the immediately-previous update, nothing
-// else has touched the reservoir since. Replacing that slot directly
-// (rather than routing the corrected value through updateRunningStats,
-// which would push it as an *additional* entry, since the reservoir
-// would still register as "not yet full") avoids ending up with both
-// the old and new values sitting in the array for what's supposed to
-// be a single logical sample. If the reservoir was already full when
-// `oldValue` was added, it may or may not have been sampled in via
-// Algorithm R; reliably locating its exact slot in that case isn't
-// possible without extra per-sample bookkeeping, so (as before) it's
-// left as an accepted, comparatively minor imprecision: at most one
-// stale entry, not an outright duplicate, and percentiles are already
-// documented as an estimate rather than an exact figure.
+// Uses `stats.lastReservoirIndex` (set by the updateRunningStats call
+// that added `oldValue`) to replace the exact right slot rather than
+// re-deriving where it landed after the fact: an earlier version
+// tried to infer this from whether the reservoir "looked" full yet,
+// which undercounted the still-filling case at its own boundary (the
+// value that completes filling leaves reservoir.length already equal
+// to reservoirSize) and couldn't handle an Algorithm R hit once truly
+// full at all, leaving a stale entry that could dominate p90/p95
+// rather than just mildly bias them. Tracking the index directly
+// handles the fill, hit, and miss cases uniformly: replace at that
+// index if it's non-null, otherwise (a miss) leave the reservoir
+// untouched, since `oldValue` was never actually sampled into it.
 export function correctRunningStats(
   stats: RunningStats,
   oldValue: number,
   newValue: number,
 ): RunningStats {
-  const wasStillFilling = stats.reservoir.length < stats.reservoirSize;
   const removed = removeMostRecentRunningStat(stats, oldValue);
   const count = removed.count + 1;
   const delta = newValue - removed.mean;
@@ -345,9 +370,16 @@ export function correctRunningStats(
   const delta2 = newValue - mean;
   const m2 = removed.m2 + delta * delta2;
   let reservoir = stats.reservoir;
-  if (wasStillFilling) {
+  if (stats.lastReservoirIndex !== null) {
     reservoir = [...stats.reservoir];
-    reservoir[reservoir.length - 1] = newValue;
+    reservoir[stats.lastReservoirIndex] = newValue;
   }
-  return { count, mean, m2, reservoir, reservoirSize: stats.reservoirSize };
+  return {
+    count,
+    mean,
+    m2,
+    reservoir,
+    reservoirSize: stats.reservoirSize,
+    lastReservoirIndex: stats.lastReservoirIndex,
+  };
 }
