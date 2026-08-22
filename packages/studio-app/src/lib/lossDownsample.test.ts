@@ -232,4 +232,44 @@ describe("compactLossPoints", () => {
     // at the very start and end of the run.
     expect(trainingLossPoints.length).toBeGreaterThan(20);
   });
+
+  it("keeps the most severe spike in a bucket rather than whichever extremum was seen first", () => {
+    // A modest local max at step 1 and a genuinely severe spike at
+    // step 3 fall into the same bucket under a tight budget. Picking
+    // merely the first-seen candidate per bucket (rather than the
+    // most extreme) would keep the modest one and silently drop the
+    // severe spike, exactly the kind of point this preservation
+    // exists for.
+    const points = Array.from({ length: 11 }, (_, i) => point(i, 1));
+    points[1] = point(1, 2); // modest local max
+    points[3] = point(3, 100); // severe spike, same bucket as step 1
+    const result = compactLossPoints(points, 4);
+    expect(result.some((p) => p.step === 3 && p.loss === 100)).toBe(true);
+  });
+
+  it("reallocates an extremum category's unused budget to the other side rather than capping both at a hard half", () => {
+    // Many local maxima, only one local minimum. A one-directional
+    // split (max gets up to half, min gets whatever's left, unused
+    // min share going only to plain filler) would cap max at half
+    // even though far more maxima exist and could use the slack that
+    // the single minimum doesn't need.
+    const points: LossPoint[] = [
+      point(0, 50), // boundary
+      ...Array.from(
+        { length: 39 },
+        (_, i) => point(i + 1, i % 2 === 0 ? 100 : 90), // alternating maxima/near-maxima
+      ),
+      point(40, 1), // the single genuine local minimum, near the end
+      point(41, 50), // boundary
+    ];
+    const result = compactLossPoints(points, 20);
+    const maxRepresentatives = result.filter(
+      (p) => p.step > 0 && p.step < 40 && (p.loss ?? 0) >= 90,
+    );
+    // With only 20 total slots and 2 reserved for boundaries plus 1
+    // for the single minimum, a hard half-cap would allow at most
+    // ~8-9 max representatives; reallocating the minimum's unused
+    // share should comfortably allow more than that.
+    expect(maxRepresentatives.length).toBeGreaterThan(10);
+  });
 });

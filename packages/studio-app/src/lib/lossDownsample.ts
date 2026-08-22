@@ -16,22 +16,29 @@ import type { LossPoint } from "../components/jobs/LossChart";
  *    merged them.
  * 2. Split the remaining budget (after 2 slots reserved for the hard
  *    first/last boundaries) between the `evalLoss` series and the
- *    `loss` series, each getting up to half, with any unused share
- *    from a sparser series water-filled to the other. Without this,
- *    a dense `evalLoss` series (frequent eval-only frames) can win
- *    almost every step-value bucket outright and crowd the
- *    training-loss series out of the chart almost entirely.
- * 3. Within the loss series' own budget, further split between local
- *    maxima and local minima (again up to half each, water-filled),
- *    before falling through to ordinary (non-extremum) points for
- *    whatever's left. Without this, a genuinely oscillating series
- *    (rapid alternation between a min and a max) can have one side
- *    of the oscillation win every bucket it competes in purely by
- *    array order, aliasing the retained shape into a false broad
- *    trend instead of showing the real back-and-forth.
+ *    `loss` series. Each gets up to half; if one series has fewer
+ *    candidates than its half, the unused share flows to the other
+ *    (bidirectionally: whichever side runs out first hands its
+ *    leftover to the side that can still use it), rather than a
+ *    dense series being hard-capped at half even when the other side
+ *    has nothing to spend the rest on.
+ * 3. Within the loss series' own budget, the same bidirectional split
+ *    applies one level down: local maxima and local minima each get
+ *    up to half, with either side's unused share flowing to the
+ *    other, before ordinary (non-extremum) points get whatever
+ *    remains. Without this, a genuinely oscillating series can have
+ *    one side of the oscillation win every bucket it competes in
+ *    purely by array order, aliasing the retained shape into a false
+ *    broad trend instead of showing the real back-and-forth.
  * 4. Within each of these budgets, bucket that category's candidate
  *    points into equal-width buckets by *step value* (not array
- *    position), keeping one representative per bucket.
+ *    position), keeping the most significant representative per
+ *    bucket: for maxima, the highest loss value in that bucket; for
+ *    minima, the lowest; for eval/plain, first-seen. Picking merely
+ *    the first-seen candidate regardless of magnitude could let a
+ *    modest local extremum win a bucket over a genuinely severe spike
+ *    that happens to sit later in the same bucket, silently erasing
+ *    exactly the kind of point this preservation exists for.
  *
  * Bucketing by step value (rather than sampling evenly by array
  * position, which an earlier version of this function did) matters
@@ -121,11 +128,14 @@ export function compactLossPoints(
   }
 
   // Split the shared budget between the two series, each getting up
-  // to half; a sparser series (commonly `evalLoss`) leaves its unused
-  // share to the other rather than forcing an even split regardless
-  // of actual candidate counts.
-  const half = Math.ceil(bucketCount / 2);
-  const evalBudget = Math.min(half, evalCandidates.length);
+  // to half, with either side's unused share flowing to the other
+  // (based on raw candidate counts; the loss side's *actual* budget
+  // below is then adjusted for the overlap exclusion just after).
+  const [evalBudget] = splitBudget(
+    bucketCount,
+    evalCandidates.length,
+    lossCandidates.length,
+  );
   const evalSelected = bucketSelect(
     merged,
     evalCandidates,
@@ -137,6 +147,9 @@ export function compactLossPoints(
 
   // Exclude anything already claimed by the eval tier so its budget
   // isn't wasted re-selecting a point the output already contains.
+  // Loss's actual budget is whatever's left after eval's *real*
+  // selection (which can be slightly less than `evalBudget` if bucket
+  // collisions reduced it), so the total budget stays fully used.
   const lossCandidatesRemaining = lossCandidates.filter(
     (i) => !evalSelectedSet.has(i),
   );
@@ -145,11 +158,6 @@ export function compactLossPoints(
     lossCandidatesRemaining.length,
   );
 
-  // Within the loss budget, protect both sides of an oscillating
-  // series from each other the same way eval and loss protect each
-  // other above: local maxima and local minima each get up to half,
-  // water-filled, before ordinary (non-extremum) points get whatever
-  // remains.
   const maxCandidates = lossCandidatesRemaining.filter(
     (i) => extremumKind[i] === 2,
   );
@@ -160,18 +168,18 @@ export function compactLossPoints(
     (i) => extremumKind[i] === 0,
   );
 
-  const extremaHalf = Math.ceil(lossBudget / 2);
-  const maxBudget = Math.min(extremaHalf, maxCandidates.length);
+  const [maxBudget, minBudget] = splitBudget(
+    lossBudget,
+    maxCandidates.length,
+    minCandidates.length,
+  );
   const maxSelected = bucketSelect(
     merged,
     maxCandidates,
     maxBudget,
     firstStep,
     span,
-  );
-  const minBudget = Math.min(
-    lossBudget - maxSelected.length,
-    minCandidates.length,
+    (a, b) => (merged[a].loss ?? -Infinity) > (merged[b].loss ?? -Infinity),
   );
   const minSelected = bucketSelect(
     merged,
@@ -179,6 +187,7 @@ export function compactLossPoints(
     minBudget,
     firstStep,
     span,
+    (a, b) => (merged[a].loss ?? Infinity) < (merged[b].loss ?? Infinity),
   );
   const plainBudget = Math.min(
     lossBudget - maxSelected.length - minSelected.length,
@@ -209,10 +218,42 @@ export function compactLossPoints(
 }
 
 /**
+ * Splits `total` between two candidate pools of size `countA` /
+ * `countB`, each getting up to half. If one pool has fewer candidates
+ * than its half, the unused share is reallocated to the other pool
+ * (bounded by how many candidates it actually has), so neither side
+ * is starved by a hard half-cap when the other side has nothing left
+ * to spend the remainder on.
+ */
+function splitBudget(
+  total: number,
+  countA: number,
+  countB: number,
+): [number, number] {
+  const half = Math.ceil(total / 2);
+  let budgetA = Math.min(half, countA);
+  let budgetB = Math.min(total - budgetA, countB);
+  const leftover = total - budgetA - budgetB;
+  if (leftover > 0) {
+    const extraA = Math.min(leftover, countA - budgetA);
+    budgetA += extraA;
+    const extraB = Math.min(leftover - extraA, countB - budgetB);
+    budgetB += extraB;
+  }
+  return [budgetA, budgetB];
+}
+
+/**
  * Buckets `candidates` (indices into `points`) into `budget`
  * equal-width buckets spanning `[firstStep, firstStep + span]` by
- * step value, keeping one representative per bucket (the first
- * candidate seen for that bucket). Returns at most `budget` indices.
+ * step value, keeping one representative per bucket. Without
+ * `isBetter`, the first candidate seen for a bucket wins (used for
+ * eval/plain tiers, where no single candidate is more "significant"
+ * than another). With `isBetter(candidate, currentWinner)`, a later
+ * candidate can replace the current winner if it's more significant
+ * (used for extrema tiers, so the single most severe spike in a
+ * bucket survives rather than whichever happened to be seen first).
+ * Returns at most `budget` indices.
  */
 function bucketSelect(
   points: LossPoint[],
@@ -220,6 +261,7 @@ function bucketSelect(
   budget: number,
   firstStep: number,
   span: number,
+  isBetter?: (candidate: number, currentWinner: number) => boolean,
 ): number[] {
   if (budget <= 0 || candidates.length === 0) return [];
   if (candidates.length <= budget) return candidates;
@@ -231,7 +273,12 @@ function bucketSelect(
     let b = span === 0 ? 0 : Math.floor(((step - firstStep) / span) * budget);
     if (b >= budget) b = budget - 1;
     if (b < 0) b = 0;
-    winner[b] ??= idx;
+    const current = winner[b];
+    if (current === null) {
+      winner[b] = idx;
+    } else if (isBetter?.(idx, current)) {
+      winner[b] = idx;
+    }
   }
 
   const result: number[] = [];
