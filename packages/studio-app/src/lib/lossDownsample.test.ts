@@ -342,4 +342,48 @@ describe("compactLossPoints", () => {
     expect(result[0].step).toBe(0);
     expect(result.at(-1)?.step).toBe(10);
   });
+
+  it("never exceeds targetSize even when eval's own selection under-fills its budget for reasons unrelated to loss overlap", () => {
+    // evalLoss candidates are tightly clustered near the start of a
+    // much wider overall run (steps 1-20 out of a 0-1000 range), so
+    // eval's own first pass under-fills its allotted budget for
+    // reasons having nothing to do with overlap with loss. Loss
+    // candidates are abundant and spread across the full range. A
+    // reclaim design that hands eval the COMBINED eval+loss shortfall
+    // (rather than specifically loss's own shortfall) could let
+    // eval's second attempt select more points than loss's shortfall
+    // actually freed up, pushing the total over targetSize; this
+    // reproduces the exact scenario that would trigger that.
+    const points: LossPoint[] = [
+      point(0, 1), // boundary
+      ...Array.from({ length: 20 }, (_, i) => point(i + 1, null, 1)),
+      ...Array.from({ length: 91 }, (_, i) => point(50 + i * 10, 1)),
+      point(1000, 1), // boundary
+    ];
+    const targetSize = 30;
+    const result = compactLossPoints(points, targetSize);
+    expect(result.length).toBeLessThanOrEqual(targetSize);
+  });
+
+  it("recovers eval points clustered in a narrow part of a much wider run, not just whichever single bucket they'd share under a global span", () => {
+    // 20 evalLoss candidates confined to steps 1-20 within a 0-1000
+    // step range. Bucketing against the full outer span would waste
+    // nearly all of a 14-slot budget on buckets no candidate could
+    // ever occupy, collapsing 20 candidates down to essentially one
+    // representative; bucketing against the candidates' own local
+    // span should recover close to the full budget instead.
+    const points: LossPoint[] = [
+      point(0, 1), // boundary
+      ...Array.from({ length: 20 }, (_, i) => point(i + 1, null, 1)),
+      ...Array.from({ length: 91 }, (_, i) => point(50 + i * 10, 1)),
+      point(1000, 1), // boundary
+    ];
+    const result = compactLossPoints(points, 30);
+    const evalRepresentatives = result.filter(
+      (p) => typeof p.evalLoss === "number",
+    );
+    // Comfortably more than the single point a global-span collapse
+    // would leave; proves local-span bucketing is doing real work.
+    expect(evalRepresentatives.length).toBeGreaterThan(10);
+  });
 });
