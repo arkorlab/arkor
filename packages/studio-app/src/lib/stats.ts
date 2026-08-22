@@ -273,3 +273,61 @@ export function finalizeRunningStats(stats: RunningStats): LossStats {
     p95: percentileFromSorted(sorted, 0.95),
   };
 }
+
+// Reverses a single updateRunningStats(stats, value) call, assuming
+// `value` was the most recently added sample: this only holds if no
+// other update has happened in between, which is exactly the shape
+// callers need it for (undoing the immediately-previous contribution
+// before re-adding a corrected one for the same logical sample; see
+// correctRunningStats below). Deliberately doesn't touch `reservoir`:
+// reliably locating which slot (if any) a specific historical value
+// occupies there isn't possible without extra bookkeeping per sample,
+// and p90/p95 are already documented as an estimate from a
+// representative sample rather than an exact figure, so leaving a
+// single stale reservoir entry after a correction is an acceptably
+// small imprecision, unlike mean/variance/CI silently drifting
+// forever, which this restores exactly.
+function removeMostRecentRunningStat(
+  stats: RunningStats,
+  value: number,
+): RunningStats {
+  const count = stats.count - 1;
+  if (count <= 0) {
+    return {
+      count: 0,
+      mean: 0,
+      m2: 0,
+      reservoir: stats.reservoir,
+      reservoirSize: stats.reservoirSize,
+    };
+  }
+  const mean = (stats.mean * stats.count - value) / count;
+  const delta = value - mean;
+  const delta2 = value - stats.mean;
+  const m2 = stats.m2 - delta * delta2;
+  return {
+    count,
+    mean,
+    m2,
+    reservoir: stats.reservoir,
+    reservoirSize: stats.reservoirSize,
+  };
+}
+
+// Corrects the most recently added sample from `oldValue` to
+// `newValue`, for callers whose source can emit a revised value for
+// something already added (e.g. a training.log frame correcting an
+// already-reported loss for the same step). Restores mean/variance/CI
+// to exactly what they'd be had `newValue` been added in the first
+// place instead of `oldValue`; see removeMostRecentRunningStat's doc
+// comment for why the reservoir itself is left as-is.
+export function correctRunningStats(
+  stats: RunningStats,
+  oldValue: number,
+  newValue: number,
+): RunningStats {
+  return updateRunningStats(
+    removeMostRecentRunningStat(stats, oldValue),
+    newValue,
+  );
+}

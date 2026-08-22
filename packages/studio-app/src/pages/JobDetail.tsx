@@ -24,7 +24,11 @@ import {
   truncateMiddle,
 } from "../lib/format";
 import { appendLossFrame, compactLossPoints } from "../lib/lossDownsample";
-import { createRunningStats, updateRunningStats } from "../lib/stats";
+import {
+  correctRunningStats,
+  createRunningStats,
+  updateRunningStats,
+} from "../lib/stats";
 
 const MAX_LOSS_POINTS = 2000;
 
@@ -285,22 +289,35 @@ export function JobDetail({ jobId }: { jobId: string }) {
         // same step (the same case appendLossFrame's own last?.step
         // === step check merges for the chart), not just fill in a
         // field that was previously null (the ordinary split-frame
-        // case). Without this check, a correction would be counted
-        // twice: once for the original value, again for the
-        // replacement, inflating count and biasing mean/variance/CI
-        // even though the chart itself only ever shows the corrected
-        // value. Skip the stats update (not the chart merge, which
-        // appendLossFrame below still performs) specifically when
-        // this frame's field was already non-null for this same step.
+        // case). When that happens, the corrected value must replace
+        // the old one in the running stats too (correctRunningStats),
+        // not just be added on top of it: adding on top would inflate
+        // count and bias mean/variance/CI, while silently dropping it
+        // instead would leave stats permanently stuck on the
+        // pre-correction value even though the chart (via
+        // appendLossFrame below) already shows the corrected one.
+        // This only handles a correction to the immediately-previous
+        // frame's step, matching appendLossFrame's own O(1) scope; a
+        // correction to a step further back isn't detected here,
+        // the same accepted-tradeoff boundary as appendLossFrame's
+        // non-adjacent-duplicate case (see its own doc comment).
         const last = lastFrameRef.current;
         const isSameStep = last?.step === step;
-        const lossAlreadyCounted = isSameStep && last.loss !== null;
-        const evalLossAlreadyCounted = isSameStep && last.evalLoss !== null;
-        if (safeLoss !== null && !lossAlreadyCounted) {
-          setTrainRunning((prev) => updateRunningStats(prev, safeLoss));
+        const previousLoss = isSameStep ? last.loss : null;
+        const previousEvalLoss = isSameStep ? last.evalLoss : null;
+        if (safeLoss !== null) {
+          setTrainRunning((prev) =>
+            previousLoss !== null
+              ? correctRunningStats(prev, previousLoss, safeLoss)
+              : updateRunningStats(prev, safeLoss),
+          );
         }
-        if (safeEvalLoss !== null && !evalLossAlreadyCounted) {
-          setEvalRunning((prev) => updateRunningStats(prev, safeEvalLoss));
+        if (safeEvalLoss !== null) {
+          setEvalRunning((prev) =>
+            previousEvalLoss !== null
+              ? correctRunningStats(prev, previousEvalLoss, safeEvalLoss)
+              : updateRunningStats(prev, safeEvalLoss),
+          );
         }
         lastFrameRef.current = {
           step,

@@ -6,6 +6,7 @@ import {
   createRunningStats,
   updateRunningStats,
   finalizeRunningStats,
+  correctRunningStats,
   stddev,
   percentile,
   confidenceInterval95,
@@ -242,5 +243,32 @@ describe("RunningStats", () => {
     expect(afterHit.reservoir).not.toBe(originalReservoir);
     expect(afterHit.reservoir).toContain(999);
     expect(originalReservoir).toEqual([1, 2]);
+  });
+
+  it("correctRunningStats restores mean/variance/CI exactly, as if the corrected value had been added instead of the original", () => {
+    const values = [2, 4, 4, 4, 5, 5, 7, 9];
+    let running = createRunningStats();
+    for (const v of values) running = updateRunningStats(running, v);
+
+    // Correct the last-added value (9 -> 100), matching the only
+    // case callers use this for: fixing the immediately-previous
+    // contribution, not an arbitrary historical one.
+    const corrected = correctRunningStats(running, 9, 100);
+    const correctedStats = finalizeRunningStats(corrected);
+
+    const expectedValues = [2, 4, 4, 4, 5, 5, 7, 100];
+    const expectedBatch = summarize(expectedValues);
+
+    expect(correctedStats.count).toBe(expectedBatch.count);
+    expect(correctedStats.mean).toBeCloseTo(expectedBatch.mean, 10);
+    expect(correctedStats.variance).toBeCloseTo(expectedBatch.variance, 6);
+  });
+
+  it("correctRunningStats does not change count, unlike calling updateRunningStats twice", () => {
+    let running = createRunningStats();
+    running = updateRunningStats(running, 10);
+    const corrected = correctRunningStats(running, 10, 20);
+    expect(corrected.count).toBe(1);
+    expect(corrected.mean).toBe(20);
   });
 });
