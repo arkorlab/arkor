@@ -275,20 +275,42 @@ describe("compactLossPoints", () => {
   });
 
   it("reclaims stranded capacity for eval when overlap with loss leaves loss under-using its share", () => {
-    // Every interior point carries both loss and evalLoss (full
-    // overlap). Eval's initial budget is computed before knowing
-    // which of loss's candidates it will end up claiming; once eval
-    // selects some of the shared points, loss's remaining pool can
-    // shrink below what its share of the budget assumed, stranding
-    // capacity that eval could have used for its own further
-    // candidates instead.
-    const points: LossPoint[] = Array.from({ length: 10 }, (_, i) =>
-      point(i, 1, 1),
-    );
-    const result = compactLossPoints(points, 10);
-    // With 8 interior points all overlapping and only 10 total slots
-    // (8 interior + 2 boundaries), every interior point should be
-    // retained; none of the 8 available slots should go unused.
+    // Every core interior point (steps 1-8) carries both loss and
+    // evalLoss (full overlap). Eval's initial budget is computed
+    // before knowing which of loss's candidates it will end up
+    // claiming; once eval selects some of the shared points, loss's
+    // remaining pool can shrink below what its share of the budget
+    // assumed, stranding capacity that eval could have used for its
+    // own further candidates instead.
+    //
+    // Three "empty" interstitial points (no loss, no evalLoss, at
+    // fractional steps within the existing range) pad points.length
+    // past targetSize without disturbing the first/last step range or
+    // any candidate counts, so compaction genuinely runs. (An earlier
+    // version of this test had points.length === targetSize, which
+    // hit the "already under budget" early-return path and never
+    // exercised compaction at all, a flaw both CodeRabbit and cubic
+    // independently caught.)
+    const points: LossPoint[] = [
+      point(0, 1), // boundary
+      ...Array.from({ length: 8 }, (_, i) => point(i + 1, 1, 1)),
+      point(9, 1), // boundary
+      { step: 0.1, loss: null },
+      { step: 0.2, loss: null },
+      { step: 0.3, loss: null },
+    ];
+    const result = compactLossPoints(points, 12);
+    // Only 10 points here can ever be selected: the 2 boundaries plus
+    // the 8 core overlapping candidates (the 3 padding points carry
+    // neither loss nor evalLoss, so they can never win any tier and
+    // exist purely to push points.length past targetSize so
+    // compaction actually runs). 10, not 12, is the true achievable
+    // maximum for this data regardless of allocation strategy; this
+    // asserts compaction reaches that true ceiling rather than
+    // falling short of it due to the eval/loss overlap (verified: eval
+    // selects 5 initially, loss's overlap-adjusted share only reaches
+    // 3, stranding 2 slots that the reclaim then recovers, exactly
+    // filling out the remaining 2 of the 8 core candidates).
     expect(result.length).toBe(10);
   });
 

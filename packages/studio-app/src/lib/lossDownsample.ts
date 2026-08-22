@@ -242,33 +242,46 @@ export function compactLossPoints(
     span,
   );
 
-  const selected = new Set<number>([0, merged.length - 1]);
-  for (const i of evalSelected) selected.add(i);
-  for (const i of maxSelected) selected.add(i);
-  for (const i of minSelected) selected.add(i);
-  for (const i of plainSelected) selected.add(i);
-
   // Overlap between the eval and loss series (a point selected by
   // eval that also happened to be a loss candidate) can shrink loss's
   // usable pool below what its share of the budget assumed, leaving
-  // capacity unused even though eval may have further, not-yet-
-  // selected candidates that could fill it. Reclaim any such
-  // stranded slack back to eval.
-  const strandedLeftover = bucketCount - (selected.size - 2);
-  if (strandedLeftover > 0) {
-    const evalUnclaimed = evalCandidates.filter((i) => !selected.has(i));
-    if (evalUnclaimed.length > 0) {
-      const reclaimed = bucketSelect(
-        merged,
-        evalUnclaimed,
-        Math.min(strandedLeftover, evalUnclaimed.length),
-        firstStep,
-        span,
-        (a, b) => evalIsExtremum[a] && !evalIsExtremum[b],
-      );
-      for (const i of reclaimed) selected.add(i);
-    }
-  }
+  // capacity unused even though eval may have further candidates that
+  // could fill it. Rather than a bounded reclaim over just the
+  // not-yet-selected eval candidates (which can itself under-fill if
+  // those candidates happen to cluster within only a few of the
+  // reclaim's own buckets), recompute eval's entire selection with an
+  // enlarged budget over its candidate pool, excluding whatever loss
+  // ended up actually keeping. A larger budget subdivides the same
+  // step range into more, narrower buckets, so this is strictly at
+  // least as good as, and typically better than, a bounded reclaim
+  // confined to whatever's left over; excluding loss's final picks
+  // from the pool additionally avoids wasting some of that enlarged
+  // budget re-selecting a point loss already contributes, since the
+  // two selections are only merged into `selected` afterward.
+  const lossFinalSelected = [...maxSelected, ...minSelected, ...plainSelected];
+  const lossFinalSelectedSet = new Set(lossFinalSelected);
+  const strandedLeftover =
+    bucketCount - (evalSelected.length + lossFinalSelected.length);
+  const evalPoolForReclaim = evalCandidates.filter(
+    (i) => !lossFinalSelectedSet.has(i),
+  );
+  const finalEvalSelected =
+    strandedLeftover > 0
+      ? bucketSelect(
+          merged,
+          evalPoolForReclaim,
+          Math.min(evalBudget + strandedLeftover, evalPoolForReclaim.length),
+          firstStep,
+          span,
+          (a, b) => evalIsExtremum[a] && !evalIsExtremum[b],
+        )
+      : evalSelected;
+
+  const selected = new Set<number>([0, merged.length - 1]);
+  for (const i of finalEvalSelected) selected.add(i);
+  for (const i of maxSelected) selected.add(i);
+  for (const i of minSelected) selected.add(i);
+  for (const i of plainSelected) selected.add(i);
 
   // `[...selected].sort(...)` (not `.toSorted()`) because the Studio
   // SPA's tsconfig pins `target: ES2022` and `Array.prototype.toSorted`
