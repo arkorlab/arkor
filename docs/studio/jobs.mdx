@@ -79,7 +79,7 @@ The **Advanced** toggle in the chart's header reveals a per-series statistics pa
 
 The eval card stays empty until a `training.log` event with a numeric `evalLoss` arrives.
 
-Once a run has exceeded the 2,000-point cap and the chart has compacted at least once, the training-loss statistics above describe the shape of what's currently retained rather than a strictly unbiased sample of the full run, since compaction favors keeping spikes over ordinary points. Eval-loss statistics are unaffected in the common case, since `evalLoss` points are kept in full unless that series alone exceeds the cap.
+Once a run has exceeded the 2,000-point cap and the chart has compacted at least once, both statistics panels describe the shape of what's currently retained rather than a strictly unbiased sample of the full run. Training-loss stats skew toward capturing spikes, since compaction favors local extrema over ordinary points. Eval-loss stats can also become non-representative once the number of eval points exceeds roughly half the compaction target: `evalLoss` points are guaranteed to survive in full only up to that share, with any excess evenly downsampled the same as the training-loss series.
 
 ## Things this page does not do
 

@@ -134,20 +134,42 @@ describe("compactLossPoints", () => {
     expect(Math.max(...gaps)).toBeLessThan(2500);
   });
 
-  it("treats loss values separated by null-loss frames as still adjacent for extrema detection", () => {
-    // targetSize is large enough for both the evalLoss point (step 1)
-    // and the extremum (step 2) to fit without competing for the same
-    // slot; see the priority-tier test below for that competing case.
+  it("treats loss values separated by null-loss frames as still adjacent for extrema detection (fails if extrema detection is removed)", () => {
+    // Deliberately tight: only one loss-series slot is available after
+    // boundaries and the evalLoss point are accounted for, and the
+    // spike is NOT first in array order among the loss-bearing
+    // candidates. If extrema detection were disabled or broken, this
+    // single slot would go to whichever plain candidate comes first
+    // in array order (step 1) instead of the spike (step 3), so this
+    // assertion genuinely depends on extremum detection working, not
+    // on incidentally surviving via generic filler.
     const points = [
-      point(0, 1),
-      point(1, null, 0.5), // no loss, only evalLoss
-      point(2, 5), // local max relative to steps 0 and 3
-      point(3, 1),
-      point(4, 1),
-      point(5, 1),
+      point(0, 1), // boundary
+      point(1, 2), // ordinary point, earlier in array order than the spike
+      point(2, null, 0.5), // no loss, only evalLoss
+      point(3, 5), // local max relative to steps 1 and 4, across the null-loss gap at step 2
+      point(4, 1), // ordinary point after the spike
+      point(5, 1), // boundary
     ];
-    const result = compactLossPoints(points, 5);
-    expect(result.some((p) => p.step === 2 && p.loss === 5)).toBe(true);
+    const result = compactLossPoints(points, 4);
+    expect(result.some((p) => p.step === 3 && p.loss === 5)).toBe(true);
+  });
+
+  it("preserves both sides of a high-frequency oscillation, not just whichever side wins by array order", () => {
+    // A genuinely alternating series (not just noisy-but-trending)
+    // makes nearly every interior point a strict local min or max.
+    // Without protecting min and max with their own separate budgets,
+    // position-sampling the combined extrema set can let one side win
+    // almost every bucket purely by array order, aliasing the
+    // retained shape into a false broad trend instead of the real
+    // back-and-forth.
+    const points = Array.from({ length: 41 }, (_, i) =>
+      point(i, i % 2 === 0 ? 0 : 10),
+    );
+    const result = compactLossPoints(points, 10);
+    const interior = result.filter((p) => p.step !== 0 && p.step !== 40);
+    expect(interior.some((p) => p.loss === 10)).toBe(true);
+    expect(interior.some((p) => p.loss === 0)).toBe(true);
   });
 
   it("prioritizes a sparse evalLoss point over extrema when both compete for a constrained budget", () => {
@@ -196,10 +218,12 @@ describe("compactLossPoints", () => {
     // yields at most one representative regardless of which series
     // "wins" that bucket, so neither series can be entirely crowded
     // out by the other.
-    const points: LossPoint[] = Array.from({ length: 2001 }, (_, i) =>
-      i % 2 === 0
-        ? point(i, Math.sin(i / 5)) // training-loss-only frame
-        : point(i, null, Math.sin(i / 5)), // eval-only frame
+    const points: LossPoint[] = Array.from(
+      { length: 2001 },
+      (_, i) =>
+        i % 2 === 0
+          ? point(i, Math.sin(i / 5)) // training-loss-only frame
+          : point(i, null, Math.sin(i / 5)), // eval-only frame
     );
     const result = compactLossPoints(points, 200);
     const trainingLossPoints = result.filter((p) => p.loss !== null);

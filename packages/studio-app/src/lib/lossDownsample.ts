@@ -3,7 +3,8 @@ import type { LossPoint } from "../components/jobs/LossChart";
 /**
  * Compacts `points` down to at most `targetSize` representatives.
  *
- * Three passes:
+ * Passes, each protecting a category from being crowded out by
+ * another that competes for the same step-value buckets:
  *
  * 1. Merge duplicate `step`s first (a later frame's non-null fields
  *    win, matching `LossChart`'s own by-step merge exactly). Without
@@ -16,15 +17,21 @@ import type { LossPoint } from "../components/jobs/LossChart";
  * 2. Split the remaining budget (after 2 slots reserved for the hard
  *    first/last boundaries) between the `evalLoss` series and the
  *    `loss` series, each getting up to half, with any unused share
- *    from a sparser series water-filled to the other. Without this
- *    split, a dense `evalLoss` series (frequent eval-only frames) can
- *    win almost every step-value bucket outright and crowd the
+ *    from a sparser series water-filled to the other. Without this,
+ *    a dense `evalLoss` series (frequent eval-only frames) can win
+ *    almost every step-value bucket outright and crowd the
  *    training-loss series out of the chart almost entirely.
- * 3. Within each series' own budget, bucket that series' candidate
+ * 3. Within the loss series' own budget, further split between local
+ *    maxima and local minima (again up to half each, water-filled),
+ *    before falling through to ordinary (non-extremum) points for
+ *    whatever's left. Without this, a genuinely oscillating series
+ *    (rapid alternation between a min and a max) can have one side
+ *    of the oscillation win every bucket it competes in purely by
+ *    array order, aliasing the retained shape into a false broad
+ *    trend instead of showing the real back-and-forth.
+ * 4. Within each of these budgets, bucket that category's candidate
  *    points into equal-width buckets by *step value* (not array
- *    position), keeping one representative per bucket: for the loss
- *    series, a local extremum is preferred within its bucket over an
- *    ordinary point, so visible spikes survive.
+ *    position), keeping one representative per bucket.
  *
  * Bucketing by step value (rather than sampling evenly by array
  * position, which an earlier version of this function did) matters
@@ -81,16 +88,26 @@ export function compactLossPoints(
   // Local minima/maxima of the `loss` series, compared across the
   // filtered subsequence of non-null loss values so a run of null-loss
   // frames between two real values doesn't block extrema detection.
-  const isExtremum: boolean[] = Array.from(
-    { length: merged.length },
-    () => false,
-  );
-  for (let k = 1; k < lossCandidates.length - 1; k++) {
-    const idx = lossCandidates[k];
-    const prev = merged[lossCandidates[k - 1]].loss;
+  // 0 = neither, 1 = local min, 2 = local max.
+  //
+  // Detection uses the FULL loss-bearing index range (including the
+  // boundaries), not just `lossCandidates` (which excludes them as
+  // selection targets, since boundaries are already force-included
+  // separately): without the boundary values as neighbor context, a
+  // spike sitting immediately after/before a boundary could never be
+  // correctly compared against its true neighbor and would silently
+  // fail to be flagged as an extremum at all.
+  const lossIndicesFull: number[] = [];
+  for (const [i, point] of merged.entries()) {
+    if (point.loss !== null) lossIndicesFull.push(i);
+  }
+  const extremumKind: number[] = Array.from({ length: merged.length }, () => 0);
+  for (let k = 1; k < lossIndicesFull.length - 1; k++) {
+    const idx = lossIndicesFull[k];
+    const prev = merged[lossIndicesFull[k - 1]].loss;
     const cur = merged[idx].loss;
-    const next = merged[lossCandidates[k + 1]].loss;
-    // `lossCandidates` only holds indices where `loss !== null`, so
+    const next = merged[lossIndicesFull[k + 1]].loss;
+    // `lossIndicesFull` only holds indices where `loss !== null`, so
     // this is unreachable; the guard just keeps the comparison below
     // type-safe without a non-null assertion.
     if (prev === null || cur === null || next === null) continue;
@@ -99,7 +116,8 @@ export function compactLossPoints(
     // runs from flagging almost every point as a "tied" extremum.
     const isMax = cur >= prev && cur >= next && (cur > prev || cur > next);
     const isMin = cur <= prev && cur <= next && (cur < prev || cur < next);
-    if (isMax || isMin) isExtremum[idx] = true;
+    if (isMax) extremumKind[idx] = 2;
+    else if (isMin) extremumKind[idx] = 1;
   }
 
   // Split the shared budget between the two series, each getting up
@@ -114,24 +132,71 @@ export function compactLossPoints(
     evalBudget,
     firstStep,
     span,
-    () => 0,
+  );
+  const evalSelectedSet = new Set(evalSelected);
+
+  // Exclude anything already claimed by the eval tier so its budget
+  // isn't wasted re-selecting a point the output already contains.
+  const lossCandidatesRemaining = lossCandidates.filter(
+    (i) => !evalSelectedSet.has(i),
   );
   const lossBudget = Math.min(
     bucketCount - evalSelected.length,
-    lossCandidates.length,
+    lossCandidatesRemaining.length,
   );
-  const lossSelected = bucketSelect(
+
+  // Within the loss budget, protect both sides of an oscillating
+  // series from each other the same way eval and loss protect each
+  // other above: local maxima and local minima each get up to half,
+  // water-filled, before ordinary (non-extremum) points get whatever
+  // remains.
+  const maxCandidates = lossCandidatesRemaining.filter(
+    (i) => extremumKind[i] === 2,
+  );
+  const minCandidates = lossCandidatesRemaining.filter(
+    (i) => extremumKind[i] === 1,
+  );
+  const plainCandidates = lossCandidatesRemaining.filter(
+    (i) => extremumKind[i] === 0,
+  );
+
+  const extremaHalf = Math.ceil(lossBudget / 2);
+  const maxBudget = Math.min(extremaHalf, maxCandidates.length);
+  const maxSelected = bucketSelect(
     merged,
-    lossCandidates,
-    lossBudget,
+    maxCandidates,
+    maxBudget,
     firstStep,
     span,
-    (i) => (isExtremum[i] ? 1 : 0),
+  );
+  const minBudget = Math.min(
+    lossBudget - maxSelected.length,
+    minCandidates.length,
+  );
+  const minSelected = bucketSelect(
+    merged,
+    minCandidates,
+    minBudget,
+    firstStep,
+    span,
+  );
+  const plainBudget = Math.min(
+    lossBudget - maxSelected.length - minSelected.length,
+    plainCandidates.length,
+  );
+  const plainSelected = bucketSelect(
+    merged,
+    plainCandidates,
+    plainBudget,
+    firstStep,
+    span,
   );
 
   const selected = new Set<number>([0, merged.length - 1]);
   for (const i of evalSelected) selected.add(i);
-  for (const i of lossSelected) selected.add(i);
+  for (const i of maxSelected) selected.add(i);
+  for (const i of minSelected) selected.add(i);
+  for (const i of plainSelected) selected.add(i);
 
   // `[...selected].sort(...)` (not `.toSorted()`) because the Studio
   // SPA's tsconfig pins `target: ES2022` and `Array.prototype.toSorted`
@@ -146,9 +211,8 @@ export function compactLossPoints(
 /**
  * Buckets `candidates` (indices into `points`) into `budget`
  * equal-width buckets spanning `[firstStep, firstStep + span]` by
- * step value, keeping the highest-`priorityOf`-ranked candidate per
- * bucket (ties keep whichever candidate was seen first). Returns at
- * most `budget` indices.
+ * step value, keeping one representative per bucket (the first
+ * candidate seen for that bucket). Returns at most `budget` indices.
  */
 function bucketSelect(
   points: LossPoint[],
@@ -156,24 +220,18 @@ function bucketSelect(
   budget: number,
   firstStep: number,
   span: number,
-  priorityOf: (index: number) => number,
 ): number[] {
   if (budget <= 0 || candidates.length === 0) return [];
   if (candidates.length <= budget) return candidates;
 
   const winner: (number | null)[] = Array.from({ length: budget }, () => null);
-  const winnerRank: number[] = Array.from({ length: budget }, () => -1);
 
   for (const idx of candidates) {
     const step = points[idx].step;
     let b = span === 0 ? 0 : Math.floor(((step - firstStep) / span) * budget);
     if (b >= budget) b = budget - 1;
     if (b < 0) b = 0;
-    const rank = priorityOf(idx);
-    if (rank > winnerRank[b]) {
-      winner[b] = idx;
-      winnerRank[b] = rank;
-    }
+    winner[b] ??= idx;
   }
 
   const result: number[] = [];

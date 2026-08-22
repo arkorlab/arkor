@@ -486,14 +486,25 @@ function AdvancedStats({
   evalStats: LossStats | null;
 }) {
   return (
-    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <StatsCard label="Training loss" tone="train" stats={train} />
-      <StatsCard
-        label="Eval loss"
-        tone="eval"
-        stats={evalStats}
-        emptyHint="Awaiting training.log events with evalLoss…"
-      />
+    <div className="mt-4">
+      {/* Once compaction has run at least once (past MAX_LOSS_POINTS),
+          these describe the retained sample, which the loss series
+          deliberately over-represents extrema in and the eval series
+          may itself be downsampled in if it's dense enough to exceed
+          its own share of the compaction budget; see #215. */}
+      <p className="mb-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+        Stats describe the currently retained sample, not necessarily every
+        point ever emitted for a long run.
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <StatsCard label="Training loss" tone="train" stats={train} />
+        <StatsCard
+          label="Eval loss"
+          tone="eval"
+          stats={evalStats}
+          emptyHint="Awaiting training.log events with evalLoss…"
+        />
+      </div>
     </div>
   );
 }
