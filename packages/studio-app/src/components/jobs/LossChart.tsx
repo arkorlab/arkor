@@ -459,7 +459,11 @@ export function LossChart({
       ) : null}
 
       {advanced ? (
-        <AdvancedStats train={trainStats} evalStats={evalStats} />
+        <AdvancedStats
+          train={trainStats}
+          evalStats={evalStats}
+          usingFullRunStats={Boolean(trainRunning) || Boolean(evalRunning)}
+        />
       ) : null}
     </div>
   );
@@ -503,20 +507,26 @@ function Legend({
 function AdvancedStats({
   train,
   evalStats,
+  usingFullRunStats,
 }: {
   train: LossStats | null;
   evalStats: LossStats | null;
+  /**
+   * True when the caller supplied `trainRunning` / `evalRunning`
+   * accumulators (see LossChart's props), so `train` / `evalStats`
+   * above came from `finalizeRunningStats` rather than `summarize()`
+   * over `points`. Changes which caption is accurate: only in that
+   * case are mean/variance/CI exact for the whole run rather than
+   * describing whatever `points` currently holds.
+   */
+  usingFullRunStats: boolean;
 }) {
   return (
     <div className="mt-4">
-      {/* Once compaction has run at least once (past MAX_LOSS_POINTS),
-          these describe the retained sample, which the loss series
-          deliberately over-represents extrema in and the eval series
-          may itself be downsampled in if it's dense enough to exceed
-          its own share of the compaction budget; see #215. */}
       <p className="mb-2 text-[10px] text-zinc-500 dark:text-zinc-400">
-        Stats describe the currently retained sample, not necessarily every
-        point ever emitted for a long run.
+        {usingFullRunStats
+          ? "Mean, standard deviation, variance, and the confidence interval reflect the full run. p90/p95 are estimated from a representative sample of up to 2,000 values, since retaining every value indefinitely isn't practical for a long run."
+          : "Stats describe the currently retained sample, not necessarily every point ever emitted for a long run."}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StatsCard label="Training loss" tone="train" stats={train} />

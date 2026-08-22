@@ -88,13 +88,21 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     // Clear per-job state when navigating between jobs so events, loss
-    // points, terminal status, advanced toggle, and event-id counter
-    // don't leak across routes. Resetting `advanced` matters: leaving
-    // it on would immediately start computing stats during the new
-    // job's live stream the moment its first points arrive.
+    // points, terminal status, advanced toggle, event-id counter, and
+    // the full-run stats accumulators don't leak across routes.
+    // Resetting `advanced` matters: leaving it on would immediately
+    // start computing stats during the new job's live stream the
+    // moment its first points arrive. Resetting trainRunning /
+    // evalRunning matters just as much: without it, since JobDetail
+    // is reused across job routes rather than remounted, the next
+    // job's values would keep accumulating on top of the previous
+    // job's, corrupting count/mean/variance/CI/percentiles for the
+    // newly viewed job.
     setEvents([]);
     setPoints([]);
     setAdvanced(false);
+    setTrainRunning(createRunningStats());
+    setEvalRunning(createRunningStats());
     setTerminal(null);
     setEventErr(null);
     setLiveStatus(null);
