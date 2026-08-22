@@ -18,16 +18,17 @@ import type { LossPoint } from "../components/jobs/LossChart";
  *    out-of-order frame, e.g. from an SSE reconnect replay, would
  *    otherwise corrupt the first/last boundary and bucket-width
  *    calculations below).
- * 2. Split the remaining budget (after 2 slots reserved for the hard
- *    first/last boundaries) between the `evalLoss` series and the
- *    `loss` series. Each gets up to half; if one series has fewer
- *    candidates than its half, the unused share flows to the other.
- *    A second reclaim pass afterward hands any *still* stranded
- *    capacity back to eval: overlap between the two series (a point
- *    with both `loss` and `evalLoss`) can mean eval's own selection
- *    shrinks loss's actually-usable candidate pool below what its
- *    initial budget assumed, leaving slots unused even though eval
- *    may have further unselected candidates that could fill them.
+ * 2. Split the remaining budget after reserving the first and last
+ *    finite point of each plotted series (when the target can hold
+ *    them) between the `evalLoss` series and the `loss` series. Each
+ *    gets up to half; if one series has fewer candidates than its
+ *    half, the unused share flows to the other. A second reclaim pass
+ *    afterward hands any *still* stranded capacity back to eval:
+ *    overlap between the two series (a point with both `loss` and
+ *    `evalLoss`) can mean eval's own selection shrinks loss's
+ *    actually-usable candidate pool below what its initial budget
+ *    assumed, leaving slots unused even though eval may have further
+ *    unselected candidates that could fill them.
  * 3. Within the loss series' own budget, the same bidirectional split
  *    applies one level down: local maxima and local minima each get
  *    up to half, with either side's unused share flowing to the
@@ -40,8 +41,8 @@ import type { LossPoint } from "../components/jobs/LossChart";
  *    points into equal-width buckets by *step value* (not array
  *    position), keeping the most significant representative per
  *    bucket: for loss maxima, the highest loss value in that bucket;
- *    for loss minima, the lowest; for eval, a genuine local extremum
- *    over an ordinary value; for plain filler, first-seen. Picking
+ *    for loss minima and eval minima, the lowest; for loss maxima and
+ *    eval maxima, the highest; for plain filler, first-seen. Picking
  *    merely the first-seen candidate regardless of magnitude could
  *    let a modest point win a bucket over a genuinely severe spike
  *    that happens to sit later in the same bucket, silently erasing
@@ -69,16 +70,18 @@ export function compactLossPoints(
   points: LossPoint[],
   targetSize: number,
 ): LossPoint[] {
-  if (targetSize < 1) return [];
+  if (!Number.isFinite(targetSize)) return [];
+  const normalizedTargetSize = Math.floor(targetSize);
+  if (normalizedTargetSize < 1) return [];
 
   const merged = mergeByStep(points);
 
-  if (merged.length <= targetSize) return merged;
-  if (targetSize === 1) {
+  if (merged.length <= normalizedTargetSize) return merged;
+  if (normalizedTargetSize === 1) {
     const last = merged.at(-1);
     return last ? [last] : [];
   }
-  if (targetSize === 2) {
+  if (normalizedTargetSize === 2) {
     const last = merged.at(-1);
     return last ? [merged[0], last] : [merged[0]];
   }
@@ -87,12 +90,39 @@ export function compactLossPoints(
   const lastStepPoint = merged.at(-1);
   const lastStep = lastStepPoint ? lastStepPoint.step : firstStep;
   const span = lastStep - firstStep;
-  const bucketCount = targetSize - 2;
+
+  const lossIndicesFull: number[] = [];
+  const evalIndicesFull: number[] = [];
+  for (const [i, point] of merged.entries()) {
+    if (point.loss !== null) lossIndicesFull.push(i);
+    if (typeof point.evalLoss === "number" && Number.isFinite(point.evalLoss)) {
+      evalIndicesFull.push(i);
+    }
+  }
+
+  const mandatoryBoundaryIndices = new Set<number>([0, merged.length - 1]);
+  if (lossIndicesFull.length > 0) {
+    const lastLossIndex = lossIndicesFull.at(-1);
+    mandatoryBoundaryIndices.add(lossIndicesFull[0]);
+    if (lastLossIndex !== undefined)
+      mandatoryBoundaryIndices.add(lastLossIndex);
+  }
+  if (evalIndicesFull.length > 0) {
+    const lastEvalIndex = evalIndicesFull.at(-1);
+    mandatoryBoundaryIndices.add(evalIndicesFull[0]);
+    if (lastEvalIndex !== undefined)
+      mandatoryBoundaryIndices.add(lastEvalIndex);
+  }
+  const boundaryIndices =
+    mandatoryBoundaryIndices.size <= normalizedTargetSize
+      ? mandatoryBoundaryIndices
+      : new Set<number>([0, merged.length - 1]);
+  const bucketCount = normalizedTargetSize - boundaryIndices.size;
 
   const evalCandidates: number[] = [];
   const lossCandidates: number[] = [];
-  for (let i = 1; i < merged.length - 1; i++) {
-    const p = merged[i];
+  for (const [i, p] of merged.entries()) {
+    if (boundaryIndices.has(i)) continue;
     if (typeof p.evalLoss === "number" && Number.isFinite(p.evalLoss)) {
       evalCandidates.push(i);
     }
@@ -111,13 +141,9 @@ export function compactLossPoints(
   // spike sitting immediately after/before a boundary could never be
   // correctly compared against its true neighbor and would silently
   // fail to be flagged as an extremum at all.
-  const lossIndicesFull: number[] = [];
-  for (const [i, point] of merged.entries()) {
-    if (point.loss !== null) lossIndicesFull.push(i);
-  }
   const extremumKind: number[] = Array.from({ length: merged.length }, () => 0);
-  for (let k = 1; k < lossIndicesFull.length - 1; k++) {
-    const idx = lossIndicesFull[k];
+  for (const [offset, idx] of lossIndicesFull.slice(1, -1).entries()) {
+    const k = offset + 1;
     const prev = merged[lossIndicesFull[k - 1]].loss;
     const cur = merged[idx].loss;
     const next = merged[lossIndicesFull[k + 1]].loss;
@@ -135,23 +161,15 @@ export function compactLossPoints(
   }
 
   // Local extrema of the `evalLoss` series, same algorithm as above.
-  // Used only as an in-bucket preference (an eval extremum beats an
-  // ordinary eval value competing for the same bucket), not a
-  // separate budget split like loss's max/min: without this, a
-  // genuine eval-loss anomaly could be dropped in favor of an
-  // ordinary value that merely happened to be seen first.
-  const evalIndicesFull: number[] = [];
-  for (const [i, point] of merged.entries()) {
-    if (typeof point.evalLoss === "number" && Number.isFinite(point.evalLoss)) {
-      evalIndicesFull.push(i);
-    }
-  }
-  const evalIsExtremum: boolean[] = Array.from(
+  // Maxima and minima get separate sub-budgets so opposite extrema in
+  // the same step bucket cannot erase one another; ordinary eval
+  // values use whatever remains.
+  const evalExtremumKind: number[] = Array.from(
     { length: merged.length },
-    () => false,
+    () => 0,
   );
-  for (let k = 1; k < evalIndicesFull.length - 1; k++) {
-    const idx = evalIndicesFull[k];
+  for (const [offset, idx] of evalIndicesFull.slice(1, -1).entries()) {
+    const k = offset + 1;
     const prev = merged[evalIndicesFull[k - 1]].evalLoss;
     const cur = merged[idx].evalLoss;
     const next = merged[evalIndicesFull[k + 1]].evalLoss;
@@ -164,7 +182,8 @@ export function compactLossPoints(
     }
     const isMax = cur >= prev && cur >= next && (cur > prev || cur > next);
     const isMin = cur <= prev && cur <= next && (cur < prev || cur < next);
-    if (isMax || isMin) evalIsExtremum[idx] = true;
+    if (isMax) evalExtremumKind[idx] = 2;
+    else if (isMin) evalExtremumKind[idx] = 1;
   }
 
   // Split the shared budget between the two series, each getting up
@@ -176,14 +195,54 @@ export function compactLossPoints(
     evalCandidates.length,
     lossCandidates.length,
   );
-  const evalSelected = bucketSelect(
-    merged,
-    evalCandidates,
+  const evalMaxCandidates = evalCandidates.filter(
+    (i) => evalExtremumKind[i] === 2,
+  );
+  const evalMinCandidates = evalCandidates.filter(
+    (i) => evalExtremumKind[i] === 1,
+  );
+  const evalPlainCandidates = evalCandidates.filter(
+    (i) => evalExtremumKind[i] === 0,
+  );
+  const [evalMaxBudget, evalMinBudget] = splitBudget(
     evalBudget,
+    evalMaxCandidates.length,
+    evalMinCandidates.length,
+  );
+  const evalMaxSelected = bucketSelect(
+    merged,
+    evalMaxCandidates,
+    evalMaxBudget,
     firstStep,
     span,
-    (a, b) => evalIsExtremum[a] && !evalIsExtremum[b],
+    (a, b) =>
+      (merged[a].evalLoss ?? -Infinity) > (merged[b].evalLoss ?? -Infinity),
   );
+  const evalMinSelected = bucketSelect(
+    merged,
+    evalMinCandidates,
+    evalMinBudget,
+    firstStep,
+    span,
+    (a, b) =>
+      (merged[a].evalLoss ?? Infinity) < (merged[b].evalLoss ?? Infinity),
+  );
+  const evalPlainBudget = Math.min(
+    evalBudget - evalMaxSelected.length - evalMinSelected.length,
+    evalPlainCandidates.length,
+  );
+  const evalPlainSelected = bucketSelect(
+    merged,
+    evalPlainCandidates,
+    evalPlainBudget,
+    firstStep,
+    span,
+  );
+  const evalSelected = [
+    ...evalMaxSelected,
+    ...evalMinSelected,
+    ...evalPlainSelected,
+  ];
   const evalSelectedSet = new Set(evalSelected);
 
   // Exclude anything already claimed by the eval tier so its budget
@@ -242,7 +301,7 @@ export function compactLossPoints(
     span,
   );
 
-  const selected = new Set<number>([0, merged.length - 1]);
+  const selected = new Set<number>(boundaryIndices);
   for (const i of evalSelected) selected.add(i);
   for (const i of maxSelected) selected.add(i);
   for (const i of minSelected) selected.add(i);
@@ -254,7 +313,7 @@ export function compactLossPoints(
   // capacity unused even though eval may have further, not-yet-
   // selected candidates that could fill it. Reclaim any such
   // stranded slack back to eval.
-  const strandedLeftover = bucketCount - (selected.size - 2);
+  const strandedLeftover = bucketCount - (selected.size - boundaryIndices.size);
   if (strandedLeftover > 0) {
     const evalUnclaimed = evalCandidates.filter((i) => !selected.has(i));
     if (evalUnclaimed.length > 0) {
@@ -264,9 +323,18 @@ export function compactLossPoints(
         Math.min(strandedLeftover, evalUnclaimed.length),
         firstStep,
         span,
-        (a, b) => evalIsExtremum[a] && !evalIsExtremum[b],
+        (a, b) => evalExtremumKind[a] !== 0 && evalExtremumKind[b] === 0,
       );
       for (const i of reclaimed) selected.add(i);
+
+      // Multiple unclaimed candidates can share a bucket, so the
+      // representative pass may return fewer points than its budget.
+      // Fill any remaining slots directly to keep the output at the
+      // requested size when enough candidates remain.
+      for (const i of evalUnclaimed) {
+        if (selected.size - boundaryIndices.size >= bucketCount) break;
+        if (!selected.has(i)) selected.add(i);
+      }
     }
   }
 

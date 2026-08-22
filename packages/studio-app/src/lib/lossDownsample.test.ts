@@ -39,6 +39,24 @@ describe("compactLossPoints", () => {
     expect(compactLossPoints(points, -5)).toEqual([]);
   });
 
+  it("normalizes fractional targetSize down before allocating output slots", () => {
+    const points = [
+      point(1, 0.5),
+      point(2, 0.4, 0.1),
+      point(3, 0.3),
+      point(4, 0.2),
+    ];
+    const result = compactLossPoints(points, 2.5);
+    expect(result).toHaveLength(2);
+    expect(result).toEqual([points[0], points[3]]);
+  });
+
+  it("returns an empty array for non-finite targetSize values", () => {
+    const points = [point(1, 0.5), point(2, 0.4)];
+    expect(compactLossPoints(points, Number.NaN)).toEqual([]);
+    expect(compactLossPoints(points, Number.POSITIVE_INFINITY)).toEqual([]);
+  });
+
   it("returns only the last point when targetSize is 1", () => {
     const points = [point(1, 0.9), point(2, 0.5), point(3, 0.1)];
     expect(compactLossPoints(points, 1)).toEqual([point(3, 0.1)]);
@@ -49,6 +67,24 @@ describe("compactLossPoints", () => {
     const result = compactLossPoints(points, 10);
     expect(result[0]).toEqual(points[0]);
     expect(result.at(-1)).toEqual(points.at(-1));
+  });
+
+  it("preserves the first and last finite point of each plotted series", () => {
+    const points: LossPoint[] = [
+      point(0, null, 1),
+      point(1, 100),
+      point(2, 0),
+      point(3, 1),
+      point(4, 0),
+      point(5, 1),
+      point(6, 0),
+      point(7, 1),
+      point(8, 0),
+      point(9, null, 1),
+    ];
+    const result = compactLossPoints(points, 6);
+    expect(result.some((p) => p.step === 1 && p.loss === 100)).toBe(true);
+    expect(result.some((p) => p.step === 8 && p.loss === 0)).toBe(true);
   });
 
   it("preserves every point with a finite evalLoss", () => {
@@ -275,20 +311,20 @@ describe("compactLossPoints", () => {
   });
 
   it("reclaims stranded capacity for eval when overlap with loss leaves loss under-using its share", () => {
-    // Every interior point carries both loss and evalLoss (full
-    // overlap). Eval's initial budget is computed before knowing
-    // which of loss's candidates it will end up claiming; once eval
-    // selects some of the shared points, loss's remaining pool can
-    // shrink below what its share of the budget assumed, stranding
-    // capacity that eval could have used for its own further
-    // candidates instead.
-    const points: LossPoint[] = Array.from({ length: 10 }, (_, i) =>
-      point(i, 1, 1),
-    );
+    // The initial eval selection retains four overlapping loss points.
+    // That leaves the loss tier with no unclaimed candidates, so the
+    // reclaim pass must fill the four stranded slots from the remaining
+    // eval-only candidates.
+    const steps = [0, 100, 300, 310, 320, 330, 340, 350, 360, 600, 900, 1000];
+    const overlappingSteps = new Set([100, 300, 600, 900]);
+    const points: LossPoint[] = steps.map((step, i) => {
+      if (i === 0 || i === steps.length - 1) return point(step, 1);
+      if (overlappingSteps.has(step)) return point(step, 1, 1);
+      return point(step, null, 1);
+    });
     const result = compactLossPoints(points, 10);
-    // With 8 interior points all overlapping and only 10 total slots
-    // (8 interior + 2 boundaries), every interior point should be
-    // retained; none of the 8 available slots should go unused.
+    // With 10 interior points and 10 total slots, all 8 interior
+    // bucket slots must be filled, including the reclaimed eval slots.
     expect(result.length).toBe(10);
   });
 
@@ -301,6 +337,14 @@ describe("compactLossPoints", () => {
     points[10] = point(10, null, 50); // eval-loss spike
     const result = compactLossPoints(points, 6);
     expect(result.some((p) => p.step === 10 && p.evalLoss === 50)).toBe(true);
+  });
+
+  it("preserves the more severe eval extremum when opposite extrema share a bucket", () => {
+    const points = Array.from({ length: 21 }, (_, i) => point(i, null, 1));
+    points[10] = point(10, null, 0); // local minimum
+    points[11] = point(11, null, 100); // severe local maximum, same bucket
+    const result = compactLossPoints(points, 6);
+    expect(result.some((p) => p.step === 11 && p.evalLoss === 100)).toBe(true);
   });
 
   it("keeps output sorted by step even if merged input arrives out of step order", () => {
