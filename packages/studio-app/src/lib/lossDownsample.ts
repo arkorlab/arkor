@@ -368,11 +368,21 @@ function bucketSelect(
   for (const idx of winner) if (idx === null) emptySlots++;
   if (emptySlots > 0) {
     const unselected = candidates.filter((idx) => !selected.has(idx));
-    let fillIndex = 0;
-    for (let b = 0; b < budget && fillIndex < unselected.length; b++) {
+    // Recurse (rather than a simpler ad-hoc fill) for two reasons: it
+    // applies this same local-span bucketing to the leftover
+    // candidates, so a backfill spanning multiple separated clusters
+    // spreads evenly across them instead of exhausting the first
+    // cluster before reaching the next; and it passes `isBetter`
+    // through, so a genuinely significant leftover point (e.g. a
+    // severe spike) still wins its own backfilled bucket over an
+    // ordinary one, rather than backfill always taking whichever
+    // leftover candidate happens to be array-order-first.
+    const backfilled = bucketSelect(points, unselected, emptySlots, isBetter);
+    let backfillIndex = 0;
+    for (let b = 0; b < budget && backfillIndex < backfilled.length; b++) {
       if (winner[b] === null) {
-        winner[b] = unselected[fillIndex];
-        fillIndex++;
+        winner[b] = backfilled[backfillIndex];
+        backfillIndex++;
       }
     }
   }

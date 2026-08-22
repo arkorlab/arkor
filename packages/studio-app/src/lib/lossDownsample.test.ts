@@ -412,4 +412,24 @@ describe("compactLossPoints", () => {
     // bucket per cluster boundary would leave.
     expect(evalRepresentatives.length).toBeGreaterThan(15);
   });
+
+  it("preserves a severe spike among backfilled candidates rather than taking whichever leftover was array-order-first", () => {
+    // A dense cluster of local maxima, mostly modest, with one severe
+    // spike, all within a step range narrow enough (relative to the
+    // requested budget) to force some of this tier's slots to be
+    // filled via backfill. A backfill that ignores significance
+    // (taking leftover candidates in plain array order) could let an
+    // ordinary max survive while the genuine spike, appearing later
+    // in the array, gets left out.
+    const points: LossPoint[] = [
+      point(0, 1), // boundary
+      ...Array.from(
+        { length: 50 },
+        (_, i) => point(i + 1, i === 25 ? 1000 : 2), // severe spike at step 26
+      ),
+      point(51, 1), // boundary
+    ];
+    const result = compactLossPoints(points, 12);
+    expect(result.some((p) => p.loss === 1000)).toBe(true);
+  });
 });
