@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compactLossPoints } from "./lossDownsample";
+import { appendLossFrame, compactLossPoints } from "./lossDownsample";
 import type { LossPoint } from "../components/jobs/LossChart";
 
 function point(
@@ -449,5 +449,48 @@ describe("compactLossPoints", () => {
     const result = compactLossPoints(points, 7);
     expect(result.some((p) => p.loss === 9999)).toBe(true);
     expect(result.some((p) => p.loss === 5)).toBe(false);
+  });
+});
+
+describe("appendLossFrame", () => {
+  it("appends a new entry when the step differs from the previous one", () => {
+    const prev: LossPoint[] = [point(1, 5, null)];
+    const next = appendLossFrame(prev, 2, 7, null);
+    expect(next).toEqual([point(1, 5, null), point(2, 7, null)]);
+  });
+
+  it("merges into the previous entry, rather than appending, when a step's loss and evalLoss arrive as two adjacent frames", () => {
+    const afterLossFrame = appendLossFrame([], 5, 10, null);
+    const afterEvalFrame = appendLossFrame(afterLossFrame, 5, null, 2);
+    // A single merged point at step 5, not two separate entries; this
+    // is what keeps a caller's running length an accurate count of
+    // distinct steps rather than raw frames (see appendLossFrame's
+    // doc comment for why that matters).
+    expect(afterEvalFrame).toHaveLength(1);
+    expect(afterEvalFrame[0]).toEqual({ step: 5, loss: 10, evalLoss: 2 });
+  });
+
+  it("merges regardless of which field arrives first, evalLoss-then-loss", () => {
+    const afterEvalFrame = appendLossFrame([], 8, null, 3);
+    const afterLossFrame = appendLossFrame(afterEvalFrame, 8, 20, null);
+    expect(afterLossFrame).toHaveLength(1);
+    expect(afterLossFrame[0]).toEqual({ step: 8, loss: 20, evalLoss: 3 });
+  });
+
+  it("lets a later frame's non-null field override the previous frame's value for the same step", () => {
+    const first = appendLossFrame([], 4, 100, null);
+    const corrected = appendLossFrame(first, 4, 150, null);
+    expect(corrected).toHaveLength(1);
+    expect(corrected[0]).toEqual({ step: 4, loss: 150, evalLoss: null });
+  });
+
+  it("does not merge a non-adjacent duplicate step, leaving that case for compactLossPoints's own full-array merge", () => {
+    const prev: LossPoint[] = [point(1, 5), point(2, 7)];
+    // Step 1 recurs here but is no longer the last entry, so this is
+    // the boundary of what appendLossFrame alone is expected to
+    // handle; compactLossPoints's mergeByStep is what guarantees
+    // correctness for this case once compaction runs.
+    const next = appendLossFrame(prev, 1, 6, null);
+    expect(next).toHaveLength(3);
   });
 });

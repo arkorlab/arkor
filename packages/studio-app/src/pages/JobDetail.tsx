@@ -23,7 +23,7 @@ import {
   NO_VALUE_PLACEHOLDER,
   truncateMiddle,
 } from "../lib/format";
-import { compactLossPoints } from "../lib/lossDownsample";
+import { appendLossFrame, compactLossPoints } from "../lib/lossDownsample";
 
 const MAX_LOSS_POINTS = 2000;
 
@@ -243,14 +243,12 @@ export function JobDetail({ jobId }: { jobId: string }) {
         // percentiles independently of the necessarily-bounded visual
         // sample) is a larger, separate change than this fix's scope.
         setPoints((prev) => {
-          const next = [
-            ...prev,
-            {
-              step,
-              loss: safeLoss,
-              evalLoss: safeEvalLoss,
-            },
-          ];
+          // appendLossFrame merges an incoming frame into the
+          // previous entry when they share a step (see its own doc
+          // comment for why: split loss/evalLoss frames would
+          // otherwise inflate next.length and trip the
+          // MAX_LOSS_POINTS check below early).
+          const next = appendLossFrame(prev, step, safeLoss, safeEvalLoss);
           return next.length > MAX_LOSS_POINTS
             ? compactLossPoints(next, MAX_LOSS_POINTS / 2)
             : next;

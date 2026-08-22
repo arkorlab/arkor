@@ -74,6 +74,39 @@ import type { LossPoint } from "../components/jobs/LossChart";
  * so callers relying on the array staying sorted by `step` (e.g.
  * `LossChart`'s binary-search tooltip) are unaffected.
  */
+/**
+ * Appends a single incoming `training.log` frame to `prev`, merging
+ * it into the previous entry first if that entry shares the same
+ * `step` (later non-null fields win, matching `mergeByStep` and
+ * `LossChart`'s own by-step merge).
+ *
+ * A trainer can emit a step's `loss` and `evalLoss` as two separate,
+ * adjacent frames rather than one combined frame (see `LossChart`'s
+ * "eval-only frames" comment). Without merging as frames arrive, a
+ * caller that gates a point-count cap on `prev.length` (e.g.
+ * `JobDetail`, gating `compactLossPoints` on `MAX_LOSS_POINTS`) would
+ * count both frames separately, tripping that cap at roughly half the
+ * intended point count whenever split frames are in play. This only
+ * merges an immediately-adjacent duplicate; any non-adjacent
+ * duplicate that slips through is still handled correctly by
+ * `compactLossPoints`'s own full-array, step-keyed merge once
+ * compaction actually runs.
+ */
+export function appendLossFrame(
+  prev: LossPoint[],
+  step: number,
+  loss: number | null,
+  evalLoss: number | null,
+): LossPoint[] {
+  const last = prev.at(-1);
+  return last?.step === step
+    ? [
+        ...prev.slice(0, -1),
+        { step, loss: loss ?? last.loss, evalLoss: evalLoss ?? last.evalLoss },
+      ]
+    : [...prev, { step, loss, evalLoss }];
+}
+
 export function compactLossPoints(
   points: LossPoint[],
   targetSize: number,
