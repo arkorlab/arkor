@@ -13,15 +13,21 @@ import type { LossPoint } from "../components/jobs/LossChart";
  *    `LossChart.tsx`'s "eval-only frames" comment) could have
  *    compaction keep one frame and drop the other, silently losing
  *    that step's value even though `LossChart` would otherwise have
- *    merged them.
+ *    merged them. The merged result is sorted by step defensively
+ *    (`Map` preserves insertion order, not step order; an
+ *    out-of-order frame, e.g. from an SSE reconnect replay, would
+ *    otherwise corrupt the first/last boundary and bucket-width
+ *    calculations below).
  * 2. Split the remaining budget (after 2 slots reserved for the hard
  *    first/last boundaries) between the `evalLoss` series and the
  *    `loss` series. Each gets up to half; if one series has fewer
- *    candidates than its half, the unused share flows to the other
- *    (bidirectionally: whichever side runs out first hands its
- *    leftover to the side that can still use it), rather than a
- *    dense series being hard-capped at half even when the other side
- *    has nothing to spend the rest on.
+ *    candidates than its half, the unused share flows to the other.
+ *    A second reclaim pass afterward hands any *still* stranded
+ *    capacity back to eval: overlap between the two series (a point
+ *    with both `loss` and `evalLoss`) can mean eval's own selection
+ *    shrinks loss's actually-usable candidate pool below what its
+ *    initial budget assumed, leaving slots unused even though eval
+ *    may have further unselected candidates that could fill them.
  * 3. Within the loss series' own budget, the same bidirectional split
  *    applies one level down: local maxima and local minima each get
  *    up to half, with either side's unused share flowing to the
@@ -33,10 +39,11 @@ import type { LossPoint } from "../components/jobs/LossChart";
  * 4. Within each of these budgets, bucket that category's candidate
  *    points into equal-width buckets by *step value* (not array
  *    position), keeping the most significant representative per
- *    bucket: for maxima, the highest loss value in that bucket; for
- *    minima, the lowest; for eval/plain, first-seen. Picking merely
- *    the first-seen candidate regardless of magnitude could let a
- *    modest local extremum win a bucket over a genuinely severe spike
+ *    bucket: for loss maxima, the highest loss value in that bucket;
+ *    for loss minima, the lowest; for eval, a genuine local extremum
+ *    over an ordinary value; for plain filler, first-seen. Picking
+ *    merely the first-seen candidate regardless of magnitude could
+ *    let a modest point win a bucket over a genuinely severe spike
  *    that happens to sit later in the same bucket, silently erasing
  *    exactly the kind of point this preservation exists for.
  *
@@ -127,6 +134,39 @@ export function compactLossPoints(
     else if (isMin) extremumKind[idx] = 1;
   }
 
+  // Local extrema of the `evalLoss` series, same algorithm as above.
+  // Used only as an in-bucket preference (an eval extremum beats an
+  // ordinary eval value competing for the same bucket), not a
+  // separate budget split like loss's max/min: without this, a
+  // genuine eval-loss anomaly could be dropped in favor of an
+  // ordinary value that merely happened to be seen first.
+  const evalIndicesFull: number[] = [];
+  for (const [i, point] of merged.entries()) {
+    if (typeof point.evalLoss === "number" && Number.isFinite(point.evalLoss)) {
+      evalIndicesFull.push(i);
+    }
+  }
+  const evalIsExtremum: boolean[] = Array.from(
+    { length: merged.length },
+    () => false,
+  );
+  for (let k = 1; k < evalIndicesFull.length - 1; k++) {
+    const idx = evalIndicesFull[k];
+    const prev = merged[evalIndicesFull[k - 1]].evalLoss;
+    const cur = merged[idx].evalLoss;
+    const next = merged[evalIndicesFull[k + 1]].evalLoss;
+    if (
+      typeof prev !== "number" ||
+      typeof cur !== "number" ||
+      typeof next !== "number"
+    ) {
+      continue;
+    }
+    const isMax = cur >= prev && cur >= next && (cur > prev || cur > next);
+    const isMin = cur <= prev && cur <= next && (cur < prev || cur < next);
+    if (isMax || isMin) evalIsExtremum[idx] = true;
+  }
+
   // Split the shared budget between the two series, each getting up
   // to half, with either side's unused share flowing to the other
   // (based on raw candidate counts; the loss side's *actual* budget
@@ -142,6 +182,7 @@ export function compactLossPoints(
     evalBudget,
     firstStep,
     span,
+    (a, b) => evalIsExtremum[a] && !evalIsExtremum[b],
   );
   const evalSelectedSet = new Set(evalSelected);
 
@@ -207,6 +248,28 @@ export function compactLossPoints(
   for (const i of minSelected) selected.add(i);
   for (const i of plainSelected) selected.add(i);
 
+  // Overlap between the eval and loss series (a point selected by
+  // eval that also happened to be a loss candidate) can shrink loss's
+  // usable pool below what its share of the budget assumed, leaving
+  // capacity unused even though eval may have further, not-yet-
+  // selected candidates that could fill it. Reclaim any such
+  // stranded slack back to eval.
+  const strandedLeftover = bucketCount - (selected.size - 2);
+  if (strandedLeftover > 0) {
+    const evalUnclaimed = evalCandidates.filter((i) => !selected.has(i));
+    if (evalUnclaimed.length > 0) {
+      const reclaimed = bucketSelect(
+        merged,
+        evalUnclaimed,
+        Math.min(strandedLeftover, evalUnclaimed.length),
+        firstStep,
+        span,
+        (a, b) => evalIsExtremum[a] && !evalIsExtremum[b],
+      );
+      for (const i of reclaimed) selected.add(i);
+    }
+  }
+
   // `[...selected].sort(...)` (not `.toSorted()`) because the Studio
   // SPA's tsconfig pins `target: ES2022` and `Array.prototype.toSorted`
   // is ES2023; Vite/esbuild won't polyfill it, so older evergreen
@@ -219,11 +282,16 @@ export function compactLossPoints(
 
 /**
  * Splits `total` between two candidate pools of size `countA` /
- * `countB`, each getting up to half. If one pool has fewer candidates
- * than its half, the unused share is reallocated to the other pool
- * (bounded by how many candidates it actually has), so neither side
- * is starved by a hard half-cap when the other side has nothing left
- * to spend the remainder on.
+ * `countB`, each getting up to half. If `B` has fewer candidates than
+ * its half, the unused share is reallocated to `A` (bounded by how
+ * many candidates `A` actually has), so `A` isn't starved by a hard
+ * half-cap when `B` has nothing left to spend the remainder on.
+ *
+ * Only `A` can reclaim leftover here, not `B`: whenever there IS
+ * leftover, `B` was necessarily capped by its own candidate count
+ * (if it weren't, `budgetB` would already equal `total - budgetA`
+ * exactly, leaving no leftover to reclaim in the first place), so `B`
+ * has nothing further to use regardless.
  */
 function splitBudget(
   total: number,
@@ -232,13 +300,10 @@ function splitBudget(
 ): [number, number] {
   const half = Math.ceil(total / 2);
   let budgetA = Math.min(half, countA);
-  let budgetB = Math.min(total - budgetA, countB);
+  const budgetB = Math.min(total - budgetA, countB);
   const leftover = total - budgetA - budgetB;
   if (leftover > 0) {
-    const extraA = Math.min(leftover, countA - budgetA);
-    budgetA += extraA;
-    const extraB = Math.min(leftover - extraA, countB - budgetB);
-    budgetB += extraB;
+    budgetA += Math.min(leftover, countA - budgetA);
   }
   return [budgetA, budgetB];
 }
@@ -248,12 +313,12 @@ function splitBudget(
  * equal-width buckets spanning `[firstStep, firstStep + span]` by
  * step value, keeping one representative per bucket. Without
  * `isBetter`, the first candidate seen for a bucket wins (used for
- * eval/plain tiers, where no single candidate is more "significant"
- * than another). With `isBetter(candidate, currentWinner)`, a later
+ * plain filler, where no single candidate is more "significant" than
+ * another). With `isBetter(candidate, currentWinner)`, a later
  * candidate can replace the current winner if it's more significant
- * (used for extrema tiers, so the single most severe spike in a
- * bucket survives rather than whichever happened to be seen first).
- * Returns at most `budget` indices.
+ * (used for extrema and eval tiers, so the single most severe spike
+ * in a bucket survives rather than whichever happened to be seen
+ * first). Returns at most `budget` indices.
  */
 function bucketSelect(
   points: LossPoint[],
@@ -294,9 +359,11 @@ function bucketSelect(
  * splits a step's training-loss and eval-loss across two entries that
  * could independently survive or be dropped.
  *
- * Assumes `points` arrives in non-decreasing step order (true for the
- * SSE append order `JobDetail` builds this array in); output preserves
- * first-occurrence order per step.
+ * Output is explicitly sorted by `step` regardless of input order:
+ * `Map` preserves insertion (first-occurrence) order, not step order,
+ * so a caller that ever appends an out-of-order frame (e.g. after an
+ * SSE reconnect replay) would otherwise corrupt the boundary and
+ * bucket-width calculations that assume a step-ascending array.
  */
 function mergeByStep(points: LossPoint[]): LossPoint[] {
   const byStep = new Map<number, LossPoint>();
@@ -311,5 +378,6 @@ function mergeByStep(points: LossPoint[]): LossPoint[] {
       existing.evalLoss = p.evalLoss;
     }
   }
-  return [...byStep.values()];
+  // eslint-disable-next-line unicorn/no-array-sort
+  return [...byStep.values()].sort((a, b) => a.step - b.step);
 }

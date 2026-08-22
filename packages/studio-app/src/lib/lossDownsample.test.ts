@@ -235,41 +235,89 @@ describe("compactLossPoints", () => {
 
   it("keeps the most severe spike in a bucket rather than whichever extremum was seen first", () => {
     // A modest local max at step 1 and a genuinely severe spike at
-    // step 3 fall into the same bucket under a tight budget. Picking
-    // merely the first-seen candidate per bucket (rather than the
-    // most extreme) would keep the modest one and silently drop the
-    // severe spike, exactly the kind of point this preservation
-    // exists for.
+    // step 3 fall into the same bucket under a tight budget (target
+    // 3 leaves only a single interior loss slot, forcing a real
+    // conflict). Picking merely the first-seen candidate per bucket
+    // (rather than the most extreme) would keep the modest one and
+    // silently drop the severe spike, exactly the kind of point this
+    // preservation exists for.
     const points = Array.from({ length: 11 }, (_, i) => point(i, 1));
     points[1] = point(1, 2); // modest local max
     points[3] = point(3, 100); // severe spike, same bucket as step 1
-    const result = compactLossPoints(points, 4);
+    const result = compactLossPoints(points, 3);
     expect(result.some((p) => p.step === 3 && p.loss === 100)).toBe(true);
   });
 
-  it("reallocates an extremum category's unused budget to the other side rather than capping both at a hard half", () => {
-    // Many local maxima, only one local minimum. A one-directional
-    // split (max gets up to half, min gets whatever's left, unused
-    // min share going only to plain filler) would cap max at half
-    // even though far more maxima exist and could use the slack that
-    // the single minimum doesn't need.
-    const points: LossPoint[] = [
-      point(0, 50), // boundary
-      ...Array.from(
-        { length: 39 },
-        (_, i) => point(i + 1, i % 2 === 0 ? 100 : 90), // alternating maxima/near-maxima
-      ),
-      point(40, 1), // the single genuine local minimum, near the end
-      point(41, 50), // boundary
-    ];
-    const result = compactLossPoints(points, 20);
-    const maxRepresentatives = result.filter(
-      (p) => p.step > 0 && p.step < 40 && (p.loss ?? 0) >= 90,
+  it("reallocates an under-demanded series' unused budget to the other side rather than capping both at a hard half", () => {
+    // A single scarce loss-only point competes against an abundant
+    // eval-only series for the shared bucket budget. A hard half-cap
+    // (no reallocation) would limit eval to half the budget even
+    // though the single loss candidate only needs one slot, leaving
+    // the rest unused instead of going to eval. (An earlier version
+    // of this test tried to force the same conflict via loss maxima
+    // vs minima, but isolated spikes/dips against a flat baseline
+    // also flag their immediate shoulder points as extrema, making
+    // both categories populous in practice rather than genuinely
+    // lopsided; the eval/loss split is directly controllable without
+    // that side effect.)
+    const points: LossPoint[] = Array.from({ length: 31 }, (_, i) => {
+      if (i === 0 || i === 30) return point(i, 999); // boundaries: plain loss only
+      if (i === 15) return point(i, 50); // the single scarce loss candidate
+      return point(i, null, 1); // abundant eval-only candidates
+    });
+    const result = compactLossPoints(points, 17);
+    const evalRepresentatives = result.filter(
+      (p) => typeof p.evalLoss === "number",
     );
-    // With only 20 total slots and 2 reserved for boundaries plus 1
-    // for the single minimum, a hard half-cap would allow at most
-    // ~8-9 max representatives; reallocating the minimum's unused
-    // share should comfortably allow more than that.
-    expect(maxRepresentatives.length).toBeGreaterThan(10);
+    // Hard half of the 15-slot bucket budget would be 8; reallocating
+    // the scarce loss series' unused share should give eval 14.
+    expect(evalRepresentatives.length).toBe(14);
+  });
+
+  it("reclaims stranded capacity for eval when overlap with loss leaves loss under-using its share", () => {
+    // Every interior point carries both loss and evalLoss (full
+    // overlap). Eval's initial budget is computed before knowing
+    // which of loss's candidates it will end up claiming; once eval
+    // selects some of the shared points, loss's remaining pool can
+    // shrink below what its share of the budget assumed, stranding
+    // capacity that eval could have used for its own further
+    // candidates instead.
+    const points: LossPoint[] = Array.from({ length: 10 }, (_, i) =>
+      point(i, 1, 1),
+    );
+    const result = compactLossPoints(points, 10);
+    // With 8 interior points all overlapping and only 10 total slots
+    // (8 interior + 2 boundaries), every interior point should be
+    // retained; none of the 8 available slots should go unused.
+    expect(result.length).toBe(10);
+  });
+
+  it("prefers a genuine eval-loss extremum over an ordinary eval value in the same bucket", () => {
+    // A flat evalLoss baseline with one distinct eval-loss spike.
+    // Without preferring eval extrema, the first-seen ordinary value
+    // in that spike's bucket could win instead, silently dropping a
+    // genuine eval-loss anomaly.
+    const points = Array.from({ length: 21 }, (_, i) => point(i, null, 1));
+    points[10] = point(10, null, 50); // eval-loss spike
+    const result = compactLossPoints(points, 6);
+    expect(result.some((p) => p.step === 10 && p.evalLoss === 50)).toBe(true);
+  });
+
+  it("keeps output sorted by step even if merged input arrives out of step order", () => {
+    // mergeByStep's underlying Map preserves insertion order, not
+    // step order; an out-of-order duplicate-step frame (e.g. from an
+    // SSE reconnect replay) must not corrupt the boundary or
+    // bucket-width calculations that assume a step-ascending array.
+    const points: LossPoint[] = [
+      point(0, 1),
+      point(5, 1),
+      point(3, 1), // arrives out of order relative to step 5
+      point(2, 1, 0.5),
+      point(10, 1),
+    ];
+    const result = compactLossPoints(points, 3);
+    expect(isSortedByStep(result)).toBe(true);
+    expect(result[0].step).toBe(0);
+    expect(result.at(-1)?.step).toBe(10);
   });
 });
