@@ -36,11 +36,11 @@ export function JobDetail({ jobId }: { jobId: string }) {
   // these keep the Advanced panel's mean/variance/percentiles
   // accurate for the whole run regardless of how long it gets, rather
   // than describing whatever subset of points compaction happens to
-  // have retained for the chart. Refs (not state) because they're
-  // updated on every incoming frame; JobDetail already re-renders on
-  // that same frame via setPoints, so a fresh shallow copy taken at
-  // render time is enough for LossChart's memoization to pick up the
-  // latest values without a second render pass per frame.
+  // have retained for the chart. State (not refs): updateRunningStats
+  // is pure and returns a new accumulator rather than mutating the
+  // old one, which is exactly what a setState updater needs to stay
+  // safe under React's assumptions (see updateRunningStats's own doc
+  // comment for why mutating in place is unsafe there).
   const [trainRunning, setTrainRunning] = useState(createRunningStats());
   const [evalRunning, setEvalRunning] = useState(createRunningStats());
   const [advanced, setAdvanced] = useState(false);
@@ -266,18 +266,10 @@ export function JobDetail({ jobId }: { jobId: string }) {
         // it gets, independent of whatever compaction does to
         // `points` for rendering.
         if (safeLoss !== null) {
-          setTrainRunning((prev) => {
-            const next = { ...prev, reservoir: [...prev.reservoir] };
-            updateRunningStats(next, safeLoss);
-            return next;
-          });
+          setTrainRunning((prev) => updateRunningStats(prev, safeLoss));
         }
         if (safeEvalLoss !== null) {
-          setEvalRunning((prev) => {
-            const next = { ...prev, reservoir: [...prev.reservoir] };
-            updateRunningStats(next, safeEvalLoss);
-            return next;
-          });
+          setEvalRunning((prev) => updateRunningStats(prev, safeEvalLoss));
         }
         setPoints((prev) => {
           // appendLossFrame merges an incoming frame into the

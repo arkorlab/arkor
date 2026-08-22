@@ -198,22 +198,46 @@ export function createRunningStats(
   return { count: 0, mean: 0, m2: 0, reservoir: [], reservoirSize };
 }
 
-export function updateRunningStats(stats: RunningStats, value: number): void {
-  stats.count += 1;
+// Pure: returns a new accumulator rather than mutating `stats`, and
+// never mutates `stats.reservoir` either. This matters for two
+// reasons. First, correctness: React requires a setState updater to
+// be pure, since React (particularly in Strict Mode) can invoke it
+// twice to detect exactly this kind of side effect; mutating the
+// previous state in place would corrupt the second invocation's
+// input. Second, performance: once the reservoir is full, most
+// updates don't touch it at all (only a ~reservoirSize/count chance
+// per call), so cloning it defensively on every call, as a mutating
+// version of this function would force callers to do, wastes a full
+// array copy on the vast majority of calls for a long-running job.
+// Here, the reservoir array reference is reused untouched on that
+// common path, and only cloned in the two cases where it actually
+// changes: while still filling up, or on the comparatively rare
+// occasions the random draw below replaces an existing entry.
+export function updateRunningStats(
+  stats: RunningStats,
+  value: number,
+): RunningStats {
+  const count = stats.count + 1;
   const delta = value - stats.mean;
-  stats.mean += delta / stats.count;
-  const delta2 = value - stats.mean;
-  stats.m2 += delta * delta2;
+  const mean = stats.mean + delta / count;
+  const delta2 = value - mean;
+  const m2 = stats.m2 + delta * delta2;
 
-  if (stats.reservoir.length < stats.reservoirSize) {
-    stats.reservoir.push(value);
+  let reservoir = stats.reservoir;
+  if (reservoir.length < stats.reservoirSize) {
+    reservoir = [...reservoir, value];
   } else {
     // Algorithm R: each of the `count` values seen so far has an
     // equal 1/count chance of being the one currently occupying any
     // given reservoir slot.
-    const j = Math.floor(Math.random() * stats.count);
-    if (j < stats.reservoirSize) stats.reservoir[j] = value;
+    const j = Math.floor(Math.random() * count);
+    if (j < stats.reservoirSize) {
+      reservoir = [...reservoir];
+      reservoir[j] = value;
+    }
   }
+
+  return { count, mean, m2, reservoir, reservoirSize: stats.reservoirSize };
 }
 
 // Snapshots a RunningStats accumulator into the same LossStats shape

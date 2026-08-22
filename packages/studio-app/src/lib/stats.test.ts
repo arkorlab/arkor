@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
   mean,
@@ -145,8 +145,8 @@ describe("stats", () => {
 describe("RunningStats", () => {
   it("matches summarize()'s mean and variance for a small run within the reservoir size", () => {
     const values = [2, 4, 4, 4, 5, 5, 7, 9];
-    const running = createRunningStats();
-    for (const v of values) updateRunningStats(running, v);
+    let running = createRunningStats();
+    for (const v of values) running = updateRunningStats(running, v);
     const streamed = finalizeRunningStats(running);
     const batch = summarize(values);
     expect(streamed.count).toBe(batch.count);
@@ -167,8 +167,8 @@ describe("RunningStats", () => {
     // materializing the full array for summarize() would be wasteful
     // in a unit test.
     const n = 50_000;
-    const running = createRunningStats(100); // small reservoir on purpose
-    for (let v = 1; v <= n; v++) updateRunningStats(running, v);
+    let running = createRunningStats(100); // small reservoir on purpose
+    for (let v = 1; v <= n; v++) running = updateRunningStats(running, v);
     const stats = finalizeRunningStats(running);
     const expectedMean = (n + 1) / 2;
     // Population variance of 1..N is (N^2-1)/12; Bessel-corrected
@@ -180,8 +180,8 @@ describe("RunningStats", () => {
   });
 
   it("bounds the reservoir at its configured size regardless of how many values are seen", () => {
-    const running = createRunningStats(50);
-    for (let v = 1; v <= 10_000; v++) updateRunningStats(running, v);
+    let running = createRunningStats(50);
+    for (let v = 1; v <= 10_000; v++) running = updateRunningStats(running, v);
     expect(running.reservoir).toHaveLength(50);
     expect(running.count).toBe(10_000);
   });
@@ -202,12 +202,45 @@ describe("RunningStats", () => {
   });
 
   it("reports zero variance and spread for a single value, matching summarize()'s single-sample convention", () => {
-    const running = createRunningStats();
-    updateRunningStats(running, 42);
+    let running = createRunningStats();
+    running = updateRunningStats(running, 42);
     const stats = finalizeRunningStats(running);
     expect(stats.count).toBe(1);
     expect(stats.mean).toBe(42);
     expect(stats.variance).toBe(0);
     expect(stats.ci95HalfWidth).toBe(0);
+  });
+
+  it("is pure: reuses the same reservoir array reference when a full reservoir isn't touched, and never mutates the original when it is", () => {
+    // Fill a 2-slot reservoir exactly, so it's full but every value
+    // seen so far is still present (no updates have missed yet).
+    let running = createRunningStats(2);
+    running = updateRunningStats(running, 1);
+    running = updateRunningStats(running, 2);
+    const originalReservoir = running.reservoir;
+
+    // Force Algorithm R's draw to miss (j >= reservoirSize): with
+    // count becoming 3, floor(random() * 3) must land on index 2 to
+    // miss a 2-slot reservoir, so random() just needs to be >= 2/3.
+    const missSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const afterMiss = updateRunningStats(running, 999);
+    missSpy.mockRestore();
+    // A miss shouldn't touch the reservoir at all: same array
+    // reference reused, not just equal contents, since a defensive
+    // clone here is exactly the wasted work this design avoids.
+    expect(afterMiss.reservoir).toBe(originalReservoir);
+    expect(afterMiss.reservoir).toEqual([1, 2]);
+
+    // Force a hit instead (random() < 2/3 lands on index 0 or 1).
+    const hitSpy = vi.spyOn(Math, "random").mockReturnValue(0.1);
+    const afterHit = updateRunningStats(running, 999);
+    hitSpy.mockRestore();
+    // A hit must produce a distinct array (not the same reference)
+    // and must leave the original completely untouched, since
+    // mutating shared previous state is unsafe for a setState
+    // updater (see updateRunningStats's own doc comment).
+    expect(afterHit.reservoir).not.toBe(originalReservoir);
+    expect(afterHit.reservoir).toContain(999);
+    expect(originalReservoir).toEqual([1, 2]);
   });
 });
