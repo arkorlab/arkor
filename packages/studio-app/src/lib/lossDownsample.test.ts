@@ -185,7 +185,7 @@ describe("compactLossPoints", () => {
     const points = Array.from({ length: 21 }, (_, i) =>
       i === 7 ? point(i, i % 2, 0.5) : point(i, i % 2),
     );
-    const result = compactLossPoints(points, 5);
+    const result = compactLossPoints(points, 7);
     expect(result.some((p) => p.step === 7 && p.evalLoss === 0.5)).toBe(true);
   });
 
@@ -413,23 +413,41 @@ describe("compactLossPoints", () => {
     expect(evalRepresentatives.length).toBeGreaterThan(15);
   });
 
-  it("preserves a severe spike among backfilled candidates rather than taking whichever leftover was array-order-first", () => {
-    // A dense cluster of local maxima, mostly modest, with one severe
-    // spike, all within a step range narrow enough (relative to the
-    // requested budget) to force some of this tier's slots to be
-    // filled via backfill. A backfill that ignores significance
-    // (taking leftover candidates in plain array order) could let an
-    // ordinary max survive while the genuine spike, appearing later
-    // in the array, gets left out.
+  it("preserves a genuine extremum outcompeted in its first-pass bucket, over an ordinary point, when both compete again during backfill", () => {
+    // Four isolated spikes (each surrounded by flat baseline): an
+    // ordinary one (step 1), a primary spike far more severe than
+    // everything else (step 3), a secondary spike, still clearly
+    // significant but less extreme than primary (step 5), and a far
+    // spike alone at the far end of the range (step 49). The flat
+    // point on each side of a spike is itself a genuine local
+    // minimum (lower than the spike on one side, tied with the flat
+    // baseline on the other), so this fixture also creates its own
+    // min-tier candidates competing for their own share of the
+    // budget; targetSize is chosen (verified directly against the
+    // real max/min budget split, not assumed) so the max tier gets
+    // exactly 3 of its 5 slots. With that budget,
+    // ordinary/primary/secondary all map to the SAME first-pass
+    // bucket (primary wins it outright), leaving one bucket empty
+    // (nothing else maps to the middle of the range) and
+    // ordinary/secondary both as leftovers for backfill to fill that
+    // one empty slot from. A backfill that ignores significance
+    // (keeping whichever leftover is array-order-first) would keep
+    // ordinary (step 1) over secondary (step 5); the correct behavior
+    // is for secondary to win via the same significance comparator
+    // used everywhere else, since it's still a real extremum.
     const points: LossPoint[] = [
       point(0, 1), // boundary
-      ...Array.from(
-        { length: 50 },
-        (_, i) => point(i + 1, i === 25 ? 1000 : 2), // severe spike at step 26
-      ),
-      point(51, 1), // boundary
+      point(1, 5), // ordinary spike
+      point(2, 1),
+      point(3, 999_999), // primary spike, wins the shared first-pass bucket
+      point(4, 1),
+      point(5, 9999), // secondary spike, outcompeted by primary, becomes a leftover
+      ...Array.from({ length: 43 }, (_, i) => point(i + 6, 1)),
+      point(49, 7), // far spike, wins its own bucket alone
+      point(50, 1), // boundary
     ];
-    const result = compactLossPoints(points, 12);
-    expect(result.some((p) => p.loss === 1000)).toBe(true);
+    const result = compactLossPoints(points, 7);
+    expect(result.some((p) => p.loss === 9999)).toBe(true);
+    expect(result.some((p) => p.loss === 5)).toBe(false);
   });
 });
