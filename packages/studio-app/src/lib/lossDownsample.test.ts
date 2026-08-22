@@ -386,4 +386,30 @@ describe("compactLossPoints", () => {
     // would leave; proves local-span bucketing is doing real work.
     expect(evalRepresentatives.length).toBeGreaterThan(10);
   });
+
+  it("backfills budget when candidates form separate clusters with a large gap between them", () => {
+    // Eval-only candidates in two distinct clusters (steps 1-20 and
+    // steps 900-920) within a much wider overall run. Local-span
+    // bucketing alone (spanning only the candidates' own min/max
+    // step) still leaves buckets that fall in the gap between the two
+    // clusters permanently empty, since no candidate's step ever maps
+    // there; without backfilling those empty buckets from leftover
+    // candidates, most of the budget goes unused despite having far
+    // more candidates than the budget requires.
+    const points: LossPoint[] = [point(0, 1)];
+    for (let s = 1; s <= 20; s++) points.push(point(s, null, 1));
+    for (let s = 21; s < 900; s += 20) points.push(point(s, 1));
+    for (let s = 900; s <= 920; s++) points.push(point(s, null, 1));
+    points.push(point(1000, 1));
+
+    const result = compactLossPoints(points, 40);
+    const evalRepresentatives = result.filter(
+      (p) => typeof p.evalLoss === "number",
+    );
+    // With 41 eval candidates and a generous share of the 38-slot
+    // bucket budget, backfilling should recover most of them rather
+    // than collapsing to just the couple of points a single naive
+    // bucket per cluster boundary would leave.
+    expect(evalRepresentatives.length).toBeGreaterThan(15);
+  });
 });

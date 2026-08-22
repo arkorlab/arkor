@@ -354,6 +354,29 @@ function bucketSelect(
     }
   }
 
+  // If candidates cluster into distinct, widely-separated groups (not
+  // just one dense cluster), the buckets spanning the gap between
+  // groups can end up with no candidate ever mapping into them,
+  // leaving the budget under-used even though there are enough
+  // candidates overall to fill it. Backfill any such empty slots from
+  // whichever candidates didn't win a bucket of their own; since
+  // `candidates.length > budget` here (checked above), there are
+  // always at least as many leftover candidates as empty slots.
+  const selected = new Set<number>();
+  for (const idx of winner) if (idx !== null) selected.add(idx);
+  let emptySlots = 0;
+  for (const idx of winner) if (idx === null) emptySlots++;
+  if (emptySlots > 0) {
+    const unselected = candidates.filter((idx) => !selected.has(idx));
+    let fillIndex = 0;
+    for (let b = 0; b < budget && fillIndex < unselected.length; b++) {
+      if (winner[b] === null) {
+        winner[b] = unselected[fillIndex];
+        fillIndex++;
+      }
+    }
+  }
+
   const result: number[] = [];
   for (const idx of winner) if (idx !== null) result.push(idx);
   return result;
