@@ -184,9 +184,9 @@ export function compactLossPoints(
       evalIndicesFull.push(i);
     }
   }
-  const evalIsExtremum: boolean[] = Array.from(
+  const evalExtremumScore: number[] = Array.from(
     { length: merged.length },
-    () => false,
+    () => -Infinity,
   );
   for (let k = 1; k < evalIndicesFull.length - 1; k++) {
     const idx = evalIndicesFull[k];
@@ -202,7 +202,9 @@ export function compactLossPoints(
     }
     const isMax = cur >= prev && cur >= next && (cur > prev || cur > next);
     const isMin = cur <= prev && cur <= next && (cur < prev || cur < next);
-    if (isMax || isMin) evalIsExtremum[idx] = true;
+    if (isMax || isMin) {
+      evalExtremumScore[idx] = Math.abs(cur - prev) + Math.abs(cur - next);
+    }
   }
 
   // Split the shared budget between the two series, each getting up
@@ -218,7 +220,7 @@ export function compactLossPoints(
     merged,
     evalCandidates,
     evalBudget,
-    (a, b) => evalIsExtremum[a] && !evalIsExtremum[b],
+    (a, b) => evalExtremumScore[a] > evalExtremumScore[b],
   );
   const evalSelectedSet = new Set(evalSelected);
 
@@ -289,7 +291,7 @@ export function compactLossPoints(
             evalSelected.length + lossShortfall,
             evalPoolForReclaim.length,
           ),
-          (a, b) => evalIsExtremum[a] && !evalIsExtremum[b],
+          (a, b) => evalExtremumScore[a] > evalExtremumScore[b],
         )
       : evalSelected;
 

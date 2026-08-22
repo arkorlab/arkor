@@ -325,6 +325,27 @@ describe("compactLossPoints", () => {
     expect(result.some((p) => p.step === 10 && p.evalLoss === 50)).toBe(true);
   });
 
+  it("prefers a severe eval-loss maximum over an ordinary eval-loss minimum sharing the same bucket", () => {
+    // Eval doesn't split its budget into separate max/min tiers the
+    // way loss does, so a genuine max and a genuine min can compete
+    // directly for the same bucket. A comparator that only checks
+    // "is this an extremum at all" (rather than how significant it
+    // is) can't tell a severe spike apart from an ordinary dip in
+    // that case, and would keep whichever is seen first regardless
+    // of actual significance. An alternating 0/1 evalLoss series
+    // creates a genuine local minimum or maximum at nearly every
+    // interior step; inserting one severe spike (step 10) alongside
+    // several ordinary minima (steps 2, 4, 6, 8) that map into the
+    // same first-pass bucket forces this exact contest.
+    const points: LossPoint[] = [point(0, 1, 0)];
+    for (let s = 1; s <= 20; s++) {
+      points.push(point(s, 1, s === 10 ? 100 : s % 2));
+    }
+    points.push(point(21, 1, 0));
+    const result = compactLossPoints(points, 6);
+    expect(result.some((p) => p.step === 10 && p.evalLoss === 100)).toBe(true);
+  });
+
   it("keeps output sorted by step even if merged input arrives out of step order", () => {
     // mergeByStep's underlying Map preserves insertion order, not
     // step order; an out-of-order duplicate-step frame (e.g. from an
