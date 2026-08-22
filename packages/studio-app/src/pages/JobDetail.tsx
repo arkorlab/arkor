@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ArrowLeft, Sparkles } from "../components/icons";
 import { EventsStream, type EventEntry } from "../components/jobs/EventsStream";
@@ -43,6 +43,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
   // comment for why mutating in place is unsafe there).
   const [trainRunning, setTrainRunning] = useState(createRunningStats());
   const [evalRunning, setEvalRunning] = useState(createRunningStats());
+  // See lastFrameRef.current's reset comment (in the per-job reset
+  // effect below) and its usage (in the training.log handler) for why
+  // this exists and why it's a ref rather than derived from `points`.
+  const lastFrameRef = useRef<{
+    step: number;
+    loss: number | null;
+    evalLoss: number | null;
+  } | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [terminal, setTerminal] = useState<{
@@ -103,6 +111,13 @@ export function JobDetail({ jobId }: { jobId: string }) {
     setAdvanced(false);
     setTrainRunning(createRunningStats());
     setEvalRunning(createRunningStats());
+    // Mirrors the merged (step, loss, evalLoss) state appendLossFrame
+    // would produce, but tracked in a ref rather than read from the
+    // `points` state: this effect only depends on [jobId], so reading
+    // `points` here would see whatever it was when the effect last
+    // ran, not its current value. Used below to detect a same-step
+    // correction so it isn't double-counted into the running stats.
+    lastFrameRef.current = null;
     setTerminal(null);
     setEventErr(null);
     setLiveStatus(null);
@@ -260,17 +275,38 @@ export function JobDetail({ jobId }: { jobId: string }) {
         //
         // The (possibly compacted) `points` array below is only
         // for the visual chart. Advanced-panel stats are computed
-        // separately, from trainRunningRef / evalRunningRef, which
-        // accumulate every raw value incrementally (see stats.ts) and
-        // so stay accurate for the whole run regardless of how long
-        // it gets, independent of whatever compaction does to
-        // `points` for rendering.
-        if (safeLoss !== null) {
+        // separately, from trainRunning / evalRunning (see stats.ts),
+        // which accumulate every raw value incrementally so they stay
+        // accurate for the whole run regardless of how long it gets,
+        // independent of whatever compaction does to `points` for
+        // rendering.
+        //
+        // A later frame can correct an already-counted field for the
+        // same step (the same case appendLossFrame's own last?.step
+        // === step check merges for the chart), not just fill in a
+        // field that was previously null (the ordinary split-frame
+        // case). Without this check, a correction would be counted
+        // twice: once for the original value, again for the
+        // replacement, inflating count and biasing mean/variance/CI
+        // even though the chart itself only ever shows the corrected
+        // value. Skip the stats update (not the chart merge, which
+        // appendLossFrame below still performs) specifically when
+        // this frame's field was already non-null for this same step.
+        const last = lastFrameRef.current;
+        const isSameStep = last?.step === step;
+        const lossAlreadyCounted = isSameStep && last.loss !== null;
+        const evalLossAlreadyCounted = isSameStep && last.evalLoss !== null;
+        if (safeLoss !== null && !lossAlreadyCounted) {
           setTrainRunning((prev) => updateRunningStats(prev, safeLoss));
         }
-        if (safeEvalLoss !== null) {
+        if (safeEvalLoss !== null && !evalLossAlreadyCounted) {
           setEvalRunning((prev) => updateRunningStats(prev, safeEvalLoss));
         }
+        lastFrameRef.current = {
+          step,
+          loss: safeLoss ?? (isSameStep ? last.loss : null),
+          evalLoss: safeEvalLoss ?? (isSameStep ? last.evalLoss : null),
+        };
         setPoints((prev) => {
           // appendLossFrame merges an incoming frame into the
           // previous entry when they share a step (see its own doc
