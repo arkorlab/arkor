@@ -18,10 +18,15 @@ function isSortedByStep(points: LossPoint[]): boolean {
 }
 
 describe("compactLossPoints", () => {
-  it("returns the input untouched when already at or under targetSize", () => {
+  it("returns the input (deep-equal, deduped by step) when already at or under targetSize", () => {
+    // No longer referentially identical (`toBe`) now that
+    // compactLossPoints always merges duplicate steps first, which
+    // allocates a fresh array/objects even when no further
+    // compaction is needed; the data itself is unchanged when there
+    // are no duplicate steps to merge.
     const points = [point(1, 0.5), point(2, 0.4), point(3, 0.3)];
-    expect(compactLossPoints(points, 3)).toBe(points);
-    expect(compactLossPoints(points, 10)).toBe(points);
+    expect(compactLossPoints(points, 3)).toStrictEqual(points);
+    expect(compactLossPoints(points, 10)).toStrictEqual(points);
   });
 
   it("returns an empty array for empty input", () => {
@@ -113,6 +118,20 @@ describe("compactLossPoints", () => {
     // which is exactly the bug #215 reports against tail-slicing.
     expect(points.some((p) => p.step === 0)).toBe(true);
     expect(isSortedByStep(points)).toBe(true);
+    // Position-based (rather than step-value-bucketed) sampling across
+    // many repeated compaction passes geometrically erodes how many
+    // representatives the *early* portion of a long run keeps, since
+    // each pass gives already-thinned old survivors and freshly
+    // appended raw points equal weight by count rather than by the
+    // step range they represent. Verified against an earlier,
+    // position-based version of this function: after this same 50k
+    // step simulation, only steps 0 and 1 survived below step 1,000,
+    // jumping straight to roughly step 39,000. These two checks would
+    // have failed against that version and must keep passing here.
+    const early = points.filter((p) => p.step < 5000);
+    expect(early.length).toBeGreaterThan(10);
+    const gaps = points.slice(1).map((p, i) => p.step - points[i].step);
+    expect(Math.max(...gaps)).toBeLessThan(2500);
   });
 
   it("treats loss values separated by null-loss frames as still adjacent for extrema detection", () => {
@@ -146,5 +165,47 @@ describe("compactLossPoints", () => {
     );
     const result = compactLossPoints(points, 5);
     expect(result.some((p) => p.step === 7 && p.evalLoss === 0.5)).toBe(true);
+  });
+
+  it("merges a step's loss and evalLoss when they arrive as two separate frames, so compaction can't split them (#215 regression)", () => {
+    // The trainer can emit a step's training-loss and eval-loss as two
+    // distinct SSE frames (see LossChart.tsx's "eval-only frames"
+    // comment, which documents this as an explicitly supported
+    // shape). Without merging by step first, compaction could keep
+    // one frame for a step and drop the other, silently losing
+    // whichever field lived only in the dropped frame.
+    const points: LossPoint[] = [
+      ...Array.from({ length: 4 }, (_, i) => point(i, 1)),
+      point(5, 0.7), // loss-only frame for step 5
+      point(5, null, 0.3), // later eval-only frame, SAME step
+      ...Array.from({ length: 5 }, (_, i) => point(i + 6, 1)),
+    ];
+    const result = compactLossPoints(points, 4);
+    const step5 = result.find((p) => p.step === 5);
+    expect(step5).toBeDefined();
+    expect(step5?.loss).toBe(0.7);
+    expect(step5?.evalLoss).toBe(0.3);
+  });
+
+  it("does not let a dense evalLoss series crowd out the training-loss series (#215 regression)", () => {
+    // Mirrors a scenario review caught: alternating training-loss-only
+    // and eval-only frames across a long run. A flat, un-bucketed
+    // priority tier for evalLoss could consume nearly the whole
+    // budget before the ordinary loss series ever got a look-in.
+    // Bucketing by step value guarantees each region of the run
+    // yields at most one representative regardless of which series
+    // "wins" that bucket, so neither series can be entirely crowded
+    // out by the other.
+    const points: LossPoint[] = Array.from({ length: 2001 }, (_, i) =>
+      i % 2 === 0
+        ? point(i, Math.sin(i / 5)) // training-loss-only frame
+        : point(i, null, Math.sin(i / 5)), // eval-only frame
+    );
+    const result = compactLossPoints(points, 200);
+    const trainingLossPoints = result.filter((p) => p.loss !== null);
+    // Comfortably more than "just the two boundaries": proves the
+    // training-loss series survives compaction meaningfully, not just
+    // at the very start and end of the run.
+    expect(trainingLossPoints.length).toBeGreaterThan(20);
   });
 });
