@@ -109,6 +109,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
     setLiveStartedAt(null);
 
     let counter = 0;
+    // Closing the EventSource in this effect's cleanup stops future
+    // events from being dispatched, but it doesn't retroactively
+    // cancel a handler that was already invoked (or already queued)
+    // before cleanup ran. Without this guard, a message from the
+    // previous job's stream that's in flight when the user navigates
+    // to a different job could still land afterward and apply that
+    // stale job's data on top of the newly reset state above.
+    let cancelled = false;
 
     // Each SSE frame's `data` is JSON; the listeners below all need
     // both the formatted message (for the events stream) and a typed
@@ -190,6 +198,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
     const es = openJobEvents(jobId);
     es.addEventListener("training.started", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       const parsed = safeParse(ev.data);
       pushEvent("training.started", ev.data, parsed);
       // SSE is the source of truth for live status. Drive `liveStatus`
@@ -204,6 +213,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("training.log", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       const parsed = safeParse(ev.data);
       pushEvent("training.log", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
@@ -283,9 +293,11 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("checkpoint.saved", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       pushEvent("checkpoint.saved", ev.data, safeParse(ev.data));
     });
     es.addEventListener("training.completed", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       const parsed = safeParse(ev.data);
       pushEvent("training.completed", ev.data, parsed);
       // SSE payload carries the trainer-side completion timestamp; use
@@ -303,6 +315,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("training.failed", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       const parsed = safeParse(ev.data);
       pushEvent("training.failed", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
@@ -318,10 +331,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("end", () => es.close());
-    es.addEventListener("error", () =>
-      setEventErr("Event stream interrupted."),
-    );
-    return () => es.close();
+    es.addEventListener("error", () => {
+      if (cancelled) return;
+      setEventErr("Event stream interrupted.");
+    });
+    return () => {
+      cancelled = true;
+      es.close();
+    };
   }, [jobId]);
 
   // Status precedence:

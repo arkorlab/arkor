@@ -462,7 +462,8 @@ export function LossChart({
         <AdvancedStats
           train={trainStats}
           evalStats={evalStats}
-          usingFullRunStats={Boolean(trainRunning) || Boolean(evalRunning)}
+          trainUsingFullRunStats={Boolean(trainRunning)}
+          evalUsingFullRunStats={Boolean(evalRunning)}
         />
       ) : null}
     </div>
@@ -507,26 +508,44 @@ function Legend({
 function AdvancedStats({
   train,
   evalStats,
-  usingFullRunStats,
+  trainUsingFullRunStats,
+  evalUsingFullRunStats,
 }: {
   train: LossStats | null;
   evalStats: LossStats | null;
   /**
-   * True when the caller supplied `trainRunning` / `evalRunning`
-   * accumulators (see LossChart's props), so `train` / `evalStats`
-   * above came from `finalizeRunningStats` rather than `summarize()`
-   * over `points`. Changes which caption is accurate: only in that
-   * case are mean/variance/CI exact for the whole run rather than
-   * describing whatever `points` currently holds.
+   * True when the caller supplied a `trainRunning` / `evalRunning`
+   * accumulator (see LossChart's props) for that specific series, so
+   * its stats above came from `finalizeRunningStats` rather than
+   * `summarize()` over `points`. Tracked per series (not combined)
+   * since a caller could in principle supply one accumulator without
+   * the other, and only the series with an accumulator has exact
+   * mean/variance/CI for the whole run; the other still describes
+   * whatever `points` currently holds.
    */
-  usingFullRunStats: boolean;
+  trainUsingFullRunStats: boolean;
+  evalUsingFullRunStats: boolean;
 }) {
+  const fullRunCaption =
+    "Mean, standard deviation, variance, and the confidence interval reflect the full run. p90/p95 are estimated from a representative sample of up to 2,000 values, since retaining every value indefinitely isn't practical for a long run.";
+  const retainedSampleCaption =
+    "Stats describe the currently retained sample, not necessarily every point ever emitted for a long run.";
+  let caption: string;
+  if (trainUsingFullRunStats && evalUsingFullRunStats) {
+    caption = fullRunCaption;
+  } else if (!trainUsingFullRunStats && !evalUsingFullRunStats) {
+    caption = retainedSampleCaption;
+  } else {
+    const fullRunLabel = trainUsingFullRunStats ? "Training loss" : "Eval loss";
+    const retainedLabel = trainUsingFullRunStats
+      ? "Eval loss"
+      : "Training loss";
+    caption = `${fullRunLabel} stats reflect the full run (p90/p95 estimated from a representative sample). ${retainedLabel} stats describe the currently retained sample.`;
+  }
   return (
     <div className="mt-4">
       <p className="mb-2 text-[10px] text-zinc-500 dark:text-zinc-400">
-        {usingFullRunStats
-          ? "Mean, standard deviation, variance, and the confidence interval reflect the full run. p90/p95 are estimated from a representative sample of up to 2,000 values, since retaining every value indefinitely isn't practical for a long run."
-          : "Stats describe the currently retained sample, not necessarily every point ever emitted for a long run."}
+        {caption}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StatsCard label="Training loss" tone="train" stats={train} />

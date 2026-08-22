@@ -186,6 +186,12 @@ describe("RunningStats", () => {
     expect(running.count).toBe(10_000);
   });
 
+  it("rejects a non-positive or non-integer reservoir size rather than silently producing an accumulator that can never estimate percentiles", () => {
+    expect(() => createRunningStats(0)).toThrow(RangeError);
+    expect(() => createRunningStats(-5)).toThrow(RangeError);
+    expect(() => createRunningStats(1.5)).toThrow(RangeError);
+  });
+
   it("returns NaN stats for an empty accumulator, matching summarize([])", () => {
     const running = createRunningStats();
     const stats = finalizeRunningStats(running);

@@ -190,6 +190,11 @@ export interface RunningStats {
 export function createRunningStats(
   reservoirSize: number = DEFAULT_RESERVOIR_SIZE,
 ): RunningStats {
+  if (!Number.isInteger(reservoirSize) || reservoirSize < 1) {
+    throw new RangeError(
+      `reservoirSize must be a positive integer, got ${reservoirSize}`,
+    );
+  }
   return { count: 0, mean: 0, m2: 0, reservoir: [], reservoirSize };
 }
 
