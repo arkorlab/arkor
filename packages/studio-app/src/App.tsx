@@ -34,7 +34,7 @@ export function App() {
     <AppShell creds={creds} error={error} route={route}>
       {route.kind === "home" && <Overview />}
       {route.kind === "jobs" && <JobsList />}
-      {route.kind === "job" && <JobDetail jobId={route.id} />}
+      {route.kind === "job" && <JobDetail key={route.id} jobId={route.id} />}
       {route.kind === "playground" && (
         <Playground initialAdapterId={route.adapterJobId} />
       )}

@@ -271,4 +271,26 @@ describe("RunningStats", () => {
     expect(corrected.count).toBe(1);
     expect(corrected.mean).toBe(20);
   });
+
+  it("correctRunningStats replaces the reservoir slot rather than duplicating it, while the reservoir is still filling up", () => {
+    // Before this fix, correcting a value added while the reservoir
+    // was still below its size limit left the old value in place and
+    // pushed the corrected value as an additional entry, so a single
+    // logical sample ended up occupying two reservoir slots.
+    let running = createRunningStats(10);
+    running = updateRunningStats(running, 100);
+    const corrected = correctRunningStats(running, 100, 0);
+    expect(corrected.reservoir).toEqual([0]);
+    expect(corrected.count).toBe(1);
+    expect(corrected.mean).toBe(0);
+  });
+
+  it("correctRunningStats only replaces the single corrected slot when other values were already filling the reservoir", () => {
+    let running = createRunningStats(10);
+    running = updateRunningStats(running, 5);
+    running = updateRunningStats(running, 100);
+    const corrected = correctRunningStats(running, 100, 7);
+    expect(corrected.reservoir).toEqual([5, 7]);
+    expect(corrected.count).toBe(2);
+  });
 });

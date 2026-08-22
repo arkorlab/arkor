@@ -277,16 +277,9 @@ export function finalizeRunningStats(stats: RunningStats): LossStats {
 // Reverses a single updateRunningStats(stats, value) call, assuming
 // `value` was the most recently added sample: this only holds if no
 // other update has happened in between, which is exactly the shape
-// callers need it for (undoing the immediately-previous contribution
-// before re-adding a corrected one for the same logical sample; see
-// correctRunningStats below). Deliberately doesn't touch `reservoir`:
-// reliably locating which slot (if any) a specific historical value
-// occupies there isn't possible without extra bookkeeping per sample,
-// and p90/p95 are already documented as an estimate from a
-// representative sample rather than an exact figure, so leaving a
-// single stale reservoir entry after a correction is an acceptably
-// small imprecision, unlike mean/variance/CI silently drifting
-// forever, which this restores exactly.
+// callers need it for (computing the corrected moments in
+// correctRunningStats below, which handles the reservoir separately;
+// see its own doc comment for why).
 function removeMostRecentRunningStat(
   stats: RunningStats,
   value: number,
@@ -319,15 +312,42 @@ function removeMostRecentRunningStat(
 // something already added (e.g. a training.log frame correcting an
 // already-reported loss for the same step). Restores mean/variance/CI
 // to exactly what they'd be had `newValue` been added in the first
-// place instead of `oldValue`; see removeMostRecentRunningStat's doc
-// comment for why the reservoir itself is left as-is.
+// place instead of `oldValue` (via removeMostRecentRunningStat, pure
+// moment math with no reservoir side effects of its own).
+//
+// The reservoir needs separate handling depending on whether it was
+// still filling up (below `reservoirSize`) at the moment `oldValue`
+// was added. If so, `oldValue` is guaranteed to be sitting at the
+// reservoir's last index: pushes always land at the end, and since
+// this only ever corrects the immediately-previous update, nothing
+// else has touched the reservoir since. Replacing that slot directly
+// (rather than routing the corrected value through updateRunningStats,
+// which would push it as an *additional* entry, since the reservoir
+// would still register as "not yet full") avoids ending up with both
+// the old and new values sitting in the array for what's supposed to
+// be a single logical sample. If the reservoir was already full when
+// `oldValue` was added, it may or may not have been sampled in via
+// Algorithm R; reliably locating its exact slot in that case isn't
+// possible without extra per-sample bookkeeping, so (as before) it's
+// left as an accepted, comparatively minor imprecision: at most one
+// stale entry, not an outright duplicate, and percentiles are already
+// documented as an estimate rather than an exact figure.
 export function correctRunningStats(
   stats: RunningStats,
   oldValue: number,
   newValue: number,
 ): RunningStats {
-  return updateRunningStats(
-    removeMostRecentRunningStat(stats, oldValue),
-    newValue,
-  );
+  const wasStillFilling = stats.reservoir.length < stats.reservoirSize;
+  const removed = removeMostRecentRunningStat(stats, oldValue);
+  const count = removed.count + 1;
+  const delta = newValue - removed.mean;
+  const mean = removed.mean + delta / count;
+  const delta2 = newValue - mean;
+  const m2 = removed.m2 + delta * delta2;
+  let reservoir = stats.reservoir;
+  if (wasStillFilling) {
+    reservoir = [...stats.reservoir];
+    reservoir[reservoir.length - 1] = newValue;
+  }
+  return { count, mean, m2, reservoir, reservoirSize: stats.reservoirSize };
 }
