@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
-import { summarize, type LossStats } from "../../lib/stats";
+import {
+  summarize,
+  finalizeRunningStats,
+  type LossStats,
+  type RunningStats,
+} from "../../lib/stats";
 
 export interface LossPoint {
   step: number;
@@ -27,9 +32,22 @@ const EVAL_STROKE = "rgb(244 114 182)"; // pink-400
 export function LossChart({
   points,
   advanced = false,
+  trainRunning,
+  evalRunning,
 }: {
   points: LossPoint[];
   advanced?: boolean;
+  /**
+   * Optional full-run stats accumulators (see stats.ts), computed
+   * incrementally by the caller independent of any compaction applied
+   * to `points`. When provided, these are used instead of deriving
+   * stats from `points` directly, so the Advanced panel stays
+   * accurate for the whole run even once `points` has been compacted.
+   * Falls back to summarizing `points` when omitted (e.g. for callers
+   * without a persistent per-run accumulator).
+   */
+  trainRunning?: RunningStats | null;
+  evalRunning?: RunningStats | null;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
@@ -126,20 +144,24 @@ export function LossChart({
   // baked into `summarize()` (for percentiles) doesn't run during a
   // live training stream when the panel isn't visible. Toggling
   // `advanced` on triggers a fresh useMemo evaluation.
-  const trainStats = useMemo(
-    () =>
-      advanced && trainSeries.length > 0
-        ? summarize(trainSeries.map((p) => p.loss))
-        : null,
-    [advanced, trainSeries],
-  );
-  const evalStats = useMemo(
-    () =>
-      advanced && evalSeries.length > 0
-        ? summarize(evalSeries.map((p) => p.evalLoss))
-        : null,
-    [advanced, evalSeries],
-  );
+  const trainStats = useMemo(() => {
+    if (!advanced) return null;
+    if (trainRunning) {
+      return trainRunning.count > 0 ? finalizeRunningStats(trainRunning) : null;
+    }
+    return trainSeries.length > 0
+      ? summarize(trainSeries.map((p) => p.loss))
+      : null;
+  }, [advanced, trainRunning, trainSeries]);
+  const evalStats = useMemo(() => {
+    if (!advanced) return null;
+    if (evalRunning) {
+      return evalRunning.count > 0 ? finalizeRunningStats(evalRunning) : null;
+    }
+    return evalSeries.length > 0
+      ? summarize(evalSeries.map((p) => p.evalLoss))
+      : null;
+  }, [advanced, evalRunning, evalSeries]);
 
   if (unified.length === 0) {
     return (

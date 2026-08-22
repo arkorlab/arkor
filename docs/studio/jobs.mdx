@@ -79,7 +79,7 @@ The **Advanced** toggle in the chart's header reveals a per-series statistics pa
 
 The eval card stays empty until a `training.log` event with a numeric `evalLoss` arrives.
 
-Once a run has exceeded the 2,000-point cap and the chart has compacted at least once, both statistics panels describe the shape of what's currently retained rather than a strictly unbiased sample of the full run. Training-loss stats skew toward capturing spikes, since compaction favors local extrema over ordinary points. Eval-loss stats can also become non-representative once the number of eval points exceeds roughly half the compaction target: `evalLoss` points are guaranteed to survive in full only up to that share, with any excess evenly downsampled the same as the training-loss series.
+Mean, standard deviation, variance, and the confidence interval are computed from every value the run has emitted, not just what the chart is currently displaying, so they stay accurate for the whole run regardless of how long it gets or how much the chart has compacted. p90 and p95 are estimated from a bounded representative sample (up to 2,000 values per series) of the full run rather than every value exactly, since retaining every value indefinitely isn't practical for a long-running job; this sample is independent of the points the chart itself displays.
 
 ## Things this page does not do
 

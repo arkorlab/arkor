@@ -3,6 +3,9 @@ import { describe, it, expect } from "vitest";
 import {
   mean,
   variance,
+  createRunningStats,
+  updateRunningStats,
+  finalizeRunningStats,
   stddev,
   percentile,
   confidenceInterval95,
@@ -136,5 +139,69 @@ describe("stats", () => {
       expect(Number.isNaN(s.p90)).toBe(true);
       expect(Number.isNaN(s.p95)).toBe(true);
     });
+  });
+});
+
+describe("RunningStats", () => {
+  it("matches summarize()'s mean and variance for a small run within the reservoir size", () => {
+    const values = [2, 4, 4, 4, 5, 5, 7, 9];
+    const running = createRunningStats();
+    for (const v of values) updateRunningStats(running, v);
+    const streamed = finalizeRunningStats(running);
+    const batch = summarize(values);
+    expect(streamed.count).toBe(batch.count);
+    expect(streamed.mean).toBeCloseTo(batch.mean, 10);
+    expect(streamed.variance).toBeCloseTo(batch.variance, 10);
+    expect(streamed.p90).toBeCloseTo(batch.p90, 10);
+    expect(streamed.p95).toBeCloseTo(batch.p95, 10);
+  });
+
+  it("keeps mean and variance exact even once the value count exceeds the reservoir size", () => {
+    // A monotonic run far larger than the reservoir: mean/variance
+    // are computed via Welford's algorithm from every value seen, not
+    // just the bounded reservoir, so they stay exact regardless of
+    // how long the run gets. Compare against the true closed-form
+    // mean/variance of 1..N rather than summarize(), since summarize()
+    // over the full array would itself be the "no bound" ideal this
+    // is meant to match, and N is deliberately large enough here that
+    // materializing the full array for summarize() would be wasteful
+    // in a unit test.
+    const n = 50_000;
+    const running = createRunningStats(100); // small reservoir on purpose
+    for (let v = 1; v <= n; v++) updateRunningStats(running, v);
+    const stats = finalizeRunningStats(running);
+    const expectedMean = (n + 1) / 2;
+    // Population variance of 1..N is (N^2-1)/12; Bessel-corrected
+    // sample variance (n-1 denominator) is that times n/(n-1).
+    const expectedVariance = ((n * n - 1) / 12) * (n / (n - 1));
+    expect(stats.count).toBe(n);
+    expect(stats.mean).toBeCloseTo(expectedMean, 6);
+    expect(stats.variance).toBeCloseTo(expectedVariance, 0);
+  });
+
+  it("bounds the reservoir at its configured size regardless of how many values are seen", () => {
+    const running = createRunningStats(50);
+    for (let v = 1; v <= 10_000; v++) updateRunningStats(running, v);
+    expect(running.reservoir).toHaveLength(50);
+    expect(running.count).toBe(10_000);
+  });
+
+  it("returns NaN stats for an empty accumulator, matching summarize([])", () => {
+    const running = createRunningStats();
+    const stats = finalizeRunningStats(running);
+    expect(stats.count).toBe(0);
+    expect(Number.isNaN(stats.mean)).toBe(true);
+    expect(Number.isNaN(stats.variance)).toBe(true);
+    expect(Number.isNaN(stats.p90)).toBe(true);
+  });
+
+  it("reports zero variance and spread for a single value, matching summarize()'s single-sample convention", () => {
+    const running = createRunningStats();
+    updateRunningStats(running, 42);
+    const stats = finalizeRunningStats(running);
+    expect(stats.count).toBe(1);
+    expect(stats.mean).toBe(42);
+    expect(stats.variance).toBe(0);
+    expect(stats.ci95HalfWidth).toBe(0);
   });
 });

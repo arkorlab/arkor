@@ -24,12 +24,25 @@ import {
   truncateMiddle,
 } from "../lib/format";
 import { appendLossFrame, compactLossPoints } from "../lib/lossDownsample";
+import { createRunningStats, updateRunningStats } from "../lib/stats";
 
 const MAX_LOSS_POINTS = 2000;
 
 export function JobDetail({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [points, setPoints] = useState<LossPoint[]>([]);
+  // Full-run stats accumulators (see stats.ts), independent of the
+  // MAX_LOSS_POINTS-bounded, possibly-compacted `points` array above:
+  // these keep the Advanced panel's mean/variance/percentiles
+  // accurate for the whole run regardless of how long it gets, rather
+  // than describing whatever subset of points compaction happens to
+  // have retained for the chart. Refs (not state) because they're
+  // updated on every incoming frame; JobDetail already re-renders on
+  // that same frame via setPoints, so a fresh shallow copy taken at
+  // render time is enough for LossChart's memoization to pick up the
+  // latest values without a second render pass per frame.
+  const [trainRunning, setTrainRunning] = useState(createRunningStats());
+  const [evalRunning, setEvalRunning] = useState(createRunningStats());
   const [advanced, setAdvanced] = useState(false);
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [terminal, setTerminal] = useState<{
@@ -227,21 +240,27 @@ export function JobDetail({ jobId }: { jobId: string }) {
         // (see #215). Subsequent frames keep appending until the cap
         // is hit again, at which point we compact again.
         //
-        // Known tradeoff: this same (possibly compacted) array feeds
-        // both the visual chart and LossChart's "Advanced" panel
-        // stats (mean / variance / percentiles / CI over `loss`,
-        // computed by `summarize()`). Because compaction intentionally
-        // over-represents local extrema relative to their true
-        // frequency, those loss stats describe the retained/visible
-        // points once compaction has run at least once, not an
-        // unbiased sample of the full run; read them as "shape of
-        // what's shown" rather than a rigorous full-run estimate.
-        // `evalLoss`-based stats are unaffected in the common case,
-        // since `compactLossPoints` keeps every finite `evalLoss`
-        // point unless that series alone would overflow the target
-        // size. A precise fix (tracking running mean/variance/
-        // percentiles independently of the necessarily-bounded visual
-        // sample) is a larger, separate change than this fix's scope.
+        // The (possibly compacted) `points` array below is only
+        // for the visual chart. Advanced-panel stats are computed
+        // separately, from trainRunningRef / evalRunningRef, which
+        // accumulate every raw value incrementally (see stats.ts) and
+        // so stay accurate for the whole run regardless of how long
+        // it gets, independent of whatever compaction does to
+        // `points` for rendering.
+        if (safeLoss !== null) {
+          setTrainRunning((prev) => {
+            const next = { ...prev, reservoir: [...prev.reservoir] };
+            updateRunningStats(next, safeLoss);
+            return next;
+          });
+        }
+        if (safeEvalLoss !== null) {
+          setEvalRunning((prev) => {
+            const next = { ...prev, reservoir: [...prev.reservoir] };
+            updateRunningStats(next, safeEvalLoss);
+            return next;
+          });
+        }
         setPoints((prev) => {
           // appendLossFrame merges an incoming frame into the
           // previous entry when they share a step (see its own doc
@@ -454,7 +473,12 @@ export function JobDetail({ jobId }: { jobId: string }) {
               </div>
             </CardHeader>
             <CardContent>
-              <LossChart points={points} advanced={advanced} />
+              <LossChart
+                points={points}
+                advanced={advanced}
+                trainRunning={trainRunning}
+                evalRunning={evalRunning}
+              />
             </CardContent>
           </Card>
 
