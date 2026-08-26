@@ -128,13 +128,18 @@ describe("gitInitialCommit", () => {
     // Force gpg signing with a non-existent program so the signing step
     // fails with a recognisable "gpg failed to sign" stderr, exactly the
     // shape the helper retries past.
-    process.env.GIT_CONFIG_COUNT = "3";
+    process.env.GIT_CONFIG_COUNT = "4";
     process.env.GIT_CONFIG_KEY_0 = "commit.gpgsign";
     process.env.GIT_CONFIG_VALUE_0 = "true";
     process.env.GIT_CONFIG_KEY_1 = "gpg.program";
     process.env.GIT_CONFIG_VALUE_1 = "/nonexistent/gpg-binary";
-    process.env.GIT_CONFIG_KEY_2 = "commit.gpgsign";
-    process.env.GIT_CONFIG_VALUE_2 = "true";
+    // A developer may globally configure SSH signing, in which case
+    // `gpg.program` is ignored and their real SSH key can make this test pass
+    // without exercising the fallback. Pin OpenPGP for this fixture.
+    process.env.GIT_CONFIG_KEY_2 = "gpg.format";
+    process.env.GIT_CONFIG_VALUE_2 = "openpgp";
+    process.env.GIT_CONFIG_KEY_3 = "commit.gpgsign";
+    process.env.GIT_CONFIG_VALUE_3 = "true";
 
     const result = await gitInitialCommit(cwd, "Initial commit from test");
     expect(result.signingFallback).toBe(true);
