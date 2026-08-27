@@ -265,10 +265,16 @@ export class InferenceManager implements ChatProxy {
     if (current && !current.dead) {
       await stopChild(current.child);
     }
-    // Idle-timer and unreachable-child stops started earlier must finish
-    // before the reaper detaches: an un-awaited SIGTERM grace period would
-    // let the parent exit while the detached child is still alive.
-    await Promise.allSettled(this.pendingStops);
+    // Idle-timer and unreachable-child stops must finish before the reaper
+    // detaches: an un-awaited SIGTERM grace period would let the parent
+    // exit while the detached child is still alive. Drained in a loop
+    // because an in-flight proxyChat failure can add a NEW stop while the
+    // previous batch is being awaited.
+    while (this.pendingStops.size > 0) {
+      // allSettled snapshots the set synchronously; the loop re-checks for
+      // stops added while the previous batch was in flight.
+      await Promise.allSettled(this.pendingStops);
+    }
     this.detachReaper();
     this.logStream?.end();
     this.logStream = null;
@@ -349,7 +355,11 @@ export class InferenceManager implements ChatProxy {
       }
     }
     if (!this.logStream && !this.logTruncated) {
-      const stream = createWriteStream(this.logFile, { flags: "a" });
+      const stream = createWriteStream(this.logFile, {
+        flags: "a",
+        // 0600 for the same reason as the job console log.
+        mode: 0o600,
+      });
       // Same rationale as the job store's console stream: an unhandled
       // 'error' on a diagnostics file must not crash the server process.
       stream.on("error", () => {

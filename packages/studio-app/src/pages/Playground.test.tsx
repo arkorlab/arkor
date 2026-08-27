@@ -151,6 +151,43 @@ describe("<Playground />", () => {
       ).toBeInTheDocument();
     });
 
+    it("excludes dry-run completions from the adapter list", async () => {
+      // A dry-run job finishes "completed" but produced no adapter;
+      // offering it would only yield deterministic 404s from inference.
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/jobs")
+          return jsonResponse({
+            jobs: [
+              {
+                id: "job-dry",
+                name: "dry-run",
+                status: "completed",
+                createdAt: "2026-04-02T00:00:00Z",
+                config: { dryRun: true },
+              },
+              {
+                id: "job-real",
+                name: "real-run",
+                status: "completed",
+                createdAt: "2026-04-01T00:00:00Z",
+                config: { dryRun: false },
+              },
+            ],
+          });
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      }) as typeof fetch;
+
+      // Seeding the dry-run id must not stick either: the selection
+      // reconciles against the filtered list and falls back to the real
+      // run.
+      render(<Playground initialAdapterId="job-dry" />);
+      const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
+      const options = [...select.options].map((o) => o.textContent);
+      expect(options.join("\n")).toContain("real-run");
+      expect(options.join("\n")).not.toContain("dry-run");
+      expect(select.value).toBe("job-real");
+    });
+
     it("shows the loading state while /api/jobs is in flight in adapter mode", async () => {
       // Stall /api/jobs so the page never gets past `jobs === null`.
       // The adapter branch must surface a Loading state rather than

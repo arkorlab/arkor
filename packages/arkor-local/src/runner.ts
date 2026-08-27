@@ -262,23 +262,35 @@ export class RunManager {
       stderrSplitter.push(chunk);
     });
 
+    // The child is gone the moment 'close'/'error' fires; a SIGKILL timer
+    // left armed while the terminal write is still queued could fire at an
+    // exited (and possibly recycled) pid.
+    const disarmKillTimer = () => {
+      if (run.killTimer) {
+        clearTimeout(run.killTimer);
+        run.killTimer = null;
+      }
+    };
+
     child.on("error", (error) => {
       // Spawn failure (ENOENT and friends): no `close` may follow.
+      disarmKillTimer();
       enqueue(async () => {
         if (run.terminalRecorded) return;
         run.terminalRecorded = true;
-        if (await this.storeAlreadyTerminal(jobId)) return;
         await this.failJob(jobId, `failed to start trainer: ${error.message}`);
       });
-      // Chained behind the terminal task above, so `run.done` observers see
-      // the terminal event already recorded.
+      // Same deferred finishRun as the close path: removing the run from
+      // `live` before the terminal write lands would let a racing cancel
+      // relabel this spawn failure as "Job cancelled".
       enqueue(async () => {
+        this.finishRun(jobId, run);
         run.resolveDone();
       });
-      this.finishRun(jobId, run);
     });
 
     child.on("close", (code, signal) => {
+      disarmKillTimer();
       stdoutSplitter.flush();
       stderrSplitter.flush();
       enqueue(async () => {
@@ -365,7 +377,7 @@ export class RunManager {
     // `.arkor/local/`), and a separate check-then-append here could
     // interleave with that transition, landing a late `started` after the
     // terminal event and flipping a cancelled record back to running.
-    const appended = await this.store.appendUnlessTerminal(
+    const outcome = await this.store.appendUnlessTerminal(
       jobId,
       streamEvent,
       streamEvent.type === "training.started"
@@ -375,7 +387,10 @@ export class RunManager {
           }
         : undefined,
     );
-    if (!appended) run.terminalRecorded = true;
+    // Only a genuinely terminal record latches: a "gone" read (deleted job
+    // dir or a transient fault) drops THIS event but must not suppress the
+    // run's own terminal write later.
+    if (outcome === "terminal") run.terminalRecorded = true;
   }
 
   /**

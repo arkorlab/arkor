@@ -58,6 +58,11 @@ describe("readLocalMode", () => {
       "https://127.0.0.1:34567",
       "http://localhost:4001",
       "http://[::1]:4001",
+      "http://127.0.0.1",
+      "http://127.0.0.1:4001/path",
+      "http://127.0.0.1:4001/?q=1",
+      "http://127.0.0.1:4001/#frag",
+      "http://user:pass@127.0.0.1:4001",
       "not a url",
       "file:///x",
     ]) {

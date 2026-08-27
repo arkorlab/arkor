@@ -246,10 +246,9 @@ export class JobStore {
       // process) can have appended its terminal event and died before the
       // record write. Appending a second terminal would break the
       // one-terminal-per-job contract, so converge the RECORD to the
-      // already-persisted event instead: a completed tail keeps its
-      // completion; a failed tail takes this caller's terminal intent
-      // (status/error wording may differ from the persisted event's, which
-      // is cosmetic next to a duplicated terminal).
+      // already-persisted event instead of this caller's intent: the event
+      // log is what SSE consumers already replayed, so job.json must match
+      // it, not the later writer.
       const events = await this.readEvents(jobId);
       const tail = events.at(-1)?.event;
       if (
@@ -258,11 +257,15 @@ export class JobStore {
       ) {
         if (tail.type === "training.completed") {
           record.job.status = "completed";
-          record.job.completedAt = tail.timestamp;
-          record.pid = null;
         } else {
-          mutate(record);
+          // "Job cancelled" is the one error string both cancel paths
+          // write; everything else on a failed tail is a real failure.
+          record.job.status =
+            tail.error === "Job cancelled" ? "cancelled" : "failed";
+          record.job.error = tail.error;
         }
+        record.job.completedAt = tail.timestamp;
+        record.pid = null;
         await this.writeRecord(record);
         return true;
       }
@@ -284,24 +287,31 @@ export class JobStore {
    * `started`/log/checkpoint handling uses this so a cancel-route terminal
    * transition cannot interleave between its check and its writes: without
    * it, a late `started` could land after the terminal event and flip a
-   * cancelled record back to running. Returns false when the job is
-   * terminal (or gone); the event is then dropped.
+   * cancelled record back to running.
+   *
+   * The outcome is discriminated because the two non-append cases demand
+   * different reactions: `"terminal"` means another writer owns the job's
+   * ending (the caller should stop emitting for it), while `"gone"` means
+   * the record could not be read at all (deleted dir or a transient read
+   * fault) and the caller must NOT latch terminal state off it, or a
+   * passing glitch would silence the rest of the run.
    */
   async appendUnlessTerminal(
     jobId: string,
     event: LocalStreamEvent,
     mutate?: (record: JobRecord) => void,
-  ): Promise<boolean> {
+  ): Promise<"appended" | "terminal" | "gone"> {
     const state = this.ensureRuntime(jobId);
     const task = state.recordQueue.then(async () => {
       const record = await this.getJob(jobId);
-      if (!record || isTerminalStatus(record.job.status)) return false;
+      if (!record) return "gone" as const;
+      if (isTerminalStatus(record.job.status)) return "terminal" as const;
       await this.appendEvent(jobId, event);
       if (mutate) {
         mutate(record);
         await this.writeRecord(record);
       }
-      return true;
+      return "appended" as const;
     });
     state.recordQueue = task.catch(() => undefined);
     return task;
@@ -394,6 +404,9 @@ export class JobStore {
     if (!state.consoleStream) {
       const stream = createWriteStream(this.consoleLogPath(jobId), {
         flags: "a",
+        // 0600 like job.json/run.json: trainer output can echo config
+        // values, so keep it owner-only in shared workspaces.
+        mode: 0o600,
       });
       // A failed open or write (ENOSPC, EACCES, tree removed) emits
       // 'error' on the stream; without a listener that is an uncaught

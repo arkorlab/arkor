@@ -267,6 +267,37 @@ describe("JobStore.transitionToTerminal", () => {
     expect((await store.getJob(id))?.job.status).toBe("completed");
   });
 
+  it("converges a persisted cancelled tail to a cancelled record", async () => {
+    // Same crash shape, but the persisted terminal is a cancellation; the
+    // record must match what SSE consumers already replayed, not the later
+    // writer's generic failure intent.
+    const id = await createJob();
+    await store.appendEvent(id, {
+      type: "training.failed",
+      jobId: id,
+      timestamp: "2026-01-01T00:00:05Z",
+      error: "Job cancelled",
+    });
+    const won = await store.transitionToTerminal(
+      id,
+      {
+        type: "training.failed",
+        jobId: id,
+        timestamp: "2026-01-01T00:00:06Z",
+        error: "Training was interrupted",
+      },
+      (r) => {
+        r.job.status = "failed";
+        r.job.error = "Training was interrupted";
+      },
+    );
+    expect(won).toBe(true);
+    expect(await store.replayAfter(id, 0)).toHaveLength(1);
+    const record = await store.getJob(id);
+    expect(record?.job.status).toBe("cancelled");
+    expect(record?.job.error).toBe("Job cancelled");
+  });
+
   it("appendUnlessTerminal appends on live jobs and drops on terminal ones", async () => {
     const id = await createJob();
     const started = await store.appendUnlessTerminal(
@@ -280,7 +311,7 @@ describe("JobStore.transitionToTerminal", () => {
         r.job.status = "running";
       },
     );
-    expect(started).toBe(true);
+    expect(started).toBe("appended");
     expect((await store.getJob(id))?.job.status).toBe("running");
     await store.updateJob(id, (r) => {
       r.job.status = "cancelled";
@@ -298,9 +329,21 @@ describe("JobStore.transitionToTerminal", () => {
         r.job.status = "running";
       },
     );
-    expect(late).toBe(false);
+    expect(late).toBe("terminal");
     expect((await store.getJob(id))?.job.status).toBe("cancelled");
     expect(await store.replayAfter(id, 0)).toHaveLength(1);
+  });
+
+  it("reports an unreadable record as gone, not terminal", async () => {
+    // A transient read fault (or a deleted job dir) must be
+    // distinguishable from "someone else finished the job": the runner
+    // latches terminal state only for the latter, so a passing glitch
+    // cannot silence the rest of a run.
+    const id = await createJob();
+    await rm(join(rootDir, "jobs", id, "job.json"));
+    const outcome = await store.appendUnlessTerminal(id, logEvent(id, 1));
+    expect(outcome).toBe("gone");
+    expect(await store.replayAfter(id, 0)).toHaveLength(0);
   });
 
   it("returns false for unknown jobs and already-terminal jobs", async () => {

@@ -75,7 +75,20 @@ function isLocalServerUrl(value: string): boolean {
   } catch {
     return false;
   }
-  return url.protocol === "http:" && url.hostname === "127.0.0.1";
+  return (
+    url.protocol === "http:" &&
+    url.hostname === "127.0.0.1" &&
+    // An explicit ephemeral port: without one, requests would go to
+    // whatever service claims loopback port 80.
+    url.port !== "" &&
+    // No path/query/fragment/userinfo: the CLI writes a bare origin, and
+    // anything extra would misroute API calls or smuggle credentials.
+    url.pathname === "/" &&
+    url.search === "" &&
+    url.hash === "" &&
+    url.username === "" &&
+    url.password === ""
+  );
 }
 
 /**

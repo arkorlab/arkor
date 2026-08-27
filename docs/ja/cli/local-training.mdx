@@ -1,11 +1,11 @@
 ---
 title: "ローカル学習 (--local)"
-description: "@arkor/local と MLX で、Arkor Cloud と同じ API 契約のまま自分のマシンーで学習と推論を実行する。"
+description: "@arkor/local と MLX で、Arkor Cloud と同じ API 契約のまま自分のマシーンで学習と推論を実行する。"
 ---
 
 # ローカル学習 (`--local`)
 
-`arkor start --local` と `arkor dev --local` は、Arkor Cloud の代わりに自分のマシンーで学習 (と推論) を実行します。最初にサポートされるバックエンドは Apple Silicon Mac 上の [MLX](https://github.com/ml-explore/mlx) です。バックエンドのインターフェースは、将来 Linux / Windows 向けの NVIDIA (CUDA) や ROCm バックエンドをスタックの他の部分を変えずに追加できるよう設計されています。
+`arkor start --local` と `arkor dev --local` は、Arkor Cloud の代わりに自分のマシーンで学習 (と推論) を実行します。最初にサポートされるバックエンドは Apple Silicon Mac 上の [MLX](https://github.com/ml-explore/mlx) です。バックエンドのインターフェースは、将来 Linux / Windows 向けの NVIDIA (CUDA) や ROCm バックエンドをスタックの他の部分を変えずに追加できるよう設計されています。
 
 ローカルモードは、クラウドが公開しているものと同じ API サブセット (`POST /v1/jobs`、SSE イベントストリーム、`POST /v1/inference/chat`) を実装する**ローカル学習サーバー**を CLI プロセス内で起動することで動きます。SDK も、Studio のジョブ一覧も、ライブのロスチャートも、Playground も、違いを区別できないのでそのまま動きます。
 
@@ -55,7 +55,7 @@ arkor dev --local [options]
 
 1. **ランタイムのロード。** CLI はプロジェクトの `node_modules` から `@arkor/local` を解決します (ビルド成果物が `arkor` を解決するのと同じモデル)。バージョンハンドシェイクにより、非互換の組み合わせは「arkor を更新 / @arkor/local を更新」という実行可能なエラーになります。
 2. **Preflight。** バックエンドは何かを bind したり spawn したりする前に前提条件 (Apple Silicon、uv の到達性) を確認します。失敗時は理由と対処を表示して、それ以外は何も起きません。
-3. **ローカルサーバー。** loopback 限定の Hono サーバーが、起動ごとの bearer トークン付きでエフェメラルポートに bind します (Studio の CSRF トークンと同じ脅威モデル: host ヘッダーのガードだけでは、同一マシンーの別ブラウザータブからのクロスオリジン POST がプロセスを spawn するエンドポイントへ到達するのを防げません)。
+3. **ローカルサーバー。** loopback 限定の Hono サーバーが、起動ごとの bearer トークン付きでエフェメラルポートに bind します (Studio の CSRF トークンと同じ脅威モデル: host ヘッダーのガードだけでは、同一マシーンの別ブラウザータブからのクロスオリジン POST がプロセスを spawn するエンドポイントへ到達するのを防げません)。
 4. **ハンドオフ。** サーバーの URL とトークンは `ARKOR_LOCAL_SERVER_URL` / `ARKOR_LOCAL_SERVER_TOKEN` を通じてトレーナーへ渡されます。これらはプロセス内で設定され (Studio の Run training 子プロセスにも注入され) CLI が管理するもので、手動で設定する想定ではありません。
 5. **学習。** `POST /v1/jobs` は設定をバックエンドで検証してから、`uv run --with "mlx-lm[train]==<pinned>" python train_shim.py` を spawn します。この Python shim がデータセットを準備し、mlx-lm の LoRA ファインチューニングを駆動し、構造化された進捗を報告します。SDK の `trainer.wait()` はクラウドと同じ `training.*` SSE イベントを消費します。
 6. **クラウド接触なし、資格情報なし。** ローカルモードは `~/.arkor/credentials.json` を読み書きせず、クラウドプロジェクトを作成せず、`.arkor/state.json` を無視します。クラウドの識別情報 (の有無) には一切影響しません。CLI の通常の匿名利用テレメトリはコマンド自体には引き続き適用されます。`DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` で無効化できます。
@@ -123,7 +123,7 @@ arkor dev --local [options]
 
 - 実行のキャンセル (Studio または `trainer.cancel()`) は学習プロセスグループ全体 (uv と Python) に SIGTERM を送り、5 秒後に SIGKILL へエスカレートします。データセットのダウンロード中を含むどのフェーズでも機能します。
 - 実行中に CLI が終了した場合 (Ctrl-C、SIGTERM、`docker stop`)、子プロセスは終了時に回収されます。
-- マシンーやプロセスが不意に死んだ場合、次のローカル起動が孤児の「running」ジョブを説明イベント付きで failed に整理します。
+- マシーンやプロセスが不意に死んだ場合、次のローカル起動が孤児の「running」ジョブを説明イベント付きで failed に整理します。
 
 ## エラー
 
