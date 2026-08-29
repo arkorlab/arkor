@@ -24,6 +24,12 @@ interface LiveRun {
   child: ChildProcess;
   /** Set when cancel() ran; changes how exit is reported. */
   cancelRequested: boolean;
+  /**
+   * Set the moment 'close'/'error' fires. The run stays in `live` past that
+   * point (finishRun is deferred behind the terminal write), so cancel()
+   * needs this to tell "child still running" from "child already gone".
+   */
+  exited: boolean;
   /** Set once a terminal event was appended, from any path. */
   terminalRecorded: boolean;
   killTimer: NodeJS.Timeout | null;
@@ -129,6 +135,15 @@ export class RunManager {
       this.preSpawnCancelled.add(jobId);
       return false;
     }
+    if (run.exited) {
+      // The child is already gone and its terminal write is queued; the
+      // run only lingers in `live` so this call can await the real
+      // outcome. Signalling here would arm a SIGKILL at an exited (and
+      // possibly recycled) pid, and setting `cancelRequested` would
+      // relabel a natural exit as "Job cancelled".
+      await run.done;
+      return true;
+    }
     run.cancelRequested = true;
     this.signal(run.child, "SIGTERM");
     // Repeated cancels must not stack SIGKILL timers: a stale timer firing
@@ -186,6 +201,7 @@ export class RunManager {
     const run: LiveRun = {
       child,
       cancelRequested: false,
+      exited: false,
       terminalRecorded: false,
       killTimer: null,
       done,
@@ -262,10 +278,12 @@ export class RunManager {
       stderrSplitter.push(chunk);
     });
 
-    // The child is gone the moment 'close'/'error' fires; a SIGKILL timer
-    // left armed while the terminal write is still queued could fire at an
-    // exited (and possibly recycled) pid.
-    const disarmKillTimer = () => {
+    // The child is gone the moment 'close'/'error' fires: record that (so
+    // a late cancel does not signal or relabel it) and disarm any pending
+    // SIGKILL, which would otherwise fire at an exited (and possibly
+    // recycled) pid while the terminal write is still queued.
+    const markExited = () => {
+      run.exited = true;
       if (run.killTimer) {
         clearTimeout(run.killTimer);
         run.killTimer = null;
@@ -274,7 +292,7 @@ export class RunManager {
 
     child.on("error", (error) => {
       // Spawn failure (ENOENT and friends): no `close` may follow.
-      disarmKillTimer();
+      markExited();
       enqueue(async () => {
         if (run.terminalRecorded) return;
         run.terminalRecorded = true;
@@ -290,7 +308,7 @@ export class RunManager {
     });
 
     child.on("close", (code, signal) => {
-      disarmKillTimer();
+      markExited();
       stdoutSplitter.flush();
       stderrSplitter.flush();
       enqueue(async () => {

@@ -1,10 +1,11 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PROTOCOL_MARKER } from "./protocol";
 import { JobStore, isTerminalStatus } from "./store";
@@ -323,6 +324,67 @@ describe("RunManager cancel", () => {
     const events = await store.replayAfter(jobId, 0);
     expect(events.map((e) => e.event.type)).toEqual(["training.failed"]);
     expect((await store.getJob(jobId))?.job.status).toBe("cancelled");
+  });
+
+  it("keeps a natural completion when a cancel lands after the child exits", async () => {
+    // finishRun is deferred behind the terminal write, so the run lingers
+    // in `live` after its child is gone. A cancel landing in that window
+    // must neither relabel the natural completion as cancelled nor arm a
+    // SIGKILL aimed at the exited (possibly recycled) pid. The store's
+    // terminal write is stalled here to hold that window open
+    // deterministically.
+    let releaseWrite!: () => void;
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const originalTransition = store.transitionToTerminal.bind(store);
+    store.transitionToTerminal = async (...args) => {
+      await writeGate;
+      return originalTransition(...args);
+    };
+    // Capture the child so the test can wait for its real exit instead of
+    // guessing when the run entered the post-exit window.
+    const children: ChildProcess[] = [];
+    manager = new RunManager({
+      store,
+      gracePeriodMs: 500,
+      spawnImpl: ((command: string, args: string[], opts: object) => {
+        const child = spawn(command, args, opts as Parameters<typeof spawn>[2]);
+        children.push(child);
+        return child;
+      }) as typeof spawn,
+    });
+
+    const { jobId } = await launch(
+      fixtureBackend({
+        chunks: [
+          marker({ type: "started" }),
+          marker({ type: "completed", adapterDir: "/tmp/adapters/final" }),
+        ],
+      }),
+    );
+    const child = children.at(0);
+    if (!child) throw new Error("no child was spawned");
+    // The child is gone, but its terminal write is still stalled, so the
+    // run is still registered: exactly the window under test.
+    await new Promise<void>((resolve) => child.once("close", () => resolve()));
+
+    // A cancel in this window must not signal the exited child: the pid is
+    // gone (and could already be recycled), and the SIGKILL escalation it
+    // would arm fires 5s later at whatever now owns that pid.
+    const killSpy = vi.spyOn(process, "kill");
+    const cancelled = manager.cancel(jobId);
+    releaseWrite();
+    await expect(cancelled).resolves.toBe(true);
+    expect(killSpy).not.toHaveBeenCalled();
+    killSpy.mockRestore();
+
+    const record = await store.getJob(jobId);
+    expect(record?.job.status).toBe("completed");
+    const events = await store.replayAfter(jobId, 0);
+    expect(events.filter((e) => e.event.type === "training.failed")).toEqual(
+      [],
+    );
   });
 
   it("closeAll cancels every live child", async () => {
