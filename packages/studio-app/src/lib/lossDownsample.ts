@@ -23,12 +23,12 @@ import type { LossPoint } from "../components/jobs/LossChart";
  *    them) between the `evalLoss` series and the `loss` series. Each
  *    gets up to half; if one series has fewer candidates than its
  *    half, the unused share flows to the other. A second reclaim pass
- *    afterward hands any *still* stranded capacity back to eval:
- *    overlap between the two series (a point with both `loss` and
- *    `evalLoss`) can mean eval's own selection shrinks loss's
- *    actually-usable candidate pool below what its initial budget
- *    assumed, leaving slots unused even though eval may have further
- *    unselected candidates that could fill them.
+ *    fills any *still* stranded capacity from every remaining
+ *    candidate in either series. It prefers eval extrema, then other
+ *    eval points, then loss extrema, then ordinary loss points.
+ *    Bucket collisions and series overlap (a point with both `loss`
+ *    and `evalLoss`) can otherwise leave slots unused even though
+ *    candidates remain.
  * 3. Within the loss series' own budget, the same bidirectional split
  *    applies one level down: local maxima and local minima each get
  *    up to half, with either side's unused share flowing to the
