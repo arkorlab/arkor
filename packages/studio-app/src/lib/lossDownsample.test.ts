@@ -305,8 +305,9 @@ describe("compactLossPoints", () => {
     const evalRepresentatives = result.filter(
       (p) => typeof p.evalLoss === "number",
     );
-    // Hard half of the 15-slot bucket budget would be 8; reallocating
-    // the scarce loss series' unused share should give eval 14.
+    // The shared bucket budget is 13 slots (17 minus the four
+    // boundaries {0, 1, 29, 30}); a hard half-cap would give eval 7,
+    // and reallocating the scarce loss series' unused share yields 14.
     expect(evalRepresentatives.length).toBe(14);
   });
 
