@@ -328,6 +328,18 @@ describe("compactLossPoints", () => {
     expect(result.length).toBe(10);
   });
 
+  it("reclaims stranded capacity from remaining training-loss candidates", () => {
+    const points = [
+      point(0, 0),
+      ...Array.from({ length: 20 }, (_, i) => point(i + 1, Math.sin(i))),
+      point(1_000, 0),
+    ];
+
+    const result = compactLossPoints(points, 12);
+
+    expect(result).toHaveLength(12);
+  });
+
   it("prefers a genuine eval-loss extremum over an ordinary eval value in the same bucket", () => {
     // A flat evalLoss baseline with one distinct eval-loss spike.
     // Without preferring eval extrema, the first-seen ordinary value

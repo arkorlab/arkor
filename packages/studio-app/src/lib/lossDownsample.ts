@@ -307,23 +307,40 @@ export function compactLossPoints(
   for (const i of minSelected) selected.add(i);
   for (const i of plainSelected) selected.add(i);
 
-  // Overlap between the eval and loss series (a point selected by
-  // eval that also happened to be a loss candidate) can shrink loss's
-  // usable pool below what its share of the budget assumed, leaving
-  // capacity unused even though eval may have further, not-yet-
-  // selected candidates that could fill it. Reclaim any such
-  // stranded slack back to eval.
+  // Bucket collisions and overlap between the eval and loss series can
+  // leave capacity unused even though either series still has candidates.
+  // Reclaim that slack from every remaining candidate, while preferring
+  // eval extrema, then other eval points, then loss extrema.
   const strandedLeftover = bucketCount - (selected.size - boundaryIndices.size);
   if (strandedLeftover > 0) {
-    const evalUnclaimed = evalCandidates.filter((i) => !selected.has(i));
-    if (evalUnclaimed.length > 0) {
+    const evalCandidateSet = new Set(evalCandidates);
+    const lossExtremumSet = new Set([...maxCandidates, ...minCandidates]);
+    const unclaimed = [
+      ...new Set([
+        ...evalCandidates,
+        ...maxCandidates,
+        ...minCandidates,
+        ...plainCandidates,
+      ]),
+    ].filter((i) => !selected.has(i));
+    if (unclaimed.length > 0) {
       const reclaimed = bucketSelect(
         merged,
-        evalUnclaimed,
-        Math.min(strandedLeftover, evalUnclaimed.length),
+        unclaimed,
+        Math.min(strandedLeftover, unclaimed.length),
         firstStep,
         span,
-        (a, b) => evalExtremumKind[a] !== 0 && evalExtremumKind[b] === 0,
+        (a, b) => {
+          const rank = (i: number) =>
+            evalExtremumKind[i] !== 0
+              ? 3
+              : evalCandidateSet.has(i)
+                ? 2
+                : lossExtremumSet.has(i)
+                  ? 1
+                  : 0;
+          return rank(a) > rank(b);
+        },
       );
       for (const i of reclaimed) selected.add(i);
 
@@ -331,7 +348,7 @@ export function compactLossPoints(
       // representative pass may return fewer points than its budget.
       // Fill any remaining slots directly to keep the output at the
       // requested size when enough candidates remain.
-      for (const i of evalUnclaimed) {
+      for (const i of unclaimed) {
         if (selected.size - boundaryIndices.size >= bucketCount) break;
         if (!selected.has(i)) selected.add(i);
       }

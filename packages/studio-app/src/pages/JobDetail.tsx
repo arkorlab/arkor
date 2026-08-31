@@ -222,7 +222,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
         // bound and slow LossChart re-renders. 2000 is well above the
         // chart's visual resolution at any reasonable width. Once the
         // cap is hit, compact down to half via `compactLossPoints`
-        // (stride-doubling) rather than tail-slicing, so the start of
+        // (step-value bucketing that preserves series boundaries and
+        // prioritized representatives) rather than tail-slicing, so the start of
         // long runs stays visible instead of being silently dropped
         // (see #215). Subsequent frames keep appending until the cap
         // is hit again, at which point we compact again.
