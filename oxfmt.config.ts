@@ -14,6 +14,10 @@ export default defineConfig({
     functions: ["cn"],
   },
   ignorePatterns: [
+    // Target selection only. What keeps `pnpm format` from descending
+    // into `.claude/worktrees/` is the `.claude/` line in `.gitignore`:
+    // oxfmt's nested-config discovery respects the ignore file but not
+    // these patterns (see AGENTS.md "oxfmt owns formatting").
     ".claude/**",
     "**/*.md",
     "**/*.mdx",
