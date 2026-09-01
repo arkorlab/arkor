@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ArrowLeft, Sparkles } from "../components/icons";
 import { EventsStream, type EventEntry } from "../components/jobs/EventsStream";
@@ -23,12 +23,38 @@ import {
   NO_VALUE_PLACEHOLDER,
   truncateMiddle,
 } from "../lib/format";
+import { appendLossFrame, compactLossPoints } from "../lib/lossDownsample";
+import {
+  correctRunningStats,
+  createRunningStats,
+  updateRunningStats,
+} from "../lib/stats";
 
 const MAX_LOSS_POINTS = 2000;
 
 export function JobDetail({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<Job | null>(null);
   const [points, setPoints] = useState<LossPoint[]>([]);
+  // Full-run stats accumulators (see stats.ts), independent of the
+  // MAX_LOSS_POINTS-bounded, possibly-compacted `points` array above:
+  // these keep the Advanced panel's mean/variance/percentiles
+  // accurate for the whole run regardless of how long it gets, rather
+  // than describing whatever subset of points compaction happens to
+  // have retained for the chart. State (not refs): updateRunningStats
+  // is pure and returns a new accumulator rather than mutating the
+  // old one, which is exactly what a setState updater needs to stay
+  // safe under React's assumptions (see updateRunningStats's own doc
+  // comment for why mutating in place is unsafe there).
+  const [trainRunning, setTrainRunning] = useState(createRunningStats());
+  const [evalRunning, setEvalRunning] = useState(createRunningStats());
+  // See lastFrameRef.current's reset comment (in the per-job reset
+  // effect below) and its usage (in the training.log handler) for why
+  // this exists and why it's a ref rather than derived from `points`.
+  const lastFrameRef = useRef<{
+    step: number;
+    loss: number | null;
+    evalLoss: number | null;
+  } | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [terminal, setTerminal] = useState<{
@@ -74,19 +100,42 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     // Clear per-job state when navigating between jobs so events, loss
-    // points, terminal status, advanced toggle, and event-id counter
-    // don't leak across routes. Resetting `advanced` matters: leaving
-    // it on would immediately start computing stats during the new
-    // job's live stream the moment its first points arrive.
+    // points, terminal status, advanced toggle, event-id counter, and
+    // the full-run stats accumulators don't leak across routes.
+    // Resetting `advanced` matters: leaving it on would immediately
+    // start computing stats during the new job's live stream the
+    // moment its first points arrive. Resetting trainRunning /
+    // evalRunning matters just as much: without it, since JobDetail
+    // is reused across job routes rather than remounted, the next
+    // job's values would keep accumulating on top of the previous
+    // job's, corrupting count/mean/variance/CI/percentiles for the
+    // newly viewed job.
     setEvents([]);
     setPoints([]);
     setAdvanced(false);
+    setTrainRunning(createRunningStats());
+    setEvalRunning(createRunningStats());
+    // Mirrors the merged (step, loss, evalLoss) state appendLossFrame
+    // would produce, but tracked in a ref rather than read from the
+    // `points` state: this effect only depends on [jobId], so reading
+    // `points` here would see whatever it was when the effect last
+    // ran, not its current value. Used below to detect a same-step
+    // correction so it isn't double-counted into the running stats.
+    lastFrameRef.current = null;
     setTerminal(null);
     setEventErr(null);
     setLiveStatus(null);
     setLiveStartedAt(null);
 
     let counter = 0;
+    // Closing the EventSource in this effect's cleanup stops future
+    // events from being dispatched, but it doesn't retroactively
+    // cancel a handler that was already invoked (or already queued)
+    // before cleanup ran. Without this guard, a message from the
+    // previous job's stream that's in flight when the user navigates
+    // to a different job could still land afterward and apply that
+    // stale job's data on top of the newly reset state above.
+    let cancelled = false;
 
     // Each SSE frame's `data` is JSON; the listeners below all need
     // both the formatted message (for the events stream) and a typed
@@ -168,6 +217,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
 
     const es = openJobEvents(jobId);
     es.addEventListener("training.started", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       const parsed = safeParse(ev.data);
       pushEvent("training.started", ev.data, parsed);
       // SSE is the source of truth for live status. Drive `liveStatus`
@@ -182,6 +232,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("training.log", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       const parsed = safeParse(ev.data);
       pushEvent("training.log", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
@@ -219,26 +270,79 @@ export function JobDetail({ jobId }: { jobId: string }) {
         if (safeLoss === null && safeEvalLoss === null) return;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
-        // chart's visual resolution at any reasonable width.
+        // chart's visual resolution at any reasonable width. Once the
+        // cap is hit, compact down to half via `compactLossPoints`
+        // (stride-doubling) rather than tail-slicing, so the start of
+        // long runs stays visible instead of being silently dropped
+        // (see #215). Subsequent frames keep appending until the cap
+        // is hit again, at which point we compact again.
+        //
+        // The (possibly compacted) `points` array below is only
+        // for the visual chart. Advanced-panel stats are computed
+        // separately, from trainRunning / evalRunning (see stats.ts),
+        // which accumulate every raw value incrementally so they stay
+        // accurate for the whole run regardless of how long it gets,
+        // independent of whatever compaction does to `points` for
+        // rendering.
+        //
+        // A later frame can correct an already-counted field for the
+        // same step (the same case appendLossFrame's own last?.step
+        // === step check merges for the chart), not just fill in a
+        // field that was previously null (the ordinary split-frame
+        // case). When that happens, the corrected value must replace
+        // the old one in the running stats too (correctRunningStats),
+        // not just be added on top of it: adding on top would inflate
+        // count and bias mean/variance/CI, while silently dropping it
+        // instead would leave stats permanently stuck on the
+        // pre-correction value even though the chart (via
+        // appendLossFrame below) already shows the corrected one.
+        // This only handles a correction to the immediately-previous
+        // frame's step, matching appendLossFrame's own O(1) scope; a
+        // correction to a step further back isn't detected here,
+        // the same accepted-tradeoff boundary as appendLossFrame's
+        // non-adjacent-duplicate case (see its own doc comment).
+        const last = lastFrameRef.current;
+        const isSameStep = last?.step === step;
+        const previousLoss = isSameStep ? last.loss : null;
+        const previousEvalLoss = isSameStep ? last.evalLoss : null;
+        if (safeLoss !== null) {
+          setTrainRunning((prev) =>
+            previousLoss !== null
+              ? correctRunningStats(prev, previousLoss, safeLoss)
+              : updateRunningStats(prev, safeLoss),
+          );
+        }
+        if (safeEvalLoss !== null) {
+          setEvalRunning((prev) =>
+            previousEvalLoss !== null
+              ? correctRunningStats(prev, previousEvalLoss, safeEvalLoss)
+              : updateRunningStats(prev, safeEvalLoss),
+          );
+        }
+        lastFrameRef.current = {
+          step,
+          loss: safeLoss ?? (isSameStep ? last.loss : null),
+          evalLoss: safeEvalLoss ?? (isSameStep ? last.evalLoss : null),
+        };
         setPoints((prev) => {
-          const next = [
-            ...prev,
-            {
-              step,
-              loss: safeLoss,
-              evalLoss: safeEvalLoss,
-            },
-          ];
+          // appendLossFrame merges an incoming frame into the
+          // previous entry when they share a step (see its own doc
+          // comment for why: split loss/evalLoss frames would
+          // otherwise inflate next.length and trip the
+          // MAX_LOSS_POINTS check below early).
+          const next = appendLossFrame(prev, step, safeLoss, safeEvalLoss);
           return next.length > MAX_LOSS_POINTS
-            ? next.slice(next.length - MAX_LOSS_POINTS)
+            ? compactLossPoints(next, MAX_LOSS_POINTS / 2)
             : next;
         });
       }
     });
     es.addEventListener("checkpoint.saved", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       pushEvent("checkpoint.saved", ev.data, safeParse(ev.data));
     });
     es.addEventListener("training.completed", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       const parsed = safeParse(ev.data);
       pushEvent("training.completed", ev.data, parsed);
       // SSE payload carries the trainer-side completion timestamp; use
@@ -256,6 +360,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("training.failed", (ev: MessageEvent<string>) => {
+      if (cancelled) return;
       const parsed = safeParse(ev.data);
       pushEvent("training.failed", ev.data, parsed);
       if (parsed && typeof parsed === "object") {
@@ -271,10 +376,14 @@ export function JobDetail({ jobId }: { jobId: string }) {
       }
     });
     es.addEventListener("end", () => es.close());
-    es.addEventListener("error", () =>
-      setEventErr("Event stream interrupted."),
-    );
-    return () => es.close();
+    es.addEventListener("error", () => {
+      if (cancelled) return;
+      setEventErr("Event stream interrupted.");
+    });
+    return () => {
+      cancelled = true;
+      es.close();
+    };
   }, [jobId]);
 
   // Status precedence:
@@ -434,7 +543,12 @@ export function JobDetail({ jobId }: { jobId: string }) {
               </div>
             </CardHeader>
             <CardContent>
-              <LossChart points={points} advanced={advanced} />
+              <LossChart
+                points={points}
+                advanced={advanced}
+                trainRunning={trainRunning}
+                evalRunning={evalRunning}
+              />
             </CardContent>
           </Card>
 
