@@ -23,6 +23,7 @@ import {
   NO_VALUE_PLACEHOLDER,
   truncateMiddle,
 } from "../lib/format";
+import { compactLossPoints } from "../lib/lossDownsample";
 
 const MAX_LOSS_POINTS = 2000;
 
@@ -219,7 +220,29 @@ export function JobDetail({ jobId }: { jobId: string }) {
         if (safeLoss === null && safeEvalLoss === null) return;
         // Cap retained points so long/high-step runs don't grow without
         // bound and slow LossChart re-renders. 2000 is well above the
-        // chart's visual resolution at any reasonable width.
+        // chart's visual resolution at any reasonable width. Once the
+        // cap is hit, compact down to half via `compactLossPoints`
+        // (step-value bucketing that preserves series boundaries and
+        // prioritized representatives) rather than tail-slicing, so the start of
+        // long runs stays visible instead of being silently dropped
+        // (see #215). Subsequent frames keep appending until the cap
+        // is hit again, at which point we compact again.
+        //
+        // Known tradeoff: this same (possibly compacted) array feeds
+        // both the visual chart and LossChart's "Advanced" panel
+        // stats (mean / variance / percentiles / CI over `loss`,
+        // computed by `summarize()`). Because compaction intentionally
+        // over-represents local extrema relative to their true
+        // frequency, those loss stats describe the retained/visible
+        // points once compaction has run at least once, not an
+        // unbiased sample of the full run; read them as "shape of
+        // what's shown" rather than a rigorous full-run estimate.
+        // `evalLoss`-based stats are unaffected in the common case,
+        // since `compactLossPoints` keeps every finite `evalLoss`
+        // point unless that series alone would overflow the target
+        // size. A precise fix (tracking running mean/variance/
+        // percentiles independently of the necessarily-bounded visual
+        // sample) is a larger, separate change than this fix's scope.
         setPoints((prev) => {
           const next = [
             ...prev,
@@ -230,7 +253,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
             },
           ];
           return next.length > MAX_LOSS_POINTS
-            ? next.slice(next.length - MAX_LOSS_POINTS)
+            ? compactLossPoints(next, MAX_LOSS_POINTS / 2)
             : next;
         });
       }
