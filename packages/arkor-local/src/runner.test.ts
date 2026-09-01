@@ -326,43 +326,56 @@ describe("RunManager cancel", () => {
     expect((await store.getJob(jobId))?.job.status).toBe("cancelled");
   });
 
-  it("still cancels when the direct child exits but a descendant lives on", async () => {
-    // `uv` can exit while the Python trainer it spawned keeps running and
-    // holding the inherited stdout pipe: Node fires 'exit' but not
-    // 'close'. Cancel must still signal the process group (and escalate),
-    // otherwise the request hangs on `run.done` while training continues.
-    const children: ChildProcess[] = [];
-    manager = new RunManager({
-      store,
-      gracePeriodMs: 500,
-      spawnImpl: ((command: string, args: string[], opts: object) => {
-        const child = spawn(command, args, opts as Parameters<typeof spawn>[2]);
-        children.push(child);
-        return child;
-      }) as typeof spawn,
-    });
-    const { jobId } = await launch(
-      fixtureBackend({
-        chunks: [marker({ type: "started" })],
-        orphanChild: true,
-      }),
-    );
-    const child = children.at(0);
-    if (!child) throw new Error("no child was spawned");
-    // Wait for the DIRECT child to exit; 'close' stays pending because the
-    // descendant still holds the inherited stdout pipe. That is the window
-    // under test.
-    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
-    // Resolves only once the descendant is gone and the terminal event is
-    // recorded; a regression makes this hang until the test timeout.
-    const killSpy = vi.spyOn(process, "kill");
-    await expect(manager.cancel(jobId)).resolves.toBe(true);
-    // The group signal is the whole point: without it the descendant keeps
-    // training and this call would never settle.
-    expect(killSpy).toHaveBeenCalled();
-    killSpy.mockRestore();
-    expect((await store.getJob(jobId))?.job.status).toBe("cancelled");
-  }, 20_000);
+  // POSIX only: the behaviour under test is process-GROUP signalling
+  // (`process.kill(-pid)`), which the runner deliberately restricts to
+  // non-Windows platforms. On Windows cancel falls back to
+  // `child.kill()`, which never touches `process.kill`, so the spy below
+  // would have nothing to observe.
+  it.skipIf(process.platform === "win32")(
+    "still cancels when the direct child exits but a descendant lives on",
+    async () => {
+      // `uv` can exit while the Python trainer it spawned keeps running and
+      // holding the inherited stdout pipe: Node fires 'exit' but not
+      // 'close'. Cancel must still signal the process group (and escalate),
+      // otherwise the request hangs on `run.done` while training continues.
+      const children: ChildProcess[] = [];
+      manager = new RunManager({
+        store,
+        gracePeriodMs: 500,
+        spawnImpl: ((command: string, args: string[], opts: object) => {
+          const child = spawn(
+            command,
+            args,
+            opts as Parameters<typeof spawn>[2],
+          );
+          children.push(child);
+          return child;
+        }) as typeof spawn,
+      });
+      const { jobId } = await launch(
+        fixtureBackend({
+          chunks: [marker({ type: "started" })],
+          orphanChild: true,
+        }),
+      );
+      const child = children.at(0);
+      if (!child) throw new Error("no child was spawned");
+      // Wait for the DIRECT child to exit; 'close' stays pending because the
+      // descendant still holds the inherited stdout pipe. That is the window
+      // under test.
+      await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+      // Resolves only once the descendant is gone and the terminal event is
+      // recorded; a regression makes this hang until the test timeout.
+      const killSpy = vi.spyOn(process, "kill");
+      await expect(manager.cancel(jobId)).resolves.toBe(true);
+      // The group signal is the whole point: without it the descendant keeps
+      // training and this call would never settle.
+      expect(killSpy).toHaveBeenCalled();
+      killSpy.mockRestore();
+      expect((await store.getJob(jobId))?.job.status).toBe("cancelled");
+    },
+    20_000,
+  );
 
   it("keeps a natural completion when a cancel lands after the child exits", async () => {
     // finishRun is deferred behind the terminal write, so the run lingers
