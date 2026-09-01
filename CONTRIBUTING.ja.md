@@ -60,8 +60,8 @@ pnpm --filter create-arkor dev        # スキャフォルダーを tsdown --wat
 
 | スイート | スコープ | ツール |
 | --- | --- | --- |
-| [`e2e/cli`](e2e/cli) | `arkor` / `create-arkor` CLI 表面: spawn・スキャフォルド・ビルド・終了コード・stdout/stderr | ビルド済み `dist/bin.mjs` を vitest で起動 |
-| [`e2e/studio`](e2e/studio) | `arkor dev` が配信する Studio SPA: `<meta>` トークン注入、`/api/*` 認可契約、ページレベル描画、SSE ストリーミング | 実 `arkor dev` + 同一プロセス内 fake cloud-api に対し Playwright で Chromium を駆動 |
+| [`e2e/cli`](https://github.com/arkorlab/arkor/tree/main/e2e/cli) | `arkor` / `create-arkor` CLI 表面: spawn・スキャフォルド・ビルド・終了コード・stdout/stderr | ビルド済み `dist/bin.mjs` を vitest で起動 |
+| [`e2e/studio`](https://github.com/arkorlab/arkor/tree/main/e2e/studio) | `arkor dev` が配信する Studio SPA: `<meta>` トークン注入、`/api/*` 認可契約、ページレベル描画、SSE ストリーミング | 実 `arkor dev` + 同一プロセス内 fake cloud-api に対し Playwright で Chromium を駆動 |
 
 どちらのスイートも `arkor`（CLI スイートはさらに `create-arkor`）のビルド済み `dist/bin.mjs` を消費します。リポジトリ ルートで `pnpm test` を回した場合は Turbo の `^build` で自動的に揃いますが、スタンドアロン (`pnpm --filter @arkor/e2e-* test`) で実行する場合は事前にビルドしておく必要があります。
 
@@ -103,7 +103,7 @@ Studio は起動ごとに注入される CSRF トークン付きで `http://127.
 
 コードのどこでもエムダッシュ (U+2014) は使いません。代わりにコロン、ピリオド、カンマ、丸括弧、スペース付きハイフン (`" - "`)、または文の言い換えを使ってください。これはローカルの ESLint ルール `local/no-em-dash` で全パッケージのコメントおよび文字列・テンプレートリテラルに対して強制しています。例外はありません: CLI ランタイムのメッセージも、生成ファイルのテンプレート本文も、テスト名も同じルールに従います。
 
-Markdown (このファイルを含む) は ESLint ルールの対象外です。同じ規約を yaml・md・json・html・ルートの config まで広げるため、[`scripts/check-no-em-dash.mts`](scripts/check-no-em-dash.mts) というリポジトリ全体のガードを用意しています。`git grep` でトラックされた全ファイルを走査し、エムダッシュのグリフまたは HTML エンティティが見つかると失敗します。ローカルでは次で実行できます:
+Markdown (このファイルを含む) は ESLint ルールの対象外です。同じ規約を yaml・md・json・html・ルートの config まで広げるため、[`scripts/check-no-em-dash.mts`](https://github.com/arkorlab/arkor/blob/main/scripts/check-no-em-dash.mts) というリポジトリ全体のガードを用意しています。`git grep` でトラックされた全ファイルを走査し、エムダッシュのグリフまたは HTML エンティティが見つかると失敗します。ローカルでは次で実行できます:
 
 ```bash
 pnpm check:no-em-dash
@@ -127,7 +127,7 @@ PR は粗くてもまず受け入れる方針です。タイポ修正、言い�
 
 ## 行動規範
 
-親切に、誠実だと仮定し、技術的な意見の相違は技術的なまま保ちましょう。それ以外 (ハラスメント、人格攻撃、排他的な振る舞い) は退場をお願いする理由になります。メンテナーの判断が最終です。
+Arkor のすべてのコミュニティースペースは [行動規範](CODE_OF_CONDUCT.ja.md) に従います。そこでは、Issue の宣言とアサインの流れ、重複 PR の避け方、メンテナーとのやりとりの仕方といったコラボレーションのエチケットも定めています。要約すると、親切に、誠実だと仮定し、技術的な意見の相違は技術的なまま保ちましょう。それ以外（ハラスメント、人格攻撃、排他的な振る舞い）は退場をお願いする理由になります。メンテナーの判断が最終です。
 
 ## ライセンス
 
