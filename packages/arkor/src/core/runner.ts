@@ -54,10 +54,18 @@ export async function runTrainer(file?: string): Promise<void> {
       `Training entry not found: ${abs}. Provide a path or create ${DEFAULT_ENTRY}.`,
     );
   }
-  const mod = (await import(pathToFileURL(abs).href)) as Record<
-    string,
-    unknown
-  >;
+
+  let mod: Record<string, unknown>;
+
+  try {
+    mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
+  } catch (error) {
+    const causeMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load training entry: ${abs}\n${causeMessage}`, {
+      cause: error,
+    });
+  }
+
   const trainer = extractTrainer(mod);
 
   const { jobId } = await trainer.start();

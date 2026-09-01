@@ -59,6 +59,22 @@ describe("runTrainer: entry extraction", () => {
     );
   });
 
+  it("wraps entry import errors with context", async () => {
+    const entry = join(cwd, "broken-entry.mjs");
+    writeFileSync(entry, `import "./does-not-exist.mjs";`);
+
+    const error = await runTrainer(entry).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/Failed to load training entry/);
+    expect((error as Error).message).toContain(entry);
+
+    const cause = (error as Error).cause as Error;
+    expect(cause).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/Cannot find module/);
+    expect((error as Error).cause).toBeInstanceOf(Error);
+  });
+
   it("runs when the entry default-exports a Trainer", async () => {
     const entry = join(cwd, "entry.mjs");
     const calls: string[] = [];
