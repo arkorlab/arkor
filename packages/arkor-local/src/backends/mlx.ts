@@ -61,15 +61,6 @@ const LR_SCHEDULES = Object.freeze(["constant", "linear", "cosine"] as const);
  * `python/mlx/dataset_prep.py`). Anything else is a typo: the shim would
  * silently fall back to the default column and train on the wrong data.
  */
-const COLUMN_MAPPING_KEYS: Readonly<Record<string, readonly string[]>> =
-  Object.freeze({
-    text: ["text"],
-    chatml: ["messages"],
-    sharegpt: ["conversations"],
-    alpaca: ["instruction", "input", "output"],
-    prompt_completion: ["prompt", "completion"],
-  });
-
 const DATASET_FORMATS = Object.freeze([
   "text",
   "chatml",
@@ -77,6 +68,24 @@ const DATASET_FORMATS = Object.freeze([
   "alpaca",
   "prompt_completion",
 ] as const);
+
+/**
+ * Column-mapping keys each format's converter actually reads (see
+ * `python/mlx/dataset_prep.py`). Anything else is a typo: the shim would
+ * silently fall back to the default column and train on the wrong data.
+ *
+ * Keyed by the format union so adding a format without listing its columns
+ * is a compile error rather than a runtime "expected: " with an empty list.
+ */
+const COLUMN_MAPPING_KEYS: Readonly<
+  Record<(typeof DATASET_FORMATS)[number], readonly string[]>
+> = Object.freeze({
+  text: ["text"],
+  chatml: ["messages"],
+  sharegpt: ["conversations"],
+  alpaca: ["instruction", "input", "output"],
+  prompt_completion: ["prompt", "completion"],
+});
 
 interface NormalisedDatasetFormat {
   type: (typeof DATASET_FORMATS)[number];
@@ -384,7 +393,10 @@ function normaliseDatasetFormat(
         `(supported: ${DATASET_FORMATS.join(", ")})`,
     );
   }
-  const columnMapping = normaliseColumnMapping(raw.columnMapping, raw.type);
+  const columnMapping = normaliseColumnMapping(
+    raw.columnMapping,
+    raw.type as (typeof DATASET_FORMATS)[number],
+  );
   if (columnMapping instanceof Error) return columnMapping;
   return {
     type: raw.type as NormalisedDatasetFormat["type"],
@@ -394,13 +406,13 @@ function normaliseDatasetFormat(
 
 function normaliseColumnMapping(
   value: unknown,
-  format: string,
+  format: (typeof DATASET_FORMATS)[number],
 ): Record<string, string> | undefined | Error {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return new Error("datasetFormat.columnMapping must be an object");
   }
-  const allowed = COLUMN_MAPPING_KEYS[format] ?? [];
+  const allowed = COLUMN_MAPPING_KEYS[format];
   const entries = Object.entries(value as Record<string, unknown>);
   const mapping: Record<string, string> = {};
   for (const [key, v] of entries) {
