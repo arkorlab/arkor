@@ -224,15 +224,19 @@ export const arkor = Object.freeze({
 
   const SIGINT_LISTENERS = process.listeners("SIGINT").length;
 
-  // A manifest whose trainer raises the signal from inside start(), so the
-  // handler runs while `runStart` is mid-flight (exactly when a user hits
-  // Ctrl-C).
+  // A manifest whose trainer invokes the CLI's own signal handler from
+  // inside start(), so it runs while `runStart` is mid-flight (exactly
+  // where a user's Ctrl-C lands). The listener is called directly rather
+  // than `process.emit("SIGINT")`: emitting would also fire vitest's own
+  // signal handling and tear the run down.
   const SIGNAL_MANIFEST = `export const arkor = Object.freeze({
   _kind: "arkor",
   trainer: {
     name: "run",
     start: async () => {
-      process.emit("__SIGNAL__");
+      const handler = process.listeners("__SIGNAL__").at(-1);
+      if (!handler) throw new Error("no __SIGNAL__ handler was installed");
+      handler("__SIGNAL__");
       return { jobId: "j-local" };
     },
     wait: async () => ({
