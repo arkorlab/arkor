@@ -667,6 +667,11 @@ export function buildStudioApp(options: StudioServerOptions) {
         "X-Arkor-Client": `arkor/${SDK_VERSION}`,
       },
       body,
+      // Forward the browser's disconnect. Without it, closing the
+      // Playground (or switching modes mid-generation) leaves the upstream
+      // request running: in local mode that means an abandoned prompt
+      // keeps a model resident and generating for minutes.
+      signal: c.req.raw.signal,
     });
     tapDeprecation(upstream, SDK_VERSION);
     const headers = new Headers();

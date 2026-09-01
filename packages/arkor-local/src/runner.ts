@@ -68,6 +68,15 @@ export class RunManager {
   }
 
   /**
+   * Whether this process is currently supervising the job. Crash
+   * reconciliation consults it so a later sweep cannot terminalise a
+   * healthy run whose pid write failed.
+   */
+  isLive(jobId: string): boolean {
+    return this.live.has(jobId);
+  }
+
+  /**
    * Launch a training run for an already-created job. Resolves once the
    * child is spawned (not when training ends); all failure paths end in a
    * `training.failed` event rather than a rejection so HTTP callers can
@@ -278,10 +287,12 @@ export class RunManager {
       stderrSplitter.push(chunk);
     });
 
-    // The child is gone the moment 'close'/'error' fires: record that (so
-    // a late cancel does not signal or relabel it) and disarm any pending
+    // The child is gone the moment 'exit'/'error' fires: record that (so a
+    // late cancel does not signal or relabel it) and disarm any pending
     // SIGKILL, which would otherwise fire at an exited (and possibly
-    // recycled) pid while the terminal write is still queued.
+    // recycled) pid while the terminal write is still queued. 'exit' comes
+    // BEFORE 'close' (which waits for the stdio streams), and cancel()
+    // must not signal in that gap either.
     const markExited = () => {
       run.exited = true;
       if (run.killTimer) {
@@ -289,6 +300,8 @@ export class RunManager {
         run.killTimer = null;
       }
     };
+
+    child.on("exit", markExited);
 
     child.on("error", (error) => {
       // Spawn failure (ENOENT and friends): no `close` may follow.

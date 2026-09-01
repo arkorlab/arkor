@@ -56,6 +56,20 @@ const ADAMW_ALIAS_PATTERN = /^adamw_[a-z0-9_]+$/;
 /** LR schedules the shim maps onto mlx-lm's schedule builders. */
 const LR_SCHEDULES = Object.freeze(["constant", "linear", "cosine"] as const);
 
+/**
+ * Column-mapping keys each format's converter actually reads (see
+ * `python/mlx/dataset_prep.py`). Anything else is a typo: the shim would
+ * silently fall back to the default column and train on the wrong data.
+ */
+const COLUMN_MAPPING_KEYS: Readonly<Record<string, readonly string[]>> =
+  Object.freeze({
+    text: ["text"],
+    chatml: ["messages"],
+    sharegpt: ["conversations"],
+    alpaca: ["instruction", "input", "output"],
+    prompt_completion: ["prompt", "completion"],
+  });
+
 const DATASET_FORMATS = Object.freeze([
   "text",
   "chatml",
@@ -370,7 +384,7 @@ function normaliseDatasetFormat(
         `(supported: ${DATASET_FORMATS.join(", ")})`,
     );
   }
-  const columnMapping = normaliseColumnMapping(raw.columnMapping);
+  const columnMapping = normaliseColumnMapping(raw.columnMapping, raw.type);
   if (columnMapping instanceof Error) return columnMapping;
   return {
     type: raw.type as NormalisedDatasetFormat["type"],
@@ -380,14 +394,25 @@ function normaliseDatasetFormat(
 
 function normaliseColumnMapping(
   value: unknown,
+  format: string,
 ): Record<string, string> | undefined | Error {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return new Error("datasetFormat.columnMapping must be an object");
   }
+  const allowed = COLUMN_MAPPING_KEYS[format] ?? [];
   const entries = Object.entries(value as Record<string, unknown>);
   const mapping: Record<string, string> = {};
   for (const [key, v] of entries) {
+    if (!allowed.includes(key)) {
+      // Rejected rather than ignored: the converter would fall back to the
+      // default column, so a typo like `promt` would train on whatever
+      // `prompt` holds instead of failing.
+      return new Error(
+        `datasetFormat.columnMapping.${key} is not a column of the ` +
+          `"${format}" format (expected: ${allowed.join(", ")})`,
+      );
+    }
     if (typeof v !== "string") {
       return new Error(
         `datasetFormat.columnMapping.${key} must be a column name string`,
@@ -402,8 +427,13 @@ function normaliseOptimizer(
   value: string | undefined,
 ): { value: string; aliased: boolean } | Error {
   if (value === undefined) return { value: "adamw", aliased: false };
-  const direct = OPTIMIZERS[value];
-  if (direct) return { value: direct, aliased: false };
+  // Own-property check: a plain-object lookup would resolve inherited
+  // Object.prototype members, so a JS caller passing optim: "constructor"
+  // would pass validation and then write a non-string into run.json (which
+  // JSON.stringify drops, failing only after uv has started).
+  if (Object.hasOwn(OPTIMIZERS, value)) {
+    return { value: OPTIMIZERS[value], aliased: false };
+  }
   if (ADAMW_ALIAS_PATTERN.test(value)) return { value: "adamw", aliased: true };
   return new Error(
     `optim "${value}" is not supported by the MLX backend ` +

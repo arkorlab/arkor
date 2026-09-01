@@ -1468,6 +1468,65 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
       globalThis.fetch = ORIG_FETCH;
     });
 
+    it("forwards the caller's abort signal to the upstream request", async () => {
+      // Closing the Playground mid-generation must reach the backend: in
+      // local mode an abandoned prompt otherwise keeps a model resident and
+      // generating for minutes.
+      await writeCredentials(ANON_CREDS);
+      let upstreamSignal: AbortSignal | null = null;
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/v1/projects")) {
+          return Response.json(
+            {
+              project: {
+                id: "p1",
+                slug: "s1",
+                name: "s1",
+                orgId: "anon-org-id",
+              },
+            },
+            { status: 201, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v1/inference/chat")) {
+          upstreamSignal = init?.signal ?? null;
+          return new Response('data: {"content":"hi"}\n\n', {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+
+      const controller = new AbortController();
+      const res = await build().request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-E4B-it",
+          messages: [{ role: "user", content: "hello" }],
+        }),
+        signal: controller.signal,
+      });
+      expect(res.status).toBe(200);
+      // Read through a widened binding: TS narrows the closure-assigned
+      // variable to never at this point.
+      const forwarded = upstreamSignal as AbortSignal | null;
+      expect(forwarded).not.toBeNull();
+      // The same signal instance: aborting the browser request aborts the
+      // upstream one rather than leaving it running.
+      controller.abort();
+      expect(forwarded?.aborted).toBe(true);
+    });
+
     it("auto-bootstraps project state and proxies base-model inference", async () => {
       await writeCredentials(ANON_CREDS);
       // No state.json: server should derive a slug from cwd, create the

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createWriteStream, type WriteStream } from "node:fs";
+import { chmodSync, createWriteStream, type WriteStream } from "node:fs";
 import {
   appendFile,
   mkdir,
@@ -402,7 +402,17 @@ export class JobStore {
     const state = this.ensureRuntime(jobId);
     if (state.consoleTruncated) return;
     if (!state.consoleStream) {
-      const stream = createWriteStream(this.consoleLogPath(jobId), {
+      const logPath = this.consoleLogPath(jobId);
+      // `mode` only applies when the file is CREATED, so a log left by an
+      // older runtime (or a wider umask) would keep its old permissions.
+      // Best effort: chmod is a no-op on Windows and must never break a
+      // run over a diagnostics file.
+      try {
+        chmodSync(logPath, 0o600);
+      } catch {
+        // never created yet, or a platform without POSIX modes
+      }
+      const stream = createWriteStream(logPath, {
         flags: "a",
         // 0600 like job.json/run.json: trainer output can echo config
         // values, so keep it owner-only in shared workspaces.
@@ -462,18 +472,35 @@ export class JobStore {
    *     B created moments ago is legitimately `queued` with `pid: null`
    *     until its spawn lands, so only records older than the grace window
    *     are treated as abandoned.
+   *
+   * Returns true when a pid-less record was skipped purely because it is
+   * still inside the grace window. The server uses that to schedule one
+   * later pass: reconciliation otherwise only runs at startup, so a job
+   * abandoned in the gap between `createJob` and its pid write would stay
+   * `queued` (and its SSE stream open) until some future restart.
+   *
+   * `isActive` lets the caller exclude jobs this process is currently
+   * running, so a later pass cannot terminalise a healthy run whose pid
+   * write happened to fail.
    */
-  async reconcileOrphans(): Promise<void> {
-    const PRE_SPAWN_GRACE_MS = 10 * 60_000;
+  async reconcileOrphans(
+    isActive?: (jobId: string) => boolean,
+  ): Promise<boolean> {
+    const PRE_SPAWN_GRACE_MS = JobStore.PRE_SPAWN_GRACE_MS;
+    let skippedYoung = false;
     const jobs = await this.listJobs();
     for (const job of jobs) {
       if (isTerminalStatus(job.status)) continue;
+      if (isActive?.(job.id)) continue;
       const record = await this.getJob(job.id);
       if (!record) continue;
       if (record.pid !== null && this.pidProbe(record.pid)) continue;
       if (record.pid === null) {
         const age = Date.now() - Date.parse(record.job.createdAt);
-        if (!(Number.isFinite(age) && age > PRE_SPAWN_GRACE_MS)) continue;
+        if (!(Number.isFinite(age) && age > PRE_SPAWN_GRACE_MS)) {
+          skippedYoung = true;
+          continue;
+        }
       }
       // transitionToTerminal re-reads inside the record queue, so an
       // in-process writer (this instance's own runner or cancel route)
@@ -494,7 +521,11 @@ export class JobStore {
       );
       if (won) this.notifyEnded(job.id);
     }
+    return skippedYoung;
   }
+
+  /** Grace window a pid-less non-terminal record gets before reconciliation. */
+  static readonly PRE_SPAWN_GRACE_MS = 10 * 60_000;
 
   private ensureRuntime(jobId: string): JobRuntimeState {
     let state = this.runtime.get(jobId);

@@ -468,6 +468,26 @@ describe("JobStore.reconcileOrphans", () => {
     expect((await store.getJob(orphaned))?.job.status).toBe("failed");
   });
 
+  it("reports a grace-window skip and honours the active-job filter", async () => {
+    // The server schedules one later pass off this flag: without it a job
+    // abandoned between createJob and its pid write would stay queued
+    // forever, since reconciliation otherwise runs only at startup.
+    const fresh = await createJob("fresh");
+    expect(await store.reconcileOrphans()).toBe(true);
+    expect((await store.getJob(fresh))?.job.status).toBe("queued");
+
+    // An aged record is normally reconciled, but not while the caller
+    // reports it as actively running here (a healthy run whose pid write
+    // failed must not be terminalised by a later sweep).
+    await store.updateJob(fresh, (r) => {
+      r.job.createdAt = new Date(Date.now() - 11 * 60_000).toISOString();
+    });
+    expect(await store.reconcileOrphans((id) => id === fresh)).toBe(false);
+    expect((await store.getJob(fresh))?.job.status).toBe("queued");
+    await store.reconcileOrphans();
+    expect((await store.getJob(fresh))?.job.status).toBe("failed");
+  });
+
   it("leaves a fresh pid-less record alone but fails an aged one", async () => {
     // A second instance can list a job the owning instance created moments
     // ago: legitimately `queued` with `pid: null` until its spawn lands.

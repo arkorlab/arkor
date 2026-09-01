@@ -97,7 +97,7 @@ arkor dev --local [options]
 | `lrSchedulerType` | `constant`、`linear`、`cosine`。`warmupSteps` と `weightDecay` はその上に適用されます。 |
 | `loggingSteps`, `saveSteps`, `evalSteps` | 数値または `{steps}` / `{ratio}` オブジェクト。ratio は総イテレーション数に対して解決されます。 |
 | `trainOnResponsesOnly` | mlx-lm のプロンプトマスキングにマップされます。 |
-| `datasetSplit` | 指定の `testSize` / `seed` で検証セットを分割します。データセットに検証 split がなく設定もない場合、自動的に 10% を確保します (mlx-lm は学習に検証セットを必要とします)。 |
+| `datasetSplit` | 指定の `testSize` / `seed` で検証セットを分割します。データセット自身が持つ検証 split よりも優先され、その split はログを出したうえで破棄されます (指定した `testSize` / `seed` が実際に効きます)。いずれかのフィールドを設定すると明示的な分割とみなされ、`{ enabled: false }` で無効化できます。何も設定せずデータセットにも検証 split がない場合は、自動的に 10% を確保します (mlx-lm は学習に検証セットを必要とします)。 |
 | `lora.loadIn4bit` | 注記付きで無視されます: 量子化は選ぶモデルの性質なので、代わりに `mlx-community/*-4bit` 変換を選んでください。 |
 | `dryRun` | 設定を検証しデータセットを準備した上で、学習せずに完了します。 |
 

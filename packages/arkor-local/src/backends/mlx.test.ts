@@ -192,6 +192,44 @@ describe("mlxBackend.validateConfig", () => {
     }
   });
 
+  it("rejects prototype keys and unknown column mappings", () => {
+    // A plain-object lookup would resolve Object.prototype members, so a
+    // JS caller could smuggle optim: "constructor" past validation.
+    const proto = mlxBackend.validateConfig(
+      baseConfig({ optim: "constructor" as unknown as string }),
+    );
+    expect(proto).toMatchObject({ ok: false });
+    if (!proto.ok) {
+      expect(proto.errors.join("\n")).toContain('optim "constructor"');
+    }
+    // A typo'd mapping key would otherwise be dropped by the shim, which
+    // then trains on whatever the default column happens to hold.
+    const typo = mlxBackend.validateConfig(
+      baseConfig({
+        datasetFormat: {
+          type: "prompt_completion",
+          columnMapping: { promt: "question", completion: "answer" },
+        } as never,
+      }),
+    );
+    expect(typo).toMatchObject({ ok: false });
+    if (!typo.ok) {
+      expect(typo.errors.join("\n")).toContain("columnMapping.promt");
+      expect(typo.errors.join("\n")).toContain("prompt, completion");
+    }
+    // The format's own keys still pass.
+    expect(
+      mlxBackend.validateConfig(
+        baseConfig({
+          datasetFormat: {
+            type: "alpaca",
+            columnMapping: { instruction: "q", output: "a" },
+          } as never,
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
   it("accepts supported optimizers, schedules, and step shapes", () => {
     expect(
       mlxBackend.validateConfig(

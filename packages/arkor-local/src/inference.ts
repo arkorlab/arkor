@@ -1,5 +1,10 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
-import { createWriteStream, statSync, type WriteStream } from "node:fs";
+import {
+  chmodSync,
+  createWriteStream,
+  statSync,
+  type WriteStream,
+} from "node:fs";
 import { connect, createServer } from "node:net";
 
 import type { LocalTrainingBackend } from "./backends/types";
@@ -355,6 +360,13 @@ export class InferenceManager implements ChatProxy {
       }
     }
     if (!this.logStream && !this.logTruncated) {
+      // Existing logs keep their creation mode under append-open, so
+      // tighten them explicitly (best effort: no-op on Windows).
+      try {
+        chmodSync(this.logFile, 0o600);
+      } catch {
+        // not created yet, or a platform without POSIX modes
+      }
       const stream = createWriteStream(this.logFile, {
         flags: "a",
         // 0600 for the same reason as the job console log.

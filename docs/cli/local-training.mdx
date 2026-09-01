@@ -97,7 +97,7 @@ Job history is durable: restarting `arkor dev --local` keeps the jobs list, and 
 | `lrSchedulerType` | `constant`, `linear`, `cosine`; `warmupSteps` and `weightDecay` apply on top. |
 | `loggingSteps`, `saveSteps`, `evalSteps` | Numbers or `{steps}` / `{ratio}` objects; ratios resolve against the total iteration count. |
 | `trainOnResponsesOnly` | Maps to mlx-lm's prompt masking. |
-| `datasetSplit` | Splits a held-out validation set with the given `testSize` / `seed`. When the dataset has no validation split and none is configured, a 10% slice is held out automatically (mlx-lm requires a validation set to train). |
+| `datasetSplit` | Splits a held-out validation set with the given `testSize` / `seed`, and takes precedence over a validation split the dataset ships with (that one is logged and discarded, so your `testSize` / `seed` actually apply). Setting any field implies an intentional split; `{ enabled: false }` opts out. When nothing is configured and the dataset has no validation split, a 10% slice is held out automatically (mlx-lm requires a validation set to train). |
 | `lora.loadIn4bit` | Ignored with a note: quantisation is a property of the model you pick, so choose an `mlx-community/*-4bit` conversion instead. |
 | `dryRun` | Validates the config and prepares the dataset, then completes without training. |
 

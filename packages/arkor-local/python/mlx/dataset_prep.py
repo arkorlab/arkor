@@ -49,6 +49,16 @@ def prepare_data(run: dict, log) -> dict:
     valid_examples = [_convert_row(row, fmt) for row in valid_rows]
 
     split_enabled = split_cfg.get("enabled")
+    if split_enabled and valid_examples:
+        # An explicit datasetSplit is a request, not a fallback: honouring
+        # the dataset's own validation split instead would silently ignore
+        # the configured testSize/seed (and the reproducibility they buy).
+        log(
+            "[arkor] datasetSplit is set explicitly; splitting the train "
+            f"set and discarding the dataset's own {len(valid_examples)} "
+            "validation examples"
+        )
+        valid_examples = []
     if split_enabled and not valid_examples:
         test_size = split_cfg.get("testSize")
         if test_size is None:
