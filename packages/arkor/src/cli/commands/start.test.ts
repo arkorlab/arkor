@@ -222,6 +222,36 @@ export const arkor = Object.freeze({
 });
 `;
 
+  const SIGINT_LISTENERS = process.listeners("SIGINT").length;
+
+  // A manifest whose trainer raises the signal from inside start(), so the
+  // handler runs while `runStart` is mid-flight (exactly when a user hits
+  // Ctrl-C).
+  const SIGNAL_MANIFEST = `export const arkor = Object.freeze({
+  _kind: "arkor",
+  trainer: {
+    name: "run",
+    start: async () => {
+      process.emit("__SIGNAL__");
+      return { jobId: "j-local" };
+    },
+    wait: async () => ({
+      job: {
+        id: "j-local",
+        orgId: "local",
+        projectId: "local",
+        name: "run",
+        status: "completed",
+        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+        createdAt: "2026-01-01",
+      },
+      artifacts: [],
+    }),
+    cancel: async () => {},
+  },
+});
+`;
+
   afterEach(() => {
     vi.mocked(loadLocalRuntime).mockReset();
     delete process.env[LOCAL_SERVER_URL_ENV];
@@ -274,6 +304,43 @@ export const arkor = Object.freeze({
     expect(close).toHaveBeenCalledTimes(1);
     expect(process.env[LOCAL_SERVER_URL_ENV]).toBeUndefined();
     expect(process.env[LOCAL_SERVER_TOKEN_ENV]).toBeUndefined();
+  });
+
+  it("kills the local server on SIGINT instead of orphaning the trainer", async () => {
+    // Node's default signal handling would terminate the CLI without
+    // running the `finally` cleanup or firing 'exit', leaving the detached
+    // uv/Python group alive with the GPU. The handler must close the server
+    // and exit with the conventional 128 + SIGINT code.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(
+      join(cwd, "src/arkor/index.ts"),
+      SIGNAL_MANIFEST.replace("__SIGNAL__", "SIGINT"),
+    );
+    const { close } = mockRuntime();
+    const exits: number[] = [];
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as typeof process.exit);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runStart({ cwd, local: true });
+    } finally {
+      exitSpy.mockRestore();
+      logSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+    expect(close).toHaveBeenCalled();
+    // 128 + SIGINT(2).
+    expect(exits).toContain(130);
+    // The handler is removed once the run finishes, so a later signal in
+    // the same process (tests, programmatic use) is not caught by it.
+    expect(process.listeners("SIGINT")).toHaveLength(SIGINT_LISTENERS);
   });
 
   it("closes the local server even when the trainer run fails", async () => {
