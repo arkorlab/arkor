@@ -88,6 +88,19 @@ export async function fetchJobs(): Promise<{ jobs: Job[] }> {
 }
 
 /**
+ * Cancel a running job on the backend. Distinct from aborting the
+ * `/api/train` stream, which only stops the local runner process: in local
+ * mode the trainer itself belongs to the dev server and keeps using the GPU
+ * until this lands.
+ */
+export async function cancelJob(id: string): Promise<void> {
+  const res = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`${String(res.status)} ${res.statusText}`);
+}
+
+/**
  * Fetch a serialisable summary of the user's `createArkor({...})` manifest.
  * Returns `{ error }` (not a thrown exception) on 4xx so the SPA can render a
  * targeted hint (typically "no src/arkor/index.ts yet" right after scaffold).
@@ -408,7 +421,12 @@ async function deploymentJson<T>(res: Response): Promise<T> {
 
 export async function fetchDeployments(
   options: { signal?: AbortSignal } = {},
-): Promise<{ deployments: Deployment[]; scopeMissing?: boolean }> {
+): Promise<{
+  deployments: Deployment[];
+  scopeMissing?: boolean;
+  /** Studio is in local mode, where deployments are not available at all. */
+  localUnavailable?: boolean;
+}> {
   return deploymentJson(
     await apiFetch("/api/deployments", { signal: options.signal }),
   );

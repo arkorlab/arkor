@@ -34,9 +34,14 @@ export function App() {
     <AppShell creds={creds} error={error} route={route}>
       {route.kind === "home" && <Overview />}
       {route.kind === "jobs" && <JobsList />}
-      {route.kind === "job" && <JobDetail jobId={route.id} />}
+      {route.kind === "job" && (
+        <JobDetail jobId={route.id} local={creds?.mode === "local"} />
+      )}
       {route.kind === "playground" && (
-        <Playground initialAdapterId={route.adapterJobId} />
+        <Playground
+          initialAdapterId={route.adapterJobId}
+          local={creds?.mode === "local"}
+        />
       )}
       {route.kind === "endpoints" && <EndpointsList />}
       {/*

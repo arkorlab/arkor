@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { ArrowLeft, Sparkles } from "../components/icons";
+import { ArrowLeft, Sparkles, StopCircle } from "../components/icons";
 import { EventsStream, type EventEntry } from "../components/jobs/EventsStream";
 import {
   JobMetaSidebar,
@@ -17,7 +17,7 @@ import {
   CardTitle,
 } from "../components/ui/Card";
 import { StatusBadge } from "../components/ui/StatusBadge";
-import { fetchJobs, openJobEvents, type Job } from "../lib/api";
+import { cancelJob, fetchJobs, openJobEvents, type Job } from "../lib/api";
 import {
   formatDuration,
   NO_VALUE_PLACEHOLDER,
@@ -26,10 +26,23 @@ import {
 
 const MAX_LOSS_POINTS = 2000;
 
-export function JobDetail({ jobId }: { jobId: string }) {
+export function JobDetail({
+  jobId,
+  local = false,
+}: {
+  jobId: string;
+  /**
+   * Studio is talking to a local training server. Only there does a
+   * completed dry run mean the job has no adapter to open in the
+   * Playground (cloud dry runs still upload one).
+   */
+  local?: boolean;
+}) {
   const [job, setJob] = useState<Job | null>(null);
   const [points, setPoints] = useState<LossPoint[]>([]);
   const [advanced, setAdvanced] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [terminal, setTerminal] = useState<{
     status: "completed" | "failed";
@@ -388,25 +401,55 @@ export function JobDetail({ jobId }: { jobId: string }) {
           >
             Back to jobs
           </Button>
-          {status === "completed" && job?.config?.dryRun !== true && (
+          {(status === "queued" || status === "running") && (
             <Button
-              variant="primary"
+              variant="secondary"
               size="sm"
-              leadingIcon={<Sparkles />}
+              leadingIcon={<StopCircle />}
+              disabled={cancelling}
               onClick={() => {
-                // Pre-select this job's adapter so the Playground opens
-                // on the run the user was inspecting, not whichever
-                // completed job happens to be first in the list.
-                const params = new URLSearchParams({ adapter: jobId });
-                window.location.hash = `#/playground?${params.toString()}`;
+                setCancelling(true);
+                setCancelError(null);
+                void cancelJob(jobId)
+                  .catch((err: unknown) => {
+                    setCancelError(
+                      err instanceof Error ? err.message : String(err),
+                    );
+                    return undefined;
+                  })
+                  .finally(() => {
+                    setCancelling(false);
+                  });
               }}
             >
-              Open in Playground
+              {cancelling ? "Cancelling…" : "Cancel run"}
             </Button>
           )}
+          {status === "completed" &&
+            !(local && job?.config?.dryRun === true) && (
+              <Button
+                variant="primary"
+                size="sm"
+                leadingIcon={<Sparkles />}
+                onClick={() => {
+                  // Pre-select this job's adapter so the Playground opens
+                  // on the run the user was inspecting, not whichever
+                  // completed job happens to be first in the list.
+                  const params = new URLSearchParams({ adapter: jobId });
+                  window.location.hash = `#/playground?${params.toString()}`;
+                }}
+              >
+                Open in Playground
+              </Button>
+            )}
         </div>
       </div>
 
+      {cancelError ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300">
+          <span className="font-medium">Cancel failed:</span> {cancelError}
+        </div>
+      ) : null}
       {terminal?.status === "failed" && terminal.error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300">
           <span className="font-medium">Job failed:</span> {terminal.error}

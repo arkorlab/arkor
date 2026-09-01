@@ -53,6 +53,15 @@ const OPTIMIZERS: Readonly<Record<string, string>> = Object.freeze({
 
 const ADAMW_ALIAS_PATTERN = /^adamw_[a-z0-9_]+$/;
 
+/**
+ * null AND undefined both count as absent: configs arrive as parsed JSON
+ * (and from plain-JS callers), where an explicit `null` is representable
+ * and means "not set", not "invalid".
+ */
+function absent(value: unknown): value is null | undefined {
+  return value === null || value === undefined;
+}
+
 /** LR schedules the shim maps onto mlx-lm's schedule builders. */
 const LR_SCHEDULES = Object.freeze(["constant", "linear", "cosine"] as const);
 
@@ -125,10 +134,6 @@ export const mlxBackend: LocalTrainingBackend = {
   validateConfig(config: JobConfig): ConfigValidation {
     const errors: string[] = [];
 
-    // null AND undefined both count as absent: configs arrive as parsed
-    // JSON, where an explicit `null` is representable.
-    const absent = (value: unknown): value is null | undefined =>
-      value === null || value === undefined;
     if (absent(config.maxSteps) && absent(config.numTrainEpochs)) {
       errors.push(
         "maxSteps or numTrainEpochs is required for local MLX training " +
@@ -180,7 +185,7 @@ export const mlxBackend: LocalTrainingBackend = {
     if (schedule instanceof Error) errors.push(schedule.message);
 
     if (
-      config.weightDecay !== undefined &&
+      !absent(config.weightDecay) &&
       !(Number.isFinite(config.weightDecay) && config.weightDecay >= 0)
     ) {
       errors.push("weightDecay must be a non-negative number");
@@ -370,11 +375,11 @@ function validateDatasetSource(value: unknown): true | Error {
 function normaliseDatasetFormat(
   value: unknown,
 ): NormalisedDatasetFormat | Error {
-  if (value === undefined) return { type: "chatml" };
+  if (absent(value)) return { type: "chatml" };
   let raw: { type?: unknown; columnMapping?: unknown } | null = null;
   if (typeof value === "string") {
     raw = { type: value };
-  } else if (typeof value === "object" && value !== null) {
+  } else if (typeof value === "object") {
     raw = value as { type?: unknown; columnMapping?: unknown };
   }
   if (!raw || typeof raw.type !== "string") {
@@ -408,8 +413,8 @@ function normaliseColumnMapping(
   value: unknown,
   format: (typeof DATASET_FORMATS)[number],
 ): Record<string, string> | undefined | Error {
-  if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (absent(value)) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) {
     return new Error("datasetFormat.columnMapping must be an object");
   }
   const allowed = COLUMN_MAPPING_KEYS[format];
@@ -436,9 +441,12 @@ function normaliseColumnMapping(
 }
 
 function normaliseOptimizer(
-  value: string | undefined,
+  value: unknown,
 ): { value: string; aliased: boolean } | Error {
-  if (value === undefined) return { value: "adamw", aliased: false };
+  if (absent(value)) return { value: "adamw", aliased: false };
+  if (typeof value !== "string") {
+    return new Error("optim must be an optimizer name");
+  }
   // Own-property check: a plain-object lookup would resolve inherited
   // Object.prototype members, so a JS caller passing optim: "constructor"
   // would pass validation and then write a non-string into run.json (which
@@ -453,8 +461,11 @@ function normaliseOptimizer(
   );
 }
 
-function normaliseLrSchedule(value: string | undefined): string | Error {
-  if (value === undefined) return "constant";
+function normaliseLrSchedule(value: unknown): string | Error {
+  if (absent(value)) return "constant";
+  if (typeof value !== "string") {
+    return new Error("lrSchedulerType must be a schedule name");
+  }
   if ((LR_SCHEDULES as readonly string[]).includes(value)) return value;
   return new Error(
     `lrSchedulerType "${value}" is not supported by the MLX backend ` +
@@ -463,7 +474,10 @@ function normaliseLrSchedule(value: string | undefined): string | Error {
 }
 
 function normaliseWarmupSteps(value: unknown): number | null | Error {
-  if (value === undefined) return null;
+  // null counts as absent too: configs arrive as parsed JSON, where an
+  // explicit null is representable (same rule as validateConfig's numeric
+  // loop, which uses `absent`).
+  if (absent(value)) return null;
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
     return value;
   }
@@ -474,12 +488,12 @@ function normaliseSteps(
   field: string,
   value: unknown,
 ): NormalisedSteps | null | Error {
-  if (value === undefined) return null;
+  if (absent(value)) return null;
   if (typeof value === "number") {
     if (Number.isInteger(value) && value > 0) return { steps: value };
     return new Error(`${field} must be a positive integer`);
   }
-  if (typeof value === "object" && value !== null) {
+  if (typeof value === "object") {
     const { steps, ratio } = value as { steps?: unknown; ratio?: unknown };
     if (steps !== undefined) {
       if (typeof steps === "number" && Number.isInteger(steps) && steps > 0) {
@@ -551,9 +565,12 @@ function normaliseDatasetSplit(
 }
 
 function normaliseTrainOnResponsesOnly(value: unknown): boolean | Error {
-  if (value === undefined) return false;
+  if (absent(value)) return false;
   if (typeof value === "boolean") return value;
-  if (typeof value === "object" && value !== null) {
+  // Arrays are objects: without this guard `trainOnResponsesOnly: []` would
+  // read as "{ enabled: undefined }" and silently enable prompt masking,
+  // changing which tokens contribute to the loss.
+  if (typeof value === "object" && !Array.isArray(value)) {
     const { enabled } = value as { enabled?: unknown };
     if (enabled === undefined || typeof enabled === "boolean") {
       return enabled ?? true;

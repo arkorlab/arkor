@@ -347,6 +347,14 @@ export class InferenceManager implements ChatProxy {
     });
     this.attachReaper(child);
     if (!this.logStream && !this.logTruncated) {
+      // Tighten first: a legacy log that is ALREADY at the cap sets
+      // `logTruncated` below and would otherwise keep its old (possibly
+      // world-readable) mode forever. Best effort; a no-op on Windows.
+      try {
+        chmodSync(this.logFile, 0o600);
+      } catch {
+        // not created yet, or a platform without POSIX modes
+      }
       // The log persists across restarts (append mode); seed the byte
       // budget from what is already on disk, otherwise every server
       // session could add another full cap's worth.
@@ -360,13 +368,6 @@ export class InferenceManager implements ChatProxy {
       }
     }
     if (!this.logStream && !this.logTruncated) {
-      // Existing logs keep their creation mode under append-open, so
-      // tighten them explicitly (best effort: no-op on Windows).
-      try {
-        chmodSync(this.logFile, 0o600);
-      } catch {
-        // not created yet, or a platform without POSIX modes
-      }
       const stream = createWriteStream(this.logFile, {
         flags: "a",
         // 0600 for the same reason as the job console log.

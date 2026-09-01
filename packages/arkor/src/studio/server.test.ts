@@ -1461,6 +1461,57 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
     });
   });
 
+  describe("/api/jobs/:id/cancel", () => {
+    const ORIG_FETCH = globalThis.fetch;
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("proxies the cancel to the backing API with the project scope", async () => {
+      // Studio's Stop button only aborts the /api/train stream; without
+      // this route the backend job (and, locally, the GPU work) keeps
+      // running.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+        trainCwd,
+      );
+      const calls: { url: string; method: string }[] = [];
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        calls.push({
+          url: typeof input === "string" ? input : input.toString(),
+          method: init?.method ?? "GET",
+        });
+        return Response.json({ job: { id: "j1", status: "cancelled" } });
+      }) as typeof fetch;
+
+      const res = await build().request("/api/jobs/j1/cancel", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.method).toBe("POST");
+      expect(calls[0]?.url).toContain("/v1/jobs/j1/cancel");
+      expect(calls[0]?.url).toContain("orgSlug=anon-org");
+      expect(calls[0]?.url).toContain("projectSlug=proj");
+    });
+
+    it("rejects an unauthenticated request", async () => {
+      const res = await build().request("/api/jobs/j1/cancel", {
+        method: "POST",
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe("/api/inference/chat", () => {
     const ORIG_FETCH = globalThis.fetch;
 
@@ -3019,9 +3070,12 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
         headers: authedHeaders,
       });
       expect(list.status).toBe(200);
+      // NOT scopeMissing: that flag drives cloud remediation copy (restore
+      // state.json / run arkor login), none of which enables deployments
+      // locally. The SPA renders a local-specific empty state off this.
       expect(await list.json()).toEqual({
         deployments: [],
-        scopeMissing: true,
+        localUnavailable: true,
       });
 
       const create = await app.request("/api/deployments", {

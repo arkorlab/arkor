@@ -400,6 +400,39 @@ export function buildStudioApp(options: StudioServerOptions) {
     });
   });
 
+  // Cancelling from Studio must reach the BACKEND job, not just the
+  // `/api/train` stream: aborting that stream only kills the `arkor start`
+  // waiter. In local mode the trainer belongs to this process's local
+  // server, so without this route a "stopped" run keeps using the GPU.
+  app.post("/api/jobs/:id/cancel", async (c) => {
+    const id = c.req.param("id");
+    const state = local
+      ? {
+          orgSlug: LOCAL_SCOPE.orgSlug,
+          projectSlug: LOCAL_SCOPE.projectSlug,
+          projectId: "local",
+        }
+      : await readState(trainCwd);
+    if (!state) return c.json({ error: "No project state" }, 400);
+    const {
+      token,
+      baseUrl: credsBaseUrl,
+      credentials: creds,
+    } = await resolveCredentialsAndBaseUrl();
+    if (!local && !isStateUsableFor(state, creds)) {
+      return c.json({ error: "No project state" }, 400);
+    }
+    const rpc = createRpc(credsBaseUrl, token);
+    const res = await rpc.v1.jobs[":id"].cancel.$post({
+      param: { id },
+      query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
+    });
+    const body = await res.text();
+    const headers = new Headers({ "content-type": "application/json" });
+    copyDeprecationHeaders(res.headers, headers);
+    return new Response(body || "{}", { status: res.status, headers });
+  });
+
   app.get("/api/jobs/:id/events", async (c) => {
     const id = c.req.param("id");
     const state = local
@@ -689,7 +722,15 @@ export function buildStudioApp(options: StudioServerOptions) {
   // match in local mode: the list renders its friendly empty state and every
   // mutation gets an explicit 501 instead of a confusing cloud error.
   if (local) {
-    app.get("/api/deployments", () => scopeMissingResponse());
+    // NOT `scopeMissing`: that flag drives copy telling the user to restore
+    // `.arkor/state.json` or run `arkor login`, none of which enables
+    // deployments locally. A distinct flag lets the SPA say the real thing.
+    app.get("/api/deployments", () =>
+      Response.json(
+        { deployments: [], localUnavailable: true },
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
     app.all("/api/deployments", (c) =>
       c.json({ error: "Deployments are not available in local mode" }, 501),
     );

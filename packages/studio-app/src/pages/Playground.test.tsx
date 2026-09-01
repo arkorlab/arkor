@@ -151,9 +151,11 @@ describe("<Playground />", () => {
       ).toBeInTheDocument();
     });
 
-    it("excludes dry-run completions from the adapter list", async () => {
-      // A dry-run job finishes "completed" but produced no adapter;
-      // offering it would only yield deterministic 404s from inference.
+    it("excludes local dry-run completions from the adapter list", async () => {
+      // A LOCAL dry-run job finishes "completed" but produced no adapter,
+      // so offering it would only yield deterministic 404s from inference.
+      // Cloud dry runs still execute a capped loop and upload an adapter,
+      // so the second half of this test asserts they stay selectable.
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
         if (String(input) === "/api/jobs")
           return jsonResponse({
@@ -180,12 +182,24 @@ describe("<Playground />", () => {
       // Seeding the dry-run id must not stick either: the selection
       // reconciles against the filtered list and falls back to the real
       // run.
-      render(<Playground initialAdapterId="job-dry" />);
+      const { unmount } = render(
+        <Playground initialAdapterId="job-dry" local />,
+      );
       const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
       const options = [...select.options].map((o) => o.textContent);
       expect(options.join("\n")).toContain("real-run");
       expect(options.join("\n")).not.toContain("dry-run");
       expect(select.value).toBe("job-real");
+      unmount();
+
+      // The same job list against the cloud keeps the dry run.
+      render(<Playground initialAdapterId="job-dry" />);
+      const cloudSelect = (await screen.findByRole(
+        "combobox",
+      )) as HTMLSelectElement;
+      expect(
+        [...cloudSelect.options].map((o) => o.textContent).join("\n"),
+      ).toContain("dry-run");
     });
 
     it("shows the loading state while /api/jobs is in flight in adapter mode", async () => {

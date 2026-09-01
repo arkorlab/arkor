@@ -12,12 +12,17 @@
  *       "stderr":    string[]   lines written to stderr
  *       "exitCode":  number     final exit code (default 0)
  *       "hang":      boolean    after the chunks, stay alive until signalled
+ *       "orphanChild": boolean  spawn a grandchild that INHERITS stdout and
+ *                               outlives this process (mirrors `uv`
+ *                               exiting while the Python trainer runs on):
+ *                               'exit' fires but 'close' does not
  *       "adapterDirs": string[] directories to create with an
  *                               adapter_config.json inside (relative to the
  *                               job dir)
  *     }
  *   }
  */
+import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -49,7 +54,22 @@ for (const chunk of fixture.chunks ?? []) {
   if (fixture.chunkDelayMs) await sleep(fixture.chunkDelayMs);
 }
 
-if (fixture.hang) {
+if (fixture.orphanChild) {
+  // Inherits this process's stdout, so the runner's pipe stays open (and
+  // 'close' stays unfired) after this process exits. Same process group,
+  // so a group signal reaches it.
+  const grandchild = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => {}, 1000)"],
+    { stdio: ["ignore", "inherit", "ignore"] },
+  );
+  // unref (but NOT detached): the handle would otherwise keep THIS
+  // process's event loop alive, and detaching would move the grandchild
+  // out of the process group the runner signals.
+  grandchild.unref();
+  // Give the spawn a moment to land before this process goes away.
+  await sleep(100);
+} else if (fixture.hang) {
   // Keep the event loop busy until SIGTERM/SIGKILL arrives (default
   // SIGTERM handling terminates the process, which is exactly what the
   // cancel tests assert).

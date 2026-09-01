@@ -403,6 +403,8 @@ export class JobStore {
     if (state.consoleTruncated) return;
     if (!state.consoleStream) {
       const logPath = this.consoleLogPath(jobId);
+      // Tightened before anything can short-circuit below, so a log left
+      // by an older runtime cannot keep a wider mode.
       // `mode` only applies when the file is CREATED, so a log left by an
       // older runtime (or a wider umask) would keep its old permissions.
       // Best effort: chmod is a no-op on Windows and must never break a

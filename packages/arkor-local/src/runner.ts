@@ -25,9 +25,10 @@ interface LiveRun {
   /** Set when cancel() ran; changes how exit is reported. */
   cancelRequested: boolean;
   /**
-   * Set the moment 'close'/'error' fires. The run stays in `live` past that
-   * point (finishRun is deferred behind the terminal write), so cancel()
-   * needs this to tell "child still running" from "child already gone".
+   * Set once the child and everything inheriting its stdio are gone
+   * ('close'/'error'). The run stays in `live` past that point (finishRun
+   * is deferred behind the terminal write), so cancel() needs this to tell
+   * "still running" from "already gone".
    */
   exited: boolean;
   /** Set once a terminal event was appended, from any path. */
@@ -145,11 +146,12 @@ export class RunManager {
       return false;
     }
     if (run.exited) {
-      // The child is already gone and its terminal write is queued; the
-      // run only lingers in `live` so this call can await the real
-      // outcome. Signalling here would arm a SIGKILL at an exited (and
-      // possibly recycled) pid, and setting `cancelRequested` would
-      // relabel a natural exit as "Job cancelled".
+      // The child AND everything holding its pipes are gone (see
+      // markExited); the run only lingers in `live` so this call can await
+      // the real outcome. Signalling here would arm a SIGKILL at a pid
+      // whose group no longer exists (and could since have been recycled),
+      // and setting `cancelRequested` would relabel a natural exit as
+      // "Job cancelled".
       await run.done;
       return true;
     }
@@ -287,12 +289,19 @@ export class RunManager {
       stderrSplitter.push(chunk);
     });
 
-    // The child is gone the moment 'exit'/'error' fires: record that (so a
-    // late cancel does not signal or relabel it) and disarm any pending
-    // SIGKILL, which would otherwise fire at an exited (and possibly
-    // recycled) pid while the terminal write is still queued. 'exit' comes
-    // BEFORE 'close' (which waits for the stdio streams), and cancel()
-    // must not signal in that gap either.
+    // Deliberately keyed on 'close'/'error', NOT on 'exit'.
+    //
+    // 'exit' fires when the DIRECT child (uv) goes away, but 'close' waits
+    // for the stdio pipes, which a surviving descendant (the Python
+    // trainer uv spawned) still holds. Treating 'exit' as "gone" would
+    // make cancel() skip the group signal in exactly the case where the
+    // trainer is still burning GPU, and then block forever on `run.done`
+    // (which resolves off 'close').
+    //
+    // Signalling the group in that window is safe: POSIX keeps a process
+    // group id reserved while any member lives, so `kill(-pid)` cannot
+    // reach a recycled pid until the whole group is gone, and once it is,
+    // the pipes close and this handler runs.
     const markExited = () => {
       run.exited = true;
       if (run.killTimer) {
@@ -300,8 +309,6 @@ export class RunManager {
         run.killTimer = null;
       }
     };
-
-    child.on("exit", markExited);
 
     child.on("error", (error) => {
       // Spawn failure (ENOENT and friends): no `close` may follow.

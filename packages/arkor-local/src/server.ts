@@ -575,22 +575,7 @@ export async function startLocalServer(
   await mkdir(rootDir, { recursive: true });
   const store = new JobStore({ rootDir });
   const runManager = new RunManager({ store });
-  const skippedYoung = await store.reconcileOrphans((jobId) =>
-    runManager.isLive(jobId),
-  );
-  let reconcileTimer: NodeJS.Timeout | null = null;
-  if (skippedYoung) {
-    // A record left pid-less by a crash between createJob and the pid
-    // write is inside the grace window at startup, and reconciliation
-    // otherwise never runs again: without this pass the job would stay
-    // `queued` (its SSE stream pinging forever) until a future restart.
-    reconcileTimer = setTimeout(() => {
-      void store
-        .reconcileOrphans((jobId) => runManager.isLive(jobId))
-        .catch(() => undefined);
-    }, JobStore.PRE_SPAWN_GRACE_MS + 60_000);
-    reconcileTimer.unref();
-  }
+  await store.reconcileOrphans((jobId) => runManager.isLive(jobId));
   const chatProxy = options.chatProxyFactory?.({
     backend,
     shimDir: options.shimDir,
@@ -631,12 +616,28 @@ export async function startLocalServer(
     );
   });
 
+  // Bounded periodic sweep, installed only after a successful bind (a
+  // startup failure must not leave a timer behind holding a store this
+  // caller never got). Reconciliation would otherwise run only at
+  // startup, so a job abandoned by ANOTHER instance in the gap between
+  // `createJob` and its pid write would stay `queued` (its SSE stream
+  // pinging) until some future restart. `unref` keeps it from holding a
+  // short-lived `arkor start --local` open, and jobs this process is
+  // running are excluded so a failed pid write cannot terminalise a
+  // healthy run.
+  const reconcileTimer = setInterval(() => {
+    void store
+      .reconcileOrphans((jobId) => runManager.isLive(jobId))
+      .catch(() => undefined);
+  }, JobStore.PRE_SPAWN_GRACE_MS);
+  reconcileTimer.unref();
+
   return {
     url,
     token,
     backend,
     close: async () => {
-      if (reconcileTimer) clearTimeout(reconcileTimer);
+      clearInterval(reconcileTimer);
       // Best-effort on every stage: a rejecting child teardown must not
       // keep the later stages (and the listening socket) alive.
       await Promise.allSettled([

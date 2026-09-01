@@ -105,7 +105,7 @@ Job history is durable: restarting `arkor dev --local` keeps the jobs list, and 
 
 The local server also implements `POST /v1/inference/chat`, backed by a lazily started `mlx_lm server` child (OpenAI-compatible):
 
-- **`onCheckpoint` callbacks** can call `ctx.infer(...)` mid-training exactly as they do against the cloud; the request runs against that checkpoint's adapter.
+- **`onCheckpoint` callbacks** can call `ctx.infer(...)` mid-training exactly as they do against the cloud; the request runs against that checkpoint's adapter. Saved checkpoints are published (and the callback fires) at the next loss report, so keep `loggingSteps` at or below `saveSteps` if you want each checkpoint evaluated promptly instead of in a batch at the next report.
 - **Studio's Playground** works against trained adapters (pick a run) or a base model.
 - The inference child is reused across requests for the same model + adapter, replaced when a different one is requested, and shut down after 10 idle minutes to free unified memory. Its output lands in `.arkor/local/inference.log`.
 

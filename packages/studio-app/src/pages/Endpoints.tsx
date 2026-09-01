@@ -74,6 +74,7 @@ export function EndpointsList() {
   // which project to scope to" rather than "this project is empty".
   // The empty-state copy branches on this.
   const [scopeMissing, setScopeMissing] = useState(false);
+  const [localUnavailable, setLocalUnavailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Track the currently-active in-flight `fetchDeployments` so a slower
@@ -88,12 +89,12 @@ export function EndpointsList() {
     const controller = new AbortController();
     loadControllerRef.current = controller;
     try {
-      const { deployments, scopeMissing } = await fetchDeployments({
-        signal: controller.signal,
-      });
+      const { deployments, scopeMissing, localUnavailable } =
+        await fetchDeployments({ signal: controller.signal });
       if (controller.signal.aborted) return;
       setDeployments(deployments);
       setScopeMissing(Boolean(scopeMissing));
+      setLocalUnavailable(Boolean(localUnavailable));
       setError(null);
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -121,9 +122,10 @@ export function EndpointsList() {
       slug,
       signal: controller.signal,
       fetchDeployments,
-      onUpdate: ({ deployments, scopeMissing }) => {
+      onUpdate: ({ deployments, scopeMissing, localUnavailable }) => {
         setDeployments(deployments);
         setScopeMissing(Boolean(scopeMissing));
+        setLocalUnavailable(Boolean(localUnavailable));
         setError(null);
       },
       onError: (msg) => setError(msg),
@@ -217,7 +219,13 @@ export function EndpointsList() {
           // copy has to enumerate all three remediations rather than
           // single one out; the actual error you hit on the next
           // create attempt narrows it down.
-          scopeMissing ? (
+          localUnavailable ? (
+            <EmptyState
+              icon={<Inbox />}
+              title="Deployments are cloud-only"
+              description="This Studio runs against a local training server (arkor dev --local). Endpoints publish a model at https://<slug>.arkor.app, which needs Arkor Cloud; restart Studio without --local to manage them."
+            />
+          ) : scopeMissing ? (
             <EmptyState
               icon={<Inbox />}
               title="Workspace not scoped to a project yet"

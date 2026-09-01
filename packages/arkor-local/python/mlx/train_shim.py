@@ -291,7 +291,8 @@ def _make_callback(prepared, batch_size, raw_dir: Path, adapters_dir: Path):
                 step = int(prefix)
                 step_dir = adapters_dir / f"step-{step}"
                 try:
-                    _publish_dir(raw_dir, snapshot, step_dir)
+                    # Numbered snapshots are immutable, so link them.
+                    _publish_dir(raw_dir, snapshot, step_dir, link=True)
                 except OSError as error:
                     # A transient copy failure (full disk) must not abort
                     # the training run from inside the callback. Left out
@@ -310,7 +311,28 @@ def _make_callback(prepared, batch_size, raw_dir: Path, adapters_dir: Path):
     return ArkorCallback()
 
 
-def _publish_dir(raw_dir: Path, weights: Path, target_dir: Path) -> None:
+def _place(src: Path, dst: Path, link: bool) -> None:
+    """Hard-link ``src`` to ``dst`` when allowed, else copy.
+
+    Numbered mlx-lm snapshots are written once and never rewritten, so a
+    hard link is safe and halves checkpoint storage (a long run with
+    frequent saves would otherwise keep two full copies of every
+    checkpoint). The final ``adapters.safetensors`` is rewritten in place on
+    every save, so that one is always copied.
+    """
+    if link:
+        try:
+            os.link(src, dst)
+            return
+        except OSError:
+            # Cross-device, or a filesystem without hard links.
+            pass
+    shutil.copy2(src, dst)
+
+
+def _publish_dir(
+    raw_dir: Path, weights: Path, target_dir: Path, link: bool = False
+) -> None:
     """Copy an adapter (weights + config) into ``target_dir`` atomically.
 
     Staged in a sibling temp directory and promoted with a rename so a
@@ -327,7 +349,7 @@ def _publish_dir(raw_dir: Path, weights: Path, target_dir: Path) -> None:
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True)
     try:
-        shutil.copy2(weights, tmp_dir / "adapters.safetensors")
+        _place(weights, tmp_dir / "adapters.safetensors", link=link)
         config = raw_dir / "adapter_config.json"
         if config.exists():
             shutil.copy2(config, tmp_dir / "adapter_config.json")

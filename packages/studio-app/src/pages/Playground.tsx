@@ -15,11 +15,17 @@ import { DEFAULT_BASE_MODEL, type SupportedBaseModel } from "../lib/baseModels";
 
 export function Playground({
   initialAdapterId,
+  local = false,
 }: {
   /** Pre-select this completed-job id when the page mounts, e.g. when
    * navigating from a JobDetail page's "Open in Playground" button. The
    * route layer parses it from `#/playground?adapter=<id>`. */
   initialAdapterId?: string;
+  /**
+   * Studio is talking to a local training server (`arkor dev --local`).
+   * Only there does a completed dry run mean "no adapter exists".
+   */
+  local?: boolean;
 } = {}) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   // If the caller pre-selected an adapter, start in adapter mode so
@@ -53,11 +59,14 @@ export function Playground({
     fetchJobs()
       .then(({ jobs }) => {
         if (cancelled) return;
-        // Dry-run jobs finish "completed" but produce no adapter (the
+        // LOCAL dry runs finish "completed" but produce no adapter (the
         // config was validated, nothing was trained), so offering them
-        // here would only yield deterministic 404s from inference.
+        // here would only yield deterministic 404s from inference. Cloud
+        // dry runs still execute a capped loop and upload an adapter, so
+        // they stay selectable.
         const completed = jobs.filter(
-          (j) => j.status === "completed" && j.config?.dryRun !== true,
+          (j) =>
+            j.status === "completed" && !(local && j.config?.dryRun === true),
         );
         setJobs(completed);
         // Reconcile the current selection (which may have been seeded
@@ -88,7 +97,7 @@ export function Playground({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [local]);
 
   // Tear the inference stream down on unmount so navigating away
   // mid-stream doesn't leave the async loop running and writing into

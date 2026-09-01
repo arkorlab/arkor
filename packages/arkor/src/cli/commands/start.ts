@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { constants as osConstants } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 
 import {
@@ -37,6 +38,32 @@ export interface StartOptions {
 const DEFAULT_OUT_DIR = ".arkor/build";
 
 /**
+ * Close the local server (which kills its training / inference process
+ * groups) when a signal terminates a standalone `arkor start --local`, then
+ * exit with the conventional `128 + signal` code so supervisors can tell a
+ * signal from a clean exit. Returns a remover so the normal path does not
+ * leave listeners behind on a long-lived caller (tests, programmatic use).
+ */
+function installSignalHandlers(server: LoadedLocalServer): () => void {
+  const handlers = SHUTDOWN_SIGNALS.map((sig) => {
+    const handler = () => {
+      // Fire-and-forget: the exit below cannot wait on a promise, but
+      // close() signals the process groups synchronously before its first
+      // await, and the runtime's own process-'exit' reaper is the backstop.
+      void server.close().catch(() => undefined);
+      process.exit(128 + osConstants.signals[sig]);
+    };
+    process.on(sig, handler);
+    return { sig, handler } as const;
+  });
+  return () => {
+    for (const { sig, handler } of handlers) process.off(sig, handler);
+  };
+}
+
+const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+
+/**
  * Execute the build artifact at `.arkor/build/index.mjs`. Mirrors `next start`:
  * the user's TS has already been compiled by `arkor build`, and this command
  * just imports the artifact and dispatches to the discovered trainer.
@@ -59,6 +86,7 @@ export async function runStart(opts: StartOptions = {}): Promise<void> {
   const outFile = resolve(outDir, "index.mjs");
 
   let localServer: LoadedLocalServer | null = null;
+  let removeSignalHandlers: (() => void) | null = null;
   if (opts.local && !process.env[LOCAL_SERVER_URL_ENV]) {
     const runtime = await loadLocalRuntime(cwd);
     localServer = await runtime.startServer({
@@ -73,6 +101,13 @@ export async function runStart(opts: StartOptions = {}): Promise<void> {
     ui.log.info(
       `Local training via ${localServer.backend.displayName} at ${localServer.url}`,
     );
+    // Ctrl-C (and SIGTERM / SIGHUP) would otherwise terminate this process
+    // with Node's default handling: the `finally` below never runs, the
+    // process 'exit' event never fires, and the runtime's exit reaper with
+    // it. Since the trainer runs in its own detached process group, the
+    // signal reaches only the CLI and `uv`/Python would keep the GPU busy
+    // as orphans. `arkor dev --local` has the same handlers already.
+    removeSignalHandlers = installSignalHandlers(localServer);
   }
 
   try {
@@ -83,6 +118,7 @@ export async function runStart(opts: StartOptions = {}): Promise<void> {
 
     await runTrainer(outFile);
   } finally {
+    removeSignalHandlers?.();
     if (localServer) {
       try {
         // The server owns training/inference children; closing it reaps
