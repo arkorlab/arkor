@@ -43,6 +43,11 @@ test-results/
 .vscode/
 .idea/
 
+# Claude Code local session state. `.claude/worktrees/` holds checkouts of
+# other branches; this line is also what keeps oxfmt's nested-config
+# discovery (which ignores `ignorePatterns`) out of them. See AGENTS.md.
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
