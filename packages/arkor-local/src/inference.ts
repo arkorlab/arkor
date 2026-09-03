@@ -448,8 +448,8 @@ export class InferenceManager implements ChatProxy {
       .finally(() => this.pendingStops.delete(stop));
   }
 
-  // One refcounted process-exit reaper for the (single) inference child,
-  // same pattern as the runner's training children.
+  // Refcounted process-exit reaper, same pattern as the runner's training
+  // children.
   /**
    * Every spawned child that has not emitted 'close' yet. A single slot
    * used to be enough, but a replacement can be spawned while the previous

@@ -63,12 +63,6 @@ function absent(value: unknown): value is null | undefined {
 }
 
 /**
- * First key of `value` that is not in `allowed`, or null. These config
- * objects reach the backend as `unknown` (the SDK forwards them verbatim),
- * so a typo is invisible at compile time and would otherwise be dropped by
- * destructuring, leaving the run to train with defaults it never reported.
- */
-/**
  * With no explicit `enabled`, any other field the caller set implies an
  * intentional split (their testSize/seed must actually be used); a bare
  * `{}` says nothing and keeps the shim's automatic holdout.
@@ -77,6 +71,12 @@ function impliedEnabled(testSize: unknown, seed: unknown): boolean | null {
   return !absent(testSize) || !absent(seed) ? true : null;
 }
 
+/**
+ * First key of `value` that is not in `allowed`, or null. These config
+ * objects reach the backend as `unknown` (the SDK forwards them verbatim),
+ * so a typo is invisible at compile time and would otherwise be dropped by
+ * destructuring, leaving the run to train with defaults it never reported.
+ */
 function firstUnknownKey(
   value: object,
   allowed: readonly string[],

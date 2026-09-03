@@ -27,9 +27,12 @@ import {
 const MAX_LOSS_POINTS = 2000;
 
 /**
- * Error text both cancel paths write into their terminal
- * `training.failed` event (see `@arkor/local`'s RunManager / cancel route
- * and the cloud API); the SSE contract carries no cancellation event.
+ * Error text the local server writes into the terminal `training.failed`
+ * event when a run is cancelled (see `@arkor/local`'s RunManager and its
+ * cancel route); the stream contract carries no cancellation event. A
+ * backend whose wording differs simply falls through to "failed" here and
+ * is corrected by the polled record, which is what happened before this
+ * mapping existed.
  */
 const CANCELLED_ERROR = "Job cancelled";
 
