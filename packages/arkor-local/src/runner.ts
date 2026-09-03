@@ -398,17 +398,30 @@ export class RunManager {
       run.terminalRecorded = true;
       const failed =
         streamEvent.type === "training.failed" ? streamEvent : null;
-      const won = await this.store.transitionToTerminal(
-        jobId,
-        streamEvent,
-        (r) => {
-          r.job.status = failed ? "failed" : "completed";
-          if (failed) r.job.error = failed.error;
-          r.job.completedAt = timestamp;
-          r.pid = null;
-        },
-      );
-      if (won) this.store.notifyEnded(jobId);
+      try {
+        const won = await this.store.transitionToTerminal(
+          jobId,
+          streamEvent,
+          (r) => {
+            r.job.status = failed ? "failed" : "completed";
+            if (failed) r.job.error = failed.error;
+            r.job.completedAt = timestamp;
+            r.pid = null;
+          },
+        );
+        if (won) this.store.notifyEnded(jobId);
+      } catch (error) {
+        // The write failed (disk full, tree removed), so nothing was
+        // recorded: unlatch so the close handler's exit synthesis still
+        // gets to terminalise the job. Leaving the flag set would strand
+        // the record non-terminal, with no terminal SSE event, until some
+        // later restart reconciled it.
+        run.terminalRecorded = false;
+        this.store.appendConsole(
+          jobId,
+          `[arkor] failed to record the terminal event: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+      }
       return;
     }
     // Non-terminal events (started/log/checkpoint) go through the same

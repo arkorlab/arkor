@@ -90,11 +90,7 @@ function firstUnknownKey(
 /** LR schedules the shim maps onto mlx-lm's schedule builders. */
 const LR_SCHEDULES = Object.freeze(["constant", "linear", "cosine"] as const);
 
-/**
- * Column-mapping keys each format's converter actually reads (see
- * `python/mlx/dataset_prep.py`). Anything else is a typo: the shim would
- * silently fall back to the default column and train on the wrong data.
- */
+/** Dataset shapes the shim's converters understand. */
 const DATASET_FORMATS = Object.freeze([
   "text",
   "chatml",
@@ -551,20 +547,30 @@ function normaliseSteps(
     return new Error(`${field} must be a positive integer`);
   }
   if (typeof value === "object") {
+    const unknownKey = firstUnknownKey(value, ["steps", "ratio"]);
+    if (unknownKey) {
+      // `{ stps: 5 }` would otherwise fall through to the generic
+      // "carry either steps or ratio" error, which does not name the typo.
+      return new Error(
+        `${field}.${unknownKey} is not a known field (expected: steps, ratio)`,
+      );
+    }
     const { steps, ratio } = value as { steps?: unknown; ratio?: unknown };
-    if (steps !== undefined) {
+    if (!absent(steps)) {
       if (typeof steps === "number" && Number.isInteger(steps) && steps > 0) {
         return { steps };
       }
       return new Error(`${field}.steps must be a positive integer`);
     }
-    if (ratio !== undefined) {
+    if (!absent(ratio)) {
       if (typeof ratio === "number" && ratio > 0 && ratio <= 1) {
         return { ratio };
       }
       return new Error(`${field}.ratio must be a number in (0, 1]`);
     }
-    return new Error(`${field} must carry either \`steps\` or \`ratio\``);
+    // Both absent (including an explicit `{ steps: null }`): nothing was
+    // configured, same as omitting the field.
+    return null;
   }
   return new Error(
     `${field} must be a positive integer or a {steps} / {ratio} object`,

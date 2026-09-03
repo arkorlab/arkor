@@ -30,23 +30,31 @@ export function App() {
     };
   }, []);
 
+  // undefined until /api/credentials settles. Pages that behave
+  // differently against a local training server wait for it rather than
+  // assuming cloud and correcting themselves a moment later.
+  const localMode =
+    creds !== null
+      ? creds.mode === "local"
+      : error !== null
+        ? false
+        : undefined;
+
   return (
     <AppShell creds={creds} error={error} route={route}>
       {route.kind === "home" && <Overview />}
       {route.kind === "jobs" && <JobsList />}
-      {route.kind === "job" && (
-        <JobDetail jobId={route.id} local={creds?.mode === "local"} />
-      )}
+      {route.kind === "job" && <JobDetail jobId={route.id} local={localMode} />}
       {/* Mounted only once the mode is known (creds resolved, or their
           load failed and we fall back to cloud behaviour): rendering
           earlier would briefly offer local dry-run jobs as adapters, and
           every inference request against those 404s. */}
-      {route.kind === "playground" && (creds !== null || error !== null) && (
-        <Playground
-          initialAdapterId={route.adapterJobId}
-          local={creds?.mode === "local"}
-        />
-      )}
+      {route.kind === "playground" &&
+        (localMode === undefined ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
+        ) : (
+          <Playground initialAdapterId={route.adapterJobId} local={localMode} />
+        ))}
       {route.kind === "endpoints" && <EndpointsList />}
       {/*
         `key={route.id}` forces React to mount a *fresh* `EndpointDetail`

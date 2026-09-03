@@ -168,7 +168,10 @@ export function EndpointsList() {
         )}
       </div>
 
-      {showCreate && (
+      {/* `!localUnavailable` as well as `showCreate`: the user can open the
+          form before /api/deployments resolves, and every create against a
+          local server returns 501. */}
+      {showCreate && !localUnavailable && (
         <NewEndpointForm
           onCreated={() => {
             setShowCreate(false);

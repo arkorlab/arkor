@@ -43,6 +43,8 @@ Jobs ページ（`#/jobs`）はマウント時に 1 度、その後 5 秒ごと�
 
 ## Job 詳細
 
+**Cancel run。** ジョブが `queued` / `running` の間、ヘッダーに **Cancel run** ボタンが表示されます。バックエンドのジョブをキャンセルする ([`trainer.cancel()`](/ja/sdk/trainer-control#cancel) と同じ呼び出し) ので、学習プロセスが実際に停止します。Run training カードの **Stop training** ボタンはこれとは別物で、ランナーの出力ストリームから離れるだけです。ローカルモードではトレーナーが `arkor dev` プロセスの持ち物なので、ジョブ自体をキャンセルするまで学習は続きます。
+
 `#/jobs/:id` は `EventSource` 経由で `GET /api/jobs/:id/events` への `Server-Sent Events` 接続を開きます。ページは 5 つの名前付きイベントとストリーム終端を待ち受けます。
 
 下の各行で、イベントログはイベント名をメッセージとは別カラムで表示します。表内の「メッセージ」は `JobDetail.pushEvent()` が SSE ペイロードから生成する文字列です。
@@ -79,6 +81,6 @@ Eval カードは数値 `evalLoss` を含む `training.log` イベントが届�
 
 ## このページがしないこと
 
-- **Cancel run。** ジョブ詳細ページには、ジョブが `queued` / `running` の間 **Cancel run** ボタンが表示されます。バックエンドのジョブをキャンセルする ([`trainer.cancel()`](/ja/sdk/trainer-control#cancel) と同じ呼び出し) ので、学習プロセスが実際に停止します。Run training カードの **Stop training** ボタンはこれとは別物で、ランナーの出力ストリームから離れるだけです。
+- **終了済みジョブのキャンセルなし。** **Cancel run** ボタンはジョブが `queued` / `running` の間だけ表示されます。終了済みのジョブには止めるものがありません。
 - **Artifact ブラウザーなし。** 完了済みジョブの artifact 数は出ますが、個別 artifact をリスト／リンクしません。完全な artifact アクセスにはクラウド API を、あるいは学習中の SDK の `onCompleted({ artifacts })` コールバックを使ってください。
 - **学習途中の推論なし。** Playground は完了済みジョブ専用です（[Playground](/ja/studio/playground) 参照）。学習途中のライブ確認には SDK の [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使ってください。

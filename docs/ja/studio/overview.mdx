@@ -58,7 +58,7 @@ Arkor マネージドバックエンド
 
 | 不足 UI | 回避策 |
 | --- | --- |
-| 動作中ジョブの一時停止 | 非対応。キャンセルは可能で、ジョブ詳細ページの **Cancel run** ボタン、または自前コードからの [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) で行えます。 |
+| 動作中ジョブの一時停止 | 非対応。キャンセルしたい場合は、ジョブ詳細ページの **Cancel run** ボタンを使うか、自前コードから [`trainer.cancel()`](/ja/sdk/trainer-control#cancel) を呼んでください。 |
 | Playground での中間チェックポイントアダプター選択 | トレーナー内で [`onCheckpoint({ infer })`](/ja/sdk/callbacks) を使う。SDK の `infer` は直前に保存されたチェックポイントに紐づく。 |
 | Jobs リストのページング | 現状のポーリング一覧ビューでは対象外。サーバーが完全な一覧を返す前提。 |
 | プロジェクトごとの複数トレーナー | `/api/manifest` が単一の `trainer` を返す。SDK の [`createArkor`](/ja/sdk/create-arkor) も 1 つしか受け付けない。 |

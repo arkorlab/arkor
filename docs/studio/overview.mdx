@@ -58,7 +58,7 @@ These exist either at the SDK or HTTP-API level, but not as Studio UI today:
 
 | Missing UI | Workaround |
 | --- | --- |
-| Pause a running job | Not supported. Cancelling is: a job detail page has a **Cancel run** button, and [`trainer.cancel()`](/sdk/trainer-control#cancel) does the same from your own code. |
+| Pause a running job | Not supported. To cancel instead, use the **Cancel run** button on the job detail page, or call [`trainer.cancel()`](/sdk/trainer-control#cancel) from your own code. |
 | Pick an intermediate checkpoint adapter in the Playground | Use [`onCheckpoint({ infer })`](/sdk/callbacks) inside your trainer. The SDK's `infer` is bound to the just-saved checkpoint. |
 | Filter / search / paginate the jobs list | Out of scope for the polling list view today. |
 | Multiple trainers per project | `/api/manifest` returns a single `trainer`. The SDK [`createArkor`](/sdk/create-arkor) only accepts one. |

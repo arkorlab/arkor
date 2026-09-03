@@ -324,7 +324,7 @@ export const arkor = Object.freeze({
       // Node's default signal handling would terminate the CLI without
       // running the `finally` cleanup or firing 'exit', leaving the detached
       // uv/Python group alive with the GPU. The handler must close the server
-      // and exit with the conventional 128 + SIGINT code.
+      // and exit with the conventional 128 + signal number code.
       mkdirSync(join(cwd, "src/arkor"), { recursive: true });
       writeFileSync(
         join(cwd, "src/arkor/index.ts"),

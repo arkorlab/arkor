@@ -43,6 +43,8 @@ The list shows whatever order the backend returned. There is no client-side pagi
 
 ## Job detail
 
+**Cancel run.** While the job is `queued` or `running`, the header carries a **Cancel run** button. It cancels the job on the backend (the same call [`trainer.cancel()`](/sdk/trainer-control#cancel) makes), so the training process actually stops. This is distinct from the Run-training card's **Stop training** button, which only detaches from the runner's output stream: in local mode the trainer belongs to the `arkor dev` process and keeps running until the job itself is cancelled.
+
 `#/jobs/:id` opens a Server-Sent Events connection to `GET /api/jobs/:id/events` via `EventSource`. The page listens for five named events plus a stream sentinel:
 
 In every row below, the event log renders the event name in its own column next to the message; the message text shown is what `JobDetail.pushEvent()` builds from the SSE payload.
@@ -79,6 +81,6 @@ The eval card stays empty until a `training.log` event with a numeric `evalLoss`
 
 ## Things this page does not do
 
-- **Cancel run.** A job detail page shows a **Cancel run** button while the job is `queued` or `running`; it cancels the job on the backend (the same call [`trainer.cancel()`](/sdk/trainer-control#cancel) makes), so the training process actually stops. This is distinct from the Run-training card's **Stop training** button, which only detaches from the runner's output stream.
+- **No cancel once a job is terminal.** The **Cancel run** button only appears while a job is `queued` or `running`; a finished job has nothing left to stop.
 - **No artifact browser.** The page reports the artifact count for completed jobs but does not list or link to individual artifacts. For full artifact access, use the cloud-api or the SDK's `onCompleted({ artifacts })` callback during the run.
 - **No mid-run inference.** The Playground is for completed jobs only (see [Playground](/studio/playground)). For live inspection during a run, use the SDK's [`onCheckpoint({ infer })`](/sdk/callbacks).

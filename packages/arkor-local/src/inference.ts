@@ -633,7 +633,11 @@ async function stopChild(child: ChildProcess): Promise<void> {
   // while the Python server it spawned keeps running (and keeps the model
   // resident) holding the inherited pipes. Only 'close' proves the whole
   // group is gone, which is the same rule RunManager applies to trainers.
-  const stdioClosed = child.stdout === null || child.stdout.destroyed;
+  // BOTH pipes: a descendant can hold stderr alone after the direct child
+  // exits, which still means the group (and the model in memory) is alive.
+  const stdioClosed =
+    (child.stdout === null || child.stdout.destroyed) &&
+    (child.stderr === null || child.stderr.destroyed);
   const processGone = child.exitCode !== null || child.signalCode !== null;
   if (stdioClosed && processGone) return;
   await new Promise<void>((resolve) => {

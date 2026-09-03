@@ -30,21 +30,24 @@ const MAX_LOSS_POINTS = 2000;
  * Error text the local server writes into the terminal `training.failed`
  * event when a run is cancelled (see `@arkor/local`'s RunManager and its
  * cancel route); the stream contract carries no cancellation event. A
- * backend whose wording differs simply falls through to "failed" here and
- * is corrected by the polled record, which is what happened before this
- * mapping existed.
+ * backend whose wording differs falls through to "failed" here and is
+ * corrected by the polled `cancelled` record (see `polledCancelled` in the
+ * status precedence below).
  */
 const CANCELLED_ERROR = "Job cancelled";
 
 export function JobDetail({
   jobId,
-  local = false,
+  local,
 }: {
   jobId: string;
   /**
    * Studio is talking to a local training server. Only there does a
    * completed dry run mean the job has no adapter to open in the
-   * Playground (cloud dry runs still upload one).
+   * Playground (cloud dry runs still upload one). `undefined` while
+   * `/api/credentials` is in flight: the Playground action stays hidden
+   * until the mode is known rather than offering a link that resolves to
+   * nothing once local mode lands.
    */
   local?: boolean;
 }) {
@@ -327,8 +330,15 @@ export function JobDetail({
     job?.status === "completed" ||
     job?.status === "failed" ||
     job?.status === "cancelled";
+  // A cancelled job arrives as `training.failed`; the sentinel mapping
+  // above catches the local server's wording, and this catches any other
+  // producer's: when the polled record says cancelled, that outranks an
+  // SSE frame that could only ever say "failed".
+  const polledCancelled = job?.status === "cancelled";
   const status: Job["status"] =
-    terminal?.status ??
+    (polledCancelled && terminal?.status === "failed"
+      ? "cancelled"
+      : terminal?.status) ??
     (polledIsTerminal ? job.status : (liveStatus ?? job?.status ?? "queued"));
 
   // Live duration ticker while the job is running.
@@ -448,6 +458,7 @@ export function JobDetail({
             </Button>
           )}
           {status === "completed" &&
+            local !== undefined &&
             !(local && (job === null || job.config?.dryRun === true)) && (
               <Button
                 variant="primary"
@@ -472,7 +483,7 @@ export function JobDetail({
           <span className="font-medium">Cancel failed:</span> {cancelError}
         </div>
       ) : null}
-      {terminal?.status === "failed" && terminal.error ? (
+      {status === "failed" && terminal?.error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300">
           <span className="font-medium">Job failed:</span> {terminal.error}
         </div>
