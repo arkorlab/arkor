@@ -37,7 +37,11 @@ export function App() {
       {route.kind === "job" && (
         <JobDetail jobId={route.id} local={creds?.mode === "local"} />
       )}
-      {route.kind === "playground" && (
+      {/* Mounted only once the mode is known (creds resolved, or their
+          load failed and we fall back to cloud behaviour): rendering
+          earlier would briefly offer local dry-run jobs as adapters, and
+          every inference request against those 404s. */}
+      {route.kind === "playground" && (creds !== null || error !== null) && (
         <Playground
           initialAdapterId={route.adapterJobId}
           local={creds?.mode === "local"}

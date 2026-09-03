@@ -628,7 +628,14 @@ export async function startLocalServer(
   const reconcileTimer = setInterval(() => {
     void store
       .reconcileOrphans((jobId) => runManager.isLive(jobId))
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        // Discarding this would hide a persistently failing sweep
+        // (permissions, a removed tree, a full disk) while phantom
+        // `running` jobs pile up in the Studio list with no diagnostic.
+        console.error(
+          `local training server: crash reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
   }, JobStore.PRE_SPAWN_GRACE_MS);
   reconcileTimer.unref();
 

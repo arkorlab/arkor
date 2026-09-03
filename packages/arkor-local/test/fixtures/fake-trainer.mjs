@@ -60,7 +60,13 @@ if (fixture.orphanChild) {
   // so a group signal reaches it.
   const grandchild = spawn(
     process.execPath,
-    ["-e", "setInterval(() => {}, 1000)"],
+    // Self-destructs after 60s: if the group signal under test regresses,
+    // the test fails on its timeout and this process would otherwise keep
+    // running (and holding a CI runner's Node process) forever.
+    [
+      "-e",
+      "setInterval(() => {}, 1000); setTimeout(() => process.exit(0), 60000)",
+    ],
     { stdio: ["ignore", "inherit", "ignore"] },
   );
   // unref (but NOT detached): the handle would otherwise keep THIS

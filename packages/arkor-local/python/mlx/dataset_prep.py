@@ -250,18 +250,23 @@ def _convert_row(row, fmt: dict) -> dict:
         conversations = _column(row, mapping.get("conversations", "conversations"))
         return {"messages": _sharegpt_to_messages(conversations)}
     if kind == "alpaca":
-        instruction = _column(row, mapping.get("instruction", "instruction"))
+        instruction = _text_column(row, mapping.get("instruction", "instruction"))
         extra_input = _optional_column(row, mapping.get("input", "input"))
-        output = _column(row, mapping.get("output", "output"))
+        if extra_input is not None and not isinstance(extra_input, str):
+            raise DatasetPrepError(
+                f"dataset column {mapping.get('input', 'input')!r} must be a "
+                "string when set"
+            )
+        output = _text_column(row, mapping.get("output", "output"))
         prompt = instruction if not extra_input else f"{instruction}\n\n{extra_input}"
         return {"prompt": prompt, "completion": output}
     if kind == "prompt_completion":
         return {
-            "prompt": _column(row, mapping.get("prompt", "prompt")),
-            "completion": _column(row, mapping.get("completion", "completion")),
+            "prompt": _text_column(row, mapping.get("prompt", "prompt")),
+            "completion": _text_column(row, mapping.get("completion", "completion")),
         }
     if kind == "text":
-        return {"text": _column(row, mapping.get("text", "text"))}
+        return {"text": _text_column(row, mapping.get("text", "text"))}
     raise DatasetPrepError(f"unsupported datasetFormat.type: {kind!r}")
 
 
@@ -271,6 +276,24 @@ def _column(row, name: str):
         raise DatasetPrepError(
             f"dataset row is missing the {name!r} column, or its value is "
             "null (set datasetFormat.columnMapping if your columns differ)"
+        )
+    return value
+
+
+def _text_column(row, name: str) -> str:
+    """A column whose value is written verbatim into the prepared JSONL.
+
+    Non-string values (numbers, lists, nested objects) would otherwise land
+    in train.jsonl and only fail deep inside mlx-lm's tokenizer, after the
+    model has loaded; under `dryRun` they would never fail at all and the
+    malformed dataset would be reported as validated. ChatML and ShareGPT
+    already enforce this on their message contents.
+    """
+    value = _column(row, name)
+    if not isinstance(value, str):
+        raise DatasetPrepError(
+            f"dataset column {name!r} must be a string, got "
+            f"{type(value).__name__}"
         )
     return value
 
@@ -336,7 +359,16 @@ def _normalise_messages(messages) -> list:
             raise DatasetPrepError(
                 f"chatml message for role {role!r} has no string 'content'"
             )
-        out.append({"role": role, "content": content})
+        normalised = {"role": role, "content": content}
+        # Tool-use turns lose their meaning without these: an assistant
+        # message's `tool_calls` and the `tool_call_id` that ties a tool
+        # result back to its call. Dropping them (while still accepting the
+        # `tool` role) would hand mlx-lm a conversation whose results have
+        # no calls, teaching the model a corrupted exchange.
+        for extra in ("tool_calls", "tool_call_id", "name"):
+            if extra in message:
+                normalised[extra] = message[extra]
+        out.append(normalised)
     return out
 
 

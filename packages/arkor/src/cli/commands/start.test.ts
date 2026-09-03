@@ -222,7 +222,11 @@ export const arkor = Object.freeze({
 });
 `;
 
-  const SIGINT_LISTENERS = process.listeners("SIGINT").length;
+  const baselineListeners: Record<string, number> = {
+    SIGINT: process.listeners("SIGINT").length,
+    SIGTERM: process.listeners("SIGTERM").length,
+    SIGHUP: process.listeners("SIGHUP").length,
+  };
 
   // A manifest whose trainer invokes the CLI's own signal handler from
   // inside start(), so it runs while `runStart` is mid-flight (exactly
@@ -310,42 +314,54 @@ export const arkor = Object.freeze({
     expect(process.env[LOCAL_SERVER_TOKEN_ENV]).toBeUndefined();
   });
 
-  it("kills the local server on SIGINT instead of orphaning the trainer", async () => {
-    // Node's default signal handling would terminate the CLI without
-    // running the `finally` cleanup or firing 'exit', leaving the detached
-    // uv/Python group alive with the GPU. The handler must close the server
-    // and exit with the conventional 128 + SIGINT code.
-    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
-    writeFileSync(
-      join(cwd, "src/arkor/index.ts"),
-      SIGNAL_MANIFEST.replace("__SIGNAL__", "SIGINT"),
-    );
-    const { close } = mockRuntime();
-    const exits: number[] = [];
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
-      code?: number,
-    ) => {
-      exits.push(code ?? 0);
-      return undefined as never;
-    }) as typeof process.exit);
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const stdoutSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation((() => true) as typeof process.stdout.write);
-    try {
-      await runStart({ cwd, local: true });
-    } finally {
-      exitSpy.mockRestore();
-      logSpy.mockRestore();
-      stdoutSpy.mockRestore();
-    }
-    expect(close).toHaveBeenCalled();
-    // 128 + SIGINT(2).
-    expect(exits).toContain(130);
-    // The handler is removed once the run finishes, so a later signal in
-    // the same process (tests, programmatic use) is not caught by it.
-    expect(process.listeners("SIGINT")).toHaveLength(SIGINT_LISTENERS);
-  });
+  it.each([
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+    ["SIGHUP", 129],
+  ])(
+    "kills the local server on %s instead of orphaning the trainer",
+    async (signal, code) => {
+      // Node's default signal handling would terminate the CLI without
+      // running the `finally` cleanup or firing 'exit', leaving the detached
+      // uv/Python group alive with the GPU. The handler must close the server
+      // and exit with the conventional 128 + SIGINT code.
+      mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+      writeFileSync(
+        join(cwd, "src/arkor/index.ts"),
+        SIGNAL_MANIFEST.replaceAll("__SIGNAL__", signal),
+      );
+      const { close } = mockRuntime();
+      const exits: number[] = [];
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+        code?: number,
+      ) => {
+        exits.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit);
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await runStart({ cwd, local: true });
+      } finally {
+        exitSpy.mockRestore();
+        logSpy.mockRestore();
+        stdoutSpy.mockRestore();
+      }
+      expect(close).toHaveBeenCalled();
+      // Conventional 128 + signal number, so a supervisor can tell a signal
+      // from a clean exit.
+      expect(exits).toContain(code);
+      // The handler is removed once the run finishes, so a later signal in
+      // the same process (tests, programmatic use) is not caught by it.
+      expect(process.listeners(signal as NodeJS.Signals)).toHaveLength(
+        baselineListeners[signal as NodeJS.Signals],
+      );
+    },
+  );
 
   it("closes the local server even when the trainer run fails", async () => {
     // No src/arkor/index.ts: the build step throws.

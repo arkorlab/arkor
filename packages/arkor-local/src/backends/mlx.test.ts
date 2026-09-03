@@ -230,6 +230,59 @@ describe("mlxBackend.validateConfig", () => {
     ).toEqual({ ok: true });
   });
 
+  it("treats null like absent and rejects misspelt config keys", () => {
+    // Configs arrive as parsed JSON, where an unset optional field is
+    // often serialised as null; rejecting it would 400 an otherwise valid
+    // run whose omitted-field twin succeeds.
+    expect(
+      mlxBackend.validateConfig(
+        baseConfig({
+          datasetSplit: null as never,
+          warmupSteps: null as never,
+          weightDecay: null as never,
+          optim: null as never,
+          trainOnResponsesOnly: null as never,
+        }),
+      ),
+    ).toEqual({ ok: true });
+
+    // Typos in these `unknown`-typed objects would otherwise be dropped by
+    // destructuring and the run would silently use defaults.
+    for (const [config, needle] of [
+      [
+        baseConfig({ datasetSplit: { testSize: 0.2, sed: 42 } as never }),
+        "datasetSplit.sed",
+      ],
+      [
+        baseConfig({
+          datasetFormat: {
+            type: "prompt_completion",
+            columnMappings: { prompt: "q" },
+          } as never,
+        }),
+        "datasetFormat.columnMappings",
+      ],
+      [
+        baseConfig({ trainOnResponsesOnly: { enabld: false } as never }),
+        "trainOnResponsesOnly.enabld",
+      ],
+      [
+        baseConfig({
+          datasetSource: {
+            type: "huggingface",
+            name: "org/ds",
+            split: 0,
+          } as never,
+        }),
+        "datasetSource.split",
+      ],
+    ] as const) {
+      const result = mlxBackend.validateConfig(config);
+      expect(result).toMatchObject({ ok: false });
+      if (!result.ok) expect(result.errors.join("\n")).toContain(needle);
+    }
+  });
+
   it("accepts supported optimizers, schedules, and step shapes", () => {
     expect(
       mlxBackend.validateConfig(

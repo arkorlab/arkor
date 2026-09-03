@@ -53,7 +53,10 @@ export class LocalRuntimeNotInstalledError extends Error {
     super(
       `Local training requires the ${LOCAL_RUNTIME_PACKAGE} package, which ` +
         `is not installed in ${cwd}. Add it to the project ` +
-        `(for example \`pnpm add -D ${LOCAL_RUNTIME_PACKAGE}\`) and re-run.`,
+        // `@alpha`: the package only ships under that dist-tag today, so a
+        // bare install would ask the registry for a `latest` that does not
+        // exist yet.
+        `(for example \`pnpm add -D ${LOCAL_RUNTIME_PACKAGE}@alpha\`) and re-run.`,
     );
     this.name = "LocalRuntimeNotInstalledError";
   }

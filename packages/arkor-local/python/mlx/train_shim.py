@@ -347,12 +347,22 @@ def _publish_dir(
     tmp_dir = target_dir.with_name(f".{target_dir.name}.tmp-{os.getpid()}")
     if tmp_dir.exists():
         shutil.rmtree(tmp_dir)
-    tmp_dir.mkdir(parents=True)
+    tmp_dir.mkdir(parents=True, mode=0o700)
     try:
         _place(weights, tmp_dir / "adapters.safetensors", link=link)
         config = raw_dir / "adapter_config.json"
-        if config.exists():
-            shutil.copy2(config, tmp_dir / "adapter_config.json")
+        if not config.exists():
+            # `resolveAdapterDir` on the Node side accepts a directory only
+            # when adapter_config.json is present, so publishing weights
+            # alone would advertise a checkpoint (or a completed run) whose
+            # every inference request 404s. Treat it as a publish failure:
+            # checkpoints retry on the next report, and a final adapter
+            # fails the run loudly instead of claiming an unusable result.
+            raise OSError(
+                f"adapter_config.json is missing from {raw_dir}; refusing to "
+                "publish a weights-only adapter"
+            )
+        shutil.copy2(config, tmp_dir / "adapter_config.json")
         # A previous partial attempt (or an idempotent re-publish) may have
         # left the target behind; replace it wholesale.
         if target_dir.exists():

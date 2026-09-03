@@ -450,28 +450,35 @@ export class InferenceManager implements ChatProxy {
 
   // One refcounted process-exit reaper for the (single) inference child,
   // same pattern as the runner's training children.
-  private reaperChild: ChildProcess | null = null;
+  /**
+   * Every spawned child that has not emitted 'close' yet. A single slot
+   * used to be enough, but a replacement can be spawned while the previous
+   * child is still inside its SIGTERM grace period: the old child would
+   * then be dropped from the reaper, and since `arkor dev`'s signal
+   * handlers exit immediately (never awaiting closeAll) its unref'd
+   * escalation timer could not fire either, leaving it orphaned with the
+   * model resident.
+   */
+  private readonly reaperChildren = new Set<ChildProcess>();
   private readonly killOnExit = (): void => {
-    const child = this.reaperChild;
-    if (child) killGroup(child, "SIGKILL");
+    for (const child of this.reaperChildren) killGroup(child, "SIGKILL");
   };
 
   private attachReaper(child: ChildProcess): void {
-    if (this.reaperChild === null) {
+    if (this.reaperChildren.size === 0) {
       process.on("exit", this.killOnExit);
     }
-    this.reaperChild = child;
+    this.reaperChildren.add(child);
   }
 
   private detachReaperIfIdle(child: ChildProcess): void {
-    if (this.reaperChild === child) this.detachReaper();
+    this.reaperChildren.delete(child);
+    if (this.reaperChildren.size === 0) this.detachReaper();
   }
 
   private detachReaper(): void {
-    if (this.reaperChild !== null) {
-      process.removeListener("exit", this.killOnExit);
-      this.reaperChild = null;
-    }
+    this.reaperChildren.clear();
+    process.removeListener("exit", this.killOnExit);
   }
 }
 
@@ -622,7 +629,13 @@ function killGroup(child: ChildProcess, sig: NodeJS.Signals): void {
 
 /** SIGTERM, then SIGKILL after 5 s, resolving when the child is gone. */
 async function stopChild(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
+  // Keyed on the stdio streams, not on exitCode/signalCode: `uv` can exit
+  // while the Python server it spawned keeps running (and keeps the model
+  // resident) holding the inherited pipes. Only 'close' proves the whole
+  // group is gone, which is the same rule RunManager applies to trainers.
+  const stdioClosed = child.stdout === null || child.stdout.destroyed;
+  const processGone = child.exitCode !== null || child.signalCode !== null;
+  if (stdioClosed && processGone) return;
   await new Promise<void>((resolve) => {
     const killTimer = setTimeout(() => {
       killGroup(child, "SIGKILL");

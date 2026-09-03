@@ -157,13 +157,16 @@ export class RunManager {
     }
     run.cancelRequested = true;
     this.signal(run.child, "SIGTERM");
-    // Repeated cancels must not stack SIGKILL timers: a stale timer firing
-    // after the child exits could (rarely) signal a recycled pid.
-    if (run.killTimer) clearTimeout(run.killTimer);
-    run.killTimer = setTimeout(() => {
-      this.signal(run.child, "SIGKILL");
-    }, this.gracePeriodMs);
-    run.killTimer.unref();
+    // Arm the escalation once. Re-arming on every repeated cancel would
+    // push the deadline out indefinitely (two clients retrying inside the
+    // grace period keep a SIGTERM-ignoring trainer, and its GPU, alive),
+    // and the timer is cleared for real when the child is gone.
+    if (!run.killTimer) {
+      run.killTimer = setTimeout(() => {
+        this.signal(run.child, "SIGKILL");
+      }, this.gracePeriodMs);
+      run.killTimer.unref();
+    }
     // `done` (not the raw 'close' event) so callers observe the terminal
     // event already recorded, not just the process gone.
     await run.done;

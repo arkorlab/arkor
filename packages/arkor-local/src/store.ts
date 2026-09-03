@@ -131,8 +131,21 @@ export class JobStore {
   }): Promise<JobRecord> {
     const id = randomUUID();
     const jobDir = this.jobDir(id);
-    await mkdir(join(jobDir, "adapters"), { recursive: true });
-    await mkdir(join(jobDir, "data"), { recursive: true });
+    // 0700 on the whole job tree: the adapters are the user's fine-tuned
+    // weights and the data dir their training rows. The default 0755 (umask
+    // 022) would let any other local account traverse and copy them, which
+    // would undo the 0600 on job.json / run.json / the logs.
+    await mkdir(join(jobDir, "adapters"), { recursive: true, mode: 0o700 });
+    await mkdir(join(jobDir, "data"), { recursive: true, mode: 0o700 });
+    // `recursive` applies the mode only to directories it creates, and the
+    // parents may predate this call, so tighten them explicitly.
+    for (const dir of [this.jobsDir, jobDir, join(jobDir, "adapters")]) {
+      try {
+        chmodSync(dir, 0o700);
+      } catch {
+        // best effort; no POSIX modes on Windows
+      }
+    }
     const record: JobRecord = {
       job: {
         id,

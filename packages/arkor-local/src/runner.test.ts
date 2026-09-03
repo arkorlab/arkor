@@ -30,6 +30,10 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  // Before closeAll: a spy left on process.kill by a failed assertion
+  // would otherwise stub the teardown's own signalling and cascade into
+  // every later test in this file.
+  vi.restoreAllMocks();
   await manager.closeAll();
   store.close();
   rmSync(rootDir, { recursive: true, force: true });
@@ -370,7 +374,12 @@ describe("RunManager cancel", () => {
       await expect(manager.cancel(jobId)).resolves.toBe(true);
       // The group signal is the whole point: without it the descendant keeps
       // training and this call would never settle.
-      expect(killSpy).toHaveBeenCalled();
+      // Negative pid: the group, not just the exited direct child. That
+      // is what reaches the surviving descendant.
+      expect(killSpy).toHaveBeenCalledWith(
+        -(child.pid ?? 0),
+        expect.stringMatching(/^SIG/),
+      );
       killSpy.mockRestore();
       expect((await store.getJob(jobId))?.job.status).toBe("cancelled");
     },

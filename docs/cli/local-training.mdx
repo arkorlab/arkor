@@ -18,23 +18,23 @@ Local mode works by booting a **local training server** inside the CLI process t
 <CodeGroup>
 
 ```bash pnpm
-pnpm add -D @arkor/local
+pnpm add -D @arkor/local@alpha
 ```
 
 ```bash npm
-npm install -D @arkor/local
+npm install -D @arkor/local@alpha
 ```
 
 ```bash yarn
-yarn add -D @arkor/local
+yarn add -D @arkor/local@alpha
 ```
 
 ```bash yarn-berry
-yarn add -D @arkor/local
+yarn add -D @arkor/local@alpha
 ```
 
 ```bash bun
-bun add -D @arkor/local
+bun add -D @arkor/local@alpha
 ```
 
 </CodeGroup>
@@ -111,6 +111,10 @@ The local server also implements `POST /v1/inference/chat`, backed by a lazily s
 
 `tools`, `toolChoice`, `responseFormat`, and `structuredOutputs` are rejected with an explicit 400 in local mode rather than being silently dropped.
 
+<Warning>
+  Single-user machines only. The local training server itself is loopback-only and requires a per-launch bearer token, but the `mlx_lm server` child it spawns for inference has no authentication of its own (upstream offers no token or socket hand-off). While a model is warm, another local account on the same machine can reach that port directly and query your adapter. Do not use local training or inference on a shared or multi-user host.
+</Warning>
+
 ## Studio in local mode
 
 `arkor dev --local` serves the same Studio UI with every cloud proxy repointed at the local server:
@@ -121,7 +125,7 @@ The local server also implements `POST /v1/inference/chat`, backed by a lazily s
 
 ## Cancellation and crash behavior
 
-- Cancelling a run (Studio or `trainer.cancel()`) sends SIGTERM to the whole training process group (uv and Python), escalating to SIGKILL after 5 seconds. This works during any phase, including dataset download.
+- Cancelling a run sends SIGTERM to the whole training process group (uv and Python), escalating to SIGKILL after 5 seconds. This works during any phase, including dataset download. Use `trainer.cancel()`, or the **Cancel run** button on a job's detail page in Studio. The **Stop training** button on the Run-training card is a different action: it only detaches from the runner's output stream, and in local mode the trainer keeps going because it belongs to the `arkor dev` process, so cancel the job itself if you want the GPU back.
 - If the CLI exits while a run is live (Ctrl-C, SIGTERM, `docker stop`), the children are reaped on the way out.
 - If the machine or process dies uncleanly, the next local launch marks orphaned "running" jobs as failed with an explanatory event instead of leaving them stuck.
 
@@ -129,7 +133,7 @@ The local server also implements `POST /v1/inference/chat`, backed by a lazily s
 
 | Symptom | What it means | Fix |
 | --- | --- | --- |
-| `Local training requires the @arkor/local package, which is not installed in <dir>.` | The runtime package is missing from the project. | Install it: `pnpm add -D @arkor/local` (or your package manager's equivalent). |
+| `Local training requires the @arkor/local package, which is not installed in <dir>.` | The runtime package is missing from the project. | Install it: `pnpm add -D @arkor/local@alpha` (or your package manager's equivalent). |
 | `arkor and the installed @arkor/local are incompatible. Upgrade ...` | The two packages speak different protocol versions. | Follow the direction in the message: upgrade whichever side is older. |
 | `No local training backend is available on this machine: mlx: the MLX backend requires an Apple Silicon Mac (...)` | You are not on Apple Silicon macOS. | Run on an Apple Silicon Mac, or use cloud training. CUDA / ROCm backends are on the roadmap. |
 | `... uv is not available on PATH ...` | The uv binary could not be probed. | Install uv (`brew install uv`) and re-run. |

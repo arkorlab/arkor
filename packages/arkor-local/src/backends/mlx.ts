@@ -62,6 +62,31 @@ function absent(value: unknown): value is null | undefined {
   return value === null || value === undefined;
 }
 
+/**
+ * First key of `value` that is not in `allowed`, or null. These config
+ * objects reach the backend as `unknown` (the SDK forwards them verbatim),
+ * so a typo is invisible at compile time and would otherwise be dropped by
+ * destructuring, leaving the run to train with defaults it never reported.
+ */
+/**
+ * With no explicit `enabled`, any other field the caller set implies an
+ * intentional split (their testSize/seed must actually be used); a bare
+ * `{}` says nothing and keeps the shim's automatic holdout.
+ */
+function impliedEnabled(testSize: unknown, seed: unknown): boolean | null {
+  return !absent(testSize) || !absent(seed) ? true : null;
+}
+
+function firstUnknownKey(
+  value: object,
+  allowed: readonly string[],
+): string | null {
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) return key;
+  }
+  return null;
+}
+
 /** LR schedules the shim maps onto mlx-lm's schedule builders. */
 const LR_SCHEDULES = Object.freeze(["constant", "linear", "cosine"] as const);
 
@@ -341,12 +366,31 @@ function validateDatasetSource(value: unknown): true | Error {
   if (typeof value !== "object" || value === null) {
     return new Error("datasetSource must be an object");
   }
-  const source = value as { type?: unknown; name?: unknown; url?: unknown };
+  const source = value as {
+    type?: unknown;
+    name?: unknown;
+    url?: unknown;
+    split?: unknown;
+    subset?: unknown;
+  };
   if (source.type === "huggingface") {
     if (typeof source.name !== "string" || source.name.length === 0) {
       return new Error(
         "datasetSource.name (the HuggingFace dataset id) is required",
       );
+    }
+    // The shim reads these as `split or "train"` / `if subset`, so a falsy
+    // non-string (0, "") would silently fall back to the default split or
+    // config instead of failing: the run would train on different rows
+    // than the caller asked for.
+    for (const field of ["split", "subset"] as const) {
+      const optional = source[field];
+      if (absent(optional)) continue;
+      if (typeof optional !== "string" || optional.length === 0) {
+        return new Error(
+          `datasetSource.${field} must be a non-empty string when set`,
+        );
+      }
     }
     return true;
   }
@@ -396,6 +440,19 @@ function normaliseDatasetFormat(
     return new Error(
       `datasetFormat "${raw.type}" is not supported by the MLX backend ` +
         `(supported: ${DATASET_FORMATS.join(", ")})`,
+    );
+  }
+  const unknownFormatKey = firstUnknownKey(raw as object, [
+    "type",
+    "columnMapping",
+  ]);
+  if (unknownFormatKey) {
+    // e.g. `columnMappings` (plural): the real mapping would be dropped
+    // and the converter would fall back to default columns, training on
+    // the wrong data while the run reports success.
+    return new Error(
+      `datasetFormat.${unknownFormatKey} is not a known field ` +
+        "(expected: type, columnMapping)",
     );
   }
   const columnMapping = normaliseColumnMapping(
@@ -519,7 +576,7 @@ function normaliseDatasetSplit(
 ):
   | { enabled: boolean | null; testSize: number | null; seed: number | null }
   | Error {
-  if (value === undefined) {
+  if (absent(value)) {
     // `enabled: null` (NOT false) so the shim can tell "the user said
     // nothing" from an explicit `{ enabled: false }` opt-out: omission
     // keeps the shim's automatic 10% validation holdout, false disables
@@ -527,9 +584,19 @@ function normaliseDatasetSplit(
     // default-config run.
     return { enabled: null, testSize: null, seed: null };
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (typeof value !== "object" || Array.isArray(value)) {
     return new Error(
       "datasetSplit must be an object like { enabled, testSize, seed }",
+    );
+  }
+  const unknownKey = firstUnknownKey(value, ["enabled", "testSize", "seed"]);
+  if (unknownKey) {
+    // A misspelt key would otherwise be dropped silently and the split
+    // would run with defaults, changing the evaluation set while the job
+    // reports success.
+    return new Error(
+      `datasetSplit.${unknownKey} is not a known field ` +
+        "(expected: enabled, testSize, seed)",
     );
   }
   const { enabled, testSize, seed } = value as {
@@ -537,19 +604,16 @@ function normaliseDatasetSplit(
     testSize?: unknown;
     seed?: unknown;
   };
-  if (enabled !== undefined && typeof enabled !== "boolean") {
+  if (!absent(enabled) && typeof enabled !== "boolean") {
     return new Error("datasetSplit.enabled must be a boolean");
   }
   if (
-    testSize !== undefined &&
+    !absent(testSize) &&
     !(typeof testSize === "number" && testSize > 0 && testSize < 1)
   ) {
     return new Error("datasetSplit.testSize must be a number in (0, 1)");
   }
-  if (
-    seed !== undefined &&
-    !(typeof seed === "number" && Number.isInteger(seed))
-  ) {
+  if (!absent(seed) && !(typeof seed === "number" && Number.isInteger(seed))) {
     return new Error("datasetSplit.seed must be an integer");
   }
   return {
@@ -557,10 +621,9 @@ function normaliseDatasetSplit(
     // must actually be used, not silently ignored by the auto path); a
     // bare `{}` says nothing and keeps the shim's automatic holdout, same
     // as omitting datasetSplit entirely.
-    enabled:
-      enabled ?? (testSize !== undefined || seed !== undefined ? true : null),
-    testSize: (testSize as number | undefined) ?? null,
-    seed: (seed as number | undefined) ?? null,
+    enabled: absent(enabled) ? impliedEnabled(testSize, seed) : enabled,
+    testSize: absent(testSize) ? null : (testSize as number),
+    seed: absent(seed) ? null : (seed as number),
   };
 }
 
@@ -571,8 +634,18 @@ function normaliseTrainOnResponsesOnly(value: unknown): boolean | Error {
   // read as "{ enabled: undefined }" and silently enable prompt masking,
   // changing which tokens contribute to the loss.
   if (typeof value === "object" && !Array.isArray(value)) {
+    const unknownKey = firstUnknownKey(value, ["enabled"]);
+    if (unknownKey) {
+      // The shorthand defaults a key-less object to `true`, so a typo like
+      // `{ enabld: false }` would silently turn prompt masking ON and
+      // change which tokens contribute to the loss.
+      return new Error(
+        `trainOnResponsesOnly.${unknownKey} is not a known field ` +
+          "(expected: enabled)",
+      );
+    }
     const { enabled } = value as { enabled?: unknown };
-    if (enabled === undefined || typeof enabled === "boolean") {
+    if (absent(enabled) || typeof enabled === "boolean") {
       return enabled ?? true;
     }
   }

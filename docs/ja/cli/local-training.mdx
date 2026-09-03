@@ -18,23 +18,23 @@ description: "@arkor/local と MLX で、Arkor Cloud と同じ API 契約のま�
 <CodeGroup>
 
 ```bash pnpm
-pnpm add -D @arkor/local
+pnpm add -D @arkor/local@alpha
 ```
 
 ```bash npm
-npm install -D @arkor/local
+npm install -D @arkor/local@alpha
 ```
 
 ```bash yarn
-yarn add -D @arkor/local
+yarn add -D @arkor/local@alpha
 ```
 
 ```bash yarn-berry
-yarn add -D @arkor/local
+yarn add -D @arkor/local@alpha
 ```
 
 ```bash bun
-bun add -D @arkor/local
+bun add -D @arkor/local@alpha
 ```
 
 </CodeGroup>
@@ -111,6 +111,10 @@ arkor dev --local [options]
 
 `tools`、`toolChoice`、`responseFormat`、`structuredOutputs` はローカルモードでは silent drop されず、明示的な 400 で拒否されます。
 
+<Warning>
+  シングルユーザーのマシーン専用です。ローカル学習サーバー自体はループバック限定かつ起動ごとの bearer トークンで保護されますが、推論のために起動する `mlx_lm server` の子プロセスには認証がありません (上流にトークンやソケット受け渡しの仕組みがないためです)。モデルがウォームな間は、同じマシーン上の別アカウントがそのポートへ直接アクセスしてアダプターに問い合わせできます。共有ホストやマルチユーザー環境ではローカル学習・推論を使用しないでください。
+</Warning>
+
 ## ローカルモードの Studio
 
 `arkor dev --local` は同じ Studio UI を、すべてのクラウドプロキシーをローカルサーバーへ向け直した状態で提供します:
@@ -129,7 +133,7 @@ arkor dev --local [options]
 
 | 症状 | 意味 | 対処 |
 | --- | --- | --- |
-| `Local training requires the @arkor/local package, which is not installed in <dir>.` | ランタイムパッケージがプロジェクトにありません。 | インストールします: `pnpm add -D @arkor/local` (または使用中のパッケージマネージャの同等コマンド)。 |
+| `Local training requires the @arkor/local package, which is not installed in <dir>.` | ランタイムパッケージがプロジェクトにありません。 | インストールします: `pnpm add -D @arkor/local@alpha` (または使用中のパッケージマネージャの同等コマンド)。 |
 | `arkor and the installed @arkor/local are incompatible. Upgrade ...` | 2 つのパッケージのプロトコルバージョンが一致していません。 | メッセージの指示どおり、古い側を更新します。 |
 | `No local training backend is available on this machine: mlx: the MLX backend requires an Apple Silicon Mac (...)` | Apple Silicon macOS ではありません。 | Apple Silicon Mac で実行するか、クラウド学習を使います。CUDA / ROCm バックエンドはロードマップにあります。 |
 | `... uv is not available on PATH ...` | uv バイナリを probe できませんでした。 | uv を導入して (`brew install uv`) 再実行します。 |

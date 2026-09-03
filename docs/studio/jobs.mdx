@@ -79,6 +79,6 @@ The eval card stays empty until a `training.log` event with a numeric `evalLoss`
 
 ## Things this page does not do
 
-- **No cancel button.** To stop a running job, call [`trainer.cancel()`](/sdk/trainer-control#cancel) from your own code that drives the trainer. Studio does not expose this in the UI today.
+- **Cancel run.** A job detail page shows a **Cancel run** button while the job is `queued` or `running`; it cancels the job on the backend (the same call [`trainer.cancel()`](/sdk/trainer-control#cancel) makes), so the training process actually stops. This is distinct from the Run-training card's **Stop training** button, which only detaches from the runner's output stream.
 - **No artifact browser.** The page reports the artifact count for completed jobs but does not list or link to individual artifacts. For full artifact access, use the cloud-api or the SDK's `onCompleted({ artifacts })` callback during the run.
 - **No mid-run inference.** The Playground is for completed jobs only (see [Playground](/studio/playground)). For live inspection during a run, use the SDK's [`onCheckpoint({ infer })`](/sdk/callbacks).

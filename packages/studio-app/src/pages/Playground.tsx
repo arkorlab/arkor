@@ -22,8 +22,12 @@ export function Playground({
    * route layer parses it from `#/playground?adapter=<id>`. */
   initialAdapterId?: string;
   /**
-   * Studio is talking to a local training server (`arkor dev --local`).
-   * Only there does a completed dry run mean "no adapter exists".
+   * Studio is talking to a local training server (`arkor start --local` /
+   * `arkor dev --local`). Only there does a completed dry run mean "no
+   * adapter exists". The App route waits for `/api/credentials` before
+   * mounting this page, so the value is never a placeholder for "mode not
+   * known yet" (which would briefly offer local dry runs whose every
+   * inference request 404s).
    */
   local?: boolean;
 } = {}) {

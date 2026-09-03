@@ -97,7 +97,11 @@ export async function cancelJob(id: string): Promise<void> {
   const res = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, {
     method: "POST",
   });
-  if (!res.ok) throw new Error(`${String(res.status)} ${res.statusText}`);
+  if (res.ok) return;
+  // Prefer the backend's message: "400 Bad Request" tells the user nothing
+  // actionable, while the envelope carries the real cause.
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  throw new Error(body.error ?? `${String(res.status)} ${res.statusText}`);
 }
 
 /**

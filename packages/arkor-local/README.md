@@ -13,7 +13,7 @@ The first supported backend is [MLX](https://github.com/ml-explore/mlx) on Apple
 ## Install
 
 ```bash
-pnpm add -D @arkor/local
+pnpm add -D @arkor/local@alpha
 ```
 
 Then run training locally:

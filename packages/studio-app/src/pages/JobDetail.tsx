@@ -26,6 +26,13 @@ import {
 
 const MAX_LOSS_POINTS = 2000;
 
+/**
+ * Error text both cancel paths write into their terminal
+ * `training.failed` event (see `@arkor/local`'s RunManager / cancel route
+ * and the cloud API); the SSE contract carries no cancellation event.
+ */
+const CANCELLED_ERROR = "Job cancelled";
+
 export function JobDetail({
   jobId,
   local = false,
@@ -43,9 +50,15 @@ export function JobDetail({
   const [advanced, setAdvanced] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // Navigating to another job must not carry the previous job's cancel
+  // banner (or a stuck "Cancelling…" button) across the route change.
+  useEffect(() => {
+    setCancelError(null);
+    setCancelling(false);
+  }, [jobId]);
   const [events, setEvents] = useState<EventEntry[]>([]);
   const [terminal, setTerminal] = useState<{
-    status: "completed" | "failed";
+    status: "completed" | "failed" | "cancelled";
     error?: string;
     artifacts: number;
     completedAt?: string;
@@ -274,7 +287,13 @@ export function JobDetail({
       if (parsed && typeof parsed === "object") {
         const d = parsed as { error?: string; timestamp?: string };
         setTerminal({
-          status: "failed",
+          // The wire contract has no cancellation event: both cancel paths
+          // (SDK and the local server) emit training.failed carrying this
+          // exact sentinel, and the polled record settles on "cancelled".
+          // Without this mapping the SSE-derived status would latch
+          // "failed" and outrank the record, showing every successful
+          // cancellation as a failure.
+          status: d.error === CANCELLED_ERROR ? "cancelled" : "failed",
           error: d.error,
           artifacts: 0,
           completedAt: d.timestamp,
@@ -426,7 +445,7 @@ export function JobDetail({
             </Button>
           )}
           {status === "completed" &&
-            !(local && job?.config?.dryRun === true) && (
+            !(local && (job === null || job.config?.dryRun === true)) && (
               <Button
                 variant="primary"
                 size="sm"

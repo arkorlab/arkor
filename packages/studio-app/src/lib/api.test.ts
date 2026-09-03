@@ -277,6 +277,13 @@ describe("apiFetch JSON helpers", () => {
       { url: "/api/jobs/job%20id%2Fwith%20slash/cancel", method: "POST" },
     ]);
 
+    // The backend's message wins over the bare status line: "400 Bad
+    // Request" tells the user nothing actionable.
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({ error: "No project state" }, { status: 400 }),
+    ) as typeof fetch;
+    await expect(cancelJob("j1")).rejects.toThrow(/No project state/);
+
     globalThis.fetch = vi.fn(
       async () => new Response("nope", { status: 409, statusText: "Conflict" }),
     ) as typeof fetch;

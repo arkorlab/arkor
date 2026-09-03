@@ -159,9 +159,13 @@ export function EndpointsList() {
             adapter or base model.
           </p>
         </div>
-        <Button onClick={() => setShowCreate((v) => !v)}>
-          {showCreate ? "Cancel" : "New endpoint"}
-        </Button>
+        {/* Hidden in local mode: every create returns 501 there, so
+            offering the form would only lead to a dead end. */}
+        {!localUnavailable && (
+          <Button onClick={() => setShowCreate((v) => !v)}>
+            {showCreate ? "Cancel" : "New endpoint"}
+          </Button>
+        )}
       </div>
 
       {showCreate && (
@@ -223,7 +227,7 @@ export function EndpointsList() {
             <EmptyState
               icon={<Inbox />}
               title="Deployments are cloud-only"
-              description="This Studio runs against a local training server (arkor dev --local). Endpoints publish a model at https://<slug>.arkor.app, which needs Arkor Cloud; restart Studio without --local to manage them."
+              description="This Studio runs against a local training server (arkor start --local or arkor dev --local). Endpoints publish a model at https://<slug>.arkor.app, which needs Arkor Cloud; restart Studio without --local to manage them."
             />
           ) : scopeMissing ? (
             <EmptyState
