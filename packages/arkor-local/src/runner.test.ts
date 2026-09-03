@@ -180,6 +180,47 @@ describe("RunManager happy path", () => {
 });
 
 describe("RunManager failure paths", () => {
+  it("retries the terminal write once, without appending a second event", async () => {
+    // A terminal store write can fail (full disk, removed tree). The
+    // handler unlatches so the close-path synthesis still terminalises the
+    // job; the retry must not append a SECOND terminal event, which the
+    // store's tail convergence guarantees.
+    const original = store.transitionToTerminal.bind(store);
+    let failed = false;
+    store.transitionToTerminal = async (jobId, event, mutate) => {
+      if (!failed) {
+        failed = true;
+        // Persist the event, then fail before the record write: the
+        // nastier half of the window (a plain throw would leave nothing
+        // behind and could not produce a duplicate).
+        await store.appendEvent(jobId, event);
+        throw new Error("simulated store failure");
+      }
+      return original(jobId, event, mutate);
+    };
+
+    const { jobId } = await launch(
+      fixtureBackend({
+        chunks: [
+          marker({ type: "started" }),
+          marker({ type: "completed", adapterDir: "/a/final" }),
+        ],
+      }),
+    );
+    await waitForTerminal(jobId);
+
+    const events = await store.replayAfter(jobId, 0);
+    const terminals = events.filter(
+      (e) =>
+        e.event.type === "training.completed" ||
+        e.event.type === "training.failed",
+    );
+    expect(terminals).toHaveLength(1);
+    // The persisted event wins: the record reflects the completion the
+    // shim reported, not the close handler's synthesised failure.
+    expect((await store.getJob(jobId))?.job.status).toBe("completed");
+  });
+
   it("fails the job when the child exits non-zero without a terminal event", async () => {
     const { jobId } = await launch(
       fixtureBackend({

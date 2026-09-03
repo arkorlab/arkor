@@ -411,11 +411,13 @@ export class RunManager {
         );
         if (won) this.store.notifyEnded(jobId);
       } catch (error) {
-        // The write failed (disk full, tree removed), so nothing was
-        // recorded: unlatch so the close handler's exit synthesis still
-        // gets to terminalise the job. Leaving the flag set would strand
-        // the record non-terminal, with no terminal SSE event, until some
-        // later restart reconciled it.
+        // The write failed (disk full, tree removed) and the record is
+        // still non-terminal: unlatch so the close handler's exit
+        // synthesis retries. Leaving the flag set would strand the record
+        // non-terminal until some later restart reconciled it. The retry
+        // cannot double-append: if this attempt got as far as writing the
+        // event before failing, `transitionToTerminal` converges the
+        // record onto that persisted tail instead of appending again.
         run.terminalRecorded = false;
         this.store.appendConsole(
           jobId,
