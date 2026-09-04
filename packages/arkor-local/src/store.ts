@@ -255,36 +255,37 @@ export class JobStore {
     const task = state.recordQueue.then(async () => {
       const record = await this.getJob(jobId);
       if (!record || isTerminalStatus(record.job.status)) return false;
-      // Crash recovery: a previous transition (possibly in a crashed
-      // process) can have appended its terminal event and died before the
-      // record write. Appending a second terminal would break the
-      // one-terminal-per-job contract, so converge the RECORD to the
+      // Crash recovery: a previous transition (in this process or a
+      // crashed one) can have appended its terminal event and never
+      // written the record. Appending a second terminal would break the
+      // one-terminal-per-job contract, so converge the RECORD onto the
       // already-persisted event instead of this caller's intent: the event
       // log is what SSE consumers already replayed, so job.json must match
       // it, not the later writer.
-      // The LAST terminal event anywhere in the log, not just the final
-      // line: after a partial write (event persisted, record write failed)
-      // the run is unlatched and its buffered log/checkpoint events keep
-      // appending, so the terminal event is no longer the tail. Looking at
-      // the tail alone would miss it and append a second terminal.
+      //
+      // Searched across the whole log, not just its last line: after such
+      // a partial write the run is unlatched and its buffered log /
+      // checkpoint events keep appending, so the terminal event is no
+      // longer last. Looking only at the end would miss it and append a
+      // second terminal.
       const events = await this.readEvents(jobId);
-      const tail = events
+      const persisted = events
         .map((e) => e.event)
         .findLast(
           (e) =>
             e.type === "training.completed" || e.type === "training.failed",
         );
-      if (tail) {
-        if (tail.type === "training.completed") {
+      if (persisted) {
+        if (persisted.type === "training.completed") {
           record.job.status = "completed";
         } else {
           // "Job cancelled" is the one error string both cancel paths
-          // write; everything else on a failed tail is a real failure.
+          // write; anything else on a failed event is a real failure.
           record.job.status =
-            tail.error === "Job cancelled" ? "cancelled" : "failed";
-          record.job.error = tail.error;
+            persisted.error === "Job cancelled" ? "cancelled" : "failed";
+          record.job.error = persisted.error;
         }
-        record.job.completedAt = tail.timestamp;
+        record.job.completedAt = persisted.timestamp;
         record.pid = null;
         await this.writeRecord(record);
         return true;

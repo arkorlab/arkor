@@ -106,6 +106,12 @@ export function EndpointsList() {
       // AbortError is expected when the next load() supersedes us.
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(asMessage(err));
+      // The capability stays unknown, but leaving it that way would hide
+      // the create controls for the rest of the session on a transient
+      // network blip. Fall back to the cloud assumption (the pre-tri-state
+      // behaviour): a create attempt then surfaces its own error instead
+      // of the UI silently losing an affordance.
+      setLocalUnavailable(false);
     }
   }, []);
 

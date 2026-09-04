@@ -405,6 +405,15 @@ function validateDatasetSource(value: unknown): true | Error {
     return true;
   }
   if (source.type === "blob") {
+    // Same rule as the huggingface branch: a misspelt `tokn` would be
+    // dropped here and only surface as an opaque 401 from the blob host.
+    const unknownKey = firstUnknownKey(value, ["type", "url", "token"]);
+    if (unknownKey) {
+      return new Error(
+        `datasetSource.${unknownKey} is not a known field for a ` +
+          "blob source (expected: type, url, token)",
+      );
+    }
     if (typeof source.url !== "string" || source.url.length === 0) {
       return new Error("datasetSource.url is required for blob datasets");
     }

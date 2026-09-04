@@ -298,6 +298,16 @@ describe("mlxBackend.validateConfig", () => {
         },
         "datasetSource.spllt",
       ],
+      [
+        {
+          datasetSource: {
+            type: "blob",
+            url: "https://example.com/d.jsonl",
+            tokn: "x",
+          },
+        },
+        "datasetSource.tokn",
+      ],
       [{ datasetSplit: { testSize: 0.2, sed: 42 } }, "datasetSplit.sed"],
       [
         { trainOnResponsesOnly: { enabld: false } },
