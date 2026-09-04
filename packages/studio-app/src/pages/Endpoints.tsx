@@ -67,19 +67,32 @@ function asMessage(err: unknown): string {
 // List view (default Endpoints route)
 // ---------------------------------------------------------------------------
 
-export function EndpointsList() {
+export function EndpointsList({
+  local,
+}: {
+  /**
+   * Studio is talking to a local training server, from the already-loaded
+   * `/api/credentials` (`undefined` while that is in flight). Preferred
+   * over the deployments response for the create controls: a failed list
+   * request must not cost the user the affordance for the session.
+   */
+  local?: boolean;
+} = {}) {
   const [deployments, setDeployments] = useState<Deployment[] | null>(null);
   // True when `/api/deployments` returned 200 but the workspace has no
   // `.arkor/state.json` yet, so the empty list is a "we don't know
   // which project to scope to" rather than "this project is empty".
   // The empty-state copy branches on this.
   const [scopeMissing, setScopeMissing] = useState(false);
-  // undefined until the first /api/deployments response: the create
-  // controls stay hidden until the capability is known, because a submit
-  // in that window against a local server can only 501.
+  // From the deployments response; drives the empty-state copy. The
+  // create controls key off `local` (credentials) instead, so a failed
+  // list request cannot hide them.
   const [localUnavailable, setLocalUnavailable] = useState<boolean | undefined>(
     undefined,
   );
+  // Hide the create controls until the mode is known, then only for
+  // cloud: a submit in local mode can only come back 501.
+  const canCreate = local === false;
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Track the currently-active in-flight `fetchDeployments` so a slower
@@ -106,12 +119,6 @@ export function EndpointsList() {
       // AbortError is expected when the next load() supersedes us.
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(asMessage(err));
-      // The capability stays unknown, but leaving it that way would hide
-      // the create controls for the rest of the session on a transient
-      // network blip. Fall back to the cloud assumption (the pre-tri-state
-      // behaviour): a create attempt then surfaces its own error instead
-      // of the UI silently losing an affordance.
-      setLocalUnavailable(false);
     }
   }, []);
 
@@ -172,17 +179,16 @@ export function EndpointsList() {
         </div>
         {/* Hidden in local mode: every create returns 501 there, so
             offering the form would only lead to a dead end. */}
-        {localUnavailable === false && (
+        {canCreate && (
           <Button onClick={() => setShowCreate((v) => !v)}>
             {showCreate ? "Cancel" : "New endpoint"}
           </Button>
         )}
       </div>
 
-      {/* `=== false` (not `!localUnavailable`): while the capability is
-          still unresolved the form stays closed, because a submit in that
-          window against a local server can only return 501. */}
-      {showCreate && localUnavailable === false && (
+      {/* Same `canCreate` gate as the toggle, so a form opened moments
+          before the mode resolved cannot survive into local mode. */}
+      {showCreate && canCreate && (
         <NewEndpointForm
           onCreated={() => {
             setShowCreate(false);

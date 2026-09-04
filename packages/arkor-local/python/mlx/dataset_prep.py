@@ -175,6 +175,18 @@ class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
     """
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old_scheme = urllib.parse.urlparse(req.full_url).scheme
+        new_scheme = urllib.parse.urlparse(newurl).scheme
+        if old_scheme == "https" and new_scheme != "https":
+            # Refused outright, not merely stripped of its Authorization
+            # header: the rows themselves would arrive over plaintext, and
+            # a network attacker who can rewrite them poisons the adapter.
+            # A redirect can also carry pre-signed credentials in the new
+            # URL's query, which header stripping does not protect.
+            raise DatasetPrepError(
+                "blob dataset redirect downgrades https to "
+                f"{new_scheme!r}; refusing to follow it"
+            )
         new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new_req is not None:
             old_url = urllib.parse.urlparse(req.full_url)
@@ -341,6 +353,32 @@ def _sharegpt_to_messages(conversations) -> list:
     return messages
 
 
+def _validate_tool_calls(tool_calls) -> None:
+    """Reject malformed `tool_calls` before they reach the training data.
+
+    Without this an entry like `[{}]` satisfies the "assistant turn with
+    calls" shape, bypasses the string-content requirement, and is written
+    verbatim into train.jsonl, teaching the model a call with no name or
+    arguments.
+    """
+    if not isinstance(tool_calls, list) or not tool_calls:
+        raise DatasetPrepError("'tool_calls' must be a non-empty list")
+    for call in tool_calls:
+        if not isinstance(call, dict):
+            raise DatasetPrepError(
+                f"each tool call must be an object, got {type(call).__name__}"
+            )
+        if not isinstance(call.get("id"), str) or not call["id"]:
+            raise DatasetPrepError("each tool call needs a non-empty 'id'")
+        function = call.get("function")
+        if not isinstance(function, dict) or not isinstance(
+            function.get("name"), str
+        ):
+            raise DatasetPrepError(
+                "each tool call needs a 'function' object with a 'name'"
+            )
+
+
 def _normalise_messages(messages) -> list:
     if not isinstance(messages, list) or not messages:
         raise DatasetPrepError("chatml rows must carry a non-empty message list")
@@ -358,6 +396,16 @@ def _normalise_messages(messages) -> list:
         # SDK's ChatMessage type permits null there, and OpenAI-compatible
         # datasets rely on it. Every other turn still needs real text.
         tool_calls = message.get("tool_calls")
+        if tool_calls is not None:
+            _validate_tool_calls(tool_calls)
+        # A `tool` result is meaningless without the id tying it back to
+        # the call that produced it, and the public ChatMessage contract
+        # requires one; accepting the row would train the model on an
+        # unassociated result.
+        if role == "tool" and not message.get("tool_call_id"):
+            raise DatasetPrepError(
+                "chatml 'tool' messages must carry a 'tool_call_id'"
+            )
         calls_only = (
             role == "assistant"
             and content is None

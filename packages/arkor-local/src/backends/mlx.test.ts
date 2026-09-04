@@ -308,6 +308,16 @@ describe("mlxBackend.validateConfig", () => {
         },
         "datasetSource.tokn",
       ],
+      [
+        {
+          datasetSource: {
+            type: "blob",
+            url: "https://example.com/d.jsonl",
+            token: 0 as unknown as string,
+          },
+        },
+        "datasetSource.token must be a non-empty string",
+      ],
       [{ datasetSplit: { testSize: 0.2, sed: 42 } }, "datasetSplit.sed"],
       [
         { trainOnResponsesOnly: { enabld: false } },
@@ -355,7 +365,10 @@ describe("mlxBackend.buildTrainRun", () => {
     expect(run.spec.command).toBe("uv");
     expect(run.spec.argv).toEqual([
       "run",
+      // Both isolation flags: --no-project skips the user's workspace,
+      // --no-config their uv.toml / [tool.uv] settings.
       "--no-project",
+      "--no-config",
       "--with",
       MLX_LM_SPEC,
       "python",
@@ -514,6 +527,7 @@ describe("mlxBackend.inference", () => {
       argv: [
         "run",
         "--no-project",
+        "--no-config",
         "--with",
         MLX_LM_SPEC,
         "python",

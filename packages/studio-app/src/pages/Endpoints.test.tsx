@@ -15,23 +15,18 @@ afterEach(() => {
 const CREATE_BUTTON = { name: /New endpoint/i } as const;
 
 describe("<EndpointsList /> create affordance", () => {
-  it("stays hidden until the capability check resolves, then appears for cloud", async () => {
-    // The flag is tri-state on purpose: offering the form while
-    // /api/deployments is still in flight lets a local-mode user submit a
-    // create that can only come back 501.
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    globalThis.fetch = vi.fn(async () => {
-      await gate;
-      return jsonResponse({ deployments: [] });
-    }) as typeof fetch;
+  it("stays hidden until the mode resolves, then appears for cloud", async () => {
+    // Offering the form before /api/credentials settles would let a
+    // local-mode user submit a create that can only come back 501.
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({ deployments: [] }),
+    ) as typeof fetch;
 
-    render(<EndpointsList />);
+    const { rerender } = render(<EndpointsList />);
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
     expect(screen.queryByRole("button", CREATE_BUTTON)).not.toBeInTheDocument();
 
-    release();
+    rerender(<EndpointsList local={false} />);
     expect(
       await screen.findByRole("button", CREATE_BUTTON),
     ).toBeInTheDocument();
@@ -42,7 +37,7 @@ describe("<EndpointsList /> create affordance", () => {
       jsonResponse({ deployments: [], localUnavailable: true }),
     ) as typeof fetch;
 
-    render(<EndpointsList />);
+    render(<EndpointsList local />);
     // The local-specific empty state proves the response landed.
     expect(
       await screen.findByText(/Deployments are cloud-only/),
@@ -50,14 +45,15 @@ describe("<EndpointsList /> create affordance", () => {
     expect(screen.queryByRole("button", CREATE_BUTTON)).not.toBeInTheDocument();
   });
 
-  it("restores it when the capability check fails", async () => {
-    // A transient blip must not cost the user the affordance for the rest
-    // of the session; a create attempt then reports its own error.
+  it("keeps it available when the deployments list fails to load", async () => {
+    // The affordance follows the credentials-derived mode, so a transient
+    // list failure cannot cost the user the primary action for the
+    // session; a create attempt then reports its own error.
     globalThis.fetch = vi.fn(async () => {
       throw new Error("network down");
     }) as typeof fetch;
 
-    render(<EndpointsList />);
+    render(<EndpointsList local={false} />);
     await waitFor(() =>
       expect(screen.getByRole("button", CREATE_BUTTON)).toBeInTheDocument(),
     );

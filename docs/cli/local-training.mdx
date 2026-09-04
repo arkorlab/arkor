@@ -148,6 +148,8 @@ The local server also implements `POST /v1/inference/chat`, backed by a lazily s
 - `datasetFormat: "pretokenized"`.
 - Free-text base-model entry in the Playground UI (the SDK path accepts any model already).
 - CUDA / ROCm backends: the backend interface, registry, and shim protocol are in place, but MLX is the only implementation today.
+- Cross-process coordination between two `arkor dev --local` instances sharing one project. They can each list and cancel the other's jobs (the job store is on disk), but notifications are in-process: cancelling a job the *other* instance is running terminates it and records the terminal event, while that instance's own open event streams keep pinging until the client reconnects and replays from disk.
+- Python-side SBOMs. The release SBOMs cover the npm closure that actually ships; the training/inference stack (`mlx-lm` and its transitives) is resolved by uv into its own cache at run time from the pin in `MLX_LM_SPEC`, so it is not part of the published tarball.
 
 ## See also
 

@@ -268,13 +268,26 @@ export class JobStore {
       // checkpoint events keep appending, so the terminal event is no
       // longer last. Looking only at the end would miss it and append a
       // second terminal.
-      const events = await this.readEvents(jobId);
-      const persisted = events
-        .map((e) => e.event)
-        .findLast(
-          (e) =>
-            e.type === "training.completed" || e.type === "training.failed",
-        );
+      const events = await this.readEventsStrict(jobId);
+      // Walked backwards in place: `.map()` would allocate a second array
+      // the size of the whole history just to find one entry, and this
+      // runs while the trainer may still hold the model in memory.
+      let persisted:
+        | Extract<
+            LocalStreamEvent,
+            { type: "training.completed" | "training.failed" }
+          >
+        | undefined;
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const candidate = events[i].event;
+        if (
+          candidate.type === "training.completed" ||
+          candidate.type === "training.failed"
+        ) {
+          persisted = candidate;
+          break;
+        }
+      }
       if (persisted) {
         if (persisted.type === "training.completed") {
           record.job.status = "completed";
@@ -574,8 +587,14 @@ export class JobStore {
     let raw: string;
     try {
       raw = await retryWindowsFileLocks(() => readFile(file, "utf8"));
-    } catch {
-      return { seq: 0, tornTail: false };
+    } catch (error) {
+      // Only "not written yet" means seq 0. Swallowing a transient read
+      // failure here would restart the numbering at 1 over an existing
+      // log, minting duplicate SSE ids that break Last-Event-ID replay.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return { seq: 0, tornTail: false };
+      }
+      throw error;
     }
     const events = parseEventLines(raw);
     return {
@@ -593,6 +612,26 @@ export class JobStore {
       return [];
     }
     return parseEventLines(raw);
+  }
+
+  /**
+   * Like {@link readEvents}, but only "the file does not exist yet" reads
+   * as an empty log; every other failure propagates.
+   *
+   * Callers that DECIDE something from the absence of events need this: a
+   * transient read error must not look like "no terminal event recorded"
+   * (which would append a second one) or "no events yet" (which would
+   * restart the sequence numbering at 1 over an existing log).
+   */
+  private async readEventsStrict(jobId: string): Promise<StoredEvent[]> {
+    const file = join(this.jobDir(jobId), "events.jsonl");
+    try {
+      const raw = await retryWindowsFileLocks(() => readFile(file, "utf8"));
+      return parseEventLines(raw);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
   }
 
   private async writeRecord(record: JobRecord): Promise<void> {

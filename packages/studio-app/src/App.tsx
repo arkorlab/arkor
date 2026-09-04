@@ -55,7 +55,7 @@ export function App() {
         ) : (
           <Playground initialAdapterId={route.adapterJobId} local={localMode} />
         ))}
-      {route.kind === "endpoints" && <EndpointsList />}
+      {route.kind === "endpoints" && <EndpointsList local={localMode} />}
       {/*
         `key={route.id}` forces React to mount a *fresh* `EndpointDetail`
         instance whenever the URL switches between endpoint detail

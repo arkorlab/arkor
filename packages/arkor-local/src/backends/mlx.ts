@@ -305,11 +305,15 @@ export const mlxBackend: LocalTrainingBackend = {
       spec: {
         command: "uv",
         // `--no-project` keeps uv from adopting a pyproject.toml in the
-        // user's repo: the training environment must be exactly the pinned
-        // spec, not the user's unrelated Python project.
+        // user's repo, and `--no-config` from reading a `uv.toml` /
+        // `[tool.uv]` block in any ancestor: those can set a custom index,
+        // `offline`, or `required-version` and quietly redirect or break
+        // the pinned runtime. The training environment must be exactly the
+        // pinned spec, not the user's unrelated Python configuration.
         argv: [
           "run",
           "--no-project",
+          "--no-config",
           "--with",
           MLX_LM_SPEC,
           "python",
@@ -327,7 +331,10 @@ export const mlxBackend: LocalTrainingBackend = {
     buildServerSpec({ model, adapterPath, host, port }) {
       const argv = [
         "run",
+        // Same isolation as buildTrainRun: neither the user's project nor
+        // their uv config may reach the pinned inference runtime.
         "--no-project",
+        "--no-config",
         "--with",
         MLX_LM_SPEC,
         "python",
@@ -416,6 +423,15 @@ function validateDatasetSource(value: unknown): true | Error {
     }
     if (typeof source.url !== "string" || source.url.length === 0) {
       return new Error("datasetSource.url is required for blob datasets");
+    }
+    // A falsy non-string (0, "") reads as "no token" in the shim, so the
+    // download would silently fetch whatever the endpoint serves
+    // anonymously; a truthy non-string fails only after uv has spawned.
+    const token = (source as { token?: unknown }).token;
+    if (!absent(token) && (typeof token !== "string" || token.length === 0)) {
+      return new Error(
+        "datasetSource.token must be a non-empty string when set",
+      );
     }
     let parsed: URL;
     try {
