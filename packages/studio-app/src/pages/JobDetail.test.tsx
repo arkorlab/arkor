@@ -113,7 +113,12 @@ describe("<JobDetail />", () => {
     ) as typeof fetch;
 
     const { rerender } = render(<JobDetail jobId="j1" />);
-    await waitFor(() => expect(FakeEventSource.last).not.toBeNull());
+    // Wait for the POLLED record: without it `status` is still "queued"
+    // and the button would be hidden for that reason instead of the one
+    // under test.
+    await waitFor(() =>
+      expect(screen.getAllByText("Completed").length).toBeGreaterThan(0),
+    );
     // Mode unresolved: no link that might resolve to nothing.
     expect(
       screen.queryByRole("button", { name: /Open in Playground/ }),

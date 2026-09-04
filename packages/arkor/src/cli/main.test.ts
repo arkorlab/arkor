@@ -230,7 +230,16 @@ describe("main (CLI Commander wiring)", () => {
       local: true,
       backend: undefined,
     });
-    expect(runStart).toHaveBeenCalledTimes(4);
+    // ...and supplying it WITHOUT --local still selects local mode: a
+    // shell expanding an unset variable (`--backend "$VAR"`) must not
+    // silently submit the run to the cloud.
+    await main(["start", "--backend", ""]);
+    expect(runStart).toHaveBeenLastCalledWith({
+      entry: undefined,
+      local: true,
+      backend: undefined,
+    });
+    expect(runStart).toHaveBeenCalledTimes(5);
   });
 
   it("dispatches `dev` with the parsed port + --open flag", async () => {

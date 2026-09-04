@@ -204,7 +204,12 @@ describe("RunManager failure paths", () => {
         chunks: [
           marker({ type: "started" }),
           marker({ type: "completed", adapterDir: "/a/final" }),
+          // A buffered event AFTER the failed terminal write: the run was
+          // unlatched, so this lands and the terminal event is no longer
+          // the log's tail. The retry must still find it.
+          marker({ type: "log", step: 9, loss: 0.5 }),
         ],
+        chunkDelayMs: 10,
       }),
     );
     await waitForTerminal(jobId);

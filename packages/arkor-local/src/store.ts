@@ -262,12 +262,19 @@ export class JobStore {
       // already-persisted event instead of this caller's intent: the event
       // log is what SSE consumers already replayed, so job.json must match
       // it, not the later writer.
+      // The LAST terminal event anywhere in the log, not just the final
+      // line: after a partial write (event persisted, record write failed)
+      // the run is unlatched and its buffered log/checkpoint events keep
+      // appending, so the terminal event is no longer the tail. Looking at
+      // the tail alone would miss it and append a second terminal.
       const events = await this.readEvents(jobId);
-      const tail = events.at(-1)?.event;
-      if (
-        tail &&
-        (tail.type === "training.completed" || tail.type === "training.failed")
-      ) {
+      const tail = events
+        .map((e) => e.event)
+        .findLast(
+          (e) =>
+            e.type === "training.completed" || e.type === "training.failed",
+        );
+      if (tail) {
         if (tail.type === "training.completed") {
           record.job.status = "completed";
         } else {

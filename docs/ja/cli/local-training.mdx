@@ -89,7 +89,7 @@ arkor dev --local [options]
 | フィールド | ローカルでの挙動 |
 | --- | --- |
 | `model` | 任意の HuggingFace id。`SUPPORTED_MODELS` のゲートはクラウド実行にのみ適用されます。ローカル実行には `mlx-community/*` などの MLX 変換済みモデルを推奨します (量子化済みの `*-4bit` ビルドはメモリーを抑えられます)。 |
-| `dataset` | 両方のソースが動きます: `huggingface` (`datasets` ライブラリーでダウンロード、`split` / `subset` 反映) と `blob` （JSONL の直接 URL、任意の bearer トークン）。 |
+| `dataset` | 両方のソースが動きます: `huggingface` (`datasets` ライブラリーでダウンロード、`split` / `subset` 反映) と `blob` （JSONL の直接 URL、任意の bearer トークン。トークンを付ける場合はループバックを含めて `https` URL が必須です。別のローカルアカウントがポートを先取りしてトークンを盗むのを防ぐためです）。 |
 | `datasetFormat` | `chatml`、`sharegpt`、`alpaca`、`text`、`prompt_completion` (いずれも `columnMapping` 対応)。`pretokenized` は拒否されます。 |
 | `maxSteps` / `numTrainEpochs` | どちらか一方が必須です (上限のない実行はサイズが決められません)。エポックはデータセットサイズからイテレーション数に変換されます。 |
 | `batchSize`, `learningRate`, `lora.r`, `lora.alpha`, `lora.maxLength` | そのままマップされます (`alpha / r` が mlx-lm の LoRA scale になります)。 |

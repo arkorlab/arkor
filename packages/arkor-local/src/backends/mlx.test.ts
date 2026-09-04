@@ -283,6 +283,40 @@ describe("mlxBackend.validateConfig", () => {
     }
   });
 
+  it("rejects unknown fields and malformed shapes across the config", () => {
+    // These objects arrive as `unknown`, so a typo is invisible to the
+    // compiler and would otherwise be dropped by destructuring: the run
+    // would silently train with defaults the caller never asked for.
+    const cases: [Record<string, unknown>, string][] = [
+      [
+        {
+          datasetSource: {
+            type: "huggingface",
+            name: "org/data",
+            spllt: "validation",
+          },
+        },
+        "datasetSource.spllt",
+      ],
+      [{ datasetSplit: { testSize: 0.2, sed: 42 } }, "datasetSplit.sed"],
+      [
+        { trainOnResponsesOnly: { enabld: false } },
+        "trainOnResponsesOnly.enabld",
+      ],
+      // An array is an object with no unknown keys, so it would slip
+      // through a key-only check and read as "nothing configured".
+      [{ loggingSteps: [] }, "loggingSteps"],
+      [{ evalSteps: { stps: 5 } }, "evalSteps.stps"],
+    ];
+    for (const [overrides, expected] of cases) {
+      const result = mlxBackend.validateConfig(
+        baseConfig(overrides as Parameters<typeof baseConfig>[0]),
+      );
+      expect(result).toMatchObject({ ok: false });
+      if (!result.ok) expect(result.errors.join("\n")).toContain(expected);
+    }
+  });
+
   it("accepts supported optimizers, schedules, and step shapes", () => {
     expect(
       mlxBackend.validateConfig(

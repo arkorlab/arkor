@@ -74,7 +74,12 @@ export function EndpointsList() {
   // which project to scope to" rather than "this project is empty".
   // The empty-state copy branches on this.
   const [scopeMissing, setScopeMissing] = useState(false);
-  const [localUnavailable, setLocalUnavailable] = useState(false);
+  // undefined until the first /api/deployments response: the create
+  // controls stay hidden until the capability is known, because a submit
+  // in that window against a local server can only 501.
+  const [localUnavailable, setLocalUnavailable] = useState<boolean | undefined>(
+    undefined,
+  );
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Track the currently-active in-flight `fetchDeployments` so a slower
@@ -161,17 +166,17 @@ export function EndpointsList() {
         </div>
         {/* Hidden in local mode: every create returns 501 there, so
             offering the form would only lead to a dead end. */}
-        {!localUnavailable && (
+        {localUnavailable === false && (
           <Button onClick={() => setShowCreate((v) => !v)}>
             {showCreate ? "Cancel" : "New endpoint"}
           </Button>
         )}
       </div>
 
-      {/* `!localUnavailable` as well as `showCreate`: the user can open the
-          form before /api/deployments resolves, and every create against a
-          local server returns 501. */}
-      {showCreate && !localUnavailable && (
+      {/* `=== false` (not `!localUnavailable`): while the capability is
+          still unresolved the form stays closed, because a submit in that
+          window against a local server can only return 501. */}
+      {showCreate && localUnavailable === false && (
         <NewEndpointForm
           onCreated={() => {
             setShowCreate(false);

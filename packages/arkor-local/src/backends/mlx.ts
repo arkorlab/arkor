@@ -370,6 +370,20 @@ function validateDatasetSource(value: unknown): true | Error {
     subset?: unknown;
   };
   if (source.type === "huggingface") {
+    const unknownKey = firstUnknownKey(value, [
+      "type",
+      "name",
+      "split",
+      "subset",
+    ]);
+    if (unknownKey) {
+      // `spllt: "validation"` would otherwise be dropped and the shim
+      // would train on the default `train` split without saying so.
+      return new Error(
+        `datasetSource.${unknownKey} is not a known field for a ` +
+          "huggingface source (expected: type, name, split, subset)",
+      );
+    }
     if (typeof source.name !== "string" || source.name.length === 0) {
       return new Error(
         "datasetSource.name (the HuggingFace dataset id) is required",
@@ -547,6 +561,13 @@ function normaliseSteps(
     return new Error(`${field} must be a positive integer`);
   }
   if (typeof value === "object") {
+    if (Array.isArray(value)) {
+      // An array is an object with no unknown keys, so it would otherwise
+      // fall through as "nothing configured" and be silently ignored.
+      return new Error(
+        `${field} must be a positive integer or a {steps} / {ratio} object`,
+      );
+    }
     const unknownKey = firstUnknownKey(value, ["steps", "ratio"]);
     if (unknownKey) {
       // `{ stps: 5 }` would otherwise fall through to the generic

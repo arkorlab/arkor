@@ -24,17 +24,23 @@ import { ui } from "./prompts";
 
 /**
  * Shared `--local` / `--backend` resolution for `start` and `dev`.
- * `--backend <id>` implies `--local`; an empty or whitespace-only id
- * (`--backend ""`) is treated as absent so it falls back to auto-detect
- * instead of asking the runtime for a backend literally named "".
+ * `--backend <id>` implies `--local`, INCLUDING when the value is empty or
+ * whitespace-only (`--backend "$UNSET_VAR"`): the flag was still supplied,
+ * so the run stays local and falls back to auto-detect rather than asking
+ * the runtime for a backend literally named "".
  */
 function resolveLocalFlags(opts: { local?: boolean; backend?: string }): {
   local: boolean;
   backend: string | undefined;
 } {
-  let backend = opts.backend?.trim();
-  if (backend === "") backend = undefined;
-  return { local: opts.local === true || backend !== undefined, backend };
+  // Whether the flag was SUPPLIED, separately from its usable value: a
+  // shell expansion can pass `--backend ""` (an unset variable), and the
+  // documented contract is that naming a backend implies --local. Dropping
+  // the empty value must fall back to auto-detect, not to a cloud run.
+  const supplied = opts.backend !== undefined;
+  const trimmed = opts.backend?.trim();
+  const backend = trimmed === "" ? undefined : trimmed;
+  return { local: opts.local === true || supplied, backend };
 }
 
 export async function main(argv: string[]): Promise<void> {

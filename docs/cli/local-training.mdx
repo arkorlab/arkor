@@ -89,7 +89,7 @@ Job history is durable: restarting `arkor dev --local` keeps the jobs list, and 
 | Field | Local behavior |
 | --- | --- |
 | `model` | Any HuggingFace id. The `SUPPORTED_MODELS` gate applies to cloud runs only; for local runs prefer MLX-converted models such as the `mlx-community/*` conversions (pre-quantised `*-4bit` builds keep memory low). |
-| `dataset` | Both source types work: `huggingface` (downloaded via the `datasets` library, `split` / `subset` honoured) and `blob` (direct JSONL URL, optional bearer token). |
+| `dataset` | Both source types work: `huggingface` (downloaded via the `datasets` library, `split` / `subset` honoured) and `blob` (direct JSONL URL, optional bearer token; a token requires an `https` URL, loopback included, so another local account cannot claim the port and capture it). |
 | `datasetFormat` | `chatml`, `sharegpt`, `alpaca`, `text`, `prompt_completion`, each with `columnMapping`. `pretokenized` is rejected. |
 | `maxSteps` / `numTrainEpochs` | One of the two is required (an unbounded run cannot be sized). Epochs are converted to iterations from the dataset size. |
 | `batchSize`, `learningRate`, `lora.r`, `lora.alpha`, `lora.maxLength` | Mapped directly (`alpha / r` becomes mlx-lm's LoRA scale). |

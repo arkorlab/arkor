@@ -187,10 +187,6 @@ class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
         return new_req
 
 
-def _is_loopback_host(hostname):
-    return hostname in ("127.0.0.1", "localhost", "::1")
-
-
 def _load_blob(source: dict, log):
     url = source.get("url")
     if not url or not isinstance(url, str):
@@ -201,10 +197,13 @@ def _load_blob(source: dict, log):
             f"blob dataset URL must be http(s), got {parsed.scheme!r}"
         )
     token = source.get("token")
-    if token and parsed.scheme != "https" and not _is_loopback_host(parsed.hostname):
+    if token and parsed.scheme != "https":
+        # No loopback carve-out: on a shared machine any local account can
+        # bind a loopback port the intended service does not already hold,
+        # and this request would hand it the bearer token in cleartext.
         raise DatasetPrepError(
-            "refusing to send the blob dataset token over plain http to a "
-            "non-loopback host; use an https URL"
+            "refusing to send the blob dataset token over plain http; use "
+            "an https URL"
         )
     # Redacted: pre-signed URLs commonly carry their credential in the
     # query string, and this line lands in the durable job console.
@@ -355,7 +354,17 @@ def _normalise_messages(messages) -> list:
         content = message.get("content")
         if role not in ("system", "user", "assistant", "tool"):
             raise DatasetPrepError(f"unsupported chat role {role!r}")
-        if not isinstance(content, str):
+        # An assistant turn that only calls tools carries no content: the
+        # SDK's ChatMessage type permits null there, and OpenAI-compatible
+        # datasets rely on it. Every other turn still needs real text.
+        tool_calls = message.get("tool_calls")
+        calls_only = (
+            role == "assistant"
+            and content is None
+            and isinstance(tool_calls, list)
+            and len(tool_calls) > 0
+        )
+        if not calls_only and not isinstance(content, str):
             raise DatasetPrepError(
                 f"chatml message for role {role!r} has no string 'content'"
             )
