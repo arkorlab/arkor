@@ -89,6 +89,13 @@ bun start
 
 The auto-build-on-missing behavior exists so Studio's "Run training" does not have to chain two spawns. From a script you usually want to call `arkor build` and `arkor start` explicitly so a build failure surfaces before you commit to running.
 
+### Options
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--local` | off | Train on this machine via the separately installed `@arkor/local` runtime (MLX on Apple Silicon) instead of Arkor Cloud. A local training server boots in-process, the trainer streams the same events it would from the cloud, and the finished adapter lands under `.arkor/local/`. See [Local training](/cli/local-training). |
+| `--backend <id>` | auto-detect | Pick a specific local backend (today: `mlx`). Implies `--local`. |
+
 ### Behavior
 
 | Situation | What `arkor start` does |

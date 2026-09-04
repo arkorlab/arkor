@@ -61,6 +61,10 @@ bun start src/arkor/experiment.ts
 
 `arkor start` にエントリーを渡すと、まずそのエントリーでリビルドしてから走ります。
 
+## クラウドなしで学習する
+
+Apple Silicon Mac なら、`arkor start --local` で全体を MLX 経由でローカル実行できます: コールバックもイベントも同じで、アダプターは自分のディスクに残ります。[MLX でローカル学習する](/ja/guides/cli/local-training)を参照してください。
+
 ## リファレンス
 
 引数の組み合わせ、自動ビルドのルール、ランナーが受け付けるエクスポート形、各エラーメッセージは [`arkor build` / `arkor start` リファレンス](/ja/cli/build-and-start) を参照してください。

@@ -2,7 +2,8 @@ import { createParser, type EventSourceMessage } from "eventsource-parser";
 
 export interface Credentials {
   token: string;
-  mode: "oauth" | "anon";
+  /** `"local"` when Studio runs against a local training server (`arkor dev --local`). */
+  mode: "oauth" | "anon" | "local";
   baseUrl: string;
   orgSlug: string | null;
   projectSlug: string | null;
@@ -84,6 +85,23 @@ export async function fetchMe(): Promise<Me> {
 
 export async function fetchJobs(): Promise<{ jobs: Job[] }> {
   return json(await apiFetch("/api/jobs"));
+}
+
+/**
+ * Cancel a running job on the backend. Distinct from aborting the
+ * `/api/train` stream, which only stops the local runner process: in local
+ * mode the trainer itself belongs to the dev server and keeps using the GPU
+ * until this lands.
+ */
+export async function cancelJob(id: string): Promise<void> {
+  const res = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+  });
+  if (res.ok) return;
+  // Prefer the backend's message: "400 Bad Request" tells the user nothing
+  // actionable, while the envelope carries the real cause.
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  throw new Error(body.error ?? `${String(res.status)} ${res.statusText}`);
 }
 
 /**
@@ -407,7 +425,12 @@ async function deploymentJson<T>(res: Response): Promise<T> {
 
 export async function fetchDeployments(
   options: { signal?: AbortSignal } = {},
-): Promise<{ deployments: Deployment[]; scopeMissing?: boolean }> {
+): Promise<{
+  deployments: Deployment[];
+  scopeMissing?: boolean;
+  /** Studio is in local mode, where deployments are not available at all. */
+  localUnavailable?: boolean;
+}> {
   return deploymentJson(
     await apiFetch("/api/deployments", { signal: options.signal }),
   );

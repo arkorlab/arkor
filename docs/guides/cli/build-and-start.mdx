@@ -61,6 +61,10 @@ bun start src/arkor/experiment.ts
 
 Passing an entry to `arkor start` rebuilds with that entry first, then runs.
 
+## Train without the cloud
+
+On an Apple Silicon Mac, `arkor start --local` runs the whole thing locally through MLX: same callbacks, same events, adapter on your disk. See [Train locally with MLX](/guides/cli/local-training).
+
 ## Reference
 
 For the full argument matrix, the auto-build-on-missing rules, the export shapes the runner accepts, and every error message, see the [`arkor build` / `arkor start` reference](/cli/build-and-start).

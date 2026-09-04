@@ -33,9 +33,14 @@ vi.mock("@hono/node-server", () => ({
 vi.mock("open", () => ({
   default: vi.fn(async () => undefined),
 }));
+vi.mock("../local-runtime-loader", () => ({
+  loadLocalRuntime: vi.fn(),
+}));
 
 import { serve } from "@hono/node-server";
 import open from "open";
+
+import { loadLocalRuntime } from "../local-runtime-loader";
 
 // Re-import the credentials module as a namespace so individual tests can
 // `vi.spyOn` on `writeCredentials` to inject deterministic fs failures
@@ -947,5 +952,151 @@ describe("runDev", () => {
     // A second invocation must short-circuit (the `cleaned` guard) so it
     // doesn't throw on the now-missing file.
     expect(() => cleanup()).not.toThrow();
+  });
+});
+
+describe("runDev --local", () => {
+  const ORIG_EXIT_LISTENERS = process.listeners("exit").length;
+  const ORIG_SIGINT_LISTENERS = process.listeners("SIGINT").length;
+  const ORIG_SIGTERM_LISTENERS = process.listeners("SIGTERM").length;
+  const ORIG_SIGHUP_LISTENERS = process.listeners("SIGHUP").length;
+  let origLocalUrl: string | undefined;
+  let origLocalToken: string | undefined;
+
+  beforeEach(() => {
+    vi.mocked(serve).mockClear();
+    vi.mocked(loadLocalRuntime).mockReset();
+    origLocalUrl = process.env.ARKOR_LOCAL_SERVER_URL;
+    origLocalToken = process.env.ARKOR_LOCAL_SERVER_TOKEN;
+  });
+
+  afterEach(() => {
+    const trim = (ev: string, keep: number) => {
+      const all = process.listeners(ev as never);
+      for (let i = keep; i < all.length; i++) {
+        process.removeListener(ev as never, all[i] as never);
+      }
+    };
+    trim("exit", ORIG_EXIT_LISTENERS);
+    trim("SIGINT", ORIG_SIGINT_LISTENERS);
+    trim("SIGTERM", ORIG_SIGTERM_LISTENERS);
+    trim("SIGHUP", ORIG_SIGHUP_LISTENERS);
+    // runDev sets the env hand-off for the lifetime of the dev process; in
+    // the test worker that lifetime spans other test files, so restore
+    // whatever value each variable held before the test (not a blind
+    // delete, which would wipe an ambient value a sibling suite relies on).
+    if (origLocalUrl === undefined) delete process.env.ARKOR_LOCAL_SERVER_URL;
+    else process.env.ARKOR_LOCAL_SERVER_URL = origLocalUrl;
+    if (origLocalToken === undefined) {
+      delete process.env.ARKOR_LOCAL_SERVER_TOKEN;
+    } else {
+      process.env.ARKOR_LOCAL_SERVER_TOKEN = origLocalToken;
+    }
+  });
+
+  function mockRuntime() {
+    const close = vi.fn(async () => undefined);
+    const startServer = vi.fn(async () => ({
+      url: "http://127.0.0.1:43211",
+      token: "local-token-abcdef0123456789",
+      backend: { id: "mlx", displayName: "MLX (Apple Silicon)" },
+      close,
+    }));
+    vi.mocked(loadLocalRuntime).mockResolvedValue({ startServer });
+    return { close, startServer };
+  }
+
+  it("boots the local server and never touches credentials or the cloud", async () => {
+    // No credentials on file (fakeHome is empty) and a fetch trap: if
+    // ensureCredentialsForStudio ran, it would fetch /v1/auth/cli/config.
+    const fetchSpy = vi.fn(() => {
+      throw new Error("local mode must not call the network");
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    const { startServer } = mockRuntime();
+
+    const writes: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4300, local: true, backend: "mlx" });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    expect(startServer).toHaveBeenCalledWith({
+      cwd: process.cwd(),
+      backendId: "mlx",
+    });
+    // The dev process itself carries the hand-off: /api/manifest imports
+    // the user bundle in-process, and its trainer must see local mode.
+    expect(process.env.ARKOR_LOCAL_SERVER_URL).toBe("http://127.0.0.1:43211");
+    expect(process.env.ARKOR_LOCAL_SERVER_TOKEN).toBe(
+      "local-token-abcdef0123456789",
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // No anonymous identity was minted into the fake HOME.
+    expect(existsSync(join(fakeHome, ".arkor", "credentials.json"))).toBe(
+      false,
+    );
+    const stdout = writes.join("");
+    expect(stdout).toContain("Arkor Studio running on http://localhost:4300");
+    expect(stdout).toContain(
+      "Local training via MLX (Apple Silicon) at http://127.0.0.1:43211",
+    );
+  });
+
+  it("closes the local server when the Studio bind fails", async () => {
+    const { close } = mockRuntime();
+    mockBindFailureOnce();
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    const warnSpy = vi
+      .spyOn(clack.log, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      // portExplicit pins the port so a single EADDRINUSE rejects.
+      await expect(
+        runDev({ port: 4301, portExplicit: true, local: true }),
+      ).rejects.toThrow(/already in use/);
+    } finally {
+      stdoutSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to ARKOR_LOCAL_BACKEND when no --backend flag is given", async () => {
+    // Precedence contract: explicit flag > env override > auto-detect.
+    const { startServer } = mockRuntime();
+    vi.stubEnv("ARKOR_LOCAL_BACKEND", "cuda");
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4303, local: true });
+    } finally {
+      stdoutSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+    expect(startServer).toHaveBeenCalledWith({
+      cwd: process.cwd(),
+      backendId: "cuda",
+    });
+  });
+
+  it("surfaces loader errors before binding anything", async () => {
+    vi.mocked(loadLocalRuntime).mockRejectedValue(
+      new Error("Local training requires the @arkor/local package"),
+    );
+    await expect(runDev({ port: 4302, local: true })).rejects.toThrow(
+      /@arkor\/local/,
+    );
+    expect(serve).not.toHaveBeenCalled();
   });
 });

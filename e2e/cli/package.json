@@ -12,6 +12,7 @@
     "test:coverage": "c8 --config .c8rc.json vitest run"
   },
   "devDependencies": {
+    "@arkor/local": "workspace:*",
     "@types/node": "catalog:",
     "arkor": "workspace:*",
     "c8": "catalog:",

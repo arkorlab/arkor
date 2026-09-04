@@ -21,6 +21,12 @@ import {
   type DeprecationNotice,
 } from "../core/deprecation";
 import {
+  LOCAL_SCOPE,
+  LOCAL_SERVER_TOKEN_ENV,
+  LOCAL_SERVER_URL_ENV,
+  localCredentials,
+} from "../core/local-mode";
+import {
   ANON_STATE_MISMATCH_MESSAGE,
   OAUTH_MISSING_STATE_MESSAGE,
   ProjectStateMismatchError,
@@ -90,6 +96,18 @@ export interface StudioServerOptions {
    * here points at the bin itself). Override in tests.
    */
   binPath?: string;
+  /**
+   * Local mode (`arkor dev --local`): point every cloud-facing route at the
+   * in-process local training server instead. No disk credentials are read
+   * or minted, `.arkor/state.json` is ignored (the local server accepts and
+   * ignores scope), `/api/train` children inherit the env hand-off so their
+   * jobs land in the same local job store, and deployments answer locally
+   * (empty list / 501) since they are cloud-only.
+   */
+  local?: {
+    serverUrl: string;
+    serverToken: string;
+  };
 }
 
 function tokensMatch(provided: string, expected: string): boolean {
@@ -153,6 +171,7 @@ export function buildStudioApp(options: StudioServerOptions) {
   const autoAnonymous = options.autoAnonymous ?? true;
   const studioToken = options.studioToken;
   const trainCwd = options.cwd ?? process.cwd();
+  const local = options.local ?? null;
   // `studio/server.ts` is bundled into `dist/bin.mjs` (it isn't reachable
   // from `src/index.ts`, so tsdown doesn't extract it as a shared chunk).
   // The bin therefore sits *next* to this code at runtime, not one
@@ -249,6 +268,20 @@ export function buildStudioApp(options: StudioServerOptions) {
     token: string;
     baseUrl: string;
   }> {
+    // Local mode: an in-memory identity aimed at the local server. Nothing
+    // is read from or written to `~/.arkor` (minting anon credentials whose
+    // `arkorCloudApiUrl` pointed at this launch's ephemeral loopback port
+    // would poison later cloud runs).
+    if (local) {
+      return {
+        credentials: localCredentials({
+          baseUrl: local.serverUrl,
+          token: local.serverToken,
+        }),
+        token: local.serverToken,
+        baseUrl: local.serverUrl,
+      };
+    }
     const credentials = await getCredentials();
     return {
       credentials,
@@ -271,6 +304,19 @@ export function buildStudioApp(options: StudioServerOptions) {
   // ignored, never deleted, so a hand-maintained OAuth scope is preserved.
 
   app.get("/api/credentials", async (c) => {
+    if (local) {
+      // Purely local: no disk reads, no cloud contact. The SPA identity
+      // chip renders "local" from this shape. The bearer token is NOT
+      // exposed to the browser (the SPA talks to /api/*, never to the
+      // local server directly).
+      return c.json({
+        token: "",
+        mode: "local",
+        baseUrl: local.serverUrl,
+        orgSlug: LOCAL_SCOPE.orgSlug,
+        projectSlug: LOCAL_SCOPE.projectSlug,
+      });
+    }
     const {
       credentials: creds,
       token,
@@ -322,7 +368,16 @@ export function buildStudioApp(options: StudioServerOptions) {
   });
 
   app.get("/api/jobs", async (c) => {
-    const state = await readState(trainCwd);
+    // Local mode ignores `.arkor/state.json` entirely: the local server has
+    // no orgs/projects, and local jobs must list even in a project that
+    // never touched the cloud.
+    const state = local
+      ? {
+          orgSlug: LOCAL_SCOPE.orgSlug,
+          projectSlug: LOCAL_SCOPE.projectSlug,
+          projectId: "local",
+        }
+      : await readState(trainCwd);
     if (!state) return c.json({ jobs: [] });
     const {
       token,
@@ -331,7 +386,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     } = await resolveCredentialsAndBaseUrl();
     // Same snapshot for reconciliation and the call: a stale anonymous scope
     // reads as "no jobs" rather than 403ing against the previous org.
-    if (!isStateUsableFor(state, creds)) return c.json({ jobs: [] });
+    if (!local && !isStateUsableFor(state, creds)) return c.json({ jobs: [] });
     const rpc = createRpc(credsBaseUrl, token);
     const res = await rpc.v1.jobs.$get({
       query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
@@ -345,9 +400,48 @@ export function buildStudioApp(options: StudioServerOptions) {
     });
   });
 
+  // Cancelling from Studio must reach the BACKEND job, not just the
+  // `/api/train` stream: aborting that stream only kills the `arkor start`
+  // waiter. In local mode the trainer belongs to this process's local
+  // server, so without this route a "stopped" run keeps using the GPU.
+  app.post("/api/jobs/:id/cancel", async (c) => {
+    const id = c.req.param("id");
+    const state = local
+      ? {
+          orgSlug: LOCAL_SCOPE.orgSlug,
+          projectSlug: LOCAL_SCOPE.projectSlug,
+          projectId: "local",
+        }
+      : await readState(trainCwd);
+    if (!state) return c.json({ error: "No project state" }, 400);
+    const {
+      token,
+      baseUrl: credsBaseUrl,
+      credentials: creds,
+    } = await resolveCredentialsAndBaseUrl();
+    if (!local && !isStateUsableFor(state, creds)) {
+      return c.json({ error: "No project state" }, 400);
+    }
+    const rpc = createRpc(credsBaseUrl, token);
+    const res = await rpc.v1.jobs[":id"].cancel.$post({
+      param: { id },
+      query: { orgSlug: state.orgSlug, projectSlug: state.projectSlug },
+    });
+    const body = await res.text();
+    const headers = new Headers({ "content-type": "application/json" });
+    copyDeprecationHeaders(res.headers, headers);
+    return new Response(body || "{}", { status: res.status, headers });
+  });
+
   app.get("/api/jobs/:id/events", async (c) => {
     const id = c.req.param("id");
-    const state = await readState(trainCwd);
+    const state = local
+      ? {
+          orgSlug: LOCAL_SCOPE.orgSlug,
+          projectSlug: LOCAL_SCOPE.projectSlug,
+          projectId: "local",
+        }
+      : await readState(trainCwd);
     if (!state) return c.json({ error: "No project state" }, 400);
     const {
       token,
@@ -357,7 +451,7 @@ export function buildStudioApp(options: StudioServerOptions) {
     // Same snapshot for reconciliation and the stream request: a stale
     // anonymous scope is treated as "no state" rather than opening a stream
     // scoped to the previous org.
-    if (!isStateUsableFor(state, creds)) {
+    if (!local && !isStateUsableFor(state, creds)) {
       return c.json({ error: "No project state" }, 400);
     }
     const url = `${credsBaseUrl}/v1/jobs/${encodeURIComponent(id)}/events/stream?orgSlug=${encodeURIComponent(state.orgSlug)}&projectSlug=${encodeURIComponent(state.projectSlug)}`;
@@ -438,6 +532,19 @@ export function buildStudioApp(options: StudioServerOptions) {
     const child = spawn(process.execPath, args, {
       stdio: "pipe",
       cwd: trainCwd,
+      // In local mode the child inherits the env hand-off so the trainer it
+      // constructs targets THIS launch's local server: its job registers in
+      // the same store the jobs list and event stream read. The child does
+      // not boot a second server (start.ts reuses an existing hand-off).
+      env: {
+        ...process.env,
+        ...(local
+          ? {
+              [LOCAL_SERVER_URL_ENV]: local.serverUrl,
+              [LOCAL_SERVER_TOKEN_ENV]: local.serverToken,
+            }
+          : {}),
+      },
     });
     // Don't let a training child outlive `arkor dev`. Ctrl-C (SIGINT) already
     // reaches the child via the shared process group, but a SIGTERM/SIGHUP
@@ -537,11 +644,24 @@ export function buildStudioApp(options: StudioServerOptions) {
       const resolved = await resolveCredentialsAndBaseUrl();
       credentials = resolved.credentials;
       credsBaseUrl = resolved.baseUrl;
-      const client = new CloudApiClient({
-        baseUrl: credsBaseUrl,
-        credentials,
-      });
-      state = await ensureProjectState({ cwd: trainCwd, client, credentials });
+      if (local) {
+        // The local server has no projects to bootstrap; the fixed scope is
+        // accepted and ignored on its side.
+        state = {
+          orgSlug: LOCAL_SCOPE.orgSlug,
+          projectSlug: LOCAL_SCOPE.projectSlug,
+        };
+      } else {
+        const client = new CloudApiClient({
+          baseUrl: credsBaseUrl,
+          credentials,
+        });
+        state = await ensureProjectState({
+          cwd: trainCwd,
+          client,
+          credentials,
+        });
+      }
     } catch (err) {
       // Propagate cloud-api's status verbatim (e.g. 401 / 403 / 5xx) so the
       // SPA / clients can react appropriately; collapsing everything to 400
@@ -580,6 +700,11 @@ export function buildStudioApp(options: StudioServerOptions) {
         "X-Arkor-Client": `arkor/${SDK_VERSION}`,
       },
       body,
+      // Forward the browser's disconnect. Without it, closing the
+      // Playground (or switching modes mid-generation) leaves the upstream
+      // request running: in local mode that means an abandoned prompt
+      // keeps a model resident and generating for minutes.
+      signal: c.req.raw.signal,
     });
     tapDeprecation(upstream, SDK_VERSION);
     const headers = new Headers();
@@ -589,6 +714,30 @@ export function buildStudioApp(options: StudioServerOptions) {
     copyDeprecationHeaders(upstream.headers, headers);
     return new Response(upstream.body, { status: upstream.status, headers });
   });
+
+  // ---- Deployments in local mode ------------------------------------------
+  //
+  // Deployments are a cloud capability (`*.arkor.app` URLs) with no local
+  // equivalent. Registered BEFORE the cloud-backed routes so they win the
+  // match in local mode: the list renders its friendly empty state and every
+  // mutation gets an explicit 501 instead of a confusing cloud error.
+  if (local) {
+    // NOT `scopeMissing`: that flag drives copy telling the user to restore
+    // `.arkor/state.json` or run `arkor login`, none of which enables
+    // deployments locally. A distinct flag lets the SPA say the real thing.
+    app.get("/api/deployments", () =>
+      Response.json(
+        { deployments: [], localUnavailable: true },
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    app.all("/api/deployments", (c) =>
+      c.json({ error: "Deployments are not available in local mode" }, 501),
+    );
+    app.all("/api/deployments/*", (c) =>
+      c.json({ error: "Deployments are not available in local mode" }, 501),
+    );
+  }
 
   // ---- Deployments (`*.arkor.app` URL management) -------------------------
   //

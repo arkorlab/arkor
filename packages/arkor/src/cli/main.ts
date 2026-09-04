@@ -22,6 +22,27 @@ import { runStart } from "./commands/start";
 import { runWhoami } from "./commands/whoami";
 import { ui } from "./prompts";
 
+/**
+ * Shared `--local` / `--backend` resolution for `start` and `dev`.
+ * `--backend <id>` implies `--local`, INCLUDING when the value is empty or
+ * whitespace-only (`--backend "$UNSET_VAR"`): the flag was still supplied,
+ * so the run stays local and falls back to auto-detect rather than asking
+ * the runtime for a backend literally named "".
+ */
+function resolveLocalFlags(opts: { local?: boolean; backend?: string }): {
+  local: boolean;
+  backend: string | undefined;
+} {
+  // Whether the flag was SUPPLIED, separately from its usable value: a
+  // shell expansion can pass `--backend ""` (an unset variable), and the
+  // documented contract is that naming a backend implies --local. Dropping
+  // the empty value must fall back to auto-detect, not to a cloud run.
+  const supplied = opts.backend !== undefined;
+  const trimmed = opts.backend?.trim();
+  const backend = trimmed === "" ? undefined : trimmed;
+  return { local: opts.local === true || supplied, backend };
+}
+
 export async function main(argv: string[]): Promise<void> {
   const program = new Command();
   program.name("arkor").description("Arkor CLI").version(SDK_VERSION);
@@ -230,10 +251,24 @@ export async function main(argv: string[]): Promise<void> {
     .command("start")
     .description("Run the build artifact at .arkor/build/index.mjs")
     .argument("[entry]", "rebuild from this entry before running (optional)")
+    .option(
+      "--local",
+      "Train on this machine via @arkor/local (MLX on Apple Silicon) instead of Arkor Cloud",
+    )
+    .option(
+      "--backend <id>",
+      "Local training backend id (default: auto-detect); implies --local",
+    )
     .action(
-      withTelemetry("start", async (entry?: string) => {
-        await runStart({ entry });
-      }),
+      withTelemetry(
+        "start",
+        async (
+          entry: string | undefined,
+          opts: { local?: boolean; backend?: string },
+        ) => {
+          await runStart({ entry, ...resolveLocalFlags(opts) });
+        },
+      ),
     );
 
   program
@@ -241,14 +276,31 @@ export async function main(argv: string[]): Promise<void> {
     .description("Launch Arkor Studio locally")
     .option("-p, --port <port>", "Port to bind (default: 4000)", "4000")
     .option("--open", "Open the Studio URL in a browser after starting")
+    .option(
+      "--local",
+      "Run Studio against a local training server (@arkor/local, MLX on Apple Silicon) instead of Arkor Cloud",
+    )
+    .option(
+      "--backend <id>",
+      "Local training backend id (default: auto-detect); implies --local",
+    )
     .action(
       withTelemetry(
         "dev",
-        async (opts: { port: string; open?: boolean }, command: Command) => {
+        async (
+          opts: {
+            port: string;
+            open?: boolean;
+            local?: boolean;
+            backend?: string;
+          },
+          command: Command,
+        ) => {
           await runDev({
             port: Number(opts.port) || 4000,
             portExplicit: command.getOptionValueSource("port") === "cli",
             open: opts.open === true,
+            ...resolveLocalFlags(opts),
           });
         },
         { longRunning: true },

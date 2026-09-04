@@ -17,6 +17,11 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
     <div id="template-free-projects" />
     Scaffold a project without picking a starter template. Today `create-arkor` and `arkor init` require choosing `triage`, `translate`, or `redaction`; this opens the door to starting from a blank trainer.
   </Card>
+
+  <Card title="Train on a local GPU" icon="microchip" href="/cli/local-training">
+    <div id="local-gpu-training" />
+    Shipped for Apple Silicon: `arkor start --local` and `arkor dev --local` train (and chat) on your own machine via MLX and the `@arkor/local` package. Next up: NVIDIA (CUDA) and ROCm backends for Linux / Windows through the same backend interface.
+  </Card>
 </CardGroup>
 
 ## Up next
@@ -30,11 +35,6 @@ Arkor is in alpha, so this page is intentionally sparse. Items are grouped by wh
   <Card title="Bring your own dataset (JSONL)" icon="file-lines" href="/sdk/dataset">
     <div id="jsonl-dataset" />
     Upload a local JSONL file as the training dataset, alongside the existing HuggingFace name and blob URL paths.
-  </Card>
-
-  <Card title="Train on a local GPU" icon="microchip" href="/sdk/create-trainer">
-    <div id="local-gpu-training" />
-    Run training on your own GPU instead of routing every job through Arkor's managed GPUs.
   </Card>
 
   <Card title="Dry-run from Studio" icon="flask" href="/concepts/studio">

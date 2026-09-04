@@ -1,0 +1,100 @@
+---
+title: "MLX でローカル学習する"
+description: "arkor start --local で、自分の Apple Silicon Mac 上で学習と推論を実行する。"
+---
+
+Apple Silicon Mac なら、学習、ライブ進捗、結果とのチャットまでのループ全体を、クラウドアカウントなしで回せます。ローカルランタイムは別パッケージ (`@arkor/local`) として配布され、[uv](https://docs.astral.sh/uv/) が自動解決するピン留め済みの `mlx-lm` 経由で [MLX](https://github.com/ml-explore/mlx) を使います。
+
+## セットアップ
+
+1. uv を一度だけ導入します: `brew install uv`。
+2. プロジェクトにローカルランタイムを追加します:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm add -D @arkor/local@alpha
+```
+
+```bash npm
+npm install -D @arkor/local@alpha
+```
+
+```bash yarn
+yarn add -D @arkor/local@alpha
+```
+
+```bash yarn-berry
+yarn add -D @arkor/local@alpha
+```
+
+```bash bun
+bun add -D @arkor/local@alpha
+```
+
+</CodeGroup>
+
+3. トレーナーを MLX 向きのモデルに向けます。ローカルでは任意の HuggingFace id を受け付けますが、`mlx-community` の変換が最も相性が良く、`*-4bit` ビルドはメモリーを抑えられます:
+
+```ts src/arkor/trainer.ts
+export const trainer = createTrainer({
+  name: "my-local-run",
+  model: "mlx-community/SmolLM2-135M-Instruct",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  datasetFormat: { type: "chatml" },
+  maxSteps: 100,
+});
+```
+
+## 学習する
+
+<CodeGroup>
+
+```bash pnpm
+pnpm start --local
+```
+
+```bash npm
+npm start -- --local
+```
+
+```bash yarn
+yarn start --local
+```
+
+```bash bun
+bun start --local
+```
+
+</CodeGroup>
+
+初回実行は Python 環境の解決とモデルのダウンロードが走るため時間がかかりますが、どちらも以降はキャッシュされます。進捗はクラウドと全く同じように `onLog` / `onCheckpoint` コールバックへストリームされ、完成した LoRA アダプターは `.arkor/local/jobs/<id>/adapters/final/` に置かれます。
+
+## Studio で眺める
+
+<CodeGroup>
+
+```bash pnpm
+pnpm dev --local
+```
+
+```bash npm
+npm run dev -- --local
+```
+
+```bash yarn
+yarn dev --local
+```
+
+```bash bun
+bun dev --local
+```
+
+</CodeGroup>
+
+Studio はいつもどおり開きますが、すべてのクラウド呼び出しはプロセス内のローカルサーバーへ向き直っています: 識別チップは **local** と表示され、Run training はローカルジョブを開始し、ロスチャートはライブでストリームされ、Playground はローカルの `mlx_lm server` を通じて学習済みアダプターとチャットします。資格情報は作成されず、モデルとデータセットのダウンロード、そして CLI の通常の匿名利用テレメトリ (`DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` で無効化可能) 以外は何もマシーンの外に出ません。
+
+## 次に読む
+
+- 設定フィールドの対応表、ディスクレイアウト、エラー一覧を含む完全なリファレンス: [ローカル学習](/ja/cli/local-training)
+- `ctx.infer(...)` による学習中の評価もローカルで動きます: [createTrainer](/ja/sdk/create-trainer)

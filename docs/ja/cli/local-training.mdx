@@ -1,0 +1,159 @@
+---
+title: "ローカル学習 (--local)"
+description: "@arkor/local と MLX で、Arkor Cloud と同じ API 契約のまま自分のマシーンで学習と推論を実行する。"
+---
+
+# ローカル学習 (`--local`)
+
+`arkor start --local` と `arkor dev --local` は、Arkor Cloud の代わりに自分のマシーンで学習 (と推論) を実行します。最初にサポートされるバックエンドは Apple Silicon Mac 上の [MLX](https://github.com/ml-explore/mlx) です。バックエンドのインターフェースは、将来 Linux / Windows 向けの NVIDIA (CUDA) や ROCm バックエンドをスタックの他の部分を変えずに追加できるよう設計されています。
+
+ローカルモードは、クラウドが公開しているものと同じ API サブセット (`POST /v1/jobs`、SSE イベントストリーム、`POST /v1/inference/chat`) を実装する**ローカル学習サーバー**を CLI プロセス内で起動することで動きます。SDK も、Studio のジョブ一覧も、ライブのロスチャートも、Playground も、違いを区別できないのでそのまま動きます。
+
+## 必要条件
+
+- Apple Silicon Mac (M1 以降)。Intel Mac は MLX 上流でサポートされていません。
+- `PATH` 上の [uv](https://docs.astral.sh/uv/): `brew install uv` または `curl -LsSf https://astral.sh/uv/install.sh | sh` で導入します。CLI が uv を代わりにインストールすることはありません。Python パッケージ (ピン留めされた `mlx-lm` とその依存) は初回実行時に uv が自身のキャッシュ環境へ解決します。プロジェクトには何も追加されません。
+- プロジェクトにインストールされた `@arkor/local` パッケージ。コアの `arkor` パッケージを小さく保つため、ローカルランタイムは別パッケージとして配布されます。
+
+<CodeGroup>
+
+```bash pnpm
+pnpm add -D @arkor/local@alpha
+```
+
+```bash npm
+npm install -D @arkor/local@alpha
+```
+
+```bash yarn
+yarn add -D @arkor/local@alpha
+```
+
+```bash yarn-berry
+yarn add -D @arkor/local@alpha
+```
+
+```bash bun
+bun add -D @arkor/local@alpha
+```
+
+</CodeGroup>
+
+## シノプシス
+
+```
+arkor start --local [entry]
+arkor dev --local [options]
+```
+
+| フラグ | 対象 | 説明 |
+| --- | --- | --- |
+| `--local` | `start`, `dev` | Arkor Cloud の代わりにローカル学習サーバーに対して実行する。 |
+| `--backend <id>` | `start`, `dev` | 特定のローカルバックエンドを指定する (現在は `mlx`)。`--local` を含意する。未指定の場合、preflight が通った最初のバックエンドが使われる。 |
+
+## 仕組み
+
+1. **ランタイムのロード。** CLI はプロジェクトの `node_modules` から `@arkor/local` を解決します (ビルド成果物が `arkor` を解決するのと同じモデル)。バージョンハンドシェイクにより、非互換の組み合わせは「arkor を更新 / @arkor/local を更新」という実行可能なエラーになります。
+2. **Preflight。** バックエンドは何かを bind したり spawn したりする前に前提条件 (Apple Silicon、uv の到達性) を確認します。失敗時は理由と対処を表示して、それ以外は何も起きません。
+3. **ローカルサーバー。** loopback 限定の Hono サーバーが、起動ごとの bearer トークン付きでエフェメラルポートに bind します (Studio の CSRF トークンと同じ脅威モデル: host ヘッダーのガードだけでは、同一マシーンの別ブラウザータブからのクロスオリジン POST がプロセスを spawn するエンドポイントへ到達するのを防げません)。
+4. **ハンドオフ。** サーバーの URL とトークンは `ARKOR_LOCAL_SERVER_URL` / `ARKOR_LOCAL_SERVER_TOKEN` を通じてトレーナーへ渡されます。これらはプロセス内で設定され (Studio の Run training 子プロセスにも注入され) CLI が管理するもので、手動で設定する想定ではありません。
+5. **学習。** `POST /v1/jobs` は設定をバックエンドで検証してから、`uv run --with "mlx-lm[train]==<pinned>" python train_shim.py` を spawn します。この Python shim がデータセットを準備し、mlx-lm の LoRA ファインチューニングを駆動し、構造化された進捗を報告します。SDK の `trainer.wait()` はクラウドと同じ `training.*` SSE イベントを消費します。
+6. **クラウド接触なし、資格情報なし。** ローカルモードは `~/.arkor/credentials.json` を読み書きせず、クラウドプロジェクトを作成せず、`.arkor/state.json` を無視します。クラウドの識別情報 (の有無) には一切影響しません。CLI の通常の匿名利用テレメトリはコマンド自体には引き続き適用されます。`DO_NOT_TRACK=1` か `ARKOR_TELEMETRY_DISABLED=1` で無効化できます。
+
+## ディスクに残るもの
+
+すべてプロジェクトの gitignore 済み `.arkor/local/` 配下に置かれます:
+
+```
+.arkor/local/
+  inference.log            ローカル推論サーバー子プロセスの出力
+  jobs/<jobId>/
+    job.json               ジョブレコード (id、status、config、タイムスタンプ)
+    events.jsonl           イベント履歴の全量 (再接続リプレイの源泉)
+    run.json               学習 shim への入力
+    console.log             トレーナーの生出力 (トレースバックはここ)
+    data/                  準備済みの train.jsonl / valid.jsonl
+    adapters/
+      step-<N>/            保存されたチェックポイントごとのディレクトリ
+      final/               完成した LoRA アダプター
+        adapters.safetensors
+        adapter_config.json
+```
+
+ジョブ履歴は永続です: `arkor dev --local` を再起動してもジョブ一覧は残り、イベントストリームの再接続は続きからリプレイされます。サーバー不在の間にプロセスが死んだジョブは、次回起動時に running のまま固まる代わりに説明付きイベントとともに failed へ整理されます。
+
+## 設定サポート (MLX バックエンド)
+
+`createTrainer` の各フィールドは mlx-lm に次のようにマップされます。拒否されるフィールドは submit 時にフィールド別メッセージでジョブを失敗させ、無視されるフィールドはジョブの `console.log` に注記を残します。
+
+| フィールド | ローカルでの挙動 |
+| --- | --- |
+| `model` | 任意の HuggingFace id。`SUPPORTED_MODELS` のゲートはクラウド実行にのみ適用されます。ローカル実行には `mlx-community/*` などの MLX 変換済みモデルを推奨します (量子化済みの `*-4bit` ビルドはメモリーを抑えられます)。 |
+| `dataset` | 両方のソースが動きます: `huggingface` (`datasets` ライブラリーでダウンロード、`split` / `subset` 反映) と `blob` （JSONL の直接 URL、任意の bearer トークン。トークンを付ける場合はループバックを含めて `https` URL が必須です。別のローカルアカウントがポートを先取りしてトークンを盗むのを防ぐためです）。 |
+| `datasetFormat` | `chatml`、`sharegpt`、`alpaca`、`text`、`prompt_completion` (いずれも `columnMapping` 対応)。`pretokenized` は拒否されます。 |
+| `maxSteps` / `numTrainEpochs` | どちらか一方が必須です (上限のない実行はサイズが決められません)。エポックはデータセットサイズからイテレーション数に変換されます。 |
+| `batchSize`, `learningRate`, `lora.r`, `lora.alpha`, `lora.maxLength` | そのままマップされます (`alpha / r` が mlx-lm の LoRA scale になります)。 |
+| `optim` | `adam`、`adamw`、`muon`、`sgd`、`adafactor`。`adamw_8bit` のような量子化エイリアスは注記付きで素の `adamw` に落ちます (8bit オプティマイザーは CUDA の概念です)。 |
+| `lrSchedulerType` | `constant`、`linear`、`cosine`。`warmupSteps` と `weightDecay` はその上に適用されます。 |
+| `loggingSteps`, `saveSteps`, `evalSteps` | 数値または `{steps}` / `{ratio}` オブジェクト。ratio は総イテレーション数に対して解決されます。 |
+| `trainOnResponsesOnly` | mlx-lm のプロンプトマスキングにマップされます。 |
+| `datasetSplit` | 指定の `testSize` / `seed` で検証セットを分割します。データセット自身が持つ検証 split よりも優先され、その split はログを出したうえで破棄されます (指定した `testSize` / `seed` が実際に効きます)。いずれかのフィールドを設定すると明示的な分割とみなされ、`{ enabled: false }` で無効化できます。何も設定せずデータセットにも検証 split がない場合は、自動的に 10% を確保します (mlx-lm は学習に検証セットを必要とします)。 |
+| `lora.loadIn4bit` | 注記付きで無視されます: 量子化は選ぶモデルの性質なので、代わりに `mlx-community/*-4bit` 変換を選んでください。 |
+| `dryRun` | 設定を検証しデータセットを準備した上で、学習せずに完了します。 |
+
+## ローカル推論
+
+ローカルサーバーは `POST /v1/inference/chat` も実装しており、遅延起動される `mlx_lm server` 子プロセス (OpenAI 互換) が背後にいます:
+
+- **`onCheckpoint` コールバック**はクラウドと全く同じように学習中に `ctx.infer(...)` を呼べます。リクエストはそのチェックポイントのアダプターに対して実行されます。保存されたチェックポイントの公開 (とコールバックの発火) は次の loss レポートのタイミングなので、各チェックポイントを遅延なく評価したい場合は `loggingSteps` を `saveSteps` 以下にしてください。そうでないと次のレポート時にまとめて発火します。
+- **Studio の Playground** は学習済みアダプター (実行を選択) にもベースモデルにも使えます。
+- 推論子プロセスは同じモデル + アダプターのリクエスト間で再利用され、別のものが要求されたら入れ替わり、10 分のアイドルで停止してユニファイドメモリーを解放します。出力は `.arkor/local/inference.log` に残ります。
+
+`tools`、`toolChoice`、`responseFormat`、`structuredOutputs` はローカルモードでは silent drop されず、明示的な 400 で拒否されます。
+
+<Warning>
+  シングルユーザーのマシーン専用です。ローカル学習サーバー自体はループバック限定かつ起動ごとの bearer トークンで保護されますが、推論のために起動する `mlx_lm server` の子プロセスには認証がありません (上流にトークンやソケット受け渡しの仕組みがないためです)。モデルがウォームな間は、同じマシーン上の別アカウントがそのポートへ直接アクセスしてアダプターに問い合わせできます。共有ホストやマルチユーザー環境ではローカル学習・推論を使用しないでください。
+</Warning>
+
+## ローカルモードの Studio
+
+`arkor dev --local` は同じ Studio UI を、すべてのクラウドプロキシーをローカルサーバーへ向け直した状態で提供します:
+
+- 識別チップは **local** を表示し、匿名セッションはブートストラップされません。
+- ジョブ一覧、ジョブ詳細 (ライブのロスチャート、イベントストリーム、再接続リプレイ)、Run training、Playground は通常どおり動きます。
+- Endpoints タブは空の状態を表示します: デプロイメントはクラウドの機能で、変更操作は明示的な 501 を返します。
+
+## キャンセルとクラッシュ時の挙動
+
+- 実行のキャンセルは学習プロセスグループ全体 (uv と Python) に SIGTERM を送り、5 秒後に SIGKILL へエスカレートします。データセットのダウンロード中を含むどのフェーズでも機能します。`trainer.cancel()` か、Studio のジョブ詳細ページの **Cancel run** ボタンを使ってください。Run training カードの **Stop training** ボタンは別の操作で、ランナーの出力ストリームから離れるだけです。ローカルモードではトレーナーが `arkor dev` プロセスの持ち物なので学習は続きます。GPU を解放したい場合はジョブ自体をキャンセルしてください。
+- 実行中に CLI が終了した場合 (Ctrl-C、SIGTERM、`docker stop`)、子プロセスは終了時に回収されます。
+- マシーンやプロセスが不意に死んだ場合、次のローカル起動が孤児の「running」ジョブを説明イベント付きで failed に整理します。
+
+## エラー
+
+| 症状 | 意味 | 対処 |
+| --- | --- | --- |
+| `Local training requires the @arkor/local package, which is not installed in <dir>.` | ランタイムパッケージがプロジェクトにありません。 | インストールします: `pnpm add -D @arkor/local@alpha` (または使用中のパッケージマネージャの同等コマンド)。 |
+| `arkor and the installed @arkor/local are incompatible. Upgrade ...` | 2 つのパッケージのプロトコルバージョンが一致していません。 | メッセージの指示どおり、古い側を更新します。 |
+| `No local training backend is available on this machine: mlx: the MLX backend requires an Apple Silicon Mac (...)` | Apple Silicon macOS ではありません。 | Apple Silicon Mac で実行するか、クラウド学習を使います。CUDA / ROCm バックエンドはロードマップにあります。 |
+| `... uv is not available on PATH ...` | uv バイナリを probe できませんでした。 | uv を導入して (`brew install uv`) 再実行します。 |
+| `the local training backend cannot run this config: ...` | MLX バックエンドが拒否する設定フィールドがあります (上の表を参照)。 | 列挙されたフィールドを調整します。各行がフィールド名と受理される値を示します。 |
+| `trainer exited with code <n>; see .arkor/local/jobs/<id>/console.log` | Python 側がクラッシュしました（不正なモデル id、ダウンロード失敗、メモリー不足など）。 | 参照先の `console.log` を開きます。完全なトレースバックがそこにあります。 |
+| `local inference server failed to start: ... (see .arkor/local/inference.log)` | `mlx_lm server` 子プロセスが ready になりませんでした (初回のモデルダウンロードのタイムアウトが典型)。 | ログを確認し、モデルがキャッシュされたら再試行します。 |
+
+## 意図的な未対応 (v1)
+
+- デプロイメント / エンドポイント (クラウド専用。Studio は空状態を表示し、変更操作は 501 を返します)。
+- ローカル推論での `tools`、`responseFormat`、`structuredOutputs`、埋め込み。
+- `datasetFormat: "pretokenized"`。
+- Playground UI でのベースモデル自由入力 (SDK 経由なら既に任意のモデルを受け付けます)。
+- CUDA / ROCm バックエンドの実体: バックエンドのインターフェース、レジストリー、shim プロトコルは整備済みですが、現在の実装は MLX のみです。
+- 1 つのプロジェクトを共有する 2 つの `arkor dev --local` インスタンス間のプロセス間協調。ジョブストアはディスク上にあるため互いのジョブを一覧・キャンセルできますが、通知はプロセス内に閉じています。相手のインスタンスが実行中のジョブをキャンセルすると学習は停止し terminal イベントも記録されますが、そのインスタンス側で開いているイベントストリームは、クライアントが再接続してディスクから replay するまで ping を送り続けます。
+- Python 側の SBOM。リリースの SBOM は実際に配布される npm の依存閉包を対象とします。学習・推論スタック (`mlx-lm` とその推移的依存) は `MLX_LM_SPEC` のピンに従って実行時に uv が自身のキャッシュへ解決するもので、公開されるタールボールには含まれません。
+
+## 関連ページ
+
+- [`arkor build` / `arkor start`](/ja/cli/build-and-start): `--local` が組み込まれる実行パイプライン
+- [`arkor dev`](/ja/cli/dev): ローカルモードが向き先を変える Studio サーバー
+- [対応モデル](/ja/models): このモードが緩和するクラウド側のモデルゲート
+- [ロードマップ](/ja/roadmap#local-gpu-training): ローカル学習の今後

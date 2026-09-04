@@ -1,9 +1,19 @@
 import { existsSync } from "node:fs";
+import { constants as osConstants } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 
+import {
+  LOCAL_BACKEND_ENV,
+  LOCAL_SERVER_TOKEN_ENV,
+  LOCAL_SERVER_URL_ENV,
+} from "../../core/local-mode";
 import { runTrainer } from "../../core/runner";
+import { loadLocalRuntime } from "../local-runtime-loader";
+import { ui } from "../prompts";
 
 import { runBuild } from "./build";
+
+import type { LoadedLocalServer } from "../local-runtime-loader";
 
 export interface StartOptions {
   /**
@@ -16,9 +26,42 @@ export interface StartOptions {
   outDir?: string;
   /** Project root; defaults to `process.cwd()`. */
   cwd?: string;
+  /**
+   * Run the training on this machine via the `@arkor/local` runtime instead
+   * of Arkor Cloud.
+   */
+  local?: boolean;
+  /** Local backend id override (`--backend <id>`); auto-detects when unset. */
+  backend?: string;
 }
 
 const DEFAULT_OUT_DIR = ".arkor/build";
+
+/**
+ * Close the local server (which kills its training / inference process
+ * groups) when a signal terminates a standalone `arkor start --local`, then
+ * exit with the conventional `128 + signal` code so supervisors can tell a
+ * signal from a clean exit. Returns a remover so the normal path does not
+ * leave listeners behind on a long-lived caller (tests, programmatic use).
+ */
+function installSignalHandlers(server: LoadedLocalServer): () => void {
+  const handlers = SHUTDOWN_SIGNALS.map((sig) => {
+    const handler = () => {
+      // Fire-and-forget: the exit below cannot wait on a promise, but
+      // close() signals the process groups synchronously before its first
+      // await, and the runtime's own process-'exit' reaper is the backstop.
+      void server.close().catch(() => undefined);
+      process.exit(128 + osConstants.signals[sig]);
+    };
+    process.on(sig, handler);
+    return { sig, handler } as const;
+  });
+  return () => {
+    for (const { sig, handler } of handlers) process.off(sig, handler);
+  };
+}
+
+const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
 /**
  * Execute the build artifact at `.arkor/build/index.mjs`. Mirrors `next start`:
@@ -28,6 +71,13 @@ const DEFAULT_OUT_DIR = ".arkor/build";
  * For ergonomics (and so Studio's "Run training" button doesn't have to chain
  * two spawns), `start` auto-runs `build` when no artifact exists, or when an
  * explicit entry is provided.
+ *
+ * With `--local`, a local training server is booted in-process first and
+ * handed to the trainer through the env contract in `core/local-mode.ts`.
+ * When the hand-off is already present in the environment (this process is a
+ * child of `arkor dev --local`'s Studio server), the existing server is
+ * reused so Studio-triggered runs land in the same job store the Studio UI
+ * reads.
  */
 export async function runStart(opts: StartOptions = {}): Promise<void> {
   const cwd = opts.cwd ?? process.cwd();
@@ -35,10 +85,58 @@ export async function runStart(opts: StartOptions = {}): Promise<void> {
   const outDir = isAbsolute(outDirRel) ? outDirRel : resolve(cwd, outDirRel);
   const outFile = resolve(outDir, "index.mjs");
 
-  const needsBuild = Boolean(opts.entry) || !existsSync(outFile);
-  if (needsBuild) {
-    await runBuild({ cwd, outDir: outDirRel, entry: opts.entry });
+  let localServer: LoadedLocalServer | null = null;
+  let removeSignalHandlers: (() => void) | null = null;
+  if (opts.local && !process.env[LOCAL_SERVER_URL_ENV]) {
+    const runtime = await loadLocalRuntime(cwd);
+    localServer = await runtime.startServer({
+      cwd,
+      backendId: opts.backend ?? process.env[LOCAL_BACKEND_ENV],
+    });
+    // Must be set BEFORE the dynamic import below: the user bundle
+    // constructs its trainer at module-import time with the project's own
+    // arkor copy, and the env contract is the only channel that reaches it.
+    process.env[LOCAL_SERVER_URL_ENV] = localServer.url;
+    process.env[LOCAL_SERVER_TOKEN_ENV] = localServer.token;
+    ui.log.info(
+      `Local training via ${localServer.backend.displayName} at ${localServer.url}`,
+    );
+    // Ctrl-C (and SIGTERM / SIGHUP) would otherwise terminate this process
+    // with Node's default handling: the `finally` below never runs, the
+    // process 'exit' event never fires, and the runtime's exit reaper with
+    // it. Since the trainer runs in its own detached process group, the
+    // signal reaches only the CLI and `uv`/Python would keep the GPU busy
+    // as orphans. `arkor dev --local` has the same handlers already.
+    removeSignalHandlers = installSignalHandlers(localServer);
   }
 
-  await runTrainer(outFile);
+  try {
+    const needsBuild = Boolean(opts.entry) || !existsSync(outFile);
+    if (needsBuild) {
+      await runBuild({ cwd, outDir: outDirRel, entry: opts.entry });
+    }
+
+    await runTrainer(outFile);
+  } finally {
+    removeSignalHandlers?.();
+    if (localServer) {
+      try {
+        // The server owns training/inference children; closing it reaps
+        // them. A close failure must not mask the run's own outcome (an
+        // error thrown from the try block above would be replaced by one
+        // thrown out of finally), so it is reported and swallowed.
+        await localServer.close();
+      } catch (error) {
+        console.warn(
+          "warning: failed to shut down the local training server cleanly:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+      // Reflect.deleteProperty instead of `delete` with a computed key: the
+      // env names live in core/local-mode.ts as the single source of truth,
+      // and assigning `undefined` would store the string "undefined".
+      Reflect.deleteProperty(process.env, LOCAL_SERVER_URL_ENV);
+      Reflect.deleteProperty(process.env, LOCAL_SERVER_TOKEN_ENV);
+    }
+  }
 }

@@ -11,6 +11,10 @@ export interface StartStudioOptions {
   projectDir: string;
   /** Fake cloud-api base URL (`http://127.0.0.1:<port>`). */
   cloudApiUrl: string;
+  /** Extra CLI args appended after `dev --port <n>` (e.g. `["--local"]`). */
+  extraArgs?: string[];
+  /** Env overrides spread last (e.g. a PATH carrying a fake `uv`). */
+  extraEnv?: NodeJS.ProcessEnv;
 }
 
 export interface StudioHandle {
@@ -201,11 +205,18 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
     if (lower.startsWith("npm_config_") || lower.startsWith("pnpm_config_")) {
       continue;
     }
+    // Strip NODE_PATH for the same hermeticity reason as e2e/cli's
+    // spawn-cli.ts: test runners can set it to paths that include pnpm's
+    // virtual store, where every workspace package resolves, silently
+    // defeating "package not installed in the fixture" scenarios.
+    if (lower === "node_path") {
+      continue;
+    }
     cleanEnv[k] = v;
   }
   const child = spawn(
     process.execPath,
-    [ARKOR_BIN, "dev", "--port", String(port)],
+    [ARKOR_BIN, "dev", "--port", String(port), ...(opts.extraArgs ?? [])],
     {
       cwd: opts.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
@@ -223,6 +234,7 @@ async function spawnStudio(opts: StartStudioOptions): Promise<SpawnedStudio> {
         // the real PostHog endpoint from CI.
         ARKOR_TELEMETRY_DISABLED: "1",
         npm_config_user_agent: "",
+        ...opts.extraEnv,
       },
     },
   );

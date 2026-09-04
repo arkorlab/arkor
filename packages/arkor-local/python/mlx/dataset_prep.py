@@ -1,0 +1,449 @@
+"""Dataset preparation for the MLX training shim.
+
+Turns an arkor ``datasetSource`` + ``datasetFormat`` into the local JSONL
+layout mlx-lm trains from (``train.jsonl`` and optionally ``valid.jsonl`` in
+a data directory), converting between arkor's cloud dataset formats and the
+three shapes mlx-lm understands (``messages`` chat records, ``prompt`` /
+``completion`` pairs, and raw ``text``).
+
+Only stdlib + the ``datasets`` library (pulled in by ``mlx-lm[train]``) are
+used here. This module is bundled into the published ``@arkor/local``
+package and executed by uv at run time; it is never an npm dependency.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import random
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+
+class DatasetPrepError(RuntimeError):
+    """Raised for user-addressable dataset problems (clear message, no traceback noise)."""
+
+
+def prepare_data(run: dict, log) -> dict:
+    """Prepare train/valid JSONL files.
+
+    Returns ``{"data_dir": Path, "train_count": int, "valid_count": int}``.
+    ``log`` is a callable used for progress notes (they end up in the job's
+    console log, not the event stream).
+    """
+    source = run["datasetSource"]
+    fmt = run.get("datasetFormat") or {"type": "chatml"}
+    split_cfg = run["train"].get("datasetSplit") or {}
+    dry_run = bool(run["train"].get("dryRun"))
+    data_dir = Path(run["paths"]["dataDir"])
+    data_dir.mkdir(parents=True, exist_ok=True)
+    # Owner-only, matching the 0600 job.json/run.json writes: the prepared
+    # rows are the user's private training data and must not be readable by
+    # other accounts in a shared project or CI workspace.
+    os.chmod(data_dir, 0o700)
+
+    train_rows, valid_rows = _load_rows(source, log)
+
+    train_examples = [_convert_row(row, fmt) for row in train_rows]
+    valid_examples = [_convert_row(row, fmt) for row in valid_rows]
+
+    split_enabled = split_cfg.get("enabled")
+    if split_enabled and valid_examples:
+        # An explicit datasetSplit is a request, not a fallback: honouring
+        # the dataset's own validation split instead would silently ignore
+        # the configured testSize/seed (and the reproducibility they buy).
+        log(
+            "[arkor] datasetSplit is set explicitly; splitting the train "
+            f"set and discarding the dataset's own {len(valid_examples)} "
+            "validation examples"
+        )
+        valid_examples = []
+    if split_enabled and not valid_examples:
+        test_size = split_cfg.get("testSize")
+        if test_size is None:
+            test_size = 0.1
+        seed = split_cfg.get("seed")
+        train_examples, valid_examples = _split(
+            train_examples, test_size, 0 if seed is None else seed
+        )
+        log(
+            f"[arkor] datasetSplit: held out {len(valid_examples)} of "
+            f"{len(train_examples) + len(valid_examples)} examples for validation"
+        )
+    elif (
+        split_enabled is not False
+        and not valid_examples
+        and not dry_run
+        and len(train_examples) >= 2
+    ):
+        # mlx-lm requires a validation set whenever it trains, and eval
+        # loss reporting needs one too. Auto-holding out a slice keeps
+        # train-only datasets (including the starter templates) working
+        # locally instead of failing deep inside mlx-lm. An explicit
+        # `datasetSplit: {enabled: false}` opts out, and single-example
+        # datasets are left whole (a holdout would empty the train set;
+        # mlx-lm's own validation reports the missing valid set clearly).
+        train_examples, valid_examples = _split(train_examples, 0.1, 0)
+        log(
+            "[arkor] the dataset has no validation split; auto-held out "
+            f"{len(valid_examples)} examples for validation "
+            "(configure datasetSplit to control this)"
+        )
+
+    if not train_examples:
+        raise DatasetPrepError("the prepared training dataset is empty")
+
+    _write_jsonl(data_dir / "train.jsonl", train_examples)
+    if valid_examples:
+        _write_jsonl(data_dir / "valid.jsonl", valid_examples)
+
+    return {
+        "data_dir": data_dir,
+        "train_count": len(train_examples),
+        "valid_count": len(valid_examples),
+    }
+
+
+def _load_rows(source: dict, log):
+    """Load raw rows -> (train_rows, valid_rows). Rows are dict-like."""
+    kind = source.get("type")
+    if kind == "huggingface":
+        return _load_huggingface(source, log)
+    if kind == "blob":
+        return _load_blob(source, log), []
+    raise DatasetPrepError(f"unsupported datasetSource.type: {kind!r}")
+
+
+def _load_huggingface(source: dict, log):
+    try:
+        from datasets import load_dataset
+    except ImportError as error:  # pragma: no cover - env misconfiguration
+        raise DatasetPrepError(
+            "the `datasets` library is unavailable; the mlx-lm[train] "
+            "environment did not install correctly"
+        ) from error
+
+    name = source.get("name")
+    if not name or not isinstance(name, str):
+        raise DatasetPrepError(
+            "datasetSource.type is 'huggingface' but 'name' is missing"
+        )
+    subset = source.get("subset")
+    split = source.get("split")
+    log(f"[arkor] loading HuggingFace dataset {name}" + (f" ({subset})" if subset else ""))
+
+    def load(split_name):
+        if subset:
+            return load_dataset(name, subset, split=split_name)
+        return load_dataset(name, split=split_name)
+
+    try:
+        train = load(split or "train")
+    except Exception as error:
+        raise DatasetPrepError(
+            f"failed to load HuggingFace dataset {name!r}: {error}"
+        ) from error
+
+    valid = []
+    if not split:
+        # Best effort: reuse an existing validation split when the dataset
+        # ships one. An explicit `split` request disables this (the user
+        # asked for exactly one split).
+        for candidate in ("validation", "valid"):
+            try:
+                valid = load(candidate)
+                log(f"[arkor] using the dataset's {candidate!r} split for eval")
+                break
+            except Exception as error:
+                # Expected for datasets without that split; logged so a
+                # real failure (auth, network) is diagnosable rather than
+                # silently degrading to the auto-holdout path.
+                log(f"[arkor] no usable {candidate!r} split: {error}")
+                continue
+    return train, valid
+
+
+_BLOB_TIMEOUT_SECONDS = 120
+
+
+class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Drop the Authorization header when a redirect leaves the original host.
+
+    Pre-signed blob URLs commonly redirect to a CDN host; forwarding the
+    bearer token there would leak it to a third party.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old_scheme = urllib.parse.urlparse(req.full_url).scheme
+        new_scheme = urllib.parse.urlparse(newurl).scheme
+        if old_scheme == "https" and new_scheme != "https":
+            # Refused outright, not merely stripped of its Authorization
+            # header: the rows themselves would arrive over plaintext, and
+            # a network attacker who can rewrite them poisons the adapter.
+            # A redirect can also carry pre-signed credentials in the new
+            # URL's query, which header stripping does not protect.
+            raise DatasetPrepError(
+                "blob dataset redirect downgrades https to "
+                f"{new_scheme!r}; refusing to follow it"
+            )
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None:
+            old_url = urllib.parse.urlparse(req.full_url)
+            new_url = urllib.parse.urlparse(new_req.full_url)
+            # Also strip on an https -> http downgrade of the SAME host:
+            # the token would otherwise continue in cleartext.
+            downgraded = old_url.scheme == "https" and new_url.scheme != "https"
+            if old_url.netloc != new_url.netloc or downgraded:
+                new_req.remove_header("Authorization")
+        return new_req
+
+
+def _load_blob(source: dict, log):
+    url = source.get("url")
+    if not url or not isinstance(url, str):
+        raise DatasetPrepError("datasetSource.type is 'blob' but 'url' is missing")
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise DatasetPrepError(
+            f"blob dataset URL must be http(s), got {parsed.scheme!r}"
+        )
+    token = source.get("token")
+    if token and parsed.scheme != "https":
+        # No loopback carve-out: on a shared machine any local account can
+        # bind a loopback port the intended service does not already hold,
+        # and this request would hand it the bearer token in cleartext.
+        raise DatasetPrepError(
+            "refusing to send the blob dataset token over plain http; use "
+            "an https URL"
+        )
+    # Redacted: pre-signed URLs commonly carry their credential in the
+    # query string, and this line lands in the durable job console.
+    redacted = urllib.parse.urlunparse(
+        # rsplit("@") also drops basic-auth userinfo from the logged form.
+        (parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", "", "")
+    )
+    suffix = " (query redacted)" if parsed.query else ""
+    log(f"[arkor] downloading blob dataset from {redacted}{suffix}")
+    request = urllib.request.Request(url)
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    opener = urllib.request.build_opener(_AuthStrippingRedirectHandler())
+    rows = []
+    try:
+        with opener.open(request, timeout=_BLOB_TIMEOUT_SECONDS) as response:
+            # Stream line by line instead of buffering the whole body:
+            # datasets can be large and JSONL is naturally line-oriented.
+            for line_number, raw_line in enumerate(response, start=1):
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError as error:
+                    raise DatasetPrepError(
+                        f"blob dataset line {line_number} is not valid JSON: {error}"
+                    ) from error
+    except DatasetPrepError:
+        raise
+    except Exception as error:
+        raise DatasetPrepError(f"failed to download blob dataset: {error}") from error
+    return rows
+
+
+def _convert_row(row, fmt: dict) -> dict:
+    kind = fmt.get("type", "chatml")
+    mapping = fmt.get("columnMapping") or {}
+    if kind == "chatml":
+        messages = _column(row, mapping.get("messages", "messages"))
+        return {"messages": _normalise_messages(messages)}
+    if kind == "sharegpt":
+        conversations = _column(row, mapping.get("conversations", "conversations"))
+        return {"messages": _sharegpt_to_messages(conversations)}
+    if kind == "alpaca":
+        instruction = _text_column(row, mapping.get("instruction", "instruction"))
+        extra_input = _optional_column(row, mapping.get("input", "input"))
+        if extra_input is not None and not isinstance(extra_input, str):
+            raise DatasetPrepError(
+                f"dataset column {mapping.get('input', 'input')!r} must be a "
+                "string when set"
+            )
+        output = _text_column(row, mapping.get("output", "output"))
+        prompt = instruction if not extra_input else f"{instruction}\n\n{extra_input}"
+        return {"prompt": prompt, "completion": output}
+    if kind == "prompt_completion":
+        return {
+            "prompt": _text_column(row, mapping.get("prompt", "prompt")),
+            "completion": _text_column(row, mapping.get("completion", "completion")),
+        }
+    if kind == "text":
+        return {"text": _text_column(row, mapping.get("text", "text"))}
+    raise DatasetPrepError(f"unsupported datasetFormat.type: {kind!r}")
+
+
+def _column(row, name: str):
+    value = _optional_column(row, name)
+    if value is None:
+        raise DatasetPrepError(
+            f"dataset row is missing the {name!r} column, or its value is "
+            "null (set datasetFormat.columnMapping if your columns differ)"
+        )
+    return value
+
+
+def _text_column(row, name: str) -> str:
+    """A column whose value is written verbatim into the prepared JSONL.
+
+    Non-string values (numbers, lists, nested objects) would otherwise land
+    in train.jsonl and only fail deep inside mlx-lm's tokenizer, after the
+    model has loaded; under `dryRun` they would never fail at all and the
+    malformed dataset would be reported as validated. ChatML and ShareGPT
+    already enforce this on their message contents.
+    """
+    value = _column(row, name)
+    if not isinstance(value, str):
+        raise DatasetPrepError(
+            f"dataset column {name!r} must be a string, got "
+            f"{type(value).__name__}"
+        )
+    return value
+
+
+def _optional_column(row, name: str):
+    try:
+        value = row[name]
+    except (KeyError, IndexError, TypeError):
+        return None
+    return value
+
+
+_SHAREGPT_ROLES = {
+    "human": "user",
+    "user": "user",
+    "gpt": "assistant",
+    "assistant": "assistant",
+    "system": "system",
+}
+
+
+def _sharegpt_to_messages(conversations) -> list:
+    if not isinstance(conversations, list) or not conversations:
+        raise DatasetPrepError(
+            "sharegpt rows must carry a non-empty conversation list"
+        )
+    messages = []
+    for turn in conversations:
+        if not isinstance(turn, dict):
+            raise DatasetPrepError(
+                f"sharegpt conversation turns must be objects, got {type(turn).__name__}"
+            )
+        speaker = turn.get("from") or turn.get("role")
+        role = _SHAREGPT_ROLES.get(speaker)
+        if role is None:
+            raise DatasetPrepError(
+                f"unsupported sharegpt speaker {speaker!r} (expected one of "
+                f"{sorted(_SHAREGPT_ROLES)})"
+            )
+        content = turn.get("value") if "value" in turn else turn.get("content")
+        if not isinstance(content, str):
+            raise DatasetPrepError(
+                f"sharegpt turn for {speaker!r} has no string 'value'/'content'"
+            )
+        messages.append({"role": role, "content": content})
+    return messages
+
+
+def _validate_tool_calls(tool_calls) -> None:
+    """Reject malformed `tool_calls` before they reach the training data.
+
+    Without this an entry like `[{}]` satisfies the "assistant turn with
+    calls" shape, bypasses the string-content requirement, and is written
+    verbatim into train.jsonl, teaching the model a call with no name or
+    arguments.
+    """
+    if not isinstance(tool_calls, list) or not tool_calls:
+        raise DatasetPrepError("'tool_calls' must be a non-empty list")
+    for call in tool_calls:
+        if not isinstance(call, dict):
+            raise DatasetPrepError(
+                f"each tool call must be an object, got {type(call).__name__}"
+            )
+        if not isinstance(call.get("id"), str) or not call["id"]:
+            raise DatasetPrepError("each tool call needs a non-empty 'id'")
+        function = call.get("function")
+        if not isinstance(function, dict) or not isinstance(
+            function.get("name"), str
+        ):
+            raise DatasetPrepError(
+                "each tool call needs a 'function' object with a 'name'"
+            )
+
+
+def _normalise_messages(messages) -> list:
+    if not isinstance(messages, list) or not messages:
+        raise DatasetPrepError("chatml rows must carry a non-empty message list")
+    out = []
+    for message in messages:
+        if not isinstance(message, dict):
+            raise DatasetPrepError(
+                f"chatml messages must be objects, got {type(message).__name__}"
+            )
+        role = message.get("role")
+        content = message.get("content")
+        if role not in ("system", "user", "assistant", "tool"):
+            raise DatasetPrepError(f"unsupported chat role {role!r}")
+        # An assistant turn that only calls tools carries no content: the
+        # SDK's ChatMessage type permits null there, and OpenAI-compatible
+        # datasets rely on it. Every other turn still needs real text.
+        tool_calls = message.get("tool_calls")
+        if tool_calls is not None:
+            _validate_tool_calls(tool_calls)
+        # A `tool` result is meaningless without the id tying it back to
+        # the call that produced it, and the public ChatMessage contract
+        # requires one; accepting the row would train the model on an
+        # unassociated result.
+        if role == "tool" and not message.get("tool_call_id"):
+            raise DatasetPrepError(
+                "chatml 'tool' messages must carry a 'tool_call_id'"
+            )
+        calls_only = (
+            role == "assistant"
+            and content is None
+            and isinstance(tool_calls, list)
+            and len(tool_calls) > 0
+        )
+        if not calls_only and not isinstance(content, str):
+            raise DatasetPrepError(
+                f"chatml message for role {role!r} has no string 'content'"
+            )
+        normalised = {"role": role, "content": content}
+        # Tool-use turns lose their meaning without these: an assistant
+        # message's `tool_calls` and the `tool_call_id` that ties a tool
+        # result back to its call. Dropping them (while still accepting the
+        # `tool` role) would hand mlx-lm a conversation whose results have
+        # no calls, teaching the model a corrupted exchange.
+        for extra in ("tool_calls", "tool_call_id", "name"):
+            if extra in message:
+                normalised[extra] = message[extra]
+        out.append(normalised)
+    return out
+
+
+def _split(examples: list, test_size: float, seed: int):
+    shuffled = list(examples)
+    random.Random(seed).shuffle(shuffled)
+    held_out = max(1, int(len(shuffled) * test_size))
+    if held_out >= len(shuffled):
+        raise DatasetPrepError(
+            "datasetSplit.testSize leaves no training examples "
+            f"({held_out} of {len(shuffled)} held out)"
+        )
+    return shuffled[held_out:], shuffled[:held_out]
+
+
+def _write_jsonl(path: Path, examples: list) -> None:
+    # 0600 for the same reason the data dir is 0700 (private training rows).
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        for example in examples:
+            handle.write(json.dumps(example, ensure_ascii=False) + "\n")

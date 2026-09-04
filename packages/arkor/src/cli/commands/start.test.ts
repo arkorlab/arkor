@@ -10,7 +10,17 @@ import { join } from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+import {
+  LOCAL_SERVER_TOKEN_ENV,
+  LOCAL_SERVER_URL_ENV,
+} from "../../core/local-mode";
+import { loadLocalRuntime } from "../local-runtime-loader";
+
 import { runStart } from "./start";
+
+vi.mock("../local-runtime-loader", () => ({
+  loadLocalRuntime: vi.fn(),
+}));
 
 let cwd: string;
 const ORIG_CWD = process.cwd();
@@ -175,5 +185,220 @@ describe("runStart", () => {
     expect(existsSync(join(cwd, ".arkor/build-alt/index.mjs"))).toBe(true);
     // The alt entry's jobId surfaces, proving the rebuild used the override.
     expect(writes.join("")).toContain("Started job alt");
+  });
+});
+
+describe("runStart --local", () => {
+  // A manifest that captures the env hand-off at MODULE IMPORT time (the
+  // moment the real user bundle constructs its trainer via createTrainer),
+  // proving the variables were set BEFORE the artifact's dynamic import,
+  // not merely by the time start() runs.
+  const ENV_ECHO_MANIFEST = `const importTimeUrl = process.env.${LOCAL_SERVER_URL_ENV};
+const importTimeToken = process.env.${LOCAL_SERVER_TOKEN_ENV};
+export const arkor = Object.freeze({
+  _kind: "arkor",
+  trainer: {
+    name: "run",
+    start: async () => {
+      console.log(
+        "[env-echo] url=" + importTimeUrl + " token=" + importTimeToken,
+      );
+      return { jobId: "j-local" };
+    },
+    wait: async () => ({
+      job: {
+        id: "j-local",
+        orgId: "local",
+        projectId: "local",
+        name: "run",
+        status: "completed",
+        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+        createdAt: "2026-01-01",
+      },
+      artifacts: [],
+    }),
+    cancel: async () => {},
+  },
+});
+`;
+
+  const baselineListeners: Record<string, number> = {
+    SIGINT: process.listeners("SIGINT").length,
+    SIGTERM: process.listeners("SIGTERM").length,
+    SIGHUP: process.listeners("SIGHUP").length,
+  };
+
+  // A manifest whose trainer invokes the CLI's own signal handler from
+  // inside start(), so it runs while `runStart` is mid-flight (exactly
+  // where a user's Ctrl-C lands). The listener is called directly rather
+  // than `process.emit("SIGINT")`: emitting would also fire vitest's own
+  // signal handling and tear the run down.
+  const SIGNAL_MANIFEST = `export const arkor = Object.freeze({
+  _kind: "arkor",
+  trainer: {
+    name: "run",
+    start: async () => {
+      const handler = process.listeners("__SIGNAL__").at(-1);
+      if (!handler) throw new Error("no __SIGNAL__ handler was installed");
+      handler("__SIGNAL__");
+      return { jobId: "j-local" };
+    },
+    wait: async () => ({
+      job: {
+        id: "j-local",
+        orgId: "local",
+        projectId: "local",
+        name: "run",
+        status: "completed",
+        config: { model: "m", datasetSource: { type: "huggingface", name: "x" } },
+        createdAt: "2026-01-01",
+      },
+      artifacts: [],
+    }),
+    cancel: async () => {},
+  },
+});
+`;
+
+  afterEach(() => {
+    vi.mocked(loadLocalRuntime).mockReset();
+    delete process.env[LOCAL_SERVER_URL_ENV];
+    delete process.env[LOCAL_SERVER_TOKEN_ENV];
+  });
+
+  function mockRuntime() {
+    const close = vi.fn(async () => undefined);
+    const startServer = vi.fn(async () => ({
+      url: "http://127.0.0.1:43210",
+      token: "local-token-abcdef0123456789",
+      backend: { id: "mlx", displayName: "MLX (Apple Silicon)" },
+      close,
+    }));
+    vi.mocked(loadLocalRuntime).mockResolvedValue({ startServer });
+    return { close, startServer };
+  }
+
+  it("boots the local server, sets the env hand-off before import, and cleans up", async () => {
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), ENV_ECHO_MANIFEST);
+    const { close, startServer } = mockRuntime();
+
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
+      logs.push(args.join(" "));
+    });
+    const writes: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(typeof chunk === "string" ? chunk : String(chunk));
+      return true;
+    }) as unknown as typeof process.stdout.write);
+    try {
+      await runStart({ cwd, local: true, backend: "mlx" });
+    } finally {
+      logSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+
+    expect(startServer).toHaveBeenCalledWith({ cwd, backendId: "mlx" });
+    const output = logs.join("\n");
+    // The trainer observed the hand-off at module import time.
+    expect(output).toContain("[env-echo] url=http://127.0.0.1:43210");
+    expect(output).toContain("token=local-token-abcdef0123456789");
+    // The CLI announced the backend (via ui.log.info, which writes stdout).
+    expect(writes.join("")).toContain("MLX (Apple Silicon)");
+    // Server closed and env removed (not left as the string "undefined").
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(process.env[LOCAL_SERVER_URL_ENV]).toBeUndefined();
+    expect(process.env[LOCAL_SERVER_TOKEN_ENV]).toBeUndefined();
+  });
+
+  it.each([
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+    ["SIGHUP", 129],
+  ])(
+    "kills the local server on %s instead of orphaning the trainer",
+    async (signal, code) => {
+      // Node's default signal handling would terminate the CLI without
+      // running the `finally` cleanup or firing 'exit', leaving the detached
+      // uv/Python group alive with the GPU. The handler must close the server
+      // and exit with the conventional 128 + signal number code.
+      mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+      writeFileSync(
+        join(cwd, "src/arkor/index.ts"),
+        SIGNAL_MANIFEST.replaceAll("__SIGNAL__", signal),
+      );
+      const { close } = mockRuntime();
+      const exits: number[] = [];
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+        code?: number,
+      ) => {
+        exits.push(code ?? 0);
+        return undefined as never;
+      }) as typeof process.exit);
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((() => true) as typeof process.stdout.write);
+      try {
+        await runStart({ cwd, local: true });
+      } finally {
+        exitSpy.mockRestore();
+        logSpy.mockRestore();
+        stdoutSpy.mockRestore();
+      }
+      expect(close).toHaveBeenCalled();
+      // Conventional 128 + signal number, so a supervisor can tell a signal
+      // from a clean exit.
+      expect(exits).toContain(code);
+      // The handler is removed once the run finishes, so a later signal in
+      // the same process (tests, programmatic use) is not caught by it.
+      expect(process.listeners(signal as NodeJS.Signals)).toHaveLength(
+        baselineListeners[signal as NodeJS.Signals],
+      );
+    },
+  );
+
+  it("closes the local server even when the trainer run fails", async () => {
+    // No src/arkor/index.ts: the build step throws.
+    const { close } = mockRuntime();
+    await expect(runStart({ cwd, local: true })).rejects.toThrow();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(process.env[LOCAL_SERVER_URL_ENV]).toBeUndefined();
+  });
+
+  it("reuses an existing env hand-off instead of booting a second server", async () => {
+    // The Studio /api/train child path: `arkor dev --local` already runs a
+    // server and injected the hand-off into this process's env.
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), ENV_ECHO_MANIFEST);
+    process.env[LOCAL_SERVER_URL_ENV] = "http://127.0.0.1:50505";
+    process.env[LOCAL_SERVER_TOKEN_ENV] = "parent-token-0123456789abcdef";
+
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
+      logs.push(args.join(" "));
+    });
+    try {
+      await runStart({ cwd, local: true });
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(loadLocalRuntime).not.toHaveBeenCalled();
+    expect(logs.join("\n")).toContain("url=http://127.0.0.1:50505");
+    // The parent's hand-off survives for the parent's later children.
+    expect(process.env[LOCAL_SERVER_URL_ENV]).toBe("http://127.0.0.1:50505");
+  });
+
+  it("does not touch the local runtime without --local", async () => {
+    mkdirSync(join(cwd, "src/arkor"), { recursive: true });
+    writeFileSync(join(cwd, "src/arkor/index.ts"), FAKE_MANIFEST);
+    await runStart({ cwd });
+    expect(loadLocalRuntime).not.toHaveBeenCalled();
   });
 });

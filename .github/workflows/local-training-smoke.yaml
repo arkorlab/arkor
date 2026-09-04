@@ -1,0 +1,70 @@
+name: Local training smoke (MLX)
+
+# Real-hardware verification of `arkor start --local`: trains a tiny model
+# with the actual uv-resolved mlx-lm stack on Apple Silicon macOS and chats
+# against the trained adapter (see scripts/local-training-smoke.mjs for the
+# exact assertions). A separate workflow from ci.yaml so its heavyweight
+# setup (model download, Python environment resolution) has its own caches
+# and its own timeout without complicating the matrix there.
+#
+# Triggers mirror ci.yaml (every push and pull request) plus a nightly
+# schedule that catches mlx-lm ecosystem drift against the pin even when
+# the repo is quiet, and manual dispatch for ad-hoc branch verification.
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 19 * * *" # daily, 19:17 UTC (04:17 JST)
+  workflow_dispatch:
+
+concurrency:
+  group: local-training-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    # macos-15 runners are Apple Silicon (M-series): the MLX preflight
+    # (darwin/arm64) passes for real, no fakes anywhere in this lane.
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build arkor + @arkor/local
+        run: pnpm exec turbo run build --filter=arkor --filter=@arkor/local
+
+      # uv resolves the pinned mlx-lm (see MLX_LM_SPEC in
+      # packages/arkor-local/src/backends/mlx.ts) into its own cached
+      # environment; enable-cache persists that across runs so only the
+      # first run after a pin bump pays the resolve cost.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      # The HuggingFace hub cache holds the smoke model (~270 MB for
+      # SmolLM2-135M-Instruct). Keyed by the model id baked into the smoke
+      # script plus the mlx-lm pin, so bumping either re-downloads once.
+      - name: Restore HuggingFace model cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/huggingface
+          key: hf-smoke-${{ hashFiles('scripts/local-training-smoke.mjs', 'packages/arkor-local/src/backends/mlx.ts') }}
+
+      - name: Run local training smoke
+        env:
+          ARKOR_TELEMETRY_DISABLED: "1"
+        run: node scripts/local-training-smoke.mjs
