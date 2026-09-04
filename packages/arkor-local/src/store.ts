@@ -545,17 +545,30 @@ export class JobStore {
       const timestamp = new Date().toISOString();
       const error =
         "Training was interrupted (local server or trainer process exited)";
-      const won = await this.transitionToTerminal(
-        job.id,
-        { type: "training.failed", jobId: job.id, timestamp, error },
-        (r) => {
-          r.job.status = "failed";
-          r.job.error = error;
-          r.job.completedAt = timestamp;
-          r.pid = null;
-        },
-      );
-      if (won) this.notifyEnded(job.id);
+      try {
+        const won = await this.transitionToTerminal(
+          job.id,
+          { type: "training.failed", jobId: job.id, timestamp, error },
+          (r) => {
+            r.job.status = "failed";
+            r.job.error = error;
+            r.job.completedAt = timestamp;
+            r.pid = null;
+          },
+        );
+        if (won) this.notifyEnded(job.id);
+      } catch (transitionError) {
+        // Per job, because the transition now propagates read failures
+        // (see readEventsStrict): one unreadable job directory must not
+        // abort the sweep for the others, and the startup call awaits
+        // this, so it must not stop the server from launching either.
+        console.error(
+          `local training server: could not reconcile job ${job.id}: ` +
+            (transitionError instanceof Error
+              ? transitionError.message
+              : String(transitionError)),
+        );
+      }
     }
     return skippedYoung;
   }

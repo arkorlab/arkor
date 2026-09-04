@@ -4,7 +4,7 @@ import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobStore } from "./store";
 
@@ -486,6 +486,32 @@ describe("JobStore.reconcileOrphans", () => {
     expect((await store.getJob(fresh))?.job.status).toBe("queued");
     await store.reconcileOrphans();
     expect((await store.getJob(fresh))?.job.status).toBe("failed");
+  });
+
+  it("keeps sweeping when one job's event log cannot be read", async () => {
+    // The recovery read propagates non-ENOENT failures on purpose, and
+    // startLocalServer awaits this sweep: one unreadable job directory
+    // must not abort the others or block the server from launching.
+    const broken = await createJob("broken");
+    const healthy = await createJob("healthy");
+    for (const id of [broken, healthy]) {
+      await store.updateJob(id, (r) => {
+        r.job.createdAt = new Date(Date.now() - 11 * 60_000).toISOString();
+      });
+    }
+    // Replace the event log with a directory: readFile then fails EISDIR.
+    await rm(join(rootDir, "jobs", broken, "events.jsonl"), { force: true });
+    await mkdir(join(rootDir, "jobs", broken, "events.jsonl"));
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await expect(store.reconcileOrphans()).resolves.toBe(false);
+
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+    expect((await store.getJob(broken))?.job.status).toBe("queued");
+    expect((await store.getJob(healthy))?.job.status).toBe("failed");
   });
 
   it("leaves a fresh pid-less record alone but fails an aged one", async () => {
