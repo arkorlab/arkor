@@ -330,12 +330,29 @@ export const arkor = Object.freeze({
         join(cwd, "src/arkor/index.ts"),
         SIGNAL_MANIFEST.replaceAll("__SIGNAL__", signal),
       );
-      const { close } = mockRuntime();
+      // Ordered log so the assertion below can prove the close COMPLETED
+      // before the exit: firing it and forgetting it (the pre-review
+      // behaviour) would drop the tail of the job's console output.
+      const events: string[] = [];
+      const close = vi.fn(async () => {
+        events.push("close:start");
+        await Promise.resolve();
+        events.push("close:end");
+      });
+      vi.mocked(loadLocalRuntime).mockResolvedValue({
+        startServer: vi.fn(async () => ({
+          url: "http://127.0.0.1:43210",
+          token: "local-token-abcdef0123456789",
+          backend: { id: "mlx", displayName: "MLX (Apple Silicon)" },
+          close,
+        })),
+      });
       const exits: number[] = [];
       const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
         code?: number,
       ) => {
         exits.push(code ?? 0);
+        events.push("exit");
         return undefined as never;
       }) as typeof process.exit);
       const logSpy = vi
@@ -355,6 +372,7 @@ export const arkor = Object.freeze({
       // Conventional 128 + signal number, so a supervisor can tell a signal
       // from a clean exit.
       expect(exits).toContain(code);
+      expect(events.indexOf("close:end")).toBeLessThan(events.indexOf("exit"));
       // The handler is removed once the run finishes, so a later signal in
       // the same process (tests, programmatic use) is not caught by it.
       expect(process.listeners(signal as NodeJS.Signals)).toHaveLength(

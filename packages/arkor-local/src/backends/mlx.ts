@@ -90,6 +90,36 @@ function firstUnknownKey(
 /** LR schedules the shim maps onto mlx-lm's schedule builders. */
 const LR_SCHEDULES = Object.freeze(["constant", "linear", "cosine"] as const);
 
+/**
+ * Every `JobConfig` field this backend reads. Anything else is either a
+ * cloud-only field or a typo, and `buildTrainRun` warns about it so a
+ * misspelt setting is visible in the job's console log rather than
+ * silently absent from the run.
+ */
+const KNOWN_CONFIG_KEYS = new Set([
+  "model",
+  "datasetSource",
+  "datasetFormat",
+  "datasetSplit",
+  "maxSteps",
+  "numTrainEpochs",
+  "learningRate",
+  "batchSize",
+  "optim",
+  "lrSchedulerType",
+  "warmupSteps",
+  "weightDecay",
+  "loggingSteps",
+  "saveSteps",
+  "evalSteps",
+  "loraR",
+  "loraAlpha",
+  "maxLength",
+  "loadIn4bit",
+  "trainOnResponsesOnly",
+  "dryRun",
+]);
+
 /** Dataset shapes the shim's converters understand. */
 const DATASET_FORMATS = Object.freeze([
   "text",
@@ -211,6 +241,21 @@ export const mlxBackend: LocalTrainingBackend = {
     ) {
       errors.push("weightDecay must be a non-negative number");
     }
+    // mlx's plain `Adam` takes no weight_decay (that is what AdamW is for),
+    // so the shim's optimizer_config entry would blow up during optimizer
+    // construction, after the dataset and model have already been loaded.
+    // Fail at submit time with the fix in the message instead.
+    if (
+      !absent(config.weightDecay) &&
+      config.weightDecay !== 0 &&
+      !(optim instanceof Error) &&
+      optim.value === "adam"
+    ) {
+      errors.push(
+        'weightDecay is not supported with optim "adam" (mlx\'s Adam has ' +
+          'no weight decay); use "adamw" instead',
+      );
+    }
 
     const warmup = normaliseWarmupSteps(config.warmupSteps);
     if (warmup instanceof Error) errors.push(warmup.message);
@@ -236,6 +281,19 @@ export const mlxBackend: LocalTrainingBackend = {
   buildTrainRun(args: { config: JobConfig; paths: TrainRunPaths }): TrainRun {
     const { config, paths } = args;
     const warnings: string[] = [];
+    // Warn (not reject) on unrecognised top-level fields: a typo like
+    // `learningRtae` would otherwise be dropped silently and the run would
+    // train with mlx-lm's default while reporting success. A warning
+    // rather than an error because JobConfig doubles as the decoded cloud
+    // response and may legitimately carry fields this backend predates.
+    for (const key of Object.keys(config)) {
+      if (!KNOWN_CONFIG_KEYS.has(key)) {
+        warnings.push(
+          `config field "${key}" is not used by the MLX backend and was ` +
+            "ignored (check the spelling if you meant to set it)",
+        );
+      }
+    }
 
     // validateConfig ran before job creation; a validation error here means
     // a caller skipped it, which is a programming error worth failing loudly.

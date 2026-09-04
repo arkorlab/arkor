@@ -43,15 +43,40 @@ const DEFAULT_OUT_DIR = ".arkor/build";
  * exit with the conventional `128 + signal` code so supervisors can tell a
  * signal from a clean exit. Returns a remover so the normal path does not
  * leave listeners behind on a long-lived caller (tests, programmatic use).
+ *
+ * The close is awaited (briefly) rather than fired and forgotten: it is what
+ * ends the per-job console stream, so exiting first would drop whatever the
+ * trainer wrote in the moments before Ctrl-C. The wait is bounded, and a
+ * second signal exits immediately, so a child that ignores SIGTERM cannot
+ * hold the CLI open; the runtime's process-'exit' reaper still kills the
+ * groups on either path.
  */
 function installSignalHandlers(server: LoadedLocalServer): () => void {
+  let exiting = false;
   const handlers = SHUTDOWN_SIGNALS.map((sig) => {
     const handler = () => {
-      // Fire-and-forget: the exit below cannot wait on a promise, but
-      // close() signals the process groups synchronously before its first
-      // await, and the runtime's own process-'exit' reaper is the backstop.
-      void server.close().catch(() => undefined);
-      process.exit(128 + osConstants.signals[sig]);
+      const code = 128 + osConstants.signals[sig];
+      if (exiting) {
+        process.exit(code);
+      } else {
+        exiting = true;
+        const deadline = setTimeout(() => {
+          process.exit(code);
+        }, CLOSE_TIMEOUT_MS);
+        deadline.unref();
+        void (async () => {
+          try {
+            await server.close();
+          } catch {
+            // Best effort: a close failure must not change the exit code.
+          }
+          // Nothing else must fire the deadline once we are exiting: under
+          // a stubbed `process.exit` (tests) it would otherwise take the
+          // process down two seconds later.
+          clearTimeout(deadline);
+          process.exit(code);
+        })();
+      }
     };
     process.on(sig, handler);
     return { sig, handler } as const;
@@ -62,6 +87,9 @@ function installSignalHandlers(server: LoadedLocalServer): () => void {
 }
 
 const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+
+/** How long a signal handler waits for `close()` before exiting anyway. */
+const CLOSE_TIMEOUT_MS = 2000;
 
 /**
  * Execute the build artifact at `.arkor/build/index.mjs`. Mirrors `next start`:

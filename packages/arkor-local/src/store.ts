@@ -167,6 +167,26 @@ export class JobStore {
     return record;
   }
 
+  /**
+   * Like {@link getJob}, but only a missing file reads as "no such job".
+   *
+   * The terminal-transition paths DECIDE from a null here (they report
+   * "someone else owns the ending" and the runner stops retrying), so a
+   * transient EMFILE / EIO / exhausted-lock-retry must surface instead of
+   * silently leaving a finished run streaming forever.
+   */
+  private async getJobStrict(jobId: string): Promise<JobRecord | null> {
+    const file = join(this.jobDir(jobId), "job.json");
+    let raw: string;
+    try {
+      raw = await retryWindowsFileLocks(() => readFile(file, "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    return JSON.parse(raw) as JobRecord;
+  }
+
   async getJob(jobId: string): Promise<JobRecord | null> {
     const file = join(this.jobDir(jobId), "job.json");
     let raw: string;
@@ -253,7 +273,7 @@ export class JobStore {
   ): Promise<boolean> {
     const state = this.ensureRuntime(jobId);
     const task = state.recordQueue.then(async () => {
-      const record = await this.getJob(jobId);
+      const record = await this.getJobStrict(jobId);
       if (!record || isTerminalStatus(record.job.status)) return false;
       // Crash recovery: a previous transition (in this process or a
       // crashed one) can have appended its terminal event and never
@@ -337,7 +357,7 @@ export class JobStore {
   ): Promise<"appended" | "terminal" | "gone"> {
     const state = this.ensureRuntime(jobId);
     const task = state.recordQueue.then(async () => {
-      const record = await this.getJob(jobId);
+      const record = await this.getJobStrict(jobId);
       if (!record) return "gone" as const;
       if (isTerminalStatus(record.job.status)) return "terminal" as const;
       await this.appendEvent(jobId, event);
@@ -390,9 +410,14 @@ export class JobStore {
     return task;
   }
 
-  /** Events with `seq > afterSeq`, in order. */
+  /**
+   * Events with `seq > afterSeq`, in order. Uses the strict read: a
+   * transient failure must not look like an empty history, which would
+   * make the SSE route emit `end` for a terminal job with none of its
+   * logs, checkpoints, or completion artifacts replayed.
+   */
   async replayAfter(jobId: string, afterSeq: number): Promise<StoredEvent[]> {
-    const events = await this.readEvents(jobId);
+    const events = await this.readEventsStrict(jobId);
     return events.filter((e) => e.seq > afterSeq);
   }
 

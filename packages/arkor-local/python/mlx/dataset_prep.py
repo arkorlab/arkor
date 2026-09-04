@@ -167,6 +167,10 @@ def _load_huggingface(source: dict, log):
 _BLOB_TIMEOUT_SECONDS = 120
 
 
+def _is_loopback_host(hostname) -> bool:
+    return hostname in ("127.0.0.1", "::1", "localhost")
+
+
 class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Drop the Authorization header when a redirect leaves the original host.
 
@@ -207,6 +211,15 @@ def _load_blob(source: dict, log):
     if parsed.scheme not in ("http", "https"):
         raise DatasetPrepError(
             f"blob dataset URL must be http(s), got {parsed.scheme!r}"
+        )
+    # Plain http is allowed only for loopback (a local fixture server, as
+    # the smoke test uses). Off-box http would let anyone on the path
+    # rewrite the JSONL rows and poison the adapter, with nothing in the
+    # run to show for it.
+    if parsed.scheme != "https" and not _is_loopback_host(parsed.hostname):
+        raise DatasetPrepError(
+            "blob dataset URLs must use https (plain http is accepted only "
+            f"for loopback hosts), got {url}"
         )
     token = source.get("token")
     if token and parsed.scheme != "https":
@@ -353,36 +366,59 @@ def _sharegpt_to_messages(conversations) -> list:
     return messages
 
 
-def _validate_tool_calls(tool_calls) -> None:
-    """Reject malformed `tool_calls` before they reach the training data.
+def _validate_tool_calls(tool_calls) -> list:
+    """Reject malformed `tool_calls` and return the ids they define.
 
     Without this an entry like `[{}]` satisfies the "assistant turn with
     calls" shape, bypasses the string-content requirement, and is written
     verbatim into train.jsonl, teaching the model a call with no name or
-    arguments.
+    arguments. The shape mirrors the SDK's public `ToolCall` contract
+    (`id`, `type: "function"`, `function.name`, `function.arguments`).
+
+    An EMPTY list is allowed: OpenAI-compatible exporters write
+    `tool_calls: []` on ordinary textual replies. Only a content-less
+    assistant turn needs an actual call, which the caller enforces.
     """
-    if not isinstance(tool_calls, list) or not tool_calls:
-        raise DatasetPrepError("'tool_calls' must be a non-empty list")
+    if not isinstance(tool_calls, list):
+        raise DatasetPrepError("'tool_calls' must be a list")
+    ids = []
     for call in tool_calls:
         if not isinstance(call, dict):
             raise DatasetPrepError(
                 f"each tool call must be an object, got {type(call).__name__}"
             )
-        if not isinstance(call.get("id"), str) or not call["id"]:
+        call_id = call.get("id")
+        if not isinstance(call_id, str) or not call_id:
             raise DatasetPrepError("each tool call needs a non-empty 'id'")
-        function = call.get("function")
-        if not isinstance(function, dict) or not isinstance(
-            function.get("name"), str
-        ):
+        if call.get("type") != "function":
             raise DatasetPrepError(
-                "each tool call needs a 'function' object with a 'name'"
+                f"tool call {call_id!r} must have type 'function'"
             )
+        function = call.get("function")
+        if not isinstance(function, dict):
+            raise DatasetPrepError(
+                f"tool call {call_id!r} needs a 'function' object"
+            )
+        if not isinstance(function.get("name"), str) or not function["name"]:
+            raise DatasetPrepError(
+                f"tool call {call_id!r} needs a non-empty 'function.name'"
+            )
+        if not isinstance(function.get("arguments"), str):
+            raise DatasetPrepError(
+                f"tool call {call_id!r} needs string 'function.arguments' "
+                "(the JSON-encoded payload)"
+            )
+        ids.append(call_id)
+    return ids
 
 
 def _normalise_messages(messages) -> list:
     if not isinstance(messages, list) or not messages:
         raise DatasetPrepError("chatml rows must carry a non-empty message list")
     out = []
+    # Ids requested by assistant turns seen so far, so a tool result can be
+    # checked against the call it claims to answer.
+    declared_call_ids: set = set()
     for message in messages:
         if not isinstance(message, dict):
             raise DatasetPrepError(
@@ -397,15 +433,23 @@ def _normalise_messages(messages) -> list:
         # datasets rely on it. Every other turn still needs real text.
         tool_calls = message.get("tool_calls")
         if tool_calls is not None:
-            _validate_tool_calls(tool_calls)
+            declared_call_ids.update(_validate_tool_calls(tool_calls))
         # A `tool` result is meaningless without the id tying it back to
         # the call that produced it, and the public ChatMessage contract
         # requires one; accepting the row would train the model on an
         # unassociated result.
-        if role == "tool" and not message.get("tool_call_id"):
-            raise DatasetPrepError(
-                "chatml 'tool' messages must carry a 'tool_call_id'"
-            )
+        if role == "tool":
+            call_id = message.get("tool_call_id")
+            if not isinstance(call_id, str) or not call_id:
+                raise DatasetPrepError(
+                    "chatml 'tool' messages need a non-empty 'tool_call_id'"
+                )
+            if call_id not in declared_call_ids:
+                raise DatasetPrepError(
+                    f"chatml 'tool' message references tool_call_id "
+                    f"{call_id!r}, which no earlier assistant turn in this "
+                    "conversation requested"
+                )
         calls_only = (
             role == "assistant"
             and content is None

@@ -226,6 +226,40 @@ describe("RunManager failure paths", () => {
     expect((await store.getJob(jobId))?.job.status).toBe("completed");
   });
 
+  it("keeps the shim's outcome when recording it fails outright", async () => {
+    // Nothing reaches disk here (the append itself fails), so the store's
+    // tail convergence cannot save it. The close path must replay the
+    // shim's own `completed` rather than reading the exit code, which
+    // would report a successful run as a protocol violation.
+    const original = store.transitionToTerminal.bind(store);
+    let failed = false;
+    store.transitionToTerminal = async (jobId, event, mutate) => {
+      if (!failed) {
+        failed = true;
+        throw new Error("simulated store failure");
+      }
+      return original(jobId, event, mutate);
+    };
+
+    const { jobId } = await launch(
+      fixtureBackend({
+        chunks: [
+          marker({ type: "started" }),
+          marker({ type: "completed", adapterDir: "/a/final" }),
+        ],
+      }),
+    );
+    await waitForTerminal(jobId);
+
+    const record = await store.getJob(jobId);
+    expect(record?.job.status).toBe("completed");
+    expect(record?.job.error ?? "").not.toContain("protocol violation");
+    const events = await store.replayAfter(jobId, 0);
+    expect(
+      events.filter((e) => e.event.type === "training.completed"),
+    ).toHaveLength(1);
+  });
+
   it("fails the job when the child exits non-zero without a terminal event", async () => {
     const { jobId } = await launch(
       fixtureBackend({

@@ -580,6 +580,69 @@ describe("chat route", () => {
     const { error } = (await none.json()) as { error: string };
     expect(error).toContain("no adapter");
   });
+
+  it("honours the adapter kind instead of guessing from `step`", async () => {
+    // PR #228 review: resolving off the mere presence of `step` let a raw
+    // client be served weights it did not ask for. `kind` now decides, and
+    // a selector that names a kind it does not satisfy is rejected rather
+    // than quietly downgraded to the other one.
+    const { proxy, calls } = captureProxy();
+    const app = makeApp(fixtureBackend(), proxy);
+    const record = await store.createJob({
+      name: "trained",
+      config: {
+        model: "mlx-community/tiny",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      backendId: "fake",
+    });
+    const adapters = join(store.jobDir(record.job.id), "adapters");
+    await mkdir(join(adapters, "final"), { recursive: true });
+    await writeFile(join(adapters, "final", "adapter_config.json"), "{}");
+    await mkdir(join(adapters, "step-5"), { recursive: true });
+    await writeFile(join(adapters, "step-5", "adapter_config.json"), "{}");
+
+    const chat = (adapter: unknown) =>
+      app.request(
+        "/v1/inference/chat",
+        authed({
+          method: "POST",
+          body: JSON.stringify({
+            messages: [{ role: "user", content: "hi" }],
+            adapter,
+          }),
+        }),
+      );
+
+    // A stray `step` must not turn a "final" request into a checkpoint one.
+    const finalWithStep = await chat({
+      kind: "final",
+      jobId: record.job.id,
+      step: 5,
+    });
+    expect(finalWithStep.status).toBe(200);
+    // An explicit checkpoint resolves its own directory.
+    const checkpoint = await chat({
+      kind: "checkpoint",
+      jobId: record.job.id,
+      step: 5,
+    });
+    expect(checkpoint.status).toBe(200);
+    expect(calls).toEqual([
+      { model: "mlx-community/tiny", adapterPath: join(adapters, "final") },
+      { model: "mlx-community/tiny", adapterPath: join(adapters, "step-5") },
+    ]);
+
+    // A checkpoint selector whose step went missing (a typo, say) is a 400,
+    // not a silent fall back to final/.
+    const typo = await chat({
+      kind: "checkpoint",
+      jobId: record.job.id,
+      stpe: 5,
+    });
+    expect(typo.status).toBe(400);
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe("identity stub", () => {

@@ -89,7 +89,7 @@ Job history is durable: restarting `arkor dev --local` keeps the jobs list, and 
 | Field | Local behavior |
 | --- | --- |
 | `model` | Any HuggingFace id. The `SUPPORTED_MODELS` gate applies to cloud runs only; for local runs prefer MLX-converted models such as the `mlx-community/*` conversions (pre-quantised `*-4bit` builds keep memory low). |
-| `dataset` | Both source types work: `huggingface` (downloaded via the `datasets` library, `split` / `subset` honoured) and `blob` (direct JSONL URL, optional bearer token; a token requires an `https` URL, loopback included, so another local account cannot claim the port and capture it). |
+| `dataset` | Both source types work: `huggingface` (downloaded via the `datasets` library, `split` / `subset` honoured) and `blob` (JSONL URL, optional bearer token). The URL must be `https` unless the host is loopback, since anyone on the path to a plain-`http` host could rewrite the rows the adapter is trained on; a token additionally requires `https` even on loopback, so another local account cannot claim the port and capture it. |
 | `datasetFormat` | `chatml`, `sharegpt`, `alpaca`, `text`, `prompt_completion`, each with `columnMapping`. `pretokenized` is rejected. |
 | `maxSteps` / `numTrainEpochs` | One of the two is required (an unbounded run cannot be sized). Epochs are converted to iterations from the dataset size. |
 | `batchSize`, `learningRate`, `lora.r`, `lora.alpha`, `lora.maxLength` | Mapped directly (`alpha / r` becomes mlx-lm's LoRA scale). |
@@ -126,7 +126,7 @@ The local server also implements `POST /v1/inference/chat`, backed by a lazily s
 ## Cancellation and crash behavior
 
 - Cancelling a run sends SIGTERM to the whole training process group (uv and Python), escalating to SIGKILL after 5 seconds. This works during any phase, including dataset download. Use `trainer.cancel()`, or the **Cancel run** button on a job's detail page in Studio. The **Stop training** button on the Run-training card is a different action: it only detaches from the runner's output stream, and in local mode the trainer keeps going because it belongs to the `arkor dev` process, so cancel the job itself if you want the GPU back.
-- If the CLI exits while a run is live (Ctrl-C, SIGTERM, `docker stop`), the children are reaped on the way out.
+- If the CLI exits while a run is live (Ctrl-C, SIGTERM, `docker stop`), the children are reaped on the way out. The CLI first gives the local server up to 2 seconds to close so the job's console log keeps the last lines the trainer wrote; a second Ctrl-C skips that wait.
 - If the machine or process dies uncleanly, the next local launch marks orphaned "running" jobs as failed with an explanatory event instead of leaving them stuck.
 
 ## Errors

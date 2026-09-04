@@ -506,10 +506,15 @@ describe("JobStore.reconcileOrphans", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
 
-    await expect(store.reconcileOrphans()).resolves.toBe(false);
-
-    expect(errorSpy).toHaveBeenCalled();
-    errorSpy.mockRestore();
+    try {
+      await expect(store.reconcileOrphans()).resolves.toBe(false);
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      // Restored even when an assertion above throws: this config has no
+      // `restoreMocks`, so a leaked spy would swallow console.error for
+      // every later test in the file.
+      errorSpy.mockRestore();
+    }
     expect((await store.getJob(broken))?.job.status).toBe("queued");
     expect((await store.getJob(healthy))?.job.status).toBe("failed");
   });

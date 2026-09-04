@@ -226,6 +226,13 @@ async function persistStudioToken(token: string): Promise<string> {
 }
 
 /**
+ * How long a signal handler waits for `finalise` before exiting anyway. Long
+ * enough to flush a console file, short enough that Ctrl-C still feels
+ * immediate.
+ */
+const FINALISE_TIMEOUT_MS = 2000;
+
+/**
  * Install the process-lifetime shutdown handlers, running `cleanup` (once)
  * on normal exit and on SIGINT/SIGTERM/SIGHUP before re-exiting.
  *
@@ -237,7 +244,18 @@ async function persistStudioToken(token: string): Promise<string> {
  * kill hook (see studio/server.ts) and avoid being orphaned on `docker stop`.
  * `cleanup` itself handles the token file (a no-op when none was written).
  */
-function installShutdownHandlers(cleanup: () => void): void {
+function installShutdownHandlers(
+  cleanup: () => void,
+  /**
+   * Async teardown to await (briefly) before exiting on a signal. Used by
+   * `--local` to close the training server, which ends the job console
+   * streams: `process.exit` would otherwise drop whatever the trainer
+   * wrote in the moments before Ctrl-C. Bounded so a child that ignores
+   * SIGTERM cannot hold the CLI open; the process-'exit' reapers still
+   * kill the group either way.
+   */
+  finalise?: () => Promise<void>,
+): void {
   let cleaned = false;
   const runCleanup = () => {
     if (cleaned) return;
@@ -245,6 +263,7 @@ function installShutdownHandlers(cleanup: () => void): void {
     cleanup();
   };
   process.on("exit", runCleanup);
+  let exiting = false;
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
       runCleanup();
@@ -253,7 +272,31 @@ function installShutdownHandlers(cleanup: () => void): void {
       // (systemd, `docker stop`, a shell `$?`) can tell the process was
       // terminated by a signal instead of exiting cleanly. `process.exit`
       // fires the 'exit' listener above synchronously.
-      process.exit(128 + osConstants.signals[sig]);
+      const code = 128 + osConstants.signals[sig];
+      if (!finalise || exiting) {
+        // No finaliser, or a second signal while one is running (the user
+        // wants out now): exit synchronously, as before.
+        process.exit(code);
+      } else {
+        exiting = true;
+        const deadline = setTimeout(() => {
+          process.exit(code);
+        }, FINALISE_TIMEOUT_MS);
+        // Don't let the timer itself keep the loop alive if teardown wins.
+        deadline.unref();
+        void (async () => {
+          try {
+            await finalise();
+          } catch {
+            // Best effort: a teardown failure must not change the exit code.
+          }
+          // Nothing else must fire the deadline once we are exiting: under
+          // a stubbed `process.exit` (tests) it would otherwise take the
+          // process down two seconds later.
+          clearTimeout(deadline);
+          process.exit(code);
+        })();
+      }
     });
   }
 }
@@ -286,6 +329,17 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   } else {
     await ensureCredentialsForStudio();
   }
+
+  // Captured for the signal handlers below: closing the server ends the job
+  // console streams, so Ctrl-C keeps the trainer output written so far
+  // instead of dropping whatever was still buffered. Read into a const so
+  // the closure can't observe a later reassignment of `localServer`.
+  const localServerForShutdown = localServer;
+  const localServerFinalise = localServerForShutdown
+    ? async () => {
+        await localServerForShutdown.close();
+      }
+    : undefined;
 
   const requestedPort = options.port ?? 4000;
   const portExplicit = options.portExplicit ?? false;
@@ -375,7 +429,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
             } catch {
               // best-effort
             }
-          });
+          }, localServerFinalise);
           // Persisting the token to disk is *only* needed for the Vite SPA
           // dev workflow. The bundled `:port` flow injects the meta tag at
           // request time via `buildStudioApp`, so a failure here (read-only
@@ -472,11 +526,13 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   });
 
   if (localServer) {
-    // Teardown note: no extra shutdown handler is needed for the local
-    // server. It lives in THIS process, and its RunManager and
-    // InferenceManager attach their own refcounted process-'exit' reapers, so
-    // the `process.exit(128 + n)` path installed above already kills any
-    // training or inference children, exactly like /api/train children.
+    // Teardown note: the local server lives in THIS process, and its
+    // RunManager and InferenceManager attach their own refcounted
+    // process-'exit' reapers, so the `process.exit(128 + n)` path installed
+    // above already kills any training or inference children, exactly like
+    // /api/train children. The signal handlers additionally await
+    // `localServer.close()` (bounded) purely to flush the per-job console
+    // files before exiting; killing the children is not what it is for.
     process.stdout.write(
       `Local training via ${localServer.backend.displayName} at ${localServer.url}\n`,
     );

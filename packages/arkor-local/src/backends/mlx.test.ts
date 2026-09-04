@@ -158,6 +158,31 @@ describe("mlxBackend.validateConfig", () => {
     }
   });
 
+  it("rejects weightDecay with the plain adam optimizer", () => {
+    // PR #228 review: mlx's `Adam` takes no weight_decay (that is AdamW's
+    // job), so the shim would blow up building the optimizer, after the
+    // dataset and model had already been loaded. Fail at submit time.
+    const result = mlxBackend.validateConfig(
+      baseConfig({ optim: "adam", weightDecay: 0.01 }),
+    );
+    expect(result).toMatchObject({ ok: false });
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain("weightDecay");
+      expect(result.errors[0]).toContain('"adamw"');
+    }
+    // adamw is the documented fix, and an explicit zero is a no-op that
+    // adam can honour, so neither is rejected.
+    expect(
+      mlxBackend.validateConfig(
+        baseConfig({ optim: "adamw", weightDecay: 0.01 }),
+      ),
+    ).toEqual({ ok: true });
+    expect(
+      mlxBackend.validateConfig(baseConfig({ optim: "adam", weightDecay: 0 })),
+    ).toEqual({ ok: true });
+  });
+
   it("rejects non-numeric and non-positive training numbers", () => {
     const result = mlxBackend.validateConfig(
       baseConfig({
@@ -501,6 +526,28 @@ describe("mlxBackend.buildTrainRun", () => {
     });
     expect(run.warnings.join("\n")).toContain("loadIn4bit");
     expect(run.warnings.join("\n")).toContain("mlx-community");
+  });
+
+  it("warns about config fields it does not use", () => {
+    // PR #228 review: a typo in an optional field would otherwise be
+    // dropped in silence and the run would train with mlx-lm's default
+    // while reporting success. A warning (not an error) because JobConfig
+    // doubles as the decoded cloud response and may carry cloud-only keys.
+    const run = mlxBackend.buildTrainRun({
+      config: baseConfig({ learningRtae: 3e-4 } as never),
+      paths: PATHS,
+    });
+    expect(run.warnings.join("\n")).toContain('"learningRtae"');
+    // The correctly spelled neighbour is not warned about, and the run
+    // still carries it.
+    expect(
+      mlxBackend
+        .buildTrainRun({
+          config: baseConfig({ learningRate: 3e-4 }),
+          paths: PATHS,
+        })
+        .warnings.join("\n"),
+    ).not.toContain("learningRate");
   });
 
   it("throws when handed a config validateConfig would reject", () => {

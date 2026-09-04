@@ -105,11 +105,32 @@ const createJobSchema = z.object({
 
 const chatRequestSchema = z.looseObject({
   messages: z.array(z.looseObject({})).min(1),
+  // Discriminated on `kind` like the SDK's own type (core/types.ts):
+  // resolving off the mere presence of `step` would serve `final/` for a
+  // `{ kind: "checkpoint" }` request that lost its step, and `step-N/`
+  // for `{ kind: "final", step }`, silently answering with different
+  // weights than the caller asked for. `kind` stays optional for older
+  // clients that only ever sent `{ jobId, step? }`.
   adapter: z
-    .looseObject({
-      jobId: z.string().min(1),
-      step: z.number().int().nonnegative().optional(),
-    })
+    .union([
+      z.looseObject({
+        kind: z.literal("final"),
+        jobId: z.string().min(1),
+      }),
+      z.looseObject({
+        kind: z.literal("checkpoint"),
+        jobId: z.string().min(1),
+        step: z.number().int().nonnegative(),
+      }),
+      // Legacy shape. `kind` must be absent here, otherwise a mistyped
+      // `{ kind: "checkpoint", stpe: 5 }` would fall through to this member
+      // and be served `final/` instead of being rejected.
+      z.looseObject({
+        kind: z.undefined(),
+        jobId: z.string().min(1),
+        step: z.number().int().nonnegative().optional(),
+      }),
+    ])
     .optional(),
   baseModel: z.string().min(1).optional(),
 });
@@ -367,10 +388,20 @@ async function resolveChatTarget(
     if (!record) {
       return c.json({ error: `unknown local job: ${body.adapter.jobId}` }, 404);
     }
+    // `kind` wins when present: a "final" request must not be answered
+    // with step weights just because a step field rode along, and vice
+    // versa. Without it we fall back to the legacy shape (step ⇒ that
+    // checkpoint, no step ⇒ final).
+    const selector = body.adapter as {
+      kind?: "final" | "checkpoint";
+      step?: number;
+    };
+    const wantedStep =
+      selector.kind === "final" ? undefined : (selector.step ?? undefined);
     const adapterPath = await resolveAdapterDir(
       store,
       body.adapter.jobId,
-      body.adapter.step,
+      wantedStep,
     );
     if (!adapterPath) {
       return c.json(

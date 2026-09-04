@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ArrowLeft, Sparkles, StopCircle } from "../components/icons";
 import { EventsStream, type EventEntry } from "../components/jobs/EventsStream";
@@ -56,9 +56,16 @@ export function JobDetail({
   const [advanced, setAdvanced] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // Latest route id, read by in-flight cancel handlers to tell whether
+  // their result still belongs to the job on screen.
+  const jobIdRef = useRef(jobId);
   // Navigating to another job must not carry the previous job's cancel
   // banner (or a stuck "Cancelling…" button) across the route change.
+  // Updating the ref here rather than during render keeps it a commit-time
+  // value (react-hooks/refs); the only reader is a click handler, which
+  // cannot run before this effect has flushed.
   useEffect(() => {
+    jobIdRef.current = jobId;
     setCancelError(null);
     setCancelling(false);
   }, [jobId]);
@@ -442,15 +449,20 @@ export function JobDetail({
               onClick={() => {
                 setCancelling(true);
                 setCancelError(null);
+                // React reuses this component across job routes, so a
+                // result arriving after the user navigated must not report
+                // job A's failure as job B's (or clear B's own state).
+                const requestedFor = jobId;
                 void cancelJob(jobId)
                   .catch((err: unknown) => {
+                    if (jobIdRef.current !== requestedFor) return undefined;
                     setCancelError(
                       err instanceof Error ? err.message : String(err),
                     );
                     return undefined;
                   })
                   .finally(() => {
-                    setCancelling(false);
+                    if (jobIdRef.current === requestedFor) setCancelling(false);
                   });
               }}
             >

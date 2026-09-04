@@ -33,6 +33,13 @@ interface LiveRun {
   exited: boolean;
   /** Set once a terminal event was appended, from any path. */
   terminalRecorded: boolean;
+  /**
+   * The shim's own terminal event when recording it failed. The close
+   * handler re-records THIS rather than synthesising an outcome from the
+   * exit code, so a completed run whose write hit a transient fault is
+   * not reported as a protocol violation.
+   */
+  pendingTerminal: Parameters<typeof toStreamEvent>[0] | null;
   killTimer: NodeJS.Timeout | null;
   /** Resolves once the run's terminal event has been recorded. */
   done: Promise<void>;
@@ -217,6 +224,7 @@ export class RunManager {
       cancelRequested: false,
       exited: false,
       terminalRecorded: false,
+      pendingTerminal: null,
       killTimer: null,
       done,
       resolveDone,
@@ -344,6 +352,18 @@ export class RunManager {
           await this.failJob(jobId, "Job cancelled", "cancelled");
           return;
         }
+        // The shim DID report an outcome; only recording it failed. Retry
+        // that verbatim instead of reading the exit code, which would turn
+        // a completed run into "exited without reporting a result".
+        const pending = run.pendingTerminal;
+        if (pending) {
+          run.pendingTerminal = null;
+          // handleShimEvent bails on a set latch, and this handler set it
+          // on entry; clear it so the retry can actually record.
+          run.terminalRecorded = false;
+          await this.handleShimEvent(jobId, run, pending);
+          return;
+        }
         const consolePath = this.store.consoleLogPath(jobId);
         if (code === 0) {
           // Exit 0 without a `completed` protocol event is a shim bug, not
@@ -419,6 +439,7 @@ export class RunManager {
         // event before failing, `transitionToTerminal` converges the
         // record onto that persisted tail instead of appending again.
         run.terminalRecorded = false;
+        run.pendingTerminal = event;
         this.store.appendConsole(
           jobId,
           `[arkor] failed to record the terminal event: ${error instanceof Error ? error.message : String(error)}\n`,

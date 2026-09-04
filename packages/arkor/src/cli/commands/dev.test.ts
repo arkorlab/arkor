@@ -1090,6 +1090,90 @@ describe("runDev --local", () => {
     });
   });
 
+  it("closes the local server before exiting on SIGINT", async () => {
+    // Regression (PR #228 review): the signal handler used to call
+    // process.exit synchronously, so `localServer.close()` never ran and the
+    // per-job console files lost whatever the trainer had buffered. The
+    // handler now awaits the finaliser and exits afterwards, still with the
+    // conventional 128 + signal code.
+    const { close } = mockRuntime();
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4304, local: true });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined as never) as typeof process.exit,
+      );
+    try {
+      const handler = process.listeners("SIGINT").at(-1) as () => void;
+      handler();
+      // Teardown is async: nothing has exited yet on the same tick.
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(close).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => {
+        expect(exitSpy).toHaveBeenCalledWith(130);
+      });
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("exits anyway when the local server refuses to close", async () => {
+    // Two escape hatches from a hung teardown: a second signal, and the
+    // bounded timer. A child that ignores SIGTERM must not hold the CLI open.
+    const close = vi.fn(() => new Promise<undefined>(() => undefined));
+    vi.mocked(loadLocalRuntime).mockResolvedValue({
+      startServer: vi.fn(async () => ({
+        url: "http://127.0.0.1:43212",
+        token: "local-token-abcdef0123456789",
+        backend: { id: "mlx", displayName: "MLX (Apple Silicon)" },
+        close,
+      })),
+    });
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((() => true) as typeof process.stdout.write);
+    try {
+      await runDev({ port: 4305, local: true });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined as never) as typeof process.exit,
+      );
+    try {
+      // Fake timers must be installed before the handler runs so the
+      // deadline it arms is the fake one.
+      vi.useFakeTimers();
+      const handler = process.listeners("SIGINT").at(-1) as () => void;
+      handler();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(exitSpy).not.toHaveBeenCalled();
+      // Impatient user: the second Ctrl-C exits immediately, without
+      // starting a second teardown.
+      handler();
+      expect(exitSpy).toHaveBeenCalledWith(130);
+      expect(close).toHaveBeenCalledTimes(1);
+      // ... and even without that, the deadline fires on its own.
+      exitSpy.mockClear();
+      vi.advanceTimersByTime(2000);
+      expect(exitSpy).toHaveBeenCalledWith(130);
+    } finally {
+      vi.useRealTimers();
+      exitSpy.mockRestore();
+    }
+  });
+
   it("surfaces loader errors before binding anything", async () => {
     vi.mocked(loadLocalRuntime).mockRejectedValue(
       new Error("Local training requires the @arkor/local package"),
