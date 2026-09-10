@@ -95,30 +95,37 @@ const LR_SCHEDULES = Object.freeze(["constant", "linear", "cosine"] as const);
  * cloud-only field or a typo, and `buildTrainRun` warns about it so a
  * misspelt setting is visible in the job's console log rather than
  * silently absent from the run.
+ *
+ * Typed as `Record<keyof JobConfig, true>` so the compiler, not a future
+ * reader, keeps it in step with the SDK type: a new `JobConfig` field
+ * missing from here would otherwise make every run that sets it warn about
+ * a perfectly valid setting.
  */
-const KNOWN_CONFIG_KEYS = new Set([
-  "model",
-  "datasetSource",
-  "datasetFormat",
-  "datasetSplit",
-  "maxSteps",
-  "numTrainEpochs",
-  "learningRate",
-  "batchSize",
-  "optim",
-  "lrSchedulerType",
-  "warmupSteps",
-  "weightDecay",
-  "loggingSteps",
-  "saveSteps",
-  "evalSteps",
-  "loraR",
-  "loraAlpha",
-  "maxLength",
-  "loadIn4bit",
-  "trainOnResponsesOnly",
-  "dryRun",
-]);
+const KNOWN_CONFIG_FIELDS: Record<keyof JobConfig, true> = {
+  model: true,
+  datasetSource: true,
+  datasetFormat: true,
+  datasetSplit: true,
+  maxSteps: true,
+  numTrainEpochs: true,
+  learningRate: true,
+  batchSize: true,
+  optim: true,
+  lrSchedulerType: true,
+  warmupSteps: true,
+  weightDecay: true,
+  loggingSteps: true,
+  saveSteps: true,
+  evalSteps: true,
+  loraR: true,
+  loraAlpha: true,
+  maxLength: true,
+  loadIn4bit: true,
+  trainOnResponsesOnly: true,
+  dryRun: true,
+};
+
+const KNOWN_CONFIG_KEYS = new Set(Object.keys(KNOWN_CONFIG_FIELDS));
 
 /** Dataset shapes the shim's converters understand. */
 const DATASET_FORMATS = Object.freeze([
@@ -502,10 +509,43 @@ function validateDatasetSource(value: unknown): true | Error {
         `datasetSource.url must be http(s), got ${parsed.protocol}//`,
       );
     }
+    // Same rules the shim enforces (python/mlx/dataset_prep.py), applied
+    // here so they fail at submit time instead of after uv has spawned:
+    // plain http is for loopback fixtures only (anyone on the path to an
+    // off-box http host could rewrite the rows the adapter learns from),
+    // and a token needs https even on loopback (another local account
+    // could claim the port and capture it).
+    if (parsed.protocol === "http:") {
+      if (!isLoopbackHost(parsed.hostname)) {
+        return new Error(
+          "datasetSource.url must use https (plain http is accepted only " +
+            `for loopback hosts), got ${source.url}`,
+        );
+      }
+      if (!absent(token)) {
+        return new Error(
+          "datasetSource.token requires an https URL; refusing to send it " +
+            "over plain http",
+        );
+      }
+    }
     return true;
   }
   return new Error(
     `datasetSource.type must be "huggingface" or "blob", got ${JSON.stringify(source.type)}`,
+  );
+}
+
+/**
+ * Loopback hosts, as `URL.hostname` reports them: IPv6 literals keep their
+ * brackets there, unlike Python's `urlsplit`, so `[::1]` is listed too.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === "127.0.0.1" ||
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
   );
 }
 

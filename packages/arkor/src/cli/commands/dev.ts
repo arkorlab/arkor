@@ -279,11 +279,14 @@ function installShutdownHandlers(
         process.exit(code);
       } else {
         exiting = true;
+        // Deliberately NOT unref'd: it is the only thing guaranteeing the
+        // conventional exit code. If teardown closed the last handle, an
+        // unref'd timer would let the loop drain and Node would exit 0,
+        // telling the supervisor this was a clean shutdown. Bounded, and
+        // cleared as soon as teardown settles.
         const deadline = setTimeout(() => {
           process.exit(code);
         }, FINALISE_TIMEOUT_MS);
-        // Don't let the timer itself keep the loop alive if teardown wins.
-        deadline.unref();
         void (async () => {
           try {
             await finalise();

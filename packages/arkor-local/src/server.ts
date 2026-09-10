@@ -396,8 +396,7 @@ async function resolveChatTarget(
       kind?: "final" | "checkpoint";
       step?: number;
     };
-    const wantedStep =
-      selector.kind === "final" ? undefined : (selector.step ?? undefined);
+    const wantedStep = selector.kind === "final" ? undefined : selector.step;
     const adapterPath = await resolveAdapterDir(
       store,
       body.adapter.jobId,

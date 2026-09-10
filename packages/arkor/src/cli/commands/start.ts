@@ -60,10 +60,13 @@ function installSignalHandlers(server: LoadedLocalServer): () => void {
         process.exit(code);
       } else {
         exiting = true;
+        // Deliberately NOT unref'd: it is the only thing guaranteeing the
+        // conventional exit code. If the close took the last handle with
+        // it, an unref'd timer would let the loop drain and Node would
+        // exit 0, which reads as a clean shutdown to a supervisor.
         const deadline = setTimeout(() => {
           process.exit(code);
         }, CLOSE_TIMEOUT_MS);
-        deadline.unref();
         void (async () => {
           try {
             await server.close();

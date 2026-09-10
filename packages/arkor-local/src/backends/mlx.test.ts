@@ -136,6 +136,56 @@ describe("mlxBackend.validateConfig", () => {
     ).toEqual({ ok: true });
   });
 
+  it("requires https for off-box blob URLs and for any tokened one", () => {
+    // PR #228 review: the shim enforces this too, but failing here keeps a
+    // doomed run from spawning uv and downloading a model first.
+    const offBox = mlxBackend.validateConfig(
+      baseConfig({
+        datasetSource: { type: "blob", url: "http://example.com/d.jsonl" },
+      }),
+    );
+    expect(offBox).toMatchObject({ ok: false });
+    if (!offBox.ok) expect(offBox.errors[0]).toContain("https");
+
+    // Loopback fixtures (the smoke test's own server) stay usable...
+    for (const url of [
+      "http://127.0.0.1:8000/d.jsonl",
+      "http://localhost:8000/d.jsonl",
+      "http://[::1]:8000/d.jsonl",
+    ]) {
+      expect(
+        mlxBackend.validateConfig(
+          baseConfig({ datasetSource: { type: "blob", url } }),
+        ),
+      ).toEqual({ ok: true });
+    }
+
+    // ... but never with a token attached: another local account could
+    // claim the port and capture it.
+    const tokened = mlxBackend.validateConfig(
+      baseConfig({
+        datasetSource: {
+          type: "blob",
+          url: "http://127.0.0.1:8000/d.jsonl",
+          token: "secret",
+        },
+      }),
+    );
+    expect(tokened).toMatchObject({ ok: false });
+    if (!tokened.ok) expect(tokened.errors[0]).toContain("token");
+    expect(
+      mlxBackend.validateConfig(
+        baseConfig({
+          datasetSource: {
+            type: "blob",
+            url: "https://example.com/d.jsonl",
+            token: "secret",
+          },
+        }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
   it("collects one error per invalid field", () => {
     const result = mlxBackend.validateConfig(
       baseConfig({
