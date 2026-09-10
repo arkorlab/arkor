@@ -38,7 +38,9 @@ export function CopyButton({
       size={size}
       label={copied ? "Copied" : label}
       onClick={() => void onClick()}
-      className={copied ? "text-emerald-600 dark:text-emerald-400" : undefined}
+      // The checkmark is the whole signal; a success colour would be the only
+      // green in the app.
+      className={copied ? "text-fg" : undefined}
     >
       {copied ? <Check /> : <Copy />}
     </IconButton>

@@ -371,7 +371,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
             ]}
           />
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="truncate text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+            <h1 className="text-fg truncate text-2xl font-semibold tracking-tight">
               {job?.name ?? "Job"}
             </h1>
             <StatusBadge status={status} />
@@ -408,12 +408,12 @@ export function JobDetail({ jobId }: { jobId: string }) {
       </div>
 
       {terminal?.status === "failed" && terminal.error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300">
+        <div className="border-danger-edge bg-danger-surface text-danger-fg rounded-lg border px-4 py-3 text-sm">
           <span className="font-medium">Job failed:</span> {terminal.error}
         </div>
       ) : null}
       {eventErr ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300">
+        <div className="border-warn-edge bg-warn-surface text-warn-fg rounded-lg border px-4 py-3 text-sm">
           {eventErr}
         </div>
       ) : null}
@@ -479,16 +479,20 @@ function AdvancedToggle({
       aria-checked={enabled}
       aria-label="Advanced metrics"
       onClick={() => onChange(!enabled)}
-      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-teal-500/30 focus-visible:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+      className="border-edge bg-inset text-fg-muted hover:text-fg focus-visible:ring-ring inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none"
     >
       <span
         className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
-          enabled ? "bg-teal-500" : "bg-zinc-300 dark:bg-zinc-700"
+          enabled ? "bg-accent" : "bg-edge-strong"
         }`}
       >
+        {/* The knob has to be read against whichever track is under it, so
+         * its colour follows the track rather than being fixed. */}
         <span
-          className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${
-            enabled ? "translate-x-3.5" : "translate-x-0.5"
+          className={`inline-block h-3 w-3 transform rounded-full shadow transition-transform ${
+            enabled
+              ? "bg-on-accent translate-x-3.5"
+              : "bg-surface translate-x-0.5"
           }`}
         />
       </span>

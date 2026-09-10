@@ -21,8 +21,14 @@ type ChartPoint = {
 const HEIGHT = 240;
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
 
-const TRAIN_STROKE = "rgb(20 184 166)"; // teal-500
-const EVAL_STROKE = "rgb(244 114 182)"; // pink-400
+// The two series are told apart by lightness and by the eval line being
+// dashed, not by hue. Reading the tokens through var() keeps both series
+// following the active theme, which a baked colour would not. These name the
+// backing --ak-* properties rather than Tailwind's --color-*: Tailwind only
+// emits the latter when it sees a literal reference in a file it scans, and a
+// reference it misses fails silently, painting the line black.
+const TRAIN_STROKE = "var(--ak-series-strong)";
+const EVAL_STROKE = "var(--ak-series-mid)";
 
 export function LossChart({
   points,
@@ -145,7 +151,7 @@ export function LossChart({
     return (
       <div
         ref={wrapperRef}
-        className="flex h-60 items-center justify-center rounded-lg border border-dashed border-zinc-200 bg-zinc-50/60 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400"
+        className="border-edge bg-inset text-fg-muted flex h-60 items-center justify-center rounded-lg border border-dashed text-sm"
       >
         Waiting for training.log events…
       </div>
@@ -283,8 +289,16 @@ export function LossChart({
       >
         <defs>
           <linearGradient id="loss-area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(45 212 191)" stopOpacity="0.32" />
-            <stop offset="100%" stopColor="rgb(45 212 191)" stopOpacity="0" />
+            <stop
+              offset="0%"
+              stopColor="var(--ak-series-strong)"
+              stopOpacity="0.15"
+            />
+            <stop
+              offset="100%"
+              stopColor="var(--ak-series-strong)"
+              stopOpacity="0"
+            />
           </linearGradient>
         </defs>
 
@@ -295,7 +309,7 @@ export function LossChart({
               x2={width - PADDING.right}
               y1={t.y}
               y2={t.y}
-              className="stroke-zinc-200 dark:stroke-zinc-800"
+              className="stroke-edge"
               strokeDasharray="2 4"
             />
             <text
@@ -303,7 +317,7 @@ export function LossChart({
               y={t.y}
               textAnchor="end"
               dominantBaseline="middle"
-              className="fill-zinc-500 font-mono text-[10px] dark:fill-zinc-500"
+              className="fill-fg-subtle font-mono text-[10px]"
             >
               {t.value.toFixed(3)}
             </text>
@@ -316,7 +330,7 @@ export function LossChart({
             x={xFor(step)}
             y={HEIGHT - 8}
             textAnchor="middle"
-            className="fill-zinc-500 font-mono text-[10px] dark:fill-zinc-500"
+            className="fill-fg-subtle font-mono text-[10px]"
           >
             {step}
           </text>
@@ -363,7 +377,7 @@ export function LossChart({
               x2={xFor(hover.step)}
               y1={PADDING.top}
               y2={PADDING.top + innerH}
-              className="stroke-zinc-300 dark:stroke-zinc-700"
+              className="stroke-edge-strong"
               strokeDasharray="2 3"
             />
             {hover.loss !== null ? (
@@ -371,7 +385,7 @@ export function LossChart({
                 cx={xFor(hover.step)}
                 cy={yFor(hover.loss)}
                 r={3.5}
-                fill="white"
+                fill="var(--ak-surface)"
                 stroke={TRAIN_STROKE}
                 strokeWidth={2}
               />
@@ -381,7 +395,7 @@ export function LossChart({
                 cx={xFor(hover.step)}
                 cy={yFor(hover.evalLoss)}
                 r={3.5}
-                fill="white"
+                fill="var(--ak-surface)"
                 stroke={EVAL_STROKE}
                 strokeWidth={2}
               />
@@ -407,30 +421,26 @@ export function LossChart({
 
       {hover ? (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+          className="border-edge bg-surface pointer-events-none absolute -translate-x-1/2 rounded-md border px-2 py-1 font-mono text-[11px] shadow-sm"
           style={{
             left: xFor(hover.step),
             top: Math.max(0, yFor(hoverAnchorLoss) - 36),
           }}
         >
-          <span className="text-zinc-500 dark:text-zinc-400">step </span>
-          <span className="text-zinc-900 dark:text-zinc-100">{hover.step}</span>
+          <span className="text-fg-muted">step </span>
+          <span className="text-fg">{hover.step}</span>
           {hover.loss !== null ? (
             <>
-              <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
-              <span className="text-zinc-500 dark:text-zinc-400">loss </span>
-              <span className="text-teal-600 dark:text-teal-300">
-                {hover.loss.toFixed(4)}
-              </span>
+              <span className="text-edge-strong mx-1.5">·</span>
+              <span className="text-fg-muted">loss </span>
+              <span className="text-fg">{hover.loss.toFixed(4)}</span>
             </>
           ) : null}
           {hover.evalLoss !== null ? (
             <>
-              <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
-              <span className="text-zinc-500 dark:text-zinc-400">eval </span>
-              <span className="text-pink-600 dark:text-pink-300">
-                {hover.evalLoss.toFixed(4)}
-              </span>
+              <span className="text-edge-strong mx-1.5">·</span>
+              <span className="text-fg-muted">eval </span>
+              <span className="text-fg">{hover.evalLoss.toFixed(4)}</span>
             </>
           ) : null}
         </div>
@@ -452,7 +462,7 @@ function Legend({
 }) {
   if (!hasTrain && !hasEval) return null;
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-zinc-600 dark:text-zinc-400">
+    <div className="text-fg-muted mt-2 flex flex-wrap items-center gap-4 text-[11px]">
       {hasTrain ? (
         <span className="inline-flex items-center gap-1.5">
           <span
@@ -509,24 +519,21 @@ function StatsCard({
   stats: LossStats | null;
   emptyHint?: string;
 }) {
-  const accent =
-    tone === "train"
-      ? "text-teal-600 dark:text-teal-300"
-      : "text-pink-600 dark:text-pink-300";
+  const accent = tone === "train" ? "text-fg" : "text-fg-muted";
   return (
-    <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+    <div className="border-edge bg-inset rounded-lg border p-3">
       <div className="mb-2 flex items-center justify-between">
         <span
           className={`text-[11px] font-medium tracking-wide uppercase ${accent}`}
         >
           {label}
         </span>
-        <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+        <span className="text-fg-muted font-mono text-[11px]">
           n = {stats?.count ?? 0}
         </span>
       </div>
       {stats === null ? (
-        <div className="py-2 text-center text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className="text-fg-muted py-2 text-center text-[11px]">
           {emptyHint ?? "No data yet."}
         </div>
       ) : (
@@ -557,15 +564,13 @@ function Row({
 }) {
   return (
     <>
-      <dt className="text-zinc-500 dark:text-zinc-400">
+      <dt className="text-fg-muted">
         {term}
         {hint ? (
-          <span className="ml-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            ({hint})
-          </span>
+          <span className="text-fg-subtle ml-1 text-[10px]">({hint})</span>
         ) : null}
       </dt>
-      <dd className="text-right text-zinc-900 dark:text-zinc-100">{value}</dd>
+      <dd className="text-fg text-right">{value}</dd>
     </>
   );
 }

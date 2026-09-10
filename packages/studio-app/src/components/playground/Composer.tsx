@@ -41,7 +41,7 @@ export function Composer({
   const canSend = !disabled && value.trim().length > 0;
 
   return (
-    <div className="border-t border-zinc-200 bg-white px-4 py-4 sm:px-8 dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="border-edge bg-surface border-t px-4 py-4 sm:px-8">
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -51,9 +51,8 @@ export function Composer({
       >
         <div
           className={cn(
-            "flex items-end gap-2 rounded-2xl border bg-white p-2 shadow-sm transition-colors",
-            "border-zinc-200 focus-within:border-teal-300 focus-within:ring-2 focus-within:ring-teal-500/20",
-            "dark:border-zinc-800 dark:bg-zinc-900 dark:focus-within:border-teal-500/40",
+            "bg-surface flex items-end gap-2 rounded-2xl border p-2 shadow-sm transition-colors",
+            "border-edge-strong focus-within:ring-ring focus-within:ring-2",
           )}
         >
           <textarea
@@ -65,7 +64,7 @@ export function Composer({
             placeholder={placeholder}
             aria-label="Message"
             disabled={disabled}
-            className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:outline-none disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+            className="text-fg placeholder:text-fg-subtle max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm focus-visible:outline-none disabled:opacity-60"
           />
           <button
             type="submit"
@@ -74,14 +73,14 @@ export function Composer({
             className={cn(
               "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
               canSend
-                ? "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-                : "bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600",
+                ? "bg-accent text-on-accent hover:bg-accent-hover"
+                : "bg-inset text-fg-subtle",
             )}
           >
             <Send />
           </button>
         </div>
-        <p className="mt-2 text-center text-[11px] text-zinc-400 dark:text-zinc-600">
+        <p className="text-fg-subtle mt-2 text-center text-[11px]">
           Enter to send · Shift+Enter for newline
         </p>
       </form>

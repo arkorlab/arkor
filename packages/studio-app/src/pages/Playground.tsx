@@ -240,12 +240,12 @@ export function Playground({
 
   return (
     <div className="flex h-[calc(100vh-9.5rem)] flex-col">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 pb-4 dark:border-zinc-800">
+      <div className="border-edge flex flex-wrap items-start justify-between gap-3 border-b pb-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+          <h1 className="text-fg text-2xl font-semibold tracking-tight">
             Playground
           </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="text-fg-muted mt-1 text-sm">
             {mode === "base"
               ? "Chat with a supported base model. No training run required."
               : "Chat with a completed adapter to verify behaviour."}
@@ -279,7 +279,7 @@ export function Playground({
       </div>
 
       {error ? (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300">
+        <div className="border-danger-edge bg-danger-surface text-danger-fg mt-4 rounded-lg border px-4 py-3 text-sm">
           Failed to load jobs: {error}
         </div>
       ) : null}
@@ -291,7 +291,7 @@ export function Playground({
           empty state, which only applies once we know the list is
           really empty. */}
       {mode === "adapter" && jobs === null ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
+        <div className="text-fg-muted flex flex-1 items-center justify-center text-sm">
           Loading jobs…
         </div>
       ) : mode === "adapter" && jobs?.length === 0 ? (
