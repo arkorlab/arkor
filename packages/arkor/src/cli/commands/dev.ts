@@ -18,9 +18,17 @@ import {
   requestAnonymousToken,
   type AnonymousCredentials,
 } from "../../core/credentials";
+import {
+  LOCAL_BACKEND_ENV,
+  LOCAL_SERVER_TOKEN_ENV,
+  LOCAL_SERVER_URL_ENV,
+} from "../../core/local-mode";
 import { buildStudioApp } from "../../studio/server";
 import { ANON_PERSISTENCE_NUDGE } from "../anonymous";
+import { loadLocalRuntime } from "../local-runtime-loader";
 import { ui } from "../prompts";
+
+import type { LoadedLocalServer } from "../local-runtime-loader";
 
 export interface DevOptions {
   port?: number;
@@ -31,6 +39,15 @@ export interface DevOptions {
   // `command.getOptionValueSource("port") === "cli"`.
   portExplicit?: boolean;
   open?: boolean;
+  /**
+   * Run Studio against a local training server (`@arkor/local`) instead of
+   * Arkor Cloud: no credentials bootstrap, every `/api/*` cloud proxy is
+   * repointed at the local server, and `/api/train` children inherit the
+   * env hand-off so their jobs land in the same local job store.
+   */
+  local?: boolean;
+  /** Local backend id override (`--backend <id>`); auto-detects when unset. */
+  backend?: string;
 }
 
 /**
@@ -209,6 +226,13 @@ async function persistStudioToken(token: string): Promise<string> {
 }
 
 /**
+ * How long a signal handler waits for `finalise` before exiting anyway. Long
+ * enough to flush a console file, short enough that Ctrl-C still feels
+ * immediate.
+ */
+const FINALISE_TIMEOUT_MS = 2000;
+
+/**
  * Install the process-lifetime shutdown handlers, running `cleanup` (once)
  * on normal exit and on SIGINT/SIGTERM/SIGHUP before re-exiting.
  *
@@ -220,7 +244,18 @@ async function persistStudioToken(token: string): Promise<string> {
  * kill hook (see studio/server.ts) and avoid being orphaned on `docker stop`.
  * `cleanup` itself handles the token file (a no-op when none was written).
  */
-function installShutdownHandlers(cleanup: () => void): void {
+function installShutdownHandlers(
+  cleanup: () => void,
+  /**
+   * Async teardown to await (briefly) before exiting on a signal. Used by
+   * `--local` to close the training server, which ends the job console
+   * streams: `process.exit` would otherwise drop whatever the trainer
+   * wrote in the moments before Ctrl-C. Bounded so a child that ignores
+   * SIGTERM cannot hold the CLI open; the process-'exit' reapers still
+   * kill the group either way.
+   */
+  finalise?: () => Promise<void>,
+): void {
   let cleaned = false;
   const runCleanup = () => {
     if (cleaned) return;
@@ -228,6 +263,7 @@ function installShutdownHandlers(cleanup: () => void): void {
     cleanup();
   };
   process.on("exit", runCleanup);
+  let exiting = false;
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
       runCleanup();
@@ -236,7 +272,34 @@ function installShutdownHandlers(cleanup: () => void): void {
       // (systemd, `docker stop`, a shell `$?`) can tell the process was
       // terminated by a signal instead of exiting cleanly. `process.exit`
       // fires the 'exit' listener above synchronously.
-      process.exit(128 + osConstants.signals[sig]);
+      const code = 128 + osConstants.signals[sig];
+      if (!finalise || exiting) {
+        // No finaliser, or a second signal while one is running (the user
+        // wants out now): exit synchronously, as before.
+        process.exit(code);
+      } else {
+        exiting = true;
+        // Deliberately NOT unref'd: it is the only thing guaranteeing the
+        // conventional exit code. If teardown closed the last handle, an
+        // unref'd timer would let the loop drain and Node would exit 0,
+        // telling the supervisor this was a clean shutdown. Bounded, and
+        // cleared as soon as teardown settles.
+        const deadline = setTimeout(() => {
+          process.exit(code);
+        }, FINALISE_TIMEOUT_MS);
+        void (async () => {
+          try {
+            await finalise();
+          } catch {
+            // Best effort: a teardown failure must not change the exit code.
+          }
+          // Nothing else must fire the deadline once we are exiting: under
+          // a stubbed `process.exit` (tests) it would otherwise take the
+          // process down two seconds later.
+          clearTimeout(deadline);
+          process.exit(code);
+        })();
+      }
     });
   }
 }
@@ -247,7 +310,39 @@ function installShutdownHandlers(cleanup: () => void): void {
 const MAX_PORT_ATTEMPTS = 10;
 
 export async function runDev(options: DevOptions = {}): Promise<void> {
-  await ensureCredentialsForStudio();
+  // Local mode boots the training server FIRST (fail fast on preflight:
+  // no point binding Studio when uv or the platform is missing) and skips
+  // the credentials bootstrap entirely; local runs never mint or persist
+  // an identity.
+  let localServer: LoadedLocalServer | null = null;
+  if (options.local) {
+    const cwd = process.cwd();
+    const runtime = await loadLocalRuntime(cwd);
+    localServer = await runtime.startServer({
+      cwd,
+      backendId: options.backend ?? process.env[LOCAL_BACKEND_ENV],
+    });
+    // The dev-server process itself must carry the env hand-off, not just
+    // its /api/train children: Studio's /api/manifest imports the user's
+    // bundle IN THIS PROCESS, and the trainer it constructs would otherwise
+    // hit the cloud-only SUPPORTED_MODELS gate (throwing on the MLX model
+    // ids local mode exists for) and 400 the manifest tile.
+    process.env[LOCAL_SERVER_URL_ENV] = localServer.url;
+    process.env[LOCAL_SERVER_TOKEN_ENV] = localServer.token;
+  } else {
+    await ensureCredentialsForStudio();
+  }
+
+  // Captured for the signal handlers below: closing the server ends the job
+  // console streams, so Ctrl-C keeps the trainer output written so far
+  // instead of dropping whatever was still buffered. Read into a const so
+  // the closure can't observe a later reassignment of `localServer`.
+  const localServerForShutdown = localServer;
+  const localServerFinalise = localServerForShutdown
+    ? async () => {
+        await localServerForShutdown.close();
+      }
+    : undefined;
 
   const requestedPort = options.port ?? 4000;
   const portExplicit = options.portExplicit ?? false;
@@ -259,7 +354,17 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
   // `autoAnonymous: true` (the default) lets the Hono server retry the
   // anonymous bootstrap on first `/api/credentials` hit if the up-front
   // attempt above failed (e.g. cloud-api was unreachable at launch).
-  const app = buildStudioApp({ studioToken });
+  const app = buildStudioApp({
+    studioToken,
+    ...(localServer
+      ? {
+          local: {
+            serverUrl: localServer.url,
+            serverToken: localServer.token,
+          },
+        }
+      : {}),
+  });
 
   // Filled in once the server actually binds; may differ from
   // `requestedPort` when we fell back to a free one.
@@ -327,7 +432,7 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
             } catch {
               // best-effort
             }
-          });
+          }, localServerFinalise);
           // Persisting the token to disk is *only* needed for the Vite SPA
           // dev workflow. The bundled `:port` flow injects the meta tag at
           // request time via `buildStudioApp`, so a failure here (read-only
@@ -402,7 +507,39 @@ export async function runDev(options: DevOptions = {}): Promise<void> {
     };
 
     attemptBind(requestedPort, MAX_PORT_ATTEMPTS);
+  }).catch(async (err: unknown) => {
+    // A Studio bind failure must not leave the local training server (and
+    // its process-exit reapers) running behind a rethrown error, nor the
+    // env hand-off pointing at the now-closed server.
+    if (localServer) {
+      try {
+        await localServer.close();
+      } catch (closeError) {
+        // The bind failure is the actionable error; a close failure on the
+        // way out must not replace it.
+        console.warn(
+          "warning: failed to shut down the local training server cleanly:",
+          closeError instanceof Error ? closeError.message : closeError,
+        );
+      }
+      Reflect.deleteProperty(process.env, LOCAL_SERVER_URL_ENV);
+      Reflect.deleteProperty(process.env, LOCAL_SERVER_TOKEN_ENV);
+    }
+    throw err;
   });
+
+  if (localServer) {
+    // Teardown note: the local server lives in THIS process, and its
+    // RunManager and InferenceManager attach their own refcounted
+    // process-'exit' reapers, so the `process.exit(128 + n)` path installed
+    // above already kills any training or inference children, exactly like
+    // /api/train children. The signal handlers additionally await
+    // `localServer.close()` (bounded) purely to flush the per-job console
+    // files before exiting; killing the children is not what it is for.
+    process.stdout.write(
+      `Local training via ${localServer.backend.displayName} at ${localServer.url}\n`,
+    );
+  }
 
   if (options.open) {
     try {

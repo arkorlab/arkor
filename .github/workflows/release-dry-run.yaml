@@ -74,6 +74,7 @@ jobs:
 
           ARKOR_VERSION="$(node -p "require('./packages/arkor/package.json').version")"
           CREATE_ARKOR_VERSION="$(node -p "require('./packages/create-arkor/package.json').version")"
+          ARKOR_LOCAL_VERSION="$(node -p "require('./packages/arkor-local/package.json').version")"
 
           if [[ "$ARKOR_VERSION" != "$VERSION" ]]; then
             echo "packages/arkor/package.json version does not match tag"
@@ -85,6 +86,13 @@ jobs:
           if [[ "$CREATE_ARKOR_VERSION" != "$VERSION" ]]; then
             echo "packages/create-arkor/package.json version does not match tag"
             echo "package.json: $CREATE_ARKOR_VERSION"
+            echo "tag:          $VERSION"
+            exit 1
+          fi
+
+          if [[ "$ARKOR_LOCAL_VERSION" != "$VERSION" ]]; then
+            echo "packages/arkor-local/package.json version does not match tag"
+            echo "package.json: $ARKOR_LOCAL_VERSION"
             echo "tag:          $VERSION"
             exit 1
           fi
@@ -129,7 +137,7 @@ jobs:
           {
             echo "## Release Dry Run"
             echo ""
-            echo "- Packages: \`arkor\`, \`create-arkor\`"
+            echo "- Packages: \`arkor\`, \`create-arkor\`, \`@arkor/local\`"
             echo "- Version: \`$VERSION\`"
             echo "- Git tag: \`${GITHUB_REF_NAME}\`"
             echo "- npm dist-tag: \`$NPM_TAG\`"
@@ -138,7 +146,7 @@ jobs:
       - name: Check npm versions are not published yet
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
-          for PKG in arkor create-arkor; do
+          for PKG in arkor create-arkor @arkor/local; do
             if npm view "$PKG@$VERSION" version >/dev/null 2>&1; then
               echo "$PKG@$VERSION is already published"
               exit 1
@@ -205,12 +213,14 @@ jobs:
           rm -rf "$PACK_DIR"
           mkdir -p "$PACK_DIR"
 
-          for PKG_DIR in packages/arkor packages/create-arkor; do
+          for PKG_DIR in packages/arkor packages/create-arkor packages/arkor-local; do
             (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
           done
 
           shopt -s nullglob
-          ARKOR_TARBALLS=("$PACK_DIR"/arkor-*.tgz)
+          # `arkor-[0-9]*` keeps the glob from also matching the scoped
+          # @arkor/local tarball, which pnpm names `arkor-local-<version>.tgz`.
+          ARKOR_TARBALLS=("$PACK_DIR"/arkor-[0-9]*.tgz)
           shopt -u nullglob
           if [[ ${#ARKOR_TARBALLS[@]} -ne 1 ]]; then
             echo "Expected exactly one arkor-*.tgz in $PACK_DIR, got ${#ARKOR_TARBALLS[@]}"
@@ -251,6 +261,15 @@ jobs:
 
       - name: Dry run publish (create-arkor)
         working-directory: packages/create-arkor
+        run: |
+          pnpm publish \
+            --access public \
+            --tag "${{ needs.preflight.outputs.npm_tag }}" \
+            --no-git-checks \
+            --dry-run
+
+      - name: Dry run publish (@arkor/local)
+        working-directory: packages/arkor-local
         run: |
           pnpm publish \
             --access public \

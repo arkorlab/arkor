@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1881,4 +1881,243 @@ describe("createTrainer (event dispatch robustness - ENG-933)", () => {
     }) as typeof fetch;
     return { fetch: impl, streamCalls: () => streamCalls };
   }
+});
+
+describe("createTrainer (local mode)", () => {
+  const LOCAL_URL = "http://127.0.0.1:39999";
+  const LOCAL_TOKEN = "local-token-1234567890abcdef";
+
+  beforeEach(() => {
+    vi.stubEnv("ARKOR_LOCAL_SERVER_URL", LOCAL_URL);
+    vi.stubEnv("ARKOR_LOCAL_SERVER_TOKEN", LOCAL_TOKEN);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function localJobRow(id: string) {
+    return {
+      id,
+      orgId: "local",
+      projectId: "local",
+      name: "run",
+      status: "queued",
+      config: {
+        model: "mlx-community/tiny-test-model",
+        datasetSource: { type: "huggingface", name: "x" },
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      startedAt: null,
+      completedAt: null,
+    };
+  }
+
+  it("accepts a model outside SUPPORTED_MODELS at construction time", () => {
+    // The local backend takes any HuggingFace id; the cloud-only gate must
+    // not fire when the env hand-off is present.
+    expect(() =>
+      createTrainer({
+        name: "run",
+        model: "mlx-community/tiny-test-model",
+        dataset: { type: "huggingface", name: "x" },
+      }),
+    ).not.toThrow();
+  });
+
+  it("runs start()+wait() against the local server without touching ~/.arkor or .arkor/state.json", async () => {
+    // Local mode must leave zero traces: no credentials mint/persist (that
+    // would poison later cloud runs with a dead loopback URL) and no project
+    // state bootstrap. Everything rides on the env hand-off.
+    // vi.stubEnv keeps the restore in the shared afterEach's
+    // vi.unstubAllEnvs(), matching the local hand-off stubs above.
+    const fakeHome = mkdtempSync(join(tmpdir(), "arkor-local-home-"));
+    vi.stubEnv("HOME", fakeHome);
+    vi.stubEnv("USERPROFILE", fakeHome);
+    vi.stubEnv("HOMEDRIVE", "");
+    vi.stubEnv("HOMEPATH", fakeHome);
+    try {
+      const calls: { url: string; method: string; auth: string | null }[] = [];
+      const fetcher: typeof fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+        const auth = new Headers(init?.headers).get("authorization");
+        calls.push({ url, method, auth });
+        if (method === "POST" && url.includes("/v1/jobs?")) {
+          return Response.json(
+            { job: localJobRow("j-local") },
+            { status: 201, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (
+          method === "GET" &&
+          url.includes("/v1/jobs/j-local/events/stream")
+        ) {
+          return new Response(
+            sseStream([
+              `id: 1\nevent: training.completed\ndata: ${JSON.stringify({
+                type: "training.completed",
+                jobId: "j-local",
+                timestamp: "2026-01-01T00:00:01Z",
+              })}\n\n`,
+            ]),
+            { status: 200, headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }) as typeof fetch;
+
+      const trainer = createTrainer(
+        {
+          name: "run",
+          model: "mlx-community/tiny-test-model",
+          dataset: { type: "huggingface", name: "x" },
+        },
+        // Bind to the temp project dir so the state.json assertion below
+        // watches the directory this trainer would actually write to.
+        { cwd },
+      );
+      const original = globalThis.fetch;
+      globalThis.fetch = fetcher;
+      try {
+        await expect(trainer.wait()).resolves.toMatchObject({
+          job: { status: "completed" },
+        });
+      } finally {
+        globalThis.fetch = original;
+      }
+
+      // Every request targeted the local server with the local bearer token
+      // and the fixed local scope; nothing ever called /v1/auth/anonymous or
+      // /v1/projects.
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect(call.url.startsWith(LOCAL_URL)).toBe(true);
+        expect(call.auth).toBe(`Bearer ${LOCAL_TOKEN}`);
+      }
+      const jobPost = calls.find((c) => c.method === "POST");
+      expect(jobPost?.url).toContain("orgSlug=local");
+      expect(jobPost?.url).toContain("projectSlug=local");
+      expect(
+        calls.some(
+          (c) => c.url.includes("/v1/auth/") || c.url.includes("/v1/projects"),
+        ),
+      ).toBe(false);
+      // No credentials were persisted, no project state was written.
+      expect(existsSync(join(fakeHome, ".arkor", "credentials.json"))).toBe(
+        false,
+      );
+      expect(existsSync(join(cwd, ".arkor", "state.json"))).toBe(false);
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  it("stays pinned to the local server even when ARKOR_CLOUD_API_URL is set", async () => {
+    // ARKOR_CLOUD_API_URL outranks credentials in defaultArkorCloudApiUrl and
+    // must keep doing so for cloud runs; local mode bypasses that resolution
+    // entirely so a leftover export cannot hijack a local run.
+    vi.stubEnv("ARKOR_CLOUD_API_URL", "http://cloud.example");
+    const urls: string[] = [];
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      urls.push(url);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: localJobRow("j-pin") },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer({
+      name: "run",
+      model: "mlx-community/tiny-test-model",
+      dataset: { type: "huggingface", name: "x" },
+    });
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.start();
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.every((u) => u.startsWith(LOCAL_URL))).toBe(true);
+  });
+
+  it("routes onCheckpoint infer() to the local /v1/inference/chat", async () => {
+    const chatCalls: { url: string; auth: string | null }[] = [];
+    const fetcher: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/v1/jobs?")) {
+        return Response.json(
+          { job: localJobRow("j-infer") },
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (method === "GET" && url.includes("/v1/jobs/j-infer/events/stream")) {
+        return new Response(
+          sseStream([
+            `id: 1\nevent: checkpoint.saved\ndata: ${JSON.stringify({
+              type: "checkpoint.saved",
+              jobId: "j-infer",
+              timestamp: "2026-01-01T00:00:01Z",
+              step: 10,
+            })}\n\n`,
+            `id: 2\nevent: training.completed\ndata: ${JSON.stringify({
+              type: "training.completed",
+              jobId: "j-infer",
+              timestamp: "2026-01-01T00:00:02Z",
+            })}\n\n`,
+          ]),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      if (method === "POST" && url.includes("/v1/inference/chat")) {
+        chatCalls.push({
+          url,
+          auth: new Headers(init?.headers).get("authorization"),
+        });
+        return Response.json({ ok: true });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }) as typeof fetch;
+
+    const trainer = createTrainer({
+      name: "run",
+      model: "mlx-community/tiny-test-model",
+      dataset: { type: "huggingface", name: "x" },
+      callbacks: {
+        async onCheckpoint(ctx) {
+          await ctx.infer({
+            messages: [{ role: "user", content: "hi" }],
+            stream: false,
+          });
+        },
+      },
+    });
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher;
+    try {
+      await trainer.wait();
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(chatCalls).toHaveLength(1);
+    expect(chatCalls[0]?.url.startsWith(LOCAL_URL)).toBe(true);
+    expect(chatCalls[0]?.auth).toBe(`Bearer ${LOCAL_TOKEN}`);
+  });
 });

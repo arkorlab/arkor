@@ -106,6 +106,17 @@ minimumReleaseAge: 1440
 # still block a downgrade attack.
 minimumReleaseAgeExclude:
   - "@arkor/cloud-api-client"
+overrides:
+  # Mintlify's `@mintlify/mdx` declares peers `react: ^18.3.1` and
+  # `react-dom: ^18.3.1` while the rest of its chain (and this workspace)
+  # is on React 19, so pnpm would otherwise resolve the docs toolchain to
+  # the unsupported pair react-dom@18.3.1(react@19.2.3) (react-dom 18
+  # itself requires react ^18.3.1). Steer both peer ranges onto the same
+  # React 19 pair the workspace already ships so `mint dev` keeps a
+  # consistent runtime and `pnpm install` stops warning about the unmet
+  # react peer.
+  "react@^18.3.1": "^19.0.0"
+  "react-dom@^18.3.1": "^19.0.0"
 trustPolicy: no-downgrade
 trustPolicyExclude:
   # Pulled in by @vitejs/plugin-react -> @babel/core for Studio UI builds.

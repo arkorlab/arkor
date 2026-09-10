@@ -67,13 +67,32 @@ function asMessage(err: unknown): string {
 // List view (default Endpoints route)
 // ---------------------------------------------------------------------------
 
-export function EndpointsList() {
+export function EndpointsList({
+  local,
+}: {
+  /**
+   * Studio is talking to a local training server, from the already-loaded
+   * `/api/credentials` (`undefined` while that is in flight). Preferred
+   * over the deployments response for the create controls: a failed list
+   * request must not cost the user the affordance for the session.
+   */
+  local?: boolean;
+} = {}) {
   const [deployments, setDeployments] = useState<Deployment[] | null>(null);
   // True when `/api/deployments` returned 200 but the workspace has no
   // `.arkor/state.json` yet, so the empty list is a "we don't know
   // which project to scope to" rather than "this project is empty".
   // The empty-state copy branches on this.
   const [scopeMissing, setScopeMissing] = useState(false);
+  // From the deployments response; drives the empty-state copy. The
+  // create controls key off `local` (credentials) instead, so a failed
+  // list request cannot hide them.
+  const [localUnavailable, setLocalUnavailable] = useState<boolean | undefined>(
+    undefined,
+  );
+  // Hide the create controls until the mode is known, then only for
+  // cloud: a submit in local mode can only come back 501.
+  const canCreate = local === false;
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Track the currently-active in-flight `fetchDeployments` so a slower
@@ -88,12 +107,12 @@ export function EndpointsList() {
     const controller = new AbortController();
     loadControllerRef.current = controller;
     try {
-      const { deployments, scopeMissing } = await fetchDeployments({
-        signal: controller.signal,
-      });
+      const { deployments, scopeMissing, localUnavailable } =
+        await fetchDeployments({ signal: controller.signal });
       if (controller.signal.aborted) return;
       setDeployments(deployments);
       setScopeMissing(Boolean(scopeMissing));
+      setLocalUnavailable(Boolean(localUnavailable));
       setError(null);
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -121,9 +140,10 @@ export function EndpointsList() {
       slug,
       signal: controller.signal,
       fetchDeployments,
-      onUpdate: ({ deployments, scopeMissing }) => {
+      onUpdate: ({ deployments, scopeMissing, localUnavailable }) => {
         setDeployments(deployments);
         setScopeMissing(Boolean(scopeMissing));
+        setLocalUnavailable(Boolean(localUnavailable));
         setError(null);
       },
       onError: (msg) => setError(msg),
@@ -157,12 +177,18 @@ export function EndpointsList() {
             adapter or base model.
           </p>
         </div>
-        <Button onClick={() => setShowCreate((v) => !v)}>
-          {showCreate ? "Cancel" : "New endpoint"}
-        </Button>
+        {/* Hidden in local mode: every create returns 501 there, so
+            offering the form would only lead to a dead end. */}
+        {canCreate && (
+          <Button onClick={() => setShowCreate((v) => !v)}>
+            {showCreate ? "Cancel" : "New endpoint"}
+          </Button>
+        )}
       </div>
 
-      {showCreate && (
+      {/* Same `canCreate` gate as the toggle, so a form opened moments
+          before the mode resolved cannot survive into local mode. */}
+      {showCreate && canCreate && (
         <NewEndpointForm
           onCreated={() => {
             setShowCreate(false);
@@ -217,7 +243,13 @@ export function EndpointsList() {
           // copy has to enumerate all three remediations rather than
           // single one out; the actual error you hit on the next
           // create attempt narrows it down.
-          scopeMissing ? (
+          localUnavailable ? (
+            <EmptyState
+              icon={<Inbox />}
+              title="Deployments are cloud-only"
+              description="This Studio runs against a local training server (arkor start --local or arkor dev --local). Endpoints publish a model at https://<slug>.arkor.app, which needs Arkor Cloud; restart Studio without --local to manage them."
+            />
+          ) : scopeMissing ? (
             <EmptyState
               icon={<Inbox />}
               title="Workspace not scoped to a project yet"

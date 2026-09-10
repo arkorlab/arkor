@@ -1461,11 +1461,121 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
     });
   });
 
+  describe("/api/jobs/:id/cancel", () => {
+    const ORIG_FETCH = globalThis.fetch;
+    afterEach(() => {
+      globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("proxies the cancel to the backing API with the project scope", async () => {
+      // Studio's Stop button only aborts the /api/train stream; without
+      // this route the backend job (and, locally, the GPU work) keeps
+      // running.
+      await writeCredentials(ANON_CREDS);
+      await writeState(
+        { orgSlug: "anon-org", projectSlug: "proj", projectId: "p1" },
+        trainCwd,
+      );
+      const calls: { url: string; method: string }[] = [];
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        calls.push({
+          url: typeof input === "string" ? input : input.toString(),
+          method: init?.method ?? "GET",
+        });
+        return Response.json({ job: { id: "j1", status: "cancelled" } });
+      }) as typeof fetch;
+
+      const res = await build().request("/api/jobs/j1/cancel", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+        },
+      });
+      expect(res.status).toBe(200);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.method).toBe("POST");
+      expect(calls[0]?.url).toContain("/v1/jobs/j1/cancel");
+      expect(calls[0]?.url).toContain("orgSlug=anon-org");
+      expect(calls[0]?.url).toContain("projectSlug=proj");
+    });
+
+    it("rejects an unauthenticated request", async () => {
+      const res = await build().request("/api/jobs/j1/cancel", {
+        method: "POST",
+        headers: { host: "127.0.0.1:4000" },
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe("/api/inference/chat", () => {
     const ORIG_FETCH = globalThis.fetch;
 
     afterEach(() => {
       globalThis.fetch = ORIG_FETCH;
+    });
+
+    it("forwards the caller's abort signal to the upstream request", async () => {
+      // Closing the Playground mid-generation must reach the backend: in
+      // local mode an abandoned prompt otherwise keeps a model resident and
+      // generating for minutes.
+      await writeCredentials(ANON_CREDS);
+      let upstreamSignal: AbortSignal | null = null;
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/v1/projects")) {
+          return Response.json(
+            {
+              project: {
+                id: "p1",
+                slug: "s1",
+                name: "s1",
+                orgId: "anon-org-id",
+              },
+            },
+            { status: 201, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.includes("/v1/inference/chat")) {
+          upstreamSignal = init?.signal ?? null;
+          return new Response('data: {"content":"hi"}\n\n', {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as typeof fetch;
+
+      const controller = new AbortController();
+      const res = await build().request("/api/inference/chat", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4000",
+          "x-arkor-studio-token": STUDIO_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          baseModel: "unsloth/gemma-4-E4B-it",
+          messages: [{ role: "user", content: "hello" }],
+        }),
+        signal: controller.signal,
+      });
+      expect(res.status).toBe(200);
+      // Read through a widened binding: TS narrows the closure-assigned
+      // variable to never at this point.
+      const forwarded = upstreamSignal as AbortSignal | null;
+      expect(forwarded).not.toBeNull();
+      // The same signal instance: aborting the browser request aborts the
+      // upstream one rather than leaving it running.
+      controller.abort();
+      expect(forwarded?.aborted).toBe(true);
     });
 
     it("auto-bootstraps project state and proxies base-model inference", async () => {
@@ -2790,6 +2900,218 @@ setTimeout(() => { clearInterval(t); process.exit(0); }, 3000);
         projectSlug: "old",
         projectId: "p-old",
       });
+    });
+  });
+
+  describe("local mode", () => {
+    const LOCAL_TOKEN = "local-server-token-0123456789abcdef";
+
+    interface RecordedLocalRequest {
+      method: string;
+      url: string;
+      auth: string | null;
+      lastEventId: string | null;
+      body: string;
+    }
+
+    /** Minimal fake local training server on an ephemeral loopback port. */
+    async function startFakeLocalServer(): Promise<{
+      url: string;
+      requests: RecordedLocalRequest[];
+      close: () => Promise<void>;
+    }> {
+      const { createServer } = await import("node:http");
+      const requests: RecordedLocalRequest[] = [];
+      const server = createServer((req, res) => {
+        let body = "";
+        req.on("data", (chunk: Buffer) => (body += chunk.toString("utf8")));
+        req.on("end", () => {
+          requests.push({
+            method: req.method ?? "",
+            url: req.url ?? "",
+            auth: req.headers.authorization ?? null,
+            lastEventId:
+              (req.headers["last-event-id"] as string | undefined) ?? null,
+            body,
+          });
+          if (req.url?.includes("/events/stream")) {
+            res.writeHead(200, { "content-type": "text/event-stream" });
+            res.end(
+              "id: 1\nevent: training.log\ndata: {}\n\nevent: end\ndata: {}\n\n",
+            );
+            return;
+          }
+          if (req.url?.includes("/v1/inference/chat")) {
+            res.writeHead(200, { "content-type": "text/event-stream" });
+            res.end(
+              'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n',
+            );
+            return;
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ jobs: [{ id: "local-job-1" }] }));
+        });
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("fake local server failed to bind");
+      }
+      return {
+        url: `http://127.0.0.1:${address.port}`,
+        requests,
+        close: () => new Promise((resolve) => server.close(() => resolve())),
+      };
+    }
+
+    function buildLocal(serverUrl: string, binPath?: string) {
+      return buildStudioApp({
+        // Deliberately no baseUrl: nothing may fall back to a cloud URL.
+        assetsDir,
+        // autoAnonymous left at its default (true) ON PURPOSE: local mode
+        // must not mint anonymous credentials even when the flag allows it.
+        studioToken: STUDIO_TOKEN,
+        cwd: trainCwd,
+        binPath,
+        local: { serverUrl, serverToken: LOCAL_TOKEN },
+      });
+    }
+
+    const authedHeaders = {
+      host: "127.0.0.1:4000",
+      "x-arkor-studio-token": STUDIO_TOKEN,
+    };
+
+    it("answers /api/credentials locally without reading or writing disk credentials", async () => {
+      const app = buildLocal("http://127.0.0.1:1");
+      const res = await app.request("/api/credentials", {
+        headers: authedHeaders,
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        token: "",
+        mode: "local",
+        baseUrl: "http://127.0.0.1:1",
+        orgSlug: "local",
+        projectSlug: "local",
+      });
+      // No anonymous identity was minted or persisted.
+      expect(existsSync(join(fakeHome, ".arkor", "credentials.json"))).toBe(
+        false,
+      );
+    });
+
+    it("proxies /api/jobs to the local server with the local bearer and no state.json", async () => {
+      const fake = await startFakeLocalServer();
+      try {
+        const app = buildLocal(fake.url);
+        // No .arkor/state.json exists in trainCwd; cloud mode would return
+        // an empty list without ever calling upstream.
+        const res = await app.request("/api/jobs", { headers: authedHeaders });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ jobs: [{ id: "local-job-1" }] });
+        expect(fake.requests).toHaveLength(1);
+        expect(fake.requests[0]?.url).toContain("/v1/jobs");
+        expect(fake.requests[0]?.auth).toBe(`Bearer ${LOCAL_TOKEN}`);
+      } finally {
+        await fake.close();
+      }
+    });
+
+    it("proxies /api/jobs/:id/events to the local stream and forwards Last-Event-ID", async () => {
+      const fake = await startFakeLocalServer();
+      try {
+        const app = buildLocal(fake.url);
+        const res = await app.request("/api/jobs/local-job-1/events", {
+          headers: { ...authedHeaders, "Last-Event-ID": "7" },
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toContain("text/event-stream");
+        const text = await res.text();
+        expect(text).toContain("event: end");
+        expect(fake.requests[0]?.url).toContain(
+          "/v1/jobs/local-job-1/events/stream",
+        );
+        expect(fake.requests[0]?.lastEventId).toBe("7");
+        expect(fake.requests[0]?.auth).toBe(`Bearer ${LOCAL_TOKEN}`);
+      } finally {
+        await fake.close();
+      }
+    });
+
+    it("proxies /api/inference/chat without bootstrapping project state", async () => {
+      const fake = await startFakeLocalServer();
+      try {
+        const app = buildLocal(fake.url);
+        const res = await app.request("/api/inference/chat", {
+          method: "POST",
+          headers: { ...authedHeaders, "content-type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: "hi" }],
+            baseModel: "mlx-community/tiny",
+          }),
+        });
+        expect(res.status).toBe(200);
+        expect(await res.text()).toContain("[DONE]");
+        expect(fake.requests[0]?.url).toContain("/v1/inference/chat");
+        expect(fake.requests[0]?.auth).toBe(`Bearer ${LOCAL_TOKEN}`);
+        // ensureProjectState was skipped: nothing wrote .arkor/state.json.
+        expect(await readState(trainCwd)).toBeNull();
+      } finally {
+        await fake.close();
+      }
+    });
+
+    it("answers deployments locally: friendly empty list, 501 mutations", async () => {
+      const app = buildLocal("http://127.0.0.1:1");
+      const list = await app.request("/api/deployments", {
+        headers: authedHeaders,
+      });
+      expect(list.status).toBe(200);
+      // NOT scopeMissing: that flag drives cloud remediation copy (restore
+      // state.json / run arkor login), none of which enables deployments
+      // locally. The SPA renders a local-specific empty state off this.
+      expect(await list.json()).toEqual({
+        deployments: [],
+        localUnavailable: true,
+      });
+
+      const create = await app.request("/api/deployments", {
+        method: "POST",
+        headers: { ...authedHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ name: "x" }),
+      });
+      expect(create.status).toBe(501);
+
+      const del = await app.request("/api/deployments/dep-1", {
+        method: "DELETE",
+        headers: authedHeaders,
+      });
+      expect(del.status).toBe(501);
+      expect(((await del.json()) as { error: string }).error).toContain(
+        "local mode",
+      );
+    });
+
+    it("injects the env hand-off into /api/train children", async () => {
+      const fakeBin = join(trainCwd, "fake-bin.mjs");
+      writeFileSync(
+        fakeBin,
+        `process.stdout.write("[env] url=" + process.env.ARKOR_LOCAL_SERVER_URL + " token=" + process.env.ARKOR_LOCAL_SERVER_TOKEN + "\\n");\nprocess.exit(0);\n`,
+      );
+      const app = buildLocal("http://127.0.0.1:45678", fakeBin);
+      const res = await app.request("/api/train", {
+        method: "POST",
+        headers: { ...authedHeaders, "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain("url=http://127.0.0.1:45678");
+      expect(text).toContain(`token=${LOCAL_TOKEN}`);
+      expect(text).toContain("exit=0");
     });
   });
 });

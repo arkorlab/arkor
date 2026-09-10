@@ -192,7 +192,54 @@ describe("main (CLI Commander wiring)", () => {
 
   it("dispatches `start` with optional entry", async () => {
     await main(["start", "alt.ts"]);
-    expect(runStart).toHaveBeenCalledWith({ entry: "alt.ts" });
+    expect(runStart).toHaveBeenCalledWith({
+      entry: "alt.ts",
+      local: false,
+      backend: undefined,
+    });
+  });
+
+  it("dispatches `start --local` and lets `--backend` imply local", async () => {
+    await main(["start", "--local"]);
+    expect(runStart).toHaveBeenCalledWith({
+      entry: undefined,
+      local: true,
+      backend: undefined,
+    });
+    await main(["start", "--backend", "mlx"]);
+    // --backend without --local still selects local mode: naming a local
+    // backend cannot mean anything else, so requiring both flags would only
+    // create an error case.
+    expect(runStart).toHaveBeenLastCalledWith({
+      entry: undefined,
+      local: true,
+      backend: "mlx",
+    });
+    // Both flags together are also valid (not mutually exclusive).
+    await main(["start", "--local", "--backend", "mlx"]);
+    expect(runStart).toHaveBeenLastCalledWith({
+      entry: undefined,
+      local: true,
+      backend: "mlx",
+    });
+    // An empty backend id falls back to auto-detect instead of asking the
+    // runtime for a backend literally named "".
+    await main(["start", "--local", "--backend", ""]);
+    expect(runStart).toHaveBeenLastCalledWith({
+      entry: undefined,
+      local: true,
+      backend: undefined,
+    });
+    // ...and supplying it WITHOUT --local still selects local mode: a
+    // shell expanding an unset variable (`--backend "$VAR"`) must not
+    // silently submit the run to the cloud.
+    await main(["start", "--backend", ""]);
+    expect(runStart).toHaveBeenLastCalledWith({
+      entry: undefined,
+      local: true,
+      backend: undefined,
+    });
+    expect(runStart).toHaveBeenCalledTimes(5);
   });
 
   it("dispatches `dev` with the parsed port + --open flag", async () => {
@@ -201,6 +248,27 @@ describe("main (CLI Commander wiring)", () => {
       port: 4500,
       open: true,
       portExplicit: true,
+      local: false,
+      backend: undefined,
+    });
+  });
+
+  it("dispatches `dev --local` with backend implication", async () => {
+    await main(["dev", "--local"]);
+    expect(runDev).toHaveBeenCalledWith({
+      port: 4000,
+      open: false,
+      portExplicit: false,
+      local: true,
+      backend: undefined,
+    });
+    await main(["dev", "--backend", "mlx"]);
+    expect(runDev).toHaveBeenLastCalledWith({
+      port: 4000,
+      open: false,
+      portExplicit: false,
+      local: true,
+      backend: "mlx",
     });
   });
 
@@ -213,6 +281,8 @@ describe("main (CLI Commander wiring)", () => {
       port: 4000,
       open: false,
       portExplicit: true,
+      local: false,
+      backend: undefined,
     });
   });
 
@@ -225,6 +295,8 @@ describe("main (CLI Commander wiring)", () => {
       port: 4000,
       open: false,
       portExplicit: false,
+      local: false,
+      backend: undefined,
     });
   });
 

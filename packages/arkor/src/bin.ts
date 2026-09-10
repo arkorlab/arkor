@@ -21,6 +21,22 @@ try {
   // just set the exit code without re-printing the message or its stack.
   if (err instanceof ClaudeCodeStrictExit) {
     process.exitCode = 1;
+  } else if (
+    err instanceof Error &&
+    [
+      "LocalRuntimeNotInstalledError",
+      "LocalRuntimeVersionError",
+      "BackendSelectionError",
+    ].includes(err.name)
+  ) {
+    // Local-mode setup errors carry their own remediation (install
+    // @arkor/local, upgrade one side, install uv / use supported hardware).
+    // Matched by `name` because `BackendSelectionError` is constructed
+    // inside the separately-installed `@arkor/local` bundle, where
+    // `instanceof` fails across the package boundary; the loader errors are
+    // matched the same way for consistency.
+    console.error(err.message);
+    process.exitCode = 1;
   } else if (err instanceof Error && err.name === "ProjectStateMismatchError") {
     // A recoverable, expected setup conflict (a stale anonymous
     // `.arkor/state.json` after `arkor logout`): print the actionable

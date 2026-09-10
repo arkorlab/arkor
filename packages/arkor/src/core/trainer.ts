@@ -6,7 +6,8 @@ import {
   ensureCredentials,
   type Credentials,
 } from "./credentials";
-import { SUPPORTED_MODELS } from "./models";
+import { LOCAL_SCOPE, localCredentials, readLocalMode } from "./local-mode";
+import { isSupportedModel, SUPPORTED_MODELS } from "./models";
 import { ensureProjectState } from "./projectState";
 
 import type {
@@ -160,10 +161,17 @@ export function createTrainer(
   /** @internal */
   context: TrainerInternalContext = {},
 ): Trainer {
+  // Local mode is decided once, at construction time, from the environment
+  // hand-off set by `arkor start --local` / `arkor dev --local` (see
+  // `local-mode.ts` for why an env contract is the only viable channel).
+  const localMode = readLocalMode();
   // Same list the `TrainerInput.model` type narrows to, enforced at run
   // time: the CLI path (`arkor build` / `arkor start`) bundles with esbuild
   // and never typechecks, so the compile-time guard alone cannot gate it.
-  if (!SUPPORTED_MODELS.includes(input.model)) {
+  // Local mode relaxes the gate: the local backend accepts any HF model id
+  // and surfaces its own error if the model is unusable, so pre-filtering
+  // here would only forbid the MLX-converted models local training wants.
+  if (!localMode && !isSupportedModel(input.model)) {
     throw new Error(
       `Unsupported model "${input.model}". This arkor release supports: ` +
         `${SUPPORTED_MODELS.join(", ")}. If the backend already accepts ` +
@@ -199,21 +207,36 @@ export function createTrainer(
   // like `clientPromise` so the token the client is built with never diverges
   // from the one the scope is reconciled against.
   async function resolveCredentials(): Promise<Credentials> {
+    // Local mode never touches `~/.arkor`: `ensureCredentials` would mint
+    // and PERSIST an anonymous identity whose `arkorCloudApiUrl` points at
+    // this launch's ephemeral loopback port, breaking later cloud runs.
     credentialsPromise ??= (async () =>
-      context.credentials ?? (await ensureCredentials()))();
+      context.credentials ??
+      (localMode ? localCredentials(localMode) : await ensureCredentials()))();
     return credentialsPromise;
   }
 
   async function getClient(): Promise<CloudApiClient> {
     clientPromise ??= (async () => {
       const credentials = await resolveCredentials();
-      const baseUrl = context.baseUrl ?? defaultArkorCloudApiUrl(credentials);
+      // The explicit `localMode.baseUrl` branch keeps local runs pinned to
+      // the launch's server even when `ARKOR_CLOUD_API_URL` is also set in
+      // the shell (that variable outranks credentials inside
+      // `defaultArkorCloudApiUrl`, and must keep doing so for cloud runs).
+      const baseUrl =
+        context.baseUrl ??
+        (localMode ? localMode.baseUrl : defaultArkorCloudApiUrl(credentials));
       return new CloudApiClient({ baseUrl, credentials });
     })();
     return clientPromise;
   }
 
   async function resolveProjectState(client: CloudApiClient) {
+    // The local server has no orgs or projects; it accepts and ignores the
+    // scope params. Skipping `ensureProjectState` also keeps local runs from
+    // reading or writing `.arkor/state.json` and from auto-creating remote
+    // projects for anonymous users.
+    if (localMode) return LOCAL_SCOPE;
     const credentials = await resolveCredentials();
     return ensureProjectState({ cwd, client, credentials });
   }

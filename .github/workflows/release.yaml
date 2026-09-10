@@ -80,6 +80,7 @@ jobs:
 
           ARKOR_VERSION="$(node -p "require('./packages/arkor/package.json').version")"
           CREATE_ARKOR_VERSION="$(node -p "require('./packages/create-arkor/package.json').version")"
+          ARKOR_LOCAL_VERSION="$(node -p "require('./packages/arkor-local/package.json').version")"
 
           if [[ "$ARKOR_VERSION" != "$VERSION" ]]; then
             echo "packages/arkor/package.json version does not match tag"
@@ -91,6 +92,13 @@ jobs:
           if [[ "$CREATE_ARKOR_VERSION" != "$VERSION" ]]; then
             echo "packages/create-arkor/package.json version does not match tag"
             echo "package.json: $CREATE_ARKOR_VERSION"
+            echo "tag:          $VERSION"
+            exit 1
+          fi
+
+          if [[ "$ARKOR_LOCAL_VERSION" != "$VERSION" ]]; then
+            echo "packages/arkor-local/package.json version does not match tag"
+            echo "package.json: $ARKOR_LOCAL_VERSION"
             echo "tag:          $VERSION"
             exit 1
           fi
@@ -131,7 +139,7 @@ jobs:
           {
             echo "## Release"
             echo ""
-            echo "- Packages: \`arkor\`, \`create-arkor\`"
+            echo "- Packages: \`arkor\`, \`create-arkor\`, \`@arkor/local\`"
             echo "- Version: \`$VERSION\`"
             echo "- Git tag: \`${GITHUB_REF_NAME}\`"
             echo "- npm dist-tag: \`$NPM_TAG\`"
@@ -140,7 +148,7 @@ jobs:
       - name: Check npm versions are not published yet
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
-          for PKG in arkor create-arkor; do
+          for PKG in arkor create-arkor @arkor/local; do
             if npm view "$PKG@$VERSION" version >/dev/null 2>&1; then
               echo "$PKG@$VERSION is already published"
               exit 1
@@ -216,12 +224,14 @@ jobs:
           rm -rf "$PACK_DIR"
           mkdir -p "$PACK_DIR"
 
-          for PKG_DIR in packages/arkor packages/create-arkor; do
+          for PKG_DIR in packages/arkor packages/create-arkor packages/arkor-local; do
             (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
           done
 
           shopt -s nullglob
-          ARKOR_TARBALLS=("$PACK_DIR"/arkor-*.tgz)
+          # `arkor-[0-9]*` keeps the glob from also matching the scoped
+          # @arkor/local tarball, which pnpm names `arkor-local-<version>.tgz`.
+          ARKOR_TARBALLS=("$PACK_DIR"/arkor-[0-9]*.tgz)
           shopt -u nullglob
           if [[ ${#ARKOR_TARBALLS[@]} -ne 1 ]]; then
             echo "Expected exactly one arkor-*.tgz in $PACK_DIR, got ${#ARKOR_TARBALLS[@]}"
@@ -265,12 +275,23 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Runbook: the three lockstep packages (arkor, create-arkor,
+      # @arkor/local) publish as sequential, non-atomic steps in build.yaml.
+      # If a later publish fails after an earlier one succeeded, this job
+      # fails and the registry holds a version-skewed set; re-running the
+      # tag is blocked by preflight's "not published yet" gate. Recovery:
+      # publish the missing package(s) by hand from a clean checkout of the
+      # tag (`pnpm build && pnpm publish --filter <pkg> --tag <npm_tag>`),
+      # then re-run this postflight job. The skew window is user-visible but
+      # safe: the CLI's LOCAL_RUNTIME_PROTOCOL_VERSION handshake turns a
+      # mismatched arkor / @arkor/local pair into an actionable upgrade
+      # error rather than a silent misbehaviour.
       - name: Verify published packages
         run: |
           VERSION="${{ needs.preflight.outputs.version }}"
           MAX_ATTEMPTS=120
           SLEEP_SECONDS=5
-          for PKG in arkor create-arkor; do
+          for PKG in arkor create-arkor @arkor/local; do
             attempt=1
             while true; do
               RESOLVED="$(npm view "$PKG@$VERSION" version 2>/dev/null || true)"

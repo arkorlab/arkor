@@ -13,6 +13,7 @@ export type {
   DatasetSource,
   HuggingfaceDatasetSource,
   InferArgs,
+  JobConfig,
   JobStatus,
   LoraConfig,
   ResponseFormat,

@@ -309,8 +309,15 @@ export interface LoraConfig {
 export interface TrainerInput {
   /** Human-readable run name; shown in Studio + Web UI. */
   name: string;
-  /** Base model identifier. Narrowed to what cloud-api accepts today. */
-  model: SupportedModel;
+  /**
+   * Base model identifier. The union keeps IDE autocompletion on the models
+   * cloud-api accepts today, while the `string` arm admits any HuggingFace
+   * id for local runs (`arkor start --local`), where the model gate is
+   * enforced by the local backend instead of `SUPPORTED_MODELS`. Cloud runs
+   * still validate against `SUPPORTED_MODELS` at run time in
+   * `createTrainer`.
+   */
+  model: SupportedModel | (string & Record<never, never>);
   /** Dataset source (HuggingFace name or blob URL). */
   dataset: DatasetSource;
   /** LoRA / quantisation knobs. */

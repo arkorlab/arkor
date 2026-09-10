@@ -1,0 +1,100 @@
+---
+title: "Train locally with MLX"
+description: "Run training and inference on your own Apple Silicon Mac with arkor start --local."
+---
+
+On an Apple Silicon Mac you can run the whole loop, training, live progress, and chatting with the result, without a cloud account. The local runtime ships as a separate package (`@arkor/local`) and uses [MLX](https://github.com/ml-explore/mlx) via a pinned `mlx-lm`, resolved automatically by [uv](https://docs.astral.sh/uv/).
+
+## Set up
+
+1. Install uv once: `brew install uv`.
+2. Add the local runtime to your project:
+
+<CodeGroup>
+
+```bash pnpm
+pnpm add -D @arkor/local@alpha
+```
+
+```bash npm
+npm install -D @arkor/local@alpha
+```
+
+```bash yarn
+yarn add -D @arkor/local@alpha
+```
+
+```bash yarn-berry
+yarn add -D @arkor/local@alpha
+```
+
+```bash bun
+bun add -D @arkor/local@alpha
+```
+
+</CodeGroup>
+
+3. Point your trainer at an MLX-friendly model. Any HuggingFace id is accepted locally; the `mlx-community` conversions work best, and the `*-4bit` builds keep memory low:
+
+```ts src/arkor/trainer.ts
+export const trainer = createTrainer({
+  name: "my-local-run",
+  model: "mlx-community/SmolLM2-135M-Instruct",
+  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
+  datasetFormat: { type: "chatml" },
+  maxSteps: 100,
+});
+```
+
+## Train
+
+<CodeGroup>
+
+```bash pnpm
+pnpm start --local
+```
+
+```bash npm
+npm start -- --local
+```
+
+```bash yarn
+yarn start --local
+```
+
+```bash bun
+bun start --local
+```
+
+</CodeGroup>
+
+The first run resolves the Python environment and downloads the model, so it takes a while; both are cached afterwards. Progress streams into your `onLog` / `onCheckpoint` callbacks exactly as it does from the cloud, and the finished LoRA adapter lands in `.arkor/local/jobs/<id>/adapters/final/`.
+
+## Watch it in Studio
+
+<CodeGroup>
+
+```bash pnpm
+pnpm dev --local
+```
+
+```bash npm
+npm run dev -- --local
+```
+
+```bash yarn
+yarn dev --local
+```
+
+```bash bun
+bun dev --local
+```
+
+</CodeGroup>
+
+Studio opens as usual, with every cloud call repointed at the in-process local server: the identity chip reads **local**, Run training kicks off a local job, the loss chart streams live, and the Playground chats with your trained adapter through a local `mlx_lm server`. No credentials are created and nothing leaves your machine except the model / dataset downloads and the CLI's usual anonymous usage telemetry (disable it with `DO_NOT_TRACK=1` or `ARKOR_TELEMETRY_DISABLED=1`).
+
+## Where to go next
+
+- The full reference, including the config-field support table, on-disk layout, and error catalogue: [Local training](/cli/local-training)
+- Mid-training evaluation with `ctx.infer(...)` works locally too: [createTrainer](/sdk/create-trainer)

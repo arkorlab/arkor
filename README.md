@@ -75,6 +75,7 @@ The phrase we keep coming back to: **ship the model the same way you ship the pr
 - [x] **Three curated templates that run end-to-end.** `triage`, `translate`, and `redaction` pair the same Gemma 4 base with a public HuggingFace dataset and finish in minutes.
 - [x] **React to training in code, not in a dashboard.** Lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) fire as the run streams from the cloud, fully typed.
 - [x] **Sanity-check the model before the run finishes.** Inside `onCheckpoint`, call `infer({ messages })` against the model as it's being trained.
+- [x] **Train and chat on your own machine.** `arkor start --local` / `arkor dev --local` run the same trainer against a local MLX backend on Apple Silicon via the opt-in [`@arkor/local`](https://www.npmjs.com/package/@arkor/local) package, checkpoint inference included. See the [local training guide](https://docs.arkor.ai/cli/local-training).
 - [x] **Watch the run in a local Studio.** `arkor dev` opens a UI with a jobs list, live loss chart, log tail, and a Playground for chatting with your fine-tuned models.
 - [x] **Try it without an account.** `arkor dev` boots straight into a fresh anonymous workspace. Run `arkor login --oauth` to start the Arkor Cloud OAuth (PKCE) flow and attach the work to your account.
 
@@ -132,9 +133,9 @@ my-arkor-app/
 | -------------------------------------------------- | ---------------------------------------------------------------------- |
 | `arkor init`                                       | Scaffold a new project in the current directory                        |
 | `arkor login` / `arkor logout` / `arkor whoami`    | Arkor Cloud OAuth (PKCE) / anonymous tokens                            |
-| `arkor dev`                                        | Launch the local Studio web UI                                         |
+| `arkor dev`                                        | Launch the local Studio web UI (`--local` for local training)          |
 | `arkor build`                                      | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`                |
-| `arkor start`                                      | Run the build artifact (auto-builds when missing)                      |
+| `arkor start`                                      | Run the build artifact (auto-builds; `--local` trains on this machine) |
 
 `pnpm dev` resolves to `arkor dev` in scaffolded projects, so most workflows live behind that one command.
 

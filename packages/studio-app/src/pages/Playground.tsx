@@ -15,11 +15,21 @@ import { DEFAULT_BASE_MODEL, type SupportedBaseModel } from "../lib/baseModels";
 
 export function Playground({
   initialAdapterId,
+  local = false,
 }: {
   /** Pre-select this completed-job id when the page mounts, e.g. when
    * navigating from a JobDetail page's "Open in Playground" button. The
    * route layer parses it from `#/playground?adapter=<id>`. */
   initialAdapterId?: string;
+  /**
+   * Studio is talking to a local training server (`arkor start --local` /
+   * `arkor dev --local`). Only there does a completed dry run mean "no
+   * adapter exists". The App route waits for `/api/credentials` before
+   * mounting this page, so the value is never a placeholder for "mode not
+   * known yet" (which would briefly offer local dry runs whose every
+   * inference request 404s).
+   */
+  local?: boolean;
 } = {}) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   // If the caller pre-selected an adapter, start in adapter mode so
@@ -53,7 +63,15 @@ export function Playground({
     fetchJobs()
       .then(({ jobs }) => {
         if (cancelled) return;
-        const completed = jobs.filter((j) => j.status === "completed");
+        // LOCAL dry runs finish "completed" but produce no adapter (the
+        // config was validated, nothing was trained), so offering them
+        // here would only yield deterministic 404s from inference. Cloud
+        // dry runs still execute a capped loop and upload an adapter, so
+        // they stay selectable.
+        const completed = jobs.filter(
+          (j) =>
+            j.status === "completed" && !(local && j.config?.dryRun === true),
+        );
         setJobs(completed);
         // Reconcile the current selection (which may have been seeded
         // from `initialAdapterId` via the URL) against what the server
@@ -83,7 +101,7 @@ export function Playground({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [local]);
 
   // Tear the inference stream down on unmount so navigating away
   // mid-stream doesn't leave the async loop running and writing into

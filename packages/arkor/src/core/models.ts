@@ -17,3 +17,12 @@ export const SUPPORTED_MODELS = Object.freeze([
 ] as const);
 
 export type SupportedModel = (typeof SUPPORTED_MODELS)[number];
+
+/**
+ * Widening guard for the cloud-side model gate. `TrainerInput.model` admits
+ * arbitrary strings (local mode accepts any HuggingFace id), so callers need
+ * a `string`-typed membership check against the literal tuple above.
+ */
+export function isSupportedModel(model: string): model is SupportedModel {
+  return (SUPPORTED_MODELS as readonly string[]).includes(model);
+}

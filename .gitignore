@@ -11,6 +11,9 @@ packages/*/README.ja.md
 # Generated copy of docs/ (see packages/arkor/scripts/copy-docs.mjs)
 packages/arkor/docs/
 
+# Python bytecode from local tooling touching the @arkor/local shims
+__pycache__/
+
 # Turbo
 .turbo/
 

@@ -16,15 +16,18 @@ export interface PollDeploymentsForSlugOptions {
    * Bound `fetchDeployments` (or a stand-in). Called once per attempt
    * with the cancellation `signal` from `opts.signal`.
    */
-  fetchDeployments: (opts: {
-    signal: AbortSignal;
-  }) => Promise<{ deployments: Deployment[]; scopeMissing?: boolean }>;
+  fetchDeployments: (opts: { signal: AbortSignal }) => Promise<{
+    deployments: Deployment[];
+    scopeMissing?: boolean;
+    localUnavailable?: boolean;
+  }>;
   /** External cancellation signal. The poll bails as soon as this aborts. */
   signal: AbortSignal;
   /** Called whenever a fresh list lands (so the SPA can reflect it). */
   onUpdate: (result: {
     deployments: Deployment[];
     scopeMissing?: boolean;
+    localUnavailable?: boolean;
   }) => void;
   /** Called once if any non-abort error escapes a `fetchDeployments` call. */
   onError: (message: string) => void;

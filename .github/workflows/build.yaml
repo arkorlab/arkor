@@ -76,7 +76,7 @@ jobs:
           rm -rf "$PACK_DIR"
           mkdir -p "$PACK_DIR"
 
-          for PKG_DIR in packages/arkor packages/create-arkor; do
+          for PKG_DIR in packages/arkor packages/create-arkor packages/arkor-local; do
             (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
           done
 
@@ -143,6 +143,15 @@ jobs:
 
       - name: Publish create-arkor to npm
         working-directory: packages/create-arkor
+        run: |
+          pnpm publish \
+            --access public \
+            --tag "${{ inputs.npm_tag }}" \
+            --no-git-checks \
+            --provenance
+
+      - name: Publish @arkor/local to npm
+        working-directory: packages/arkor-local
         run: |
           pnpm publish \
             --access public \

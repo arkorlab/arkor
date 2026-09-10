@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
+  cancelJob,
   createDeployment,
   createDeploymentKey,
   deleteDeployment,
@@ -256,6 +257,37 @@ describe("apiFetch JSON helpers", () => {
     const { jobs } = await fetchJobs();
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.id).toBe("j1");
+  });
+
+  it("cancelJob POSTs to the job's cancel route and surfaces failures", async () => {
+    // Distinct from aborting the /api/train stream: this is what actually
+    // stops the backend (and, in local mode, the GPU work).
+    const calls: { url: string; method: string }[] = [];
+    globalThis.fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          method: init?.method ?? "GET",
+        });
+        return new Response("{}", { status: 200 });
+      },
+    ) as typeof fetch;
+    await cancelJob("job id/with slash");
+    expect(calls).toEqual([
+      { url: "/api/jobs/job%20id%2Fwith%20slash/cancel", method: "POST" },
+    ]);
+
+    // The backend's message wins over the bare status line: "400 Bad
+    // Request" tells the user nothing actionable.
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({ error: "No project state" }, { status: 400 }),
+    ) as typeof fetch;
+    await expect(cancelJob("j1")).rejects.toThrow(/No project state/);
+
+    globalThis.fetch = vi.fn(
+      async () => new Response("nope", { status: 409, statusText: "Conflict" }),
+    ) as typeof fetch;
+    await expect(cancelJob("j1")).rejects.toThrow(/409/);
   });
 
   it("apiFetch helpers throw with the status text on non-ok responses", async () => {
