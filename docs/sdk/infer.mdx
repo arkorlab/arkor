@@ -101,6 +101,7 @@ const res = await infer({
         type: "object",
         properties: { email: { type: "string", format: "email" } },
         required: ["email"],
+        additionalProperties: false,
       },
       strict: true,
     },
@@ -118,7 +119,7 @@ const res = await infer({
 
 `responseFormat` is OpenAI-compatible and is the right knob for ~all "give me JSON" cases. Reach for `structuredOutputs` only for constraints `responseFormat` cannot express.
 
-**`strict: true` requires `additionalProperties: false` on every object schema.** OpenAI's strict mode is satisfied only when each `type: "object"` schema (the root, plus every nested object) explicitly sets `additionalProperties: false` and lists every property in `required`. Schemas that omit it are rejected by the backend with a `400 invalid_schema`. The triage example above (and the cookbook recipe) follow this rule; copy them when you write your own schema.
+**`strict: true` requires `additionalProperties: false` on every object schema.** OpenAI's strict mode is satisfied only when each `type: "object"` schema (the root, plus every nested object) explicitly sets `additionalProperties: false` and lists every property in `required`. Schemas that omit it are rejected by the backend with a `400 invalid_schema`. The example above and the triage recipe in the [cookbook](/cookbook/structured-outputs) both follow this rule; copy them when you write your own schema.
 
 ### `structuredOutputs` examples
 

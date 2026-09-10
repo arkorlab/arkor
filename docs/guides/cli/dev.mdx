@@ -29,7 +29,7 @@ bun dev
 
 </CodeGroup>
 
-Open the URL the CLI prints. Click **Run training** to spawn a training run against `src/arkor/index.ts`. Live metrics stream in; once a checkpoint lands, the Playground lets you chat with it.
+Open the URL the CLI prints. Click **Run training** to spawn a training run against `src/arkor/index.ts`. Live metrics stream in; once the run completes, the Playground lets you chat with the trained model (mid-run checkpoints are reachable from code via [`onCheckpoint({ infer })`](/sdk/callbacks)).
 
 `arkor dev` does **not** start a training run on its own. It only serves the UI plus the small loopback API the SPA talks to. Training is triggered from the UI.
 
