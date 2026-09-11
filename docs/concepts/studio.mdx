@@ -14,7 +14,7 @@ Four jobs:
 3. **Try a finished model.** A Playground page lets you pick the base model or the final adapter from any completed job and chat with it. The Playground does not load intermediate checkpoints; for mid-run inference, use [`onCheckpoint`](/concepts/lifecycle) callbacks in your trainer.
 4. **Publish a model behind a `*.arkor.app` URL.** An Endpoints page creates a per-deployment subdomain that serves OpenAI-compatible chat completions for a chosen adapter or base model, plus the API keys that authenticate calls to it. The same actions are available programmatically via [`CloudApiClient`](/sdk/deployments). Studio is the interactive surface; the SDK is the lower-level one.
 
-A note on the dev loop: Studio's `/api/manifest` endpoint rebuilds your trainer on every request and imports the result through a content-addressed copy of the bundle (`index.<hash>.mjs`, see `packages/arkor/src/studio/manifest.ts`), so an unedited rebuild reuses Node's module cache while an edit produces a fresh module. The Run training page polls that endpoint every 5 seconds, so edits to `src/arkor/` are picked up without a page reload, and a trainer you register mid-session enables the Run training button on its own.
+A note on the dev loop: Studio's `/api/manifest` endpoint rebuilds your trainer on every request and imports the result through a content-addressed copy of the bundle (`index.<hash>.mjs`, see `packages/arkor/src/studio/manifest.ts`), so an unedited rebuild reuses Node's module cache while an edit produces a fresh module. The Run training page polls that endpoint every few seconds, so edits to `src/arkor/` are picked up without a page reload, and a trainer you register mid-session enables the Run training button on its own.
 
 ## Where Studio runs
 
