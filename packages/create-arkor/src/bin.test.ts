@@ -817,6 +817,14 @@ describe("interactive prompts (clack 1.x boundaries)", () => {
   // the exit code is asserted through `exitSpy` rather than carried here.
   class ProcessExit extends Error {}
 
+  // Captured here rather than at module scope because only this block
+  // touches them. Restoring matters: the file's outer hooks cover `CI` and
+  // the cwd but not these two, so leaving them set would hand every test
+  // declared after this block a fake TTY. Same pattern as `ORIG_TTY` in
+  // `packages/arkor/src/cli/prompts.test.ts`.
+  const ORIG_TTY = process.stdout.isTTY;
+  const ORIG_CLAUDECODE = process.env.CLAUDECODE;
+
   beforeEach(() => {
     // `run()` only prompts when it believes it owns a real terminal.
     delete process.env.CI;
@@ -832,6 +840,12 @@ describe("interactive prompts (clack 1.x boundaries)", () => {
 
   afterEach(() => {
     exitSpy.mockRestore();
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: ORIG_TTY,
+      configurable: true,
+    });
+    if (ORIG_CLAUDECODE === undefined) delete process.env.CLAUDECODE;
+    else process.env.CLAUDECODE = ORIG_CLAUDECODE;
   });
 
   it("aborts without scaffolding when the name prompt is cancelled", async () => {
