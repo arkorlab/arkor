@@ -78,7 +78,7 @@ catalog:
   typescript: "^5"
   typescript-eslint: "^8.59.4"
   vite: "^6.0.0"
-  vitest: "^4.1.5"
+  vitest: "^5.0.0"
 minimumReleaseAge: 1440
 # Narrow exemption from the 24h release-age gate. Scope is intentionally
 # this single package, and the entry should NOT grow without thinking
