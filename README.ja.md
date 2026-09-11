@@ -159,7 +159,7 @@ SPA は起動ごとの CSRF トークンでゲートされた `/api/*` ルート
 | ---------------------------------------------- | ------------------------------------------ |
 | [`arkor`](packages/arkor)                      | SDK + CLI + バンドル済みローカル Studio    |
 | [`create-arkor`](packages/create-arkor)        | `pnpm create arkor` スキャフォルダー       |
-| [`docs`](docs)                                 | [docs.arkor.ai](https://docs.arkor.ai) の Mintlify ソース (`pnpm --filter @arkor/docs docs:dev`) |
+| [`docs`](docs)                                 | docs.arkor.ai のソース                     |
 
 Node.js 22.22.0+ が必要です。
 (このリポジトリへの貢献には Node.js 24、できれば最新版の利用を推奨します。)

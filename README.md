@@ -152,7 +152,7 @@ Training runs on managed GPUs; checkpoints stream back as SSE events that fire y
 | ---------------------------------------------- | ------------------------------------------- |
 | [`arkor`](packages/arkor)                      | SDK + CLI + bundled local Studio            |
 | [`create-arkor`](packages/create-arkor)        | `pnpm create arkor` scaffolder              |
-| [`docs`](docs)                                 | Mintlify source for [docs.arkor.ai](https://docs.arkor.ai) (`pnpm --filter @arkor/docs docs:dev`) |
+| [`docs`](docs)                                 | Source for docs.arkor.ai                    |
 
 Requires Node.js 22.22.0+. 
 (Please use Node.js 24, preferably the latest version, for contributing to this repository.)

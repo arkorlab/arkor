@@ -50,8 +50,8 @@ compliance_user_guidelines = """
   local/no-em-dash ESLint rule and the repo-wide check-no-em-dash guard have no
   carve-out.
 - Respect the known review-bot pitfalls in best_practices.md that must NOT be
-  "fixed": the npm CodeGroup tab (npm arkor init), Mintlify heading slugs (which
-  keep /, =, and full-width parens), and HuggingFace model-name existence.
+  "fixed": the npm CodeGroup tab (npm arkor init) and HuggingFace model-name
+  existence.
 """
 
 # --- Describe agent ----------------------------------------------------------
