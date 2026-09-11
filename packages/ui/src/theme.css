@@ -31,9 +31,10 @@
  * Every value is opaque. A token with baked-in alpha composites against
  * whatever happens to be behind it, so the same token reads differently on a
  * card than on the page, and stacking an opacity utility on top of it
- * multiplies the two. The dark `danger-surface` / `danger-edge` / `warn-*`
- * steps below are the flattened equivalents of the translucent fills they
- * replace, resolved against `surface`.
+ * multiplies the two. Four dark steps below are the flattened equivalents of
+ * the translucent fills they replace, resolved against `surface`:
+ * `danger-surface`, `danger-edge`, `warn-surface`, `warn-edge`. The remaining
+ * dark values are chosen, not derived.
  *
  * An opacity utility at the call site is for one case only: a surface that
  * has to be see-through to do its job, which in practice means one behind a
@@ -121,9 +122,9 @@
   --ak-danger-edge: oklch(38.74% 0.0679 20.6);
 
   --ak-warn: oklch(82.8% 0.189 84.429);
-  /* Light enough to look near-white at a glance in a diff, but the chroma
-   * carries it: this is the amber tint Studio's dark warning banners already
-   * used, and it holds 12.87:1 on `warn-surface`. */
+  /* High enough in lightness to read as near-white until you see it painted,
+   * but the chroma carries it: this is the amber tint Studio's dark warning
+   * banners already used, and it holds 12.87:1 on `warn-surface`. */
   --ak-warn-fg: oklch(92.4% 0.12 95.746);
   --ak-warn-surface: oklch(24.86% 0.0419 97.3);
   --ak-warn-edge: oklch(43.53% 0.1075 92.3);

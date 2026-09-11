@@ -69,11 +69,13 @@ things need doing that are easy to miss:
 
 - Add a `"."` entry to `exports` and the usual script set (`typecheck`,
   `lint`, `test`, `test:coverage`); see `packages/cli-internal` for the shape.
-  Note that a `lint` script only works once the package actually has lintable
-  files: ESLint fails on an empty match.
+  A `lint` script only works once the package has lintable files: run against
+  a package with none, ESLint 10 exits 2 with "all of the files matching the
+  glob pattern are ignored".
 - Widen the React and jsx-a11y rule globs, which are currently scoped to
   `packages/studio-app/**/*.{ts,tsx,jsx}`, in both `eslint.config.ts` and
   `oxlint.config.ts`.
 - Add `@source "../../ui/src";` (path relative to the consumer's stylesheet) to
-  each consuming app's CSS. Tailwind does not scan `node_modules`, so class
-  names living in this package would otherwise generate nothing.
+  each consuming app's CSS, or the classes in here generate nothing. Measured
+  against Studio: a utility used only in `packages/ui/src` is absent from the
+  built stylesheet without that line and present with it.
