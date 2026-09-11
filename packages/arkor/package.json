@@ -58,7 +58,7 @@
     "esbuild": "^0.28.0",
     "hono": "^4.12.23",
     "open": "^11.0.0",
-    "posthog-node": "^5.30.6",
+    "posthog-node": "^5.52.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
