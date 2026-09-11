@@ -52,7 +52,7 @@ catalog:
   "@types/node": "^24"
   "@types/react": "^19.0.0"
   "@types/react-dom": "^19.0.0"
-  "@vitejs/plugin-react": "^4.3.0"
+  "@vitejs/plugin-react": "^6.1.1"
   "@vitest/coverage-v8": "^4.1.5"
   "@vitest/eslint-plugin": "^1.6.17"
   c8: "^10.1.3"
