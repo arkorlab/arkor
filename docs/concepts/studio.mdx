@@ -22,9 +22,9 @@ When you start `arkor dev`, the CLI:
 
 1. Boots a Hono server on `127.0.0.1:4000` by default (use `-p` to change the port). With no `-p`, a busy port falls back to the next free one within a bounded range, so the URL the CLI prints is the one to open; see [`arkor dev`](/cli/dev) for the retry rules.
 2. Serves a Vite + React SPA from the same origin so the UI talks to the CLI through `/api/*` on loopback.
-3. Issues a per-launch CSRF token (saved to `~/.arkor/studio-token` with mode `0600`) and requires every request to present it.
+3. Issues a per-launch CSRF token (saved to `~/.arkor/studio-token` with mode `0600`) and requires every `/api/*` request to present it. The SPA itself is served unauthenticated; that is how the page gets the token in the first place.
 
-The server only binds to loopback and rejects requests with a non-loopback `Host` header. There is no public URL and no remote access path (local requests still need the token), and the token rotates every time you start `arkor dev`.
+The server only binds to loopback and rejects requests with a non-loopback `Host` header. There is no public URL and no remote access path, and the token rotates every time you start `arkor dev`.
 
 ## How Studio fits with the managed backend
 
