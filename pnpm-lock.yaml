@@ -261,8 +261,8 @@ importers:
         specifier: ^11.0.0
         version: 11.0.0
       posthog-node:
-        specifier: ^5.30.6
-        version: 5.30.6(rxjs@7.8.2)
+        specifier: ^5.51.8
+        version: 5.51.8(rxjs@7.8.2)
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1289,11 +1289,11 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  '@posthog/core@1.27.7':
-    resolution: {integrity: sha512-6rzOZajUkhuezgPeF+ReMMly0D9oiwIZtMQrsJtZcS/mwi5OtvuYgxeaohgP9PKOhkK1c7cvGskX0Y2YUtBYCw==}
+  '@posthog/core@1.52.1':
+    resolution: {integrity: sha512-WT4TUgmsyBYHAmhsifg+LdaFH9wzOcp3UNWnIaeVOgodfMeG/X39V9n0lyebaxoHLR/NMCMq8gsrF69ldzuMhg==}
 
-  '@posthog/types@1.372.3':
-    resolution: {integrity: sha512-4mkXC9AhsquJnvogWtWsCi+ReODj/jbK0d3fkwCNLLTOpaiAF125FJ6OJyRFax2u+dEKXAPA/dCTGx1S2WF0nw==}
+  '@posthog/types@1.410.0':
+    resolution: {integrity: sha512-741sltt/h+l0eYH+Nkow96qKfDmRxwKacfjF93Z+kMySjzL0a87ptmpklZxGkbjBp/DJH/CSowGrolYWK/1ToA==}
 
   '@quansync/fs@1.0.0':
     resolution: {integrity: sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ==}
@@ -3244,8 +3244,8 @@ packages:
     resolution: {integrity: sha512-SoSL4+OSEtR99LHFZQiJLkT59C5B1amGO1NzTwj7TT1qCUgUO6hxOvzkOYxD+vMrXBM3XJIKzokoERdqQq/Zmg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-node@5.30.6:
-    resolution: {integrity: sha512-deZuSiLkpdEipiywkww1FhQoKpVVFmJP6SAVQcZcMbugTLwJRYSGjgm+qV0Y91xghf2yP6Nr5Plfl52i9Qj15Q==}
+  posthog-node@5.51.8:
+    resolution: {integrity: sha512-TCqgAYbACwb/D3VI2S861ugD+FavvowQfak8eMwS/wATS+g0Wj+YpsABrBEKi+ZP3Y5SJDcoc7bIH49rlGo1Ww==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       rxjs: ^7.0.0
@@ -4500,11 +4500,11 @@ snapshots:
     dependencies:
       playwright: 1.59.1
 
-  '@posthog/core@1.27.7':
+  '@posthog/core@1.52.1':
     dependencies:
-      '@posthog/types': 1.372.3
+      '@posthog/types': 1.410.0
 
-  '@posthog/types@1.372.3': {}
+  '@posthog/types@1.410.0': {}
 
   '@quansync/fs@1.0.0':
     dependencies:
@@ -6476,9 +6476,9 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-node@5.30.6(rxjs@7.8.2):
+  posthog-node@5.51.8(rxjs@7.8.2):
     dependencies:
-      '@posthog/core': 1.27.7
+      '@posthog/core': 1.52.1
     optionalDependencies:
       rxjs: 7.8.2
 
