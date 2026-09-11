@@ -40,47 +40,66 @@ embedReadme: true
 # at install time.
 catalog:
   "@eslint/js": "^10.0.1"
-  "@fontsource-variable/geist": "^5.1.0"
-  "@fontsource-variable/geist-mono": "^5.1.0"
-  "@playwright/test": "^1.50.0"
+  "@fontsource-variable/geist": "^5.3.0"
+  "@fontsource-variable/geist-mono": "^5.3.0"
+  "@playwright/test": "^1.63.0"
   "@stylistic/eslint-plugin": "^5.10.0"
-  "@tailwindcss/vite": "^4.0.0"
-  "@testing-library/jest-dom": "6.9.1"
-  "@testing-library/react": "16.3.2"
-  "@testing-library/user-event": "14.6.1"
+  "@tailwindcss/vite": "^4.3.3"
+  "@testing-library/jest-dom": "7.0.1"
+  "@testing-library/react": "16.3.3"
+  "@testing-library/user-event": "14.6.7"
   "@types/eslint-plugin-jsx-a11y": "^6.10.1"
   "@types/eslint-plugin-promise": "^7.3.0"
   "@types/node": "^24"
-  "@types/react": "^19.0.0"
-  "@types/react-dom": "^19.0.0"
-  "@vitejs/plugin-react": "^4.3.0"
-  "@vitest/coverage-v8": "^4.1.5"
-  "@vitest/eslint-plugin": "^1.6.17"
-  c8: "^10.1.3"
+  "@types/react": "^19.3.0"
+  "@types/react-dom": "^19.3.0"
+  "@vitejs/plugin-react": "^6.1.1"
+  "@vitest/coverage-v8": "^5.0.0"
+  "@vitest/eslint-plugin": "^1.6.27"
+  c8: "^12.0.0"
   eslint: "^10.4.0"
-  eslint-import-resolver-typescript: "^4.4.4"
-  eslint-plugin-import-x: "^4.16.2"
+  eslint-import-resolver-typescript: "^4.4.5"
+  eslint-plugin-import-x: "^4.17.1"
   eslint-plugin-jsx-a11y: "^6.10.2"
-  eslint-plugin-n: "^18.0.1"
+  eslint-plugin-n: "^18.3.0"
   eslint-plugin-promise: "^7.3.0"
   eslint-plugin-react-hooks: "^7.1.1"
-  eslint-plugin-regexp: "^3.1.0"
+  eslint-plugin-regexp: "^3.3.0"
+  # Held at 64 on purpose. unicorn 74 is ten majors of new recommended
+  # rules, and on this codebase they fire 648 times across 100 files:
+  # `no-global-object-property-assignment` on the tests' `globalThis`
+  # stubs, `consistent-boolean-name` on every boolean that is not
+  # `is`/`has`/`can`-prefixed, `no-top-level-assignment-in-function` on
+  # the vitest `beforeEach` fixture pattern, and so on. Deciding which of
+  # those the repo adopts is a lint-policy change, not a dependency bump,
+  # and this file's own guidance is to take rules one at a time rather
+  # than by category. Tracked separately (Dependabot PR #274).
   eslint-plugin-unicorn: "^64.0.0"
-  eventsource-parser: "^3.0.0"
-  globals: "^17.6.0"
+  eventsource-parser: "^4.1.0"
+  globals: "^17.12.0"
+  # Held at 29 on purpose. jsdom 30's engines are
+  # `^22.22.2 || ^24.15.0 || >=26.0.0`, which excludes this repo's
+  # supported floor (Node 22.22.0) and most of the Node 24 entries the
+  # CI matrix deliberately covers. Raising it means raising
+  # `engines.node` on the published packages and trimming the matrix,
+  # so it is deliberately out of scope here (Dependabot PR #264).
   jsdom: 29.1.1
   mint: 4.2.577
-  oxfmt: 0.52.0
-  oxlint: 1.66.0
-  react: "^19.0.0"
-  react-dom: "^19.0.0"
-  tailwindcss: "^4.0.0"
-  tsdown: "^0.21.9"
-  turbo: "^2.9.14"
+  oxfmt: 0.67.0
+  oxlint: 1.82.0
+  react: "^19.3.0"
+  react-dom: "^19.3.0"
+  tailwindcss: "^4.3.3"
+  tsdown: "^0.23.0"
+  turbo: "^2.10.12"
+  # Held at 5 on purpose. TypeScript 7 is outside the peer range of
+  # `tsdown` / `rolldown-plugin-dts` (`^5.0.0 || ^6.0.0`) and of
+  # `typescript-eslint`, and the declaration build stops emitting
+  # `dist/bin.mjs` under it (Dependabot PR #272).
   typescript: "^5"
-  typescript-eslint: "^8.59.4"
-  vite: "^6.0.0"
-  vitest: "^4.1.5"
+  typescript-eslint: "^8.70.0"
+  vite: "^8.2.2"
+  vitest: "^5.0.0"
 minimumReleaseAge: 1440
 # Narrow exemption from the 24h release-age gate. Scope is intentionally
 # this single package, and the entry should NOT grow without thinking
@@ -110,6 +129,28 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   # Pulled in by @vitejs/plugin-react -> @babel/core for Studio UI builds.
   - 'semver@6.3.1'
+# `@mintlify/mdx` (transitive under `mint`, so `docs/` only) still declares
+# `react` / `react-dom: ^18.3.1` as peers, while the rest of that tree resolves
+# React 19. With `autoInstallPeers` on, pnpm honours the stale range by pulling
+# in a second `react-dom@18.3.1` and pairing it with `react@19.2.3`: a renderer
+# and a runtime on different majors, where React DOM 18 reads React internals
+# that changed in 19. Every Dependabot lockfile regeneration produced that
+# pairing, and Codex flagged it on roughly 25 of those PRs.
+#
+# `peerDependencyRules.allowedVersions` does not help here: it silences the
+# unmet-peer warning but leaves the resolution, and so the auto-installed
+# React DOM 18, in place. An override is what actually moves it.
+#
+# What this achieves: the docs tree lands on react 19.2.3 + react-dom 19.3.0,
+# i.e. the same-major shape `main` already ships (it has 19.2.3 + 19.2.5).
+# The remaining patch-level skew is pre-existing and comes from a transitive
+# pin on react 19.2.3 inside mint's own graph; closing it would mean
+# overriding React across the whole docs subtree, which is broader than
+# anything `main` has run. Drop these entries once `@mintlify/mdx` widens its
+# peer range to include React 19.
+overrides:
+  "@mintlify/mdx>react": "^19.3.0"
+  "@mintlify/mdx>react-dom": "^19.3.0"
 # Block transitive deps from resolving via exotic sources (git+ssh://...,
 # direct tarball URLs, etc.). Direct deps may still use exotic sources;
 # only transitives are restricted, so the registry/lockfile/release-age
