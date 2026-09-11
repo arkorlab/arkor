@@ -9,7 +9,7 @@ description: "Studio の Overview / Jobs / Job 詳細ページ: 学習をトリ�
 
 ## Run training
 
-Run training パネルはページ読み込み時に `/api/manifest` を 1 度呼びます。レスポンスはプロジェクトの `createArkor({ trainer })` のサマリで、これをもとにアクションをラベル付けします:
+Run training パネルはページ読み込み時に `/api/manifest` を呼び、その後もページを開いている間はレスポンスの 5 秒後ごとに呼び直します。レスポンスはプロジェクトの `createArkor({ trainer })` のサマリで、これをもとにアクションをラベル付けします:
 
 - トレーナーが見つかれば `Run training: <trainer name>`。
 - バンドルは import されたが何も露出しない場合 `No trainer in src/arkor/index.ts yet. Add createTrainer(...) and pass it to createArkor.`（`src/arkor/index.ts` にトレーナーがまだありません。`createTrainer(...)` を追加して `createArkor` に渡してください）。

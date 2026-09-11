@@ -149,7 +149,7 @@ export const trainer = createTrainer({
 
 ## 4. ベースモデルを変える
 
-`model` フィールドの型は `SupportedModel` で、クラウド API が現在受け付けるモデルから導出したユニオンです。そのリストには現時点で `unsloth/gemma-4-E4B-it` の 1 件だけが入っており、すべてのスターターテンプレートに同梱されています。タイプミスやサポートされない ID は、実行の途中ではなく手元で失敗します。型チェックをすればコンパイルエラーになり、しなければ `createTrainer` が例外を投げます。後者が効くのが `arkor build` と `arkor start` で、これらは esbuild でバンドルするだけで型チェックを行いません。
+`model` フィールドの型は `SupportedModel` で、クラウド API が現在受け付けるモデルから導出したユニオンです。そのリストには現時点で `unsloth/gemma-4-E4B-it` の 1 件だけが入っており、すべてのスターターテンプレートに同梱されています。タイプミスやサポートされない ID は、実行の途中ではなく手元で失敗します。型チェックをすればコンパイルエラーになり、しなければ `createTrainer` が例外を投げます。`arkor build` と `arkor start` は esbuild でバンドルするだけで型チェックを行わないので、この経路では後者が効きます。発生するのはバンドルを生成する `arkor build` の時点ではなく、`arkor start` がそれを実行した時点です。
 
 ```ts
 model: "unsloth/gemma-4-E4B-it",   // 現在サポートされている値

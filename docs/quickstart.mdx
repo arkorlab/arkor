@@ -144,7 +144,7 @@ bun dev
 
 </CodeGroup>
 
-This runs `arkor dev`, which boots Studio at `http://localhost:4000`, or the next free port if that one is taken, so open the URL it prints. Studio is the UI; `arkor dev` itself does not start training and does not watch your trainer files.
+This runs `arkor dev`, which boots Studio at `http://localhost:4000`, or the next free port if that one is taken (it tries a bounded range, then exits), so open the URL it prints. Studio is the UI; `arkor dev` itself does not start training and does not watch your trainer files.
 
 In the browser, click **Run training**. Studio submits the job to the managed backend in the background and streams the output back into the page. The first time you trigger anything, an anonymous workspace is created automatically: no signup, no credit card.
 
@@ -193,5 +193,5 @@ A few caveats. Running `arkor login` without a flag opens an interactive picker 
 ## 5. Where to go next
 
 - **Concepts.** Read [Concepts](/concepts/overview) to build a mental model of `createArkor`, `createTrainer`, the lifecycle callbacks, and Studio.
-- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. The Run training page polls for the change, so the next click runs your edits.
+- **Customize the trainer.** Open `src/arkor/trainer.ts` and tweak `lora.r`, `maxSteps`, or add more callbacks. The Run training page re-polls a few seconds after each response and rebuilds, so a saved edit is picked up on its own; give it that moment before clicking and the run uses your new code.
 - **Try another template.** Re-run the scaffolder with a different `--template` to compare.

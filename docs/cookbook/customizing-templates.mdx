@@ -149,7 +149,7 @@ Pick the ones that match your run. The trainer file is just TypeScript; you can 
 
 ## 4. Change the base model
 
-The `model` field is typed as `SupportedModel`, a union derived from the models the cloud API accepts today. That list currently holds one entry, `unsloth/gemma-4-E4B-it`, which is what every starter template ships with. A typo or an unsupported identifier fails locally rather than partway through a run: a compile error when you typecheck, and a `createTrainer` throw otherwise, which is what catches it under `arkor build` and `arkor start` since those bundle with esbuild and never typecheck.
+The `model` field is typed as `SupportedModel`, a union derived from the models the cloud API accepts today. That list currently holds one entry, `unsloth/gemma-4-E4B-it`, which is what every starter template ships with. A typo or an unsupported identifier fails locally rather than partway through a run: a compile error when you typecheck, and a `createTrainer` throw otherwise. `arkor build` and `arkor start` bundle with esbuild and never typecheck, so on that path it is the throw that catches it, and it fires when `arkor start` executes the bundle rather than while `arkor build` is producing it.
 
 ```ts
 model: "unsloth/gemma-4-E4B-it",   // curated; this is the supported path today
