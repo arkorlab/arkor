@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
-import { summarize, type LossStats } from "../../lib/stats";
+import {
+  summarize,
+  finalizeRunningStats,
+  type LossStats,
+  type RunningStats,
+} from "../../lib/stats";
 
 export interface LossPoint {
   step: number;
@@ -27,9 +32,22 @@ const EVAL_STROKE = "rgb(244 114 182)"; // pink-400
 export function LossChart({
   points,
   advanced = false,
+  trainRunning,
+  evalRunning,
 }: {
   points: LossPoint[];
   advanced?: boolean;
+  /**
+   * Optional full-run stats accumulators (see stats.ts), computed
+   * incrementally by the caller independent of any compaction applied
+   * to `points`. When provided, these are used instead of deriving
+   * stats from `points` directly, so the Advanced panel stays
+   * accurate for the whole run even once `points` has been compacted.
+   * Falls back to summarizing `points` when omitted (e.g. for callers
+   * without a persistent per-run accumulator).
+   */
+  trainRunning?: RunningStats | null;
+  evalRunning?: RunningStats | null;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
@@ -126,20 +144,24 @@ export function LossChart({
   // baked into `summarize()` (for percentiles) doesn't run during a
   // live training stream when the panel isn't visible. Toggling
   // `advanced` on triggers a fresh useMemo evaluation.
-  const trainStats = useMemo(
-    () =>
-      advanced && trainSeries.length > 0
-        ? summarize(trainSeries.map((p) => p.loss))
-        : null,
-    [advanced, trainSeries],
-  );
-  const evalStats = useMemo(
-    () =>
-      advanced && evalSeries.length > 0
-        ? summarize(evalSeries.map((p) => p.evalLoss))
-        : null,
-    [advanced, evalSeries],
-  );
+  const trainStats = useMemo(() => {
+    if (!advanced) return null;
+    if (trainRunning) {
+      return trainRunning.count > 0 ? finalizeRunningStats(trainRunning) : null;
+    }
+    return trainSeries.length > 0
+      ? summarize(trainSeries.map((p) => p.loss))
+      : null;
+  }, [advanced, trainRunning, trainSeries]);
+  const evalStats = useMemo(() => {
+    if (!advanced) return null;
+    if (evalRunning) {
+      return evalRunning.count > 0 ? finalizeRunningStats(evalRunning) : null;
+    }
+    return evalSeries.length > 0
+      ? summarize(evalSeries.map((p) => p.evalLoss))
+      : null;
+  }, [advanced, evalRunning, evalSeries]);
 
   if (unified.length === 0) {
     return (
@@ -437,7 +459,12 @@ export function LossChart({
       ) : null}
 
       {advanced ? (
-        <AdvancedStats train={trainStats} evalStats={evalStats} />
+        <AdvancedStats
+          train={trainStats}
+          evalStats={evalStats}
+          trainUsingFullRunStats={Boolean(trainRunning)}
+          evalUsingFullRunStats={Boolean(evalRunning)}
+        />
       ) : null}
     </div>
   );
@@ -481,19 +508,54 @@ function Legend({
 function AdvancedStats({
   train,
   evalStats,
+  trainUsingFullRunStats,
+  evalUsingFullRunStats,
 }: {
   train: LossStats | null;
   evalStats: LossStats | null;
+  /**
+   * True when the caller supplied a `trainRunning` / `evalRunning`
+   * accumulator (see LossChart's props) for that specific series, so
+   * its stats above came from `finalizeRunningStats` rather than
+   * `summarize()` over `points`. Tracked per series (not combined)
+   * since a caller could in principle supply one accumulator without
+   * the other, and only the series with an accumulator has exact
+   * mean/variance/CI for the whole run; the other still describes
+   * whatever `points` currently holds.
+   */
+  trainUsingFullRunStats: boolean;
+  evalUsingFullRunStats: boolean;
 }) {
+  const fullRunCaption =
+    "Mean, standard deviation, variance, and the confidence interval reflect the full run. p90/p95 are estimated from a representative sample of up to 2,000 values, since retaining every value indefinitely isn't practical for a long run.";
+  const retainedSampleCaption =
+    "Stats describe the currently retained sample, not necessarily every point ever emitted for a long run.";
+  let caption: string;
+  if (trainUsingFullRunStats && evalUsingFullRunStats) {
+    caption = fullRunCaption;
+  } else if (!trainUsingFullRunStats && !evalUsingFullRunStats) {
+    caption = retainedSampleCaption;
+  } else {
+    const fullRunLabel = trainUsingFullRunStats ? "Training loss" : "Eval loss";
+    const retainedLabel = trainUsingFullRunStats
+      ? "Eval loss"
+      : "Training loss";
+    caption = `${fullRunLabel} stats reflect the full run (p90/p95 estimated from a representative sample). ${retainedLabel} stats describe the currently retained sample.`;
+  }
   return (
-    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <StatsCard label="Training loss" tone="train" stats={train} />
-      <StatsCard
-        label="Eval loss"
-        tone="eval"
-        stats={evalStats}
-        emptyHint="Awaiting training.log events with evalLoss…"
-      />
+    <div className="mt-4">
+      <p className="mb-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+        {caption}
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <StatsCard label="Training loss" tone="train" stats={train} />
+        <StatsCard
+          label="Eval loss"
+          tone="eval"
+          stats={evalStats}
+          emptyHint="Awaiting training.log events with evalLoss…"
+        />
+      </div>
     </div>
   );
 }
