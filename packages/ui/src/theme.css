@@ -52,7 +52,11 @@
   --ak-accent: oklch(20.46% 0 0); /* primary action: black on light */
   --ak-accent-hover: oklch(37.15% 0 0);
   --ak-on-accent: oklch(100% 0 0);
-  --ak-ring: oklch(71.55% 0 0); /* focus ring, no offset */
+  /* Focus ring, drawn 2px with no offset, so it has to clear 3:1 against
+   * every background it can land on. Measured against canvas / surface /
+   * inset: 3.78 / 3.95 / 3.62 here, and 4.17 / 3.88 / 3.19 for the dark
+   * value below. Lighten either one and the inset case fails first. */
+  --ak-ring: oklch(60% 0 0);
 
   --ak-danger: oklch(57.71% 0.2152 27.3); /* icons, destructive labels */
   --ak-danger-hover: oklch(44.37% 0.1613 26.9);
@@ -70,6 +74,15 @@
   --ak-series-strong: oklch(22.23% 0 0);
   --ak-series-mid: oklch(54.17% 0 0);
   --ak-series-faint: oklch(81.42% 0 0);
+
+  /* Families only. Loading the files is the app's job, since a bundler and a
+   * framework font loader do it differently. */
+  --ak-font-sans:
+    "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ak-font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 [data-theme="dark"] {
@@ -94,12 +107,19 @@
   --ak-ring: oklch(55.55% 0 0);
 
   --ak-danger: oklch(71.06% 0.1661 22.2);
+  /* `danger-hover` and `danger-fg` coincide here and only here. A dark-theme
+   * destructive control brightens on hover, and that brightened step is the
+   * same one body copy already sits at; splitting them would invent a
+   * distinction neither use needs. */
   --ak-danger-hover: oklch(80.77% 0.1035 19.6);
   --ak-danger-fg: oklch(80.77% 0.1035 19.6);
   --ak-danger-surface: oklch(23.73% 0.0171 18.4);
   --ak-danger-edge: oklch(38.74% 0.0679 20.6);
 
   --ak-warn: oklch(82.8% 0.189 84.429);
+  /* Light enough to look near-white at a glance in a diff, but the chroma
+   * carries it: this is the amber tint Studio's dark warning banners already
+   * used, and it holds 12.87:1 on `warn-surface`. */
   --ak-warn-fg: oklch(92.4% 0.12 95.746);
   --ak-warn-surface: oklch(24.86% 0.0419 97.3);
   --ak-warn-edge: oklch(43.53% 0.1075 92.3);
@@ -119,9 +139,6 @@
  * These names exist to generate utilities. To read a token from CSS or an
  * inline style, use the `--ak-*` property instead, for the reason given
  * above the light block.
- *
- * Font families are declared here; loading the files is the app's job, since
- * a bundler and a framework font loader do it differently.
  */
 @theme inline {
   --color-canvas: var(--ak-canvas);
@@ -155,10 +172,6 @@
   --color-series-mid: var(--ak-series-mid);
   --color-series-faint: var(--ak-series-faint);
 
-  --font-sans:
-    "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono:
-    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco,
-    Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-sans: var(--ak-font-sans);
+  --font-mono: var(--ak-font-mono);
 }

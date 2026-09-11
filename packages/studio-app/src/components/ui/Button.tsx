@@ -20,7 +20,8 @@ const VARIANT: Record<Variant, string> = {
     "bg-accent text-on-accent hover:bg-accent-hover disabled:hover:bg-accent",
   secondary:
     "border border-edge-strong bg-surface text-fg hover:bg-inset disabled:hover:bg-surface",
-  ghost: "text-fg-muted hover:bg-inset hover:text-fg",
+  ghost:
+    "text-fg-muted hover:bg-inset hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted",
   danger:
     "border border-danger-edge bg-surface text-danger hover:bg-danger-surface disabled:hover:bg-surface",
 };

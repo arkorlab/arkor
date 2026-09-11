@@ -41,7 +41,7 @@ export function Composer({
   const canSend = !disabled && value.trim().length > 0;
 
   return (
-    <div className="border-edge bg-surface border-t px-4 py-4 sm:px-8">
+    <div className="border-edge bg-canvas border-t px-4 py-4 sm:px-8">
       <form
         onSubmit={(e) => {
           e.preventDefault();

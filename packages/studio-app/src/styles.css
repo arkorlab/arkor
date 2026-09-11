@@ -25,7 +25,7 @@
 
   body {
     margin: 0;
-    font-family: var(--font-sans);
+    font-family: var(--ak-font-sans);
     font-size: 14px;
     background-color: var(--ak-canvas);
     color: var(--ak-fg);
