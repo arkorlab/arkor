@@ -42,7 +42,7 @@
     "node": ">=22.22.0"
   },
   "scripts": {
-    "build": "pnpm --filter @arkor/studio-app bundle && tsc -p tsconfig.build.json --noEmit && tsdown && node scripts/copy-studio-assets.mjs && node scripts/copy-root-files.mjs && node scripts/copy-docs.mjs",
+    "build": "tsc -p tsconfig.build.json --noEmit && tsdown && node scripts/copy-studio-assets.mjs && node scripts/copy-root-files.mjs && node scripts/copy-docs.mjs",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings . && eslint .",
@@ -63,6 +63,7 @@
   },
   "devDependencies": {
     "@arkor/cli-internal": "workspace:*",
+    "@arkor/studio-app": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "tsdown": "catalog:",
