@@ -262,6 +262,40 @@ describe("interactive paths (clack stubbed)", () => {
     expect(v).toBe(true);
   });
 
+  // clack 1.x widened `Validate<T>` to hand the callback `T | undefined`:
+  // an untouched field arrives as `undefined`, not `""`. `promptText` keeps
+  // taking a caller-facing `(value: string) => ...`, so it adapts at the
+  // boundary. Without that, a caller doing `value.trim()` would throw a
+  // TypeError before the user has typed anything.
+  it("promptText hands its caller '' when clack validates an untouched field", async () => {
+    const seen: string[] = [];
+    vi.mocked(clack.text).mockResolvedValueOnce("typed" as never);
+
+    await promptText({
+      message: "Project name?",
+      validate: (value) => {
+        seen.push(value);
+        return value.trim() ? undefined : "required";
+      },
+    });
+
+    const passed = vi.mocked(clack.text).mock.calls[0]?.[0]?.validate;
+    expect(typeof passed).toBe("function");
+    // Drive it the way clack 1.x does before and after the first keystroke.
+    expect((passed as (v?: string) => unknown)(undefined)).toBe("required");
+    expect((passed as (v?: string) => unknown)("abc")).toBeUndefined();
+    expect(seen).toEqual(["", "abc"]);
+  });
+
+  it("promptText leaves validate undefined when the caller supplies none", async () => {
+    // The adapter must not wrap a missing validator: handing clack a
+    // function that always returns `undefined` would be a behaviour change
+    // for prompts that deliberately opt out of validation.
+    vi.mocked(clack.text).mockResolvedValueOnce("typed" as never);
+    await promptText({ message: "Project name?" });
+    expect(vi.mocked(clack.text).mock.calls[0]?.[0]?.validate).toBeUndefined();
+  });
+
   it("promptConfirm propagates CliCancelled on user cancel", async () => {
     vi.mocked(clack.confirm).mockResolvedValueOnce(CLACK_CANCEL as never);
     await expect(promptConfirm({ message: "ok?" })).rejects.toThrow(

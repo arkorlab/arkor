@@ -870,9 +870,12 @@ program
         git?: boolean;
         skipGit?: boolean;
         allowBuilds?: boolean;
-        // Commander v13 leaves this undefined unless one of --agents-md /
+        // Commander leaves this undefined unless one of --agents-md /
         // --no-agents-md was passed; the action treats undefined as the
-        // default-on value.
+        // default-on value. This holds because the positive flag is declared
+        // first: declaring `--no-x` *alone* would instead default to `true`.
+        // Re-verified against commander 15 (ENG-1157), since a review flagged
+        // v14's negatable-option changes as a suspected break here.
         agentsMd?: boolean;
       },
     ) => {
@@ -961,9 +964,10 @@ program
         git: opts.git,
         skipGit: opts.skipGit,
         allowBuilds: opts.allowBuilds,
-        // Commander v13 leaves opts.agentsMd undefined when no flag is
-        // passed (it doesn't auto-default --no-foo to `foo: true`). Default
-        // to on; only explicit `--no-agents-md` (which sets `false`) opts out.
+        // Commander leaves opts.agentsMd undefined when no flag is passed
+        // (declaring the positive flag first stops --no-foo defaulting
+        // `foo` to `true`). Default to on; only explicit `--no-agents-md`
+        // (which sets `false`) opts out.
         agentsMd: opts.agentsMd !== false,
       });
     },
