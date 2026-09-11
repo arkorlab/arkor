@@ -46,7 +46,7 @@ catalog:
   "@tailwindcss/vite": "^4.0.0"
   "@testing-library/jest-dom": "6.9.1"
   "@testing-library/react": "16.3.2"
-  "@testing-library/user-event": "14.6.1"
+  "@testing-library/user-event": "14.6.7"
   "@types/eslint-plugin-jsx-a11y": "^6.10.1"
   "@types/eslint-plugin-promise": "^7.3.0"
   "@types/node": "^24"
