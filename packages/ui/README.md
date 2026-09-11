@@ -13,10 +13,10 @@ Tailwind v4, CSS-first. In the app's entry stylesheet:
 ```
 
 That brings in the `dark` variant, the token values for both themes, and the
-`@theme inline` block that turns them into utilities (`bg-surface`,
-`text-fg-muted`, `border-edge-strong`, `ring-ring`, ...). Because the block is
-`inline`, those utilities follow `data-theme` on `<html>` at runtime, so a
-component references one token rather than a light/dark pair.
+`@theme` block that turns them into utilities (`bg-surface`, `text-fg-muted`,
+`border-edge-strong`, `ring-ring`, ...). Those utilities follow `data-theme` on
+`<html>` at runtime, so a component references one token rather than a
+light/dark pair.
 
 The app owns two things this package deliberately does not: the pre-paint
 script that sets `data-theme` before first paint, and the font loading. Only

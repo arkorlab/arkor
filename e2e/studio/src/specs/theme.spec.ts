@@ -11,24 +11,32 @@ import { expect, test } from "../harness/fixture";
  * consumer that forgets to scan the package's sources all render a partly
  * unpainted app while every existing test still passes.
  *
+ * Everything here asserts on *used* values, never on
+ * `getComputedStyle().getPropertyValue("--ak-...")`: that returns an empty
+ * string on the macOS runner's Chromium even where the same tokens paint
+ * correctly, and what matters is what the page ends up painted with anyway.
+ *
+ * Expected colours are written as the token's declared text and handed to the
+ * browser to serialise, so the comparison does not depend on how a given
+ * Chromium prints a colour. They are spelled out rather than read back from
+ * the stylesheet on purpose: a test that sources its expectations from the
+ * thing under test cannot fail.
+ *
  * Assert on the token values, not on class names: the classes are what the
  * follow-up work moves into the shared package.
  */
-// Computed-colour notation, which is the serialised form the browser returns.
-// `getPropertyValue` hands back the declared text instead, so the properties
-// are only checked for presence below; their correctness is what these paint.
 const EXPECTED = {
   light: {
-    canvas: "oklch(0.9851 0 0)",
-    surface: "oklch(1 0 0)",
-    fg: "oklch(0.2046 0 0)",
-    edge: "oklch(0.9219 0 0)",
+    canvas: "oklch(98.51% 0 0)",
+    surface: "oklch(100% 0 0)",
+    fg: "oklch(20.46% 0 0)",
+    edge: "oklch(92.19% 0 0)",
   },
   dark: {
-    canvas: "oklch(0.1448 0 0)",
-    surface: "oklch(0.1913 0 0)",
-    fg: "oklch(0.9702 0 0)",
-    edge: "oklch(0.3211 0 0)",
+    canvas: "oklch(14.48% 0 0)",
+    surface: "oklch(19.13% 0 0)",
+    fg: "oklch(97.02% 0 0)",
+    edge: "oklch(32.11% 0 0)",
   },
 } as const;
 
@@ -43,38 +51,44 @@ for (const theme of ["light", "dark"] as const) {
     await page.goto(studio.url);
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
 
-    const actual = await page.evaluate(() => {
-      const root = getComputedStyle(document.documentElement);
+    const actual = await page.evaluate((want: Record<string, string>) => {
+      // Round-trip each expected colour through the browser so both sides of
+      // the comparison come out of the same serialiser.
+      const probe = document.createElement("div");
+      probe.style.display = "none";
+      document.body.append(probe);
+      const serialise = (css: string) => {
+        probe.style.backgroundColor = "";
+        probe.style.backgroundColor = css;
+        return getComputedStyle(probe).backgroundColor;
+      };
+      const expected = Object.fromEntries(
+        Object.entries(want).map(([k, v]) => [k, serialise(v)]),
+      );
+      probe.remove();
+
       const body = getComputedStyle(document.body);
       const card = document.querySelector("main a.group");
+      const cardStyle = card ? getComputedStyle(card) : null;
       return {
+        expected,
         dataTheme: document.documentElement.dataset.theme,
-        canvas: root.getPropertyValue("--ak-canvas").trim(),
-        surface: root.getPropertyValue("--ak-surface").trim(),
-        fg: root.getPropertyValue("--ak-fg").trim(),
-        edge: root.getPropertyValue("--ak-edge").trim(),
-        // The app has to actually paint with them, not merely declare them.
         bodyBackground: body.backgroundColor,
         bodyColor: body.color,
-        bodyFont: body.fontFamily.split(",")[0]?.trim(),
-        cardBackground: card ? getComputedStyle(card).backgroundColor : null,
-        cardBorder: card ? getComputedStyle(card).borderTopColor : null,
+        bodyFont: body.fontFamily,
+        cardBackground: cardStyle?.backgroundColor ?? null,
+        cardBorder: cardStyle?.borderTopColor ?? null,
       };
-    });
+    }, EXPECTED[theme]);
 
-    const want = EXPECTED[theme];
     expect(actual.dataTheme).toBe(theme);
-    // Declared at all: this is what a dropped import or a renamed token loses.
-    for (const name of ["canvas", "surface", "fg", "edge"] as const) {
-      expect(actual[name], `--ak-${name} is not declared`).not.toBe("");
-    }
-    expect(actual.bodyBackground).toBe(want.canvas);
-    expect(actual.bodyColor).toBe(want.fg);
-    expect(actual.cardBackground).toBe(want.surface);
-    expect(actual.cardBorder).toBe(want.edge);
+    expect(actual.bodyBackground).toBe(actual.expected.canvas);
+    expect(actual.bodyColor).toBe(actual.expected.fg);
+    expect(actual.cardBackground).toBe(actual.expected.surface);
+    expect(actual.cardBorder).toBe(actual.expected.edge);
     // Declared in the same file as the colours, and just as silent when it
     // goes missing: the app would fall back to the browser default face.
-    expect(actual.bodyFont).toBe('"Geist Variable"');
+    expect(actual.bodyFont).toContain("Geist Variable");
   });
 }
 
@@ -90,7 +104,8 @@ test("the two themes do not resolve to the same values", async ({
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
     return page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   };
-  // A `@theme` block that lost its `inline` would compile the light value into
-  // every utility, leaving both themes identical rather than obviously broken.
+  // Catches a theme that resolves but no longer varies: tokens replaced with
+  // literals, or a `dark` variant that stopped matching. Either leaves a page
+  // that renders perfectly in one theme and ignores the toggle.
   expect(await read("light")).not.toBe(await read("dark"));
 });

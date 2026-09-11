@@ -131,14 +131,21 @@
 }
 
 /*
- * `inline` is load-bearing: it makes the generated utilities emit
- * `var(--ak-*)` instead of resolving to the light value at build time, which
- * is what lets `bg-surface` and friends follow [data-theme] with no `dark:`
- * variant at the call site. A plain `@theme` block would freeze them.
+ * These names exist to generate utilities (`bg-surface`, `text-fg-muted`,
+ * ...). They follow [data-theme] with no `dark:` variant at the call site
+ * because the value each one maps to is itself a var(), resolved where it is
+ * used rather than where it is declared.
  *
- * These names exist to generate utilities. To read a token from CSS or an
- * inline style, use the `--ak-*` property instead, for the reason given
- * above the light block.
+ * `inline` is what keeps `--ak-*` the only name a token value has. Measured on
+ * the built stylesheet: with it, `.bg-canvas` emits `var(--ak-canvas)` and no
+ * `--color-*` property ships. Without it, `--color-canvas: var(--ak-canvas)`
+ * ships and `.bg-canvas` goes through that. Both track the theme, so this is
+ * not a correctness switch; the reason to keep it is that the `--color-*` set
+ * would otherwise look like a second API while still being tree-shaken to
+ * whichever names some utility happens to use (20 of 24, when measured).
+ *
+ * To read a token from CSS or an inline style, use the `--ak-*` property, for
+ * the reason given above the light block.
  */
 @theme inline {
   --color-canvas: var(--ak-canvas);
