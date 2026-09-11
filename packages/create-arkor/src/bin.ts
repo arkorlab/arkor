@@ -305,21 +305,6 @@ export function buildCdLine(cdTarget: string): string {
 }
 
 /**
- * Decide whether to run `git init` + initial commit, surfacing the prompt
- * upfront so the user doesn't sit at an interactive question after the long
- * `<pm> install` step finishes. Returns `true` if `runGitInit` should fire
- * later (after install).
- *
- * Policy:
- *   - `--git`       → run without asking
- *   - `--skip-git`  → skip without asking
- *   - `-y` / `--yes` (without --skip-git) → run without asking (matches the
- *     general "accept defaults" semantics; the prompt's default is yes)
- *   - interactive   → prompt (default = yes)
- *   - non-interactive & no flag → skip (never auto-init silently)
- *   - already inside a git repo → skip unconditionally
- */
-/**
  * Narrow a clack prompt result to its value, exiting on cancellation.
  *
  * `isCancel` is typed `value is typeof CANCEL_SYMBOL`, i.e. it narrows to one
@@ -337,6 +322,21 @@ function unwrapPrompt<T>(value: T | symbol): T {
   return value as T;
 }
 
+/**
+ * Decide whether to run `git init` + initial commit, surfacing the prompt
+ * upfront so the user doesn't sit at an interactive question after the long
+ * `<pm> install` step finishes. Returns `true` if `runGitInit` should fire
+ * later (after install).
+ *
+ * Policy:
+ *   - `--git`       → run without asking
+ *   - `--skip-git`  → skip without asking
+ *   - `-y` / `--yes` (without --skip-git) → run without asking (matches the
+ *     general "accept defaults" semantics; the prompt's default is yes)
+ *   - interactive   → prompt (default = yes)
+ *   - non-interactive & no flag → skip (never auto-init silently)
+ *   - already inside a git repo → skip unconditionally
+ */
 async function decideGitInit(
   cwd: string,
   options: RunOptions,

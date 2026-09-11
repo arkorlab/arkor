@@ -129,28 +129,36 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   # Pulled in by @vitejs/plugin-react -> @babel/core for Studio UI builds.
   - 'semver@6.3.1'
-# `@mintlify/mdx` (transitive under `mint`, so `docs/` only) still declares
-# `react` / `react-dom: ^18.3.1` as peers, while the rest of that tree resolves
-# React 19. With `autoInstallPeers` on, pnpm honours the stale range by pulling
-# in a second `react-dom@18.3.1` and pairing it with `react@19.2.3`: a renderer
-# and a runtime on different majors, where React DOM 18 reads React internals
-# that changed in 19. Every Dependabot lockfile regeneration produced that
+# Keep the whole install on exactly one React. React DOM refuses to load
+# against a React whose version differs from its own, so a graph carrying two
+# of either is a runtime error waiting for the first render.
+#
+# Without this, regenerating the lockfile splits React in two. `@mintlify/mdx`
+# (transitive under `mint`, so `docs/` only) declares `react` /
+# `react-dom: ^18.3.1` upstream, and with `autoInstallPeers` on pnpm honours
+# that stale range by installing a second `react-dom@18.3.1` next to the
+# `react@19.x` the rest of the tree resolves: a renderer and a runtime on
+# different majors. Every Dependabot lockfile regeneration produced that
 # pairing, and Codex flagged it on roughly 25 of those PRs.
 #
-# `peerDependencyRules.allowedVersions` does not help here: it silences the
-# unmet-peer warning but leaves the resolution, and so the auto-installed
-# React DOM 18, in place. An override is what actually moves it.
+# `peerDependencyRules.allowedVersions` does not fix it. It silences the
+# unmet-peer warning and leaves the resolution, and so the auto-installed
+# React DOM 18, exactly where it was. Scoping the override to
+# `@mintlify/mdx>react` does not fix it either: that moves React DOM but
+# leaves React itself on whatever the tree already had (19.2.3), which is a
+# graph React would still reject. Overriding both packages outright is what
+# collapses it to a single matched pair.
 #
-# What this achieves: the docs tree lands on react 19.2.3 + react-dom 19.3.0,
-# i.e. the same-major shape `main` already ships (it has 19.2.3 + 19.2.5).
-# The remaining patch-level skew is pre-existing and comes from a transitive
-# pin on react 19.2.3 inside mint's own graph; closing it would mean
-# overriding React across the whole docs subtree, which is broader than
-# anything `main` has run. Drop these entries once `@mintlify/mdx` widens its
-# peer range to include React 19.
+# Note when reading `pnpm-lock.yaml`: an override rewrites the *declared*
+# peer ranges recorded there, so `@mintlify/mdx`'s block shows the version
+# below rather than its published `^18.3.1`. The lockfile is not evidence
+# that upstream widened its range.
+#
+# Drop these entries once nothing in the tree needs them. ENG-1158 removes
+# Mintlify outright, which will most likely be that moment.
 overrides:
-  "@mintlify/mdx>react": "^19.3.0"
-  "@mintlify/mdx>react-dom": "^19.3.0"
+  react: "19.3.0"
+  react-dom: "19.3.0"
 # Block transitive deps from resolving via exotic sources (git+ssh://...,
 # direct tarball URLs, etc.). Direct deps may still use exotic sources;
 # only transitives are restricted, so the registry/lockfile/release-age
