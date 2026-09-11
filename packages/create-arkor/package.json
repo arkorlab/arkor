@@ -41,7 +41,7 @@
     "test:coverage": "vitest run --passWithNoTests --coverage"
   },
   "dependencies": {
-    "@clack/prompts": "^0.8.0",
+    "@clack/prompts": "^1.8.0",
     "commander": "^13.0.0"
   },
   "devDependencies": {
