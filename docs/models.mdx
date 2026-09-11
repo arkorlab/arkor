@@ -3,7 +3,7 @@ title: "Supported models"
 description: "Which base models the Arkor backend accepts today, why the list is short, and where it's headed."
 ---
 
-Today both the `model` field of `createTrainer` and Studio's Playground (base-model mode) accept exactly one value: `gemma-4-E4B-it`. Below: what that value gets you, why the list is short on purpose, and what's next.
+Today Studio's Playground (base-model mode) and Arkor's hosted inference serve exactly one base model, Gemma 4 E4B. The identifier you pass to `createTrainer` is the fully qualified `unsloth/gemma-4-E4B-it` (the sole `SupportedModel` value, as in the example below), checked by the compiler and re-checked when the trainer is constructed. The training backend can accept identifiers this SDK has not listed yet. Reaching one means bypassing `createTrainer` and submitting the job through the raw cloud API client, whose `createJob` keeps `config.model` a plain `string`: an escape hatch these docs do not otherwise cover, and the same one the "Unsupported model" error points at. Below: what that value gets you, why the list is short on purpose, and what's next.
 
 ## What you can pick today
 
