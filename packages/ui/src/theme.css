@@ -34,6 +34,10 @@
  * multiplies the two. The dark `danger-surface` / `danger-edge` / `warn-*`
  * steps below are the flattened equivalents of the translucent fills they
  * replace, resolved against `surface`.
+ *
+ * An opacity utility at the call site is for one case only: a surface that
+ * has to be see-through to do its job, which in practice means one behind a
+ * `backdrop-blur`. Anything else wants a token.
  */
 :root {
   color-scheme: light;

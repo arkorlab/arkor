@@ -40,7 +40,12 @@ silently, since an invalid var() leaves the property at its initial value. The
 | Danger | `danger`, `danger-hover`, `danger-fg`, `danger-surface`, `danger-edge` |
 | Warning | `warn`, `warn-fg`, `warn-surface`, `warn-edge` |
 | Charts | `series-strong`, `series-mid`, `series-faint` |
-| Type | `--font-sans`, `--font-mono` |
+| Type | `font-sans`, `font-mono` |
+
+A colour row's name is the whole of it: `surface` gives you `bg-surface`,
+`text-surface`, `border-surface` and `var(--ak-surface)`. The type row gives
+you the `font-sans` / `font-mono` utilities and `var(--ak-font-sans)` /
+`var(--ak-font-mono)`; there is no `--font-sans` property to reference.
 
 Two rules the values encode, and that call sites have to keep:
 
@@ -52,7 +57,10 @@ Two rules the values encode, and that call sites have to keep:
 - **Every token is opaque.** Do not add translucent values, and do not stack an
   opacity modifier on a token that represents a fill (`bg-danger-surface/50`).
   Alpha makes a token mean different things on different backgrounds and
-  compounds when modifiers are layered.
+  compounds when modifiers are layered. The exception is a surface that has to
+  be see-through to do its job, which in practice means one behind a
+  `backdrop-blur`: Studio's sticky header is `bg-surface/80` for that reason.
+  If an element is not blurring what is behind it, it does not qualify.
 
 ## Adding UI primitives later
 
