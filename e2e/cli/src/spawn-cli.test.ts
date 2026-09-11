@@ -1,6 +1,7 @@
 // `EventEmitter` is correct here: this file mocks Node's `ChildProcess`
 // shape, which extends `EventEmitter` (not `EventTarget`).
 /* eslint-disable unicorn/prefer-event-target */
+import type { SpawnSyncReturns } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
   existsSync,
@@ -16,16 +17,57 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// `vi.hoisted` ensures the mock factory and its captured `spawnMock` are
-// available before any module-level imports execute, so the
-// `import { spawn } from "node:child_process"` at the top of `spawn-cli.ts`
-// resolves to our fake instead of the real Node binding.
+// `vi.hoisted` ensures the mock factory and its captured `spawnMock` /
+// `spawnSyncMock` are available before any module-level imports
+// execute, so the `import { spawn, spawnSync } from "node:child_process"`
+// at the top of `spawn-cli.ts` resolves to our fakes instead of the real
+// Node bindings.
+//
+// Both `spawn` and `spawnSync` are intercepted:
+//
+//   - `spawnMock` drives the `runCli` orchestration tests
+//     (close events, retry gate, env-scrub assertions).
+//   - `spawnSyncMock` drives the `findBunBin` branch tests
+//     (probe / resolver / cache outcomes).
+//
+// Per-suite `beforeEach` resets the mock the suite cares about so
+// state doesn't leak across describes. The `vi.importActual` spread
+// passes every OTHER `node:child_process` export through to the real
+// implementation, so unrelated exports (`exec`, `execSync`,
+// `fork`, etc.) keep working if any test ever pulls them in via
+// `spawn-cli.ts`. Without the spread those would resolve to
+// `undefined` in the mocked module and silently throw at call time.
 const spawnMock = vi.hoisted(() => vi.fn());
-vi.mock("node:child_process", () => ({ spawn: spawnMock }));
+const spawnSyncMock = vi.hoisted(() => vi.fn());
+// `vi.importActual` is generic-free here; vitest types it as
+// `Promise<unknown>` without an explicit generic, but the result is
+// a module namespace object whose properties are spread into the
+// mock. Casting to `Record<string, unknown>` is enough to make the
+// spread well-typed, and avoids the previous `typeof nodeChildProcess`
+// generic that PR #159 Copilot kept flagging (a `typeof` query on a
+// type-only namespace import; valid TS but easy to misread). The
+// `consistent-type-imports` lint rule rules out the obvious
+// alternative form `typeof import("node:child_process")`, so a
+// loose-typed spread is the cleanest compromise. The runtime
+// behaviour is unchanged: every non-`spawn`/`spawnSync` export
+// passes through to the real Node implementation.
+vi.mock("node:child_process", async () => {
+  const actual = (await vi.importActual("node:child_process")) as Record<
+    string,
+    unknown
+  >;
+  return { ...actual, spawn: spawnMock, spawnSync: spawnSyncMock };
+});
 
 // Imports come after the `vi.mock` for clarity; vitest hoists both above
 // the imports at runtime so the mocked binding is in place either way.
-import { runCli, shouldRetryAfterSigkill, type RunResult } from "./spawn-cli";
+import {
+  __resetBunBinCacheForTest,
+  findBunBin,
+  runCli,
+  shouldRetryAfterSigkill,
+  type RunResult,
+} from "./spawn-cli";
 
 // Pure-function tests for the ENG-632 retry gate. They cover the decision
 // matrix exhaustively so a future refactor that accidentally widens or
@@ -840,5 +882,232 @@ describe("runCli CLAUDECODE env scrub", () => {
     process.env.CLAUDECODE = "0";
     const env = await captureSpawnedEnv({ CLAUDECODE: "1" });
     expect(env.CLAUDECODE).toBe("1");
+  });
+});
+
+// PR #159 Copilot review (follow-up): `findBunBin` does
+// platform-specific probing (bun --version) + resolver (where /
+// command -v) + caching. The previous version was un-tested;
+// pin the success / failure / cache / Windows-`.exe`-only
+// branches here so a future refactor that breaks one trips a
+// test rather than silently changing `runCli(..., "bun")`'s
+// availability detection. `spawnSync` is mocked at the
+// module-mock level above (alongside `spawn`); the cache is
+// reset between tests via `__resetBunBinCacheForTest()`.
+describe("findBunBin", () => {
+  const ORIG_PLATFORM = process.platform;
+  function withPlatform(p: NodeJS.Platform, fn: () => void) {
+    Object.defineProperty(process, "platform", {
+      value: p,
+      configurable: true,
+    });
+    try {
+      fn();
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: ORIG_PLATFORM,
+        configurable: true,
+      });
+    }
+  }
+
+  // `output[0]` is `null` in real `spawnSync` results because we
+  // don't pass `input`; stdin has nothing to echo back. Keeping the
+  // mocks shaped like the real return values means future tests
+  // that inspect `output` won't be surprised by an empty string in
+  // the stdin slot (PR #159 Copilot review).
+  function ok(stdout: string) {
+    const buf = Buffer.from(stdout);
+    return {
+      status: 0,
+      stdout: buf,
+      stderr: Buffer.from(""),
+      pid: 1,
+      output: [null, buf, Buffer.from("")],
+      signal: null,
+    } as SpawnSyncReturns<Buffer>;
+  }
+  // Real `spawnSync`: when the child *runs* and exits non-zero,
+  // `stdout`/`stderr` are still Buffers (possibly empty). They're
+  // `null` only when the spawn itself failed (file not found, EPERM,
+  // etc.), and in that case `status` is `null` and `error` is set.
+  // Both shapes resolve through `findBunBin`'s single
+  // `probe.status !== 0` check (with `status: null` the `!== 0`
+  // strict-inequality is true because the operands have different
+  // types), so we model the "ran and exited non-zero" shape here
+  // and assert the same branch via the cleaner shape. Tests that
+  // specifically need to exercise the spawn-ENOENT path (bun
+  // genuinely not on PATH) would need an `error`-bearing variant;
+  // we don't add one today because the `status !== 0` check makes
+  // the two cases observationally identical from `findBunBin`'s
+  // point of view (PR #159 Copilot review).
+  function fail() {
+    const empty = Buffer.from("");
+    return {
+      status: 1,
+      stdout: empty,
+      stderr: empty,
+      pid: 1,
+      output: [null, empty, empty],
+      signal: null,
+    } as SpawnSyncReturns<Buffer>;
+  }
+
+  beforeEach(() => {
+    spawnSyncMock.mockReset();
+    __resetBunBinCacheForTest();
+  });
+
+  it("returns the resolved absolute path on POSIX when both probes succeed", () => {
+    withPlatform("linux", () => {
+      spawnSyncMock
+        .mockReturnValueOnce(ok("1.3.13\n")) // bun --version
+        .mockReturnValueOnce(ok("/home/user/.bun/bin/bun\n")); // command -v bun
+      expect(findBunBin()).toBe("/home/user/.bun/bin/bun");
+    });
+  });
+
+  it("returns the .exe path on Windows even when `where` returns multiple lines including a shim", () => {
+    withPlatform("win32", () => {
+      spawnSyncMock
+        .mockReturnValueOnce(ok("1.3.13\r\n"))
+        .mockReturnValueOnce(
+          ok(
+            "C:\\Users\\u\\.bun\\bin\\bun.cmd\r\nC:\\Users\\u\\.bun\\bin\\bun.exe\r\n",
+          ),
+        );
+      // The `.exe` is preferred regardless of order in `where`'s output.
+      expect(findBunBin()).toBe(String.raw`C:\Users\u\.bun\bin\bun.exe`);
+    });
+  });
+
+  it("returns undefined on Windows when only a .cmd shim is on PATH (shell:false can't exec it)", () => {
+    withPlatform("win32", () => {
+      spawnSyncMock
+        .mockReturnValueOnce(ok("1.3.13\r\n"))
+        .mockReturnValueOnce(ok("C:\\tools\\bun\\bun.cmd\r\n"));
+      // Even though `--version` succeeded, we mark bun unavailable
+      // because `runCli` spawns with `shell: false` and Node can't
+      // execute `.cmd` shims directly.
+      expect(findBunBin()).toBeUndefined();
+    });
+  });
+
+  it("returns undefined when the --version probe fails", () => {
+    withPlatform("linux", () => {
+      spawnSyncMock.mockReturnValueOnce(fail());
+      expect(findBunBin()).toBeUndefined();
+      // Resolver was NOT consulted after the probe failed.
+      expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("returns undefined when --version stdout isn't version-shaped", () => {
+    // A stale shim that exits 0 but prints garbage shouldn't be
+    // accepted as a usable bun.
+    withPlatform("linux", () => {
+      spawnSyncMock.mockReturnValueOnce(ok("not a version\n"));
+      expect(findBunBin()).toBeUndefined();
+      expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("falls back to the literal `bun` on POSIX when the resolver fails despite a successful probe", () => {
+    withPlatform("linux", () => {
+      spawnSyncMock
+        .mockReturnValueOnce(ok("1.3.13\n"))
+        .mockReturnValueOnce(fail());
+      // POSIX-only fallback: lets `spawn` do its own PATH lookup
+      // at run time. (On Windows we short-circuit to undefined
+      // instead, asserted in the next test.)
+      expect(findBunBin()).toBe("bun");
+    });
+  });
+
+  it("returns undefined (no literal fallback) on Windows when the resolver fails", () => {
+    withPlatform("win32", () => {
+      spawnSyncMock
+        .mockReturnValueOnce(ok("1.3.13\r\n"))
+        .mockReturnValueOnce(fail());
+      // Falling back to literal `bun` on Windows would re-introduce
+      // the shell-quoting hazard the absolute-path resolution was
+      // meant to eliminate; treat bun as unavailable instead.
+      expect(findBunBin()).toBeUndefined();
+    });
+  });
+
+  it("caches the result across calls (no re-probing)", () => {
+    withPlatform("linux", () => {
+      spawnSyncMock
+        .mockReturnValueOnce(ok("1.3.13\n"))
+        .mockReturnValueOnce(ok("/usr/local/bin/bun\n"));
+      expect(findBunBin()).toBe("/usr/local/bin/bun");
+      // Second call hits the cache; spawnSync isn't invoked again.
+      expect(findBunBin()).toBe("/usr/local/bin/bun");
+      expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("caches the negative result so a missing bun isn't re-probed", () => {
+    withPlatform("linux", () => {
+      spawnSyncMock.mockReturnValueOnce(fail());
+      expect(findBunBin()).toBeUndefined();
+      // Second call returns the cached `null` sentinel, collapsed
+      // back to undefined.
+      expect(findBunBin()).toBeUndefined();
+      expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+// PR #159 Copilot review (follow-up): when `runCli(..., "bun")`
+// is invoked but `findBunBin()` returns undefined (the
+// caller forgot to gate on it, or bun became unavailable
+// between the gate check and the spawn), `runCli` must reject
+// with an actionable error rather than falling back to spawning
+// the literal `"bun"`. The literal fallback would defeat both
+// the `skipIf` contract AND the Windows-only `.exe`-required
+// safeguard inside `findBunBin` (Windows returns undefined
+// precisely so `shell: false` spawning doesn't blow up on a
+// `.cmd` shim). Pin the contract here so a future refactor that
+// re-introduces the silent fallback trips a test instead.
+describe("runCli runtime: 'bun' gate enforcement", () => {
+  beforeEach(() => {
+    spawnSyncMock.mockReset();
+    spawnMock.mockReset();
+    __resetBunBinCacheForTest();
+  });
+
+  it("rejects with a gate-violation error when findBunBin returns undefined", async () => {
+    // Force `findBunBin()` to return undefined by making the
+    // `--version` probe fail. The error wording mentions the
+    // skipIf contract so future readers see the actionable fix.
+    // Use the `failed` helper shape (status: 1, stdout/stderr empty
+    // Buffers, output[0] null) so the mock matches a real
+    // ran-and-exited-non-zero `spawnSync` result; the previous
+    // inline form had `stdout: null` which corresponds to a
+    // spawn-failed shape (status: null) instead, which doesn't
+    // exercise the same `findBunBin` branch the call site hits.
+    const empty = Buffer.from("");
+    spawnSyncMock.mockReturnValueOnce({
+      status: 1,
+      stdout: empty,
+      stderr: empty,
+      pid: 1,
+      output: [null, empty, empty],
+      signal: null,
+    } as SpawnSyncReturns<Buffer>);
+    const cwd = mkdtempSync(join(tmpdir(), "runcli-bun-gate-"));
+    try {
+      await expect(runCli("/fake/bin", [], cwd, {}, "bun")).rejects.toThrow(
+        /findBunBin\(\).*returned undefined/,
+      );
+      // Crucially, the early reject must NOT call `spawn` (no
+      // literal-`"bun"` fallback that re-introduces the
+      // shell-quoting hazard on Windows).
+      expect(spawnMock).not.toHaveBeenCalled();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
