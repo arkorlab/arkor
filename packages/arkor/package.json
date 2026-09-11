@@ -59,7 +59,7 @@
     "hono": "^4.12.23",
     "open": "^11.0.0",
     "posthog-node": "^5.30.6",
-    "zod": "^4.3.6"
+    "zod": "^4.6.1"
   },
   "devDependencies": {
     "@arkor/cli-internal": "workspace:*",
