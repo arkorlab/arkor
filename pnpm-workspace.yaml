@@ -2,7 +2,6 @@ packages:
   - "packages/*"
   - "e2e/*"
   - "examples/*"
-  - "docs"
 # Embed each published package's README.md into the `readme` field of
 # the manifest it ships: the registry packument that npmjs.com reads to
 # render the package page. The on-disk source `package.json` is not
@@ -84,7 +83,6 @@ catalog:
   # `engines.node` on the published packages and trimming the matrix,
   # so it is deliberately out of scope here (Dependabot PR #264).
   jsdom: 29.1.1
-  mint: 4.2.577
   oxfmt: 0.67.0
   oxlint: 1.82.0
   react: "^19.3.0"
@@ -129,36 +127,6 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   # Pulled in by @vitejs/plugin-react -> @babel/core for Studio UI builds.
   - 'semver@6.3.1'
-# Keep the whole install on exactly one React. React DOM refuses to load
-# against a React whose version differs from its own, so a graph carrying two
-# of either is a runtime error waiting for the first render.
-#
-# Without this, regenerating the lockfile splits React in two. `@mintlify/mdx`
-# (transitive under `mint`, so `docs/` only) declares `react` /
-# `react-dom: ^18.3.1` upstream, and with `autoInstallPeers` on pnpm honours
-# that stale range by installing a second `react-dom@18.3.1` next to the
-# `react@19.x` the rest of the tree resolves: a renderer and a runtime on
-# different majors. Every Dependabot lockfile regeneration produced that
-# pairing, and Codex flagged it on roughly 25 of those PRs.
-#
-# `peerDependencyRules.allowedVersions` does not fix it. It silences the
-# unmet-peer warning and leaves the resolution, and so the auto-installed
-# React DOM 18, exactly where it was. Scoping the override to
-# `@mintlify/mdx>react` does not fix it either: that moves React DOM but
-# leaves React itself on whatever the tree already had (19.2.3), which is a
-# graph React would still reject. Overriding both packages outright is what
-# collapses it to a single matched pair.
-#
-# Note when reading `pnpm-lock.yaml`: an override rewrites the *declared*
-# peer ranges recorded there, so `@mintlify/mdx`'s block shows the version
-# below rather than its published `^18.3.1`. The lockfile is not evidence
-# that upstream widened its range.
-#
-# Drop these entries once nothing in the tree needs them. ENG-1158 removes
-# Mintlify outright, which will most likely be that moment.
-overrides:
-  react: "19.3.0"
-  react-dom: "19.3.0"
 # Block transitive deps from resolving via exotic sources (git+ssh://...,
 # direct tarball URLs, etc.). Direct deps may still use exotic sources;
 # only transitives are restricted, so the registry/lockfile/release-age
@@ -169,19 +137,14 @@ overrides:
 # stance in one place, and so the setting stays pinned if a future pnpm
 # release walks the default back.
 blockExoticSubdeps: true
-# Transitive deps under `mint` (in `docs/`): each ships a postinstall
-# (keytar's native binding, puppeteer's Chromium download, sharp's
-# libvips binary). `false` is the deny choice: it suppresses pnpm
-# 11's `ERR_PNPM_IGNORED_BUILDS` without granting any of them the
-# right to run install-time code. The docs workflow has been running
-# under pnpm 10's "warn-and-skip" behaviour without these
-# postinstalls; pnpm 11 surfaces the same skip explicitly, and `false`
-# preserves that posture. Flip an entry to `true` only if a concrete
-# docs task starts failing because its native binary isn't there.
+# Review decisions for dependencies that ship install scripts: `true`
+# lets the script run, `false` blocks it. Anything that ships one and is
+# listed neither way counts as unreviewed, and pnpm fails the install
+# with `ERR_PNPM_IGNORED_BUILDS` (`strictDepBuilds` defaults to true)
+# rather than skipping it quietly, so a new one has to be decided here
+# on purpose. The three below are approved because the SDK build path
+# needs their native binaries.
 allowBuilds:
   rolldown: true
   unrs-resolver: true
   esbuild: true
-  keytar: false
-  puppeteer: false
-  sharp: false
