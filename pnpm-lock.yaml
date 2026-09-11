@@ -91,8 +91,8 @@ catalogs:
       specifier: ^3.0.0
       version: 3.0.8
     globals:
-      specifier: ^17.6.0
-      version: 17.6.0
+      specifier: ^17.12.0
+      version: 17.12.0
     jsdom:
       specifier: 29.1.1
       version: 29.1.1
@@ -178,7 +178,7 @@ importers:
         version: 64.0.0(eslint@10.4.0(jiti@2.6.1))
       globals:
         specifier: 'catalog:'
-        version: 17.6.0
+        version: 17.12.0
       oxfmt:
         specifier: 'catalog:'
         version: 0.52.0
@@ -2668,8 +2668,8 @@ packages:
     resolution: {integrity: sha512-7ACyT3wmyp3I61S4fG682L0VA2RGD9otkqGJIwNUMF1SWUombIIk+af1unuDYgMm082aHYwD+mzJvv9Iu8dsgg==}
     engines: {node: '>=18'}
 
-  globals@17.6.0:
-    resolution: {integrity: sha512-sepffkT8stwnIYbsMBpoCHJuJM5l98FUF2AnE07hfvE0m/qp3R586hw4jF4uadbhvg1ooIdzuu7CsfD2jzCaNA==}
+  globals@17.12.0:
+    resolution: {integrity: sha512-cezEd/DTyyht9cvSSURyygXPfy04GtWO/5e6ZPvH7fCtjKz9PYOmuawphw1Ctd1f6C+5JypXfGD7ahNMXvevBA==}
     engines: {node: '>=18'}
 
   globalthis@1.0.4:
@@ -5677,7 +5677,7 @@ snapshots:
       core-js-compat: 3.49.0
       eslint: 10.4.0(jiti@2.6.1)
       find-up-simple: 1.0.1
-      globals: 17.6.0
+      globals: 17.12.0
       indent-string: 5.0.0
       is-builtin-module: 5.0.0
       jsesc: 3.1.0
@@ -5922,7 +5922,7 @@ snapshots:
 
   globals@15.15.0: {}
 
-  globals@17.6.0: {}
+  globals@17.12.0: {}
 
   globalthis@1.0.4:
     dependencies:
