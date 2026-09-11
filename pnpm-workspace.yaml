@@ -73,7 +73,7 @@ catalog:
   react: "^19.0.0"
   react-dom: "^19.0.0"
   tailwindcss: "^4.0.0"
-  tsdown: "^0.21.9"
+  tsdown: "^0.23.0"
   turbo: "^2.9.14"
   typescript: "^5"
   typescript-eslint: "^8.59.4"
