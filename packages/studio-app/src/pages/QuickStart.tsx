@@ -289,7 +289,8 @@ export function QuickStart({
           )}
 
           <a
-            // Canonical docs host is `docs.arkor.ai` (Mintlify-hosted).
+            // Canonical docs host is `docs.arkor.ai` (it redirects to
+            // the docs deployed under `arkor.ai/docs`).
             // `arkor.ai` is the marketing site; its `/studio/endpoints`
             // path doesn't exist, so linking there from the Quick start
             // panel would 404. (The Overview "Documentation" tile
