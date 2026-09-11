@@ -66,7 +66,7 @@ catalog:
   eslint-plugin-regexp: "^3.1.0"
   eslint-plugin-unicorn: "^64.0.0"
   eventsource-parser: "^3.0.0"
-  globals: "^17.6.0"
+  globals: "^17.12.0"
   jsdom: 29.1.1
   oxfmt: 0.52.0
   oxlint: 1.66.0
