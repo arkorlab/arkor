@@ -75,6 +75,12 @@ things need doing that are easy to miss:
 - Widen the React and jsx-a11y rule globs, which are currently scoped to
   `packages/studio-app/**/*.{ts,tsx,jsx}`, in both `eslint.config.ts` and
   `oxlint.config.ts`.
+- Decide how a `className` prop composes with the base classes. Studio joins
+  them, which means a caller cannot reliably override a base colour: both
+  utilities survive and the winner is whichever one Tailwind emitted later.
+  A package whose whole job is taking a `className` probably cannot live with
+  that. `packages/studio-app/src/components/ui/cn.ts` carries the measured
+  cost of the two mergers that would fix it.
 - Add `@source "../../ui/src";` (path relative to the consumer's stylesheet) to
   each consuming app's CSS, or the classes in here generate nothing. Measured
   against Studio: a utility used only in `packages/ui/src` is absent from the
