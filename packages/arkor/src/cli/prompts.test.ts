@@ -31,6 +31,22 @@ import {
 
 const CLACK_CANCEL = Symbol.for("clack:cancel");
 
+/**
+ * The options object from the most recent `clack.text` call.
+ *
+ * Deliberately the *last* call rather than `mock.calls[0]`: vitest 5 ships
+ * `clearMocks: true` by default, so today index 0 is also the call the test
+ * just made, but that is a framework default this file does not set. Reading
+ * the tail is correct either way, and keeps a test added above this one from
+ * silently changing which call gets asserted on.
+ */
+function lastTextOptions(): Parameters<typeof clack.text>[0] {
+  const calls = vi.mocked(clack.text).mock.calls;
+  const last = calls.at(-1);
+  if (!last) throw new Error("clack.text was never called");
+  return last[0];
+}
+
 const ORIG_CI = process.env.CI;
 const ORIG_CLAUDECODE = process.env.CLAUDECODE;
 const ORIG_TTY = process.stdout.isTTY;
@@ -279,7 +295,7 @@ describe("interactive paths (clack stubbed)", () => {
       },
     });
 
-    const passed = vi.mocked(clack.text).mock.calls[0]?.[0]?.validate;
+    const passed = lastTextOptions().validate;
     expect(typeof passed).toBe("function");
     // Drive it the way clack 1.x does before and after the first keystroke.
     expect((passed as (v?: string) => unknown)(undefined)).toBe("required");
@@ -293,7 +309,7 @@ describe("interactive paths (clack stubbed)", () => {
     // for prompts that deliberately opt out of validation.
     vi.mocked(clack.text).mockResolvedValueOnce("typed" as never);
     await promptText({ message: "Project name?" });
-    expect(vi.mocked(clack.text).mock.calls[0]?.[0]?.validate).toBeUndefined();
+    expect(lastTextOptions().validate).toBeUndefined();
   });
 
   it("promptConfirm propagates CliCancelled on user cancel", async () => {
