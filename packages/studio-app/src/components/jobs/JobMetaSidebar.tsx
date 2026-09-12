@@ -12,15 +12,15 @@ export interface JobMetaItem {
 
 export function JobMetaSidebar({ items }: { items: JobMetaItem[] }) {
   return (
-    <dl className="divide-y divide-zinc-100 dark:divide-zinc-900">
+    <dl className="divide-edge divide-y">
       {items.map((it, i) => (
         <div key={i} className="flex items-start justify-between gap-3 py-3">
-          <dt className="shrink-0 text-xs font-medium tracking-wider text-zinc-500 uppercase dark:text-zinc-500">
+          <dt className="text-fg-subtle shrink-0 text-xs font-medium tracking-wider uppercase">
             {it.label}
           </dt>
           <dd
             className={cn(
-              "min-w-0 text-right text-sm break-all text-zinc-900 dark:text-zinc-100",
+              "text-fg min-w-0 text-right text-sm break-all",
               it.mono && "font-mono text-[12px]",
             )}
           >

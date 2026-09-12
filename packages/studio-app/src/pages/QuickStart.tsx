@@ -47,9 +47,7 @@ const SAMPLE_OPERATIONS: {
       <>
         Send a chat completion request. The body uses the OpenAI Chat
         Completions schema;{" "}
-        <code className="rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
-          model
-        </code>{" "}
+        <code className="bg-inset rounded px-1 font-mono text-xs">model</code>{" "}
         is ignored because the deployment pins the target adapter or base model.
       </>
     ),
@@ -215,7 +213,7 @@ export function QuickStart({
         }
       >
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+          <Sparkles className="text-warn h-4 w-4" />
           <CardTitle>Quick start</CardTitle>
         </div>
         <CardDescription>
@@ -224,23 +222,23 @@ export function QuickStart({
       </CardHeader>
       {!hidden && (
         <CardContent className="space-y-4">
-          <p className="text-sm text-zinc-700 dark:text-zinc-300">
+          <p className="text-fg-muted text-sm">
             This deployment speaks the OpenAI Chat Completions wire format. cURL
             hits the URL above directly; OpenAI-compatible SDKs take the base
             URL ending in
-            <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+            <code className="bg-inset mx-1 rounded px-1 font-mono text-xs">
               /v1
             </code>
             (the samples below cover both shapes: pointing an SDK at the full
-            <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+            <code className="bg-inset mx-1 rounded px-1 font-mono text-xs">
               /v1/chat/completions
             </code>
             URL would have it append its own route and 404). Add
-            <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+            <code className="bg-inset mx-1 rounded px-1 font-mono text-xs">
               {`"stream": true`}
             </code>
             to the request body, or set
-            <code className="mx-1 rounded bg-zinc-100 px-1 font-mono text-xs dark:bg-zinc-900">
+            <code className="bg-inset mx-1 rounded px-1 font-mono text-xs">
               stream: true
             </code>
             on the SDK call, to receive SSE token-by-token responses; the
@@ -248,12 +246,12 @@ export function QuickStart({
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
-            <label className="flex flex-col gap-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <label className="text-fg-muted flex flex-col gap-1 text-xs font-medium">
               <span className="sr-only">Language</span>
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value as SampleLanguage)}
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+                className="border-edge-strong bg-surface text-fg rounded-lg border px-3 py-1.5 text-sm"
                 aria-label="Sample language"
               >
                 {SAMPLE_LANGUAGES.map((l) => (
@@ -263,14 +261,14 @@ export function QuickStart({
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <label className="text-fg-muted flex flex-col gap-1 text-xs font-medium">
               <span className="sr-only">Operation</span>
               <select
                 value={operation}
                 onChange={(e) =>
                   setOperation(e.target.value as SampleOperation)
                 }
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+                className="border-edge-strong bg-surface text-fg rounded-lg border px-3 py-1.5 text-sm"
                 aria-label="Operation"
               >
                 {SAMPLE_OPERATIONS.map((o) => (
@@ -283,9 +281,7 @@ export function QuickStart({
           </div>
 
           {opMeta && (
-            <p className="text-sm text-zinc-700 dark:text-zinc-300">
-              {opMeta.description}
-            </p>
+            <p className="text-fg-muted text-sm">{opMeta.description}</p>
           )}
 
           <a
@@ -307,15 +303,15 @@ export function QuickStart({
             // explicitly stays correct under older user agents and
             // sidesteps the lint rule entirely.
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-sm text-teal-600 hover:underline dark:text-teal-400"
+            className="text-fg hover:text-fg-muted inline-flex items-center gap-1 text-sm underline underline-offset-2"
           >
             <BookOpen className="h-4 w-4" />
             Endpoints documentation
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
 
-          <div className="relative rounded-lg bg-zinc-50 dark:bg-zinc-900">
-            <pre className="overflow-x-auto px-3 py-3 pr-12 font-mono text-xs leading-relaxed text-zinc-800 dark:text-zinc-200">
+          <div className="bg-inset relative rounded-lg">
+            <pre className="text-fg overflow-x-auto px-3 py-3 pr-12 font-mono text-xs leading-relaxed">
               <code>{sample}</code>
             </pre>
             <div className="absolute top-2 right-2">

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "bundle": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build",
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings . && eslint .",
@@ -13,6 +13,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@arkor/ui": "workspace:*",
     "@fontsource-variable/geist": "catalog:",
     "@fontsource-variable/geist-mono": "catalog:",
     "eventsource-parser": "catalog:",

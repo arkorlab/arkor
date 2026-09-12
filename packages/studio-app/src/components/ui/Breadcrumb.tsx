@@ -27,9 +27,7 @@ export function Breadcrumb({
               className={cn(
                 "truncate",
                 item.mono && "font-mono text-[13px]",
-                isLast
-                  ? "text-zinc-900 dark:text-zinc-100"
-                  : "text-zinc-500 dark:text-zinc-400",
+                isLast ? "text-fg" : "text-fg-muted",
               )}
             >
               {item.label}
@@ -41,7 +39,7 @@ export function Breadcrumb({
                 {!isLast && item.href ? (
                   <a
                     href={item.href}
-                    className="rounded px-1 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    className="text-fg-muted hover:text-fg rounded px-1"
                   >
                     {content}
                   </a>
@@ -50,7 +48,7 @@ export function Breadcrumb({
                 )}
               </li>
               {!isLast ? (
-                <li aria-hidden className="text-zinc-300 dark:text-zinc-700">
+                <li aria-hidden className="text-edge-strong">
                   <ChevronRight width="14" height="14" />
                 </li>
               ) : null}

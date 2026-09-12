@@ -270,6 +270,9 @@ importers:
       '@arkor/cli-internal':
         specifier: workspace:*
         version: link:../cli-internal
+      '@arkor/studio-app':
+        specifier: workspace:*
+        version: link:../studio-app
       '@types/node':
         specifier: 'catalog:'
         version: 24.12.2
@@ -331,6 +334,9 @@ importers:
 
   packages/studio-app:
     dependencies:
+      '@arkor/ui':
+        specifier: workspace:*
+        version: link:../ui
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.2.8
@@ -389,6 +395,8 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.5(@types/node@24.12.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@6.4.2(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.0))
+
+  packages/ui: {}
 
 packages:
 

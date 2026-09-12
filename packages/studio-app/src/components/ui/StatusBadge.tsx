@@ -15,43 +15,50 @@ interface StatusBadgeProps {
   className?: string;
 }
 
+// Grayscale cannot lean on hue, so each state gets a distinct treatment:
+// solid fill (completed), outline plus a pulsing dot (running), dashed
+// outline (queued), muted fill (cancelled and anything unrecognised).
+// `failed` is the one state that keeps a colour, per the danger-only policy
+// in @arkor/ui.
 const VARIANT: Record<
   Status,
   { label: string; pill: string; dot: string; pulse: boolean }
 > = {
   queued: {
     label: "Queued",
-    pill: "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400",
-    dot: "bg-zinc-400 dark:bg-zinc-500",
+    pill: "border-dashed border-edge-strong text-fg-muted",
+    dot: "bg-fg-subtle",
     pulse: false,
   },
   running: {
     label: "Running",
-    pill: "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-400/30 dark:bg-teal-400/10 dark:text-teal-300",
-    dot: "bg-teal-500",
+    pill: "border-edge-strong bg-surface text-fg",
+    dot: "bg-fg",
     pulse: true,
   },
   completed: {
     label: "Completed",
-    pill: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300",
-    dot: "bg-emerald-500",
+    pill: "border-transparent bg-accent text-on-accent",
+    dot: "bg-on-accent",
     pulse: false,
   },
   failed: {
     label: "Failed",
-    pill: "border-red-200 bg-red-50 text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300",
-    dot: "bg-red-500",
+    pill: "border-danger-edge bg-danger-surface text-danger-fg",
+    dot: "bg-danger",
     pulse: false,
   },
   cancelled: {
     label: "Cancelled",
-    pill: "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400",
-    dot: "bg-zinc-400 dark:bg-zinc-500",
+    pill: "border-transparent bg-inset text-fg-subtle",
+    dot: "bg-fg-subtle",
     pulse: false,
   },
 };
 
-const FALLBACK = VARIANT.queued;
+// An unrecognised status is inert, not waiting: the dashed `queued` outline
+// would claim it is about to start.
+const FALLBACK = VARIANT.cancelled;
 
 export function StatusBadge({
   status,

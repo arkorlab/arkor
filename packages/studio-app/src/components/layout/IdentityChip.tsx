@@ -28,17 +28,17 @@ export function IdentityChip({
     return (
       <span
         title={error}
-        className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300"
+        className="border-danger-edge bg-danger-surface text-danger-fg inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium"
       >
-        <Dot className="bg-red-500" />
+        <Dot className="bg-danger" />
         error
       </span>
     );
   }
   if (!creds) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-        <Dot className="bg-zinc-400 dark:bg-zinc-500" />
+      <span className="border-edge-strong text-fg-muted inline-flex items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-[11px]">
+        <Dot className="bg-fg-subtle" />
         connecting…
       </span>
     );
@@ -49,14 +49,13 @@ export function IdentityChip({
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
-        "border-emerald-200 bg-emerald-50 text-emerald-700",
-        "dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300",
+        "border-edge-strong bg-surface text-fg",
       )}
     >
-      <Dot className="bg-emerald-500" pulse />
+      <Dot className="bg-fg" pulse />
       {modeLabel}
       {baseUrlLabel ? (
-        <span className="font-mono text-[10px] text-emerald-700/80 dark:text-emerald-300/80">
+        <span className="text-fg-muted font-mono text-[10px]">
           · {baseUrlLabel}
         </span>
       ) : null}
