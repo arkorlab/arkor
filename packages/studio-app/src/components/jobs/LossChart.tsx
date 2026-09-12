@@ -431,14 +431,18 @@ export function LossChart({
           <span className="text-fg">{hover.step}</span>
           {hover.loss !== null ? (
             <>
-              <span className="text-edge-strong mx-1.5">·</span>
+              <span aria-hidden className="text-edge-strong mx-1.5">
+                ·
+              </span>
               <span className="text-fg-muted">loss </span>
               <span className="text-fg">{hover.loss.toFixed(4)}</span>
             </>
           ) : null}
           {hover.evalLoss !== null ? (
             <>
-              <span className="text-edge-strong mx-1.5">·</span>
+              <span aria-hidden className="text-edge-strong mx-1.5">
+                ·
+              </span>
               <span className="text-fg-muted">eval </span>
               <span className="text-fg">{hover.evalLoss.toFixed(4)}</span>
             </>
