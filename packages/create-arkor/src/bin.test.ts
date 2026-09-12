@@ -801,12 +801,6 @@ describe("shellQuoteIfNeeded", () => {
   });
 });
 
-// Round 40 follow-up (Copilot, PR #99): the standalone `cd
-// <dir>` line that create-arkor's multi-line outro prints
-// shares the same `%`-on-Windows expansion hazard documented
-// on `shellQuoteIfNeeded`. `buildCdLine` mitigates by
-// switching to a PS-single-quoted form when `%` is present.
-// These tests pin the helper directly.
 /**
  * Compile-time canary for `clack.text`'s `defaultValue`, which is what makes
  * Enter-on-empty accept the derived project name instead of letting the
@@ -965,6 +959,12 @@ describe("interactive prompts (clack 1.x boundaries)", () => {
   });
 });
 
+// Round 40 follow-up (Copilot, PR #99): the standalone `cd
+// <dir>` line that create-arkor's multi-line outro prints
+// shares the same `%`-on-Windows expansion hazard documented
+// on `shellQuoteIfNeeded`. `buildCdLine` mitigates by
+// switching to a PS-single-quoted form when `%` is present.
+// These tests pin the helper directly.
 describe("buildCdLine", () => {
   const ORIG_PLATFORM = process.platform;
   function withPlatform(p: NodeJS.Platform, fn: () => void) {
