@@ -6,7 +6,7 @@
  * That failure is silent, and it has already happened once: `CopyButton` asked
  * its `IconButton` for `text-fg` while copied and got nothing, because
  * `.text-fg-muted` ships after `.text-fg` in the generated stylesheet. The
- * class was dropped rather than fixed; the comment there says why.
+ * class was dropped rather than fixed.
  *
  * So a component taking `className` cannot promise a caller can override its
  * colours. Either keep the base free of the property a caller is expected to

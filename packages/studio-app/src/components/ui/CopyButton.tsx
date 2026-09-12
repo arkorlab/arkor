@@ -38,12 +38,10 @@ export function CopyButton({
       size={size}
       label={copied ? "Copied" : label}
       onClick={() => void onClick()}
-      // No colour for the copied state: a success green would be the only one
-      // in the app, and a neutral override could not win anyway. `cn` joins
-      // without resolving conflicts, so between two same-property utilities
-      // the winner is whichever Tailwind emits later, and `text-fg-muted`
-      // (IconButton's own) is emitted after `text-fg`. The icon swap is the
-      // signal.
+      // No colour for the copied state. A success green would be the app's
+      // only one outside danger and warn, and a neutral override cannot win
+      // over IconButton's own `text-fg-muted` anyway, for the reason `cn.ts`
+      // gives. The icon swap is the signal.
     >
       {copied ? <Check /> : <Copy />}
     </IconButton>

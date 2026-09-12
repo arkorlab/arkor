@@ -64,8 +64,8 @@ Two rules the values encode, and that call sites have to keep:
 
 ## Adding UI primitives later
 
-This package is CSS-only for now. When React primitives move in here, three
-things need doing that are easy to miss:
+This package is CSS-only for now. When React primitives move in here, these
+are the parts that are easy to miss:
 
 - Add a `"."` entry to `exports` and the usual script set (`typecheck`,
   `lint`, `test`, `test:coverage`); see `packages/cli-internal` for the shape.
