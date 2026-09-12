@@ -39,11 +39,11 @@ jobs:
     environment: npm-publish
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       # No `cache: pnpm`. This is the SLSA L3 trusted builder: a pnpm
       # store restored from a prior run's cache (this is what
@@ -107,12 +107,12 @@ jobs:
           pnpm sbom --sbom-format spdx --prod > "$SBOM_DIR/sbom.spdx.json"
 
       - name: Generate GitHub artifact attestations for release tarballs
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/npm-pack/*.tgz
 
       - name: Generate GitHub artifact attestations for SBOMs
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/sbom/*.json
 

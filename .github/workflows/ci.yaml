@@ -18,7 +18,7 @@ jobs:
     name: no em dashes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The job runs `git grep` on the checkout but never pushes or
           # talks to the remote, so the `GITHUB_TOKEN` Actions stashes
@@ -93,7 +93,7 @@ jobs:
           - '>=26.0.0 <27'         # latest 26.x
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -117,7 +117,7 @@ jobs:
       # 11.13.1 (platform packages ship the binary again); 11.11.0 was
       # the last good release before the gap. See pnpm/pnpm#12955
       # (release-flow regression from pnpm/pnpm#12949, fixed in 11.13.1).
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           standalone: true
 
@@ -344,7 +344,7 @@ jobs:
           - '>=26.0.0 <27'        # latest 26.x
         id: [pnpm-9, pnpm-10, pnpm-11, npm, yarn, yarn-berry, bun]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -544,12 +544,12 @@ jobs:
       id-token: write
       code-quality: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       # Same reason as the build job; see comment there.
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           standalone: true
 
@@ -681,7 +681,7 @@ jobs:
       # extra `if:` gating is needed for those cases.
       - name: Upload arkor coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
+        uses: actions/upload-code-coverage@d8e329117199404bba6fc81efe8093dc7c015e34 # v1.4.2
         with:
           file: ./packages/arkor/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -690,7 +690,7 @@ jobs:
 
       - name: Upload create-arkor coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
+        uses: actions/upload-code-coverage@d8e329117199404bba6fc81efe8093dc7c015e34 # v1.4.2
         with:
           file: ./packages/create-arkor/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -699,7 +699,7 @@ jobs:
 
       - name: Upload cli-internal coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
+        uses: actions/upload-code-coverage@d8e329117199404bba6fc81efe8093dc7c015e34 # v1.4.2
         with:
           file: ./packages/cli-internal/coverage/cobertura-coverage.xml
           language: TypeScript
@@ -708,7 +708,7 @@ jobs:
 
       - name: Upload studio-app coverage to GitHub
         if: ${{ !cancelled() }}
-        uses: actions/upload-code-coverage@abb5995db9e0199b0e2bb9dbd136fce4cb1ec4d3 # v1.3.0
+        uses: actions/upload-code-coverage@d8e329117199404bba6fc81efe8093dc7c015e34 # v1.4.2
         with:
           file: ./packages/studio-app/coverage/cobertura-coverage.xml
           language: TypeScript

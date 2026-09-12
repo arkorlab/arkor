@@ -36,6 +36,10 @@ vi.mock("@arkor/cli-internal", () => ({
   })),
   nodeModulesChangedSince: vi.fn(() => false),
   isInGitRepo: vi.fn(async () => false),
+  // Default to "not running under Claude Code" so the interactive branch
+  // is reachable. Every other test in this file passes `yes: true` and
+  // never gets here; the clack 1.x boundary cases below do.
+  isClaudeCode: vi.fn(() => false),
   sanitise: (s: string) =>
     s
       .toLowerCase()
@@ -92,6 +96,11 @@ import {
   shellQuoteIfNeeded,
   shouldRunAsCli,
 } from "./bin";
+
+// Type-only: the runtime module is the `vi.mock` factory above, which every
+// test reaches through `await import("@clack/prompts")`. This import exists
+// solely for the `_DefaultValueStillSupported` canary below.
+import type { text as clackText } from "@clack/prompts";
 
 let parentDir: string;
 const ORIG_CWD = process.cwd();
@@ -789,6 +798,164 @@ describe("shellQuoteIfNeeded", () => {
         expect(shellQuoteIfNeeded("my-app")).toBe("my-app");
       });
     });
+  });
+});
+
+/**
+ * Compile-time canary for `clack.text`'s `defaultValue`, which is what makes
+ * Enter-on-empty accept the derived project name instead of letting the
+ * sanitised empty string collapse to the generic `arkor-project` fallback.
+ *
+ * A review suspected clack 1.x had dropped the option (it has not). The
+ * reason this needs its own guard: `run()` spreads the option in
+ * conditionally, and TypeScript does not excess-property-check spread
+ * members, so a future clack removing `defaultValue` would NOT fail the build
+ * at the call site. Indexing the option type here does fail, which is the
+ * cheap way to find out.
+ */
+type _DefaultValueStillSupported = NonNullable<
+  Parameters<typeof clackText>[0]["defaultValue"]
+>;
+
+// The @clack/prompts 1.x migration routes every prompt result through
+// `unwrapPrompt`, because 1.x types cancellation as one *unique* symbol and
+// so the negative branch of `isCancel` no longer narrows away the `symbol`
+// a prompt returns. These cases pin the two user-visible boundaries that
+// migration touched: cancelling must abort before anything is scaffolded,
+// and the name validator must survive the pre-input `undefined` that 1.x
+// hands it.
+describe("interactive prompts (clack 1.x boundaries)", () => {
+  const CLACK_CANCEL = Symbol.for("clack:cancel");
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+
+  // Plain subclass, no parameter property: `erasableSyntaxOnly` is on, and
+  // the exit code is asserted through `exitSpy` rather than carried here.
+  class ProcessExit extends Error {}
+
+  // Captured here rather than at module scope because only this block
+  // touches them. Restoring matters: the file's outer hooks cover `CI` and
+  // the cwd but not these two, so leaving them set would hand every test
+  // declared after this block a fake TTY. Same pattern as `ORIG_TTY` in
+  // `packages/arkor/src/cli/prompts.test.ts`.
+  const ORIG_TTY = process.stdout.isTTY;
+  const ORIG_CLAUDECODE = process.env.CLAUDECODE;
+
+  beforeEach(() => {
+    // `run()` only prompts when it believes it owns a real terminal.
+    delete process.env.CI;
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    delete process.env.CLAUDECODE;
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new ProcessExit(`process.exit(${String(code)})`);
+    }) as never);
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: ORIG_TTY,
+      configurable: true,
+    });
+    if (ORIG_CLAUDECODE === undefined) delete process.env.CLAUDECODE;
+    else process.env.CLAUDECODE = ORIG_CLAUDECODE;
+  });
+
+  it("aborts without scaffolding when the name prompt is cancelled", async () => {
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.text).mockResolvedValueOnce(CLACK_CANCEL as never);
+
+    await expect(
+      run({
+        agentsMd: true,
+        packageManager: undefined,
+        skipInstall: true,
+        skipGit: true,
+      }),
+    ).rejects.toThrow(ProcessExit);
+
+    expect(vi.mocked(clack.cancel)).toHaveBeenCalledWith("Cancelled.");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    // The whole point of cancelling: nothing was written.
+    expect(vi.mocked(scaffold)).not.toHaveBeenCalled();
+  });
+
+  it("aborts without scaffolding when the template prompt is cancelled", async () => {
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.text).mockResolvedValueOnce("my-app" as never);
+    vi.mocked(clack.select).mockResolvedValueOnce(CLACK_CANCEL as never);
+
+    await expect(
+      run({
+        agentsMd: true,
+        packageManager: undefined,
+        skipInstall: true,
+        skipGit: true,
+      }),
+    ).rejects.toThrow(ProcessExit);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(vi.mocked(scaffold)).not.toHaveBeenCalled();
+  });
+
+  it("tolerates the undefined clack 1.x passes to validate on the retry pass", async () => {
+    // The `?? ""` in the validator only carries weight once a collision has
+    // armed `retryInitial`; on the first pass the `retryInitial !== null`
+    // guard short-circuits before the value is touched. Drive a real
+    // collision so the second prompt's validator is the one under test:
+    // without the coalescing it would do `undefined.trim()` and throw a
+    // TypeError the moment clack renders the field.
+    mkdirSync(join(parentDir, "taken"));
+    writeFileSync(join(parentDir, "taken", "occupied.txt"), "x");
+
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.text)
+      .mockResolvedValueOnce("taken" as never)
+      .mockResolvedValueOnce("free" as never);
+    vi.mocked(clack.select).mockResolvedValueOnce("triage" as never);
+
+    await run({
+      agentsMd: true,
+      packageManager: undefined,
+      skipInstall: true,
+      skipGit: true,
+    });
+
+    expect(vi.mocked(clack.text)).toHaveBeenCalledTimes(2);
+    const retryValidate = vi.mocked(clack.text).mock.calls[1]?.[0]?.validate as
+      | ((value?: string) => unknown)
+      | undefined;
+    expect(typeof retryValidate).toBe("function");
+    expect(retryValidate?.(undefined)).toBe("Project name cannot be empty");
+    expect(retryValidate?.("   ")).toBe("Project name cannot be empty");
+    expect(retryValidate?.("free")).toBeUndefined();
+  });
+
+  it("offers the derived name as both placeholder and defaultValue on the first pass", async () => {
+    // Pins our side of the contract: the first-pass prompt carries the derived
+    // name in both fields. This catches a refactor dropping the option from
+    // this call, not a future clack silently ignoring it.
+    const clack = await import("@clack/prompts");
+    vi.mocked(clack.text).mockResolvedValueOnce("my-app" as never);
+    vi.mocked(clack.select).mockResolvedValueOnce("triage" as never);
+
+    await run({
+      dir: "derived-from-dir",
+      agentsMd: true,
+      packageManager: undefined,
+      skipInstall: true,
+      skipGit: true,
+    });
+
+    expect(vi.mocked(clack.text)).toHaveBeenCalledOnce();
+    const first = vi.mocked(clack.text).mock.calls[0]?.[0];
+    expect(first.placeholder).toBe("derived-from-dir");
+    expect(first.defaultValue).toBe("derived-from-dir");
+    // `initialValue` stays unset on the first pass: it is the retry-only
+    // field that pre-fills the rejected name for editing.
+    expect(first.initialValue).toBeUndefined();
   });
 });
 
