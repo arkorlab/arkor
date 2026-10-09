@@ -73,8 +73,8 @@ catalogs:
       specifier: ^6.10.2
       version: 6.10.2
     eslint-plugin-n:
-      specifier: ^18.0.1
-      version: 18.0.1
+      specifier: ^18.4.1
+      version: 18.4.1
     eslint-plugin-promise:
       specifier: ^7.3.0
       version: 7.3.0
@@ -163,7 +163,7 @@ importers:
         version: 6.10.2(eslint@10.4.0(jiti@2.6.1))
       eslint-plugin-n:
         specifier: 'catalog:'
-        version: 18.0.1(eslint@10.4.0(jiti@2.6.1))(typescript@5.9.3)
+        version: 18.4.1(eslint@10.4.0(jiti@2.6.1))(typescript@5.9.3)
       eslint-plugin-promise:
         specifier: 'catalog:'
         version: 7.3.0(eslint@10.4.0(jiti@2.6.1))
@@ -2446,8 +2446,8 @@ packages:
     peerDependencies:
       eslint: ^3 || ^4 || ^5 || ^6 || ^7 || ^8 || ^9
 
-  eslint-plugin-n@18.0.1:
-    resolution: {integrity: sha512-q3ARhk+eZRc7myR0KHx+R3/GJeOHF+Ir6PK95Pu2tEX8Sl/4BIpmmVLva2kPrjC2gCmn6WHlHm+3yeo6Rxhycw==}
+  eslint-plugin-n@18.4.1:
+    resolution: {integrity: sha512-2sBReWOvCbzgkPri9M5SFmD5EbIwZLa1xz6B5RZsrI19WSFKpyx1sOMr+pdk8puCiXuEgCbErEHy1PuaUrc/4w==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
     peerDependencies:
       eslint: '>=8.57.1'
@@ -2922,6 +2922,10 @@ packages:
 
   js-yaml@4.1.1:
     resolution: {integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==}
+    hasBin: true
+
+  js-yaml@5.4.3:
+    resolution: {integrity: sha512-yzzNtgczwgoVHNigCyKTXcQJU4Y8t/ikU4UxXW0BvrLfHTGWZhsNcOT2s/a7vn81/4KqVnNmHjaUEPlvWnNwVw==}
     hasBin: true
 
   jsdoc-type-pratt-parser@7.2.0:
@@ -5626,7 +5630,7 @@ snapshots:
       safe-regex-test: 1.1.0
       string.prototype.includes: 2.0.1
 
-  eslint-plugin-n@18.0.1(eslint@10.4.0(jiti@2.6.1))(typescript@5.9.3):
+  eslint-plugin-n@18.4.1(eslint@10.4.0(jiti@2.6.1))(typescript@5.9.3):
     dependencies:
       '@eslint-community/eslint-utils': 4.9.1(eslint@10.4.0(jiti@2.6.1))
       enhanced-resolve: 5.21.0
@@ -5636,6 +5640,7 @@ snapshots:
       globals: 15.15.0
       globrex: 0.1.2
       ignore: 5.3.2
+      js-yaml: 5.4.3
       semver: 7.7.4
     optionalDependencies:
       typescript: 5.9.3
@@ -6154,6 +6159,10 @@ snapshots:
   js-tokens@4.0.0: {}
 
   js-yaml@4.1.1:
+    dependencies:
+      argparse: 2.0.1
+
+  js-yaml@5.4.3:
     dependencies:
       argparse: 2.0.1
 
