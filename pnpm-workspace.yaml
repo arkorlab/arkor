@@ -2,7 +2,6 @@ packages:
   - "packages/*"
   - "e2e/*"
   - "examples/*"
-  - "docs"
 # Embed each published package's README.md into the `readme` field of
 # the manifest it ships: the registry packument that npmjs.com reads to
 # render the package page. The on-disk source `package.json` is not
@@ -69,7 +68,6 @@ catalog:
   eventsource-parser: "^3.0.0"
   globals: "^17.6.0"
   jsdom: 29.1.1
-  mint: 4.2.577
   oxfmt: 0.52.0
   oxlint: 1.66.0
   react: "^19.0.0"
@@ -120,19 +118,14 @@ trustPolicyExclude:
 # stance in one place, and so the setting stays pinned if a future pnpm
 # release walks the default back.
 blockExoticSubdeps: true
-# Transitive deps under `mint` (in `docs/`): each ships a postinstall
-# (keytar's native binding, puppeteer's Chromium download, sharp's
-# libvips binary). `false` is the deny choice: it suppresses pnpm
-# 11's `ERR_PNPM_IGNORED_BUILDS` without granting any of them the
-# right to run install-time code. The docs workflow has been running
-# under pnpm 10's "warn-and-skip" behaviour without these
-# postinstalls; pnpm 11 surfaces the same skip explicitly, and `false`
-# preserves that posture. Flip an entry to `true` only if a concrete
-# docs task starts failing because its native binary isn't there.
+# Review decisions for dependencies that ship install scripts: `true`
+# lets the script run, `false` blocks it. Anything that ships one and is
+# listed neither way counts as unreviewed, and pnpm fails the install
+# with `ERR_PNPM_IGNORED_BUILDS` (`strictDepBuilds` defaults to true)
+# rather than skipping it quietly, so a new one has to be decided here
+# on purpose. The three below are approved because the SDK build path
+# needs their native binaries.
 allowBuilds:
   rolldown: true
   unrs-resolver: true
   esbuild: true
-  keytar: false
-  puppeteer: false
-  sharp: false

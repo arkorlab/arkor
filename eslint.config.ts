@@ -106,8 +106,8 @@ export default defineConfig(
       "**/test-results/**",
       "**/.turbo/**",
       "**/node_modules/**",
-      // Local Claude Code worktrees (other branches checked out as
-      // siblings via `git worktree`); never our source.
+      // Local Claude Code state; `.claude/worktrees/` holds other
+      // branches' checkouts. Never our source.
       ".claude/**",
       "packages/arkor/docs/**",
       "packages/*/CONTRIBUTING.md",

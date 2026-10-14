@@ -14,9 +14,6 @@ oxlint/ESLint/oxfmt).
   and `docs/` with `docs/ja/`. Never leave the Japanese side to a follow-up.
 - Do not edit generated copies (`packages/*/CONTRIBUTING.md`,
   `packages/arkor/docs/`); edit the source under the repo root.
-- Mintlify heading slugs are not GitHub-style. Preserve `/`, `=`, and full-width
-  parens in anchor ids; ASCII parens and backticks are stripped. Verify a new
-  cross-page anchor against the rendered preview before relying on it.
 
 ## Writing style
 

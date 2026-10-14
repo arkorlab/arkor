@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 1
+    open-pull-requests-limit: 100
     ignore:
       - dependency-name: "@types/node"
         update-types:
@@ -13,3 +16,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 1
+    open-pull-requests-limit: 100
