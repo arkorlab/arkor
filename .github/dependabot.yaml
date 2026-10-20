@@ -1,7 +1,8 @@
 version: 2
 # `groups` exist here for one reason: a family whose members must move
-# in lockstep is red as separate PRs no matter which half lands first,
-# so splitting it produces failing PRs rather than reviewable ones.
+# in lockstep can fail when updated separately, or resolve outside
+# declared compatibility ranges even while CI passes. Grouping keeps
+# available updates together for review; it does not enforce compatibility.
 # ENG-1157 (#282) consolidated 47 of those by hand and recorded the
 # pairs in its description; these groups are that table expressed as
 # configuration, so the next batch does not repeat it.
@@ -14,8 +15,9 @@ version: 2
 #
 # Each family needs TWO entries, because `applies-to` is a per-group
 # key that defaults to `version-updates`: written once, a group leaves
-# security updates ungrouped, and a CVE against one member would open
-# its own PR and recreate the mismatch.
+# security updates ungrouped. A parallel security group combines matched
+# members when fixes are available together; it still permits a one-sided
+# bump when only one member has a fix.
 #
 # What grouping does NOT do, in EITHER lane: a group PR carries only
 # the members that actually have an update available, never the whole
