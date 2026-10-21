@@ -2,7 +2,7 @@
   <img src="assets/oddphin-rounded.png" alt="Oddphin, the Arkor mascot" width="96">
 </p>
 
-<h1 align="center">Arkor</h1>
+<h1 align="center">Arkor Fine-tuning</h1>
 
 <h3 align="center">The TypeScript framework for fine-tuning open-weight LLMs</h3>
 
@@ -29,8 +29,6 @@
   <a href="README.ja.md">日本語</a>
 </p>
 
-# Arkor Fine-tuning
-
 > [!IMPORTANT]
 > The arkor.ai fine-tuning service has been discontinued, and this framework is no longer maintained.
 > The source code and contribution history will remain publicly available under the MIT license.
@@ -49,11 +47,11 @@ The original cloud-connected workflows relied on the discontinued Arkor Cloud ba
 
 Thank you to everyone who used Arkor’s fine-tuning service, contributed code, submitted pull requests, reported issues, or shared feedback. We appreciate the time and care you put into this project.
 
-We recognize that ending maintenance affects people who invested their time in the project, particularly those with outstanding contributions. We’re sorry we didn’t communicate this decision sooner.
+We recognize that ending maintenance affects people who invested their time in the project, particularly those with outstanding contributions.
 
 ## Our current work
 
-Our work continues at [arkor.dev](https://arkor.dev).
+Our work continues at [arkor.dev](https://arkor.dev/?utm_source=fine-tuning_github_readme).
 
 ## Technical documentation
 
