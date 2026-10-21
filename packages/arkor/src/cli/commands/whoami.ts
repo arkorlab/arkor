@@ -1,6 +1,5 @@
 import { createClient } from "@arkor/cloud-api-client";
 
-import { CloudApiClient } from "../../core/client";
 import {
   defaultArkorCloudApiUrl,
   readCredentials,
@@ -80,6 +79,4 @@ export async function runWhoami(): Promise<void> {
       `Orgs: ${body.orgs.map((o) => String(o.slug ?? o.id)).join(", ")}\n`,
     );
   }
-  // Avoid "unused import" noise by referencing CloudApiClient in an assertion.
-  void CloudApiClient;
 }

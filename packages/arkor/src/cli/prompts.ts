@@ -58,7 +58,13 @@ export async function promptText(options: TextPromptOptions): Promise<string> {
     message: options.message,
     initialValue: options.initialValue,
     placeholder: options.placeholder,
-    validate: options.validate,
+    // clack 1.x widened `Validate<T>` to hand the callback `T | undefined`
+    // (the field is `undefined`, not `""`, until the user types). Adapt at
+    // the boundary so this wrapper's public contract keeps taking a plain
+    // `string`, which is what every caller is written against.
+    validate: options.validate
+      ? (value) => options.validate?.(value ?? "")
+      : undefined,
   });
   return assertValue(res, "No value received");
 }

@@ -305,6 +305,24 @@ export function buildCdLine(cdTarget: string): string {
 }
 
 /**
+ * Narrow a clack prompt result to its value, exiting on cancellation.
+ *
+ * `isCancel` is typed `value is typeof CANCEL_SYMBOL`, i.e. it narrows to one
+ * *unique* symbol. Excluding that in the negative branch does not remove the
+ * wider `symbol` member a prompt's return type carries, so an inline
+ * `if (isCancel(x)) process.exit(1)` leaves `x` as `T | symbol` afterwards.
+ * Funnel the narrowing through here instead of casting at each call site.
+ * Mirrors `assertValue` in `packages/arkor/src/cli/prompts.ts`.
+ */
+function unwrapPrompt<T>(value: T | symbol): T {
+  if (clack.isCancel(value)) {
+    clack.cancel("Cancelled.");
+    process.exit(1);
+  }
+  return value as T;
+}
+
+/**
  * Decide whether to run `git init` + initial commit, surfacing the prompt
  * upfront so the user doesn't sit at an interactive question after the long
  * `<pm> install` step finishes. Returns `true` if `runGitInit` should fire
@@ -339,11 +357,7 @@ async function decideGitInit(
     message: "Initialise a git repository and create an initial commit?",
     initialValue: true,
   });
-  if (clack.isCancel(answer)) {
-    clack.cancel("Cancelled.");
-    process.exit(1);
-  }
-  return answer;
+  return unwrapPrompt(answer);
 }
 
 async function runGitInit(cwd: string): Promise<void> {
@@ -425,16 +439,14 @@ export async function run(options: RunOptions): Promise<void> {
         ...(retryInitial === null
           ? { placeholder: defaultName, defaultValue: defaultName }
           : { initialValue: retryInitial }),
+        // clack 1.x hands `validate` `string | undefined`: the field reads as
+        // `undefined` (not `""`) before the user types anything.
         validate: (v) =>
-          retryInitial !== null && !v.trim()
+          retryInitial !== null && !(v ?? "").trim()
             ? "Project name cannot be empty"
             : undefined,
       });
-      if (clack.isCancel(chosenName)) {
-        clack.cancel("Cancelled.");
-        process.exit(1);
-      }
-      const sanitised = sanitise(chosenName);
+      const sanitised = sanitise(unwrapPrompt(chosenName));
       if (
         options.dir === undefined &&
         (await isOccupied(join(process.cwd(), sanitised)))
@@ -454,11 +466,7 @@ export async function run(options: RunOptions): Promise<void> {
         initialValue: template,
         options: templateChoices(),
       });
-      if (clack.isCancel(chosenTemplate)) {
-        clack.cancel("Cancelled.");
-        process.exit(1);
-      }
-      template = chosenTemplate;
+      template = unwrapPrompt(chosenTemplate);
     }
   }
 
@@ -862,9 +870,12 @@ program
         git?: boolean;
         skipGit?: boolean;
         allowBuilds?: boolean;
-        // Commander v13 leaves this undefined unless one of --agents-md /
+        // Commander leaves this undefined unless one of --agents-md /
         // --no-agents-md was passed; the action treats undefined as the
-        // default-on value.
+        // default-on value. This holds because the positive flag is declared
+        // first: declaring `--no-x` *alone* would instead default to `true`.
+        // Re-verified against commander 15 (ENG-1157), since a review flagged
+        // v14's negatable-option changes as a suspected break here.
         agentsMd?: boolean;
       },
     ) => {
@@ -953,9 +964,10 @@ program
         git: opts.git,
         skipGit: opts.skipGit,
         allowBuilds: opts.allowBuilds,
-        // Commander v13 leaves opts.agentsMd undefined when no flag is
-        // passed (it doesn't auto-default --no-foo to `foo: true`). Default
-        // to on; only explicit `--no-agents-md` (which sets `false`) opts out.
+        // Commander leaves opts.agentsMd undefined when no flag is passed
+        // (declaring the positive flag first stops --no-foo defaulting
+        // `foo` to `true`). Default to on; only explicit `--no-agents-md`
+        // (which sets `false`) opts out.
         agentsMd: opts.agentsMd !== false,
       });
     },

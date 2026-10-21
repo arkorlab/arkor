@@ -71,9 +71,13 @@ export async function main(argv: string[]): Promise<void> {
           git?: boolean;
           skipGit?: boolean;
           allowBuilds?: boolean;
-          // Commander v13 leaves this undefined unless one of --agents-md /
+          // Commander leaves this undefined unless one of --agents-md /
           // --no-agents-md was passed; the action treats undefined as the
-          // default-on value.
+          // default-on value. This holds because the positive flag is
+          // declared first: declaring `--no-x` *alone* would instead default
+          // to `true`. Re-verified against commander 15 (ENG-1157), since a
+          // review flagged v14's negatable-option changes as a suspected
+          // break here.
           agentsMd?: boolean;
         }) => {
           if (opts.git && opts.skipGit) {
@@ -157,7 +161,7 @@ export async function main(argv: string[]): Promise<void> {
             git: opts.git,
             skipGit: opts.skipGit,
             allowBuilds: opts.allowBuilds,
-            // Commander v13 leaves opts.agentsMd undefined when no flag is
+            // Commander leaves opts.agentsMd undefined when no flag is
             // passed; default to on so `arkor init` matches `create-arkor`.
             // Only explicit `--no-agents-md` (which sets `false`) opts out.
             agentsMd: opts.agentsMd !== false,
