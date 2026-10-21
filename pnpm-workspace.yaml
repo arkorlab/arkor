@@ -72,7 +72,7 @@ catalog:
   oxlint: 1.66.0
   react: "^19.0.0"
   react-dom: "^19.0.0"
-  tailwindcss: "^4.0.0"
+  tailwindcss: "^4.3.3"
   tsdown: "^0.21.9"
   turbo: "^2.9.14"
   typescript: "^5"
