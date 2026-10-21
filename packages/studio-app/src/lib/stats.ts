@@ -159,3 +159,227 @@ export function summarize(values: number[]): LossStats {
     p95: percentileFromSorted(sorted, 0.95),
   };
 }
+
+// Streaming counterpart to `summarize()`. `summarize()` derives stats
+// from whatever array a caller currently holds; for a live training
+// run whose displayed points get compacted (see lossDownsample.ts),
+// that array intentionally over-represents extrema relative to the
+// full run, biasing mean/variance/percentiles once compaction has run
+// at least once. RunningStats instead accumulates incrementally as
+// each raw value arrives, independent of any compaction applied to
+// the array used for charting, so these stats stay accurate for the
+// entire run regardless of how long it gets.
+//
+// mean/variance are computed exactly via Welford's online algorithm
+// (no array ever needs to be retained for these). Percentiles can't
+// be computed exactly without retaining every value, so they're
+// estimated from a bounded reservoir sample (Algorithm R): a value
+// uniformly representative of the full run's distribution, capped at
+// `reservoirSize` entries regardless of how many values are seen.
+const DEFAULT_RESERVOIR_SIZE = 2000;
+
+export interface RunningStats {
+  count: number;
+  mean: number;
+  /** Sum of squared deviations from the running mean (Welford's M2). */
+  m2: number;
+  reservoir: number[];
+  reservoirSize: number;
+  /**
+   * The reservoir index the most recent updateRunningStats call
+   * touched (pushed to while filling, or replaced via an Algorithm R
+   * hit once full), or null if that call was a miss (full reservoir,
+   * value not sampled in). Exists so correctRunningStats can replace
+   * the exact right slot when a caller corrects the most recent
+   * value, without needing to re-derive (unreliably, after the fact)
+   * where or whether it landed in the reservoir.
+   */
+  lastReservoirIndex: number | null;
+}
+
+export function createRunningStats(
+  reservoirSize: number = DEFAULT_RESERVOIR_SIZE,
+): RunningStats {
+  if (!Number.isInteger(reservoirSize) || reservoirSize < 1) {
+    throw new RangeError(
+      `reservoirSize must be a positive integer, got ${reservoirSize}`,
+    );
+  }
+  return {
+    count: 0,
+    mean: 0,
+    m2: 0,
+    reservoir: [],
+    reservoirSize,
+    lastReservoirIndex: null,
+  };
+}
+
+// Pure: returns a new accumulator rather than mutating `stats`, and
+// never mutates `stats.reservoir` either. This matters for two
+// reasons. First, correctness: React requires a setState updater to
+// be pure, since React (particularly in Strict Mode) can invoke it
+// twice to detect exactly this kind of side effect; mutating the
+// previous state in place would corrupt the second invocation's
+// input. Second, performance: once the reservoir is full, most
+// updates don't touch it at all (only a ~reservoirSize/count chance
+// per call), so cloning it defensively on every call, as a mutating
+// version of this function would force callers to do, wastes a full
+// array copy on the vast majority of calls for a long-running job.
+// Here, the reservoir array reference is reused untouched on that
+// common path, and only cloned in the two cases where it actually
+// changes: while still filling up, or on the comparatively rare
+// occasions the random draw below replaces an existing entry.
+export function updateRunningStats(
+  stats: RunningStats,
+  value: number,
+): RunningStats {
+  const count = stats.count + 1;
+  const delta = value - stats.mean;
+  const mean = stats.mean + delta / count;
+  const delta2 = value - mean;
+  const m2 = stats.m2 + delta * delta2;
+
+  let reservoir = stats.reservoir;
+  let lastReservoirIndex: number | null;
+  if (reservoir.length < stats.reservoirSize) {
+    reservoir = [...reservoir, value];
+    lastReservoirIndex = reservoir.length - 1;
+  } else {
+    // Algorithm R: each of the `count` values seen so far has an
+    // equal 1/count chance of being the one currently occupying any
+    // given reservoir slot.
+    const j = Math.floor(Math.random() * count);
+    if (j < stats.reservoirSize) {
+      reservoir = [...reservoir];
+      reservoir[j] = value;
+      lastReservoirIndex = j;
+    } else {
+      lastReservoirIndex = null;
+    }
+  }
+
+  return {
+    count,
+    mean,
+    m2,
+    reservoir,
+    reservoirSize: stats.reservoirSize,
+    lastReservoirIndex,
+  };
+}
+
+// Snapshots a RunningStats accumulator into the same LossStats shape
+// `summarize()` produces, so both can feed the same display code.
+// `count` reports the true total values ever seen (mean/variance are
+// exact for that full count); p90/p95 are estimated from the bounded
+// reservoir, which is a uniform sample of that same full history.
+export function finalizeRunningStats(stats: RunningStats): LossStats {
+  const n = stats.count;
+  if (n === 0) {
+    return {
+      count: 0,
+      mean: Number.NaN,
+      variance: Number.NaN,
+      stddev: Number.NaN,
+      ci95HalfWidth: Number.NaN,
+      p90: Number.NaN,
+      p95: Number.NaN,
+    };
+  }
+  const varv = n === 1 ? 0 : stats.m2 / (n - 1);
+  const sd = Math.sqrt(varv);
+  const ciHalf = n <= 1 ? 0 : tCritical95(n - 1) * (sd / Math.sqrt(n));
+  // eslint-disable-next-line unicorn/no-array-sort
+  const sorted = [...stats.reservoir].sort((a, b) => a - b);
+  return {
+    count: n,
+    mean: stats.mean,
+    variance: varv,
+    stddev: sd,
+    ci95HalfWidth: ciHalf,
+    p90: percentileFromSorted(sorted, 0.9),
+    p95: percentileFromSorted(sorted, 0.95),
+  };
+}
+
+// Reverses a single updateRunningStats(stats, value) call, assuming
+// `value` was the most recently added sample: this only holds if no
+// other update has happened in between, which is exactly the shape
+// callers need it for (computing the corrected moments in
+// correctRunningStats below, which handles the reservoir separately;
+// see its own doc comment for why).
+function removeMostRecentRunningStat(
+  stats: RunningStats,
+  value: number,
+): RunningStats {
+  const count = stats.count - 1;
+  if (count <= 0) {
+    return {
+      count: 0,
+      mean: 0,
+      m2: 0,
+      reservoir: stats.reservoir,
+      reservoirSize: stats.reservoirSize,
+      lastReservoirIndex: stats.lastReservoirIndex,
+    };
+  }
+  const mean = (stats.mean * stats.count - value) / count;
+  const delta = value - mean;
+  const delta2 = value - stats.mean;
+  const m2 = stats.m2 - delta * delta2;
+  return {
+    count,
+    mean,
+    m2,
+    reservoir: stats.reservoir,
+    reservoirSize: stats.reservoirSize,
+    lastReservoirIndex: stats.lastReservoirIndex,
+  };
+}
+
+// Corrects the most recently added sample from `oldValue` to
+// `newValue`, for callers whose source can emit a revised value for
+// something already added (e.g. a training.log frame correcting an
+// already-reported loss for the same step). Restores mean/variance/CI
+// to exactly what they'd be had `newValue` been added in the first
+// place instead of `oldValue` (via removeMostRecentRunningStat, pure
+// moment math with no reservoir side effects of its own).
+//
+// Uses `stats.lastReservoirIndex` (set by the updateRunningStats call
+// that added `oldValue`) to replace the exact right slot rather than
+// re-deriving where it landed after the fact: an earlier version
+// tried to infer this from whether the reservoir "looked" full yet,
+// which undercounted the still-filling case at its own boundary (the
+// value that completes filling leaves reservoir.length already equal
+// to reservoirSize) and couldn't handle an Algorithm R hit once truly
+// full at all, leaving a stale entry that could dominate p90/p95
+// rather than just mildly bias them. Tracking the index directly
+// handles the fill, hit, and miss cases uniformly: replace at that
+// index if it's non-null, otherwise (a miss) leave the reservoir
+// untouched, since `oldValue` was never actually sampled into it.
+export function correctRunningStats(
+  stats: RunningStats,
+  oldValue: number,
+  newValue: number,
+): RunningStats {
+  const removed = removeMostRecentRunningStat(stats, oldValue);
+  const count = removed.count + 1;
+  const delta = newValue - removed.mean;
+  const mean = removed.mean + delta / count;
+  const delta2 = newValue - mean;
+  const m2 = removed.m2 + delta * delta2;
+  let reservoir = stats.reservoir;
+  if (stats.lastReservoirIndex !== null) {
+    reservoir = [...stats.reservoir];
+    reservoir[stats.lastReservoirIndex] = newValue;
+  }
+  return {
+    count,
+    mean,
+    m2,
+    reservoir,
+    reservoirSize: stats.reservoirSize,
+    lastReservoirIndex: stats.lastReservoirIndex,
+  };
+}

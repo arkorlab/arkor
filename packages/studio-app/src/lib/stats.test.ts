@@ -1,8 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
   mean,
   variance,
+  createRunningStats,
+  updateRunningStats,
+  finalizeRunningStats,
+  correctRunningStats,
   stddev,
   percentile,
   confidenceInterval95,
@@ -136,5 +140,191 @@ describe("stats", () => {
       expect(Number.isNaN(s.p90)).toBe(true);
       expect(Number.isNaN(s.p95)).toBe(true);
     });
+  });
+});
+
+describe("RunningStats", () => {
+  it("matches summarize()'s mean and variance for a small run within the reservoir size", () => {
+    const values = [2, 4, 4, 4, 5, 5, 7, 9];
+    let running = createRunningStats();
+    for (const v of values) running = updateRunningStats(running, v);
+    const streamed = finalizeRunningStats(running);
+    const batch = summarize(values);
+    expect(streamed.count).toBe(batch.count);
+    expect(streamed.mean).toBeCloseTo(batch.mean, 10);
+    expect(streamed.variance).toBeCloseTo(batch.variance, 10);
+    expect(streamed.p90).toBeCloseTo(batch.p90, 10);
+    expect(streamed.p95).toBeCloseTo(batch.p95, 10);
+  });
+
+  it("keeps mean and variance exact even once the value count exceeds the reservoir size", () => {
+    // A monotonic run far larger than the reservoir: mean/variance
+    // are computed via Welford's algorithm from every value seen, not
+    // just the bounded reservoir, so they stay exact regardless of
+    // how long the run gets. Compare against the true closed-form
+    // mean/variance of 1..N rather than summarize(), since summarize()
+    // over the full array would itself be the "no bound" ideal this
+    // is meant to match, and N is deliberately large enough here that
+    // materializing the full array for summarize() would be wasteful
+    // in a unit test.
+    const n = 50_000;
+    let running = createRunningStats(100); // small reservoir on purpose
+    for (let v = 1; v <= n; v++) running = updateRunningStats(running, v);
+    const stats = finalizeRunningStats(running);
+    const expectedMean = (n + 1) / 2;
+    // Population variance of 1..N is (N^2-1)/12; Bessel-corrected
+    // sample variance (n-1 denominator) is that times n/(n-1).
+    const expectedVariance = ((n * n - 1) / 12) * (n / (n - 1));
+    expect(stats.count).toBe(n);
+    expect(stats.mean).toBeCloseTo(expectedMean, 6);
+    expect(stats.variance).toBeCloseTo(expectedVariance, 0);
+  });
+
+  it("bounds the reservoir at its configured size regardless of how many values are seen", () => {
+    let running = createRunningStats(50);
+    for (let v = 1; v <= 10_000; v++) running = updateRunningStats(running, v);
+    expect(running.reservoir).toHaveLength(50);
+    expect(running.count).toBe(10_000);
+  });
+
+  it("rejects a non-positive or non-integer reservoir size rather than silently producing an accumulator that can never estimate percentiles", () => {
+    expect(() => createRunningStats(0)).toThrow(RangeError);
+    expect(() => createRunningStats(-5)).toThrow(RangeError);
+    expect(() => createRunningStats(1.5)).toThrow(RangeError);
+  });
+
+  it("returns NaN stats for an empty accumulator, matching summarize([])", () => {
+    const running = createRunningStats();
+    const stats = finalizeRunningStats(running);
+    expect(stats.count).toBe(0);
+    expect(Number.isNaN(stats.mean)).toBe(true);
+    expect(Number.isNaN(stats.variance)).toBe(true);
+    expect(Number.isNaN(stats.p90)).toBe(true);
+  });
+
+  it("reports zero variance and spread for a single value, matching summarize()'s single-sample convention", () => {
+    let running = createRunningStats();
+    running = updateRunningStats(running, 42);
+    const stats = finalizeRunningStats(running);
+    expect(stats.count).toBe(1);
+    expect(stats.mean).toBe(42);
+    expect(stats.variance).toBe(0);
+    expect(stats.ci95HalfWidth).toBe(0);
+  });
+
+  it("is pure: reuses the same reservoir array reference when a full reservoir isn't touched, and never mutates the original when it is", () => {
+    // Fill a 2-slot reservoir exactly, so it's full but every value
+    // seen so far is still present (no updates have missed yet).
+    let running = createRunningStats(2);
+    running = updateRunningStats(running, 1);
+    running = updateRunningStats(running, 2);
+    const originalReservoir = running.reservoir;
+
+    // Force Algorithm R's draw to miss (j >= reservoirSize): with
+    // count becoming 3, floor(random() * 3) must land on index 2 to
+    // miss a 2-slot reservoir, so random() just needs to be >= 2/3.
+    const missSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const afterMiss = updateRunningStats(running, 999);
+    missSpy.mockRestore();
+    // A miss shouldn't touch the reservoir at all: same array
+    // reference reused, not just equal contents, since a defensive
+    // clone here is exactly the wasted work this design avoids.
+    expect(afterMiss.reservoir).toBe(originalReservoir);
+    expect(afterMiss.reservoir).toEqual([1, 2]);
+
+    // Force a hit instead (random() < 2/3 lands on index 0 or 1).
+    const hitSpy = vi.spyOn(Math, "random").mockReturnValue(0.1);
+    const afterHit = updateRunningStats(running, 999);
+    hitSpy.mockRestore();
+    // A hit must produce a distinct array (not the same reference)
+    // and must leave the original completely untouched, since
+    // mutating shared previous state is unsafe for a setState
+    // updater (see updateRunningStats's own doc comment).
+    expect(afterHit.reservoir).not.toBe(originalReservoir);
+    expect(afterHit.reservoir).toContain(999);
+    expect(originalReservoir).toEqual([1, 2]);
+  });
+
+  it("correctRunningStats restores mean/variance/CI exactly, as if the corrected value had been added instead of the original", () => {
+    const values = [2, 4, 4, 4, 5, 5, 7, 9];
+    let running = createRunningStats();
+    for (const v of values) running = updateRunningStats(running, v);
+
+    // Correct the last-added value (9 -> 100), matching the only
+    // case callers use this for: fixing the immediately-previous
+    // contribution, not an arbitrary historical one.
+    const corrected = correctRunningStats(running, 9, 100);
+    const correctedStats = finalizeRunningStats(corrected);
+
+    const expectedValues = [2, 4, 4, 4, 5, 5, 7, 100];
+    const expectedBatch = summarize(expectedValues);
+
+    expect(correctedStats.count).toBe(expectedBatch.count);
+    expect(correctedStats.mean).toBeCloseTo(expectedBatch.mean, 10);
+    expect(correctedStats.variance).toBeCloseTo(expectedBatch.variance, 6);
+  });
+
+  it("correctRunningStats does not change count, unlike calling updateRunningStats twice", () => {
+    let running = createRunningStats();
+    running = updateRunningStats(running, 10);
+    const corrected = correctRunningStats(running, 10, 20);
+    expect(corrected.count).toBe(1);
+    expect(corrected.mean).toBe(20);
+  });
+
+  it("correctRunningStats replaces the reservoir slot rather than duplicating it, while the reservoir is still filling up", () => {
+    // Before this fix, correcting a value added while the reservoir
+    // was still below its size limit left the old value in place and
+    // pushed the corrected value as an additional entry, so a single
+    // logical sample ended up occupying two reservoir slots.
+    let running = createRunningStats(10);
+    running = updateRunningStats(running, 100);
+    const corrected = correctRunningStats(running, 100, 0);
+    expect(corrected.reservoir).toEqual([0]);
+    expect(corrected.count).toBe(1);
+    expect(corrected.mean).toBe(0);
+  });
+
+  it("correctRunningStats only replaces the single corrected slot when other values were already filling the reservoir", () => {
+    let running = createRunningStats(10);
+    running = updateRunningStats(running, 5);
+    running = updateRunningStats(running, 100);
+    const corrected = correctRunningStats(running, 100, 7);
+    expect(corrected.reservoir).toEqual([5, 7]);
+    expect(corrected.count).toBe(2);
+  });
+
+  it("correctRunningStats replaces the exact slot a value hit once the reservoir was already full, not just moments", () => {
+    // CodeRabbit's exact example: a reservoirSize-1 accumulator, so
+    // every subsequent value after the first must land in the same
+    // single slot via Algorithm R (there's nowhere else for a hit to
+    // go). Correcting that value must replace the reservoir entry
+    // itself, not just fix mean/variance while leaving the old value
+    // sitting in the array where p90/p95 would still report it.
+    let running = createRunningStats(1);
+    running = updateRunningStats(running, 0);
+    const hitSpy = vi.spyOn(Math, "random").mockReturnValue(0); // guarantees a hit
+    running = updateRunningStats(running, 100);
+    hitSpy.mockRestore();
+    expect(running.reservoir).toEqual([100]);
+
+    const corrected = correctRunningStats(running, 100, 0);
+    expect(corrected.reservoir).toEqual([0]);
+    expect(corrected.mean).toBe(0);
+  });
+
+  it("correctRunningStats replaces the last slot correctly even when that value was the one that completed filling the reservoir", () => {
+    // Codex's exact boundary case: at the moment the reservoir's
+    // last slot gets filled, reservoir.length already equals
+    // reservoirSize, which an implementation checking "is the
+    // reservoir still filling" *after the fact* could misread as
+    // "already full" and skip replacing entirely.
+    let running = createRunningStats(2);
+    running = updateRunningStats(running, 5);
+    running = updateRunningStats(running, 100); // completes filling
+    expect(running.reservoir).toHaveLength(2);
+
+    const corrected = correctRunningStats(running, 100, 7);
+    expect(corrected.reservoir).toEqual([5, 7]);
   });
 });
