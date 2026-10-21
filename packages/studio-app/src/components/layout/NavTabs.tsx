@@ -44,15 +44,13 @@ export function NavTabs({ route }: { route: Route }) {
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "relative inline-flex items-center px-3 text-sm font-medium transition-colors",
-                  active
-                    ? "text-zinc-900 dark:text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
+                  active ? "text-fg" : "text-fg-muted hover:text-fg",
                 )}
               >
                 <span
                   className={cn(
                     "rounded-md px-2 py-1.5",
-                    !active && "hover:bg-zinc-100 dark:hover:bg-zinc-900",
+                    !active && "hover:bg-inset",
                   )}
                 >
                   {tab.label}
@@ -60,7 +58,7 @@ export function NavTabs({ route }: { route: Route }) {
                 {active ? (
                   <span
                     aria-hidden
-                    className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-teal-500"
+                    className="bg-fg absolute inset-x-2 -bottom-px h-0.5 rounded-full"
                   />
                 ) : null}
               </a>

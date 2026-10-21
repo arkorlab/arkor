@@ -17,7 +17,7 @@ export function ModelToggle({
     <div
       role="group"
       aria-label="Model source"
-      className="inline-flex h-9 items-center rounded-full border border-zinc-200 bg-zinc-50 p-1 text-[13px] dark:border-zinc-800 dark:bg-zinc-900"
+      className="border-edge bg-inset inline-flex h-9 items-center rounded-full border p-1 text-[13px]"
     >
       <Segment
         active={mode === "base"}
@@ -61,12 +61,9 @@ function Segment({
       onClick={onClick}
       className={cn(
         "inline-flex h-7 items-center rounded-full px-3 font-medium transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-teal-500/30 focus-visible:outline-none",
-        active
-          ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-100"
-          : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-        disabled &&
-          "cursor-not-allowed opacity-50 hover:text-zinc-500 dark:hover:text-zinc-400",
+        "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
+        active ? "bg-surface text-fg shadow-sm" : "text-fg-muted hover:text-fg",
+        disabled && "hover:text-fg-muted cursor-not-allowed opacity-50",
       )}
     >
       {label}

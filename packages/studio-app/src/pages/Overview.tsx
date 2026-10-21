@@ -52,10 +52,10 @@ export function Overview() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+        <h1 className="text-fg text-2xl font-semibold tracking-tight">
           Overview
         </h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="text-fg-muted mt-1 text-sm">
           Run training, inspect jobs, and chat with your fine-tuned adapters.
         </p>
       </div>
@@ -78,7 +78,7 @@ export function Overview() {
           actions={
             <a
               href="#/jobs"
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+              className="text-fg-muted hover:bg-inset hover:text-fg inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium"
             >
               View all
               <ArrowRight width="14" height="14" />
@@ -92,7 +92,7 @@ export function Overview() {
         </CardHeader>
         {error ? (
           <CardContent>
-            <p className="text-sm text-red-600 dark:text-red-400">
+            <p className="text-danger-fg text-sm">
               Failed to load jobs: {error}
             </p>
           </CardContent>
@@ -156,13 +156,13 @@ function QuickStartTile({
       href={href}
       target={external ? "_blank" : undefined}
       rel={external ? "noopener noreferrer" : undefined}
-      className="group flex items-start gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700"
+      className="group border-edge bg-surface hover:border-edge-strong flex items-start gap-4 rounded-xl border p-5 transition-colors"
     >
-      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-600 transition-colors group-hover:border-teal-200 group-hover:bg-teal-50 group-hover:text-teal-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:group-hover:border-teal-400/30 dark:group-hover:bg-teal-400/10 dark:group-hover:text-teal-300">
+      <span className="border-edge bg-inset text-fg-muted group-hover:border-edge-strong group-hover:text-fg mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors">
         {icon}
       </span>
       <div className="min-w-0">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        <div className="text-fg flex items-center gap-1.5 text-sm font-semibold">
           {title}
           <ArrowRight
             width="14"
@@ -170,9 +170,7 @@ function QuickStartTile({
             className="opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100"
           />
         </div>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          {description}
-        </p>
+        <p className="text-fg-muted mt-1 text-sm">{description}</p>
       </div>
     </a>
   );

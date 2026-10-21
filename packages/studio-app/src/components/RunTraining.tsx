@@ -107,38 +107,35 @@ export function RunTraining() {
   return (
     <div className="space-y-4">
       {manifestError ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+        <div className="border-warn-edge bg-warn-surface text-warn-fg rounded-lg border px-3 py-2.5 text-sm">
           Couldn't read manifest: {manifestError}
         </div>
       ) : null}
       {manifest && !manifestError && !hasTrainer ? (
-        <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        <div className="border-edge bg-inset text-fg-muted rounded-lg border px-3 py-2.5 text-sm">
           No trainer in{" "}
-          <code className="rounded bg-white px-1 py-0.5 font-mono text-[12px] text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+          <code className="bg-surface text-fg rounded px-1 py-0.5 font-mono text-[12px]">
             src/arkor/index.ts
           </code>{" "}
           yet. Add{" "}
-          <code className="font-mono text-[12px] text-zinc-700 dark:text-zinc-300">
+          <code className="text-fg font-mono text-[12px]">
             createTrainer(...)
           </code>{" "}
           and pass it to{" "}
-          <code className="font-mono text-[12px] text-zinc-700 dark:text-zinc-300">
-            createArkor
-          </code>
-          .
+          <code className="text-fg font-mono text-[12px]">createArkor</code>.
         </div>
       ) : null}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm text-zinc-500 dark:text-zinc-400">
+        <div className="text-fg-muted text-sm">
           {trainer ? (
             <>
               Trainer{" "}
-              <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[12px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              <code className="bg-inset text-fg rounded px-1.5 py-0.5 font-mono text-[12px]">
                 {trainer.name}
               </code>{" "}
               from{" "}
-              <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[12px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              <code className="bg-inset text-fg rounded px-1.5 py-0.5 font-mono text-[12px]">
                 src/arkor/index.ts
               </code>
               .
@@ -146,7 +143,7 @@ export function RunTraining() {
           ) : (
             <>
               Executes{" "}
-              <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[12px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              <code className="bg-inset text-fg rounded px-1.5 py-0.5 font-mono text-[12px]">
                 src/arkor/index.ts
               </code>{" "}
               and streams trainer output here.
@@ -173,7 +170,7 @@ export function RunTraining() {
       {(running || log) && (
         <pre
           ref={boxRef}
-          className="max-h-72 overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-[12px] leading-relaxed text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-200"
+          className="border-edge bg-inset text-fg max-h-72 overflow-y-auto rounded-lg border p-4 font-mono text-[12px] leading-relaxed"
         >
           {log || (running ? "Waiting for output…" : "")}
         </pre>

@@ -25,17 +25,13 @@ export function EmptyState({
       )}
     >
       {icon ? (
-        <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        <div className="border-edge bg-inset text-fg-subtle mb-4 flex h-10 w-10 items-center justify-center rounded-lg border">
           {icon}
         </div>
       ) : null}
-      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-        {title}
-      </h3>
+      <h3 className="text-fg text-sm font-semibold">{title}</h3>
       {description ? (
-        <p className="mt-1 max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
-          {description}
-        </p>
+        <p className="text-fg-muted mt-1 max-w-sm text-sm">{description}</p>
       ) : null}
       {action ? <div className="mt-5">{action}</div> : null}
     </div>

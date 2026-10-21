@@ -38,7 +38,10 @@ export function CopyButton({
       size={size}
       label={copied ? "Copied" : label}
       onClick={() => void onClick()}
-      className={copied ? "text-emerald-600 dark:text-emerald-400" : undefined}
+      // No colour for the copied state. A success green would be the app's
+      // only one outside danger and warn, and a neutral override cannot win
+      // over IconButton's own `text-fg-muted` anyway, for the reason `cn.ts`
+      // gives. The icon swap is the signal.
     >
       {copied ? <Check /> : <Copy />}
     </IconButton>

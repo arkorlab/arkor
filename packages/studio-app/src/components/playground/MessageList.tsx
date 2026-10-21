@@ -43,7 +43,7 @@ export function MessageList({
           if (m.role === "user") {
             return (
               <div key={m.id} className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm break-words whitespace-pre-wrap text-white dark:bg-white dark:text-zinc-900">
+                <div className="bg-accent text-on-accent max-w-[85%] rounded-2xl px-4 py-2.5 text-sm break-words whitespace-pre-wrap">
                   {m.content}
                 </div>
               </div>
@@ -51,17 +51,17 @@ export function MessageList({
           }
           return (
             <div key={m.id} className="flex gap-3">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+              <span className="border-edge bg-inset text-fg-subtle mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border">
                 <Sparkles />
               </span>
-              <div className="min-w-0 flex-1 text-sm leading-relaxed break-words whitespace-pre-wrap text-zinc-800 dark:text-zinc-200">
+              <div className="text-fg min-w-0 flex-1 text-sm leading-relaxed break-words whitespace-pre-wrap">
                 {m.content}
                 {streaming && isLast && m.role === "assistant" ? (
                   <span
                     aria-hidden
                     className={cn(
-                      "ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-teal-500",
-                      "animate-pulse",
+                      "bg-fg ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 rounded-sm",
+                      "motion-safe:animate-pulse",
                     )}
                   />
                 ) : null}

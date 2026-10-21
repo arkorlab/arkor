@@ -12,20 +12,23 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   trailingIcon?: ReactNode;
 }
 
+// `danger` is an outline rather than a solid fill: a destructive action is
+// rarely the primary one on a screen, and a red block competes with the
+// primary button for the eye. The red is carried by the border and the label.
 const VARIANT: Record<Variant, string> = {
   primary:
-    "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:hover:bg-zinc-900 dark:disabled:hover:bg-white",
+    "bg-accent text-on-accent hover:bg-accent-hover disabled:hover:bg-accent",
   secondary:
-    "border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900",
+    "border border-edge-strong bg-surface text-fg hover:bg-inset disabled:hover:bg-surface",
   ghost:
-    "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900",
+    "text-fg-muted hover:bg-inset hover:text-fg disabled:hover:bg-transparent disabled:hover:text-fg-muted",
   danger:
-    "bg-red-600 text-white hover:bg-red-500 dark:bg-red-500 dark:hover:bg-red-400",
+    "border border-danger-edge bg-surface text-danger hover:bg-danger-surface disabled:hover:bg-surface",
 };
 
 const SIZE: Record<Size, string> = {
-  sm: "h-8 px-3 text-[13px] gap-1.5",
-  md: "h-10 px-4 text-sm gap-2",
+  sm: "h-8 rounded-md px-3 text-[13px] gap-1.5",
+  md: "h-10 rounded-lg px-4 text-sm gap-2",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -46,8 +49,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       type={type}
       className={cn(
-        "inline-flex items-center justify-center rounded-full font-medium",
-        "transition-colors focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:outline-none dark:focus-visible:ring-offset-zinc-950",
+        "inline-flex items-center justify-center font-medium",
+        "focus-visible:ring-ring transition-colors focus-visible:ring-2 focus-visible:outline-none",
         "disabled:cursor-not-allowed disabled:opacity-50",
         VARIANT[variant],
         SIZE[size],

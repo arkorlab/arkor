@@ -36,7 +36,7 @@ export function JobsTable({
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-[11px] font-medium tracking-wider text-zinc-500 uppercase dark:text-zinc-500">
+          <tr className="text-fg-subtle text-left text-[11px] font-medium tracking-wider uppercase">
             <th className="px-6 py-2.5 font-medium">Status</th>
             <th className="px-6 py-2.5 font-medium">Name</th>
             {!compact && <th className="px-6 py-2.5 font-medium">Duration</th>}
@@ -50,7 +50,7 @@ export function JobsTable({
             return (
               <tr
                 key={j.id}
-                className="group relative border-t border-zinc-100 transition-colors focus-within:bg-zinc-50 hover:bg-zinc-50 dark:border-zinc-900 dark:focus-within:bg-zinc-900/60 dark:hover:bg-zinc-900/60"
+                className="group border-edge focus-within:bg-inset hover:bg-inset relative border-t transition-colors"
               >
                 <td className="px-6 py-3.5 align-middle">
                   <StatusBadge status={j.status} size="sm" />
@@ -66,21 +66,21 @@ export function JobsTable({
                    */}
                   <a
                     href={`#/jobs/${j.id}`}
-                    className="font-medium text-zinc-900 group-hover:text-teal-700 before:absolute before:inset-0 before:content-[''] focus-visible:ring-2 focus-visible:ring-teal-500/40 focus-visible:outline-none focus-visible:ring-inset dark:text-zinc-100 dark:group-hover:text-teal-300"
+                    className="text-fg focus-visible:ring-ring font-medium group-hover:underline before:absolute before:inset-0 before:content-[''] focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
                   >
                     {j.name}
                   </a>
                 </td>
                 {!compact && (
-                  <td className="px-6 py-3.5 align-middle text-zinc-500 tabular-nums dark:text-zinc-400">
+                  <td className="text-fg-muted px-6 py-3.5 align-middle tabular-nums">
                     {ms === null ? NO_VALUE_PLACEHOLDER : formatDuration(ms)}
                   </td>
                 )}
-                <td className="px-6 py-3.5 align-middle text-zinc-500 dark:text-zinc-400">
+                <td className="text-fg-muted px-6 py-3.5 align-middle">
                   <RelativeTime iso={j.createdAt} />
                 </td>
                 <td className="px-6 py-3.5 align-middle">
-                  <code className="font-mono text-[12px] text-zinc-500 dark:text-zinc-500">
+                  <code className="text-fg-subtle font-mono text-[12px]">
                     {truncateMiddle(j.id, 6, 4)}
                   </code>
                 </td>

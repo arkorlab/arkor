@@ -16,7 +16,7 @@ export function AppShell({
   children: ReactNode;
 }) {
   return (
-    <div className="min-h-full bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="bg-canvas text-fg min-h-full">
       <Header creds={creds} error={error} route={route} />
       <main className="mx-auto w-full max-w-[1200px] px-6 py-8">
         {children}

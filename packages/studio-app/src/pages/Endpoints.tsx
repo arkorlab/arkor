@@ -145,14 +145,11 @@ export function EndpointsList() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+          <h1 className="text-fg text-2xl font-semibold tracking-tight">
             Endpoints
           </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Dedicated{" "}
-            <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-900">
-              *.arkor.app
-            </code>{" "}
+          <p className="text-fg-muted text-sm">
+            Dedicated <code className="bg-inset rounded px-1">*.arkor.app</code>{" "}
             URLs that serve OpenAI-compatible chat completions for a chosen
             adapter or base model.
           </p>
@@ -190,7 +187,7 @@ export function EndpointsList() {
         </CardHeader>
 
         {error ? (
-          <div className="px-6 py-4 text-sm text-red-600 dark:text-red-400">
+          <div className="text-danger-fg px-6 py-4 text-sm">
             Failed to load endpoints: {error}
           </div>
         ) : deployments === null ? (
@@ -231,27 +228,27 @@ export function EndpointsList() {
             />
           )
         ) : (
-          <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          <ul className="divide-edge divide-y">
             {deployments.map((d) => (
               <li key={d.id}>
                 <a
                   href={`#/endpoints/${encodeURIComponent(d.id)}`}
-                  className="flex items-center justify-between gap-4 px-6 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  className="hover:bg-inset flex items-center justify-between gap-4 px-6 py-3"
                 >
                   <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">
+                    <span className="text-fg truncate font-medium">
                       {d.slug}
-                      <span className="text-zinc-400">.arkor.app</span>
+                      <span className="text-fg-subtle">.arkor.app</span>
                     </span>
-                    <span className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                    <span className="text-fg-muted truncate text-xs">
                       {describeTarget(d.target)} · auth: {d.authMode}
                     </span>
                   </div>
                   <span
                     className={
                       d.enabled
-                        ? "rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                        : "rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400"
+                        ? "bg-accent text-on-accent rounded-full px-2 py-0.5 text-xs"
+                        : "bg-inset text-fg-muted rounded-full px-2 py-0.5 text-xs"
                     }
                   >
                     {d.enabled ? "enabled" : "disabled"}
@@ -407,7 +404,7 @@ function NewEndpointForm({
         <CardTitle>New endpoint</CardTitle>
         <CardDescription>
           Pick a slug, target, and auth mode. The endpoint becomes reachable at
-          <code className="mx-1 rounded bg-zinc-100 px-1 dark:bg-zinc-900">
+          <code className="bg-inset mx-1 rounded px-1">
             https://&lt;slug&gt;.arkor.app/v1/chat/completions
           </code>
           once DNS propagates.
@@ -416,9 +413,7 @@ function NewEndpointForm({
       <CardContent>
         <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
           <label className="block">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Slug
-            </span>
+            <span className="text-fg-muted text-sm font-medium">Slug</span>
             {/*
               The slug input intentionally drops its own focus ring
               (`focus-visible:outline-none`) so the suffix span stays
@@ -427,7 +422,7 @@ function NewEndpointForm({
               visible focus indicator on the whole control; without
               this they get *no* focus signal at all.
             */}
-            <div className="mt-1 flex items-center rounded-lg border border-zinc-200 bg-white focus-within:border-teal-400 focus-within:ring-2 focus-within:ring-teal-500/30 dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="border-edge-strong bg-surface focus-within:ring-ring mt-1 flex items-center rounded-lg border focus-within:ring-2">
               <input
                 type="text"
                 required
@@ -439,23 +434,24 @@ function NewEndpointForm({
                 placeholder="mymodel"
                 className="flex-1 rounded-l-lg border-0 bg-transparent px-3 py-1.5 text-sm focus-visible:outline-none"
               />
-              <span className="rounded-r-lg bg-zinc-50 px-3 py-1.5 text-sm text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+              <span className="bg-inset text-fg-muted rounded-r-lg px-3 py-1.5 text-sm">
                 .arkor.app
               </span>
             </div>
           </label>
 
           <fieldset className="space-y-2">
-            <legend className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <legend className="text-fg-muted text-sm font-medium">
               Target
             </legend>
-            <div className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+            <div className="text-fg-muted flex flex-col gap-1 text-sm">
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
                   name="targetMode"
                   checked={targetMode === "adapter_final"}
                   onChange={() => setTargetMode("adapter_final")}
+                  className="accent-fg"
                 />
                 Job&apos;s final adapter
               </label>
@@ -465,6 +461,7 @@ function NewEndpointForm({
                   name="targetMode"
                   checked={targetMode === "adapter_checkpoint"}
                   onChange={() => setTargetMode("adapter_checkpoint")}
+                  className="accent-fg"
                 />
                 Specific checkpoint
               </label>
@@ -474,6 +471,7 @@ function NewEndpointForm({
                   name="targetMode"
                   checked={targetMode === "base_model"}
                   onChange={() => setTargetMode("base_model")}
+                  className="accent-fg"
                 />
                 Base model only (no LoRA)
               </label>
@@ -486,7 +484,7 @@ function NewEndpointForm({
                 value={baseModel}
                 onChange={(e) => setBaseModel(e.target.value)}
                 placeholder="meta-llama/Llama-2-7b-hf"
-                className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+                className="border-edge-strong bg-surface mt-1 w-full rounded-lg border px-3 py-1.5 text-sm"
               />
             ) : (
               <div className="mt-1 flex flex-col gap-2">
@@ -497,7 +495,7 @@ function NewEndpointForm({
                   value={jobId}
                   onChange={(e) => setJobId(e.target.value)}
                   placeholder="Job UUID"
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 font-mono text-xs dark:border-zinc-800 dark:bg-zinc-950"
+                  className="border-edge-strong bg-surface w-full rounded-lg border px-3 py-1.5 font-mono text-xs"
                 />
                 {targetMode === "adapter_checkpoint" && (
                   <input
@@ -508,7 +506,7 @@ function NewEndpointForm({
                     value={step}
                     onChange={(e) => setStep(Number(e.target.value))}
                     placeholder="Step"
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+                    className="border-edge-strong bg-surface w-full rounded-lg border px-3 py-1.5 text-sm"
                   />
                 )}
               </div>
@@ -516,15 +514,13 @@ function NewEndpointForm({
           </fieldset>
 
           <label className="block">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Auth mode
-            </span>
+            <span className="text-fg-muted text-sm font-medium">Auth mode</span>
             <select
               value={authMode}
               onChange={(e) =>
                 setAuthMode(e.target.value as DeploymentAuthMode)
               }
-              className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+              className="border-edge-strong bg-surface mt-1 w-full rounded-lg border px-3 py-1.5 text-sm"
             >
               <option value="fixed_api_key">Fixed API key</option>
               <option value="none">No auth (public)</option>
@@ -532,7 +528,7 @@ function NewEndpointForm({
           </label>
 
           {error && (
-            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+            <p className="border-danger-edge bg-danger-surface text-danger-fg rounded-lg border p-3 text-sm">
               {error}
             </p>
           )}
@@ -976,11 +972,11 @@ export function EndpointDetail({ id }: { id: string }) {
       <div className="space-y-6">
         <a
           href="#/endpoints"
-          className="text-sm text-teal-600 hover:underline dark:text-teal-400"
+          className="text-fg hover:text-fg-muted text-sm underline underline-offset-2"
         >
           ← Back to endpoints
         </a>
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+        <div className="border-danger-edge bg-danger-surface text-danger-fg rounded-lg border p-4 text-sm">
           {error}
         </div>
       </div>
@@ -1002,18 +998,18 @@ export function EndpointDetail({ id }: { id: string }) {
     <div className="space-y-8">
       <a
         href="#/endpoints"
-        className="inline-block text-sm text-teal-600 hover:underline dark:text-teal-400"
+        className="text-fg hover:text-fg-muted inline-block text-sm underline underline-offset-2"
       >
         ← Back to endpoints
       </a>
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+          <h1 className="text-fg text-2xl font-semibold tracking-tight">
             {deployment.slug}
-            <span className="text-zinc-400">.arkor.app</span>
+            <span className="text-fg-subtle">.arkor.app</span>
           </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="text-fg-muted mt-1 text-sm">
             {describeTarget(deployment.target)}
           </p>
         </div>
@@ -1027,7 +1023,7 @@ export function EndpointDetail({ id }: { id: string }) {
       </div>
 
       {error && (
-        <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+        <p className="border-danger-edge bg-danger-surface text-danger-fg rounded-lg border p-3 text-sm">
           {error}
         </p>
       )}
@@ -1038,7 +1034,7 @@ export function EndpointDetail({ id }: { id: string }) {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
-            <code className="flex-1 rounded-lg bg-zinc-50 px-3 py-2 font-mono text-xs break-all dark:bg-zinc-900">
+            <code className="bg-inset flex-1 rounded-lg px-3 py-2 font-mono text-xs break-all">
               {url}
             </code>
             <CopyButton value={url} />
@@ -1065,16 +1061,14 @@ export function EndpointDetail({ id }: { id: string }) {
         </CardHeader>
         <CardContent>
           <label className="flex items-center gap-3 text-sm">
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">
-              Auth mode
-            </span>
+            <span className="text-fg-muted font-medium">Auth mode</span>
             <select
               value={deployment.authMode}
               onChange={(e) =>
                 void changeAuthMode(e.target.value as DeploymentAuthMode)
               }
               disabled={busy}
-              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+              className="border-edge-strong bg-surface rounded-lg border px-3 py-1.5 text-sm"
             >
               <option value="fixed_api_key">Fixed API key</option>
               <option value="none">No auth (public)</option>
@@ -1112,7 +1106,7 @@ export function EndpointDetail({ id }: { id: string }) {
               // both the input and the submit disabled until the
               // operator acknowledges with "I've saved it".
               disabled={busy || revealed !== null}
-              className="flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950"
+              className="border-edge-strong bg-surface flex-1 rounded-lg border px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
             />
             <Button
               type="submit"
@@ -1123,12 +1117,12 @@ export function EndpointDetail({ id }: { id: string }) {
           </form>
 
           {revealed && (
-            <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700/50 dark:bg-amber-900/20">
-              <p className="font-medium text-amber-900 dark:text-amber-200">
+            <div className="border-warn-edge bg-warn-surface mb-4 rounded-lg border p-3 text-sm">
+              <p className="text-warn-fg font-medium">
                 Copy this key now. It cannot be shown again.
               </p>
               <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 rounded bg-white px-2 py-1 font-mono text-xs break-all dark:bg-zinc-950">
+                <code className="bg-surface flex-1 rounded px-2 py-1 font-mono text-xs break-all">
                   {revealed.plaintext}
                 </code>
                 <CopyButton value={revealed.plaintext} />
@@ -1136,7 +1130,7 @@ export function EndpointDetail({ id }: { id: string }) {
               <button
                 type="button"
                 onClick={dismissRevealed}
-                className="mt-2 text-xs text-amber-900 underline dark:text-amber-300"
+                className="text-warn-fg mt-2 text-xs underline"
               >
                 I&apos;ve saved it
               </button>
@@ -1144,17 +1138,15 @@ export function EndpointDetail({ id }: { id: string }) {
           )}
 
           {keysError ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+            <p className="border-danger-edge bg-danger-surface text-danger-fg rounded-lg border p-3 text-sm">
               Failed to load keys: {keysError}
             </p>
           ) : keys === null ? (
             <Skeleton className="h-10 w-full" />
           ) : keys.length === 0 ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              No keys yet.
-            </p>
+            <p className="text-fg-muted text-sm">No keys yet.</p>
           ) : (
-            <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            <ul className="divide-edge divide-y">
               {keys.map((k) => (
                 <li
                   key={k.id}
@@ -1164,13 +1156,13 @@ export function EndpointDetail({ id }: { id: string }) {
                     <p
                       className={
                         k.enabled
-                          ? "font-medium text-zinc-900 dark:text-zinc-100"
-                          : "font-medium text-zinc-400 line-through"
+                          ? "text-fg font-medium"
+                          : "text-fg-subtle font-medium line-through"
                       }
                     >
                       {k.label}
                     </p>
-                    <p className="font-mono text-xs text-zinc-500">
+                    <p className="text-fg-muted font-mono text-xs">
                       {k.prefix}…
                     </p>
                   </div>

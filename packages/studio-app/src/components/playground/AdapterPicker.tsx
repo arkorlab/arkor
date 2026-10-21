@@ -17,22 +17,20 @@ export function AdapterPicker({
   const selected = jobs.find((j) => j.id === selectedId) ?? null;
 
   return (
-    <label className="relative inline-flex h-9 items-center gap-2 rounded-full border border-zinc-200 bg-white pr-2 pl-3 text-sm font-medium text-zinc-900 transition-colors focus-within:ring-2 focus-within:ring-teal-500/40 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900">
-      <span className="text-zinc-500 dark:text-zinc-400">Adapter</span>
-      <span className="font-mono text-[12px] text-zinc-400 dark:text-zinc-600">
-        ·
-      </span>
+    <label className="border-edge-strong bg-surface text-fg focus-within:ring-ring hover:bg-inset relative inline-flex h-9 items-center gap-2 rounded-full border pr-2 pl-3 text-sm font-medium transition-colors focus-within:ring-2">
+      <span className="text-fg-muted">Adapter</span>
+      <span className="text-fg-subtle font-mono text-[12px]">·</span>
       {selected ? (
         <>
           <span className="max-w-[200px] truncate">{selected.name}</span>
-          <span className="font-mono text-[11px] text-zinc-400 dark:text-zinc-500">
+          <span className="text-fg-subtle font-mono text-[11px]">
             {truncateMiddle(selected.id, 4, 4)}
           </span>
         </>
       ) : (
-        <span className="text-zinc-400 dark:text-zinc-600">Select…</span>
+        <span className="text-fg-subtle">Select…</span>
       )}
-      <ChevronDown className="text-zinc-400 dark:text-zinc-500" />
+      <ChevronDown className="text-fg-subtle" />
       <select
         aria-label="Adapter"
         value={selectedId ?? ""}
@@ -46,11 +44,7 @@ export function AdapterPicker({
           </option>
         ) : null}
         {jobs.map((j) => (
-          <option
-            key={j.id}
-            value={j.id}
-            className="bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100"
-          >
+          <option key={j.id} value={j.id} className="bg-surface text-fg">
             {j.name} ({truncateMiddle(j.id, 4, 4)})
           </option>
         ))}

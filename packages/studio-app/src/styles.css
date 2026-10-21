@@ -1,18 +1,8 @@
 @import "tailwindcss";
 
-/* Dark mode is opt-in via `data-theme="dark"` on <html> (set by the
- * pre-paint script in index.html and toggled by ThemeToggle). Mirrors
- * the marketing site's `.arkor-theme` scoping convention. */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
-@theme {
-  --font-sans:
-    "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono:
-    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco,
-    Consolas, "Liberation Mono", "Courier New", monospace;
-}
+/* Design tokens and the `dark` variant. Studio keeps the pre-paint script in
+ * index.html and the toggle; @arkor/ui owns the values. */
+@import "@arkor/ui/theme.css";
 
 @layer base {
   *,
@@ -35,29 +25,14 @@
 
   body {
     margin: 0;
-    font-family: var(--font-sans);
+    font-family: var(--ak-font-sans);
     font-size: 14px;
-    background-color: var(--color-white);
-    color: var(--color-zinc-900);
+    background-color: var(--ak-canvas);
+    color: var(--ak-fg);
   }
 
-  [data-theme="dark"] body {
-    background-color: #09090b;
-    color: var(--color-zinc-100);
-  }
-
-  /* Selection mirrors marketing's teal accent */
   ::selection {
-    background-color: var(--color-teal-200);
-    color: var(--color-teal-950);
-  }
-
-  [data-theme="dark"] ::selection {
-    background-color: color-mix(
-      in srgb,
-      var(--color-teal-400) 30%,
-      transparent
-    );
-    color: var(--color-teal-50);
+    background-color: var(--ak-accent);
+    color: var(--ak-on-accent);
   }
 }

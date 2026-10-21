@@ -135,10 +135,8 @@ export function JobsList() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          Jobs
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <h1 className="text-fg text-2xl font-semibold tracking-tight">Jobs</h1>
+        <p className="text-fg-muted text-sm">
           Every training run in this project. Auto-refreshes every 5 seconds.
         </p>
       </div>
@@ -164,9 +162,9 @@ export function JobsList() {
           </CardDescription>
         </CardHeader>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
+        <div className="border-edge flex flex-wrap items-center gap-2 border-b px-6 py-3">
           <div className="relative min-w-[180px] flex-1">
-            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-zinc-400 dark:text-zinc-500">
+            <span className="text-fg-subtle pointer-events-none absolute inset-y-0 left-3 flex items-center">
               <Search />
             </span>
             <input
@@ -175,7 +173,7 @@ export function JobsList() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name or ID…"
               aria-label="Search jobs by name or ID"
-              className="h-9 w-full rounded-lg border border-zinc-200 bg-white pr-3 pl-9 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:border-teal-400 focus-visible:ring-2 focus-visible:ring-teal-500/30 focus-visible:outline-none dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+              className="border-edge-strong bg-surface text-fg placeholder:text-fg-subtle focus-visible:ring-ring h-9 w-full rounded-lg border pr-3 pl-9 text-sm focus-visible:ring-2 focus-visible:outline-none"
             />
           </div>
           <div
@@ -193,8 +191,8 @@ export function JobsList() {
                   onClick={() => setFilter(f.value)}
                   className={
                     active
-                      ? "h-7 rounded-full bg-zinc-900 px-3 text-xs font-medium text-white dark:bg-white dark:text-zinc-900"
-                      : "h-7 rounded-full border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                      ? "bg-accent text-on-accent h-7 rounded-full px-3 text-xs font-medium"
+                      : "border-edge bg-surface text-fg-muted hover:bg-inset h-7 rounded-full border px-3 text-xs font-medium"
                   }
                 >
                   {f.label}
@@ -205,7 +203,7 @@ export function JobsList() {
         </div>
 
         {error ? (
-          <div className="px-6 py-4 text-sm text-red-600 dark:text-red-400">
+          <div className="text-danger-fg px-6 py-4 text-sm">
             Failed to load jobs: {error}
           </div>
         ) : visible === null ? (

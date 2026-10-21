@@ -1,0 +1,189 @@
+/*
+ * Design tokens for arkor web surfaces (Tailwind v4, CSS-first).
+ *
+ * Consume with:
+ *   @import "tailwindcss";
+ *   @import "@arkor/ui/theme.css";
+ *
+ * Dark mode is opt-in via `data-theme="dark"` on <html>; the app owns the
+ * pre-paint script and the toggle, this file owns the variant and the values.
+ */
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Backing variables. The `--ak-` prefix keeps them out of the way of any
+ * page-level custom properties a host app already defines.
+ *
+ * These, not the `--color-*` names below, are what you reference from hand
+ * written CSS or an inline style: they are declared unconditionally, whereas
+ * Tailwind emits a `--color-*` property only when it finds a literal
+ * reference in a file it scans. A reference it does not scan fails silently,
+ * because an invalid var() leaves the property at its initial value.
+ *
+ * The palette is monochrome by design: `danger` is the one hue that carries
+ * meaning on its own (failures, destructive actions), `warn` the one that
+ * carries a caution that is not yet a failure. Everything else, including
+ * multi-series charts, encodes meaning through lightness, fill and border
+ * style rather than colour. Adding a third semantic hue means the first two
+ * stop reading as exceptional, so add one only with a reason.
+ *
+ * Every value is opaque. A token with baked-in alpha composites against
+ * whatever happens to be behind it, so the same token reads differently on a
+ * card than on the page, and stacking an opacity utility on top of it
+ * multiplies the two. Four dark steps below are the flattened equivalents of
+ * the translucent fills they replace, resolved against `surface`:
+ * `danger-surface`, `danger-edge`, `warn-surface`, `warn-edge`. The remaining
+ * dark values are chosen, not derived.
+ *
+ * An opacity utility at the call site is for one case only: a surface that
+ * has to be see-through to do its job, which in practice means one behind a
+ * `backdrop-blur`. Anything else wants a token.
+ */
+:root {
+  color-scheme: light;
+
+  --ak-canvas: oklch(98.51% 0 0); /* page background */
+  --ak-surface: oklch(100% 0 0); /* cards, nav, popovers */
+  --ak-inset: oklch(97.02% 0 0); /* wells, code panes, hover fills */
+
+  --ak-fg: oklch(20.46% 0 0); /* primary text */
+  --ak-fg-muted: oklch(43.86% 0 0); /* secondary text */
+  --ak-fg-subtle: oklch(52.78% 0 0); /* metadata, placeholders */
+
+  --ak-edge: oklch(92.19% 0 0); /* default borders and dividers */
+  --ak-edge-strong: oklch(86.99% 0 0); /* inputs, emphasis, dashed outlines */
+
+  --ak-accent: oklch(20.46% 0 0); /* primary action: black on light */
+  --ak-accent-hover: oklch(37.15% 0 0);
+  --ak-on-accent: oklch(100% 0 0);
+  /* Focus ring, drawn 2px with no offset, so it has to clear 3:1 against
+   * every background it can land on. Measured against canvas / surface /
+   * inset: 3.78 / 3.95 / 3.62 here, and 4.17 / 3.88 / 3.19 for the dark
+   * value below. Lighten either one and the inset case fails first. */
+  --ak-ring: oklch(60% 0 0);
+
+  --ak-danger: oklch(57.71% 0.2152 27.3); /* icons, destructive labels */
+  --ak-danger-hover: oklch(44.37% 0.1613 26.9);
+  --ak-danger-fg: oklch(50.54% 0.1905 27.5); /* body copy on danger-surface */
+  --ak-danger-surface: oklch(97.05% 0.0129 17.4);
+  --ak-danger-edge: oklch(88.45% 0.0593 18.3);
+
+  --ak-warn: oklch(66.6% 0.179 58.318);
+  --ak-warn-fg: oklch(47.3% 0.137 46.201);
+  --ak-warn-surface: oklch(98.7% 0.022 95.277);
+  --ak-warn-edge: oklch(92.4% 0.12 95.746);
+
+  /* Chart series: an ordinal lightness ramp, monotone from strong to faint.
+   * Keep it monotone; the ordering is what tells two series apart. */
+  --ak-series-strong: oklch(22.23% 0 0);
+  --ak-series-mid: oklch(54.17% 0 0);
+  --ak-series-faint: oklch(81.42% 0 0);
+
+  /* Families only. Loading the files is the app's job, since a bundler and a
+   * framework font loader do it differently. */
+  --ak-font-sans:
+    "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ak-font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ak-canvas: oklch(14.48% 0 0);
+  --ak-surface: oklch(19.13% 0 0);
+  --ak-inset: oklch(26.86% 0 0);
+
+  --ak-fg: oklch(97.02% 0 0);
+  --ak-fg-muted: oklch(71.55% 0 0);
+  --ak-fg-subtle: oklch(66.65% 0 0);
+
+  /* Must stay distinguishable from --ak-inset: border-edge is drawn on
+   * bg-inset wells. */
+  --ak-edge: oklch(32.11% 0 0);
+  --ak-edge-strong: oklch(37.15% 0 0);
+
+  --ak-accent: oklch(98.51% 0 0); /* primary action: white on dark */
+  --ak-accent-hover: oklch(86.99% 0 0);
+  --ak-on-accent: oklch(20.46% 0 0);
+  --ak-ring: oklch(55.55% 0 0);
+
+  --ak-danger: oklch(71.06% 0.1661 22.2);
+  /* `danger-hover` and `danger-fg` coincide here and only here. A dark-theme
+   * destructive control brightens on hover, and that brightened step is the
+   * same one body copy already sits at; splitting them would invent a
+   * distinction neither use needs. */
+  --ak-danger-hover: oklch(80.77% 0.1035 19.6);
+  --ak-danger-fg: oklch(80.77% 0.1035 19.6);
+  --ak-danger-surface: oklch(23.73% 0.0171 18.4);
+  --ak-danger-edge: oklch(38.74% 0.0679 20.6);
+
+  --ak-warn: oklch(82.8% 0.189 84.429);
+  /* High enough in lightness to read as near-white until you see it painted,
+   * but the chroma carries it: this is the amber tint Studio's dark warning
+   * banners already used, and it holds 12.87:1 on `warn-surface`. */
+  --ak-warn-fg: oklch(92.4% 0.12 95.746);
+  --ak-warn-surface: oklch(24.86% 0.0419 97.3);
+  --ak-warn-edge: oklch(43.53% 0.1075 92.3);
+
+  /* Selected against the dark surface, not flipped from the light ramp. */
+  --ak-series-strong: oklch(96.12% 0 0);
+  --ak-series-mid: oklch(69.95% 0 0);
+  --ak-series-faint: oklch(52.77% 0 0);
+}
+
+/*
+ * These names exist to generate utilities (`bg-surface`, `text-fg-muted`,
+ * ...). They follow [data-theme] with no `dark:` variant at the call site
+ * because the value each one maps to is itself a var(), resolved where it is
+ * used rather than where it is declared.
+ *
+ * `inline` is what keeps `--ak-*` the only name a token value has. Measured on
+ * the built stylesheet: with it, `.bg-canvas` emits `var(--ak-canvas)` and no
+ * `--color-*` property ships. Without it, `--color-canvas: var(--ak-canvas)`
+ * ships and `.bg-canvas` goes through that. Both track the theme, so this is
+ * not a correctness switch; the reason to keep it is that the `--color-*` set
+ * would otherwise look like a second API while still being tree-shaken to
+ * whichever names some utility happens to use (20 of 24, when measured).
+ *
+ * To read a token from CSS or an inline style, use the `--ak-*` property, for
+ * the reason given above the light block.
+ */
+@theme inline {
+  --color-canvas: var(--ak-canvas);
+  --color-surface: var(--ak-surface);
+  --color-inset: var(--ak-inset);
+
+  --color-fg: var(--ak-fg);
+  --color-fg-muted: var(--ak-fg-muted);
+  --color-fg-subtle: var(--ak-fg-subtle);
+
+  --color-edge: var(--ak-edge);
+  --color-edge-strong: var(--ak-edge-strong);
+
+  --color-accent: var(--ak-accent);
+  --color-accent-hover: var(--ak-accent-hover);
+  --color-on-accent: var(--ak-on-accent);
+  --color-ring: var(--ak-ring);
+
+  --color-danger: var(--ak-danger);
+  --color-danger-hover: var(--ak-danger-hover);
+  --color-danger-fg: var(--ak-danger-fg);
+  --color-danger-surface: var(--ak-danger-surface);
+  --color-danger-edge: var(--ak-danger-edge);
+
+  --color-warn: var(--ak-warn);
+  --color-warn-fg: var(--ak-warn-fg);
+  --color-warn-surface: var(--ak-warn-surface);
+  --color-warn-edge: var(--ak-warn-edge);
+
+  --color-series-strong: var(--ak-series-strong);
+  --color-series-mid: var(--ak-series-mid);
+  --color-series-faint: var(--ak-series-faint);
+
+  --font-sans: var(--ak-font-sans);
+  --font-mono: var(--ak-font-mono);
+}

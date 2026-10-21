@@ -10,8 +10,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-xl border border-zinc-200 bg-white",
-        "dark:border-zinc-800 dark:bg-zinc-950",
+        "border-edge bg-surface rounded-lg border shadow-sm",
         className,
       )}
       {...rest}
@@ -31,7 +30,7 @@ export function CardHeader({
     <div
       className={cn(
         "flex items-start justify-between gap-4 px-6 py-5",
-        "border-b border-zinc-200 dark:border-zinc-800",
+        "border-edge border-b",
         className,
       )}
       {...rest}
@@ -52,7 +51,7 @@ export function CardTitle({
   return (
     <h2
       className={cn(
-        "text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100",
+        "text-fg text-base font-semibold tracking-tight",
         className,
       )}
       {...rest}
@@ -68,10 +67,7 @@ export function CardDescription({
   ...rest
 }: HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p
-      className={cn("mt-1 text-sm text-zinc-500 dark:text-zinc-400", className)}
-      {...rest}
-    >
+    <p className={cn("text-fg-muted mt-1 text-sm", className)} {...rest}>
       {children}
     </p>
   );
@@ -97,7 +93,7 @@ export function CardFooter({
   return (
     <div
       className={cn(
-        "flex items-center justify-end gap-2 border-t border-zinc-200 px-6 py-4 dark:border-zinc-800",
+        "border-edge flex items-center justify-end gap-2 border-t px-6 py-4",
         className,
       )}
       {...rest}

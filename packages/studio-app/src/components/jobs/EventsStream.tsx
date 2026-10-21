@@ -9,12 +9,14 @@ export interface EventEntry {
   message: string;
 }
 
+// Lifecycle events are set apart by weight rather than hue; only a failure
+// earns a colour.
 const EVENT_TONE: Record<string, string> = {
-  "training.started": "text-teal-600 dark:text-teal-300",
-  "training.log": "text-zinc-500 dark:text-zinc-500",
-  "training.completed": "text-emerald-600 dark:text-emerald-300",
-  "training.failed": "text-red-600 dark:text-red-300",
-  "checkpoint.saved": "text-amber-600 dark:text-amber-300",
+  "training.started": "font-medium text-fg",
+  "training.log": "text-fg-subtle",
+  "training.completed": "font-medium text-fg",
+  "training.failed": "font-medium text-danger-fg",
+  "checkpoint.saved": "text-fg-muted",
 };
 
 function formatTime(ts: number): string {
@@ -48,28 +50,28 @@ export function EventsStream({ events }: { events: EventEntry[] }) {
   return (
     <div
       ref={wrapRef}
-      className="max-h-[420px] overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-50/60 font-mono text-[12px] leading-relaxed dark:border-zinc-800 dark:bg-zinc-900/40"
+      className="border-edge bg-inset max-h-[420px] overflow-y-auto rounded-lg border font-mono text-[12px] leading-relaxed"
     >
       {events.length === 0 ? (
-        <div className="px-4 py-8 text-center text-zinc-500 dark:text-zinc-400">
+        <div className="text-fg-muted px-4 py-8 text-center">
           Listening for events…
         </div>
       ) : (
-        <ul className="divide-y divide-zinc-100 dark:divide-zinc-900/80">
+        <ul className="divide-edge divide-y">
           {events.map((ev) => (
             <li key={ev.id} className="flex items-start gap-3 px-4 py-1.5">
-              <span className="w-16 shrink-0 text-zinc-400 dark:text-zinc-600">
+              <span className="text-fg-subtle w-16 shrink-0">
                 {formatTime(ev.ts)}
               </span>
               <span
                 className={cn(
                   "w-40 shrink-0 truncate",
-                  EVENT_TONE[ev.event] ?? "text-zinc-500 dark:text-zinc-500",
+                  EVENT_TONE[ev.event] ?? "text-fg-subtle",
                 )}
               >
                 {ev.event}
               </span>
-              <span className="min-w-0 flex-1 break-words text-zinc-700 dark:text-zinc-300">
+              <span className="text-fg-muted min-w-0 flex-1 break-words">
                 {ev.message}
               </span>
             </li>

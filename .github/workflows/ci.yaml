@@ -403,8 +403,10 @@ jobs:
       - name: Install workspace + build CLIs
         run: |
           pnpm install
-          pnpm --filter create-arkor build
-          pnpm --filter arkor build
+          # Through Turbo, not `pnpm --filter`: `arkor`'s build copies
+          # `@arkor/studio-app`'s `dist/` and relies on `^build` to have
+          # produced it.
+          pnpm turbo run build --filter create-arkor --filter arkor
 
       # NOTE: an earlier "Pack arkor into a scaffold tarball" step
       # used to run `pnpm pack` and expose the result as a workflow
