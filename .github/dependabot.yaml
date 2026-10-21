@@ -1,4 +1,35 @@
 version: 2
+# `groups` exist here for one reason: a family whose members must move
+# in lockstep can fail when updated separately, or resolve outside
+# declared compatibility ranges even while CI passes. Grouping keeps
+# available updates together for review; it does not enforce compatibility.
+# ENG-1157 (#282) consolidated 47 of those by hand and recorded the
+# pairs in its description; these groups are that table expressed as
+# configuration, so the next batch does not repeat it.
+#
+# Grouping is not for convenience. Add a family only with the evidence
+# for its coupling (a peer pin, a hard dependency, a shared action
+# repository) written next to it, and leave families whose manifests
+# declare only wide ranges ungrouped so a failure still names one
+# bump.
+#
+# Each family needs TWO entries, because `applies-to` is a per-group
+# key that defaults to `version-updates`: written once, a group leaves
+# security updates ungrouped. A parallel security group combines matched
+# members when fixes are available together; it still permits a one-sided
+# bump when only one member has a fix.
+#
+# What grouping does NOT do, in EITHER lane: a group PR carries only
+# the members that actually have an update available, never the whole
+# pattern list. A release, or an advisory, that lands for one half of
+# a pair before the other therefore still produces a one-sided bump.
+# What a group removes is the case where both halves ARE available and
+# would otherwise arrive as two separately-red PRs, which is every row
+# of the #282 table. How WIDE the remaining window is differs per
+# family and is not something the grouping itself improves, so each
+# group below states its release-coordination evidence next to its
+# coupling evidence. Closing the window needs an invariant CI can
+# enforce, not a Dependabot setting.
 updates:
   - package-ecosystem: npm
     directory: /
@@ -7,6 +38,99 @@ updates:
     cooldown:
       default-days: 1
     open-pull-requests-limit: 100
+    groups:
+      # `@vitest/coverage-v8` pins its runner peer to the EXACT vitest
+      # version: the tree's 4.1.5 declares `vitest: 4.1.5`, not a range
+      # (pnpm-lock.yaml), and the pending 5.0.1 does the same at 5.0.1.
+      # So a split bump is unsatisfiable by construction. #282: "Vitest
+      # rejects a mixed-major core/provider pair during coverage init".
+      # `@vitest/eslint-plugin` is deliberately NOT here: it versions
+      # independently and peers on `vitest: "*"`.
+      # Release coordination: both ship from vitest-dev/vitest at the
+      # same version (4.1.5 today), so the two halves normally become
+      # available together.
+      vitest:
+        patterns:
+          - vitest
+          - "@vitest/coverage-v8"
+      vitest-security:
+        applies-to: security-updates
+        patterns:
+          - vitest
+          - "@vitest/coverage-v8"
+
+      # `@vitejs/plugin-react` declares the Vite majors it supports and
+      # moves that window with its own majors: the tree's 4.7.0 peers
+      # on `^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0` (pnpm-lock.yaml) and
+      # the pending 6.1.1 peers on `^8.0.0`, which is why #273 is red
+      # on its own. The other direction is worse because it is GREEN:
+      # a Vite major alone resolves the plugin outside its declared
+      # range (#309's lockfile pins `@vitejs/plugin-react@4.7.0` against
+      # `vite@8.3.1`), pnpm only warns on the unmet peer, and CI passes
+      # (#285, #309). #282 moves both majors together and passes.
+      # Release coordination: NONE. `vite` is vitejs/vite and
+      # `@vitejs/plugin-react` is vitejs/vite-plugin-react, a separate
+      # repository on an unrelated version line (6.4.2 against 4.7.0).
+      # This is the family most likely to see a genuinely one-sided
+      # release, and the one where the group buys the least.
+      vite:
+        patterns:
+          - vite
+          - "@vitejs/plugin-react"
+      vite-security:
+        applies-to: security-updates
+        patterns:
+          - vite
+          - "@vitejs/plugin-react"
+
+      # The hard coupling is the RUNTIME pair: `react-dom` peers on
+      # `react` at its own version floor, so the two cannot separate.
+      # In the tree today, `react-dom@19.2.5` peers on `react: ^19.2.5`
+      # (pnpm-lock.yaml), and the pending 19.3.0 bump moves that floor
+      # with it. The types ride along rather than pinning each other:
+      # `@types/react-dom@19.2.3` peers on `@types/react: ^19.2.0`, a
+      # minor-floor range, not a pin. They are in the group because
+      # Dependabot already pairs each runtime package with its types
+      # (#287, #288); what it splits is the dom/non-dom axis, which is
+      # the axis that aborts the Studio bootstrap with "Incompatible
+      # React versions".
+      # Release coordination: the runtime pair ships from facebook/react
+      # at the same version (19.2.5). The types do NOT: both come from
+      # DefinitelyTyped on their own lines (`@types/react@19.2.14`,
+      # `@types/react-dom@19.2.3`), so a types-only one-sided bump is
+      # normal here and the group does not prevent it.
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      react-security:
+        applies-to: security-updates
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+
+      # `@tailwindcss/vite` declares `tailwindcss` at its OWN exact
+      # version as a direct DEPENDENCY, not a peer: the tree resolves
+      # `@tailwindcss/vite@4.2.4` with `tailwindcss: 4.2.4` under it
+      # (pnpm-lock.yaml). Bumping the CSS package alone therefore
+      # leaves the plugin pulling its own pinned compiler and the build
+      # silently keeps the old one. That is the #282 symptom stated
+      # exactly: "Studio only reaches Tailwind through the Vite plugin".
+      # Release coordination: both ship from tailwindlabs/tailwindcss at
+      # the same version (4.2.4 today).
+      tailwind:
+        patterns:
+          - tailwindcss
+          - "@tailwindcss/vite"
+      tailwind-security:
+        applies-to: security-updates
+        patterns:
+          - tailwindcss
+          - "@tailwindcss/vite"
     ignore:
       - dependency-name: "@types/node"
         update-types:
@@ -19,3 +143,22 @@ updates:
     cooldown:
       default-days: 1
     open-pull-requests-limit: 100
+    groups:
+      # `github/codeql-action/init` and `github/codeql-action/analyze`
+      # are two entry points of ONE action repository, and the runner
+      # refuses a mismatched pair: split across PRs, both Analyze jobs
+      # fail with "Loaded a configuration file for version '<new>', but
+      # running version '<old>'" (#282, fifth row of its pair table,
+      # from #238 and #241). `actions/upload-artifact` and
+      # `actions/download-artifact` look similar but are separate
+      # repositories with independent versions, so they stay ungrouped.
+      # Release coordination: the two entry points are the same repo at
+      # the same SHA, so they always have an update at the same moment.
+      # This is the one family with no one-sided-release window.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
+      codeql-action-security:
+        applies-to: security-updates
+        patterns:
+          - "github/codeql-action*"
