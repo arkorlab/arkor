@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Copy single-source root files (`CONTRIBUTING.md`, `README.ja.md`) into
- * the package directory so they end up in the published tarball. Kept as
- * Node (not shell) to stay Windows-friendly.
+ * Copy single-source root files (`CONTRIBUTING.md`, `CONTRIBUTING.ja.md`,
+ * `README.ja.md`, `CODE_OF_CONDUCT.md`, `CODE_OF_CONDUCT.ja.md`) into the
+ * package directory so they end up in the published tarball. Kept as Node
+ * (not shell) to stay Windows-friendly.
  */
 import { existsSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
@@ -13,7 +14,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(__dirname, "..");
 const repoRoot = join(pkgRoot, "../..");
 
-const FILES = ["CONTRIBUTING.md", "README.ja.md"];
+const FILES = [
+  "CONTRIBUTING.md",
+  "CONTRIBUTING.ja.md",
+  "README.ja.md",
+  "CODE_OF_CONDUCT.md",
+  "CODE_OF_CONDUCT.ja.md",
+];
 
 for (const name of FILES) {
   const src = join(repoRoot, name);
