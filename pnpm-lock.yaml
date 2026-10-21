@@ -247,7 +247,7 @@ importers:
         version: 0.8.2
       '@hono/node-server':
         specifier: ^1.14.0
-        version: 1.19.14(hono@4.12.23)
+        version: 1.19.14(hono@4.13.5)
       commander:
         specifier: ^13.0.0
         version: 13.1.0
@@ -255,8 +255,8 @@ importers:
         specifier: ^0.28.0
         version: 0.28.0
       hono:
-        specifier: ^4.12.23
-        version: 4.12.23
+        specifier: ^4.13.5
+        version: 4.13.5
       open:
         specifier: ^11.0.0
         version: 11.0.0
@@ -2719,8 +2719,8 @@ packages:
   hermes-parser@0.25.1:
     resolution: {integrity: sha512-6pEjquH3rqaI6cYAXYPcz9MS4rY6R4ngRgrgfDshRptUZIc3lw0MCIJIGDj9++mfySOuPTHB4nrSW99BCvOPIA==}
 
-  hono@4.12.23:
-    resolution: {integrity: sha512-eIaZ9qDgu7XV0pxOCrg7/WhnQ6Ivm22UcxhXx/A3dcbqbbYgBEkc6e/J/s7j2tS96zoB0S9VBdLwQNCWwUo4LA==}
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -3862,7 +3862,7 @@ snapshots:
   '@arkor/cloud-api-client@0.0.1-alpha.2':
     dependencies:
       eventsource-parser: 3.0.8
-      hono: 4.12.23
+      hono: 4.13.5
       zod: 4.3.6
 
   '@asamuzakjp/css-color@5.1.11':
@@ -4318,9 +4318,9 @@ snapshots:
 
   '@fontsource-variable/geist@5.2.8': {}
 
-  '@hono/node-server@1.19.14(hono@4.12.23)':
+  '@hono/node-server@1.19.14(hono@4.13.5)':
     dependencies:
-      hono: 4.12.23
+      hono: 4.13.5
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -5963,7 +5963,7 @@ snapshots:
     dependencies:
       hermes-estree: 0.25.1
 
-  hono@4.12.23: {}
+  hono@4.13.5: {}
 
   hookable@6.1.1: {}
 
