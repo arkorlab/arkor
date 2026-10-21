@@ -246,8 +246,8 @@ importers:
         specifier: ^0.8.0
         version: 0.8.2
       '@hono/node-server':
-        specifier: ^1.14.0
-        version: 1.19.14(hono@4.12.23)
+        specifier: ^1.19.15
+        version: 1.19.15(hono@4.12.23)
       commander:
         specifier: ^13.0.0
         version: 13.1.0
@@ -974,8 +974,8 @@ packages:
   '@fontsource-variable/geist@5.2.8':
     resolution: {integrity: sha512-cJ6m9e+8MQ5dCYJsLylfZrgBh6KkG4bOLckB35Tr9J/EqdkEM6QllH5PxqP1dhTvFup+HtMRPuz9xOjxXJggxw==}
 
-  '@hono/node-server@1.19.14':
-    resolution: {integrity: sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==}
+  '@hono/node-server@1.19.15':
+    resolution: {integrity: sha512-Za2ai6TLdKjUvnur+eenO6nuYYipVAEhyCAdaV8IRvmU9kK8crOZUSYvIXn72E4f8fJqyAbpcJuTsYYmZp9Deg==}
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
@@ -4318,7 +4318,7 @@ snapshots:
 
   '@fontsource-variable/geist@5.2.8': {}
 
-  '@hono/node-server@1.19.14(hono@4.12.23)':
+  '@hono/node-server@1.19.15(hono@4.12.23)':
     dependencies:
       hono: 4.12.23
 
