@@ -13,8 +13,8 @@ catalogs:
       specifier: ^5.1.0
       version: 5.2.8
     '@fontsource-variable/geist-mono':
-      specifier: ^5.1.0
-      version: 5.2.7
+      specifier: ^5.3.0
+      version: 5.3.0
     '@playwright/test':
       specifier: ^1.50.0
       version: 1.59.1
@@ -336,7 +336,7 @@ importers:
         version: 5.2.8
       '@fontsource-variable/geist-mono':
         specifier: 'catalog:'
-        version: 5.2.7
+        version: 5.3.0
       eventsource-parser:
         specifier: 'catalog:'
         version: 3.0.8
@@ -968,8 +968,8 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@fontsource-variable/geist-mono@5.2.7':
-    resolution: {integrity: sha512-ZKlZ5sjtalb2TwXKs400mAGDlt/+2ENLNySPx0wTz3bP3mWARCsUW+rpxzZc7e05d2qGch70pItt3K4qttbIYA==}
+  '@fontsource-variable/geist-mono@5.3.0':
+    resolution: {integrity: sha512-vBbuwDEo9AkrqADMXOrlAR3DFcJi4/JxeuU43FoiQERnNwsfXNnvxvReZG02cQKmyk4DZkZdBZX3oTDvy2zBAw==}
 
   '@fontsource-variable/geist@5.2.8':
     resolution: {integrity: sha512-cJ6m9e+8MQ5dCYJsLylfZrgBh6KkG4bOLckB35Tr9J/EqdkEM6QllH5PxqP1dhTvFup+HtMRPuz9xOjxXJggxw==}
@@ -4314,7 +4314,7 @@ snapshots:
 
   '@exodus/bytes@1.15.0': {}
 
-  '@fontsource-variable/geist-mono@5.2.7': {}
+  '@fontsource-variable/geist-mono@5.3.0': {}
 
   '@fontsource-variable/geist@5.2.8': {}
 
