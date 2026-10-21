@@ -29,10 +29,58 @@
   <a href="README.ja.md">日本語</a>
 </p>
 
-> [!WARNING]
-> Arkor is **alpha**. APIs change without notice.
+# Arkor Fine-tuning
 
-## Quickstart
+> [!IMPORTANT]
+> The arkor.ai fine-tuning service has been discontinued, and this framework is no longer maintained.
+> The source code and contribution history will remain publicly available under the MIT license.
+
+This repository contains the original fine-tuning framework: a TypeScript SDK, CLI, and local Studio previously offered alongside the arkor.ai cloud service.
+
+## Project status
+
+- The hosted training and inference services are no longer available.
+- No further updates, bug fixes, or releases are planned.
+- The source code remains available for reference and reuse under the MIT license.
+
+The original cloud-connected workflows relied on the discontinued Arkor Cloud backend. This repository does not include a replacement for that backend.
+
+## Thank you
+
+Thank you to everyone who used Arkor’s fine-tuning service, contributed code, submitted pull requests, reported issues, or shared feedback. We appreciate the time and care you put into this project.
+
+We recognize that ending maintenance affects people who invested their time in the project, particularly those with outstanding contributions. We’re sorry we didn’t communicate this decision sooner.
+
+## Our current work
+
+Our work continues at [arkor.dev](https://arkor.dev).
+
+## Technical documentation
+
+> [!NOTE]
+> The sections below describe the framework and service before discontinuation.
+> Cloud-dependent onboarding, authentication, training, and inference are no longer available. The examples are preserved as historical documentation.
+
+### Design goals
+
+The fine-tuning framework was designed to bring model development into the workflow TypeScript and Node developers already used: the same codebase, editor, types, and review process as their application.
+
+Its design centered on type-safe configuration, lifecycle callbacks, and a local Studio for the development loop, building on the Python ML ecosystem.
+
+The original goal was: **ship the model the same way you ship the product.**
+
+### Features
+
+- **Fine-tuning from a TypeScript file.** `createTrainer({ model, dataset, lora, ... })` configured LoRA training against a supported base model.
+- **Three curated templates.** `triage`, `translate`, and `redaction` paired a Gemma 4 base model with public HuggingFace datasets.
+- **Typed lifecycle callbacks.** `onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, and `onFailed` exposed training events to application code.
+- **Checkpoint inference.** Inside `onCheckpoint`, `infer({ messages })` could test a checkpoint while training was still running.
+- **Local Studio.** `arkor dev` opened a web UI with a jobs list, loss chart, logs, and a Playground.
+- **Anonymous workspaces and OAuth.** The original onboarding flow supported anonymous workspaces that could later be attached to an account.
+
+### Quickstart
+
+The original project creation flow was:
 
 ```bash
 pnpm create arkor my-arkor-app
@@ -40,48 +88,31 @@ cd my-arkor-app
 pnpm dev
 ```
 
-**No signup required:** 
-`arkor dev` opens **Studio**, a local web UI at `http://localhost:4000`. On first launch it provisions a throwaway anonymous workspace so you can fire off a real training run right away. 
+`arkor dev` opened Studio at `http://localhost:4000`. On first launch, it provisioned an anonymous workspace through Arkor Cloud.
 
-Run `arkor login --oauth` later if you want to claim your work under an account.
+`arkor login --oauth` started the OAuth flow to attach that workspace to an account.
 
-### Pick a template
+These cloud-dependent steps no longer work following the service shutdown.
 
-The scaffolder asks which template you want.
-All three pair the same small open-weight base (`gemma-4-E4B-it`) with a curated public dataset on HuggingFace, so the first run finishes in minutes.
+#### Templates
 
-| Template    | Task            | Example                                                                                          | Dataset                     | Est. training |
-| ----------- | --------------- | ------------------------------------------------------------------------------------------------ | --------------------------- | ------------- |
-| `triage`    | Support triage  | `"Can't log in"` → `{category: "auth", urgency: "high", summary: "...", nextAction: "..."}`      | `arkorlab/triage-demo`      | ~7 min        |
-| `translate` | Translation     | `"パスワードを忘れました"` → `{translation: "I forgot my password", detectedLanguage: "ja"}`     | `arkorlab/translate-demo`   | ~7 min        |
-| `redaction` | PII redaction   | `"Email john@x.com"` → `{redactedText: "Email [REDACTED]", redactedCount: 1, tags: ["EMAIL"]}`   | `arkorlab/redaction-demo`   | ~12 min       |
+The scaffolder offered three templates using `gemma-4-E4B-it` and curated public HuggingFace datasets.
 
-Skip the prompt with `pnpm create arkor my-arkor-app --template triage`.
+| Template | Task | Example | Dataset | Historical training estimate |
+| --- | --- | --- | --- | --- |
+| `triage` | Support triage | `"Can't log in"` → `{category: "auth", urgency: "high", summary: "...", nextAction: "..."}` | `arkorlab/triage-demo` | ~7 min |
+| `translate` | Translation | `"パスワードを忘れました"` → `{translation: "I forgot my password", detectedLanguage: "ja"}` | `arkorlab/translate-demo` | ~7 min |
+| `redaction` | PII redaction | `"Email john@x.com"` → `{redactedText: "Email [REDACTED]", redactedCount: 1, tags: ["EMAIL"]}` | `arkorlab/redaction-demo` | ~12 min |
 
-## Why Arkor
+A template could be selected directly:
 
-Custom open-weight models are a real option today because of years of work in the Python ML ecosystem and the people and companies who built it out. 
-Arkor stands on that foundation.
+```bash
+pnpm create arkor my-arkor-app --template triage
+```
 
-What we wanted, and didn't find, was a path that fits how TypeScript and Node developers already work: a workflow where fine-tuning, evaluation, and serving live in the same codebase as the product, with the same editor, types, and review flow. 
+### API example
 
-Type-safe configs instead of separate config files. A local Studio for the dev loop.
-
-The phrase we keep coming back to: **ship the model the same way you ship the product.** If that sounds right, you're the audience.
-
-## What works today
-
-- [x] **Fine-tune an open-weight LLM from one file.** `createTrainer({ model, dataset, lora, ... })` runs LoRA training on the base model you point it at.
-- [x] **Three curated templates that run end-to-end.** `triage`, `translate`, and `redaction` pair the same Gemma 4 base with a public HuggingFace dataset and finish in minutes.
-- [x] **React to training in code, not in a dashboard.** Lifecycle callbacks (`onStarted`, `onLog`, `onCheckpoint`, `onCompleted`, `onFailed`) fire as the run streams from the cloud, fully typed.
-- [x] **Sanity-check the model before the run finishes.** Inside `onCheckpoint`, call `infer({ messages })` against the model as it's being trained.
-- [x] **Watch the run in a local Studio.** `arkor dev` opens a UI with a jobs list, live loss chart, log tail, and a Playground for chatting with your fine-tuned models.
-- [x] **Try it without an account.** `arkor dev` boots straight into a fresh anonymous workspace. Run `arkor login --oauth` to start the Arkor Cloud OAuth (PKCE) flow and attach the work to your account.
-
-## What's coming next
-You can find our [Roadmap](https://docs.arkor.ai/roadmap) in the documentation.
-
-## A taste of the API
+The following example illustrates the former cloud-backed training API.
 
 ```ts
 // src/arkor/trainer.ts
@@ -90,13 +121,23 @@ import { createTrainer } from "arkor";
 export const trainer = createTrainer({
   name: "support-bot-v1",
   model: "unsloth/gemma-4-E4B-it",
-  dataset: { type: "huggingface", name: "arkorlab/triage-demo" },
-  lora: { r: 16, alpha: 16 },
+  dataset: {
+    type: "huggingface",
+    name: "arkorlab/triage-demo",
+  },
+  lora: {
+    r: 16,
+    alpha: 16,
+  },
   maxSteps: 100,
   callbacks: {
-    onLog: ({ step, loss }) => console.log(`step=${step} loss=${loss}`),
+    onLog: ({ step, loss }) => {
+      console.log(`step=${step} loss=${loss}`);
+    },
     onCheckpoint: async ({ step, infer }) => {
-      const res = await infer({ messages: [{ role: "user", content: "Hello!" }] });
+      const res = await infer({
+        messages: [{ role: "user", content: "Hello!" }],
+      });
       console.log(`ckpt @ ${step}:`, await res.text());
     },
   },
@@ -104,68 +145,68 @@ export const trainer = createTrainer({
 ```
 
 ```ts
-// src/arkor/index.ts  ← discovered by `arkor dev` / `arkor build`
+// src/arkor/index.ts
 import { createArkor } from "arkor";
 import { trainer } from "./trainer";
 
 export const arkor = createArkor({ trainer });
 ```
 
-`src/arkor/index.ts` is the file the CLI and Studio look for. 
-Your `trainer` lives in a sibling file and is registered through `createArkor`.
+The CLI and Studio discovered `src/arkor/index.ts`. Trainers were registered through `createArkor`.
 
-## What's in a project
+### Project structure
 
-```
-my-arkor-app/
-├── src/arkor/
-│   ├── index.ts        # createArkor({ trainer })  ← discovered by the CLI / Studio
-│   └── trainer.ts      # createTrainer({ ... })
-├── arkor.config.ts
-├── .arkor/             # state + build artifacts (gitignored)
-└── package.json        # dev / build / start
-```
+| Path | Purpose |
+| --- | --- |
+| `src/arkor/index.ts` | Application entry point discovered by the CLI and Studio |
+| `src/arkor/trainer.ts` | Trainer configuration and callbacks |
+| `arkor.config.ts` | Project configuration |
+| `.arkor/` | Local state and build artifacts, excluded from Git |
+| `package.json` | Project scripts and dependencies |
 
-## CLI
+### CLI
 
-| Command                                            | Purpose                                                                |
-| -------------------------------------------------- | ---------------------------------------------------------------------- |
-| `arkor init`                                       | Scaffold a new project in the current directory                        |
-| `arkor login` / `arkor logout` / `arkor whoami`    | Arkor Cloud OAuth (PKCE) / anonymous tokens                            |
-| `arkor dev`                                        | Launch the local Studio web UI                                         |
-| `arkor build`                                      | Bundle `src/arkor/index.ts` to `.arkor/build/index.mjs`                |
-| `arkor start`                                      | Run the build artifact (auto-builds when missing)                      |
+| Command | Purpose |
+| --- | --- |
+| `arkor init` | Scaffold a project in the current directory |
+| `arkor login` / `arkor logout` / `arkor whoami` | Manage Arkor Cloud authentication |
+| `arkor dev` | Launch the local Studio web UI |
+| `arkor build` | Bundle `src/arkor/index.ts` into `.arkor/build/index.mjs` |
+| `arkor start` | Run the build artifact, building it first if missing |
 
-`pnpm dev` resolves to `arkor dev` in scaffolded projects, so most workflows live behind that one command.
+In scaffolded projects, `pnpm dev` resolved to `arkor dev`.
 
-## Architecture
+Authentication and cloud-backed operations depended on the discontinued service.
 
-`arkor dev` boots a [Hono](https://hono.dev) server on `127.0.0.1:4000` that serves a Vite + React SPA from the same origin. 
+### Architecture
 
-The Studio server rejects non-loopback `Host` headers before serving HTML, and the SPA talks to your code via per-launch CSRF-token-gated `/api/*` routes; your code talks to the Arkor training backend over authenticated HTTPS. 
+`arkor dev` started a [Hono](https://hono.dev) server on `127.0.0.1:4000`, serving a Vite + React SPA from the same origin.
 
-Training runs on managed GPUs; checkpoints stream back as SSE events that fire your `callbacks.*` in process.
+The Studio server rejected non-loopback `Host` headers before serving HTML. The SPA communicated with local application code through `/api/*` routes protected by a CSRF token generated for each launch.
 
-## Repository
+Application code connected to the Arkor training backend over authenticated HTTPS. Training ran on managed GPUs, and training events and checkpoints streamed back through SSE to invoke the configured lifecycle callbacks.
 
-| Package                                        | What it is                                        |
-| ---------------------------------------------- | ------------------------------------------------- |
-| [`arkor`](packages/arkor)                      | SDK + CLI + bundled local Studio                  |
-| [`create-arkor`](packages/create-arkor)        | `pnpm create arkor` scaffolder                    |
-| [`docs`](docs)                                 | Source for [docs.arkor.ai](https://docs.arkor.ai) |
+### Repository packages
 
-Requires Node.js 22.22.0+. 
-(Please use Node.js 24, preferably the latest version, for contributing to this repository.)
+| Package | Contents |
+| --- | --- |
+| [`arkor`](packages/arkor) | SDK, CLI, and bundled local Studio |
+| [`create-arkor`](packages/create-arkor) | Project scaffolder |
+| [`docs`](docs) | Historical documentation source |
 
-Works with pnpm / npm / yarn / bun.
+### Runtime and development
 
-## Contributions are welcome
+The documented runtime requirement was Node.js 22.22.0 or later. Node.js 24 was recommended for repository development.
 
-- **[File an issue](https://github.com/arkorlab/arkor/issues/new)** with the model + dataset + workflow you wish worked. We read everything.
-- **Star the repo** if you want updates as we move toward `0.1`.
-- **[Join Discord](https://discord.arkor.ai/)** for live discussion and early-access pings.
+The project supported pnpm, npm, yarn, and bun.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+Historical development setup instructions are preserved in [CONTRIBUTING.md](CONTRIBUTING.md), and further technical documentation is available in the [`docs`](docs/) directory.
+
+## Maintenance
+
+Official development and maintenance have ended. We are no longer accepting contributions for future official releases.
+
+The existing code, pull requests, and contribution history are being preserved as part of the project’s public record.
 
 ## License
 
