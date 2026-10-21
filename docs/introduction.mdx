@@ -33,7 +33,8 @@ Arkor is alpha. APIs change without notice as the design settles. The current ve
 What you can do right now:
 
 - Fine-tune an open-weight LLM ([Gemma-based today](/models)) from a single file.
-- Pick from three end-to-end templates that finish in minutes: `triage` (support classification), `translate` (9 languages), and `redaction` (PII extraction).
+- Pick from three end-to-end templates that finish in minutes: `triage` (support classification), `translate` (9 languages), and `redaction` (PII redaction).
+- Train on your own dataset: a [Hugging Face dataset name or a hosted file URL](/guides/sdk/dataset).
 - React to training in code via lifecycle callbacks, not a dashboard.
 - Run training on Arkor's managed GPUs with no separate infra setup. Try it without an account; run `arkor login --oauth` before your next run if you want it tied to an account. Merging anonymous workspaces and jobs into an account once you sign in is on the roadmap.
 - Watch the run live in the local Studio. Once it finishes, chat with the trained model in the Playground.
@@ -41,7 +42,6 @@ What you can do right now:
 What is not in yet:
 
 - Local GPU training. Today every run goes to managed GPUs.
-- Bring-your-own dataset beyond the curated demos.
 - [Base models beyond Gemma](/models).
 - Self-hosting the training backend.
 

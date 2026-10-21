@@ -60,7 +60,7 @@ export const trainer = createTrainer({
 
 ## バリエーション
 
-**同じプロンプトでベースモデルと比較。** Studio の Playground はすでに Base / Adapter のモード切替を持っていますが、目視ではなく自動でスコアを付けたいなら、同じことを `onCheckpoint` から行えます。
+**チェックポイントごとのサンプルをレビューキューへ送る。** コールバックの `infer` は保存直後のチェックポイントに固定されており、`InferArgs` にベースモデルへ切り替える指定もないため、このコールバック単体ではベース vs アダプター比較はできません。ベースモデル側は生クライアントで別リクエストを発行する必要があります。[`CloudApiClient`](/ja/sdk/deployments) の例と同じ手順でクライアントを生成し、`client.chat({ scope: { orgSlug, projectSlug }, body: { messages, baseModel } })` を呼びます。`chat` はインスタンスメソッドで、このドキュメントで他に解説はしていません。手動でよければ Studio Playground の Base / Adapter 切替でも同じ比較ができます。コールバック単体で自動化できるのは、チェックポイントごとに 1 サンプルを取得して後からレビューできるようにすることです:
 
 ```ts
 async function generate(prompt: typeof GOLDEN_PROMPT, infer: (args: any) => Promise<Response>) {

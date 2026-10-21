@@ -101,6 +101,7 @@ const res = await infer({
         type: "object",
         properties: { email: { type: "string", format: "email" } },
         required: ["email"],
+        additionalProperties: false,
       },
       strict: true,
     },
@@ -118,7 +119,7 @@ const res = await infer({
 
 `responseFormat` は OpenAI 互換で、「JSON が欲しい」用途のほぼすべてに対する推奨選択肢です。`structuredOutputs` は `responseFormat` で表現できない制約のためにとっておいてください。
 
-**`strict: true` は object スキーマに `additionalProperties: false` を必須にします。** OpenAI の strict モードは、ルートを含む全ての `type: "object"` スキーマで `additionalProperties: false` を明示し、すべてのプロパティを `required` に列挙したときだけ満たされます。これを満たさないと backend が `400 invalid_schema` で拒否します。上の triage 例（および cookbook レシピ）はこの規約に従っているので、自前のスキーマを書くときはそれをコピーしてください。
+**`strict: true` は object スキーマに `additionalProperties: false` を必須にします。** OpenAI の strict モードは、ルートを含む全ての `type: "object"` スキーマで `additionalProperties: false` を明示し、すべてのプロパティを `required` に列挙したときだけ満たされます。これを満たさないと backend が `400 invalid_schema` で拒否します。上の例と [cookbook](/ja/cookbook/structured-outputs) の triage レシピはどちらもこの規約に従っているので、自前のスキーマを書くときはそれをコピーしてください。
 
 ### `structuredOutputs` の例
 

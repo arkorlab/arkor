@@ -14,17 +14,17 @@ Four jobs:
 3. **Try a finished model.** A Playground page lets you pick the base model or the final adapter from any completed job and chat with it. The Playground does not load intermediate checkpoints; for mid-run inference, use [`onCheckpoint`](/concepts/lifecycle) callbacks in your trainer.
 4. **Publish a model behind a `*.arkor.app` URL.** An Endpoints page creates a per-deployment subdomain that serves OpenAI-compatible chat completions for a chosen adapter or base model, plus the API keys that authenticate calls to it. The same actions are available programmatically via [`CloudApiClient`](/sdk/deployments). Studio is the interactive surface; the SDK is the lower-level one.
 
-A note on the dev loop: Studio's `/api/manifest` endpoint rebuilds and re-imports your trainer on every request (with a cache-bust query, see `packages/arkor/src/studio/manifest.ts`), but the UI only fetches it when the Run training page mounts. So if you edit `src/arkor/` and stay on the same Run training page, the next click reuses the existing `.arkor/build/index.mjs` and runs your old code. Refresh the page (or run `arkor build` from the terminal) between edits and clicks to pick up the new code reliably.
+A note on the dev loop: Studio's `/api/manifest` endpoint rebuilds your trainer on every request and imports the result through a content-addressed copy of the bundle (`index.<hash>.mjs`, see `packages/arkor/src/studio/manifest.ts`), so an unedited rebuild reuses Node's module cache while an edit produces a fresh module. The Run training page polls that endpoint every few seconds, so edits to `src/arkor/` are picked up without a page reload, and a trainer you register mid-session enables the Run training button on its own.
 
 ## Where Studio runs
 
 When you start `arkor dev`, the CLI:
 
-1. Boots a Hono server on `127.0.0.1:4000` (use `-p` to change the port).
+1. Boots a Hono server on `127.0.0.1:4000` by default (use `-p` to change the port). With no `-p`, a busy port falls back to the next free one within a bounded range, so the URL the CLI prints is the one to open; see [`arkor dev`](/cli/dev) for the retry rules.
 2. Serves a Vite + React SPA from the same origin so the UI talks to the CLI through `/api/*` on loopback.
-3. Issues a per-launch CSRF token (saved to `~/.arkor/studio-token` with mode `0600`) and requires every request to present it.
+3. Issues a per-launch CSRF token (saved to `~/.arkor/studio-token` with mode `0600`) and requires every `/api/*` request to present it. The SPA itself carries no token check; that is how the page receives the token in the first place.
 
-The server only binds to loopback and rejects requests with a non-loopback `Host` header. There is no public URL, no inbound connection, and the token rotates every time you start `arkor dev`. You can run Studio safely on a shared dev machine without worrying about exposing your training data.
+The server only binds to loopback and rejects requests with a non-loopback `Host` header. There is no public URL and no remote access path, and the token rotates every time you start `arkor dev`.
 
 ## How Studio fits with the managed backend
 
@@ -57,4 +57,4 @@ A walkthrough of each view (Run training, Job detail, Playground, Endpoints) liv
 
 ## When not to use Studio
 
-Studio is a development tool. It runs on your machine, only on loopback, and only while `arkor dev` is up. For production usage of a fine-tuned model you would call `infer` from your own application code (or wire it into whatever serving layer you ship), not point users at Studio.
+Studio is a development tool. It runs on your machine, only on loopback, and only while `arkor dev` is up. For production usage of a fine-tuned model, publish it as a [deployment](/sdk/deployments) and call the endpoint's OpenAI-compatible API from your application. `infer` is only handed to `onCheckpoint` during a run, and Studio is never something to point users at.
